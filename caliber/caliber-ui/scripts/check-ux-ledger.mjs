@@ -40,6 +40,10 @@ import { readFileSync } from "node:fs";
 import { dirname, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
+/** Where the ledger lives, and how its table announces itself. */
+const SECTION_HEADING = "### 15.2 Status ledger";
+const TABLE_HEADING = "| ID |";
+
 /** The three merge states the Status column may claim. */
 export const STATUS_LANDED = "Landed";
 export const STATUS_IN_REVIEW = "In review";
@@ -55,8 +59,33 @@ export const STATUS_OPEN = "Open";
  * the status word, and any cited PR numbers matter.
  */
 export function parseLedger(markdown) {
-  const section = markdown.slice(markdown.indexOf("### 15.2 Status ledger"));
-  const table = section.slice(0, section.indexOf("\n\n", section.indexOf("| ID |")));
+  // Every boundary below is checked explicitly. The earlier version relied on
+  // `slice()` doing something reasonable with `indexOf`'s `-1`, which it does
+  // -- just not the reasonable thing you would pick on purpose. `slice(-1)`
+  // returns the document's last character rather than nothing, and
+  // `slice(0, -1)` drops the final character rather than taking everything.
+  // Both happened to yield the right answer for today's formatting, so the
+  // parser was correct by luck; a table that ends at EOF, or a renamed header
+  // column, would have silently dropped rows. A dropped row is an unchecked
+  // claim, which is the exact failure this script exists to prevent.
+  const sectionStart = markdown.indexOf(SECTION_HEADING);
+  if (sectionStart === -1) {
+    throw new Error(`"${SECTION_HEADING}" not found — has the section moved or been renamed?`);
+  }
+  const section = markdown.slice(sectionStart);
+
+  const headerStart = section.indexOf(TABLE_HEADING);
+  if (headerStart === -1) {
+    throw new Error(
+      `"${TABLE_HEADING}" not found under "${SECTION_HEADING}" — has the ledger's first column been renamed?`,
+    );
+  }
+
+  // A Markdown table ends at the first blank line. When it runs to the end of
+  // the document there is no blank line, and the whole remainder is the table.
+  const blankLine = section.indexOf("\n\n", headerStart);
+  const table = blankLine === -1 ? section.slice(headerStart) : section.slice(headerStart, blankLine);
+
   const rows = [];
   for (const line of table.split("\n")) {
     const cells = line.split("|").map((c) => c.trim());
@@ -133,10 +162,20 @@ function gitLogSubjects(repoRoot) {
 
 function main(argv) {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
-  const rows = parseLedger(readFileSync(resolve(repoRoot, "ux-analysis-report.md"), "utf8"));
+  let rows;
+  try {
+    rows = parseLedger(readFileSync(resolve(repoRoot, "ux-analysis-report.md"), "utf8"));
+  } catch (error) {
+    // A structural change to the report is a real failure, not a crash: report
+    // it in the same voice as a drift finding so it is equally actionable.
+    process.stderr.write(`[check-ux-ledger] ${error.message}\n`);
+    return 1;
+  }
 
   if (rows.length === 0) {
-    process.stderr.write("[check-ux-ledger] no ledger rows parsed — has §15.2 moved?\n");
+    process.stderr.write(
+      "[check-ux-ledger] the ledger table was found but contains no UX-nn rows\n",
+    );
     return 1;
   }
 

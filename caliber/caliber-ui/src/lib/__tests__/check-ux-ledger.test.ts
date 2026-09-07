@@ -56,10 +56,49 @@ describe("parseLedger", () => {
     expect(parseLedger(LEDGER)).toHaveLength(4);
   });
 
-  it("returns nothing when the section is absent", () => {
-    // Better to report "no rows parsed" (which main() treats as a failure)
-    // than to pass vacuously if §15.2 is renamed or moved.
-    expect(parseLedger("# Some other document\n\nNo ledger here.")).toEqual([]);
+  it("throws, rather than truncating, when the section is absent", () => {
+    // `slice(-1)` returns the document's *last character*, not nothing. The
+    // earlier version relied on that yielding an unparseable string — correct
+    // by luck. A missing section is a structural failure and has to say so.
+    expect(() => parseLedger("# Some other document\n\nNo ledger here.")).toThrow(
+      /Status ledger.*not found/,
+    );
+  });
+
+  it("throws when the table header has been renamed", () => {
+    // The failure this replaces was the quiet one: `indexOf("| ID |")` → -1
+    // made the end-of-table search start from 0 and stop at the first blank
+    // line, so a present table parsed as zero rows and the whole check went
+    // unenforced with a plausible-looking message.
+    const renamed = [
+      "### 15.2 Status ledger",
+      "",
+      "Some preamble paragraph.",
+      "",
+      "| Package | Outcome | Status | Wave | Size | PR |",
+      "| --- | --- | --- | --- | --- | --- |",
+      "| **UX-01** | A | **Landed** | 1 | S | `#239` |",
+    ].join("\n");
+
+    expect(() => parseLedger(renamed)).toThrow(/first column been renamed/);
+  });
+
+  it("reads the last row when the table ends at EOF with no blank line", () => {
+    // `slice(0, -1)` drops the final character when no trailing blank line
+    // exists, eating the closing pipe of the last row. It survived only
+    // because the cell-count guard was loose enough to tolerate it.
+    const atEof = [
+      "### 15.2 Status ledger",
+      "",
+      "| ID | Outcome | Status | Wave | Size | PR |",
+      "| --- | --- | --- | --- | --- | --- |",
+      "| **UX-01** | A | **Landed** | 1 | S | `#239` |",
+      "| **UX-02** | B | **In review** | 1 | S | `#247` |",
+    ].join("\n");
+
+    const rows = parseLedger(atEof);
+    expect(rows.map((r: { id: string }) => r.id)).toEqual(["UX-01", "UX-02"]);
+    expect(rows[1].prs).toEqual([247]);
   });
 });
 
