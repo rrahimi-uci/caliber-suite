@@ -1286,6 +1286,69 @@ describe("Knowledge Bases page", () => {
     ).toBeDisabled();
   });
 
+  it("names the knowledge base a new version will be added to", async () => {
+    // #238 stopped a stale selection from *becoming* the version target. It
+    // did not make the target legible: the "New version" control read
+    // "Re-run an existing corpus with new chunking or embeddings" and never
+    // said which corpus, so the only way to know what was about to be written
+    // was to infer it from the library selection.
+    server.use(
+      http.get(`${KB}/options`, () => HttpResponse.json(envelope(knowledgeOptions()))),
+      http.get(`${KB}`, () => HttpResponse.json(envelope([knowledgeBase()]))),
+      http.get(`${OS}/buckets`, () =>
+        HttpResponse.json(envelope([{ name: "reports", creation_date: NOW }])),
+      ),
+      http.get(`${OS}/buckets/reports/objects`, () =>
+        HttpResponse.json(envelope(objectListing())),
+      ),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await screen.findByText("Operations Corpus");
+    await openTo(user, "build");
+
+    const target = await screen.findByTestId("kb-version-target-name");
+    expect(target).toHaveTextContent("Operations Corpus");
+    // The id is shown too: two knowledge bases may share a display name, and
+    // the id is what actually gets written to.
+    expect(screen.getByRole("button", { name: /New version/ })).toHaveTextContent("KB-1");
+
+    // The same target is named on the control that performs the write, so the
+    // object is stated at intent and at confirmation, not just at outcome.
+    await user.click(screen.getByRole("button", { name: /New version/ }));
+    expect(
+      screen.getByRole("button", { name: "Create version of Operations Corpus" }),
+    ).toBeInTheDocument();
+  });
+
+  it("tells the user to pick a knowledge base when there is no version target", async () => {
+    // With no selection there is nothing to name, and the control must say so
+    // rather than describing a write it cannot perform.
+    server.use(
+      http.get(`${KB}/options`, () => HttpResponse.json(envelope(knowledgeOptions()))),
+      http.get(`${KB}`, () => HttpResponse.json(envelope([knowledgeBase()]))),
+      http.get(`${OS}/buckets`, () =>
+        HttpResponse.json(envelope([{ name: "reports", creation_date: NOW }])),
+      ),
+      http.get(`${OS}/buckets/reports/objects`, () =>
+        HttpResponse.json(envelope(objectListing())),
+      ),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await screen.findByText("Operations Corpus");
+
+    await user.click(await screen.findByTestId("kb-new-knowledge-base"));
+    await screen.findByText("New knowledge base");
+
+    const toggle = screen.getByRole("button", { name: /New version/ });
+    expect(toggle).toBeDisabled();
+    expect(toggle).toHaveTextContent("Select a knowledge base from the library first.");
+    expect(screen.queryByTestId("kb-version-target-name")).not.toBeInTheDocument();
+  });
+
   it("starting a new knowledge base cannot target a stale selection", async () => {
     // Regression: `selectedKnowledgeBaseId` is set the moment the library
     // loads (an effect auto-seeds it to the first knowledge base) and used to
@@ -1471,7 +1534,10 @@ describe("Knowledge Bases page", () => {
     }) as HTMLSelectElement;
     expect(graphTarget.value).toBe("object_store_and_age");
 
-    const submitButton = screen.getByRole("button", { name: "Create version" });
+    // The submit control now names the knowledge base it will add a version
+    // to, so the write is legible at the point of action rather than only in
+    // the result.
+    const submitButton = screen.getByRole("button", { name: /^Create version of / });
     await waitFor(() => expect(submitButton).toBeEnabled());
     const buildForm = submitButton.closest("form");
     expect(buildForm).not.toBeNull();

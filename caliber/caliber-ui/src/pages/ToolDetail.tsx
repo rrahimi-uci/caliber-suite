@@ -24,6 +24,7 @@ import {
   useApiQuery,
   useInvalidate,
 } from "@/hooks/useApiQuery";
+import { SCOPE_OPERATOR, hasScope } from "@/lib/scopes";
 import { toolBindingForDefinition } from "@/lib/workflowGraph";
 
 const SIDE_EFFECT_BADGE: Record<string, string> = {
@@ -108,8 +109,10 @@ export function ToolDetail(): JSX.Element {
   // (SCOPE_ADMIN); gate the controls so only admins see them.
   const meQuery = useApiQuery(["me"], (s) => caliberApi.getMe(s));
   const isAdmin = meQuery.data?.is_admin ?? false;
-  const canOperate =
-    isAdmin || (meQuery.data?.scopes ?? []).includes("caliber.operator");
+  // ``GET /me`` returns the *effective* scope set (auth.py expands the
+  // hierarchy before responding), so an admin already carries
+  // ``caliber.operator`` — no local OR against ``is_admin`` is needed.
+  const canOperate = hasScope(meQuery.data?.scopes, SCOPE_OPERATOR);
 
   const deprecateMut = useApiMutation(
     () => caliberApi.updateTool(toolId!, { status: "deprecated" }),

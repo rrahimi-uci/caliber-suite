@@ -75,6 +75,7 @@ from caliber.schemas import (
     McpToolPolicyUpdateResponse,
     McpToolTestCasesResponse,
     McpToolTestCasesUpdateRequest,
+    require_approval_for_side_effect,
 )
 
 LIST_PATH = "/ajax-api/2.0/mlflow/caliber/mcp-servers"
@@ -275,6 +276,18 @@ async def create_mcp_server(request: Request) -> JSONResponse:
                     "and requires_approval: " + ", ".join(incomplete_policy_tools)
                 ),
             )
+        # A seeded policy is the operator's classification of what a tool can
+        # do. Classifying it as write/external_action while leaving approval off
+        # produces exactly the ungoverned capability the classification exists
+        # to prevent. A denied tool is exempt: it cannot execute, so its
+        # approval flag is moot.
+        for name, policy in sorted(payload.tool_policies.items()):
+            if not policy.allowed:
+                continue
+            try:
+                require_approval_for_side_effect(policy.side_effect_level, policy.requires_approval)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=f"tool policy {name!r}: {exc}") from exc
         server = CaliberMcpServer(
             server_id=new_mcp_server_id(),
             name=payload.name,
@@ -621,7 +634,17 @@ async def update_tool_policy(request: Request) -> JSONResponse:
         existing = _effective_policy(server, tool_name)
         next_policy = dict(existing)
         next_policy.update(patch)
-        validated = McpToolPolicySchema.model_validate(next_policy).model_dump(exclude_none=True)
+        merged = McpToolPolicySchema.model_validate(next_policy)
+        # Checked against the merged policy, not the patch: raising
+        # ``side_effect_level`` on an approval-free tool and clearing
+        # ``requires_approval`` on a tool that already writes are the same
+        # defect from opposite directions, and a PATCH can carry either half.
+        if merged.allowed:
+            try:
+                require_approval_for_side_effect(merged.side_effect_level, merged.requires_approval)
+            except ValueError as exc:
+                raise HTTPException(status_code=400, detail=str(exc)) from exc
+        validated = merged.model_dump(exclude_none=True)
         policies = dict(server.tool_policies or {})
         policies[tool_name] = validated
         server.tool_policies = policies

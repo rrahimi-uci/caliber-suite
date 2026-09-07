@@ -32,7 +32,7 @@ import {
   X,
 } from "lucide-react";
 
-import { ApiError, caliberApi } from "@/api/caliberApi";
+import { caliberApi } from "@/api/caliberApi";
 import type {
   KnowledgeAgeSeedMode,
   KnowledgeBase,
@@ -90,6 +90,7 @@ import {
 import { KnowledgeCalibrateTab } from "@/pages/knowledge/KnowledgeCalibrateTab";
 import { VersionPanel } from "@/components/versioning/VersionPanel";
 import { makeKnowledgeBaseVersionAdapter } from "@/components/versioning/adapters";
+import { apiErrorText } from "@/lib/apiErrors";
 
 type KnowledgeTab =
   | "library"
@@ -2068,7 +2069,7 @@ export function KnowledgeBases(): JSX.Element {
       );
     } catch (error) {
       setBuildError(
-        error instanceof ApiError ? error.message : "Knowledge build failed",
+        apiErrorText(error, "Knowledge build failed"),
       );
     } finally {
       setBuildBusy(false);
@@ -2094,9 +2095,7 @@ export function KnowledgeBases(): JSX.Element {
       ]);
     } catch (error) {
       setBuildError(
-        error instanceof ApiError
-          ? error.message
-          : "Failed to activate version",
+        apiErrorText(error, "Failed to activate version"),
       );
     }
   };
@@ -2122,9 +2121,7 @@ export function KnowledgeBases(): JSX.Element {
       await invalidate(["knowledge-bases", "list"]);
     } catch (error) {
       setDeleteError(
-        error instanceof ApiError
-          ? error.message
-          : "Failed to delete knowledge base",
+        apiErrorText(error, "Failed to delete knowledge base"),
       );
     } finally {
       setDeleteBusy(false);
@@ -2191,9 +2188,7 @@ export function KnowledgeBases(): JSX.Element {
       ]);
     } catch (error) {
       setAgeSyncError(
-        error instanceof ApiError
-          ? error.message
-          : "Failed to sync the version into Apache AGE",
+        apiErrorText(error, "Failed to sync the version into Apache AGE"),
       );
     } finally {
       setAgeSyncBusy(false);
@@ -2222,7 +2217,7 @@ export function KnowledgeBases(): JSX.Element {
       ]);
       setCompareQuestion("");
     } catch (error) {
-      setQueryError(error instanceof ApiError ? error.message : "Query failed");
+      setQueryError(apiErrorText(error, "Query failed"));
     } finally {
       setQueryBusy(false);
     }
@@ -2413,7 +2408,7 @@ export function KnowledgeBases(): JSX.Element {
       }
     } catch (error) {
       setGraphProbeError(
-        error instanceof ApiError ? error.message : "Graph retrieval failed",
+        apiErrorText(error, "Graph retrieval failed"),
       );
     } finally {
       setGraphProbeBusy(false);
@@ -3492,8 +3487,27 @@ export function KnowledgeBases(): JSX.Element {
                   disabled={!selectedKnowledgeBase}
                 >
                   <div className="font-semibold">New version</div>
+                  {/* Name the object this will mutate. #238 stopped a stale
+                      selection *becoming* the target; this states which
+                      knowledge base the target is, so the write is legible
+                      before it happens rather than only afterwards. */}
                   <div className="mt-1 text-xs text-slate-400">
-                    Re-run an existing corpus with new chunking or embeddings.
+                    {selectedKnowledgeBase ? (
+                      <>
+                        Adds a version to{" "}
+                        <span
+                          data-testid="kb-version-target-name"
+                          className="font-semibold text-slate-600 dark:text-slate-300"
+                        >
+                          {selectedKnowledgeBase.name}
+                        </span>
+                        <span className="ml-1 font-mono text-[10px] text-slate-400">
+                          {selectedKnowledgeBase.knowledge_base_id}
+                        </span>
+                      </>
+                    ) : (
+                      "Select a knowledge base from the library first."
+                    )}
                   </div>
                 </button>
               </div>
@@ -4516,7 +4530,7 @@ export function KnowledgeBases(): JSX.Element {
                 {buildBusy
                   ? "Processing…"
                   : buildMode === "existing"
-                    ? "Create version"
+                    ? `Create version of ${selectedKnowledgeBase?.name ?? "knowledge base"}`
                     : "Create knowledge base"}
               </button>
             </div>

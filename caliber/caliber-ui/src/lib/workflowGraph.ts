@@ -2459,12 +2459,26 @@ export function ensureAgentToolBindings(
       if (!serverName || !mcpToolName) continue;
       const server = mcpByName.get(serverName);
       if (!server) continue;
+      // Seed the binding from the policy the operator already saved on the
+      // server (``McpServer.tool_policies``), rather than inventing one. The
+      // previous hardcoded ``read``/no-approval pair silently discarded that
+      // policy: a tool an operator had classified as ``external_action`` with
+      // approval required was auto-bound into a workflow as an unattended read.
+      //
+      // With no saved policy the tool is *unclassified*, and the safe reading
+      // of "unknown" is not "harmless". Calling an MCP tool hands its arguments
+      // to a separate server process, so ``external_action`` is the honest
+      // level, and approval is what stops an unclassified capability running
+      // unattended. An operator who knows better can lower it in the Inspector
+      // or classify the tool on the MCP server; neither is possible after an
+      // ungoverned tool has already run.
+      const policy = server.tool_policies?.[mcpToolName];
       nextTools[toolName] = {
         type: "mcp_tool",
         server_id: server.server_id,
         tool_name: mcpToolName,
-        side_effect_level: "read",
-        requires_approval: false,
+        side_effect_level: policy?.side_effect_level ?? "external_action",
+        requires_approval: policy?.requires_approval ?? true,
         max_retries: 0,
       };
     }

@@ -223,4 +223,65 @@ describe("EvalDatasets", () => {
     expect(screen.getByText("MLflow: behind")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Re-sync" })).toBeInTheDocument();
   });
+
+  it("shows which fields a rejected create actually failed on", async () => {
+    // The UX-05 gap end to end: the backend's validation handler returns
+    // per-field detail, and before this change every surface rendered only
+    // the generic ``detail`` string — "request body validation failed" —
+    // leaving the user to guess which field was wrong.
+    server.use(
+      http.get(`${API_BASE}/eval-datasets`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(
+          {
+            detail: "request body validation failed",
+            status_code: 400,
+            errors: [
+              { loc: ["name"], msg: "string too short", type: "string_too_short" },
+              { loc: ["owner"], msg: "value is not a valid user handle", type: "value_error" },
+            ],
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "+ New Test Set" }));
+    await user.type(screen.getByPlaceholderText("factual-checks"), "x");
+    await user.type(screen.getByPlaceholderText("@sarah"), "nope");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    const message = await screen.findByText(/request body validation failed/);
+    expect(message).toHaveTextContent("Name: String too short");
+    expect(message).toHaveTextContent("Owner: Value is not a valid user handle");
+  });
+
+  it("leaves a non-validation rejection as its own message", async () => {
+    // A 409 already says everything it has to say; the shared path must not
+    // decorate it with structure that does not exist.
+    server.use(
+      http.get(`${API_BASE}/eval-datasets`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(
+          { detail: "eval dataset 'dupe' already exists", status_code: 409 },
+          { status: 409 },
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+
+    await user.click(await screen.findByRole("button", { name: "+ New Test Set" }));
+    await user.type(screen.getByPlaceholderText("factual-checks"), "dupe");
+    await user.type(screen.getByPlaceholderText("@sarah"), "@sarah");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+
+    const message = await screen.findByText("eval dataset 'dupe' already exists");
+    expect(message).toBeInTheDocument();
+    expect(message.textContent).not.toContain("—");
+  });
 });

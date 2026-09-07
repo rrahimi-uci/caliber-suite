@@ -71,6 +71,7 @@ from caliber.schemas import (
     ToolUpdateRequest,
     ToolWorkspaceLastRun,
     ToolWorkspaceResponse,
+    require_approval_for_side_effect,
 )
 from caliber.workflows.builtin_tools import register_builtin_tools
 from caliber.workflows.ir import IRToolBinding
@@ -512,6 +513,16 @@ async def update_tool(request: Request) -> JSONResponse:
                 setattr(tool, field, new_value)
         if not diff:
             return envelope_response(ToolSchema.model_validate(tool))
+        # A PATCH may carry either half of the side-effect/approval pair, so the
+        # rule has to be checked against the *merged* state rather than the
+        # request body. Raising ``side_effect_level`` to ``external_action`` on
+        # an approval-free tool, and clearing ``requires_approval`` on a tool
+        # that already writes, are the same defect from opposite directions.
+        try:
+            require_approval_for_side_effect(tool.side_effect_level, tool.requires_approval)
+        except ValueError as exc:
+            session.rollback()
+            raise HTTPException(status_code=400, detail=str(exc)) from exc
         if diff.get("status", {}).get("to") == "deprecated" and tool.deprecated_at is None:
             tool.deprecated_at = datetime.now(timezone.utc)
         calibration_drain.invalidate_tool_calibration(session, tool)

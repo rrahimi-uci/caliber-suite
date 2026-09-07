@@ -1161,3 +1161,122 @@ def test_tool_set_baseline_requires_operator_scope(client: TestClient) -> None:
         headers={"X-CALIBER-User": "@viewer"},
     )
     assert r.status_code == 403
+
+
+# ---------------------------------------------------------------------------
+# Side-effect / approval coupling (UX-07)
+#
+# A tool that reaches beyond CALIBER's own state cannot run unattended. Before
+# this rule, ``side_effect_level`` and ``requires_approval`` were independent,
+# so ``external_action`` + approval-off was an accepted payload -- the only
+# unguarded path to an ungoverned write tool. The wizard couples the controls;
+# these tests assert the API does too, because the form is an affordance and
+# the schema is the guarantee.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize("level", ["write", "external_action"])
+def test_register_side_effecting_tool_requires_approval(client: TestClient, level: str) -> None:
+    r = client.post(
+        f"{PREFIX}/tools",
+        json=make_tool_payload(
+            f"unguarded_{level}", side_effect_level=level, requires_approval=False
+        ),
+    )
+    assert r.status_code == 400, r.text
+    body = r.json()
+    assert body["detail"] == "request body validation failed"
+    # The rejection has to say which field and what to do about it, or the
+    # caller is left guessing between two plausible edits.
+    messages = " ".join(err["msg"] for err in body["errors"])
+    assert "requires_approval" in messages
+    assert level in messages
+
+
+@pytest.mark.parametrize("level", ["write", "external_action"])
+def test_register_side_effecting_tool_succeeds_with_approval(
+    client: TestClient, level: str
+) -> None:
+    r = client.post(
+        f"{PREFIX}/tools",
+        json=make_tool_payload(f"guarded_{level}", side_effect_level=level, requires_approval=True),
+    )
+    assert r.status_code == 201, r.text
+    data = r.json()["data"]
+    assert data["side_effect_level"] == level
+    assert data["requires_approval"] is True
+
+
+def test_register_read_tool_still_needs_no_approval(client: TestClient) -> None:
+    # The rule must not spread to reads: a lookup that pauses for a human on
+    # every call is unusable, and nothing about it is unrecoverable.
+    r = client.post(
+        f"{PREFIX}/tools",
+        json=make_tool_payload("plain_read", side_effect_level="read", requires_approval=False),
+    )
+    assert r.status_code == 201, r.text
+    assert r.json()["data"]["requires_approval"] is False
+
+
+def test_patch_cannot_raise_side_effect_without_approval(client: TestClient) -> None:
+    # Half the pair arrives in the body, so the rule has to be evaluated
+    # against the merged state rather than the request.
+    tid = client.post(
+        f"{PREFIX}/tools",
+        json=make_tool_payload("escalate_later", side_effect_level="read"),
+    ).json()["data"]["tool_id"]
+
+    r = client.patch(f"{PREFIX}/tools/{tid}", json={"side_effect_level": "external_action"})
+    assert r.status_code == 400, r.text
+    assert "requires_approval" in r.json()["detail"]
+
+    # ...and the rejected change is not half-applied.
+    after = client.get(f"{PREFIX}/tools/{tid}").json()["data"]
+    assert after["side_effect_level"] == "read"
+    assert after["requires_approval"] is False
+
+
+def test_patch_cannot_clear_approval_on_a_side_effecting_tool(client: TestClient) -> None:
+    # The same defect from the opposite direction.
+    tid = client.post(
+        f"{PREFIX}/tools",
+        json=make_tool_payload("already_writes", side_effect_level="write", requires_approval=True),
+    ).json()["data"]["tool_id"]
+
+    r = client.patch(f"{PREFIX}/tools/{tid}", json={"requires_approval": False})
+    assert r.status_code == 400, r.text
+
+    after = client.get(f"{PREFIX}/tools/{tid}").json()["data"]
+    assert after["requires_approval"] is True
+
+
+def test_patch_accepts_both_halves_together(client: TestClient) -> None:
+    tid = client.post(
+        f"{PREFIX}/tools",
+        json=make_tool_payload("promote_to_write", side_effect_level="read"),
+    ).json()["data"]["tool_id"]
+
+    r = client.patch(
+        f"{PREFIX}/tools/{tid}",
+        json={"side_effect_level": "write", "requires_approval": True},
+    )
+    assert r.status_code == 200, r.text
+    data = r.json()["data"]
+    assert data["side_effect_level"] == "write"
+    assert data["requires_approval"] is True
+
+
+def test_patch_can_lower_the_level_and_drop_approval_together(client: TestClient) -> None:
+    # Lowering out of the guarded set must remain possible, or a mis-classified
+    # tool is stuck requiring approval forever.
+    tid = client.post(
+        f"{PREFIX}/tools",
+        json=make_tool_payload("downgrade_me", side_effect_level="write", requires_approval=True),
+    ).json()["data"]["tool_id"]
+
+    r = client.patch(
+        f"{PREFIX}/tools/{tid}",
+        json={"side_effect_level": "read", "requires_approval": False},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["requires_approval"] is False

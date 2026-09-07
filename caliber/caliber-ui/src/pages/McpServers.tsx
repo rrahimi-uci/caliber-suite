@@ -35,6 +35,7 @@ import { SearchInput } from "@/components/SearchInput";
 import { FilterSelect } from "@/components/FilterSelect";
 import { ToolSignature } from "@/components/tools/ToolSignature";
 import { useApi } from "@/hooks/useApi";
+import { apiErrorText } from "@/lib/apiErrors";
 
 const MCP_TABS: PageTab[] = [
   {
@@ -688,7 +689,7 @@ function ServerRow({
       onRefresh();
     } catch (error: unknown) {
       setDeleteError(
-        error instanceof Error ? error.message : "Failed to delete server",
+        apiErrorText(error, "Failed to delete server"),
       );
     } finally {
       setDeleting(false);
@@ -1955,9 +1956,7 @@ function PlaygroundTab({
             : (fallbackServer?.discovered_tools ?? []);
         setDiscoveredTools(fallback.map(withDefaultPolicy));
         setToolsError(
-          err instanceof Error
-            ? err.message
-            : "Failed to load MCP tool policies",
+          apiErrorText(err, "Failed to load MCP tool policies"),
         );
       } finally {
         setToolsLoading(false);
@@ -2696,7 +2695,7 @@ function ToolPolicyEditor({
       setSaved(true);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to update MCP tool policy",
+        apiErrorText(err, "Failed to update MCP tool policy"),
       );
     } finally {
       setSaving(false);
@@ -3018,7 +3017,7 @@ function McpToolTests({
       setResults([]);
     } catch (err) {
       setError(
-        err instanceof Error ? err.message : "Failed to generate MCP tests",
+        apiErrorText(err, "Failed to generate MCP tests"),
       );
     } finally {
       setGenerating(false);
@@ -3049,7 +3048,7 @@ function McpToolTests({
             server_id: server.server_id,
             tool_name: tool.name,
             success: false,
-            error: err instanceof Error ? err.message : "MCP invocation failed",
+            error: apiErrorText(err, "MCP invocation failed"),
             result: null,
             duration_ms: 0,
           };
@@ -3114,7 +3113,7 @@ function McpToolTests({
                   : "No reasoning returned.";
             }
           } catch (err) {
-            reasoning = err instanceof Error ? err.message : "Judge failed";
+            reasoning = apiErrorText(err, "Judge failed");
           }
         }
 

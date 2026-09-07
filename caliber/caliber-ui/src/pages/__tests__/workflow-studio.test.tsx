@@ -9138,6 +9138,24 @@ describe("WorkflowDetail calibration", () => {
     expect(await screen.findByTestId("run-version-notice")).toHaveTextContent(
       "latest published version is v2",
     );
+
+    // UX-01a: knowing the run executed v1 is only actionable if v1 can be
+    // opened. The header's editor button goes to the *latest published*
+    // version (v2 here), so before this link a user debugging a v1 run had no
+    // route to v1's graph -- and since #239 that editor is read-only, landing
+    // on v2 is a dead end they have to notice on their own.
+    const openExecuted = await screen.findByTestId("run-version-open-editor");
+    expect(openExecuted).toHaveTextContent("Open v1 in Editor");
+    expect(openExecuted).toHaveAttribute(
+      "href",
+      "/workflows/WF-1/editor/WFV-1",
+    );
+    // ...and the header button names the different version it opens, so the
+    // two destinations are told apart before either is clicked.
+    expect(screen.getByTestId("workflow-open-editor")).toHaveTextContent(
+      "Open v2 in Editor",
+    );
+
     expect(
       await screen.findByTestId("workflow-run-debugger"),
     ).toBeInTheDocument();
