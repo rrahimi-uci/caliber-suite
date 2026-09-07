@@ -459,6 +459,15 @@ export function Prompts(): JSX.Element {
     const promptName = prompt.prompt_name ?? prompt.agent_id;
     setEditTarget(prompt);
     setEditTargetAlias(defaultEditTargetAlias(prompt));
+    // The "Switch prompt" dropdown re-opens this panel for a *different*
+    // prompt without closing it, so anything scoped to the previous prompt has
+    // to be cleared here as well as in closeEditPanel. A carried-over
+    // `savedEditVersion` would leave "Promote v4" pointing at a version number
+    // belonging to the prompt the user just navigated away from -- naming one
+    // object and writing to another, which is the defect class this change is
+    // part of fixing.
+    setSavedEditVersion(null);
+    setPromotingEdit(false);
     setShowEdit(true);
     setLoadingEdit(true);
     setEditError(null);
@@ -979,7 +988,9 @@ export function Prompts(): JSX.Element {
                 <p className="mr-auto text-[11px] text-blue-700">
                   {savedEditVersion === null
                     ? "Saving creates a new immutable version. It does not change what is live."
-                    : `Saved v${savedEditVersion}. Nothing is live yet — promote it to @${editTargetAlias} when you are ready.`}
+                    : hasUnsavedEditChanges
+                      ? `Saved v${savedEditVersion}, but you have edited it since. Save again before promoting.`
+                      : `Saved v${savedEditVersion}. Nothing is live yet — promote it to @${editTargetAlias} when you are ready.`}
                 </p>
                 {isAdmin && (
                   <button
@@ -1013,7 +1024,21 @@ export function Prompts(): JSX.Element {
                     type="button"
                     data-testid="prompt-edit-promote"
                     onClick={() => void promoteSavedVersion()}
-                    disabled={savingEdit || promotingEdit || deletingPrompt}
+                    // Blocked while dirty. A successful promote closes the
+                    // panel, so promoting with unsaved edits still in the box
+                    // would discard them with no warning -- silent loss of
+                    // work, from the button that looks like the way forward.
+                    title={
+                      hasUnsavedEditChanges
+                        ? "Save your latest changes first — promoting closes this panel."
+                        : undefined
+                    }
+                    disabled={
+                      savingEdit ||
+                      promotingEdit ||
+                      deletingPrompt ||
+                      hasUnsavedEditChanges
+                    }
                     className="inline-flex items-center gap-2 rounded-md bg-caliber-600 px-3 py-2 text-xs font-medium text-white hover:bg-caliber-700 disabled:opacity-60"
                   >
                     {promotingEdit

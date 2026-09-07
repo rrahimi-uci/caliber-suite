@@ -2126,6 +2126,153 @@ describe("Prompts", () => {
     expect(aliasBody).not.toHaveProperty("override_reason");
   });
 
+  it("does not carry a saved version across a prompt switch", async () => {
+    // "Switch prompt" re-opens the panel for a different prompt without
+    // closing it, so a saved-version number scoped to the previous prompt
+    // would leave the promote button offering to promote *that* version
+    // number against the *new* prompt.
+    server.use(
+      http.get(`${API_BASE}/prompts`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              agent_id: "support-agent",
+              agent_name: "Support Agent",
+              agent_enabled: true,
+              prompt_name: "support-agent",
+              version: 3,
+              alias: "prod",
+              template_preview: "Support prompt",
+              template_length: 14,
+              approval_id: null,
+              artifact_ref: "prompts:/support-agent@prod",
+              has_prompt: true,
+              source: "both",
+            },
+            {
+              agent_id: "other-agent",
+              agent_name: "Other Agent",
+              agent_enabled: true,
+              prompt_name: "other-agent",
+              version: 1,
+              alias: "prod",
+              template_preview: "Other prompt",
+              template_length: 12,
+              approval_id: null,
+              artifact_ref: "prompts:/other-agent@prod",
+              has_prompt: true,
+              source: "both",
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/prompts/:name`, ({ params }) =>
+        HttpResponse.json(
+          envelope({
+            name: params.name,
+            version: 3,
+            alias: "prod",
+            template: `Template for ${params.name}`,
+            template_length: 20,
+            artifact_ref: `prompts:/${params.name}@prod`,
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/prompts/support-agent/versions`, () =>
+        HttpResponse.json(
+          envelope({
+            name: "support-agent",
+            version: 9,
+            uri: "prompts:/support-agent/9",
+            template_preview: "edited",
+            template_length: 6,
+          }),
+          { status: 201 },
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await user.click((await screen.findAllByRole("button", { name: "Edit" }))[0]!);
+    const template = (await screen.findByPlaceholderText(
+      "Prompt template",
+    )) as HTMLTextAreaElement;
+    await user.clear(template);
+    await user.type(template, "edited");
+    await user.click(screen.getByTestId("prompt-edit-save"));
+    expect(await screen.findByTestId("prompt-edit-promote")).toHaveTextContent(
+      "Promote v9",
+    );
+
+    // Switch to the other prompt without closing the panel.
+    await user.selectOptions(
+      screen.getByLabelText("Switch prompt"),
+      "other-agent",
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("prompt-edit-promote")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("will not promote while there are unsaved edits", async () => {
+    // A successful promote closes the panel, so promoting with edits still in
+    // the box would discard them silently.
+    server.use(
+      http.get(`${API_BASE}/prompts/support-agent`, () =>
+        HttpResponse.json(
+          envelope({
+            name: "support-agent",
+            version: 3,
+            alias: "prod",
+            template: "You are support-agent v3",
+            template_length: 24,
+            artifact_ref: "prompts:/support-agent@prod",
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/prompts/support-agent/versions`, () =>
+        HttpResponse.json(
+          envelope({
+            name: "support-agent",
+            version: 4,
+            uri: "prompts:/support-agent/4",
+            template_preview: "v4",
+            template_length: 2,
+          }),
+          { status: 201 },
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await user.click((await screen.findAllByRole("button", { name: "Edit" }))[0]!);
+    const template = (await screen.findByPlaceholderText(
+      "Prompt template",
+    )) as HTMLTextAreaElement;
+    await user.clear(template);
+    await user.type(template, "v4");
+    await user.click(screen.getByTestId("prompt-edit-save"));
+
+    const promote = await screen.findByTestId("prompt-edit-promote");
+    expect(promote).toBeEnabled();
+
+    // Edit again after saving.
+    await user.type(template, " plus more");
+
+    expect(screen.getByTestId("prompt-edit-promote")).toBeDisabled();
+    // And the panel says what to do about it rather than just greying out.
+    expect(
+      screen.getByText(/edited it since. Save again before promoting/i),
+    ).toBeInTheDocument();
+  });
+
   it("can switch to another prompt while editor is open", async () => {
     server.use(
       http.get(`${API_BASE}/prompts`, () =>
