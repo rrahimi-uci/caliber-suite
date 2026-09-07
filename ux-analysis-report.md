@@ -4,14 +4,20 @@
 UI and its supporting APIs, conducted per-persona and per-journey against the
 code on `main` at commit `70c4e82345`.
 
-**Re-verified:** 2026-09-06 against `ff6d18c414`; ledger refreshed 2026-09-07.
-All four "silent wrong object" Critical items now have fixes written, as do
-UX-05, UX-06, UX-07, UX-15, and the structural census that makes §15.1's counts
-re-runnable. **§15.2's ledger states which of those have merged and which are
-still open, and is the only place in this document that does** — every other
-section describes outcomes and points there for status. None is closed at its
-gate: merged and gate-certified are different states, and G1 needs browser and
-role evidence no PR in the slice supplies. §15 also carries the re-verification
+**Re-verified:** 2026-09-06 against `ff6d18c414`; ledger and census refreshed
+2026-09-07 against `722b9f92ed`. The whole of Wave 1 has now merged — all four
+"silent wrong object" Critical items, plus UX-05, UX-06, UX-07, UX-15, and the
+structural census that makes §15.1's counts re-runnable. **§15.2's ledger states
+which packages have merged and which are still open, and is the only place in
+this document that does** — every other section describes outcomes and points
+there for status. None is closed at its gate: merged and gate-certified are
+different states, and G1 needs browser and role evidence no PR in the slice
+supplies. That distinction stopped being theoretical in this refresh: five
+review fixes belonging to `#242`–`#246` were written, pushed, and reported as
+made, yet sat off `main` for four to five hours between their PRs merging and
+`#250` cherry-picking them. One was a keyboard bypass in the `MutationGuard`
+primitive the rest of UX-06 is built on — latent only because that component
+is still adopted on no page (§15.2). §15 also carries the re-verification
 commands, each package's named remainder, and a full implementation
 specification for every remaining work package.
 
@@ -89,6 +95,19 @@ rest of the app.
 | **Governance depends on which button you found** | **5** prompt promote paths, only **2** gate-aware; release scores are arithmetic on numbers the gated party typed (§5.1.5, §5.6.3)                                                                        |
 | **Wayfinding**                                   | **31** addressable routes; **0** global search, **0** command palette, **0** global shortcuts; breadcrumbs are **built and used once** (§7.7)                                                             |
 | **First run**                                    | An empty install opens on **two red 0% tiles and one amber**, while the useful Cookbook on-ramp is not connected to the Home empty state (§4.6)                                                           |
+
+**This table is the audit baseline, measured against `70c4e82345` — read it as
+"what the review found", not "what is true today."** Wave 1 has since fixed the
+badge that labelled every admin "Viewer", the two red first-run tiles, and the
+promote path that shipped to production from a button labelled "Save as New
+Version"; §15.2 is the only place that states what has merged. Two of the counts
+above are also superseded by the re-runnable census (§15.1): routes are **33**
+addressable / 32 distinct, and duplicated workflow helpers are **22**, not 19.
+Page weight has grown, not shrunk — `KnowledgeBases.tsx` is now 9,050 lines —
+which is expected of a wave that fixed behaviour rather than consolidating it.
+The permission figure is the one to treat most carefully: **"at least 33" is
+unchanged**, because UX-06 shipped the scope primitives but `MutationGuard` is
+still adopted on no page.
 
 ### Measured against the product's own intent
 
@@ -177,7 +196,7 @@ Five of those packages left a **named remainder** — a complete,
 independently-valuable outcome shipped, with the rest scoped out for a stated
 reason rather than forgotten. §15.2 lists each one and why.
 
-Three findings from doing the work are worth carrying back into the plan,
+Four findings from doing the work are worth carrying back into the plan,
 because they change what "covered" should be taken to mean:
 
 - **`overridden: true` was never a gate bypass.** The eval gate is advisory in
@@ -192,6 +211,16 @@ because they change what "covered" should be taken to mean:
   first UX-07 implementation enforced the new tool-approval coupling inside a
   schema that also serializes stored state, which turned every read of a
   pre-existing policy into a 400. The full backend suite caught it.
+- **"Fixed" and "on `main`" are different claims, and nothing in the review
+  loop distinguished them.** Five fixes written for review comments on
+  `#242`–`#246` were pushed to those PRs' branches *after* each PR had already
+  been squash-merged and closed — the five PRs merged between 06:55 and 06:57
+  on 2026-09-07, and the fixes were committed between 07:08 and 08:22. The
+  pushes succeeded, the thread replies were accurate about the branch, and none
+  of the code reached `main`; it took a direct re-check of `main` to find that
+  every fix reported as made was absent. `#250` cherry-picked all five and
+  merged the same day. §15.2 records what this changes about how a fix gets
+  reported as done.
 
 **G1 is not certified by any of this.** Every validation recorded on those PRs
 is deterministic, offline, and source-or-jsdom level. §14.2's browser and role
@@ -2455,22 +2484,25 @@ Recommendation → Expected Improvement → Priority_ form inline at §5.1.2, §
 ### 13.2 Candidate correction queue
 
 These are ordered for investigation, not bundled into one PR. Each still needs
-the source, browser, permission, and regression checks in §14. Status is
-re-verified as of `ff6d18c414` (2026-09-06); the full implementation
-specification for each open item is in §15.
+the source, browser, permission, and regression checks in §14, and the full
+implementation specification for each open item is in §15. Struck-through
+entries had shipped as of `722b9f92ed` (2026-09-07) and are kept for the
+ordering they record; **§15.2 is authoritative for merge state**, and the PR
+numbers here are pointers into it rather than a second ledger.
 
 1. ~~Isolate create/edit KB state; clear `selectedKnowledgeBaseId`~~ **— landed
    in `#238`.** Residual: show the mutation target on the "New version" control
    (**UX-03a**, XS). "New version" is correctly gated while creating.
 2. ~~Key Releases' rationale/waiver state by candidate id.~~ **— landed in
    `#237`** (per-candidate `ReleaseCandidateCard`, plus focus management).
-3. Split prompt save from gate-aware promotion. **(S–M, Critical — open; the
-   last unfixed silent-production change. §15.5/UX-02)**
-4. Seed MCP bindings from saved policy. **(XS, High — open. §15.5/UX-07)**
-5. Fix `AccessBadge` scope strings. **(XS, High — open; still compares `admin` /
-   `operator` against `caliber.admin` / `caliber.operator`. §15.5/UX-06)**
+3. ~~Split prompt save from gate-aware promotion.~~ **— landed in `#247`**
+   (§15.5/UX-02). This was the last unfixed silent-production change.
+4. ~~Seed MCP bindings from saved policy.~~ **— landed in `#244`**, with the
+   stored policy's own field defaults honoured in `#250` (§15.5/UX-07).
+5. ~~Fix `AccessBadge` scope strings.~~ **— landed in `#242`** (§15.5/UX-06).
 6. Pass `crumbs` on the nine detail routes. **(XS, Medium — open; still one
-   caller. §15.8/UX-21)**
+   caller. §15.8/UX-21)** The census names all nine; this is the cheapest open
+   item in the plan (§15.11).
 7. ~~Guard `patchManifest` + add a read-only banner.~~ **— landed in `#239`**
    (`patchManifest`/`undo`/`redo` guarded, banner with **Restore as draft**).
    Residual: run recovery still opens the latest published version rather than
@@ -2478,9 +2510,13 @@ specification for each open item is in §15.
 8. Add explicit persisted Test Set binding and a Runs picker. **(M, Critical —
    open. §15.6/UX-09)**
 9. Return and render a bounded, redacted, access-checked review-evidence projection. **(M, Critical)**
-10. Shared error component for `ApiErrorBody.errors`. **(S, High)**
-11. Zero-denominator Dashboard branches; delete the dead fallbacks. **(S, High)**
-12. Couple side-effect → approval and align client/server contracts. **(M, High)**
+10. ~~Shared error component for `ApiErrorBody.errors`.~~ **— landed in
+    `#243`**; ~20 call sites remain (§15.2, UX-05).
+11. ~~Zero-denominator Dashboard branches; delete the dead fallbacks.~~ **—
+    landed in `#246`**, with non-finite rates treated as unmeasured rather than
+    a measured 0% in `#250` (§15.2, UX-15).
+12. ~~Couple side-effect → approval and align client/server contracts.~~ **—
+    landed in `#244`**; OpenAPI provenance deferred into UX-18 (§15.2, UX-07).
 13. Implement a durable evaluation worker and run state machine. **(L, High)**
 14. Render addressable `per_example` disagreements and add conflict-safe judge editing. **(M, High)**
 15. Add a KB-specific dataset template, matching-row validation, and a truthful 400. **(M, High)**
@@ -2582,8 +2618,9 @@ Each package below states its outcome and its acceptance evidence. **§15 carrie
 the implementation specification for the same IDs** — re-verified evidence with
 file and line, ordered implementation steps, the tests that must be added, the
 exact validation commands, acceptance criteria, non-goals, and rollback. Read
-§14.3 for the contract; read §15 to do the work. UX-01, UX-03, and UX-04 have
-landed (`#239`, `#238`, `#237`); their residual tasks are UX-01a and UX-03a.
+§14.3 for the contract; read §15 to do the work. Where a package left a
+residual task it is listed here under its own ID (UX-01a, UX-03a); for what has
+merged, see §15.2 — this section deliberately does not restate it.
 
 #### Wave 0 — establish the evidence baseline
 
@@ -2770,30 +2807,105 @@ be transcribed into issues without further analysis.
 
 The audit body was written against `70c4e82345`. Every finding below was
 re-verified against **`ff6d18c414`** on **2026-09-06**, after `#236`–`#240`
-merged. Three Critical items have since landed; the rest reproduce unchanged.
-Where a landed fix covered part of a work package but not all of it, the residue
-is broken out as its own lettered task rather than left implied.
+merged. Where a landed fix covered part of a work package but not all of it,
+the residue is broken out as its own lettered task rather than left implied.
 
-| Re-verification | Command | Result on `ff6d18c414` |
+**These commands are now a committed tool.** `#248` turned them into
+`caliber/caliber-ui/scripts/ux-census.mjs` (`npm run ux:census`), with the
+`ff6d18c414` output committed as `docs/ux/baseline-ff6d18c414.json` and a
+`--diff` mode for re-measuring after each wave. Prefer the script; the block
+below is what it encodes, kept because a reader should be able to check the
+tool rather than trust it. The one figure it reports that this table does not
+is **132 mutating `caliberApi` call sites in page components** — a coarse
+proxy, explicitly *not* §7.4's "at least 33 viewer-visible forbidden
+mutations", which needs UX-06's endpoint-to-affordance matrix to become a
+measurement.
+
+Re-run against `722b9f92ed` on 2026-09-07, the only census figure that has
+moved since `ff6d18c414` is page weight:
+
+```
+$ npm run ux:census -- --diff ../../docs/ux/baseline-ff6d18c414.json
+Total page lines: 56624 -> 56927 (+303)
+```
+
+That is the Wave-1 fixes and their five follow-ups, and it is the expected
+direction for this wave — Wave 1 was never a reduction wave, and §14.5 asks
+for the trend to be measured, not assumed. Routes (33 addressable, 32 distinct,
+9 of them detail routes), `PageHeader` adoption (18 of 34), breadcrumb adoption
+(1 of 34), unrouted pages (3), duplicated workflow helpers (22), and mutating
+`caliberApi` call sites (132) are all unchanged — none of the merged work
+touched them, which is exactly why they are tracked separately from the fixes.
+The four heaviest pages are now `KnowledgeBases.tsx` 9,050 · `Prompts.tsx`
+8,297 · `WorkflowEditor.tsx` 5,321 · `WorkflowDetail.tsx` 4,817, so UX-20's
+target has grown slightly rather than shrunk.
+
+Run all nine from the repository root. They are in a fenced block rather than
+a table column because a Markdown table needs `|` escaped, and a command you
+have to un-escape before running is not a reproducible command.
+
+```bash
+cd "$(git rev-parse --show-toplevel)"
+
+# 1. Canonical scopes — the names the server actually issues.
+grep -n 'SCOPE_' caliber/src/caliber/auth.py
+
+# 2. Badge comparison — what AccessBadge matches against.
+sed -n '12,20p' caliber/caliber-ui/src/components/assistant/AccessBadge.tsx
+
+# 3. Unrouted pages.
+cd caliber/caliber-ui
+for f in src/pages/*.tsx; do
+  grep -q "<$(basename "$f" .tsx)" src/App.tsx || echo "$f"
+done
+
+# 4. Breadcrumb adoption — declared once, passed once.
+grep -rn 'crumbs' src/pages src/components
+
+# 5. PageHeader adoption. The glob is page-only by construction; the
+#    recursive form happens to agree today (no test file imports PageHeader),
+#    but the glob is what the "of 34" denominator below is counted from.
+grep -l PageHeader src/pages/*.tsx | wc -l
+ls src/pages/*.tsx | wc -l
+
+# 6. Command palette.
+grep -rn 'cmdk\|CommandPalette\|Cmd+K' src
+
+# 7. Approvals signal — in the contract, in fixtures, nowhere else.
+grep -rn approvals_pending src
+
+# 8. Duplicated helpers across the four workflow surfaces.
+for f in src/components/workflows/WorkflowRunDebugger.tsx \
+         src/components/workflows/TraceReplayGraph.tsx \
+         src/pages/WorkflowDetail.tsx \
+         src/pages/WorkflowEditor.tsx; do
+  grep -o '^function [A-Za-z0-9_]*' "$f" | sed 's/function //'
+done | sort | uniq -d | wc -l
+
+# 9. Page weight.
+wc -l src/pages/*.tsx | sort -rn | head -5
+```
+
+| # | Re-verification | Result on `ff6d18c414` |
 | --- | --- | --- |
-| Canonical scopes | `grep -n 'SCOPE_' caliber/src/caliber/auth.py` | `caliber.viewer` / `caliber.operator` / `caliber.admin` (L85–88) |
-| Badge comparison | `sed -n '12,20p' caliber/caliber-ui/src/components/assistant/AccessBadge.tsx` | compares `"admin"` / `"operator"` — never matches |
-| Unrouted pages | `for f in src/pages/*.tsx; do grep -q "<$(basename $f .tsx)" src/App.tsx \|\| echo $f; done` | `Overview.tsx` (aliased `Dashboard`), `SkillWizard.tsx`, `ToolWizard.tsx` |
-| Breadcrumb adoption | `grep -rn 'crumbs' src/pages src/components` | declared in `PageHeader.tsx:16`, passed once (`ObjectStore.tsx:907`) |
-| `PageHeader` adoption | `grep -rln PageHeader src/pages \| wc -l` vs `ls src/pages/*.tsx \| wc -l` | 18 of 34 |
-| Command palette | `grep -rn 'cmdk\|CommandPalette\|Cmd+K' src` | no match |
-| Approvals signal | `grep -rn approvals_pending src` | contract (`types.ts:43`) + fixtures only; no render site |
-| Duplicated helpers | `grep -o '^function [A-Za-z0-9_]*' <4 workflow files> \| sort \| uniq -d \| wc -l` | **22** identically-named helpers (audit said 19; re-measure before quoting) |
-| Page weight | `wc -l src/pages/*.tsx \| sort -rn \| head -4` | `KnowledgeBases.tsx` 9,021 · `Prompts.tsx` 8,192 · `WorkflowEditor.tsx` 5,321 · `WorkflowDetail.tsx` 4,788 |
+| 1 | Canonical scopes | `caliber.viewer` / `caliber.operator` / `caliber.approver` / `caliber.admin` (auth.py L85–88) |
+| 2 | Badge comparison | compares `"admin"` / `"operator"` — never matches, and never considers `caliber.approver` at all |
+| 3 | Unrouted pages | `Overview.tsx` (aliased `Dashboard`), `SkillWizard.tsx`, `ToolWizard.tsx` |
+| 4 | Breadcrumb adoption | declared in `PageHeader.tsx:16`, passed once (`ObjectStore.tsx:907`) |
+| 5 | `PageHeader` adoption | 18 of 34 |
+| 6 | Command palette | no match |
+| 7 | Approvals signal | contract (`types.ts:43`) + fixtures only; no render site |
+| 8 | Duplicated helpers | **22** identically-named helpers (audit said 19; re-measure before quoting either number) |
+| 9 | Page weight | `KnowledgeBases.tsx` 9,021 · `Prompts.tsx` 8,192 · `WorkflowEditor.tsx` 5,321 · `WorkflowDetail.tsx` 4,788 |
 
 ### 15.2 Status ledger
 
 | ID | Outcome | Status | Wave · gate | Blast radius | PR |
 | --- | --- | --- | --- | --- | --- |
-| **UX-00** | UX evidence harness | **In review** ¹ | 0 · G0 | M | `#248` |
+| **UX-00** | UX evidence harness | **Landed** ¹ | 0 · G0 | M | `#248` |
 | **UX-01** | Published workflow versions are read-only | **Landed** | 1 · G1 | S | `#239` |
 | **UX-01a** | Run recovery opens the run's own version | **Landed** | 1 · G1 | XS | `#245` |
-| **UX-02** | Split prompt save from promote | **In review** | 1 · G1 | S–M | `#247` |
+| **UX-02** | Split prompt save from promote | **Landed** | 1 · G1 | S–M | `#247` |
 | **UX-03** | KB create/version target isolation | **Landed** | 1 · G1 | S | `#238` |
 | **UX-03a** | Name the KB a "New version" will mutate | **Landed** | 1 · G1 | XS | `#245` |
 | **UX-04** | Per-candidate release signoff state | **Landed** | 1 · G1 | XS | `#237` |
@@ -2823,10 +2935,11 @@ nothing about how much of the package that PR covers.
 
 *Scope* is a separate axis, and the table below is the whole of it: a package
 appears there if it shipped a complete, independently-valuable outcome and left
-a named remainder. The two axes cross freely. UX-05/06/07/15 are merged with a
-remainder outstanding. UX-00 is in review *and* has a remainder. UX-02 is in
-review with no remainder at all — `#247` is the entire package, so it is absent
-from this table.
+a named remainder. The two axes cross freely. Every row is now
+**Landed**, so the only distinction left in this table is scope:
+UX-00/05/06/07/15 merged with a remainder outstanding, while UX-01, UX-01a,
+UX-02, UX-03, UX-03a and UX-04 merged complete — `#247` is the entire UX-02
+package, for instance, so UX-02 is absent from the table below.
 
 A remainder is not a to-do the PR forgot; each was scoped out for a stated
 reason, and each is listed so it cannot quietly become "done":
@@ -2835,19 +2948,42 @@ reason, and each is listed so it cannot quietly become "done":
 | --- | --- | --- |
 | **UX-00** | The structural census and its committed baseline (`#248`) | Seeded role fixtures, the five persona journeys, keyboard traversal capture, and `evidence-limits.md`. The census makes the *counts* reproducible; it does not make the *journeys* observed, and G0 asks for both. |
 | **UX-05** | `describeApiError`/`apiErrorText`, the `ApiErrorMessage` component, and 53 call sites across the six highest-traffic surfaces (`#243`) | ~20 remaining call sites, and wiring `invalidFieldPaths` to `aria-invalid` per form. Both are mechanical but per-surface, and mixing them into one PR would have made the behaviour change unreviewable. |
-| **UX-06** | Canonical `caliber.*` vocabulary, `hasScope`/`canAnyScope`/`accessLevel`, `MutationGuard`, the AccessBadge fix, and the two ad-hoc call sites (`#242`) | The ~30 `is_admin`-gated call sites. Converting them **changes who sees what** — they currently hide operator-authorized controls from operators — so it needs the endpoint-to-affordance matrix, which is blocked on UX-00's census merging to `main`. |
+| **UX-06** | Canonical `caliber.*` vocabulary, `hasScope`/`canAnyScope`/`accessLevel`, the `MutationGuard` component (keyboard-blocking as of `#250`), the AccessBadge fix, and the two ad-hoc call sites converted in `ToolDetail.tsx`/`Releases.tsx` (`#242`) | **Adopting `MutationGuard` anywhere** — it currently has no call sites — and the ~30 `is_admin`-gated call sites behind it. Converting those **changes who sees what** (they hide operator-authorized controls from operators), so it needs the endpoint-to-affordance matrix to say which control takes which scope. The census this was blocked on has merged (`#248`), but the matrix also needs UX-00's seeded role fixtures, so the blocker moved rather than lifted. |
 | **UX-07** | Side-effect↔approval coupling on both write paths and in the wizard; MCP bindings seeded from saved policy (`#244`) | Surfacing OpenAPI approval posture and tool execution provenance in the registry. Deferred to **UX-18**, which is where the unified tool view model is defined; building it here would create a second provenance surface to throw away. |
 | **UX-15** | Zero-denominator states, so an empty install no longer opens on two red tiles and one amber (`#246`) | The capability-aware start block (configure a provider → install a Cookbook → run the paused draft → inspect its trace). New onboarding UI with its own design questions. This half removed the false alarm; that half connects the on-ramp. |
 
-**Landed ≠ closed at the gate.** With `#247` merged, all four "silent wrong
-object" Criticals and all three of UX-05/06/07 will have shipped their primary
-outcomes — but **G1 is not certified by that alone**. §14.2 requires the
-focused regression, role, and browser checks, and §14.1 rule 2 requires UX-00
-evidence before any structural decision. The browser and role passes have not
-been run: every validation recorded on these PRs is deterministic, offline,
-and source-or-jsdom level.
+**Landed ≠ closed at the gate.** All four "silent wrong object" Criticals and
+all three of UX-05/06/07 have now shipped their primary outcomes — but **G1 is
+not certified by that alone**. §14.2 requires the focused regression, role, and
+browser checks, and §14.1 rule 2 requires UX-00 evidence before any structural
+decision. The browser and role passes have not been run: every validation
+recorded on these PRs is deterministic, offline, and source-or-jsdom level.
 
-Two things worth stating plainly about how this slice went:
+The `MutationGuard` defect fixed in `#250` is worth stating precisely, because
+it is easy to overstate. Its blocked state set `pointer-events-none` plus
+`aria-hidden` while its own docstring claimed it removed the control from the
+tab order; it did not, so Tab reached the control and Enter fired its handler.
+**No user was ever exposed to this**, for a reason that is itself the finding:
+`MutationGuard` has no call sites. `#242` shipped `scopes.ts`, the `AccessBadge`
+fix, and `hasScope` conversions in `ToolDetail.tsx` and `Releases.tsx` — but the
+guard component the rest of UX-06 is meant to be built on is adopted **nowhere**
+(verified: `grep -rn MutationGuard src` matches only its own file and its
+tests). The bug was latent in an unadopted primitive, and it would have become
+real, silently, at the first surface that wrapped a control in it.
+
+Two things follow. First, UX-06's remainder is larger than "convert ~30
+`is_admin` sites": it is *adopt the guard at all*, and the endpoint-to-affordance
+matrix is what tells anyone which controls to wrap. Second, the fix now does
+three independent things — parks every focusable descendant's `tabindex`
+(restoring it when the block lifts), intercepts click/keydown/submit in the
+capture phase, and keeps the visual treatment — with six behavioural tests
+replacing one that asserted the bug. It was found by probing the component
+directly, *not* by a browser pass, which no amount of G1 journey work would
+have caught while the component renders on no page. G1 is still required; this
+particular defect is an argument for testing a primitive's claimed property
+before adoption, not for the browser gate.
+
+Three things worth stating plainly about how this slice went:
 
 1. **Two defects were found by tests that were already green.** The
    AccessBadge suite asserted `scopes: ["admin"]`, a payload the server cannot
@@ -2862,6 +2998,22 @@ Two things worth stating plainly about how this slice went:
    prompt switch — naming one object while writing to another, three functions
    away from the code removing exactly that. Reviewing a fix against its own
    stated principle is worth doing explicitly.
+3. **Five review fixes were written, pushed, reported, and not merged.** The
+   fixes for review comments on `#242`–`#246` each landed on their PR's branch
+   between 13 and 85 minutes *after* that PR had been squash-merged and closed.
+   GitHub does not re-merge a closed PR, so all five sat on branches nobody
+   would merge again while the review threads said they were done. A re-check
+   of `main` found every one of them absent: the `apiErrors.ts` NUL byte, the
+   `MutationGuard` tab-order parking, `workflowGraph` overriding a stored MCP
+   policy, the divergent `KnowledgeBases` label/request conditions, and
+   `Overview`'s missing `measuredRate`. `#250` cherry-picked all five
+   verbatim (13 tests came with them) and they are on `main` as of 2026-09-07.
+   **The process change this implies:** a push to a branch whose PR is already
+   closed has to be treated as new work needing its own PR, not as a follow-up
+   commit — nothing in the push, the merge, or the thread reply reports the
+   gap, so it has to be checked deliberately against `main`. §14.6's definition
+   of done should be read as "verified present on `main`", not "written and
+   pushed".
 
 ### 15.3 Card format
 
@@ -4181,9 +4333,11 @@ it; a step being listed as done below means its fix exists, not that it shipped.
 3. ~~**UX-02**~~ (`#247`). The promotion-contract question §14.8 gated it
    behind turned out to answer itself: the gate is advisory, so the defect was
    a false audit attribution rather than a policy choice.
-4. ~~**UX-05**, then **UX-06** and **UX-07**~~ (`#243`, `#242`, `#244`).
-   UX-06's remainder is blocked on the census **merging**, since generating the
-   affordance matrix needs it on `main`.
+4. ~~**UX-05**, then **UX-06** and **UX-07**~~ (`#243`, `#242`, `#244`), plus
+   the five orphaned review fixes these three and `#245`/`#246` needed
+   (`#250`). UX-06's remainder no longer waits on the census — that is on
+   `main` — but generating the affordance matrix still needs UX-00's role
+   fixtures, so it stays blocked on step 1.
    → **G1 not yet certified**: needs the browser and role passes, which no
    validation in this slice supplies.
 5. **UX-08, UX-09, UX-10, UX-12** in parallel; design the UX-11/UX-13 state and
@@ -4195,10 +4349,60 @@ it; a step being listed as done below means its fix exists, not that it shipped.
 9. **UX-19**, then **UX-20** after parity. **UX-21** steps 1–3 may run once G1
    is certified; steps 4–5 only after UX-17.
 
-The nearest real milestone is therefore not "more packages" but **G1
-certification** — the browser and role evidence for work that is already
-written — followed by UX-00's journeys to unblock G0.
+§14.8's first shipped outcome is delivered: all four fixes are on `main`, so no
+audited path in CALIBER saves, promotes, reviews, or versions one object while
+acting on another.
 
-§14.8's first shipped outcome now has all four of its fixes written. When they
-have all merged — see §15.2 — no audited path in CALIBER will save, promote,
-review, or version one object while acting on another.
+### 15.11 What is left
+
+Ordered by what unblocks the most, not by size. Nothing below is started.
+
+**1. Certify G1 — no code required.** Nine merged PRs (`#237`–`#239`,
+`#242`–`#247`) plus the five fixes cherry-picked in `#250` discharge the
+*outcomes* of UX-01 through UX-07 and UX-15; none discharges the *gate*. §14.2
+requires focused regression, role, and browser checks, and every validation on
+those PRs was deterministic, offline, and source- or jsdom-level. Concretely:
+an authenticated pass per role (viewer, operator, approver, admin) over the
+changed surfaces, at desktop and narrow width, with keyboard operation
+recorded. This is the cheapest remaining item and it gates the honesty of
+every "Landed" row above. **Start here.**
+
+**2. Finish UX-00 — unblocks everything structural.** `#248` landed the census;
+G0 also needs seeded role fixtures, the five persona journeys, keyboard
+traversal capture, and `docs/ux/evidence-limits.md`. Until those exist, §14.1
+rule 2 blocks **UX-17** (navigation), **UX-19**/**UX-20** (extraction and
+deletion) and **UX-21**'s later steps — four of the six largest packages.
+
+**3. Close the five named remainders** (§15.2's table). UX-06's ~30 `is_admin`
+sites are the highest-value of these and remain blocked on (2): the census they
+waited on has merged, but converting them changes who sees what and still needs
+the affordance matrix, which needs seeded role fixtures. The other four —
+UX-05's ~20 call sites, UX-07's OpenAPI provenance (deferred into UX-18),
+UX-15's start block, UX-00's journeys — are unblocked.
+
+**4. Wave 2, in the order §15.10 gives.** UX-08, UX-09, UX-10 and UX-12 are
+independent and can run in parallel. **UX-11** (durable evaluation) and
+**UX-13** (trace lineage) need their state and lineage contracts designed
+together *before* either is implemented, and UX-11 is the only package in the
+plan carrying a migration.
+
+**5. Everything behind G3/G4** — UX-14, UX-16, UX-17, UX-18, UX-19, UX-20,
+UX-21. Per §14.7, UX-11, UX-14, UX-16 and UX-17 each need a feature flag and a
+removal criterion before code.
+
+**The cheapest open item in the whole plan** is unrelated to any of the above:
+passing `crumbs` on the nine detail routes (§13.2 item 6, UX-21 step 1) — the
+census now names all nine. The component has shipped with the prop declared
+since before this audit and one caller. It needs no gate, no design review, and
+no evidence baseline.
+
+**One standing check, not a work package.** Before any row here is described as
+done, confirm the code is on `main` rather than on a branch — `#250`
+exists because five fixes were pushed, replied to, and never merged, and no
+part of that loop reported it. `npm run ux:census -- --diff` and
+`node scripts/check-ux-ledger.mjs` are the two cheap ways to catch the same
+class of drift in the numbers and in this ledger — the second one reads every
+row above, resolves its PR against the git log, and fails if a row claims a
+merge state history does not support. Neither is wired into `ci.yml` yet;
+until they are, both are checks someone has to remember to run, which is the
+weaker form of the same lesson.
