@@ -167,9 +167,10 @@ Version" that also promoted to production (`#247`). Until that merges, the
 
 Also merged: UX-05 (`#243`), UX-06 (`#242`) and UX-07 (`#244`) shipped their
 primary outcomes, and UX-15's honest-numbers half shipped as `#246`. UX-00's
-structural census is open for review (`#248`). Five of those are **Partial**
-in the sense §15.2 defines: a complete, independently-valuable outcome with a
-named remainder, each scoped out for a stated reason rather than forgotten.
+structural census is open for review (`#248`). Five of those left a **named
+remainder** — a complete, independently-valuable outcome shipped, with the rest
+scoped out for a stated reason rather than forgotten. §15.2 lists each one and
+why.
 
 Three findings from doing the work are worth carrying back into the plan,
 because they change what "covered" should be taken to mean:
@@ -2784,16 +2785,16 @@ is broken out as its own lettered task rather than left implied.
 
 | ID | Outcome | Status | Wave · gate | Blast radius | PR |
 | --- | --- | --- | --- | --- | --- |
-| **UX-00** | UX evidence harness | **In review** | 0 · G0 | M | `#248` — open, census only |
+| **UX-00** | UX evidence harness | **In review** ¹ | 0 · G0 | M | `#248` |
 | **UX-01** | Published workflow versions are read-only | **Landed** | 1 · G1 | S | `#239` |
 | **UX-01a** | Run recovery opens the run's own version | **Landed** | 1 · G1 | XS | `#245` |
-| **UX-02** | Split prompt save from promote | **In review** | 1 · G1 | S–M | `#247` — open |
+| **UX-02** | Split prompt save from promote | **In review** | 1 · G1 | S–M | `#247` |
 | **UX-03** | KB create/version target isolation | **Landed** | 1 · G1 | S | `#238` |
 | **UX-03a** | Name the KB a "New version" will mutate | **Landed** | 1 · G1 | XS | `#245` |
 | **UX-04** | Per-candidate release signoff state | **Landed** | 1 · G1 | XS | `#237` |
-| **UX-05** | Render structured validation errors | **Partial** | 1 · G1 | S | `#243` |
-| **UX-06** | One permission model on `caliber.*` scopes | **Partial** | 1 · G1 | M | `#242` |
-| **UX-07** | Tool governance safe by default | **Partial** | 1 · G1 | M | `#244` |
+| **UX-05** | Render structured validation errors | **Landed** ¹ | 1 · G1 | S | `#243` |
+| **UX-06** | One permission model on `caliber.*` scopes | **Landed** ¹ | 1 · G1 | M | `#242` |
+| **UX-07** | Tool governance safe by default | **Landed** ¹ | 1 · G1 | M | `#244` |
 | **UX-08** | Reviewer-safe evidence in Review Queues | Open | 2 · G2 | M | — |
 | **UX-09** | Explicit prompt→test-set binding | Open | 2 · G2 | M | — |
 | **UX-10** | Actionable judge alignment + judge editing | Open | 2 · G2 | M | — |
@@ -2801,7 +2802,7 @@ is broken out as its own lettered task rather than left implied.
 | **UX-12** | First-class KB calibration dataset shape | Open | 2 · G2 | M | — |
 | **UX-13** | Trace ↔ result lineage | Open | 2 · G2 | M | — |
 | **UX-14** | ACL-filtered attention + Approvals surface | Open | 3 · G3 | L | — |
-| **UX-15** | Honest first run | **Partial** | 3 · G3 | S | `#246` |
+| **UX-15** | Honest first run | **Landed** ¹ | 3 · G3 | S | `#246` |
 | **UX-16** | One scoring engine | Open | 4 · G4 | L | — |
 | **UX-17** | Validate then stage the target IA | Open | 4 · G4 | L | — |
 | **UX-18** | One callable-tool catalog | Open | 4 · G4 | M | — |
@@ -2809,16 +2810,25 @@ is broken out as its own lettered task rather than left implied.
 | **UX-20** | Decompose the two 8–9k-line pages | Open | 4 · G4 | L | — |
 | **UX-21** | Complete wayfinding | Open | 4 · G4 | M | — |
 
-**Partial** means the package shipped a complete, independently-valuable
-outcome and left a named remainder. **In review** means the same shape, with
-the PR still open — UX-00 and UX-02 are both in that state, so nothing below
-should be read as merged for those two. The remainder is not a to-do the PR
-forgot; each one was scoped out for a stated reason, and each is listed here
-so it cannot quietly become "done":
+¹ Has a named remainder — see the table below.
+
+The **Status** column is about *merge state only* — **Landed** means merged to
+`main`, **In review** means a PR is open, **Open** means no PR exists. It says
+nothing about how much of the package that PR covers.
+
+*Scope* is a separate axis, and the table below is the whole of it: a package
+appears there if it shipped a complete, independently-valuable outcome and left
+a named remainder. The two axes cross freely. UX-05/06/07/15 are merged with a
+remainder outstanding. UX-00 is in review *and* has a remainder. UX-02 is in
+review with no remainder at all — `#247` is the entire package, so it is absent
+from this table.
+
+A remainder is not a to-do the PR forgot; each was scoped out for a stated
+reason, and each is listed so it cannot quietly become "done":
 
 | ID | Shipped | Remainder, and why it was not shipped with it |
 | --- | --- | --- |
-| **UX-00** *(in review)* | The structural census and its committed baseline (`#248`, open) | Seeded role fixtures, the five persona journeys, keyboard traversal capture, and `evidence-limits.md`. The census makes the *counts* reproducible; it does not make the *journeys* observed, and G0 asks for both. |
+| **UX-00** | The structural census and its committed baseline (`#248`) | Seeded role fixtures, the five persona journeys, keyboard traversal capture, and `evidence-limits.md`. The census makes the *counts* reproducible; it does not make the *journeys* observed, and G0 asks for both. |
 | **UX-05** | `describeApiError`/`apiErrorText`, the `ApiErrorMessage` component, and 53 call sites across the six highest-traffic surfaces (`#243`) | ~20 remaining call sites, and wiring `invalidFieldPaths` to `aria-invalid` per form. Both are mechanical but per-surface, and mixing them into one PR would have made the behaviour change unreviewable. |
 | **UX-06** | Canonical `caliber.*` vocabulary, `hasScope`/`canAnyScope`/`accessLevel`, `MutationGuard`, the AccessBadge fix, and the two ad-hoc call sites (`#242`) | The ~30 `is_admin`-gated call sites. Converting them **changes who sees what** — they currently hide operator-authorized controls from operators — so it needs the endpoint-to-affordance matrix, which is blocked on UX-00's census landing. |
 | **UX-07** | Side-effect↔approval coupling on both write paths and in the wizard; MCP bindings seeded from saved policy (`#244`) | Surfacing OpenAPI approval posture and tool execution provenance in the registry. Deferred to **UX-18**, which is where the unified tool view model is defined; building it here would create a second provenance surface to throw away. |
@@ -4163,9 +4173,10 @@ are in §15.2's Partial table.
    journeys, role fixtures, keyboard capture, and `evidence-limits.md` are not
    written, so **G0 is still open** and everything structural stays blocked.
 2. ~~**UX-01a, UX-03a**~~ — landed (`#245`).
-3. ~~**UX-02**~~ — in review (`#247`). The promotion-contract question §14.8
-   gated it behind turned out to answer itself: the gate is advisory, so the
-   defect was a false audit attribution rather than a policy choice.
+3. **UX-02** — written, PR open (`#247`), not merged. The promotion-contract
+   question §14.8 gated it behind turned out to answer itself: the gate is
+   advisory, so the defect was a false audit attribution rather than a policy
+   choice.
 4. ~~**UX-05**, then **UX-06** and **UX-07**~~ — primary outcomes merged
    (`#243`, `#242`, `#244`). UX-06's remainder is blocked on the census
    merging, so it can generate the affordance matrix.
