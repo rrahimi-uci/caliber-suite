@@ -116,8 +116,17 @@ export function Dashboard(): JSX.Element {
   const openReviewWork = (data?.verification_pending ?? 0) + activeRefinements;
   const agentCoverage = percentOf(data?.agents_enabled ?? 0, data?.agents_total ?? 0);
   const assistantSlo = data?.assistant_slo;
-  const executionRate = assistantSlo?.execution_success_rate ?? 0;
-  const publishRate = assistantSlo?.publish_success_rate ?? 0;
+  // Gate on the denominator the contract already carries, not on the rate.
+  // ``execution_success_rate`` is 0 both for "every run failed" and for "no run
+  // has happened"; ``executions_total`` is what tells them apart.
+  const executionRate =
+    assistantSlo && assistantSlo.executions_total > 0
+      ? clampRate(assistantSlo.execution_success_rate)
+      : null;
+  const publishRate =
+    assistantSlo && assistantSlo.publish_total > 0
+      ? clampRate(assistantSlo.publish_success_rate)
+      : null;
 
   const recentActivity = useMemo(() => {
     return buildRecentActivity({
@@ -190,9 +199,27 @@ export function Dashboard(): JSX.Element {
           />
           <SummaryCard
             label="Fleet coverage"
-            value={loading && !data ? "..." : `${agentCoverage}%`}
-            detail={data ? `${data.agents_enabled}/${data.agents_total} agents enabled` : "Agent posture"}
-            tone={agentCoverage >= 80 ? "emerald" : "amber"}
+            value={
+              loading && !data
+                ? "..."
+                : agentCoverage === null
+                  ? "—"
+                  : `${agentCoverage}%`
+            }
+            detail={
+              !data
+                ? "Agent posture"
+                : agentCoverage === null
+                  ? "No agents registered yet"
+                  : `${data.agents_enabled}/${data.agents_total} agents enabled`
+            }
+            tone={
+              agentCoverage === null
+                ? "slate"
+                : agentCoverage >= 80
+                  ? "emerald"
+                  : "amber"
+            }
           />
         </div>
       </section>
@@ -233,14 +260,30 @@ export function Dashboard(): JSX.Element {
             <ReliabilityTile
               label="Execution success"
               value={executionRate}
-              detail={assistantSlo ? `${assistantSlo.executions_completed}/${assistantSlo.executions_total} completed` : "Awaiting signal"}
-              tone={executionRate >= 0.9 ? "emerald" : executionRate >= 0.75 ? "amber" : "red"}
+              detail={
+                // Three distinct states, and collapsing any two of them makes
+                // the tile lie: no SLO payload means we do not know, a zero
+                // denominator means nothing has run, and anything else is a
+                // real measurement.
+                !assistantSlo
+                  ? "Awaiting signal"
+                  : assistantSlo.executions_total === 0
+                    ? "No assistant runs yet"
+                    : `${assistantSlo.executions_completed}/${assistantSlo.executions_total} completed`
+              }
+              tone={rateTone(executionRate, 0.9, 0.75)}
             />
             <ReliabilityTile
               label="Publish success"
               value={publishRate}
-              detail={assistantSlo ? `${assistantSlo.publish_success}/${assistantSlo.publish_total} published` : "Awaiting signal"}
-              tone={publishRate >= 0.9 ? "emerald" : publishRate >= 0.75 ? "amber" : "red"}
+              detail={
+                !assistantSlo
+                  ? "Awaiting signal"
+                  : assistantSlo.publish_total === 0
+                    ? "Nothing published yet"
+                    : `${assistantSlo.publish_success}/${assistantSlo.publish_total} published`
+              }
+              tone={rateTone(publishRate, 0.9, 0.75)}
             />
           </div>
         </Panel>
@@ -632,16 +675,22 @@ function ReliabilityTile({
   tone,
 }: {
   label: string;
-  value: number;
+  /** ``null`` when nothing has been measured yet -- rendered as "—", not 0%. */
+  value: number | null;
   detail: string;
   tone: Tone;
 }): JSX.Element {
   const styles = TONE_CLASSES[tone];
-  const clamped = clampRate(value);
   return (
-    <div className="rounded-md border border-slate-200 bg-white px-3 py-3">
+    <div
+      className="rounded-md border border-slate-200 bg-white px-3 py-3"
+      data-testid={`reliability-${label.toLowerCase().replace(/\s+/g, "-")}`}
+      data-measured={value === null ? "false" : "true"}
+    >
       <div className="text-xs font-medium text-slate-500">{label}</div>
-      <div className={`mt-1 text-xl font-semibold ${styles.text}`}>{formatRate(clamped)}</div>
+      <div className={`mt-1 text-xl font-semibold ${styles.text}`}>
+        {value === null ? "—" : formatRate(value)}
+      </div>
       <div className="mt-1 text-[11px] text-slate-500">{detail}</div>
     </div>
   );
@@ -758,9 +807,31 @@ function clampRate(value: number): number {
   return Math.max(0, Math.min(1, value));
 }
 
-function percentOf(part: number, total: number): number {
-  if (total <= 0) return 0;
-  return Math.round((part / total) * 100);
+/**
+ * A ratio, or ``null`` when there is nothing to divide by.
+ *
+ * Returning ``0`` for a zero denominator is what turned an empty install into
+ * an alarm: with no agents registered, coverage read "0%" in amber, and with
+ * no assistant runs yet both reliability tiles read "0%" in red. None of those
+ * numbers were measurements -- they were the absence of one, rendered as the
+ * worst possible value. A tone rule cannot tell the difference downstream, so
+ * the distinction has to survive the arithmetic.
+ */
+function rateOf(part: number, total: number): number | null {
+  if (!Number.isFinite(total) || total <= 0) return null;
+  return clampRate(part / total);
+}
+
+function percentOf(part: number, total: number): number | null {
+  const rate = rateOf(part, total);
+  return rate === null ? null : Math.round(rate * 100);
+}
+
+/** Tone for a rate, staying neutral when the rate is not yet measurable. */
+function rateTone(rate: number | null, good: number, fair: number): Tone {
+  if (rate === null) return "slate";
+  if (rate >= good) return "emerald";
+  return rate >= fair ? "amber" : "red";
 }
 
 function RefreshIcon({ spinning }: { spinning: boolean }): JSX.Element {

@@ -199,4 +199,143 @@ describe("Dashboard", () => {
       expect(listJobs).toHaveBeenCalledTimes(2);
     });
   });
+
+  /**
+   * An empty install used to open on two red tiles and one amber. None of
+   * those numbers were measurements -- ``percentOf(0, 0)`` returned 0, and
+   * ``execution_success_rate``/``publish_success_rate`` default to 0 when
+   * nothing has run -- so the tone rules read the *absence* of data as total
+   * failure and greeted a new user with an operational alarm.
+   *
+   * The denominators were always in the contract (``agents_total``,
+   * ``executions_total``, ``publish_total``); nothing needed to be added
+   * server-side, only stopped from being thrown away.
+   */
+  const EMPTY_INSTALL: Partial<DashboardSummary> = {
+    agents_total: 0,
+    agents_enabled: 0,
+    verification_pending: 0,
+    verification_pending_critical: 0,
+    jobs_queued: 0,
+    jobs_running: 0,
+    jobs_awaiting_approval: 0,
+    jobs_completed: 0,
+    jobs_failed: 0,
+    jobs_rejected: 0,
+    approvals_pending: 0,
+    assistant_slo: {
+      intent_confidence_avg: null,
+      plans_total: 0,
+      plans_ready: 0,
+      plan_readiness_rate: 0,
+      clarification_rate: 0,
+      executions_total: 0,
+      executions_completed: 0,
+      executions_failed: 0,
+      executions_blocked: 0,
+      execution_success_rate: 0,
+      adapter_error_classes: {},
+      publish_total: 0,
+      publish_success: 0,
+      publish_failed: 0,
+      publish_success_rate: 0,
+    },
+  };
+
+  it("does not raise an alarm on an empty install", async () => {
+    renderDashboard({ data: summary(EMPTY_INSTALL) });
+
+    const execution = await screen.findByTestId("reliability-execution-success");
+    const publish = screen.getByTestId("reliability-publish-success");
+
+    // No measurement exists, so no rate is claimed...
+    expect(execution).toHaveAttribute("data-measured", "false");
+    expect(publish).toHaveAttribute("data-measured", "false");
+    expect(execution).not.toHaveTextContent("0%");
+    expect(publish).not.toHaveTextContent("0%");
+
+    // ...and nothing is painted as a failure.
+    expect(execution.querySelector(".text-red-700")).toBeNull();
+    expect(publish.querySelector(".text-red-700")).toBeNull();
+  });
+
+  it("says nothing has run yet rather than showing a zero rate", async () => {
+    renderDashboard({ data: summary(EMPTY_INSTALL) });
+
+    expect(
+      await screen.findByTestId("reliability-execution-success"),
+    ).toHaveTextContent("No assistant runs yet");
+    expect(screen.getByTestId("reliability-publish-success")).toHaveTextContent(
+      "Nothing published yet",
+    );
+  });
+
+  it("distinguishes no measurement from a genuinely bad one", async () => {
+    // The same 0% that must stay neutral when nothing has run has to stay red
+    // when everything has failed -- otherwise the fix would hide real trouble.
+    renderDashboard({
+      data: summary({
+        assistant_slo: {
+          ...summary().assistant_slo,
+          executions_total: 12,
+          executions_completed: 0,
+          executions_failed: 12,
+          execution_success_rate: 0,
+        },
+      }),
+    });
+
+    const execution = await screen.findByTestId("reliability-execution-success");
+    expect(execution).toHaveAttribute("data-measured", "true");
+    expect(execution).toHaveTextContent("0%");
+    expect(execution).toHaveTextContent("0/12 completed");
+    expect(execution.querySelector(".text-red-700")).not.toBeNull();
+  });
+
+  it("keeps a real rate and its tone unchanged", async () => {
+    renderDashboard();
+
+    const execution = await screen.findByTestId("reliability-execution-success");
+    expect(execution).toHaveTextContent("89%");
+    expect(execution).toHaveTextContent("16/18 completed");
+    // 0.89 sits below the 0.9 "good" threshold, so amber — the same tone the
+    // previous inline expression produced. The thresholds are unchanged; only
+    // the unmeasured case was carved out of them.
+    expect(execution.querySelector(".text-amber-700")).not.toBeNull();
+    expect(execution.querySelector(".text-red-700")).toBeNull();
+  });
+
+  it("reports fleet coverage as unmeasured when no agents are registered", async () => {
+    renderDashboard({ data: summary(EMPTY_INSTALL) });
+
+    const coverage = await screen.findByText("Fleet coverage");
+    const card = coverage.parentElement!;
+    // Previously "0%" in amber, which reads as a fleet that is switched off
+    // rather than a fleet that does not exist yet.
+    expect(card).toHaveTextContent("—");
+    expect(card).toHaveTextContent("No agents registered yet");
+    expect(card).not.toHaveTextContent("0%");
+  });
+
+  it("still flags a fleet that is registered but mostly disabled", async () => {
+    renderDashboard({ data: summary({ agents_total: 10, agents_enabled: 1 }) });
+
+    const card = (await screen.findByText("Fleet coverage")).parentElement!;
+    expect(card).toHaveTextContent("10%");
+    expect(card).toHaveTextContent("1/10 agents enabled");
+  });
+
+  it("separates a failed dashboard load from an empty one", async () => {
+    // Three states, and collapsing any two makes the tile lie: no SLO payload
+    // means we do not know, a zero denominator means nothing has run, and
+    // anything else is a measurement.
+    renderDashboard({
+      data: summary({ assistant_slo: undefined as never }),
+    });
+
+    const execution = await screen.findByTestId("reliability-execution-success");
+    expect(execution).toHaveTextContent("Awaiting signal");
+    expect(execution).not.toHaveTextContent("No assistant runs yet");
+    expect(execution).toHaveAttribute("data-measured", "false");
+  });
 });
