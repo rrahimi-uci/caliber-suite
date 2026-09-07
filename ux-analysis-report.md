@@ -4,6 +4,11 @@
 UI and its supporting APIs, conducted per-persona and per-journey against the
 code on `main` at commit `70c4e82345`.
 
+**Re-verified:** 2026-09-06 against `ff6d18c414`. Three Critical items have
+landed since the audit was written (`#237`, `#238`, `#239`); every other finding
+reproduces unchanged. §15 carries the re-verification commands, the status
+ledger, and a full implementation specification for each remaining work package.
+
 **Method:** Every implementation finding is grounded in a specific file and line
 in this repository. Where a claim is quantitative (modelled step counts, page
 sizes, control counts), the measurement command or file reference is given so
@@ -140,6 +145,21 @@ Two recent capabilities are explicitly **baseline, not backlog**: the
 review-first prompt calibration Apply dialog from `a9829841b7`, and the sealed
 workflow deployment-bundle status/export/import flow from `70c4e82345`. The
 plan protects and extends those behaviours rather than proposing them again.
+
+### Status since publication
+
+Three of the seven Critical items shipped in the first delivery slice and are
+now themselves baseline: release signoff state is isolated per candidate
+(`#237`, UX-04), a stale knowledge-base selection can no longer become a version
+target (`#238`, UX-03), and published workflow versions are genuinely read-only
+with a one-click **Restore as draft** (`#239`, UX-01). Each covered its
+acceptance contract; two left a named residue, tracked as **UX-01a** (run
+recovery still opens the latest published version rather than the run's own) and
+**UX-03a** (the "New version" control still does not name the knowledge base it
+will mutate). Of the four "silent wrong object" Critical items, **UX-02 —
+a button labelled "Save as New Version" that also promotes to production — is
+the only one still open.** The re-verified evidence, per-task implementation
+plans, tests, and validation commands for every remaining package are in §15.
 
 ---
 
@@ -2398,16 +2418,28 @@ Recommendation → Expected Improvement → Priority_ form inline at §5.1.2, §
 ### 13.2 Candidate correction queue
 
 These are ordered for investigation, not bundled into one PR. Each still needs
-the source, browser, permission, and regression checks in §14.
+the source, browser, permission, and regression checks in §14. Status is
+re-verified as of `ff6d18c414` (2026-09-06); the full implementation
+specification for each open item is in §15.
 
-1. Isolate create/edit KB state; clear `selectedKnowledgeBaseId`; show the mutation target; gate "New version". **(S, Critical)**
-2. Key Releases' rationale/waiver state by candidate id. **(XS, Critical)**
-3. Split prompt save from gate-aware promotion. **(S–M, Critical)**
-4. Seed MCP bindings from saved policy. **(XS, High)**
-5. Fix `AccessBadge` scope strings. **(XS, High)**
-6. Pass `crumbs` on the nine detail routes. **(XS, Medium)**
-7. Guard `patchManifest` + add a read-only banner. **(S, Critical)**
-8. Add explicit persisted Test Set binding and a Runs picker. **(M, Critical)**
+1. ~~Isolate create/edit KB state; clear `selectedKnowledgeBaseId`~~ **— landed
+   in `#238`.** Residual: show the mutation target on the "New version" control
+   (**UX-03a**, XS). "New version" is correctly gated while creating.
+2. ~~Key Releases' rationale/waiver state by candidate id.~~ **— landed in
+   `#237`** (per-candidate `ReleaseCandidateCard`, plus focus management).
+3. Split prompt save from gate-aware promotion. **(S–M, Critical — open; the
+   last unfixed silent-production change. §15.5/UX-02)**
+4. Seed MCP bindings from saved policy. **(XS, High — open. §15.5/UX-07)**
+5. Fix `AccessBadge` scope strings. **(XS, High — open; still compares `admin` /
+   `operator` against `caliber.admin` / `caliber.operator`. §15.5/UX-06)**
+6. Pass `crumbs` on the nine detail routes. **(XS, Medium — open; still one
+   caller. §15.8/UX-21)**
+7. ~~Guard `patchManifest` + add a read-only banner.~~ **— landed in `#239`**
+   (`patchManifest`/`undo`/`redo` guarded, banner with **Restore as draft**).
+   Residual: run recovery still opens the latest published version rather than
+   the run's own (**UX-01a**, XS).
+8. Add explicit persisted Test Set binding and a Runs picker. **(M, Critical —
+   open. §15.6/UX-09)**
 9. Return and render a bounded, redacted, access-checked review-evidence projection. **(M, Critical)**
 10. Shared error component for `ApiErrorBody.errors`. **(S, High)**
 11. Zero-denominator Dashboard branches; delete the dead fallbacks. **(S, High)**
@@ -2508,6 +2540,13 @@ flowchart LR
 ```
 
 ### 14.3 Work packages
+
+Each package below states its outcome and its acceptance evidence. **§15 carries
+the implementation specification for the same IDs** — re-verified evidence with
+file and line, ordered implementation steps, the tests that must be added, the
+exact validation commands, acceptance criteria, non-goals, and rollback. Read
+§14.3 for the contract; read §15 to do the work. UX-01, UX-03, and UX-04 have
+landed (`#239`, `#238`, `#237`); their residual tasks are UX-01a and UX-03a.
 
 #### Wave 0 — establish the evidence baseline
 
@@ -2679,3 +2718,1395 @@ capacity are confirmed:
 Do not begin with the command palette, visual polish, or wholesale page
 rewrites. The first shipped outcome is that CALIBER never appears to save,
 promote, review, or version one object while acting on another.
+
+---
+
+## 15. Task Specifications
+
+§13 says *what* is wrong and §14 says *in what order* it may be fixed. This
+section is the missing third layer: for every work package, the concrete task —
+re-verified evidence, the exact files, the implementation steps, the tests that
+must exist, the commands that must pass, and what "done" means. It is written to
+be transcribed into issues without further analysis.
+
+### 15.1 Re-verification pass
+
+The audit body was written against `70c4e82345`. Every finding below was
+re-verified against **`ff6d18c414`** on **2026-09-06**, after `#236`–`#240`
+merged. Three Critical items have since landed; the rest reproduce unchanged.
+Where a landed fix covered part of a work package but not all of it, the residue
+is broken out as its own lettered task rather than left implied.
+
+| Re-verification | Command | Result on `ff6d18c414` |
+| --- | --- | --- |
+| Canonical scopes | `grep -n 'SCOPE_' caliber/src/caliber/auth.py` | `caliber.viewer` / `caliber.operator` / `caliber.admin` (L85–88) |
+| Badge comparison | `sed -n '12,20p' caliber/caliber-ui/src/components/assistant/AccessBadge.tsx` | compares `"admin"` / `"operator"` — never matches |
+| Unrouted pages | `for f in src/pages/*.tsx; do grep -q "<$(basename $f .tsx)" src/App.tsx \|\| echo $f; done` | `Overview.tsx` (aliased `Dashboard`), `SkillWizard.tsx`, `ToolWizard.tsx` |
+| Breadcrumb adoption | `grep -rn 'crumbs' src/pages src/components` | declared in `PageHeader.tsx:16`, passed once (`ObjectStore.tsx:907`) |
+| `PageHeader` adoption | `grep -rln PageHeader src/pages \| wc -l` vs `ls src/pages/*.tsx \| wc -l` | 18 of 34 |
+| Command palette | `grep -rn 'cmdk\|CommandPalette\|Cmd+K' src` | no match |
+| Approvals signal | `grep -rn approvals_pending src` | contract (`types.ts:43`) + fixtures only; no render site |
+| Duplicated helpers | `grep -o '^function [A-Za-z0-9_]*' <4 workflow files> \| sort \| uniq -d \| wc -l` | **22** identically-named helpers (audit said 19; re-measure before quoting) |
+| Page weight | `wc -l src/pages/*.tsx \| sort -rn \| head -4` | `KnowledgeBases.tsx` 9,021 · `Prompts.tsx` 8,192 · `WorkflowEditor.tsx` 5,321 · `WorkflowDetail.tsx` 4,788 |
+
+### 15.2 Status ledger
+
+| ID | Outcome | Status | Wave · gate | Blast radius | Landed as |
+| --- | --- | --- | --- | --- | --- |
+| **UX-00** | UX evidence harness | Open | 0 · G0 | M | — |
+| **UX-01** | Published workflow versions are read-only | **Landed** | 1 · G1 | S | `#239` |
+| **UX-01a** | Run recovery opens the run's own version | Open | 1 · G1 | XS | — |
+| **UX-02** | Split prompt save from promote | Open | 1 · G1 | S–M | — |
+| **UX-03** | KB create/version target isolation | **Landed** | 1 · G1 | S | `#238` |
+| **UX-03a** | Name the KB a "New version" will mutate | Open | 1 · G1 | XS | — |
+| **UX-04** | Per-candidate release signoff state | **Landed** | 1 · G1 | XS | `#237` |
+| **UX-05** | Render structured validation errors | Open | 1 · G1 | S | — |
+| **UX-06** | One permission model on `caliber.*` scopes | Open | 1 · G1 | M | — |
+| **UX-07** | Tool governance safe by default | Open | 1 · G1 | M | — |
+| **UX-08** | Reviewer-safe evidence in Review Queues | Open | 2 · G2 | M | — |
+| **UX-09** | Explicit prompt→test-set binding | Open | 2 · G2 | M | — |
+| **UX-10** | Actionable judge alignment + judge editing | Open | 2 · G2 | M | — |
+| **UX-11** | Durable evaluation execution | Open | 2 · G2 | L | — |
+| **UX-12** | First-class KB calibration dataset shape | Open | 2 · G2 | M | — |
+| **UX-13** | Trace ↔ result lineage | Open | 2 · G2 | M | — |
+| **UX-14** | ACL-filtered attention + Approvals surface | Open | 3 · G3 | L | — |
+| **UX-15** | Honest first run | Open | 3 · G3 | S | — |
+| **UX-16** | One scoring engine | Open | 4 · G4 | L | — |
+| **UX-17** | Validate then stage the target IA | Open | 4 · G4 | L | — |
+| **UX-18** | One callable-tool catalog | Open | 4 · G4 | M | — |
+| **UX-19** | Extract workflow run actions/monitoring | Open | 4 · G4 | M | — |
+| **UX-20** | Decompose the two 8–9k-line pages | Open | 4 · G4 | L | — |
+| **UX-21** | Complete wayfinding | Open | 4 · G4 | M | — |
+
+**Landed ≠ closed at the gate.** G1 is certified only when UX-01a, UX-02,
+UX-03a, and UX-05–UX-07 also pass. The three landed PRs discharge their own
+acceptance contracts and are regression-protected baseline from here.
+
+### 15.3 Card format
+
+Each task below carries the same fields, in the same order:
+
+**Evidence** (file:line, re-verified) · **Outcome** (the user-visible change) ·
+**Plan** (ordered implementation steps) · **Tests** (what must be added, not
+just run) · **Validation** (exact commands) · **Done when** (acceptance
+criteria) · **Not in scope** · **Risk & rollback** · **Depends on / unlocks**.
+
+Anything a card does not state is deliberately left to the implementer. Where a
+card asserts a number, the command that produced it is in §15.1 — re-run it
+rather than quoting the number.
+
+Two reading conventions. **Tests** names the tests that must exist when the
+package is done; where a cited path does not yet exist in the repository, it is
+a file to create, and where it does, extend it rather than adding a parallel
+file. **Validation** names commands to run and paste results from — it is the
+CI-equivalent floor from §14.4 narrowed to the affected area, not a substitute
+for it.
+
+---
+
+### 15.4 Wave 0 — establish the evidence baseline
+
+#### UX-00 · Reproducible UX evidence harness
+
+**Evidence.** Every structural recommendation in §11 and every deletion in §9.5
+rests on source-modelled counts. §14.5 already forbids claiming adoption or time
+savings from them. Nothing in the repository currently produces a role-aware,
+re-runnable baseline: `caliber/caliber-ui/e2e/` exercises features, not
+personas, and no script emits the route/nav/affordance census this document
+quotes.
+
+**Outcome.** Any reviewer can reproduce the baseline this plan is measured
+against with one command, and can re-run it after each wave to show movement.
+
+**Plan.**
+
+1. Add `caliber/caliber-ui/scripts/ux-census.mjs` emitting JSON + Markdown:
+   addressable routes (parse `src/App.tsx`), sidebar destinations, pages with
+   and without `PageHeader`, detail routes passing `crumbs`, page line counts,
+   duplicated top-level helper names across the workflow surfaces, and every
+   mutating control (`onClick` calling a `caliberApi` mutation) with its
+   enclosing page. Commit the first output as `docs/ux/baseline-<sha>.json`.
+2. Add a seeded-fixture path that provisions four accounts — viewer, operator,
+   approver, admin — against the simulated provider, so role journeys are
+   deterministic and offline. Reuse the existing `test/handlers.ts` fixture
+   vocabulary rather than inventing a second one.
+3. Add `caliber/caliber-ui/e2e/personas/` with five journeys: prompt
+   regression, failed-workflow recovery, judge review, KB build + calibration,
+   first run. Each records step count, terminal state, and a screenshot at
+   desktop (1440px) and narrow (390px) widths.
+4. Record keyboard-only traversal for each journey: tab order, focus return
+   after dialog close, and any control reachable by mouse but not keyboard.
+5. Write `docs/ux/evidence-limits.md` naming what the harness does *not*
+   establish — real-user timing, assistive-technology behaviour, production
+   telemetry — so later waves cannot silently upgrade a model into an
+   observation.
+
+**Tests.** The census script gets a unit test over a fixture `App.tsx` so its
+counts cannot drift silently. Each persona journey is itself the test; all five
+must pass offline with no credentials.
+
+**Validation.**
+
+```bash
+cd caliber/caliber-ui
+node scripts/ux-census.mjs --out docs/ux/baseline-$(git rev-parse --short HEAD).json
+npm run test:e2e -- e2e/personas
+npm test && npm run typecheck && npm run lint && npm run build
+```
+
+**Done when.** The five journeys run green offline; the census output is
+committed; `docs/ux/evidence-limits.md` exists; §14.5's "verified baseline"
+column can cite generated artifacts instead of prose.
+
+**Not in scope.** Telemetry collection, real-user studies, assistive-technology
+certification, and any product change.
+
+**Risk & rollback.** Additive only — no product code changes. Risk is a census
+that measures the wrong thing; mitigate by asserting its numbers against the
+hand-counted values in §3 and §8 and reconciling every disagreement in the PR
+body before the numbers are trusted.
+
+**Depends on.** Nothing. **Unlocks.** G0 → all structural and deletion work
+(UX-17, UX-19, UX-20, UX-21), and the honest denominators UX-06 needs.
+
+---
+
+### 15.5 Wave 1 — stop silent wrongness
+
+#### UX-01a · Run recovery opens the run's own version
+
+**Evidence.** `#239` made published versions genuinely read-only and added
+**Restore as draft**, closing the data-loss half of UX-01. The recovery half is
+untouched: `WorkflowDetail.tsx:2947` still routes **Open in Editor** to
+`latest.version_id`. An operator debugging a run of v3 while v7 is published
+lands on v7, reads it as "the workflow", and now — correctly — cannot edit it.
+The banner explains immutability; nothing explains that this is the wrong
+version.
+
+**Outcome.** From a run, the editor opens the version that run executed. From
+the workflow header, the destination names which version it is opening.
+
+**Plan.**
+
+1. In `WorkflowDetail.tsx`, when the page is scoped to a run (or a run row is
+   the entry point), link to that run's `version_id`, not `latest.version_id`.
+2. Label the header action with its target — `Open v7 in Editor` — so the
+   default is legible rather than implied.
+3. When the opened version is not the latest, extend `#239`'s read-only banner
+   with the run context ("v3 · the version run `wr-…` executed") and keep
+   **Restore as draft** as the one forward action.
+4. Leave the latest-published default in place for the non-run entry point; the
+   change is to name it, not to move it.
+
+**Tests.** Component test: a run of a non-latest version routes to that
+version's editor. Test: header action label includes the version number.
+Test: opening a non-latest published version renders the run-context banner.
+
+**Validation.**
+
+```bash
+cd caliber/caliber-ui
+npx vitest run src/pages/__tests__/workflow-studio.test.tsx
+npm run typecheck && npm run lint && npm run build
+```
+
+**Done when.** No path from a run reaches an editor showing a different
+version's manifest without saying so.
+
+**Not in scope.** Re-opening the read-only enforcement `#239` settled; any
+change to the restore-as-draft contract.
+
+**Risk & rollback.** Presentation and routing only; revert is a single-commit
+revert with no data implications.
+
+**Depends on.** `#239` (landed). **Unlocks.** G1.
+
+---
+
+#### UX-02 · Split prompt save from promote
+
+**Evidence.** `Prompts.tsx:943` renders a button labelled **"Save as New
+Version"**. Its handler, `submitEditPrompt` (`Prompts.tsx:514`), calls
+`createPromptVersion` and then — unconditionally, with no second confirmation —
+`promotePrompt(..., { gate_state: "none", overridden: true, override_reason:
+"direct prompt edit activation" })` (`Prompts.tsx:530`). `overridden: true` is
+the flag that tells the server to bypass the gate. The authoring panel's
+`save(promote)` (`Prompts.tsx:1775`) does gate the promotion behind an argument
+and is honest about it, so the product contains both the correct pattern and
+the incorrect one. `PromptBuilder.tsx:721`, `:772`, and `:906` each promote with
+`overridden: true` on initial creation — defensible as first activation, but
+undisclosed at the point of click.
+
+**Outcome.** Saving a prompt version never changes what production serves.
+Promotion is a separate, named, gate-aware action that states its target alias.
+
+**Plan.**
+
+1. Reduce `submitEditPrompt` to `createPromptVersion` only. Rename the control
+   to **Save new version**; on success, report the version created and offer
+   **Promote…** as a distinct follow-up.
+2. Route every promotion through one component — reuse the authoring panel's
+   gate-aware path — that shows the target alias, the gate verdict, and the
+   diff against what is currently live before it submits.
+3. Remove `overridden: true` from every save-shaped call site. Keep it only
+   where a human has explicitly chosen to override a failed gate, and require
+   an `override_reason` typed by that human rather than a hardcoded string.
+4. For `PromptBuilder`'s three creation paths, keep first activation but state
+   it at the point of action ("Create and activate on `@prod`"), and let the
+   user create without activating.
+5. Settle one verb set across the surface: **Save**, **Promote**, **Roll back**.
+   Retire "activate", "deploy", and "publish" from prompt copy (§7.5).
+
+**Tests.** Component tests asserting `promotePrompt` is *not* called by the save
+path; that promotion renders the target alias and gate verdict before submit;
+that a failed gate blocks promotion unless a human-typed override reason is
+supplied. Backend test that a hardcoded override reason is rejected if the
+server chooses to enforce it. Regression test protecting the review-first
+calibration Apply dialog from `a9829841b7`.
+
+**Validation.**
+
+```bash
+cd caliber/caliber-ui
+npx vitest run src/pages/__tests__/prompts.test.tsx
+npm test && npm run typecheck && npm run lint && npm run build
+cd ../ && .venv/bin/python -m pytest --no-cov tests/test_routes_prompts.py
+```
+
+**Done when.** No control that says "save" changes the live alias; every
+promotion names its alias and shows its gate state; the calibration Apply
+review still blocks on a failed gate.
+
+**Not in scope.** Changing the alias model itself, the gate algorithm, or
+single-environment deployments' alias collapsing.
+
+**Risk & rollback.** Users who relied on save-and-promote-in-one-click gain a
+step. That is the intended cost. Rollback is a focused revert; no schema change
+is involved. Ship behind no flag — a flag here would mean shipping the unsafe
+path deliberately.
+
+**Depends on.** Prompt promotion-contract review (§14.8 step 2).
+**Unlocks.** G1; a precondition for UX-16's parity claims.
+
+---
+
+#### UX-03a · Name the knowledge base a "New version" will mutate
+
+**Evidence.** `#238` closed the silent-wrong-target defect by clearing
+`selectedKnowledgeBaseId` on "New knowledge base" and disabling the "New
+version" toggle for the whole create flow. The remaining half of UX-03's
+contract — *"Existing-version mode must show and submit the exact target KB
+id/name"* — is not implemented: the toggle at
+`KnowledgeBases.tsx:3488` reads "New version · Re-run an existing corpus with
+new chunking or embeddings" and never names the corpus.
+
+**Outcome.** Before a version is created, the surface names the knowledge base
+that will receive it.
+
+**Plan.**
+
+1. Render `selectedKnowledgeBase.name` (and its id, monospaced) inside the "New
+   version" toggle and in the build blueprint header while
+   `buildMode === "existing"`.
+2. Put the same target name in the submit control and in the success toast, so
+   the object is named at intent, at confirmation, and at outcome.
+3. Keep the disabled state `#238` established when no explicit target exists.
+
+**Tests.** Component test: selecting an existing KB and switching to "New
+version" shows that KB's name in the toggle and the submit control; submitting
+posts to that KB's id. Extend the existing
+`src/pages/__tests__/knowledge-bases.test.tsx` file rather than adding a new one.
+
+**Validation.**
+
+```bash
+cd caliber/caliber-ui
+npx vitest run src/pages/__tests__/knowledge-bases.test.tsx
+npm run typecheck && npm run lint && npm run build
+```
+
+**Done when.** No version-creating control in the KB workspace is unlabelled as
+to its target.
+
+**Not in scope.** Building a target picker inside the create flow — `#238`
+established that disabling is the correct outcome there.
+
+**Risk & rollback.** Copy and presentation only.
+
+**Depends on.** `#238` (landed). **Unlocks.** G1.
+
+---
+
+#### UX-05 · Render structured validation errors
+
+**Evidence.** The backend already returns per-field detail:
+`caliber/src/caliber/routes/_errors.py:58` emits
+`{detail, status_code, errors: [{loc, msg, type}]}`. The client already carries
+it: `ApiError.body` is typed `ApiErrorBody` (`api/caliberApi.ts:319`,
+`api/types.ts:49`) with the optional `errors` array. No production component
+reads `.body.errors` — every surface renders `err.message`, which is the generic
+`"request body validation failed"` string. The signal is computed, transported,
+typed, and discarded at the last inch.
+
+**Outcome.** A rejected form says which fields were wrong and why.
+
+**Plan.**
+
+1. Add `src/components/ApiErrorMessage.tsx`: given an `unknown` error, render
+   the summary line; when `error instanceof ApiError && error.body?.errors`,
+   render a de-duplicated list mapping `loc` → a human field label.
+2. Add a `loc`-to-label resolver with a per-surface override map. Default
+   behaviour is the last `loc` segment, humanised — never the raw tuple.
+3. Fall back to the plain message for non-validation 4xx/5xx. Never surface a
+   server trace or an internal type name to the user.
+4. Replace inline error rendering surface by surface, highest-traffic first:
+   Prompts, Knowledge Bases, Tool Registry, MCP Servers, Eval Datasets,
+   Workflow Inspector. Each surface is its own commit inside the PR.
+5. Where a form owns the fields, additionally mark the offending inputs
+   `aria-invalid` and associate the message via `aria-describedby`.
+
+**Tests.** Unit tests for the component: multi-error, single-error, nested
+`loc`, duplicate messages, non-`ApiError` input, `ApiError` with no body.
+Per-surface test that a 400 with two field errors renders both labels.
+Accessibility assertion that the message is associated with its input.
+
+**Validation.**
+
+```bash
+cd caliber/caliber-ui
+npx vitest run src/components/__tests__/api-error-message.test.tsx
+npm test && npm run typecheck && npm run lint && npm run build
+cd ../ && .venv/bin/python -m pytest --no-cov tests/test_routes_errors.py
+```
+
+**Done when.** Every audited surface renders `errors[]` when present; no
+surface claims field detail for errors that do not carry it.
+
+**Not in scope.** Changing the server error contract, or claiming coverage of
+4xx paths that never carried field detail (§1, corrections table).
+
+**Risk & rollback.** Additive component; per-surface adoption is independently
+revertible.
+
+**Depends on.** Nothing. **Unlocks.** Every later form-bearing package.
+
+---
+
+#### UX-06 · One permission model on canonical scopes
+
+**Evidence.** Three models coexist. (1) `AccessBadge.tsx:13,16` compares
+`"admin"` / `"operator"` against scopes the server issues as `caliber.admin` /
+`caliber.operator` (`caliber/src/caliber/auth.py:85–88`) — so the badge labels
+**every** admin "Viewer". (2) `BucketSelect.tsx:26` reads the boolean
+`data?.is_admin`. (3) `ToolDetail.tsx:112` and `Releases.tsx:324–327` inline
+`scopes.includes("caliber.operator")` per call site. Nothing generates a
+coverage view, so the §7.4 count ("at least 33 viewer-visible mutating
+controls") is a floor, not a measurement.
+
+**Outcome.** One primitive answers "may this user do this", the badge tells the
+truth, and forbidden actions are not offered.
+
+**Plan.**
+
+1. Fix `AccessBadge` to compare `caliber.admin` / `caliber.operator` first —
+   land this as its own commit; it is a one-line correctness fix with an
+   immediate user-visible effect.
+2. Add `src/lib/scopes.ts` exporting the canonical constants (imported from a
+   single source of truth, not re-typed), `hasScope`, and `canAnyScope`.
+3. Add `<MutationGuard requires={[...]}>` rendering children when permitted and
+   a disabled control with a reason when not. Disabled-with-reason beats hidden
+   for discoverability; hidden is correct only where existence itself leaks.
+4. Give `CalibrationPanel` (and any component taking a mutation callback but no
+   permission input) an explicit permission prop — no component should infer
+   authority from its own query.
+5. Generate the endpoint-to-affordance matrix from the UX-00 census: for every
+   mutating control, the scope its endpoint requires and whether the control is
+   guarded. Fail CI on a new unguarded row.
+6. Make the sidebar scope-aware last, once the matrix proves what each
+   destination needs.
+
+**Tests.** Unit tests for `hasScope`/`canAnyScope` including the
+prefix-collision case (`caliber.operator` must not satisfy a check for
+`operator`). `MutationGuard` tests for allowed, denied-with-reason, and
+missing-session states. A generated-matrix test that fails on an ungated
+mutating control. Backend scope tests stay unchanged and authoritative.
+
+**Validation.**
+
+```bash
+cd caliber/caliber-ui
+npx vitest run src/lib/__tests__/scopes.test.ts src/components/__tests__/mutation-guard.test.tsx
+node scripts/ux-census.mjs --check-affordances
+npm test && npm run typecheck && npm run lint && npm run build
+cd ../ && .venv/bin/python -m pytest --no-cov tests/test_auth.py
+```
+
+**Done when.** The badge is correct for all four roles; the matrix exists and
+is enforced in CI; no route represented in the matrix offers a mutation the
+signed-in role cannot perform.
+
+**Not in scope.** Relaxing server-side enforcement. Client gating is a UX
+improvement layered over authorization that stays authoritative (§14.1 rule 3).
+
+**Risk & rollback.** Over-hiding — a mis-specified scope removes a control a
+user legitimately has. Mitigate by preferring disabled-with-reason, by driving
+the matrix from the server's own requirements rather than hand-written lists,
+and by shipping the sidebar change behind a flag.
+
+**Depends on.** UX-00 census for the matrix. **Unlocks.** G1; honest
+denominators for UX-14.
+
+---
+
+#### UX-07 · Tool governance safe by default
+
+**Evidence.** Two independent paths produce an ungoverned write tool.
+(1) `ToolWizard.tsx:726` renders `requires_approval` as a free checkbox with no
+coupling to `side_effect_level` (`:699`), so `external_action` + approval-off is
+a reachable, saveable default — `DEFAULT` seeds `side_effect_level: "read"`,
+`requires_approval: false` (`:74–75`). (2) `lib/workflowGraph.ts:2466–2467`,
+inside `ensureAgentToolBindings` (`:2425`, called from
+`WorkflowEditor.tsx:2724`), hardcodes `side_effect_level: "read"` and
+`requires_approval: false` for every auto-created MCP binding — discarding the
+policy the operator already saved and the API already returns
+(`McpServers.tsx:1562` reads `server.tool_policies`; typed at
+`api/workflowTypes.ts:1492`).
+
+**Outcome.** A tool that can act on the outside world cannot be created or
+bound without approval, and a saved server policy is the default for bindings
+derived from it.
+
+**Plan.**
+
+1. In `ensureAgentToolBindings`, look up `server.tool_policies[toolName]` and
+   seed `side_effect_level` / `requires_approval` from it. Fall back to the
+   *safe* default (`external_action`-equivalent gating) when no policy exists —
+   never to `read`/no-approval.
+2. In `ToolWizard`, couple the controls: selecting `write` or
+   `external_action` forces `requires_approval` on and explains why; turning
+   approval off requires lowering the side-effect level.
+3. Enforce the same rule server-side so the API is not weaker than the form.
+   Client coupling is an affordance; the server decision is the guarantee.
+4. Align the TypeScript tool contract with the authoritative server schema
+   (§1 corrections: this was mis-stated as browser-ready and is a contract
+   task).
+5. Surface OpenAPI approval posture and tool execution provenance in the
+   registry list, so a governed tool is visibly governed before it is bound.
+
+**Tests.** Unit test on `ensureAgentToolBindings`: a server with a
+`write`+approval policy produces a binding carrying it; a server with no policy
+produces the safe default, never `read`/false. Wizard tests for each
+side-effect/approval combination, including the attempt to save
+`external_action` with approval off. Backend tests rejecting the same payload.
+Contract test asserting the TS type matches the server schema.
+
+**Validation.**
+
+```bash
+cd caliber/caliber-ui
+npx vitest run src/lib/__tests__/workflowGraph.test.ts src/pages/__tests__/tool-wizard.test.tsx
+npm test && npm run typecheck && npm run lint && npm run build
+cd ../ && .venv/bin/python -m pytest --no-cov tests/test_routes_tools.py tests/test_mcp_servers.py tests/test_mcp_policy.py
+.venv/bin/mypy src && .venv/bin/ruff check .
+```
+
+**Done when.** No client path and no API call can produce an external-action
+tool with approval disabled; every auto-created MCP binding matches its saved
+policy; the TS contract and server schema agree under test.
+
+**Not in scope.** Changing what approval *means* at runtime, or the MCP
+connection lifecycle.
+
+**Risk & rollback.** Existing manifests may carry bindings created under the
+old default. Do not rewrite them silently: detect and surface them as a
+governance warning on the workflow, and let a human correct them. Rollback
+restores the old default for *new* bindings only.
+
+**Depends on.** UX-05 for legible rejection messages. **Unlocks.** G1; UX-18's
+provenance requirement.
+
+---
+
+### 15.6 Wave 2 — close the four feedback loops
+
+#### UX-08 · Reviewer-safe evidence in Review Queues
+
+**Evidence.** `ReviewQueues.tsx:579–580` renders "Reviewing trace" followed by
+`item.trace_id` in monospace — that is the entire context a human gets before
+answering the queue's questions. The route module
+(`caliber/src/caliber/routes/review_queues.py:606–613`) registers list, create,
+get, update, add-items, alignment-examples, and submit. There is no endpoint
+that returns a reviewable projection of the trace, so the UI cannot render one
+even if it wanted to. Every human label produced here — and therefore every κ in
+UX-10 and every gate decision downstream — is founded on a human grading an
+identifier.
+
+**Outcome.** A reviewer sees the request and response they are grading, bounded
+and redacted, before they answer.
+
+**Plan.**
+
+1. Add `GET /caliber/review-queues/{queue_id}/items/{item_id}/evidence`
+   returning a projection: truncated request input, truncated model output,
+   trace id, content digest, and explicit truncation markers. Never the raw
+   trace.
+2. Enforce access on the *trace*, not just the queue: a reviewer with queue
+   access but no project access to the trace gets an explicit
+   "evidence unavailable" reason, not a leak and not a blank.
+3. Redact by allowlist, not blocklist: system instructions, secret-shaped
+   fields, credentials, and attachment bodies are excluded by construction.
+   Emit a redaction summary so the reviewer knows something was withheld.
+4. Bound the payload — per-field character caps plus a total cap — and mark
+   truncation inline so a reviewer never mistakes a cut-off answer for a short
+   one.
+5. Render it in `ReviewQueues.tsx` above the question set, with the trace id
+   and digest kept visible for provenance. Keep the current id-only rendering
+   as the explicit fallback state.
+
+**Tests.** Backend: project-visibility denial, redaction of each allowlisted-out
+category, truncation markers, digest stability, missing-trace handling. UI:
+evidence renders above questions; unavailable-reason state; truncation notice
+is visible; no raw secret appears in the DOM in any fixture.
+
+**Validation.**
+
+```bash
+cd caliber && .venv/bin/python -m pytest --no-cov tests/test_routes_review_queues.py
+.venv/bin/mypy src && .venv/bin/ruff check . && .venv/bin/ruff format --check .
+cd caliber-ui && npx vitest run src/pages/__tests__/review-queues.test.tsx
+npm test && npm run typecheck && npm run lint && npm run build
+```
+
+**Done when.** Every review item shows bounded evidence or a stated reason it
+cannot; no test fixture can produce a secret in the reviewer's DOM.
+
+**Not in scope.** Changing the assessment write-back contract, or the queue's
+question model.
+
+**Risk & rollback.** This is the one package where a bug leaks data rather than
+merely confusing a user. Treat the redaction allowlist as security-critical:
+review it separately, and default to withholding on any unrecognised field
+shape. Rollback removes the panel and returns to id-only rendering — degraded,
+but safe.
+
+**Depends on.** UX-06 (scope primitives). **Unlocks.** UX-10's κ becomes
+defensible; G2.
+
+---
+
+#### UX-09 · Explicit prompt → test-set binding
+
+**Evidence.** The Runs stage reads `workspace?.dataset_id`
+(`Prompts.tsx:1948`), which the server resolves from the hidden runtime
+target's `optimizer_config.dataset_id`
+(`caliber/src/caliber/routes/prompts.py:2284`). That key is written only by the
+calibration/optimize path (`prompts.py:473`). "Save to Test Sets"
+(`Prompts.tsx:5353`) creates a dataset and appends examples — and never pins it.
+So the Runs stage renders "No test set is pinned and no previous run exists.
+Build one on the Test Sets tab first." (`Prompts.tsx:2110`) to a user who *just
+did that*, and offers no picker to fix it. The product's named core loop fails
+on first use, and the "Has test set" lifecycle state (`Prompts.tsx:171`) is
+unreachable except via calibration.
+
+**Outcome.** A user can see which test set a prompt runs against, change it,
+and have that survive a reload.
+
+**Plan.**
+
+1. Add an explicit binding to the prompt-workspace contract — a first-class
+   `dataset_id` with a `PATCH`/`PUT` that sets and clears it, rather than a key
+   borrowed from `optimizer_config`. Keep reading the legacy key so existing
+   prompts keep their binding.
+2. Add a Test Set picker to the Runs stage listing datasets in the project,
+   showing the current binding and its example count.
+3. After "Save to Test Sets", offer **Use this test set in Runs** as an
+   explicit action. Do not auto-bind — invisible coupling is what created the
+   ambiguity in the first place.
+4. Reflect the binding in the workspace header and in the lifecycle status so
+   "Has test set" is reachable without running calibration.
+5. Put the selection in the URL so a reload, a tab switch, and a shared link
+   all resolve to the same run configuration (§7.8).
+
+**Tests.** Route tests for set/clear/visibility/version of the binding, and for
+reading the legacy `optimizer_config` key. UI tests: picker renders and
+persists; save-to-test-sets does *not* silently bind; reload preserves the
+selection; the empty-state copy no longer appears when a dataset is bound.
+
+**Validation.**
+
+```bash
+cd caliber && .venv/bin/python -m pytest --no-cov tests/test_routes_prompts.py
+cd caliber-ui && npx vitest run src/pages/__tests__/prompts.test.tsx
+npm test && npm run typecheck && npm run lint && npm run build
+npm run test:e2e -- e2e/personas/prompt-regression
+```
+
+**Done when.** The prompt-regression journey completes without leaving the
+workspace, survives a reload, and the bound test set is named on screen at every
+stage that depends on it.
+
+**Not in scope.** Changing dataset semantics or versioning; UX-16's scoring
+convergence.
+
+**Risk & rollback.** A migration-free additive contract. Rollback keeps the
+legacy read path, so no prompt loses its binding.
+
+**Depends on.** UX-05. **Unlocks.** G2; UX-16 needs a stable binding to compare
+against.
+
+---
+
+#### UX-10 · Actionable judge alignment and judge editing
+
+**Evidence.** `caliber/src/caliber/routes/judges.py:359` returns
+`per_example=rows`; it is typed end to end
+(`schemas.py:3409`, `api/types.ts:1252`). `Judges.tsx` renders the aggregate
+only — "Human alignment" (`:406`), "Check alignment" (`:700`) — and never
+touches `per_example`. `App.tsx:371` routes `/judges` and nothing else, so
+there is no judge detail route and no editor; a judge whose alignment is poor
+cannot be corrected from the UI at all. The loop computes exactly the
+information needed to fix the judge and then discards it.
+
+**Outcome.** A poor κ becomes a list of specific disagreements, each openable,
+and the judge can be corrected without leaving the product.
+
+**Plan.**
+
+1. Render `per_example` as a table: example, human label, judge label,
+   agreement, error. Default the filter to disagreements and errors — the rows
+   that carry information.
+2. Deep-link each row (`/judges/:id?example=…`) so a disagreement can be shared
+   and returned to.
+3. Add `/judges/:id` with an editor over the existing PATCH fields. Use
+   optimistic concurrency (version or `updated_at` precondition); on conflict,
+   show both versions rather than overwriting.
+4. If names remain globally unique and immutable, say so at the field, with the
+   reason — an unexplained disabled input is a support ticket.
+5. Distinguish *judge error* from *judge disagreement* everywhere. They have
+   different fixes and must not share a colour or a count.
+
+**Tests.** Route tests for PATCH validation, stale-precondition conflict, and
+name immutability. UI tests: per-example table renders and filters; deep link
+resolves to the row; conflict renders both versions and does not auto-resolve;
+error and disagreement are visually and semantically distinct.
+
+**Validation.**
+
+```bash
+cd caliber && .venv/bin/python -m pytest --no-cov tests/test_routes_judges.py
+cd caliber-ui && npx vitest run src/pages/__tests__/judges.test.tsx
+npm test && npm run typecheck && npm run lint && npm run build
+```
+
+**Done when.** From an alignment number, a user reaches a specific
+disagreement, understands it, and edits the judge — in the product.
+
+**Not in scope.** Changing the κ computation or the alignment sampling method.
+
+**Risk & rollback.** Concurrent judge edits. Never last-write-wins silently;
+if optimistic concurrency is too heavy for this release, state the policy in the
+UI explicitly and test it.
+
+**Depends on.** UX-08 (κ founded on real evidence). **Unlocks.** G2.
+
+---
+
+#### UX-11 · Durable evaluation execution
+
+**Evidence.** `create_evaluation`
+(`caliber/src/caliber/routes/evaluations.py:409`) validates, loads rows,
+hydrates judges, resolves the subject, runs the *entire* scored evaluation
+inline, and only then calls `_persist_eval_run` at `:527`. Nothing exists in the
+database until the last line succeeds. The cap is 50 examples
+(`_DEFAULT_MAX_EXAMPLES`, `:83`; 20 for workflows, `:87`). A closed tab, a proxy
+timeout, or a dropped connection therefore destroys up to 50 paid model calls
+and leaves no record they happened. There is no progress, no cancel, no
+idempotency key, and no write timeout.
+
+**Outcome.** An evaluation run is a durable object from the moment it is
+requested, observable while it works and recoverable after any client failure.
+
+**Plan.**
+
+1. Add the run row *before* work starts, with `queued` status, requested
+   configuration, and the resolved dataset version. Return it immediately.
+2. Introduce the state machine: `queued → running → completed | failed |
+   cancelled`, with `started_at`, `finished_at`, `examples_total`,
+   `examples_completed`, and a terminal reason. Persist partial results as they
+   are produced.
+3. Execute through a bounded worker with a per-run timeout. Enforce a
+   concurrency cap so one large run cannot starve the instance.
+4. Accept an idempotency key so a retried request returns the existing run
+   rather than paying for a second one. The client already keeps keys across
+   ambiguous failures (`api/caliberApi.ts:331`) — reuse that mechanism.
+5. Add cancellation that stops the worker and records `cancelled` with the
+   partial scorecard intact and clearly labelled partial.
+6. Navigate to the durable run detail on submit; poll or subscribe there.
+   Reconnect after reload. Never keep the result only in component state.
+7. On startup, reconcile runs stuck in `running` past their timeout to `failed`
+   with a stated reason, so no run is observably immortal.
+
+**Tests.** State-machine transitions including illegal ones; idempotent
+re-submission; worker restart mid-run; timeout reconciliation; cancellation with
+partial results; partial-result honesty (a cancelled run must not present as
+complete); concurrency cap. UI: durable id in the URL; reload during a run;
+terminal state rendering for each outcome.
+
+**Validation.**
+
+```bash
+cd caliber
+.venv/bin/python -m pytest --no-cov tests/test_routes_evaluations.py tests/test_eval_worker.py   # test_eval_worker.py is new
+.venv/bin/mypy src && .venv/bin/ruff check . && .venv/bin/ruff format --check .
+.venv/bin/python -m pytest --no-cov tests/test_migrations.py
+cd caliber-ui && npx vitest run src/pages/__tests__/evaluations.test.tsx
+npm run test:e2e -- e2e/personas/evaluation-capture
+```
+
+**Done when.** Closing the tab mid-run loses nothing; the run reports a terminal
+state without a client attached; a duplicate submission does not double-charge.
+
+**Not in scope.** Distributed queuing infrastructure, multi-node scheduling, or
+changing scorer semantics. Keep the worker in-process and bounded unless the
+deployment contract already provides a queue.
+
+**Risk & rollback.** The largest package in the plan and the only one with a
+migration. Ship behind a flag with the synchronous path retained; make the
+migration additive and the backfill resumable; keep old run identifiers stable.
+Rollback disables the flag — it must not require reverting the schema.
+
+**Depends on.** State/lineage contract design agreed with UX-13 first
+(§14.8 step 4). **Unlocks.** G2; UX-16 depends on durable runs existing.
+
+---
+
+#### UX-12 · First-class KB calibration dataset shape
+
+**Evidence.** `_load_calibration_questions`
+(`caliber/src/caliber/knowledge/service.py:5247`) requires each example's
+`input` to carry a non-blank `question` and silently skips every row that does
+not (`:5277–5281`). The contract for `expected.sources` lives only in Python
+docstrings. When no row qualifies, the caller returns
+`"eval dataset {id!r} has no examples"` (`service.py:4921`) — which is false:
+the dataset has examples, they are the wrong shape. The generic dataset editor
+offers no template and no hint, so a documented feature is unusable while
+appearing to work.
+
+**Outcome.** A user building a KB calibration set is told the shape up front,
+sees how many of their rows qualify, and gets a truthful error when none do.
+
+**Plan.**
+
+1. Add a KB-calibration dataset template to the Test Set editor:
+   `input.question` (required), `expected.sources` (required),
+   `expected.answer` (optional), with inline field help.
+2. Show a live matching-row count — "18 of 40 examples usable for KB
+   calibration" — before the run is submitted, not after it fails.
+3. Change the 400 to state the real cause and the count:
+   `"0 of 40 examples carry input.question"`. Keep the genuinely-empty message
+   distinct from the wrong-shape message.
+4. Publish the contract in the served docs and link it from the template.
+5. Leave the generic dataset editor generic. This is a template layered on top,
+   not a narrowing of dataset semantics.
+
+**Tests.** Backend: zero examples, examples-but-none-matching, partial match —
+three distinct messages, asserted separately. Version-pinned loading still
+respects supersession. UI: template creates a conforming example; matching-row
+count updates as rows change; the generic editor is unaffected.
+
+**Validation.**
+
+```bash
+cd caliber && .venv/bin/python -m pytest --no-cov tests/test_knowledge_calibration.py tests/test_routes_knowledge_bases.py
+cd caliber-ui && npx vitest run src/pages/__tests__/eval-datasets.test.tsx
+npm test && npm run typecheck && npm run lint && npm run build
+cd "$(git rev-parse --show-toplevel)"
+node caliber/caliber-ui/scripts/sync-docs.mjs   # regenerate served docs
+git diff --exit-code docs-site caliber/caliber-ui/public/docs caliber/src/caliber/ui/docs
+```
+
+**Done when.** No KB calibration attempt fails with a message that contradicts
+what the dataset contains.
+
+**Not in scope.** Changing retrieval metrics or the judge used for
+faithfulness/correctness.
+
+**Risk & rollback.** Additive; the error-message change is the only behavioural
+edit and is covered by a test asserting each distinct case.
+
+**Depends on.** UX-05. **Unlocks.** G2.
+
+---
+
+#### UX-13 · Trace ↔ result lineage
+
+**Evidence.** Trace navigation is one-way. Evaluation result rows carry no
+trace or prediction reference, and trace summaries carry no workflow-run,
+workflow, agent, or evaluation identity — so "a run failed → open the span that
+failed" is not a path that exists. `Observability.tsx` has no outbound link into
+the objects a trace belongs to.
+
+**Outcome.** From a failed run a user reaches the failing span, and from a
+result row the trace that produced it.
+
+**Plan.**
+
+1. Add nullable lineage columns to trace summaries — workflow-run id, workflow
+   id, agent id, evaluation run id — populated where the producer knows them.
+   Additive migration; old rows stay valid and render "lineage unavailable".
+2. Add a trace/prediction reference to evaluation result rows.
+3. Scope every link by project. A lineage id the caller cannot see renders as
+   unavailable, never as a broken link and never as evidence the object exists.
+4. Auto-expand the first error span on a failed trace so drill-down starts at
+   the failure rather than the root.
+5. Backfill resumably where the source data allows; never fabricate a lineage
+   that was not recorded.
+
+**Tests.** Migration test preserving old rows; route visibility tests for
+cross-project ids; UI tests for the unavailable state, the auto-expanded error
+span, and both link directions.
+
+**Validation.**
+
+```bash
+cd caliber
+.venv/bin/python -m pytest --no-cov tests/test_routes_observability.py tests/test_routes_evaluations.py
+.venv/bin/python -m pytest --no-cov tests/test_migrations.py
+.venv/bin/mypy src && .venv/bin/ruff check .
+cd caliber-ui && npx vitest run src/pages/__tests__/observability.test.tsx
+npm test && npm run typecheck && npm run lint && npm run build
+```
+
+**Done when.** Every failed run reaches its failing span in one hop, and no
+lineage link leaks the existence of an object across a project boundary.
+
+**Not in scope.** Retroactively reconstructing lineage that was never recorded.
+
+**Risk & rollback.** Schema is additive, so rollback is client-side. The real
+risk is cross-project leakage through an id — cover it with explicit visibility
+tests, not by trusting the caller.
+
+**Depends on.** Lineage contract designed alongside UX-11. **Unlocks.** G2.
+
+---
+
+### 15.7 Wave 3 — make work findable and first run honest
+
+#### UX-14 · ACL-filtered attention and an Approvals surface
+
+**Evidence.** `_compute_summary` counts pending approvals
+(`caliber/src/caliber/routes/dashboard.py:54`) and returns them as
+`approvals_pending` (`:68`), typed at `api/types.ts:43`. A repository-wide
+search finds the field in the contract and in test fixtures only — **no
+production component renders it**. Meanwhile `waiting_approval` is a real run
+state handled throughout the workflow components
+(`WorkflowRunDebugger.tsx`, `TraceReplayGraph.tsx`,
+`WorkflowRunLineagePanel.tsx`), with no queue, no filter, and no cross-workflow
+list. An approval-gated platform fetches the count of things awaiting a human on
+every page load and shows it nowhere.
+
+**Outcome.** A person signing in can see what is waiting for *them* and reach it
+in one click.
+
+**Plan.**
+
+1. Define a normalized attention item — `kind`, object id, label, status, age,
+   project, required scope, destination URL — and an endpoint returning items
+   the caller may act on. Filter by ACL server-side; never return an item whose
+   existence the caller should not learn.
+2. Enumerate the kinds deliberately and keep them distinct: workflow runtime
+   approvals, prompt refinement approvals, calibration jobs, review-queue items,
+   release gate blocks. They have different destinations and different required
+   scopes; a single count that merges them is not actionable.
+3. Add run-status filtering to the workflow runs API and UI so
+   `waiting_approval` is a first-class filter, not a state you find by reading
+   rows.
+4. Add an **Approvals** destination listing every kind, grouped, with exact deep
+   links. Empty is a valid, calm state — it must not look like an error.
+5. Generalize the badge mechanism to per-destination counts driven by the same
+   ACL-filtered contract, so a badge and its list can never disagree.
+6. Render `approvals_pending` where it was always meant to go, sourced from the
+   same contract as the list.
+
+**Tests.** Backend: ACL filtering per kind; no cross-project existence leakage;
+count and list parity for every role. UI: each kind renders with a working deep
+link; badge equals list length; empty state; a viewer sees nothing they cannot
+act on.
+
+**Validation.**
+
+```bash
+cd caliber && .venv/bin/python -m pytest --no-cov tests/test_routes_dashboard.py tests/test_routes_workflow_runs.py
+.venv/bin/mypy src && .venv/bin/ruff check .
+cd caliber-ui && npx vitest run src/pages/__tests__/approvals.test.tsx
+npm test && npm run typecheck && npm run lint && npm run build
+npm run test:e2e -- e2e/personas/approver
+```
+
+**Done when.** Every supported attention kind has an ACL-safe list entry and an
+exact destination; an approver completes their journey without an out-of-band
+URL.
+
+**Not in scope.** Notifications, email, or any outbound channel. Inventing an
+approval kind the backend does not already model.
+
+**Risk & rollback.** Aggregation across kinds is where existence leaks. Test
+each kind's ACL separately, never as one combined query. Ship behind a flag.
+
+**Depends on.** UX-06 (scope primitives). **Unlocks.** G3.
+
+---
+
+#### UX-15 · Honest first run
+
+**Evidence.** `Overview.tsx` computes `agentCoverage = percentOf(0, 0)`, and
+`percentOf` returns `0` when the denominator is `≤ 0` (`:761–764`).
+`executionRate` and `publishRate` default to `0` when
+`assistant_slo` is absent (`:119–120`). The tone rules then read those zeros as
+failure: `executionRate >= 0.9 ? emerald : >= 0.75 ? amber : red` (`:237`) and
+the same for publish (`:243`), while coverage `>= 80 ? emerald : amber` (`:195`).
+An empty install therefore opens on **two red tiles and one amber** describing
+an absence of data as an operational failure. `Cookbooks` — the working on-ramp,
+and one of the two surfaces §6.4 calls exemplary — is routed (`App.tsx:345`) but
+not connected to this empty state.
+
+**Outcome.** A new install says "nothing has run yet" and offers the first
+useful thing to do.
+
+**Plan.**
+
+1. Distinguish "no data" from "bad data" at the source: give the rate helpers a
+   null return for a zero denominator, and give tiles an explicit
+   no-denominator state ("No runs yet") with a neutral tone. Do not paint a
+   missing measurement red or green.
+2. Add a capability-aware start block on Home with four verified steps:
+   configure a provider, install a Cookbook, run the paused draft it creates,
+   inspect its trace and evaluation. Each step reflects real state and
+   self-completes.
+3. Show what is blocked and why — no provider configured, no project selected —
+   with the destination that resolves it.
+4. Keep `/cookbooks` a direct route; the IA decision belongs to UX-17.
+5. Delete the dead zero fallbacks the tiles no longer need, rather than leaving
+   two code paths for the same state.
+
+**Tests.** Component tests for each tile at zero denominator, partial data, and
+healthy data. Test that no tile renders red purely because a denominator is
+zero. E2E: a fresh install renders the start block; completing a step marks it
+complete; the Cookbook step reaches a working example.
+
+**Validation.**
+
+```bash
+cd caliber/caliber-ui
+npx vitest run src/pages/__tests__/overview.test.tsx
+npm test && npm run typecheck && npm run lint && npm run build
+npm run test:e2e -- e2e/personas/first-run
+```
+
+**Done when.** A fresh install shows no alarm colour caused by absence of data,
+and a new user reaches a running example without leaving Home for guidance.
+
+**Not in scope.** Redesigning the dashboard's populated state; moving Cookbooks
+in the IA.
+
+**Risk & rollback.** Presentation only; independently revertible per tile.
+
+**Depends on.** UX-00 (first-run journey capture). **Unlocks.** G3.
+
+---
+
+### 15.8 Wave 4 — consolidate only after behaviour is measured
+
+#### UX-16 · One scoring engine
+
+**Evidence.** `runPromptTestCases` (`Prompts.tsx:4298`) is the shared scoring
+path for both the Test Sets and Runs surfaces. For each case it opens an
+assistant session seeded with the prompt, then opens a **second** session whose
+goal is a judge prompt built inline in the browser bundle
+(`Prompts.tsx:4350–4366`) requesting
+`{"verdict": …, "score": …, "reasoning": …}`. It regex-matches a JSON object out
+of the reply; when parsing fails, it keeps the initialized values —
+`verdict = "fail"`, `score = 0`, `reasoning = "Could not parse judge response"`
+(`:4382–4384`). An unparseable judge reply is therefore recorded as a
+**behavioural failure of the prompt**, manufacturing a regression that did not
+happen. None of this reaches the judge registry, the evaluation engine, or the
+evidence contract — it contradicts design principle #4 by construction.
+
+**Outcome.** One scoring engine, one judge registry, one evidence contract —
+and an invalid judge reply is a scorer error, never a failing score.
+
+**Plan.**
+
+1. Define an adapter from prompt-workspace cases to a durable evaluation run
+   with `predict_target="prompt"`, reusing the dataset binding from UX-09 and
+   the durable run machinery from UX-11.
+2. Use registered, versioned judges. Retire the in-bundle judge prompt; do not
+   port it as a hidden default.
+3. Introduce a distinct `error` outcome for unparseable or failed judge calls.
+   It must not aggregate into the pass/fail rate, and it must be visible in the
+   scorecard.
+4. Preserve baseline matching, incomplete-row honesty, evidence digests, and
+   the calibration Apply gate — these are the behaviours §6 identifies as the
+   product's differentiator and must not regress.
+5. Run both engines in parallel behind a flag and record golden parity results
+   before removing the old path. Keep old run identifiers stable; never rewrite
+   historical evidence to match the new presentation.
+
+**Tests.** Golden parity tests comparing old and new scoring across a fixture
+suite. Explicit test that an unparseable judge reply produces `error`, not
+`fail`. Baseline-comparison tests that mismatched suites still refuse to
+compare. Evidence-digest stability tests. Calibration Apply gate regression test.
+
+**Validation.**
+
+```bash
+cd caliber && .venv/bin/python -m pytest --no-cov tests/test_routes_evaluations.py tests/test_eval_parity.py   # test_eval_parity.py is new
+cd caliber-ui && npx vitest run src/pages/__tests__/prompts.test.tsx
+npm test && npm run typecheck && npm run lint && npm run build
+./test-all.sh --no-allure
+```
+
+**Done when.** Parity is recorded and accepted; no scoring path bypasses the
+judge registry; no invalid judge output can be read as a prompt regression.
+
+**Not in scope.** Changing judge semantics or scorer definitions. This is
+convergence, not redesign.
+
+**Risk & rollback.** Scores are the product's currency; silent scoring changes
+destroy trust faster than any UI bug. Do not remove the old path until parity
+is accepted in writing. Rollback = flag off, old identifiers intact.
+
+**Depends on.** UX-09, UX-11, UX-02. **Unlocks.** Deleting the duplicate
+scoring surface in UX-20.
+
+---
+
+#### UX-17 · Validate, then stage, the target IA
+
+**Evidence.** §11 proposes 21 grouped destinations → 19 (22 → 20 including
+Dashboard/Home). `App.tsx` registers 35 `path=` entries today. No evidence
+exists that the proposed labels are more findable than the current ones, and
+§14.1 rule 2 forbids moving navigation on source inspection alone.
+
+**Outcome.** The IA changes only where a task-based test shows it helps, and no
+existing URL breaks.
+
+**Plan.**
+
+1. Run tree/label testing against the UX-00 personas with representative tasks
+   per role. Record where people look first, not where they eventually succeed.
+2. Accept, amend, or reject §11 in writing per destination. A destination with
+   no findability evidence does not move.
+3. Stage accepted moves one at a time: merge Settings/Administration
+   incrementally, relocate Review Queues, rename/move Refinement Fleet.
+4. Ship redirects for every moved route *before* the navigation changes, and
+   update canonical links and docs in the same PR.
+5. Keep read-only runtime groups read-only. Merging Administration into
+   Settings must not present a runtime fact as an editable setting.
+
+**Tests.** Route-inventory test; redirect tests for every moved path;
+`e2e/navigation.spec.ts`; active-group, mobile, and collapsed-sidebar tests;
+generated-docs parity. Task-based findability recorded before and after.
+
+**Validation.**
+
+```bash
+cd caliber/caliber-ui
+npx playwright test e2e/navigation.spec.ts
+npm test && npm run typecheck && npm run lint && npm run build
+npm run test:e2e
+node scripts/ux-census.mjs --diff docs/ux/baseline-<sha>.json
+cd "$(git rev-parse --show-toplevel)" && node caliber/caliber-ui/scripts/sync-docs.mjs
+git diff --exit-code docs-site caliber/caliber-ui/public/docs
+```
+
+**Done when.** Every accepted move has findability evidence, a redirect, and a
+docs update; every old URL still resolves.
+
+**Not in scope.** Moving a destination because the diagram looks tidier.
+
+**Risk & rollback.** Navigation changes are the most disruptive and least
+reversible in users' habits. Flag the tree; keep redirects for at least one
+release (§14.1 rule 5).
+
+**Depends on.** G0 evidence, G3 certified. **Unlocks.** UX-21's command palette
+(a palette over an unstable tree teaches the wrong names).
+
+---
+
+#### UX-18 · One callable-tool catalog
+
+**Evidence.** Four mental models exist for "a tool I can call": the registry
+(`ToolRegistry.tsx`, 2,352 lines), MCP servers (`McpServers.tsx`, 3,519),
+OpenAPI integrations (`OpenApiIntegrations.tsx`, 2,413), and workflow tool
+bindings (`Inspector.tsx`). Provenance is not end-to-end today — UX-07 is the
+prerequisite that makes source, side effect, and approval trustworthy across
+all four.
+
+**Outcome.** One catalog answers "what can this call, where does it run, what
+can it do, and who approved it".
+
+**Plan.**
+
+1. Define one view model: name, source (registry / MCP / OpenAPI), execution
+   backend, side-effect level, approval requirement, health, and a deep link to
+   its connection.
+2. Render one catalog over that model. Keep connection *management* where it
+   lives — this is a catalog, not a merge of four admin surfaces.
+3. Make provenance the acceptance bar: a row whose source or approval posture is
+   unknown renders as unknown, not as a default.
+4. Retire the duplicate list views only after the catalog covers every filter
+   and action they provided.
+
+**Tests.** API/type contract tests for the view model across all three sources;
+UI tests for each source's row, the unknown-provenance state, and every filter
+the retired views offered.
+
+**Validation.**
+
+```bash
+cd caliber && .venv/bin/python -m pytest --no-cov tests/test_routes_tools.py tests/test_mcp_servers.py tests/test_mcp_policy.py tests/test_routes_openapi_integrations.py
+cd caliber-ui && npx vitest run src/pages/__tests__/tool-catalog.test.tsx
+npm test && npm run typecheck && npm run lint && npm run build
+```
+
+**Done when.** One destination answers the four questions for every callable
+tool, with no row defaulting a governance field it does not know.
+
+**Not in scope.** Merging connection management; changing MCP or OpenAPI
+lifecycles.
+
+**Risk & rollback.** A catalog that defaults unknown provenance to a safe-looking
+value is worse than four lists. Fail loudly on unknown. Rollback restores the
+existing lists, which remain until the catalog reaches parity.
+
+**Depends on.** UX-07. **Unlocks.** Part of UX-20's deletion set.
+
+---
+
+#### UX-19 · Extract workflow run actions and monitoring
+
+**Evidence.** Re-measured on `ff6d18c414`: **22** identically-named top-level
+helpers are duplicated across `WorkflowRunDebugger.tsx`, `TraceReplayGraph.tsx`,
+`WorkflowDetail.tsx`, and `WorkflowEditor.tsx` — including
+`workflowRunResumeFailureMessage`, `workflowRunCheckpointIdentityIssue`,
+`normalizeRunStep`, `parseJsonObjectText`, `readString`, and `readNumber`. Two
+run-monitoring mounts exist where one component with density props would do.
+
+**Outcome.** One implementation per behaviour, with no user-visible change.
+
+**Plan.**
+
+1. Write characterization tests against current behaviour **first**, covering
+   every duplicated helper's edge cases. This is the gate, not a follow-up.
+2. Extract the helpers to typed modules under `src/lib/workflowRun/`. Where the
+   copies have drifted, resolve the difference explicitly in the PR body — a
+   silent choice between two behaviours is a behaviour change.
+3. Build one monitoring component with explicit density and capability props;
+   mount it in both detail and editor.
+4. Delete the duplicates in a commit separate from the extraction, so a bisect
+   can distinguish "moved" from "removed".
+
+**Tests.** Characterization tests before the change; the same tests unchanged
+after. Snapshot parity for both mounts at both densities.
+
+**Validation.**
+
+```bash
+cd caliber/caliber-ui
+npx vitest run src/pages/__tests__/workflow-studio.test.tsx src/pages/__tests__/workflow-editor-handlers.test.tsx
+npm test && npm run typecheck && npm run lint && npm run build
+npm run test:e2e -- workflows
+```
+
+**Done when.** The duplicate-helper count from §15.1 reaches zero for these four
+files with the characterization suite unchanged and green.
+
+**Not in scope.** Behaviour changes of any kind. If a helper is wrong, fix it in
+a separate PR before or after — never inside the extraction.
+
+**Risk & rollback.** Drifted copies are the trap: two functions with one name
+and different behaviour. Diff them explicitly before merging. Refactor reverts
+cleanly with no data migration.
+
+**Depends on.** G4 gate. **Unlocks.** UX-20.
+
+---
+
+#### UX-20 · Decompose the two largest pages
+
+**Evidence.** `KnowledgeBases.tsx` is 9,021 lines and `Prompts.tsx` 8,192;
+with `WorkflowEditor.tsx` (5,321) and `WorkflowDetail.tsx` (4,788) they hold
+roughly half of all page code. `Prompts.tsx:4469` exports
+`PromptCalibrationTab`, which no route or page mounts — dead code inside the
+second-largest file. `SkillDetail.tsx` (1,642) and `ToolDetail.tsx` (664) are
+routed (`App.tsx:365`, `:335`) but effectively unreachable from their list
+pages: the only inbound links are `ToolWizard.tsx:895` after creation and
+`OpenApiIntegrations.tsx:1552`. `SkillWizard.tsx` (1,415) and `ToolWizard.tsx`
+(976) are mounted inside their parents with no route of their own, so 2,391
+lines of authoring work is destroyed by a refresh.
+
+**Outcome.** Domain state has an owner, capability lives where users are, and
+only proven-dead code is deleted.
+
+**Plan.**
+
+1. Split by domain state, not by line count: extract each page's independent
+   state machines with explicit component contracts. Track line count as a
+   guardrail; do not accept it as the outcome (§14.5).
+2. Give the wizards their own routes and persist drafts, so a refresh does not
+   destroy work.
+3. Migrate the capabilities stranded in the detail pages into the reachable
+   workspaces, then add compatibility redirects from the old routes.
+4. Instrument the old routes with deprecation telemetry. Delete only after the
+   usage window shows the redirect carries no traffic — direct-URL users exist
+   until proven otherwise (§14.1 rule 5).
+5. Delete `PromptCalibrationTab` and the other §13.2 item-17 dead code in a
+   separate commit, each with a reachability proof in the PR body.
+
+**Tests.** State-ownership and public-contract tests for each extracted module;
+browser parity on both entry points for every migrated capability; redirect
+tests; wizard draft-persistence tests across reload; a test asserting no orphan
+route or unused public export remains.
+
+**Validation.**
+
+```bash
+cd caliber/caliber-ui
+npm test && npm run typecheck && npm run lint && npm run build
+npm run test:e2e
+node scripts/ux-census.mjs --diff docs/ux/baseline-<sha>.json
+```
+
+**Done when.** Every migrated capability works from its new home; every old URL
+redirects; every deletion cites its reachability evidence.
+
+**Not in scope.** Deleting anything on the strength of "nothing links to it".
+A route with no inbound link is not the same as a route with no users.
+
+**Risk & rollback.** The largest deletion surface in the plan. Capability moves
+and feature removals are separate commits (§14.7). Rollback restores the old
+mount without a migration.
+
+**Depends on.** UX-19 (shared helpers extracted first), UX-16 (before deleting
+the duplicate scoring surface), UX-18 (before retiring tool list views).
+
+---
+
+#### UX-21 · Complete wayfinding
+
+**Evidence.** `PageHeader.tsx:16` declares a `crumbs` prop and `:36` falls back
+to a single-item trail when it is absent. Exactly one caller passes it
+(`ObjectStore.tsx:907`), so the breadcrumb component is built and unused.
+`PageHeader` itself appears on 18 of 34 pages. There is no command palette and
+no global shortcut anywhere in `src`. §7.8 records the wizards, plans, review
+queues, and editor focus as having no URL state.
+
+**Outcome.** The sidebar stops being the only way to navigate, and work has an
+address.
+
+**Plan — in risk order, not preference order.**
+
+1. Pass real `crumbs` on all nine detail routes. Cheapest, most immediately
+   useful, no dependency.
+2. Add durable URL state for plans, review queues, wizards, and editor focus —
+   this is what makes work shareable and reload-safe, and it is a prerequisite
+   for anything that deep-links.
+3. Adopt shared `EmptyState` and `PageHeader` across the remaining pages, so
+   chrome is consistent before it is indexed.
+4. Add the command palette **after** UX-17 settles the tree. A palette over a
+   tree about to change teaches names that are about to be wrong.
+5. Migrate vocabulary last (§7.5): one name for a test set, one for a grader,
+   one for promote; split "Calibrate" from "Optimize". Do this once, across
+   copy, routes, and docs, with redirects — a half-migrated vocabulary is worse
+   than the current one.
+
+**Tests.** Component and navigation tests for the nine breadcrumb trails; URL
+round-trip tests for each stateful surface; palette keyboard tests including
+focus return and Escape; a copy-consistency test asserting retired terms do not
+reappear.
+
+**Validation.**
+
+```bash
+cd caliber/caliber-ui
+npx vitest run src/components/__tests__/page-header.test.tsx
+npx playwright test e2e/navigation.spec.ts
+npm test && npm run typecheck && npm run lint && npm run build
+npm run test:e2e
+cd "$(git rev-parse --show-toplevel)" && node caliber/caliber-ui/scripts/sync-docs.mjs
+git diff --exit-code docs-site caliber/caliber-ui/public/docs
+```
+
+**Done when.** Nine of nine detail routes show hierarchical trails; every
+stateful surface round-trips through its URL; the palette exists only after the
+tree is stable; no retired term survives in shipped copy or docs.
+
+**Not in scope.** Starting here. §14.8 is explicit: not the command palette,
+not visual polish, not page rewrites.
+
+**Risk & rollback.** Vocabulary migration touches copy, routes, and docs at
+once; it is the item most likely to be left half-done. Treat it as one
+deliverable with a single acceptance check, or defer it whole.
+
+**Depends on.** UX-17 for the palette and vocabulary steps; steps 1–3 have no
+dependency and may proceed once G1 is certified.
+
+---
+
+### 15.9 Turning a card into an issue
+
+`.github/ISSUE_TEMPLATE` governs the field names; this is the content contract
+§14.6 requires, mapped onto the card fields above.
+
+| Issue field | Source in the card |
+| --- | --- |
+| Title | `UX-nn · <Outcome>` — the outcome, not the defect |
+| User & job | The persona/journey row in §13.1 for that ID |
+| Current evidence | **Evidence**, with the file:line re-verified at the time the issue is opened |
+| Desired outcome | **Outcome** |
+| Implementation notes | **Plan** |
+| Non-goals | **Not in scope** |
+| Dependencies | **Depends on** |
+| API/schema impact | Named in the plan step that introduces it; `none` where truly none |
+| Permissions | The scopes the changed controls require, from the UX-06 matrix |
+| Tests | **Tests** — the tests to *add*, distinct from the commands to run |
+| Validation | **Validation**, with actual output pasted into the PR |
+| Risks & rollback | **Risk & rollback** |
+
+Three rules the cards assume and do not repeat:
+
+1. **Re-verify before you start.** Every `file:line` here is dated
+   `ff6d18c414` / 2026-09-06. An issue opened later must re-check its own
+   evidence; a finding that no longer reproduces is closed, not implemented.
+2. **The card is a floor, not a ceiling.** If implementation reveals the
+   underlying defect is larger, say so in the PR and re-scope openly — do not
+   quietly deliver less, and do not quietly deliver more.
+3. **Nothing here authorises a merge.** Per `CLAUDE.md`, every package lands on
+   a dedicated branch and PR, tests and validation output go in the body, and
+   the PR stays open for the human owner to merge.
+
+### 15.10 Sequencing check
+
+The order below is §14.8 with the landed work removed and the residual tasks
+inserted. It is the shortest path that never leaves a gate half-certified.
+
+1. **UX-00** — evidence baseline. Everything structural is blocked on it.
+2. **UX-01a, UX-03a** — small, isolated, and they finish the two Critical items
+   already 80% shipped. Do them while UX-02's promotion contract is reviewed.
+3. **UX-02** — after that review. It is the last unfixed silent-production
+   change.
+4. **UX-05**, then **UX-06** and **UX-07**. UX-05 first, because the other two
+   produce rejections users need to be able to read.
+   → **certify G1.**
+5. **UX-08, UX-09, UX-10, UX-12** in parallel; design the UX-11/UX-13 state and
+   lineage contracts together before either is implemented.
+6. **UX-11**, then **UX-13**. → **certify G2.**
+7. **UX-14**, **UX-15**. → **certify G3.**
+8. **UX-16, UX-17, UX-18** behind rollback flags.
+9. **UX-19**, then **UX-20** after parity. **UX-21** steps 1–3 may run any time
+   after G1; steps 4–5 only after UX-17.
+
+The first shipped outcome remains what §14.8 named, and three of its four parts
+are now on `main`: CALIBER never appears to save, promote, review, or version
+one object while acting on another. **UX-02 is the last one open.**
