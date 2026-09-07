@@ -338,4 +338,61 @@ describe("Dashboard", () => {
     expect(execution).not.toHaveTextContent("No assistant runs yet");
     expect(execution).toHaveAttribute("data-measured", "false");
   });
+
+  it("treats an unusable rate as unmeasured, not as a zero", async () => {
+    // ``clampRate`` maps NaN/Infinity to 0, so an unusable value would arrive
+    // at the tone rules as a *measured* 0% and paint red -- the same
+    // "absence reads as total failure" problem, reintroduced through a
+    // malformed payload instead of an empty one.
+    renderDashboard({
+      data: summary({
+        assistant_slo: {
+          ...summary().assistant_slo,
+          executions_total: 12,
+          execution_success_rate: Number.NaN,
+          publish_total: 4,
+          publish_success_rate: Number.POSITIVE_INFINITY,
+        },
+      }),
+    });
+
+    const execution = await screen.findByTestId("reliability-execution-success");
+    const publish = screen.getByTestId("reliability-publish-success");
+    expect(execution).toHaveAttribute("data-measured", "false");
+    expect(publish).toHaveAttribute("data-measured", "false");
+    expect(execution).not.toHaveTextContent("0%");
+    expect(execution.querySelector(".text-red-700")).toBeNull();
+  });
+
+  it("treats a missing rate as unmeasured", async () => {
+    // A payload that omits the field entirely, rather than sending a bad one.
+    renderDashboard({
+      data: summary({
+        assistant_slo: {
+          ...summary().assistant_slo,
+          executions_total: 9,
+          execution_success_rate: undefined as never,
+        },
+      }),
+    });
+
+    expect(
+      await screen.findByTestId("reliability-execution-success"),
+    ).toHaveAttribute("data-measured", "false");
+  });
+
+  it("treats a non-finite numerator as unmeasured in percentOf", async () => {
+    // Same hazard on the fleet-coverage path, where the ratio is divided here
+    // rather than arriving pre-computed.
+    renderDashboard({
+      data: summary({
+        agents_total: 10,
+        agents_enabled: Number.NaN as never,
+      }),
+    });
+
+    const card = (await screen.findByText("Fleet coverage")).parentElement!;
+    expect(card).toHaveTextContent("—");
+    expect(card).not.toHaveTextContent("0%");
+  });
 });
