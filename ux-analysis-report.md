@@ -5,10 +5,11 @@ UI and its supporting APIs, conducted per-persona and per-journey against the
 code on `main` at commit `70c4e82345`.
 
 **Re-verified:** 2026-09-06 against `ff6d18c414`; ledger refreshed 2026-09-07.
-All four "silent wrong object" Critical items are now addressed (`#237`, `#238`,
-`#239`, `#245`, and `#247` in review), along with the primary outcomes of
-UX-05/06/07 (`#243`, `#242`, `#244`) and the honest-numbers half of UX-15
-(`#246`). §15 carries the re-verification commands, the live status ledger with
+All four "silent wrong object" Critical items are now addressed — UX-04
+(`#237`), UX-03 (`#238`), UX-01 (`#239`), and UX-02 (`#247`, in review). Their
+two residues shipped as `#245` (UX-01a, UX-03a), and the primary outcomes of
+UX-05/06/07 as `#243`, `#242`, `#244`, with UX-15's honest-numbers half as
+`#246`. §15 carries the re-verification commands, the live status ledger with
 each package's named remainder, and a full implementation specification for
 every remaining work package. The structural census that makes §15.1's counts
 re-runnable is `#248`.
@@ -2827,7 +2828,7 @@ and source-or-jsdom level.
 
 Two things worth stating plainly about how this slice went:
 
-1. **Three defects were found by tests that were already green.** The
+1. **Two defects were found by tests that were already green.** The
    AccessBadge suite asserted `scopes: ["admin"]`, a payload the server cannot
    emit. The `MutationGuard` suite asserted `queryByRole` returned nothing,
    which passed because `aria-hidden` had removed the control from the
