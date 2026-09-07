@@ -5,15 +5,15 @@ UI and its supporting APIs, conducted per-persona and per-journey against the
 code on `main` at commit `70c4e82345`.
 
 **Re-verified:** 2026-09-06 against `ff6d18c414`; ledger refreshed 2026-09-07.
-Of the four "silent wrong object" Critical items, **three are merged** — UX-04
-(`#237`), UX-03 (`#238`), UX-01 (`#239`) — and **UX-02 has a fix open for
-review** (`#247`); none is closed at its gate (§15.2). Also merged: their two
-residues as `#245` (UX-01a, UX-03a), the primary outcomes of UX-05/06/07 as
-`#243`, `#242`, `#244`, and UX-15's honest-numbers half as `#246`. Open for
-review: the structural census that makes §15.1's counts re-runnable (`#248`).
-§15 carries the re-verification commands, the live status ledger with each
-package's named remainder, and a full implementation specification for every
-remaining work package.
+All four "silent wrong object" Critical items now have fixes written, as do
+UX-05, UX-06, UX-07, UX-15, and the structural census that makes §15.1's counts
+re-runnable. **§15.2's ledger states which of those have merged and which are
+still open, and is the only place in this document that does** — every other
+section describes outcomes and points there for status. None is closed at its
+gate: merged and gate-certified are different states, and G1 needs browser and
+role evidence no PR in the slice supplies. §15 also carries the re-verification
+commands, each package's named remainder, and a full implementation
+specification for every remaining work package.
 
 **Method:** Every implementation finding is grounded in a specific file and line
 in this repository. Where a claim is quantitative (modelled step counts, page
@@ -154,23 +154,28 @@ plan protects and extends those behaviours rather than proposing them again.
 
 ### Status since publication
 
-The first delivery slice is in. **Merged:** release signoff state is isolated
-per candidate (`#237`), a stale knowledge-base selection can no longer become a
-version target (`#238`), and published workflow versions are genuinely
-read-only (`#239`) — three of the four Critical "silent wrong object" items.
-The two residues those left — run recovery opening the wrong version, and a
-version control that never named its target — are also merged (`#245`).
+The first delivery slice is written. **§15.2's ledger is the single statement
+of what has merged and what has not** — this section describes what changed for
+users, and deliberately does not restate merge state, because maintaining the
+same facts in two places is what let the previous ledger go stale.
 
-**Open for review:** the fourth Critical, a button labelled "Save as New
-Version" that also promoted to production (`#247`). Until that merges, the
-"all four" claim is a claim about work written, not work shipped.
+What changed: release signoff state is isolated per candidate; a stale
+knowledge-base selection can no longer become a version target; published
+workflow versions are genuinely read-only, and run recovery now opens the
+version a run actually executed; a knowledge-base version control names the
+corpus it will write to; a button labelled "Save as New Version" no longer
+promotes to production. Those are the four Critical "silent wrong object"
+items and the two residues they left.
 
-Also merged: UX-05 (`#243`), UX-06 (`#242`) and UX-07 (`#244`) shipped their
-primary outcomes, and UX-15's honest-numbers half shipped as `#246`. UX-00's
-structural census is open for review (`#248`). Five of those left a **named
-remainder** — a complete, independently-valuable outcome shipped, with the rest
-scoped out for a stated reason rather than forgotten. §15.2 lists each one and
-why.
+Alongside them: API validation failures now name the fields that failed;
+admins and approvers are labelled as such rather than all reading "Viewer";
+a side-effecting tool cannot be registered without approval and an MCP binding
+inherits the policy an operator saved; and an empty install no longer opens on
+two red tiles and one amber.
+
+Five of those packages left a **named remainder** — a complete,
+independently-valuable outcome shipped, with the rest scoped out for a stated
+reason rather than forgotten. §15.2 lists each one and why.
 
 Three findings from doing the work are worth carrying back into the plan,
 because they change what "covered" should be taken to mean:
@@ -4164,28 +4169,27 @@ Three rules the cards assume and do not repeat:
 
 ### 15.10 Sequencing check
 
-The order below is §14.8 with the landed work removed and the residual tasks
-inserted. It is the shortest path that never leaves a gate half-certified.
-Steps struck through have shipped their primary outcome; their named remainders
-are in §15.2's Partial table.
+The order below is §14.8 with the work that now has a fix written folded in.
+It is the shortest path that never leaves a gate half-certified. **Merge state
+is not repeated here** — §15.2's ledger is the only place this document states
+it; a step being listed as done below means its fix exists, not that it shipped.
 
-1. **UX-00** — evidence baseline. The census is open for review (`#248`); the
-   journeys, role fixtures, keyboard capture, and `evidence-limits.md` are not
-   written, so **G0 is still open** and everything structural stays blocked.
-2. ~~**UX-01a, UX-03a**~~ — landed (`#245`).
-3. **UX-02** — written, PR open (`#247`), not merged. The promotion-contract
-   question §14.8 gated it behind turned out to answer itself: the gate is
-   advisory, so the defect was a false audit attribution rather than a policy
-   choice.
-4. ~~**UX-05**, then **UX-06** and **UX-07**~~ — primary outcomes merged
-   (`#243`, `#242`, `#244`). UX-06's remainder is blocked on the census
-   merging, so it can generate the affordance matrix.
+1. **UX-00** — evidence baseline. The census exists (`#248`); the journeys,
+   role fixtures, keyboard capture, and `evidence-limits.md` are not written,
+   so **G0 is still open** and everything structural stays blocked.
+2. ~~**UX-01a, UX-03a**~~ (`#245`).
+3. ~~**UX-02**~~ (`#247`). The promotion-contract question §14.8 gated it
+   behind turned out to answer itself: the gate is advisory, so the defect was
+   a false audit attribution rather than a policy choice.
+4. ~~**UX-05**, then **UX-06** and **UX-07**~~ (`#243`, `#242`, `#244`).
+   UX-06's remainder is blocked on the census being available to generate the
+   affordance matrix.
    → **G1 not yet certified**: needs the browser and role passes, which no
-   validation on those PRs supplies.
+   validation in this slice supplies.
 5. **UX-08, UX-09, UX-10, UX-12** in parallel; design the UX-11/UX-13 state and
    lineage contracts together before either is implemented.
 6. **UX-11**, then **UX-13**. → **certify G2.**
-7. **UX-14**; ~~**UX-15**~~ honest-numbers half landed (`#246`), start block
+7. **UX-14**; ~~**UX-15**~~ honest-numbers half done (`#246`), start block
    outstanding. → **certify G3.**
 8. **UX-16, UX-17, UX-18** behind rollback flags.
 9. **UX-19**, then **UX-20** after parity. **UX-21** steps 1–3 may run once G1
@@ -4195,7 +4199,6 @@ The nearest real milestone is therefore not "more packages" but **G1
 certification** — the browser and role evidence for work that is already
 written — followed by UX-00's journeys to unblock G0.
 
-§14.8's first shipped outcome is three-quarters delivered: three of the four
-fixes are on `main`, and `#247` is open for review. When it merges, no audited
-path in CALIBER will save, promote, review, or version one object while acting
-on another.
+§14.8's first shipped outcome now has all four of its fixes written. When they
+have all merged — see §15.2 — no audited path in CALIBER will save, promote,
+review, or version one object while acting on another.
