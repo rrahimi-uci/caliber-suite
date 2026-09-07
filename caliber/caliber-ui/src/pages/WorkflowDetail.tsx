@@ -2495,6 +2495,12 @@ export function WorkflowDetail(): JSX.Element {
           : selectedRunVersionNumber !== latest.version_number
       ),
     );
+  // The version this run actually executed, for the editor link in the
+  // mismatch notice. Prefer the resolved version row; fall back to the id the
+  // run itself recorded, which survives even when the version list has not
+  // loaded or the version has since been archived out of it.
+  const selectedRunEditorVersionId =
+    selectedRunVersion?.version_id ?? selectedRun?.workflow_version_id ?? null;
   const selectedWaitNode = (
     selectedRun?.status === "waiting_event"
     && selectedRun.current_node_id
@@ -2947,9 +2953,15 @@ export function WorkflowDetail(): JSX.Element {
           {latest && (
             <Link
               to={`/workflows/${workflowId}/editor/${latest.version_id}`}
+              data-testid="workflow-open-editor"
               className="rounded-xl border border-slate-200/60 bg-white px-4 py-2 text-sm font-semibold text-slate-700 shadow-card transition-all hover:shadow-card-hover hover:-translate-y-0.5"
             >
-              Open in Editor
+              {/* Name the target. This button opens the latest published
+                  version, which is not necessarily the version the run you
+                  were just looking at executed -- and a published version is
+                  read-only, so landing on the wrong one is a dead end until
+                  you notice. */}
+              Open v{latest.version_number} in Editor
             </Link>
           )}
           {draft && (
@@ -3823,6 +3835,23 @@ export function WorkflowDetail(): JSX.Element {
                     className="mt-2 rounded-xl border border-sky-200/70 bg-sky-50/70 px-3 py-3 text-xs text-sky-900"
                   >
                     Viewing executed workflow version v{selectedRunVersionNumber}. The latest published version is v{latest.version_number}, so replay and debugger panels stay pinned to the run's original graph for accurate inspection.
+                    {/* The recovery step the notice used to leave out. Knowing
+                        the run executed v{'{'}n{'}'} is only useful if you can open
+                        v{'{'}n{'}'} -- and the header's editor button goes to the
+                        latest published version, not this one. */}
+                    {selectedRunEditorVersionId && (
+                      <>
+                        {" "}
+                        <Link
+                          to={`/workflows/${workflowId}/editor/${selectedRunEditorVersionId}`}
+                          data-testid="run-version-open-editor"
+                          className="font-semibold underline decoration-sky-400 underline-offset-2 hover:text-sky-950"
+                        >
+                          Open v{selectedRunVersionNumber} in Editor
+                        </Link>
+                        {" — it opens read-only, with Restore as draft if you need to change it."}
+                      </>
+                    )}
                   </div>
                 )}
                 {!selectedRunManifest && selectedRunManifestLoading && (
