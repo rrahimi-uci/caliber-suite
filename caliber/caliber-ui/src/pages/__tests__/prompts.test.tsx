@@ -1959,8 +1959,21 @@ describe("Prompts", () => {
     expect(createSessionCalls).toBe(0);
   });
 
-  it("opens edit form and saves a new prompt version", async () => {
-    let saved = false;
+  /**
+   * The button used to read "Save as New Version" and then promote the
+   * created version to `editTargetAlias` with `overridden: true`. Two
+   * defects in one click: a control that said "save" changed what production
+   * served, and the promote claimed a human had knowingly overridden a gate
+   * verdict -- the eval gate is advisory in v1, so that flag never bypassed a
+   * check, it only wrote a false attribution into the audit row the Releases
+   * timeline and `rollback_prompt` both read.
+   *
+   * These two tests pin the split from both directions: saving must not
+   * promote, and promoting must be a deliberate second act.
+   */
+  it("saves a new prompt version without touching what is live", async () => {
+    let savedTemplate: string | null = null;
+    let aliasCalls = 0;
     server.use(
       http.get(`${API_BASE}/prompts/support-agent`, () =>
         HttpResponse.json(
@@ -1978,9 +1991,7 @@ describe("Prompts", () => {
         `${API_BASE}/prompts/support-agent/versions`,
         async ({ request }) => {
           const body = (await request.json()) as Record<string, unknown>;
-          if (body.template === "You are support-agent v4") {
-            saved = true;
-          }
+          savedTemplate = body.template as string;
           return HttpResponse.json(
             envelope({
               name: "support-agent",
@@ -1993,34 +2004,273 @@ describe("Prompts", () => {
           );
         },
       ),
+      // Present so a regression fails on the assertion below rather than on
+      // an unhandled-request error.
+      http.post(`${API_BASE}/prompts/support-agent/aliases/:alias`, () => {
+        aliasCalls += 1;
+        return HttpResponse.json(
+          envelope({ name: "support-agent", alias: "prod", version: 4 }),
+        );
+      }),
     );
 
     const user = userEvent.setup();
     renderPrompts();
     await screen.findByRole("heading", { name: "Prompts" });
 
-    const editButtons = await screen.findAllByRole("button", { name: "Edit" });
-    await user.click(editButtons[0]!);
-
+    await user.click((await screen.findAllByRole("button", { name: "Edit" }))[0]!);
     expect(
       await screen.findByText("Edit Prompt: Support Agent"),
     ).toBeInTheDocument();
+    // The copy states what saving does, and what it does not do.
     expect(
-      screen.getByText(/updates the alias you selected above/i),
+      screen.getByText(/does not change what is live/i),
     ).toBeInTheDocument();
 
     const templateInput = screen.getByPlaceholderText(
       "Prompt template",
     ) as HTMLTextAreaElement;
     expect(templateInput.value).toBe("You are support-agent v3");
-
     await user.clear(templateInput);
     await user.type(templateInput, "You are support-agent v4");
 
-    await user.click(
-      screen.getByRole("button", { name: "Save as New Version" }),
+    await user.click(screen.getByTestId("prompt-edit-save"));
+
+    await waitFor(() => expect(savedTemplate).toBe("You are support-agent v4"));
+    // The whole point: no alias was rotated.
+    expect(aliasCalls).toBe(0);
+    // And the panel now names the saved version and the pending promotion.
+    expect(await screen.findByText(/Saved v4/)).toBeInTheDocument();
+  });
+
+  it("promotes the saved version only when asked, and claims no gate override", async () => {
+    let aliasPath: string | null = null;
+    let aliasBody: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`${API_BASE}/prompts/support-agent`, () =>
+        HttpResponse.json(
+          envelope({
+            name: "support-agent",
+            version: 3,
+            alias: "prod",
+            template: "You are support-agent v3",
+            template_length: 24,
+            artifact_ref: "prompts:/support-agent@prod",
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/prompts/support-agent/versions`, () =>
+        HttpResponse.json(
+          envelope({
+            name: "support-agent",
+            version: 4,
+            uri: "prompts:/support-agent/4",
+            template_preview: "You are support-agent v4",
+            template_length: 24,
+          }),
+          { status: 201 },
+        ),
+      ),
+      http.post(
+        `${API_BASE}/prompts/support-agent/aliases/:alias`,
+        async ({ params, request }) => {
+          aliasPath = params.alias as string;
+          aliasBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            envelope({ name: "support-agent", alias: "prod", version: 4 }),
+          );
+        },
+      ),
     );
-    expect(saved).toBe(true);
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await user.click((await screen.findAllByRole("button", { name: "Edit" }))[0]!);
+    const templateInput = (await screen.findByPlaceholderText(
+      "Prompt template",
+    )) as HTMLTextAreaElement;
+    await user.clear(templateInput);
+    await user.type(templateInput, "You are support-agent v4");
+
+    // No promote control exists until something has been saved -- there is no
+    // version to promote.
+    expect(screen.queryByTestId("prompt-edit-promote")).not.toBeInTheDocument();
+
+    await user.click(screen.getByTestId("prompt-edit-save"));
+
+    const promote = await screen.findByTestId("prompt-edit-promote");
+    // The control names both the version and the destination. This suite
+    // mocks a multi-environment config, so the default target is @staging
+    // (the shipped single-environment default is asserted in
+    // environment-single-env.test.tsx).
+    expect(promote).toHaveTextContent("Promote v4 to @staging");
+
+    // Retargeting the alias retargets the button, so the label cannot name a
+    // destination other than the one the request will use.
+    await user.selectOptions(
+      screen.getByLabelText("Promote prompt alias"),
+      "prod",
+    );
+    expect(screen.getByTestId("prompt-edit-promote")).toHaveTextContent(
+      "Promote v4 to @prod",
+    );
+    await user.click(screen.getByTestId("prompt-edit-promote"));
+
+    await waitFor(() => expect(aliasPath).toBe("prod"));
+    expect(aliasBody).toMatchObject({ version: 4, gate_state: "none" });
+    // `overridden` is audit attribution, not enforcement. Nothing was
+    // overridden here, and saying otherwise falsifies the row.
+    expect(aliasBody!.overridden).toBe(false);
+    expect(aliasBody).not.toHaveProperty("override_reason");
+  });
+
+  it("does not carry a saved version across a prompt switch", async () => {
+    // "Switch prompt" re-opens the panel for a different prompt without
+    // closing it, so a saved-version number scoped to the previous prompt
+    // would leave the promote button offering to promote *that* version
+    // number against the *new* prompt.
+    server.use(
+      http.get(`${API_BASE}/prompts`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              agent_id: "support-agent",
+              agent_name: "Support Agent",
+              agent_enabled: true,
+              prompt_name: "support-agent",
+              version: 3,
+              alias: "prod",
+              template_preview: "Support prompt",
+              template_length: 14,
+              approval_id: null,
+              artifact_ref: "prompts:/support-agent@prod",
+              has_prompt: true,
+              source: "both",
+            },
+            {
+              agent_id: "other-agent",
+              agent_name: "Other Agent",
+              agent_enabled: true,
+              prompt_name: "other-agent",
+              version: 1,
+              alias: "prod",
+              template_preview: "Other prompt",
+              template_length: 12,
+              approval_id: null,
+              artifact_ref: "prompts:/other-agent@prod",
+              has_prompt: true,
+              source: "both",
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/prompts/:name`, ({ params }) =>
+        HttpResponse.json(
+          envelope({
+            name: params.name,
+            version: 3,
+            alias: "prod",
+            template: `Template for ${params.name}`,
+            template_length: 20,
+            artifact_ref: `prompts:/${params.name}@prod`,
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/prompts/support-agent/versions`, () =>
+        HttpResponse.json(
+          envelope({
+            name: "support-agent",
+            version: 9,
+            uri: "prompts:/support-agent/9",
+            template_preview: "edited",
+            template_length: 6,
+          }),
+          { status: 201 },
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await user.click((await screen.findAllByRole("button", { name: "Edit" }))[0]!);
+    const template = (await screen.findByPlaceholderText(
+      "Prompt template",
+    )) as HTMLTextAreaElement;
+    await user.clear(template);
+    await user.type(template, "edited");
+    await user.click(screen.getByTestId("prompt-edit-save"));
+    expect(await screen.findByTestId("prompt-edit-promote")).toHaveTextContent(
+      "Promote v9",
+    );
+
+    // Switch to the other prompt without closing the panel.
+    await user.selectOptions(
+      screen.getByLabelText("Switch prompt"),
+      "other-agent",
+    );
+
+    await waitFor(() =>
+      expect(screen.queryByTestId("prompt-edit-promote")).not.toBeInTheDocument(),
+    );
+  });
+
+  it("will not promote while there are unsaved edits", async () => {
+    // A successful promote closes the panel, so promoting with edits still in
+    // the box would discard them silently.
+    server.use(
+      http.get(`${API_BASE}/prompts/support-agent`, () =>
+        HttpResponse.json(
+          envelope({
+            name: "support-agent",
+            version: 3,
+            alias: "prod",
+            template: "You are support-agent v3",
+            template_length: 24,
+            artifact_ref: "prompts:/support-agent@prod",
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/prompts/support-agent/versions`, () =>
+        HttpResponse.json(
+          envelope({
+            name: "support-agent",
+            version: 4,
+            uri: "prompts:/support-agent/4",
+            template_preview: "v4",
+            template_length: 2,
+          }),
+          { status: 201 },
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await user.click((await screen.findAllByRole("button", { name: "Edit" }))[0]!);
+    const template = (await screen.findByPlaceholderText(
+      "Prompt template",
+    )) as HTMLTextAreaElement;
+    await user.clear(template);
+    await user.type(template, "v4");
+    await user.click(screen.getByTestId("prompt-edit-save"));
+
+    const promote = await screen.findByTestId("prompt-edit-promote");
+    expect(promote).toBeEnabled();
+
+    // Edit again after saving.
+    await user.type(template, " plus more");
+
+    expect(screen.getByTestId("prompt-edit-promote")).toBeDisabled();
+    // And the panel says what to do about it rather than just greying out.
+    expect(
+      screen.getByText(/edited it since. Save again before promoting/i),
+    ).toBeInTheDocument();
   });
 
   it("can switch to another prompt while editor is open", async () => {
@@ -3239,17 +3489,13 @@ describe("Prompts — create/edit error flows", () => {
     );
     const template = await screen.findByPlaceholderText("Prompt template");
     await user.clear(template);
-    await user.click(
-      screen.getByRole("button", { name: "Save as New Version" }),
-    );
+    await user.click(screen.getByTestId("prompt-edit-save"));
     expect(
       await screen.findByText("Template is required."),
     ).toBeInTheDocument();
 
     await user.type(template, "Updated template");
-    await user.click(
-      screen.getByRole("button", { name: "Save as New Version" }),
-    );
+    await user.click(screen.getByTestId("prompt-edit-save"));
     expect(await screen.findByText("save failed")).toBeInTheDocument();
   });
 
