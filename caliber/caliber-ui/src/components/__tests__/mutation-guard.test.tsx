@@ -1,5 +1,7 @@
-import { render, screen } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen } from "@testing-library/react";
+import userEvent from "@testing-library/user-event";
+import type { FormEvent } from "react";
+import { describe, expect, it, vi } from "vitest";
 
 import { MutationGuard } from "@/components/MutationGuard";
 import { SCOPE_ADMIN, SCOPE_OPERATOR, SCOPE_VIEWER } from "@/lib/scopes";
@@ -35,19 +37,138 @@ describe("MutationGuard", () => {
     expect(screen.getByText("Requires Operator access.")).toBeInTheDocument();
   });
 
-  it("removes a blocked control from the accessibility tree and the tab order", () => {
+  /**
+   * These tests replace an earlier one that asserted
+   * ``queryByRole("button")`` returned nothing. That assertion passed for the
+   * wrong reason: ``aria-hidden`` had removed the control from the
+   * accessibility tree while leaving it fully keyboard-operable — Tab reached
+   * it and Enter fired its handler. The test measured a11y-tree presence and
+   * was read as proving unreachability, so it hid the bypass instead of
+   * catching it.
+   *
+   * What matters is behavioural, so that is what is asserted now: focus cannot
+   * reach it, and activation does nothing even if focus somehow does.
+   */
+  it("keeps a blocked control out of the tab order", async () => {
+    const user = userEvent.setup();
+    render(
+      <>
+        <button type="button">before</button>
+        <MutationGuard scopes={VIEWER} requires={[SCOPE_OPERATOR]}>
+          <button type="button">Publish</button>
+        </MutationGuard>
+        <button type="button">after</button>
+      </>,
+    );
+
+    screen.getByRole("button", { name: "before" }).focus();
+    await user.tab();
+
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "after" }));
+  });
+
+  it("does not activate a blocked control by keyboard, even when focused", async () => {
+    // pointer-events: none stops the mouse and nothing else, so a focused
+    // button would still fire on Enter or Space without the capture-phase
+    // interception.
+    const onClick = vi.fn();
+    const user = userEvent.setup();
+    render(
+      <MutationGuard scopes={VIEWER} requires={[SCOPE_OPERATOR]}>
+        <button type="button" onClick={onClick}>Publish</button>
+      </MutationGuard>,
+    );
+
+    const inner = screen
+      .getByTestId("mutation-guard-blocked")
+      .querySelector("button")!;
+    inner.focus(); // programmatic focus bypasses tabindex entirely
+
+    await user.keyboard("{Enter}");
+    await user.keyboard(" ");
+
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("does not activate a blocked control by click", () => {
+    const onClick = vi.fn();
+    render(
+      <MutationGuard scopes={VIEWER} requires={[SCOPE_OPERATOR]}>
+        <button type="button" onClick={onClick}>Publish</button>
+      </MutationGuard>,
+    );
+
+    const inner = screen
+      .getByTestId("mutation-guard-blocked")
+      .querySelector("button")!;
+    // fireEvent, not userEvent: userEvent honours pointer-events and would
+    // refuse to dispatch, which proves the CSS works but not the handler guard.
+    fireEvent.click(inner);
+
+    expect(onClick).not.toHaveBeenCalled();
+  });
+
+  it("does not submit a form from inside a blocked control", () => {
+    const onSubmit = vi.fn((event: FormEvent) => event.preventDefault());
+    render(
+      <form onSubmit={onSubmit}>
+        <MutationGuard scopes={VIEWER} requires={[SCOPE_OPERATOR]}>
+          <button type="submit">Save</button>
+        </MutationGuard>
+      </form>,
+    );
+
+    const inner = screen
+      .getByTestId("mutation-guard-blocked")
+      .querySelector("button")!;
+    fireEvent.click(inner);
+
+    expect(onSubmit).not.toHaveBeenCalled();
+  });
+
+  it("announces the blocked state rather than leaving it silent", () => {
+    // The control stays in the accessibility tree on purpose. Hiding it from
+    // assistive technology is what made the bypass hard to see, and a user
+    // who cannot perceive the action cannot learn why it is unavailable.
     render(
       <MutationGuard scopes={VIEWER} requires={[SCOPE_OPERATOR]}>
         <button type="button">Publish</button>
       </MutationGuard>,
     );
 
-    // The button must not be reachable as an interactive control...
-    expect(screen.queryByRole("button", { name: "Publish" })).not.toBeInTheDocument();
-    // ...but the reason must be, so the state is announced rather than silent.
     const blocked = screen.getByTestId("mutation-guard-blocked");
     expect(blocked.querySelector('[aria-disabled="true"]')).not.toBeNull();
     expect(blocked).toHaveAttribute("data-blocked-reason", "Requires Operator access.");
+    expect(screen.getByText("Requires Operator access.")).toBeInTheDocument();
+  });
+
+  it("returns the control to the tab order once access arrives", async () => {
+    // A guard that parks tabindex has to put it back, or a control stays
+    // unreachable after the user's scopes finish loading.
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <>
+        <button type="button">before</button>
+        <MutationGuard scopes={VIEWER} requires={[SCOPE_OPERATOR]}>
+          <button type="button">Publish</button>
+        </MutationGuard>
+      </>,
+    );
+
+    rerender(
+      <>
+        <button type="button">before</button>
+        <MutationGuard scopes={OPERATOR} requires={[SCOPE_OPERATOR]}>
+          <button type="button">Publish</button>
+        </MutationGuard>
+      </>,
+    );
+
+    const publish = screen.getByRole("button", { name: "Publish" });
+    expect(publish).not.toHaveAttribute("tabindex", "-1");
+    screen.getByRole("button", { name: "before" }).focus();
+    await user.tab();
+    expect(document.activeElement).toBe(publish);
   });
 
   it("names every accepted scope when any one of several grants the action", () => {
@@ -97,7 +218,10 @@ describe("MutationGuard", () => {
     );
 
     expect(screen.getByText("Checking your access…")).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Publish" })).not.toBeInTheDocument();
+    // Present but inoperable — see "announces the blocked state" above.
+    expect(
+      screen.getByTestId("mutation-guard-blocked").querySelector("button"),
+    ).toHaveAttribute("tabindex", "-1");
   });
 
   it("blocks an unloaded identity even without the loading flag", () => {

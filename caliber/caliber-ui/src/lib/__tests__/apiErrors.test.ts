@@ -102,6 +102,22 @@ describe("describeApiError — structured validation failures", () => {
     ]);
   });
 
+  it("does not merge two distinct issues whose text would collide", () => {
+    // The de-dupe key is JSON-encoded rather than delimiter-joined. Any
+    // single-character separator has to be one that cannot occur in a field
+    // path, and the tempting choice -- NUL -- makes the source file binary to
+    // ripgrep and some linters. These two entries join to the same string
+    // under a space separator and must still count as two problems.
+    const described = describeApiError(
+      validationError([
+        { loc: ["a"], msg: "b c", type: "value_error" },
+        { loc: ["a", "b"], msg: "c", type: "value_error" },
+      ]),
+    );
+
+    expect(described.issues).toHaveLength(2);
+  });
+
   it("honours a per-surface label override", () => {
     const described = describeApiError(
       validationError([{ loc: ["artifact_ref"], msg: "field required", type: "missing" }]),

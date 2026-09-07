@@ -666,12 +666,16 @@ const SIDE_EFFECT_OPTIONS = [
  * outright. Coupling the controls here is what stops a user assembling an
  * invalid tool and discovering it at submit.
  */
-const SIDE_EFFECTS_REQUIRING_APPROVAL: ReadonlySet<string> = new Set([
-  "write",
-  "external_action",
-]);
+type SideEffectLevel = WizardFormData["side_effect_level"];
 
-function requiresApprovalFor(sideEffectLevel: string): boolean {
+const SIDE_EFFECTS_REQUIRING_APPROVAL: ReadonlySet<SideEffectLevel> = new Set<SideEffectLevel>(
+  ["write", "external_action"],
+);
+
+// Typed against the form's own union rather than ``string``, so adding a
+// fourth side-effect level is a compile error here instead of a silently
+// ungoverned tool.
+function requiresApprovalFor(sideEffectLevel: SideEffectLevel): boolean {
   return SIDE_EFFECTS_REQUIRING_APPROVAL.has(sideEffectLevel);
 }
 

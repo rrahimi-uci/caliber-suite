@@ -25,6 +25,7 @@ import type {
   WorkflowNodeType,
   WorkflowRuntimeConfig,
   WorkflowTemplateKind,
+  WorkflowMcpToolBinding,
   WorkflowToolBinding,
 } from "@/api/workflowTypes";
 
@@ -2472,13 +2473,30 @@ export function ensureAgentToolBindings(
       // unattended. An operator who knows better can lower it in the Inspector
       // or classify the tool on the MCP server; neither is possible after an
       // ungoverned tool has already run.
+      // A policy that exists is a decision, even where it leans on a field
+      // default. ``McpServerSchema.tool_policies`` is typed
+      // ``dict[str, object]`` -- a raw passthrough -- so a policy stored
+      // before a field existed arrives with that key absent, and filling it
+      // with the *safe* default rather than the *server's* default would
+      // substitute our judgement for the operator's. These fallbacks mirror
+      // ``McpToolPolicySchema``'s own declared defaults.
+      //
+      // No policy object at all is a different case: nobody has decided, and
+      // "undecided" must not render as "harmless". Calling an MCP tool hands
+      // its arguments to a separate server process, so the unclassified
+      // default is external_action + approval, which an operator can lower
+      // once they have classified the tool.
       const policy = server.tool_policies?.[mcpToolName];
+      const sideEffectLevel: WorkflowMcpToolBinding["side_effect_level"] = policy
+        ? (policy.side_effect_level ?? "read")
+        : "external_action";
+      const requiresApproval = policy ? (policy.requires_approval ?? false) : true;
       nextTools[toolName] = {
         type: "mcp_tool",
         server_id: server.server_id,
         tool_name: mcpToolName,
-        side_effect_level: policy?.side_effect_level ?? "external_action",
-        requires_approval: policy?.requires_approval ?? true,
+        side_effect_level: sideEffectLevel,
+        requires_approval: requiresApproval,
         max_retries: 0,
       };
     }
