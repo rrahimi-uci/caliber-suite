@@ -678,3 +678,99 @@ def test_delete_mcp_server_allowed_when_nothing_current_or_checkpointed_uses_it(
 
     assert client.delete(f"{BASE}/MCP-free").status_code == 204
     assert db_session.get(CaliberMcpServer, "MCP-free") is None
+
+
+def test_reads_still_work_for_policies_saved_before_the_approval_rule(
+    client: TestClient, db_session: Session
+) -> None:
+    """A write-time rule must never make already-written data unreadable.
+
+    UX-07 couples ``side_effect_level`` to ``requires_approval``, but
+    ``McpToolPolicySchema`` serializes *stored* state as well as parsing input.
+    Enforcing the rule inside that schema meant any policy saved before the rule
+    existed -- including the very common ``{"allowed": true,
+    "side_effect_level": "write"}`` shape, where ``requires_approval`` defaults
+    to false -- turned every read of the owning server into a 400, taking the
+    MCP Servers page down with it. The check belongs on the write paths only.
+    """
+    _seed(
+        db_session,
+        discovered_tools=[{"name": "execute_sql", "description": "raw"}],
+        # Exactly the pre-existing shape the rule would now reject on write.
+        tool_policies={"execute_sql": {"allowed": True, "side_effect_level": "write"}},
+    )
+
+    listed = client.get(f"{BASE}/MCP-r1/tools")
+    assert listed.status_code == 200, listed.text
+    policy = listed.json()["data"]["tools"][0]["policy"]
+    assert policy["side_effect_level"] == "write"
+    assert policy["requires_approval"] is False
+
+    detail = client.get(f"{BASE}/MCP-r1")
+    assert detail.status_code == 200, detail.text
+    assert client.get(BASE).status_code == 200
+
+
+def test_policy_patch_cannot_leave_a_writer_unapproved(
+    client: TestClient, db_session: Session
+) -> None:
+    # The write path still enforces the rule against the *merged* policy, so a
+    # legacy row can be read but not left in that state by a new edit.
+    _seed(
+        db_session,
+        discovered_tools=[{"name": "execute_sql", "description": "raw"}],
+        tool_policies={
+            "execute_sql": {
+                "allowed": True,
+                "side_effect_level": "read",
+                "requires_approval": False,
+            }
+        },
+    )
+
+    r = client.patch(
+        f"{BASE}/MCP-r1/tools/execute_sql/policy",
+        json={"side_effect_level": "external_action"},
+    )
+    assert r.status_code == 400, r.text
+    assert "requires_approval" in r.json()["detail"]
+
+    # Both halves together are accepted.
+    ok = client.patch(
+        f"{BASE}/MCP-r1/tools/execute_sql/policy",
+        json={"side_effect_level": "external_action", "requires_approval": True},
+    )
+    assert ok.status_code == 200, ok.text
+    assert ok.json()["data"]["policy"]["requires_approval"] is True
+
+    # And clearing approval on the now-external tool is refused.
+    cleared = client.patch(
+        f"{BASE}/MCP-r1/tools/execute_sql/policy",
+        json={"requires_approval": False},
+    )
+    assert cleared.status_code == 400, cleared.text
+
+
+def test_policy_patch_can_deny_a_writer_without_approval(
+    client: TestClient, db_session: Session
+) -> None:
+    # Switching a tool off must stay possible: a denied tool cannot execute, so
+    # its approval flag is moot and requiring it would block the safest edit.
+    _seed(
+        db_session,
+        discovered_tools=[{"name": "execute_sql", "description": "raw"}],
+        tool_policies={
+            "execute_sql": {
+                "allowed": True,
+                "side_effect_level": "read",
+                "requires_approval": False,
+            }
+        },
+    )
+
+    r = client.patch(
+        f"{BASE}/MCP-r1/tools/execute_sql/policy",
+        json={"allowed": False, "side_effect_level": "external_action"},
+    )
+    assert r.status_code == 200, r.text
+    assert r.json()["data"]["policy"]["allowed"] is False

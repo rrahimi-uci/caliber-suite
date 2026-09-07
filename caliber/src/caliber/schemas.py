@@ -18,7 +18,7 @@ from __future__ import annotations
 # Auth-binding validation is a finite, mutually exclusive schema matrix.
 # ruff: noqa: PLR0912, SIM102
 from datetime import datetime
-from typing import Any, Generic, Literal, TypeVar
+from typing import Any, Final, Generic, Literal, TypeVar
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -996,6 +996,29 @@ class PromptBindRequest(BaseModel):
 
 
 TOOL_SIDE_EFFECT_PATTERN = "^(read|write|external_action)$"
+
+#: Side-effect levels that reach beyond CALIBER's own state and therefore
+#: cannot run unattended. ``write`` mutates internal systems; ``external_action``
+#: sends data to third parties. Neither is recoverable by re-running, so both
+#: require a human in the loop.
+#:
+#: Coupling this to ``requires_approval`` in the schema -- rather than only in
+#: the wizard -- is the point: the form is an affordance, the schema is the
+#: guarantee. Without it, ``POST /caliber/tools`` accepts an external-action
+#: tool with approval disabled, which is the only unguarded path to an
+#: ungoverned write tool.
+SIDE_EFFECTS_REQUIRING_APPROVAL: Final[frozenset[str]] = frozenset({"write", "external_action"})
+
+
+def require_approval_for_side_effect(side_effect_level: str, requires_approval: bool) -> None:
+    """Raise when a side-effecting tool is configured without approval."""
+    if side_effect_level in SIDE_EFFECTS_REQUIRING_APPROVAL and not requires_approval:
+        raise ValueError(
+            f"side_effect_level {side_effect_level!r} requires requires_approval=true; "
+            "lower the side-effect level or enable approval"
+        )
+
+
 TOOL_STATUS_PATTERN = "^(active|deprecated|archived)$"
 TOOL_EXECUTION_BACKEND_PATTERN = "^(python_callable|openapi_http)$"
 OPENAPI_TOOL_DRAFT_STATUS_PATTERN = "^(draft|ready|published|archived)$"
@@ -1058,6 +1081,11 @@ class ToolRegisterRequest(BaseModel):
     allow_in_preview: bool = False
     secret_refs: list[str] = Field(default_factory=list)
     owner: str = Field(default="", max_length=256)
+
+    @model_validator(mode="after")
+    def _approval_matches_side_effect(self) -> ToolRegisterRequest:
+        require_approval_for_side_effect(self.side_effect_level, self.requires_approval)
+        return self
 
 
 class ToolUpdateRequest(BaseModel):
@@ -4024,6 +4052,13 @@ class McpToolPolicySchema(BaseModel):
     side_effect_level: str = Field(default="read", pattern=MCP_SIDE_EFFECT_PATTERN)
     requires_approval: bool = False
     rate_limit_per_minute: int | None = Field(default=None, ge=1, le=100_000)
+
+    # NOTE: the side-effect/approval coupling is deliberately *not* enforced
+    # here. This schema serializes stored state as well as parsing input, and a
+    # rule about what may be written must never make already-written data
+    # unreadable -- a policy saved before the rule existed would otherwise 400
+    # the MCP Servers page that lists it. The check lives on the two write
+    # paths in routes/mcp_servers.py instead.
 
 
 class McpServerSchema(BaseModel):
