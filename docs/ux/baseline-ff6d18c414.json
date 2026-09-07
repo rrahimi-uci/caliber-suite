@@ -1,0 +1,115 @@
+{
+  "routes": {
+    "total": 35,
+    "addressable": 33,
+    "distinct": 32,
+    "wildcard": 2,
+    "parameterized": 9,
+    "paths": [
+      "/",
+      "/administration",
+      "/agents",
+      "/agents/:agentId",
+      "/aria/plans",
+      "/audit-log",
+      "/cookbooks",
+      "/eval-datasets",
+      "/eval-datasets/:datasetId",
+      "/evaluations",
+      "/evaluations/:runId",
+      "/gateway",
+      "/judges",
+      "/knowledge-bases",
+      "/login",
+      "/mcp-servers",
+      "/object-store",
+      "/observability",
+      "/openapi-integrations",
+      "/prompts",
+      "/releases",
+      "/review-queues",
+      "/settings",
+      "/skills",
+      "/skills/:skillId",
+      "/tools",
+      "/tools/:toolId",
+      "/workflow-runs/:runId",
+      "/workflow-versions/:versionId",
+      "/workflows",
+      "/workflows/:workflowId",
+      "/workflows/:workflowId/editor/:versionId"
+    ],
+    "detailRoutes": [
+      "/agents/:agentId",
+      "/eval-datasets/:datasetId",
+      "/evaluations/:runId",
+      "/skills/:skillId",
+      "/tools/:toolId",
+      "/workflow-runs/:runId",
+      "/workflow-versions/:versionId",
+      "/workflows/:workflowId",
+      "/workflows/:workflowId/editor/:versionId"
+    ]
+  },
+  "unroutedPages": [
+    "Overview",
+    "SkillWizard",
+    "ToolWizard"
+  ],
+  "pages": {
+    "total": 34,
+    "withPageHeader": 18,
+    "passingCrumbs": 1,
+    "totalLines": 56624,
+    "heaviest": [
+      {
+        "file": "KnowledgeBases.tsx",
+        "lines": 9021
+      },
+      {
+        "file": "Prompts.tsx",
+        "lines": 8192
+      },
+      {
+        "file": "WorkflowEditor.tsx",
+        "lines": 5321
+      },
+      {
+        "file": "WorkflowDetail.tsx",
+        "lines": 4788
+      },
+      {
+        "file": "McpServers.tsx",
+        "lines": 3519
+      }
+    ]
+  },
+  "duplicatedHelpers": {
+    "count": 22,
+    "names": [
+      "approvalCapabilityMessage",
+      "checkpointState",
+      "checkpointWaitUntilDisplay",
+      "formatResumeEventPayload",
+      "initialLifecycleEvents",
+      "isRecord",
+      "normalizeRunStep",
+      "parseJsonObjectText",
+      "readNumber",
+      "readString",
+      "runActionErrorDetail",
+      "toolBindingTone",
+      "waitUntilDisplay",
+      "workflowRunApprovalActionFailureMessage",
+      "workflowRunCheckpointIdentityIssue",
+      "workflowRunResumeByEventFailureMessage",
+      "workflowRunResumeByEventIssue",
+      "workflowRunResumeCorrelationMatches",
+      "workflowRunResumeCorrelationValueLabel",
+      "workflowRunResumeEventNameIssue",
+      "workflowRunResumeFailureMessage",
+      "workflowRunRetryFailureMessage"
+    ]
+  },
+  "mutatingCallSites": 132
+}
