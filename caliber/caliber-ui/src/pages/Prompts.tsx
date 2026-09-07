@@ -261,6 +261,10 @@ export function Prompts(): JSX.Element {
   );
   const [loadingEdit, setLoadingEdit] = useState(false);
   const [savingEdit, setSavingEdit] = useState(false);
+  // Set once the edit has been saved as a version, which is what unlocks the
+  // separate Promote step. Null means "nothing saved yet in this panel".
+  const [savedEditVersion, setSavedEditVersion] = useState<number | null>(null);
+  const [promotingEdit, setPromotingEdit] = useState(false);
   const [editError, setEditError] = useState<string | null>(null);
   const [initialEditTemplate, setInitialEditTemplate] = useState("");
   const [showVersions, setShowVersions] = useState(false);
@@ -497,6 +501,8 @@ export function Prompts(): JSX.Element {
     setInitialEditTemplate("");
     setEditCommitMessage("");
     setEditTargetAlias(SINGLE_ENVIRONMENT ? LIVE_ALIAS : "staging");
+    setSavedEditVersion(null);
+    setPromotingEdit(false);
     setEditError(null);
   };
 
@@ -512,6 +518,26 @@ export function Prompts(): JSX.Element {
     setCompareError(null);
   };
 
+  /**
+   * Save the edited template as a new immutable version. Nothing more.
+   *
+   * This used to create the version and then immediately promote it to
+   * ``editTargetAlias`` with ``overridden: true``, from a button labelled
+   * "Save as New Version". Two separate problems:
+   *
+   * - A control that says "save" changed what production served. Nothing on
+   *   the form said so except one line of body copy.
+   * - The promote carried ``overridden: true`` with a hardcoded
+   *   ``override_reason``. The eval gate is advisory in v1 (see
+   *   ``_extract_gate_details`` in routes/prompts.py: the fields exist "purely
+   *   so an operator override is attributable -- who promoted past a FAIL, and
+   *   why"), so that flag never bypassed a check. It wrote a *false
+   *   attribution* into the audit row that the Releases timeline and
+   *   ``rollback_prompt``'s ``wasLiveUntil`` pointer both read: a machine
+   *   claiming a human had knowingly overridden a gate.
+   *
+   * Promotion is now a separate, explicit step (``promoteSavedVersion``).
+   */
   const submitEditPrompt = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
     if (!editTarget) return;
@@ -527,13 +553,8 @@ export function Prompts(): JSX.Element {
         template: editTemplate,
         commit_message: editCommitMessage.trim() || undefined,
       });
-      await caliberApi.promotePrompt(promptName, created.version, {
-        alias: editTargetAlias,
-        gate_state: "none",
-        overridden: true,
-        override_reason: "direct prompt edit activation",
-      });
-      closeEditPanel();
+      setSavedEditVersion(created.version);
+      setInitialEditTemplate(editTemplate);
       refresh();
     } catch (err) {
       setEditError(
@@ -541,6 +562,38 @@ export function Prompts(): JSX.Element {
       );
     } finally {
       setSavingEdit(false);
+    }
+  };
+
+  /**
+   * Promote the version this panel just saved to the chosen alias.
+   *
+   * Deliberately a second action with its own button, its own busy state, and
+   * its own confirmation copy naming the alias. ``overridden`` is false
+   * because nothing was overridden -- the audit row should say a version was
+   * promoted, not that a human waved a gate through.
+   */
+  const promoteSavedVersion = async () => {
+    if (!editTarget || savedEditVersion === null) return;
+    const promptName = editTarget.prompt_name ?? editTarget.agent_id;
+    setPromotingEdit(true);
+    setEditError(null);
+    try {
+      await caliberApi.promotePrompt(promptName, savedEditVersion, {
+        alias: editTargetAlias,
+        gate_state: "none",
+        overridden: false,
+      });
+      closeEditPanel();
+      refresh();
+    } catch (err) {
+      setEditError(
+        err instanceof Error
+          ? err.message
+          : "Failed to promote the saved version",
+      );
+    } finally {
+      setPromotingEdit(false);
     }
   };
 
@@ -890,14 +943,16 @@ export function Prompts(): JSX.Element {
               </div>
               {!SINGLE_ENVIRONMENT && (
                 <div>
+                  {/* Names the *promote* target, not the save target --
+                      saving no longer touches an alias at all. */}
                   <label className="mb-1 block text-xs font-medium text-gray-700">
-                    Save version to alias
+                    Promote to alias
                   </label>
                   <select
-                    aria-label="Save prompt alias"
+                    aria-label="Promote prompt alias"
                     value={editTargetAlias}
                     onChange={(e) => setEditTargetAlias(e.target.value)}
-                    disabled={loadingEdit || savingEdit}
+                    disabled={loadingEdit || savingEdit || promotingEdit}
                     className="w-full rounded-md border border-gray-300 bg-white px-3 py-2 text-sm outline-none focus:border-caliber-500 focus:ring-1 focus:ring-caliber-500 disabled:bg-gray-100"
                   >
                     <option value="staging">@staging</option>
@@ -905,8 +960,8 @@ export function Prompts(): JSX.Element {
                     <option value="dev">@dev</option>
                   </select>
                   <p className="mt-1 text-[11px] text-blue-700">
-                    Save to <span className="font-mono">@staging</span> when you
-                    want to calibrate before promoting live.
+                    Promote to <span className="font-mono">@staging</span> when
+                    you want to calibrate before going live.
                   </p>
                 </div>
               )}
@@ -922,8 +977,9 @@ export function Prompts(): JSX.Element {
               )}
               <div className="flex items-center justify-end gap-2">
                 <p className="mr-auto text-[11px] text-blue-700">
-                  This creates a new version and updates the alias you selected
-                  above.
+                  {savedEditVersion === null
+                    ? "Saving creates a new immutable version. It does not change what is live."
+                    : `Saved v${savedEditVersion}. Nothing is live yet — promote it to @${editTargetAlias} when you are ready.`}
                 </p>
                 {isAdmin && (
                   <button
@@ -935,13 +991,36 @@ export function Prompts(): JSX.Element {
                     {deletingPrompt ? "Deleting..." : "Delete Prompt"}
                   </button>
                 )}
+                {/* One verb per control. "Save as New Version" used to do
+                    both, so the only honest label for it would have been
+                    "Save as New Version and Promote to Production". */}
                 <button
                   type="submit"
-                  disabled={loadingEdit || savingEdit || deletingPrompt}
-                  className="inline-flex items-center gap-2 rounded-md bg-caliber-600 px-3 py-2 text-xs font-medium text-white hover:bg-caliber-700 disabled:opacity-60"
+                  data-testid="prompt-edit-save"
+                  disabled={
+                    loadingEdit ||
+                    savingEdit ||
+                    promotingEdit ||
+                    deletingPrompt ||
+                    editTemplate === initialEditTemplate
+                  }
+                  className="inline-flex items-center gap-2 rounded-md border border-caliber-200 bg-white px-3 py-2 text-xs font-medium text-caliber-700 hover:bg-caliber-50 disabled:opacity-60"
                 >
-                  {savingEdit ? "Saving..." : "Save as New Version"}
+                  {savingEdit ? "Saving..." : "Save new version"}
                 </button>
+                {savedEditVersion !== null && (
+                  <button
+                    type="button"
+                    data-testid="prompt-edit-promote"
+                    onClick={() => void promoteSavedVersion()}
+                    disabled={savingEdit || promotingEdit || deletingPrompt}
+                    className="inline-flex items-center gap-2 rounded-md bg-caliber-600 px-3 py-2 text-xs font-medium text-white hover:bg-caliber-700 disabled:opacity-60"
+                  >
+                    {promotingEdit
+                      ? "Promoting..."
+                      : `Promote v${savedEditVersion} to @${editTargetAlias}`}
+                  </button>
+                )}
               </div>
             </form>
           </div>
@@ -1789,8 +1868,10 @@ function PromptAuthorStage({
         await caliberApi.promotePrompt(promptName, created.version, {
           alias: targetAlias,
           gate_state: "none",
-          overridden: true,
-          override_reason: "authoring-panel save and promote",
+          // This path already gates promotion behind an explicit argument, so
+          // the user did choose to promote -- but they did not override a gate
+          // verdict, and saying they did falsifies the audit row.
+          overridden: false,
         });
       }
       setInitialTemplate(template);

@@ -718,8 +718,13 @@ export function PromptBuilder({
       await caliberApi.promotePrompt(created.name, created.version, {
         alias: targetAlias,
         gate_state: "none",
-        overridden: true,
-        override_reason: "initial prompt activation from Prompt Builder",
+        // ``overridden`` records that a *human* knowingly promoted past a
+        // failing gate -- it is audit attribution, not enforcement (the eval
+        // gate is advisory in v1; see ``_extract_gate_details`` in
+        // routes/prompts.py). A brand-new prompt has no gate verdict to
+        // override, so claiming one wrote a false attribution into the row
+        // the Releases timeline and ``rollback_prompt`` both read.
+        overridden: false,
       });
       onCreated(
         { ...created, alias_changed: true, active_alias: targetAlias },
@@ -769,8 +774,7 @@ export function PromptBuilder({
       await caliberApi.promotePrompt(created.name, created.version, {
         alias: targetAlias,
         gate_state: "none",
-        overridden: true,
-        override_reason: "initial pasted-prompt activation",
+        overridden: false,
       });
       onCreated(
         { ...created, alias_changed: true, active_alias: targetAlias },
@@ -903,8 +907,7 @@ export function PromptBuilder({
       await caliberApi.promotePrompt(created.name, created.version, {
         alias: targetAlias,
         gate_state: "none",
-        overridden: true,
-        override_reason: "initial cloned-prompt activation",
+        overridden: false,
       });
       onCreated(
         { ...created, alias_changed: true, active_alias: targetAlias },
