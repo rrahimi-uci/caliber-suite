@@ -31,6 +31,7 @@ import {
   useApiQuery,
   useInvalidate,
 } from "@/hooks/useApiQuery";
+import { SCOPE_ADMIN, SCOPE_OPERATOR, hasScope } from "@/lib/scopes";
 import { relativeTime } from "@/lib/time";
 import { useRef, useState } from "react";
 
@@ -320,12 +321,11 @@ export function Releases(): JSX.Element {
   const invalidate = useInvalidate();
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
   const meQuery = useApiQuery(["me"], (signal) => caliberApi.getMe(signal));
-  const canOperate =
-    (meQuery.data?.scopes ?? []).includes("caliber.operator") ||
-    (meQuery.data?.is_admin ?? false);
-  const canAdmin =
-    (meQuery.data?.scopes ?? []).includes("caliber.admin") ||
-    (meQuery.data?.is_admin ?? false);
+  // ``GET /me`` returns the *effective* scope set (auth.py expands the
+  // hierarchy before responding), so an admin already carries
+  // ``caliber.operator`` — no local OR against ``is_admin`` is needed.
+  const canOperate = hasScope(meQuery.data?.scopes, SCOPE_OPERATOR);
+  const canAdmin = hasScope(meQuery.data?.scopes, SCOPE_ADMIN);
   const liveQuery = useApiQuery(["releases-live"], () =>
     caliberApi.listReleasesLive(),
   );

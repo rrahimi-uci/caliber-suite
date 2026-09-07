@@ -56,24 +56,63 @@ describe("AccessBadge", () => {
     expect(screen.queryByTestId("assistant-access-badge")).not.toBeInTheDocument();
   });
 
+  /**
+   * The payloads below are the ones ``GET /me`` actually returns.
+   * ``scopes_for_user`` (caliber/src/caliber/auth.py) issues the prefixed
+   * ``caliber.*`` names and expands the hierarchy before responding, so an
+   * admin's payload carries all four scopes.
+   *
+   * The previous version of this suite asserted against bare names
+   * (``["admin"]``, ``["operator"]``) that the server never issues. It passed
+   * against fixtures that could not occur, which is why the badge shipped
+   * labelling every admin "Viewer" with green tests.
+   */
   it.each([
-    [{ user_id: "@viewer", scopes: [], is_admin: false }, "Viewer", "scopes: none", "bg-slate-100"],
     [
-      { user_id: "@operator", scopes: ["operator"], is_admin: false },
+      { user_id: "@anonymous", scopes: [], is_admin: false },
+      "No access",
+      "Scopes: none",
+      "bg-slate-100",
+    ],
+    [
+      { user_id: "@viewer", scopes: ["caliber.viewer"], is_admin: false },
+      "Viewer",
+      "Scopes: caliber.viewer",
+      "bg-slate-100",
+    ],
+    [
+      {
+        user_id: "@operator",
+        scopes: ["caliber.operator", "caliber.viewer"],
+        is_admin: false,
+      },
       "Operator",
-      "scopes: operator",
+      "Scopes: caliber.operator, caliber.viewer",
       "bg-caliber-50",
     ],
     [
-      { user_id: "@admin", scopes: ["operator", "admin"], is_admin: true },
-      "Admin",
-      "scopes: operator, admin",
-      "bg-purple-50",
+      {
+        user_id: "@approver",
+        scopes: ["caliber.approver", "caliber.viewer"],
+        is_admin: false,
+      },
+      "Approver",
+      "Scopes: caliber.approver, caliber.viewer",
+      "bg-amber-50",
     ],
     [
-      { user_id: "@alt-admin", scopes: ["admin"], is_admin: false },
+      {
+        user_id: "@admin",
+        scopes: [
+          "caliber.admin",
+          "caliber.approver",
+          "caliber.operator",
+          "caliber.viewer",
+        ],
+        is_admin: true,
+      },
       "Admin",
-      "scopes: admin",
+      "Scopes: caliber.admin",
       "bg-purple-50",
     ],
   ])(
@@ -91,4 +130,69 @@ describe("AccessBadge", () => {
       expect(badge.className).toContain(classFragment);
     },
   );
+
+  it("labels a real admin payload Admin, not Viewer", async () => {
+    // The reported regression, stated directly: every admin was labelled
+    // "Viewer" because the badge compared against "admin" rather than
+    // "caliber.admin".
+    server.use(
+      http.get(`${API_BASE}/me`, () =>
+        HttpResponse.json({
+          data: {
+            user_id: "@admin",
+            scopes: [
+              "caliber.admin",
+              "caliber.approver",
+              "caliber.operator",
+              "caliber.viewer",
+            ],
+            is_admin: true,
+          },
+        }),
+      ),
+    );
+
+    render(<AccessBadge />);
+
+    const badge = await screen.findByTestId("assistant-access-badge");
+    expect(badge).toHaveTextContent("Admin");
+    expect(badge).not.toHaveTextContent("Viewer");
+  });
+
+  it("does not accept the bare scope names the server never issues", async () => {
+    // Guards the fixture mistake that hid the bug: if someone reintroduces
+    // bare-name matching, this payload would read as "Admin".
+    server.use(
+      http.get(`${API_BASE}/me`, () =>
+        HttpResponse.json({
+          data: { user_id: "@spoof", scopes: ["admin", "operator"], is_admin: false },
+        }),
+      ),
+    );
+
+    render(<AccessBadge />);
+
+    const badge = await screen.findByTestId("assistant-access-badge");
+    expect(badge).toHaveTextContent("No access");
+  });
+
+  it("reports the highest scope held regardless of payload order", async () => {
+    server.use(
+      http.get(`${API_BASE}/me`, () =>
+        HttpResponse.json({
+          data: {
+            user_id: "@admin",
+            scopes: ["caliber.viewer", "caliber.operator", "caliber.admin"],
+            is_admin: true,
+          },
+        }),
+      ),
+    );
+
+    render(<AccessBadge />);
+
+    expect(await screen.findByTestId("assistant-access-badge")).toHaveTextContent(
+      "Admin",
+    );
+  });
 });
