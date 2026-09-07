@@ -2782,12 +2782,12 @@ is broken out as its own lettered task rather than left implied.
 
 ### 15.2 Status ledger
 
-| ID | Outcome | Status | Wave · gate | Blast radius | Landed as |
+| ID | Outcome | Status | Wave · gate | Blast radius | PR |
 | --- | --- | --- | --- | --- | --- |
-| **UX-00** | UX evidence harness | **Partial** | 0 · G0 | M | `#248` (census only) |
+| **UX-00** | UX evidence harness | **In review** | 0 · G0 | M | `#248` — open, census only |
 | **UX-01** | Published workflow versions are read-only | **Landed** | 1 · G1 | S | `#239` |
 | **UX-01a** | Run recovery opens the run's own version | **Landed** | 1 · G1 | XS | `#245` |
-| **UX-02** | Split prompt save from promote | **In review** | 1 · G1 | S–M | `#247` |
+| **UX-02** | Split prompt save from promote | **In review** | 1 · G1 | S–M | `#247` — open |
 | **UX-03** | KB create/version target isolation | **Landed** | 1 · G1 | S | `#238` |
 | **UX-03a** | Name the KB a "New version" will mutate | **Landed** | 1 · G1 | XS | `#245` |
 | **UX-04** | Per-candidate release signoff state | **Landed** | 1 · G1 | XS | `#237` |
@@ -2810,13 +2810,15 @@ is broken out as its own lettered task rather than left implied.
 | **UX-21** | Complete wayfinding | Open | 4 · G4 | M | — |
 
 **Partial** means the package shipped a complete, independently-valuable
-outcome and left a named remainder. The remainder is not a to-do the PR
+outcome and left a named remainder. **In review** means the same shape, with
+the PR still open — UX-00 and UX-02 are both in that state, so nothing below
+should be read as merged for those two. The remainder is not a to-do the PR
 forgot; each one was scoped out for a stated reason, and each is listed here
 so it cannot quietly become "done":
 
 | ID | Shipped | Remainder, and why it was not shipped with it |
 | --- | --- | --- |
-| **UX-00** | The structural census and its committed baseline (`#248`) | Seeded role fixtures, the five persona journeys, keyboard traversal capture, and `evidence-limits.md`. The census makes the *counts* reproducible; it does not make the *journeys* observed, and G0 asks for both. |
+| **UX-00** *(in review)* | The structural census and its committed baseline (`#248`, open) | Seeded role fixtures, the five persona journeys, keyboard traversal capture, and `evidence-limits.md`. The census makes the *counts* reproducible; it does not make the *journeys* observed, and G0 asks for both. |
 | **UX-05** | `describeApiError`/`apiErrorText`, the `ApiErrorMessage` component, and 53 call sites across the six highest-traffic surfaces (`#243`) | ~20 remaining call sites, and wiring `invalidFieldPaths` to `aria-invalid` per form. Both are mechanical but per-surface, and mixing them into one PR would have made the behaviour change unreviewable. |
 | **UX-06** | Canonical `caliber.*` vocabulary, `hasScope`/`canAnyScope`/`accessLevel`, `MutationGuard`, the AccessBadge fix, and the two ad-hoc call sites (`#242`) | The ~30 `is_admin`-gated call sites. Converting them **changes who sees what** — they currently hide operator-authorized controls from operators — so it needs the endpoint-to-affordance matrix, which is blocked on UX-00's census landing. |
 | **UX-07** | Side-effect↔approval coupling on both write paths and in the wizard; MCP bindings seeded from saved policy (`#244`) | Surfacing OpenAPI approval posture and tool execution provenance in the registry. Deferred to **UX-18**, which is where the unified tool view model is defined; building it here would create a second provenance surface to throw away. |
@@ -4157,16 +4159,16 @@ inserted. It is the shortest path that never leaves a gate half-certified.
 Steps struck through have shipped their primary outcome; their named remainders
 are in §15.2's Partial table.
 
-1. ~~**UX-00** — evidence baseline.~~ Census landed (`#248`). The journeys,
-   role fixtures, keyboard capture, and `evidence-limits.md` are outstanding,
-   so **G0 is still open** and everything structural stays blocked.
+1. **UX-00** — evidence baseline. The census is open for review (`#248`); the
+   journeys, role fixtures, keyboard capture, and `evidence-limits.md` are not
+   written, so **G0 is still open** and everything structural stays blocked.
 2. ~~**UX-01a, UX-03a**~~ — landed (`#245`).
 3. ~~**UX-02**~~ — in review (`#247`). The promotion-contract question §14.8
    gated it behind turned out to answer itself: the gate is advisory, so the
    defect was a false audit attribution rather than a policy choice.
-4. ~~**UX-05**, then **UX-06** and **UX-07**~~ — primary outcomes landed
-   (`#243`, `#242`, `#244`). UX-06's remainder is blocked on the census being
-   available to generate the affordance matrix.
+4. ~~**UX-05**, then **UX-06** and **UX-07**~~ — primary outcomes merged
+   (`#243`, `#242`, `#244`). UX-06's remainder is blocked on the census
+   merging, so it can generate the affordance matrix.
    → **G1 not yet certified**: needs the browser and role passes, which no
    validation on those PRs supplies.
 5. **UX-08, UX-09, UX-10, UX-12** in parallel; design the UX-11/UX-13 state and
