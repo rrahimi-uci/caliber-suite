@@ -179,6 +179,15 @@ def make_tool_payload(name: str = "lookup_policy", **overrides: Any) -> dict[str
         "side_effect_level": "read",
     }
     payload.update(overrides)
+    # ``ToolRegisterRequest`` rejects a side-effecting tool with approval off, so
+    # derive the flag rather than making every caller remember it. An explicit
+    # ``requires_approval`` override still wins, which is what lets a test build
+    # a deliberately-illegal payload and assert the 400.
+    if "requires_approval" not in overrides:
+        payload["requires_approval"] = payload["side_effect_level"] in {
+            "write",
+            "external_action",
+        }
     return payload
 
 

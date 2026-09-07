@@ -276,6 +276,70 @@ describe("ToolWizard", () => {
       expect(checkbox.checked).toBe(true);
     });
 
+    it("turns approval on when the tool is raised to write", async () => {
+      // The reported gap: side_effect_level and requires_approval were
+      // independent, so "external action, approval off" was a reachable —
+      // and default-adjacent — configuration.
+      await goToSafetyStep();
+      const checkbox = screen.getByTestId("wiz-requires-approval") as HTMLInputElement;
+      expect(checkbox.checked).toBe(false);
+
+      await userEvent.click(screen.getByTestId("wiz-side-effect-write"));
+
+      expect(checkbox.checked).toBe(true);
+      expect(checkbox.disabled).toBe(true);
+    });
+
+    it("turns approval on when the tool is raised to external action", async () => {
+      await goToSafetyStep();
+      const checkbox = screen.getByTestId("wiz-requires-approval") as HTMLInputElement;
+
+      await userEvent.click(screen.getByTestId("wiz-side-effect-external_action"));
+
+      expect(checkbox.checked).toBe(true);
+      expect(checkbox.disabled).toBe(true);
+    });
+
+    it("will not let approval be switched off for a side-effecting tool", async () => {
+      await goToSafetyStep();
+      await userEvent.click(screen.getByTestId("wiz-side-effect-external_action"));
+      const checkbox = screen.getByTestId("wiz-requires-approval") as HTMLInputElement;
+
+      await userEvent.click(checkbox);
+
+      expect(checkbox.checked).toBe(true);
+    });
+
+    it("says why approval is locked rather than only greying it out", async () => {
+      await goToSafetyStep();
+      await userEvent.click(screen.getByTestId("wiz-side-effect-external_action"));
+
+      const reason = document.getElementById("wiz-approval-reason");
+      expect(reason).toHaveTextContent(/Required for external action tools/i);
+      expect(screen.getByTestId("wiz-requires-approval")).toHaveAttribute(
+        "aria-describedby",
+        "wiz-approval-reason",
+      );
+    });
+
+    it("releases the lock when the tool is lowered back to read", async () => {
+      // The coupling must not be a one-way ratchet: a user who mis-clicked
+      // "write" has to be able to get back to an unattended read tool.
+      await goToSafetyStep();
+      await userEvent.click(screen.getByTestId("wiz-side-effect-write"));
+      const checkbox = screen.getByTestId("wiz-requires-approval") as HTMLInputElement;
+      expect(checkbox.disabled).toBe(true);
+
+      await userEvent.click(screen.getByTestId("wiz-side-effect-read"));
+
+      expect(checkbox.disabled).toBe(false);
+      // The flag stays on until the user clears it — lowering the level is not
+      // itself a decision to stop requiring approval.
+      expect(checkbox.checked).toBe(true);
+      await userEvent.click(checkbox);
+      expect(checkbox.checked).toBe(false);
+    });
+
     it("toggles allow_in_preview", async () => {
       await goToSafetyStep();
       const checkbox = screen.getByTestId("wiz-allow-preview") as HTMLInputElement;
@@ -362,9 +426,12 @@ describe("ToolWizard", () => {
       // Step 4: Playground — skip
       await userEvent.click(screen.getByTestId("wizard-next"));
 
-      // Step 5: Safety — set to write + requires approval
+      // Step 5: Safety — choosing "write" now turns approval on with it, and
+      // locks it there. No separate click is needed (or possible).
       await userEvent.click(screen.getByTestId("wiz-side-effect-write"));
-      await userEvent.click(screen.getByTestId("wiz-requires-approval"));
+      expect(
+        (screen.getByTestId("wiz-requires-approval") as HTMLInputElement).checked,
+      ).toBe(true);
 
       // Submit
       await userEvent.click(screen.getByTestId("wizard-submit"));

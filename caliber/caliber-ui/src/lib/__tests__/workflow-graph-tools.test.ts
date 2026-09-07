@@ -91,11 +91,56 @@ describe("ensureAgentToolBindings", () => {
         updated_at: "2026-01-01T00:00:00Z",
       },
     ]);
+    // ``tool_policies`` is empty here, so this tool is *unclassified*. The
+    // binding used to be hardcoded to read/no-approval, which rendered
+    // "unknown" as "harmless"; it now defaults to approval-required instead.
+    // Policy-driven cases (a saved policy is copied verbatim, including a
+    // deliberate read/no-approval one) live in workflowGraph.test.ts.
     expect(next.tools?.["mcp:Docs/search_docs"]).toMatchObject({
       type: "mcp_tool",
       server_id: "MCP-1",
       tool_name: "search_docs",
+      side_effect_level: "external_action",
+      requires_approval: true,
+    });
+  });
+
+  it("copies a saved policy onto the binding", () => {
+    const manifest = manifestWithAgent(["mcp:Docs/search_docs"]);
+    const next = ensureAgentToolBindings(manifest, [], [
+      {
+        server_id: "MCP-1",
+        name: "Docs",
+        description: "",
+        transport: "stdio",
+        uri: "",
+        command: "npx docs-mcp",
+        args: [],
+        env: {},
+        headers: {},
+        auth_type: "none",
+        auth_config: {},
+        discovered_tools: [{ name: "search_docs", description: "Search docs" }],
+        tool_policies: {
+          search_docs: {
+            allowed: true,
+            side_effect_level: "read",
+            requires_approval: false,
+          },
+        },
+        icon: "",
+        status: "active",
+        last_connected_at: null,
+        connection_error: null,
+        owner: "",
+        created_at: "2026-01-01T00:00:00Z",
+        updated_at: "2026-01-01T00:00:00Z",
+      },
+    ]);
+
+    expect(next.tools?.["mcp:Docs/search_docs"]).toMatchObject({
       side_effect_level: "read",
+      requires_approval: false,
     });
   });
 });

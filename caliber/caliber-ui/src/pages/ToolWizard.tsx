@@ -659,6 +659,22 @@ const SIDE_EFFECT_OPTIONS = [
   { value: "external_action", label: "External Action", icon: "🔴", desc: "Sends data to external services" },
 ] as const;
 
+/**
+ * Side-effect levels that cannot run unattended. Mirrors
+ * ``SIDE_EFFECTS_REQUIRING_APPROVAL`` in caliber/src/caliber/schemas.py, which
+ * is the enforcing copy — ``POST /caliber/tools`` rejects the combination
+ * outright. Coupling the controls here is what stops a user assembling an
+ * invalid tool and discovering it at submit.
+ */
+const SIDE_EFFECTS_REQUIRING_APPROVAL: ReadonlySet<string> = new Set([
+  "write",
+  "external_action",
+]);
+
+function requiresApprovalFor(sideEffectLevel: string): boolean {
+  return SIDE_EFFECTS_REQUIRING_APPROVAL.has(sideEffectLevel);
+}
+
 function SafetyReviewStep({
   form,
   onChange,
@@ -667,6 +683,7 @@ function SafetyReviewStep({
   onChange: (patch: Partial<WizardFormData>) => void;
 }): JSX.Element {
   const [secretInput, setSecretInput] = useState("");
+  const approvalLocked = requiresApprovalFor(form.side_effect_level);
 
   const addSecret = () => {
     const trimmed = secretInput.trim();
@@ -696,7 +713,17 @@ function SafetyReviewStep({
               key={opt.value}
               type="button"
               data-testid={`wiz-side-effect-${opt.value}`}
-              onClick={() => onChange({ side_effect_level: opt.value })}
+              onClick={() =>
+                // Raising the level to one that acts on the world turns
+                // approval on with it; the two were previously independent, so
+                // "external action, no approval" was a reachable default.
+                onChange({
+                  side_effect_level: opt.value,
+                  ...(requiresApprovalFor(opt.value)
+                    ? { requires_approval: true }
+                    : {}),
+                })
+              }
               className={`rounded-lg border p-3 text-left transition-all ${
                 form.side_effect_level === opt.value
                   ? "border-caliber-purple bg-caliber-purple/5 ring-1 ring-caliber-purple/30"
@@ -718,14 +745,20 @@ function SafetyReviewStep({
         <label className="flex cursor-pointer items-center justify-between rounded-lg border border-surface-200 p-3">
           <div>
             <p className="text-sm font-medium text-gray-900">Requires Approval</p>
-            <p className="text-xs text-gray-500">Pause for human approval before each execution</p>
+            <p id="wiz-approval-reason" className="text-xs text-gray-500">
+              {approvalLocked
+                ? `Required for ${form.side_effect_level.replace("_", " ")} tools — lower the side-effect level to turn this off.`
+                : "Pause for human approval before each execution"}
+            </p>
           </div>
           <input
             type="checkbox"
             data-testid="wiz-requires-approval"
             checked={form.requires_approval}
+            disabled={approvalLocked}
+            aria-describedby="wiz-approval-reason"
             onChange={(e) => onChange({ requires_approval: e.target.checked })}
-            className="h-4 w-4 rounded border-gray-300 text-caliber-purple focus:ring-caliber-purple/40"
+            className="h-4 w-4 rounded border-gray-300 text-caliber-purple focus:ring-caliber-purple/40 disabled:cursor-not-allowed disabled:opacity-60"
           />
         </label>
         <label className="flex cursor-pointer items-center justify-between rounded-lg border border-surface-200 p-3">
@@ -883,7 +916,12 @@ export function ToolWizard({ onClose }: { onClose: () => void }): JSX.Element {
         input_schema: buildInputSchema(form),
         output_schema: buildOutputSchema(form),
         side_effect_level: form.side_effect_level,
-        requires_approval: form.requires_approval,
+        // Belt and braces: the toggle above is locked on for these levels, but
+        // a form restored from an older draft can still hold the illegal pair.
+        // Deriving it here means the user sees the tool register rather than a
+        // 400 explaining a checkbox they were not allowed to change.
+        requires_approval:
+          form.requires_approval || requiresApprovalFor(form.side_effect_level),
         allow_in_preview: form.allow_in_preview,
         secret_refs: form.secret_refs,
         owner: form.owner.trim(),

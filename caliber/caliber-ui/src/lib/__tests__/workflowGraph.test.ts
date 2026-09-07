@@ -1830,4 +1830,178 @@ describe("agent tool bindings", () => {
     expect(synced.tools?.["mcp:Unknown/search"]).toBeUndefined();
     expect(synced.tools?.["mcp:NoSlash"]).toBeUndefined();
   });
+
+  /**
+   * A minimal ``McpServer`` so each case below states only the field it is
+   * about. ``tool_policies`` is what an operator has classified on the MCP
+   * Servers page; before this change ``ensureAgentToolBindings`` ignored it
+   * entirely and hardcoded ``read``/no-approval into every auto-created
+   * binding.
+   */
+  function mcpServer(
+    overrides: Partial<Parameters<typeof ensureAgentToolBindings>[2][number]> = {},
+  ): Parameters<typeof ensureAgentToolBindings>[2][number] {
+    return {
+      server_id: "MCP-DOCS",
+      name: "Docs",
+      description: "",
+      transport: "stdio",
+      uri: "",
+      command: "",
+      args: [],
+      env: {},
+      headers: {},
+      auth_type: "none",
+      auth_config: {},
+      discovered_tools: [{ name: "search", description: "Search" }],
+      tool_policies: {},
+      icon: "",
+      status: "active",
+      last_connected_at: null,
+      connection_error: null,
+      owner: "",
+      created_at: "x",
+      updated_at: "x",
+      ...overrides,
+    };
+  }
+
+  function bindMcpTool(
+    server: Parameters<typeof ensureAgentToolBindings>[2][number],
+    ref = "mcp:Docs/search",
+  ) {
+    const manifest = supportManifest();
+    manifest.nodes.agent!.tools = [ref];
+    return ensureAgentToolBindings(manifest, [], [server]).tools?.[ref];
+  }
+
+  it("seeds an MCP binding from the tool policy the operator saved", () => {
+    // The reported defect: a tool classified external_action + approval was
+    // auto-bound into a workflow as an unattended read.
+    const binding = bindMcpTool(
+      mcpServer({
+        tool_policies: {
+          search: {
+            allowed: true,
+            side_effect_level: "external_action",
+            requires_approval: true,
+          },
+        },
+      }),
+    );
+
+    expect(binding).toMatchObject({
+      type: "mcp_tool",
+      server_id: "MCP-DOCS",
+      tool_name: "search",
+      side_effect_level: "external_action",
+      requires_approval: true,
+    });
+  });
+
+  it("carries a write policy through rather than downgrading it to read", () => {
+    const binding = bindMcpTool(
+      mcpServer({
+        tool_policies: {
+          search: {
+            allowed: true,
+            side_effect_level: "write",
+            requires_approval: true,
+          },
+        },
+      }),
+    );
+
+    expect(binding).toMatchObject({
+      side_effect_level: "write",
+      requires_approval: true,
+    });
+  });
+
+  it("honours a deliberate read/no-approval policy", () => {
+    // The old hardcoded value was not wrong for every tool — it was wrong
+    // because it was not the operator's decision. When it *is*, keep it.
+    const binding = bindMcpTool(
+      mcpServer({
+        tool_policies: {
+          search: {
+            allowed: true,
+            side_effect_level: "read",
+            requires_approval: false,
+          },
+        },
+      }),
+    );
+
+    expect(binding).toMatchObject({
+      side_effect_level: "read",
+      requires_approval: false,
+    });
+  });
+
+  it("defaults an unclassified MCP tool to approval-required, never to read", () => {
+    // With no saved policy the tool is unknown, and "unknown" must not be
+    // rendered as "harmless": calling it hands its arguments to a separate
+    // server process.
+    const binding = bindMcpTool(mcpServer({ tool_policies: {} }));
+
+    expect(binding).toMatchObject({
+      side_effect_level: "external_action",
+      requires_approval: true,
+    });
+    expect(binding).not.toMatchObject({ requires_approval: false });
+  });
+
+  it("does not borrow another tool's policy", () => {
+    const binding = bindMcpTool(
+      mcpServer({
+        tool_policies: {
+          // A policy for a *different* tool must not apply here.
+          delete_everything: {
+            allowed: true,
+            side_effect_level: "read",
+            requires_approval: false,
+          },
+        },
+      }),
+    );
+
+    expect(binding).toMatchObject({
+      side_effect_level: "external_action",
+      requires_approval: true,
+    });
+  });
+
+  it("survives a server whose tool_policies field is absent", () => {
+    const server = mcpServer();
+    delete (server as { tool_policies?: unknown }).tool_policies;
+
+    expect(() => bindMcpTool(server)).not.toThrow();
+    expect(bindMcpTool(server)).toMatchObject({ requires_approval: true });
+  });
+
+  it("leaves an existing binding alone", () => {
+    // Re-syncing must not overwrite a policy the author already tuned in the
+    // Inspector.
+    const manifest = supportManifest();
+    manifest.nodes.agent!.tools = ["mcp:Docs/search"];
+    manifest.tools = {
+      ...manifest.tools,
+      "mcp:Docs/search": {
+        type: "mcp_tool",
+        server_id: "MCP-DOCS",
+        tool_name: "search",
+        side_effect_level: "read",
+        requires_approval: false,
+        max_retries: 0,
+      },
+    };
+
+    const synced = ensureAgentToolBindings(manifest, [], [mcpServer()]);
+
+    expect(synced.tools?.["mcp:Docs/search"]).toMatchObject({
+      side_effect_level: "read",
+      requires_approval: false,
+    });
+  });
 });

@@ -261,6 +261,57 @@ class TestCreateMcpServer:
         assert r.status_code == 400
         assert "outside discovered_tools" in r.json()["detail"]
 
+    def test_create_rejects_side_effecting_policy_without_approval(
+        self, client: TestClient
+    ) -> None:
+        # UX-07: an MCP tool policy is the operator's classification of what
+        # that tool can do. Classifying it as write/external_action while
+        # leaving approval off produces exactly the ungoverned capability the
+        # classification exists to prevent.
+        r = client.post(
+            BASE,
+            json={
+                "name": "Unguarded Writer",
+                "transport": "stdio",
+                "command": "npx",
+                "discovered_tools": [{"name": "write_file"}],
+                "tool_policies": {
+                    "write_file": {
+                        "allowed": True,
+                        "side_effect_level": "write",
+                        "requires_approval": False,
+                    }
+                },
+            },
+        )
+        assert r.status_code == 400, r.text
+        assert "requires_approval" in r.text
+
+    def test_create_allows_denied_policy_without_approval(self, client: TestClient) -> None:
+        # A denied tool cannot execute at all, so its approval flag is moot.
+        # Requiring approval on it would block saving a policy whose whole
+        # purpose is to switch the tool off.
+        r = client.post(
+            BASE,
+            json={
+                "name": "Denied Writer",
+                "transport": "stdio",
+                "command": "npx",
+                "discovered_tools": [{"name": "write_file"}],
+                "tool_policies": {
+                    "write_file": {
+                        "allowed": False,
+                        "side_effect_level": "external_action",
+                        "requires_approval": False,
+                    }
+                },
+            },
+        )
+        assert r.status_code == 201, r.text
+        policy = r.json()["data"]["tool_policies"]["write_file"]
+        assert policy["allowed"] is False
+        assert policy["requires_approval"] is False
+
     def test_create_rejects_incomplete_seeded_tool_policy(self, client: TestClient) -> None:
         r = client.post(
             BASE,
