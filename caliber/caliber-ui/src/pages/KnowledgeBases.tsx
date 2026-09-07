@@ -32,7 +32,7 @@ import {
   X,
 } from "lucide-react";
 
-import { ApiError, caliberApi } from "@/api/caliberApi";
+import { caliberApi } from "@/api/caliberApi";
 import type {
   KnowledgeAgeSeedMode,
   KnowledgeBase,
@@ -90,6 +90,7 @@ import {
 import { KnowledgeCalibrateTab } from "@/pages/knowledge/KnowledgeCalibrateTab";
 import { VersionPanel } from "@/components/versioning/VersionPanel";
 import { makeKnowledgeBaseVersionAdapter } from "@/components/versioning/adapters";
+import { apiErrorText } from "@/lib/apiErrors";
 
 type KnowledgeTab =
   | "library"
@@ -2068,7 +2069,7 @@ export function KnowledgeBases(): JSX.Element {
       );
     } catch (error) {
       setBuildError(
-        error instanceof ApiError ? error.message : "Knowledge build failed",
+        apiErrorText(error, "Knowledge build failed"),
       );
     } finally {
       setBuildBusy(false);
@@ -2094,9 +2095,7 @@ export function KnowledgeBases(): JSX.Element {
       ]);
     } catch (error) {
       setBuildError(
-        error instanceof ApiError
-          ? error.message
-          : "Failed to activate version",
+        apiErrorText(error, "Failed to activate version"),
       );
     }
   };
@@ -2122,9 +2121,7 @@ export function KnowledgeBases(): JSX.Element {
       await invalidate(["knowledge-bases", "list"]);
     } catch (error) {
       setDeleteError(
-        error instanceof ApiError
-          ? error.message
-          : "Failed to delete knowledge base",
+        apiErrorText(error, "Failed to delete knowledge base"),
       );
     } finally {
       setDeleteBusy(false);
@@ -2191,9 +2188,7 @@ export function KnowledgeBases(): JSX.Element {
       ]);
     } catch (error) {
       setAgeSyncError(
-        error instanceof ApiError
-          ? error.message
-          : "Failed to sync the version into Apache AGE",
+        apiErrorText(error, "Failed to sync the version into Apache AGE"),
       );
     } finally {
       setAgeSyncBusy(false);
@@ -2222,7 +2217,7 @@ export function KnowledgeBases(): JSX.Element {
       ]);
       setCompareQuestion("");
     } catch (error) {
-      setQueryError(error instanceof ApiError ? error.message : "Query failed");
+      setQueryError(apiErrorText(error, "Query failed"));
     } finally {
       setQueryBusy(false);
     }
@@ -2413,7 +2408,7 @@ export function KnowledgeBases(): JSX.Element {
       }
     } catch (error) {
       setGraphProbeError(
-        error instanceof ApiError ? error.message : "Graph retrieval failed",
+        apiErrorText(error, "Graph retrieval failed"),
       );
     } finally {
       setGraphProbeBusy(false);

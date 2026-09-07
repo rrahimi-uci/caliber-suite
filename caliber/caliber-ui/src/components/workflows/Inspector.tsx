@@ -89,6 +89,7 @@ import {
 } from "@/lib/knowledgeGraphProfiles";
 import { NodeIcon } from "@/components/workflows/NodeIcon";
 import { WorkflowComponentSchemaSummary } from "@/components/workflows/WorkflowComponentSchemaSummary";
+import { apiErrorText } from "@/lib/apiErrors";
 
 interface InspectorProps {
   manifest: WorkflowManifest;
@@ -2583,7 +2584,7 @@ function DataTransformSection({
       onChangeNode(node.id, { config: parsed as Record<string, unknown> });
     } catch (error) {
       setConfigError(
-        error instanceof Error ? error.message : "Configuration must be valid JSON.",
+        apiErrorText(error, "Configuration must be valid JSON."),
       );
     }
   };
@@ -4120,7 +4121,7 @@ export function Inspector({
       onChangeNode(node.id, patch);
     } catch (error) {
       setAgentOutputTypeError(
-        error instanceof Error ? error.message : "Schema must be valid JSON.",
+        apiErrorText(error, "Schema must be valid JSON."),
       );
     }
   };
@@ -4137,9 +4138,7 @@ export function Inspector({
       });
     } catch (error) {
       setWorkflowTraceGroupTagsError(
-        error instanceof Error
-          ? error.message
-          : "Trace group tags must be valid key=value lines.",
+        apiErrorText(error, "Trace group tags must be valid key=value lines."),
       );
     }
   };

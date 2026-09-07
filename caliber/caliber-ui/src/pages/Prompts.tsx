@@ -62,6 +62,7 @@ import type {
   AssistantOperationStatus,
 } from "@/api/assistantTypes";
 import { useApi } from "@/hooks/useApi";
+import { apiErrorText } from "@/lib/apiErrors";
 
 /**
  * The six per-prompt Workspace stages, in pipeline order. Opening a prompt from
@@ -470,7 +471,7 @@ export function Prompts(): JSX.Element {
       setEditTemplate("");
       setInitialEditTemplate("");
       setEditError(
-        err instanceof Error ? err.message : "Failed to load prompt",
+        apiErrorText(err, "Failed to load prompt"),
       );
     } finally {
       setLoadingEdit(false);
@@ -537,7 +538,7 @@ export function Prompts(): JSX.Element {
       refresh();
     } catch (err) {
       setEditError(
-        err instanceof Error ? err.message : "Failed to save prompt changes",
+        apiErrorText(err, "Failed to save prompt changes"),
       );
     } finally {
       setSavingEdit(false);
@@ -574,7 +575,7 @@ export function Prompts(): JSX.Element {
       });
     } catch (err) {
       const message =
-        err instanceof Error ? err.message : "Failed to delete prompt";
+        apiErrorText(err, "Failed to delete prompt");
       // Mirror to the modal banner when editing, and always surface on the page.
       setEditError(message);
       setDeleteNotice({
@@ -607,7 +608,7 @@ export function Prompts(): JSX.Element {
         await caliberApi.deletePrompt(promptName);
         deleted += 1;
       } catch (err) {
-        const message = err instanceof Error ? err.message : "unknown error";
+        const message = apiErrorText(err, "unknown error");
         failures.push(`${promptName} (${message})`);
       }
     }
@@ -656,7 +657,7 @@ export function Prompts(): JSX.Element {
       setCompareLeftTemplate("");
       setCompareRightTemplate("");
       setCompareError(
-        err instanceof Error ? err.message : "Failed to compare versions",
+        apiErrorText(err, "Failed to compare versions"),
       );
     } finally {
       setLoadingCompare(false);
@@ -687,7 +688,7 @@ export function Prompts(): JSX.Element {
     } catch (err) {
       setVersionsData([]);
       setVersionsError(
-        err instanceof Error ? err.message : "Failed to load versions",
+        apiErrorText(err, "Failed to load versions"),
       );
     } finally {
       setLoadingVersions(false);
@@ -721,7 +722,7 @@ export function Prompts(): JSX.Element {
       refresh();
     } catch (err) {
       setVersionsError(
-        err instanceof Error ? err.message : "Failed to promote version",
+        apiErrorText(err, "Failed to promote version"),
       );
     } finally {
       setPromotingVersion(null);
@@ -1555,7 +1556,7 @@ function PromptWorkspace({
       } catch (err) {
         if (!signal?.aborted) {
           setWorkspaceError(
-            err instanceof Error ? err.message : "Failed to load workspace",
+            apiErrorText(err, "Failed to load workspace"),
           );
         }
       }
@@ -1753,7 +1754,7 @@ function PromptAuthorStage({
       })
       .catch((err) => {
         if (cancelled) return;
-        setError(err instanceof Error ? err.message : "Failed to load prompt");
+        setError(apiErrorText(err, "Failed to load prompt"));
       })
       .finally(() => {
         if (!cancelled) setLoadingTemplate(false);
@@ -1801,7 +1802,7 @@ function PromptAuthorStage({
       setVersionRefresh((n) => n + 1);
       onSaved();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to save prompt");
+      setError(apiErrorText(err, "Failed to save prompt"));
     } finally {
       setSaving(false);
     }
@@ -2134,7 +2135,7 @@ function PromptRunsStage({
       // Refresh the workspace header so status flips to Tested.
       onAfterRun();
     } catch (err) {
-      setRunError(err instanceof Error ? err.message : "Test run failed");
+      setRunError(apiErrorText(err, "Test run failed"));
     } finally {
       setRunning(false);
     }
@@ -2148,7 +2149,7 @@ function PromptRunsStage({
       onAfterRun();
     } catch (err) {
       setPinError(
-        err instanceof Error ? err.message : "Failed to set baseline",
+        apiErrorText(err, "Failed to set baseline"),
       );
     } finally {
       setPinning(false);
@@ -2652,7 +2653,7 @@ function PromptBindStage({
       onBound();
     } catch (err) {
       setBindError(
-        err instanceof Error ? err.message : "Failed to bind prompt",
+        apiErrorText(err, "Failed to bind prompt"),
       );
     } finally {
       setBinding(false);
@@ -3001,7 +3002,7 @@ function usePromptTemplate(
         if (cancelled) return;
         setTemplate(prompt.template_preview ?? null);
         setError(
-          err instanceof Error ? err.message : "Failed to load prompt template",
+          apiErrorText(err, "Failed to load prompt template"),
         );
       })
       .finally(() => {
@@ -3206,7 +3207,7 @@ export function PromptChatPlayground({
       setMessages([]);
     } catch (err) {
       setChatError(
-        err instanceof Error ? err.message : "Failed to start session",
+        apiErrorText(err, "Failed to start session"),
       );
     } finally {
       setSessionStarting(false);
@@ -3287,7 +3288,7 @@ export function PromptChatPlayground({
       ]);
     } catch (err) {
       setChatError(
-        err instanceof Error ? err.message : "Failed to send message",
+        apiErrorText(err, "Failed to send message"),
       );
     } finally {
       setSending(false);
@@ -4419,7 +4420,7 @@ async function runPromptTestCases({
         actualResponse: "",
         verdict: "fail",
         score: 0,
-        reasoning: err instanceof Error ? err.message : "Execution error",
+        reasoning: apiErrorText(err, "Execution error"),
       });
     }
 
@@ -4877,7 +4878,7 @@ export function PromptTestCases({
       setSavedDatasetId(null);
     } catch (err) {
       setGenError(
-        err instanceof Error ? err.message : "Failed to generate test cases",
+        apiErrorText(err, "Failed to generate test cases"),
       );
     } finally {
       setGenerating(false);
@@ -4935,12 +4936,12 @@ export function PromptTestCases({
           void refreshHistory(selected.agent_id);
         } catch (err) {
           setRunSaveError(
-            err instanceof Error ? err.message : "Failed to save run history",
+            apiErrorText(err, "Failed to save run history"),
           );
         }
       }
     } catch (err) {
-      setRunError(err instanceof Error ? err.message : "Test run failed");
+      setRunError(apiErrorText(err, "Test run failed"));
     } finally {
       setRunning(false);
     }
@@ -4968,7 +4969,7 @@ export function PromptTestCases({
       setRunDetail(null);
     } catch (err) {
       setRunSaveError(
-        err instanceof Error ? err.message : "Failed to load run for replay",
+        apiErrorText(err, "Failed to load run for replay"),
       );
     } finally {
       setReplaying(false);
@@ -5026,7 +5027,7 @@ export function PromptTestCases({
       onDatasetSaved?.(dataset.dataset_id);
     } catch (err) {
       setSaveError(
-        err instanceof Error ? err.message : "Failed to save test cases",
+        apiErrorText(err, "Failed to save test cases"),
       );
     } finally {
       setSaving(false);
@@ -6215,7 +6216,7 @@ export function PromptOptimizationTab({
       setAssistantIntentResolve(resolved);
     } catch (err) {
       setAssistantIntentError(
-        err instanceof Error ? err.message : "Failed to resolve intent",
+        apiErrorText(err, "Failed to resolve intent"),
       );
     } finally {
       setResolvingIntent(false);
@@ -6237,7 +6238,7 @@ export function PromptOptimizationTab({
       setAssistantIntentPlan(plan);
     } catch (err) {
       setAssistantIntentError(
-        err instanceof Error ? err.message : "Failed to build plan",
+        apiErrorText(err, "Failed to build plan"),
       );
     } finally {
       setPlanningIntent(false);
@@ -6316,7 +6317,7 @@ export function PromptOptimizationTab({
       }
     } catch (err) {
       setAssistantIntentError(
-        err instanceof Error ? err.message : "Failed to execute plan",
+        apiErrorText(err, "Failed to execute plan"),
       );
     } finally {
       setExecutingIntent(false);
@@ -6443,9 +6444,7 @@ export function PromptOptimizationTab({
       } catch (err) {
         if (!cancelled) {
           setLoadError(
-            err instanceof Error
-              ? err.message
-              : "Failed to load calibration settings",
+            apiErrorText(err, "Failed to load calibration settings"),
           );
         }
       } finally {
@@ -6497,7 +6496,7 @@ export function PromptOptimizationTab({
       }
     } catch (err) {
       setRunError(
-        err instanceof Error ? err.message : "Failed to load recent runs",
+        apiErrorText(err, "Failed to load recent runs"),
       );
     } finally {
       setLoadingRuns(false);
@@ -6519,7 +6518,7 @@ export function PromptOptimizationTab({
         await refreshRuns();
       } catch (err) {
         setRunError(
-          err instanceof Error ? err.message : "Failed to apply candidate",
+          apiErrorText(err, "Failed to apply candidate"),
         );
       } finally {
         setApplyingJobId(null);
@@ -6685,7 +6684,7 @@ export function PromptOptimizationTab({
       );
     } catch (err) {
       setRunError(
-        err instanceof Error ? err.message : "Failed to start calibration run",
+        apiErrorText(err, "Failed to start calibration run"),
       );
     } finally {
       setStartingRun(false);
@@ -6752,7 +6751,7 @@ export function PromptOptimizationTab({
       );
     } catch (err) {
       setUploadError(
-        err instanceof Error ? err.message : "Failed to upload dataset",
+        apiErrorText(err, "Failed to upload dataset"),
       );
     } finally {
       setUploadingDataset(false);

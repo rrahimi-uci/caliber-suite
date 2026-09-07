@@ -40,6 +40,7 @@ import { useApiMutation, useApiQuery, useInvalidate } from "@/hooks/useApiQuery"
 import { useViewMode } from "@/hooks/useViewMode";
 import { getActiveProjectId } from "@/workspace/activeWorkspace";
 import { ToolWizard } from "./ToolWizard";
+import { apiErrorText } from "@/lib/apiErrors";
 
 /** Lifecycle pill tones, keyed by the workspace ``lifecycle`` string. */
 const TOOL_LIFECYCLE_TONES: Record<string, string> = {
@@ -582,7 +583,7 @@ function ToolWorkspace({
       } catch (err) {
         if (!signal?.aborted) {
           setWorkspaceError(
-            err instanceof Error ? err.message : "Failed to load workspace",
+            apiErrorText(err, "Failed to load workspace"),
           );
         }
       }
@@ -1199,7 +1200,7 @@ export function ToolTests({
       setCases(normalizeToolTestCases(extractJsonArray(turn.assistant_message.content)));
       setResults([]);
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to generate tool tests");
+      setError(apiErrorText(err, "Failed to generate tool tests"));
     } finally {
       setGenerating(false);
     }
@@ -1226,7 +1227,7 @@ export function ToolTests({
             output: null,
             mocked: false,
             duration_ms: 0,
-            error: err instanceof Error ? err.message : "Tool run failed",
+            error: apiErrorText(err, "Tool run failed"),
           };
         }
 
@@ -1272,7 +1273,7 @@ export function ToolTests({
               reasoning = typeof judged.reasoning === "string" ? judged.reasoning : "No reasoning returned.";
             }
           } catch (err) {
-            reasoning = err instanceof Error ? err.message : "Judge failed";
+            reasoning = apiErrorText(err, "Judge failed");
           }
         }
         nextResults.push({
@@ -1777,7 +1778,7 @@ function ToolRunsStage({
       await caliberApi.setToolBaseline(toolId, testRunId);
       onAfterRun();
     } catch (err) {
-      setPinError(err instanceof Error ? err.message : "Failed to set baseline");
+      setPinError(apiErrorText(err, "Failed to set baseline"));
     } finally {
       setPinning(false);
     }

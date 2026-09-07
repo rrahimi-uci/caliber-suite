@@ -9,7 +9,7 @@
 import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
 
-import { ApiError, caliberApi } from "@/api/caliberApi";
+import { caliberApi } from "@/api/caliberApi";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FilterBar } from "@/components/FilterBar";
 import { FilterSelect } from "@/components/FilterSelect";
@@ -21,6 +21,7 @@ import type {
 } from "@/api/types";
 import { useApi } from "@/hooks/useApi";
 import { relativeTime } from "@/lib/time";
+import { apiErrorText } from "@/lib/apiErrors";
 
 type StatusFilter = "active" | "archived" | "all";
 
@@ -72,7 +73,7 @@ export function EvalDatasets(): JSX.Element {
       await caliberApi.updateEvalDataset(dataset.dataset_id, { status });
       refresh();
     } catch (err) {
-      setActionError(err instanceof ApiError ? err.message : "update failed");
+      setActionError(apiErrorText(err, "update failed"));
     } finally {
       setPending(null);
     }
@@ -86,7 +87,7 @@ export function EvalDatasets(): JSX.Element {
       refresh();
     } catch (err) {
       setActionError(
-        err instanceof ApiError ? err.message : "sync to MLflow failed",
+        apiErrorText(err, "sync to MLflow failed"),
       );
     } finally {
       setSyncing(null);
@@ -416,7 +417,7 @@ function CreateDatasetPanel({ onCancel, onSuccess }: CreatePanelProps): JSX.Elem
       await caliberApi.createEvalDataset(form);
       onSuccess();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "create failed");
+      setError(apiErrorText(err, "create failed"));
     } finally {
       setSubmitting(false);
     }
