@@ -119,14 +119,14 @@ export function Dashboard(): JSX.Element {
   // Gate on the denominator the contract already carries, not on the rate.
   // ``execution_success_rate`` is 0 both for "every run failed" and for "no run
   // has happened"; ``executions_total`` is what tells them apart.
-  const executionRate =
-    assistantSlo && assistantSlo.executions_total > 0
-      ? clampRate(assistantSlo.execution_success_rate)
-      : null;
-  const publishRate =
-    assistantSlo && assistantSlo.publish_total > 0
-      ? clampRate(assistantSlo.publish_success_rate)
-      : null;
+  const executionRate = measuredRate(
+    assistantSlo?.execution_success_rate,
+    assistantSlo?.executions_total,
+  );
+  const publishRate = measuredRate(
+    assistantSlo?.publish_success_rate,
+    assistantSlo?.publish_total,
+  );
 
   const recentActivity = useMemo(() => {
     return buildRecentActivity({
@@ -819,7 +819,30 @@ function clampRate(value: number): number {
  */
 function rateOf(part: number, total: number): number | null {
   if (!Number.isFinite(total) || total <= 0) return null;
-  return clampRate(part / total);
+  // The numerator has to be checked too. ``clampRate`` maps NaN/Infinity to
+  // ``0``, so a non-finite part would come back as a *measured* 0% -- the
+  // exact "absence looks like total failure" reading this function exists to
+  // stop, reintroduced through the other operand.
+  if (!Number.isFinite(part)) return null;
+  const ratio = part / total;
+  return Number.isFinite(ratio) ? clampRate(ratio) : null;
+}
+
+/**
+ * A rate the server already computed, or ``null`` when it is not a measurement.
+ *
+ * Two independent ways to be unmeasured: a zero (or missing) denominator means
+ * nothing has happened, and a non-finite rate means the value is unusable.
+ * ``clampRate`` maps both to ``0``, which the tone rules then read as total
+ * failure -- so the check has to happen before the clamp, not inside it.
+ */
+function measuredRate(
+  rate: number | null | undefined,
+  total: number | null | undefined,
+): number | null {
+  if (typeof total !== "number" || !Number.isFinite(total) || total <= 0) return null;
+  if (typeof rate !== "number" || !Number.isFinite(rate)) return null;
+  return clampRate(rate);
 }
 
 function percentOf(part: number, total: number): number | null {

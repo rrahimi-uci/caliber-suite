@@ -1060,6 +1060,21 @@ export function KnowledgeBases(): JSX.Element {
       ) ?? null,
     [knowledgeBases, selectedKnowledgeBaseId],
   );
+  /**
+   * Whether submitting the Build form will add a version to an existing
+   * knowledge base, as opposed to creating a new one.
+   *
+   * One boolean, shared by the submit handler, the submit button's label, and
+   * the target name on the "New version" toggle. They used to test different
+   * conditions -- the handler required a selection, the label did not -- so a
+   * state with ``buildMode === "existing"`` and no selection would have shown
+   * "Create version of ..." while calling ``createKnowledgeBase``. Naming one
+   * object and writing to another is precisely the defect this surface was
+   * just fixed for; deriving both from one expression makes the divergence
+   * unrepresentable rather than merely unreachable.
+   */
+  const willCreateVersion =
+    buildMode === "existing" && selectedKnowledgeBase !== null;
   const versions = versionsQuery.data ?? EMPTY_VERSIONS;
   // Memoize the adapter so the shared <VersionPanel> only reloads when the
   // active KB id changes (its internal effect depends on adapter identity).
@@ -2021,7 +2036,7 @@ export function KnowledgeBases(): JSX.Element {
         },
       };
       let result: KnowledgeBaseBuildResult;
-      if (buildMode === "existing" && selectedKnowledgeBase) {
+      if (willCreateVersion) {
         result = await caliberApi.createKnowledgeBaseVersion(
           selectedKnowledgeBase.knowledge_base_id,
           body,
@@ -4529,8 +4544,8 @@ export function KnowledgeBases(): JSX.Element {
                 <Sparkles className="h-4 w-4" />
                 {buildBusy
                   ? "Processing…"
-                  : buildMode === "existing"
-                    ? `Create version of ${selectedKnowledgeBase?.name ?? "knowledge base"}`
+                  : willCreateVersion
+                    ? `Create version of ${selectedKnowledgeBase!.name}`
                     : "Create knowledge base"}
               </button>
             </div>

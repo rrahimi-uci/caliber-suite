@@ -1322,6 +1322,59 @@ describe("Knowledge Bases page", () => {
     ).toBeInTheDocument();
   });
 
+  it("never labels a create as a version, or vice versa", async () => {
+    // The submit handler and the submit label used to test different
+    // conditions -- the handler required a selection, the label did not -- so
+    // `buildMode === "existing"` with a null selection would have read
+    // "Create version of ..." while calling POST /knowledge-bases. Both now
+    // derive from one boolean, so the label and the request cannot disagree.
+    let createHit = false;
+    let versionHitFor: string | null = null;
+
+    server.use(
+      http.get(`${KB}/options`, () => HttpResponse.json(envelope(knowledgeOptions()))),
+      http.get(`${KB}`, () => HttpResponse.json(envelope([knowledgeBase()]))),
+      http.get(`${OS}/buckets`, () =>
+        HttpResponse.json(envelope([{ name: "reports", creation_date: NOW }])),
+      ),
+      http.get(`${OS}/buckets/reports/objects`, () =>
+        HttpResponse.json(envelope(objectListing())),
+      ),
+      http.post(`${KB}`, async ({ request }) => {
+        createHit = true;
+        await request.json();
+        return HttpResponse.json(
+          envelope({ knowledge_base: knowledgeBase(), version: version(), run: run() }),
+          { status: 201 },
+        );
+      }),
+      http.post(`${KB}/:id/versions`, async ({ params, request }) => {
+        versionHitFor = params.id as string;
+        await request.json();
+        return HttpResponse.json(
+          envelope({ knowledge_base: knowledgeBase(), version: version(), run: run() }),
+          { status: 201 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await screen.findByText("Operations Corpus");
+    await openTo(user, "build");
+    await user.click(screen.getByRole("button", { name: /New version/ }));
+
+    // The label commits to a version against a named target...
+    const submit = screen.getByRole("button", {
+      name: "Create version of Operations Corpus",
+    });
+    await user.click(submit);
+
+    // ...and that is the request that goes out.
+    await waitFor(() => expect(versionHitFor).toBe("KB-1"));
+    expect(createHit).toBe(false);
+  });
+
   it("tells the user to pick a knowledge base when there is no version target", async () => {
     // With no selection there is nothing to name, and the control must say so
     // rather than describing a write it cannot perform.

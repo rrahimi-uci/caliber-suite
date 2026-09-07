@@ -1939,6 +1939,47 @@ describe("agent tool bindings", () => {
     });
   });
 
+  it("honours a legacy policy that predates the requires_approval field", () => {
+    // ``McpServerSchema.tool_policies`` is ``dict[str, object]`` -- a raw
+    // passthrough, not normalized through ``McpToolPolicySchema`` -- so a
+    // policy saved before a field existed reaches the client with that key
+    // absent. Verified against the real schema:
+    //
+    //   McpServerSchema.model_validate(row).model_dump()
+    //     -> {'allowed': True, 'side_effect_level': 'write'}
+    //
+    // Substituting the *safe* default here rather than the *server's* default
+    // would override a classification the operator actually made, which is
+    // the same class of defect this change exists to fix.
+    const binding = bindMcpTool(
+      mcpServer({
+        tool_policies: {
+          search: { allowed: true, side_effect_level: "write" } as never,
+        },
+      }),
+    );
+
+    expect(binding).toMatchObject({
+      side_effect_level: "write",
+      requires_approval: false,
+    });
+  });
+
+  it("fills a legacy policy's missing side_effect_level with the server's default", () => {
+    const binding = bindMcpTool(
+      mcpServer({
+        tool_policies: {
+          search: { allowed: true, requires_approval: true } as never,
+        },
+      }),
+    );
+
+    expect(binding).toMatchObject({
+      side_effect_level: "read",
+      requires_approval: true,
+    });
+  });
+
   it("defaults an unclassified MCP tool to approval-required, never to read", () => {
     // With no saved policy the tool is unknown, and "unknown" must not be
     // rendered as "harmless": calling it hands its arguments to a separate

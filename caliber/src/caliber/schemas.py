@@ -1014,8 +1014,8 @@ def require_approval_for_side_effect(side_effect_level: str, requires_approval: 
     """Raise when a side-effecting tool is configured without approval."""
     if side_effect_level in SIDE_EFFECTS_REQUIRING_APPROVAL and not requires_approval:
         raise ValueError(
-            f"side_effect_level {side_effect_level!r} requires requires_approval=true; "
-            "lower the side-effect level or enable approval"
+            f"set requires_approval=true for side_effect_level "
+            f"{side_effect_level!r}, or lower the side-effect level to 'read'"
         )
 
 
