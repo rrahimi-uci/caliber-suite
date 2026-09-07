@@ -9,6 +9,7 @@
     "dev": "vite",
     "sync:docs": "node scripts/sync-docs.mjs",
     "ux:census": "node scripts/ux-census.mjs",
+    "ux:check-ledger": "node scripts/check-ux-ledger.mjs",
     "prebuild": "node scripts/sync-docs.mjs",
     "predev": "node scripts/sync-docs.mjs",
     "build": "tsc --noEmit -p tsconfig.app.json && vite build",
