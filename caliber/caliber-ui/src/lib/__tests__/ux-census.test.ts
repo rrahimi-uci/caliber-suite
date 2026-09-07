@@ -99,6 +99,30 @@ describe("passesCrumbs / usesPageHeader", () => {
     expect(passesCrumbs("// TODO: pass crumbs here")).toBe(false);
   });
 
+  it("counts crumbs across a wrapped opening tag", () => {
+    // These props are routinely wrapped, so a single-line regex would
+    // under-count adoption and make the breadcrumb gap look worse than it is.
+    const wrapped = [
+      "<PageHeader",
+      '  title="Object Store"',
+      "  crumbs={[{ label: 'Buckets', to: '/object-store' }]}",
+      "/>",
+    ].join("\n");
+    expect(passesCrumbs(wrapped)).toBe(true);
+  });
+
+  it("does not credit a crumbs prop on some other component", () => {
+    // The measure is PageHeader adoption *with a real trail*. Another
+    // component growing a `crumbs` prop would otherwise inflate it.
+    expect(passesCrumbs("<Breadcrumbs crumbs={[{ label: 'x' }]} />")).toBe(false);
+    // ...including in a file that also renders PageHeader without crumbs.
+    const mixed = [
+      '<PageHeader title="Tools" />',
+      "<SomeOther crumbs={[{ label: 'x' }]} />",
+    ].join("\n");
+    expect(passesCrumbs(mixed)).toBe(false);
+  });
+
   it("detects PageHeader usage", () => {
     expect(usesPageHeader('import { PageHeader } from "@/components/PageHeader";')).toBe(true);
     expect(usesPageHeader("<div>no chrome</div>")).toBe(false);

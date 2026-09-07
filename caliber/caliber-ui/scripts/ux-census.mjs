@@ -27,6 +27,7 @@
 
 import { readFileSync, readdirSync, writeFileSync, mkdirSync, existsSync } from "node:fs";
 import { dirname, join, resolve } from "node:path";
+import { fileURLToPath } from "node:url";
 
 /** Files whose top-level helpers §15.1 counts for duplication. */
 export const WORKFLOW_SURFACES = [
@@ -78,9 +79,19 @@ export function findUnroutedPages(appSource, pageNames) {
   return pageNames.filter((name) => !appSource.includes(`<${name}`)).sort();
 }
 
-/** Does this source pass a real breadcrumb trail to PageHeader? */
+/**
+ * Does this source pass a real breadcrumb trail *to PageHeader*?
+ *
+ * Scoped to the element rather than matching `crumbs={` anywhere in the file:
+ * the measure is "PageHeader adoption with a real trail", and any other
+ * component growing a `crumbs` prop would otherwise inflate it. Opening tags
+ * are matched across lines because these props are routinely wrapped.
+ */
 export function passesCrumbs(source) {
-  return /\bcrumbs=\{/.test(source);
+  for (const match of source.matchAll(/<PageHeader\b[\s\S]*?\/?>/g)) {
+    if (/\bcrumbs=\{/.test(match[0])) return true;
+  }
+  return false;
 }
 
 /** Does this source use the shared PageHeader chrome at all? */
@@ -275,7 +286,12 @@ export function diffCensus(baseline, current) {
 }
 
 function main(argv) {
-  const uiRoot = resolve(dirname(new URL(import.meta.url).pathname), "..");
+  // `fileURLToPath`, not `new URL(...).pathname`: the latter yields
+  // "/C:/..." on Windows and leaves "%20" in any path containing a space, so a
+  // checkout under "My Projects" would fail to read its own source. The README
+  // claims this runs deterministically across machines, which has to include
+  // the machines where those two differ.
+  const uiRoot = resolve(dirname(fileURLToPath(import.meta.url)), "..");
   const census = collectCensus(uiRoot);
 
   const outIndex = argv.indexOf("--out");
