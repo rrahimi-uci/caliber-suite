@@ -12,12 +12,50 @@
  * This is an affordance, not an authorization boundary. The server's
  * ``require_scopes`` check remains the guarantee; this component only stops the
  * UI offering work it knows will be refused.
+ *
+ * **Why blocking takes three mechanisms.** `pointer-events: none` stops the
+ * mouse and nothing else — a `<button>` inside stays focusable and still fires
+ * its handler on Enter or Space. `aria-hidden` removes the control from the
+ * accessibility tree without removing it from the tab order, so it makes the
+ * bypass *harder to notice* rather than closing it. React 18 has no `inert`
+ * prop. So the blocked state does all of:
+ *
+ * 1. moves every focusable descendant out of the tab order (restoring the
+ *    original `tabindex` when the block lifts);
+ * 2. intercepts click, keydown, and submit in the *capture* phase, before any
+ *    child handler runs;
+ * 3. keeps the pointer-events/opacity treatment so it also looks unavailable.
+ *
+ * (1) and (2) are independent on purpose: a control that is somehow focused
+ * anyway — programmatic focus, a stray autofocus, a browser quirk — still
+ * cannot be activated.
  */
 
-import type { ReactNode } from "react";
+import { useCallback, useEffect, useRef, type ReactNode } from "react";
 
 import { type CaliberScope, canAnyScope, missingScopeReason } from "@/lib/scopes";
 import { cn } from "@/lib/utils";
+
+/**
+ * Anything the platform can put in the tab order. `[tabindex]` is included so
+ * a div made focusable by hand is caught too; the `:not([tabindex="-1"])`
+ * filter avoids re-parking elements that were already out.
+ */
+const FOCUSABLE_SELECTOR = [
+  "a[href]",
+  "button",
+  "input",
+  "select",
+  "textarea",
+  "summary",
+  "audio[controls]",
+  "video[controls]",
+  "[contenteditable]",
+  '[tabindex]:not([tabindex="-1"])',
+].join(",");
+
+/** Marks where an element's original tabindex was stashed. */
+const SAVED_TABINDEX_ATTR = "data-guard-prev-tabindex";
 
 export interface MutationGuardProps {
   /** The caller's effective scopes, from ``GET /me``. */
@@ -54,6 +92,56 @@ export function MutationGuard({
   className,
 }: MutationGuardProps): JSX.Element | null {
   const permitted = !loading && canAnyScope(scopes, requires);
+  const shellRef = useRef<HTMLSpanElement | null>(null);
+
+  // Park focusable descendants outside the tab order while blocked, and put
+  // them back if the block lifts (scopes arriving, or a `loading` flip) so the
+  // control does not stay unreachable once it becomes legitimate.
+  useEffect(() => {
+    const shell = shellRef.current;
+    if (!shell) return;
+    const nodes = Array.from(
+      shell.querySelectorAll<HTMLElement>(FOCUSABLE_SELECTOR),
+    );
+    for (const node of nodes) {
+      if (node.hasAttribute(SAVED_TABINDEX_ATTR)) continue;
+      node.setAttribute(
+        SAVED_TABINDEX_ATTR,
+        node.hasAttribute("tabindex") ? node.getAttribute("tabindex")! : "",
+      );
+      node.setAttribute("tabindex", "-1");
+    }
+    return () => {
+      for (const node of nodes) {
+        const saved = node.getAttribute(SAVED_TABINDEX_ATTR);
+        if (saved === null) continue;
+        node.removeAttribute(SAVED_TABINDEX_ATTR);
+        if (saved === "") node.removeAttribute("tabindex");
+        else node.setAttribute("tabindex", saved);
+      }
+    };
+    // Re-runs whenever the blocked subtree is mounted, which is exactly when
+    // this element exists at all (the permitted branch returns early below).
+  });
+
+  // Capture phase, so this runs before any handler a child registered.
+  const swallow = useCallback((event: React.SyntheticEvent) => {
+    event.preventDefault();
+    event.stopPropagation();
+  }, []);
+
+  const swallowActivationKeys = useCallback(
+    (event: React.KeyboardEvent) => {
+      // Enter and Space are what activate a focused button or link; other keys
+      // stay live so the user can still tab away or use a shortcut.
+      if (event.key === "Enter" || event.key === " " || event.key === "Spacebar") {
+        event.preventDefault();
+        event.stopPropagation();
+      }
+    },
+    [],
+  );
+
   if (permitted) return <>{children}</>;
   if (hideWhenForbidden) return null;
 
@@ -66,18 +154,15 @@ export function MutationGuard({
       data-testid="mutation-guard-blocked"
       data-blocked-reason={title}
       title={title}
-      // ``inert`` is not yet in every supported browser, so block interaction
-      // three ways: pointer events off, focus removed from the tab order, and
-      // aria-disabled so assistive technology announces the state. The reason
-      // is a real, readable element rather than only a tooltip.
       className={cn("inline-flex flex-col gap-1", className)}
     >
       <span
+        ref={shellRef}
         aria-disabled="true"
-        className="pointer-events-none cursor-not-allowed opacity-50 [&_*]:pointer-events-none"
-        // Everything inside is decorative once blocked; the reason below is
-        // what carries the meaning.
-        aria-hidden="true"
+        onClickCapture={swallow}
+        onKeyDownCapture={swallowActivationKeys}
+        onSubmitCapture={swallow}
+        className="cursor-not-allowed opacity-50"
       >
         {children}
       </span>
