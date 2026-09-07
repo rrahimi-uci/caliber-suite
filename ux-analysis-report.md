@@ -2835,7 +2835,7 @@ reason, and each is listed so it cannot quietly become "done":
 | --- | --- | --- |
 | **UX-00** | The structural census and its committed baseline (`#248`) | Seeded role fixtures, the five persona journeys, keyboard traversal capture, and `evidence-limits.md`. The census makes the *counts* reproducible; it does not make the *journeys* observed, and G0 asks for both. |
 | **UX-05** | `describeApiError`/`apiErrorText`, the `ApiErrorMessage` component, and 53 call sites across the six highest-traffic surfaces (`#243`) | ~20 remaining call sites, and wiring `invalidFieldPaths` to `aria-invalid` per form. Both are mechanical but per-surface, and mixing them into one PR would have made the behaviour change unreviewable. |
-| **UX-06** | Canonical `caliber.*` vocabulary, `hasScope`/`canAnyScope`/`accessLevel`, `MutationGuard`, the AccessBadge fix, and the two ad-hoc call sites (`#242`) | The ~30 `is_admin`-gated call sites. Converting them **changes who sees what** — they currently hide operator-authorized controls from operators — so it needs the endpoint-to-affordance matrix, which is blocked on UX-00's census landing. |
+| **UX-06** | Canonical `caliber.*` vocabulary, `hasScope`/`canAnyScope`/`accessLevel`, `MutationGuard`, the AccessBadge fix, and the two ad-hoc call sites (`#242`) | The ~30 `is_admin`-gated call sites. Converting them **changes who sees what** — they currently hide operator-authorized controls from operators — so it needs the endpoint-to-affordance matrix, which is blocked on UX-00's census merging to `main`. |
 | **UX-07** | Side-effect↔approval coupling on both write paths and in the wizard; MCP bindings seeded from saved policy (`#244`) | Surfacing OpenAPI approval posture and tool execution provenance in the registry. Deferred to **UX-18**, which is where the unified tool view model is defined; building it here would create a second provenance surface to throw away. |
 | **UX-15** | Zero-denominator states, so an empty install no longer opens on two red tiles and one amber (`#246`) | The capability-aware start block (configure a provider → install a Cookbook → run the paused draft → inspect its trace). New onboarding UI with its own design questions. This half removed the false alarm; that half connects the on-ramp. |
 
@@ -4182,8 +4182,8 @@ it; a step being listed as done below means its fix exists, not that it shipped.
    behind turned out to answer itself: the gate is advisory, so the defect was
    a false audit attribution rather than a policy choice.
 4. ~~**UX-05**, then **UX-06** and **UX-07**~~ (`#243`, `#242`, `#244`).
-   UX-06's remainder is blocked on the census being available to generate the
-   affordance matrix.
+   UX-06's remainder is blocked on the census **merging**, since generating the
+   affordance matrix needs it on `main`.
    → **G1 not yet certified**: needs the browser and role passes, which no
    validation in this slice supplies.
 5. **UX-08, UX-09, UX-10, UX-12** in parallel; design the UX-11/UX-13 state and
