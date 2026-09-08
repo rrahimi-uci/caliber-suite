@@ -16,7 +16,7 @@ from typing import Any, Protocol
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from caliber.config import CaliberConfig
+from caliber.config import CaliberConfig, provider_request_timeout
 
 # ---------------------------------------------------------------------------
 # Shared types: structured outputs and usage telemetry
@@ -441,6 +441,13 @@ def _build_base_provider(config: CaliberConfig) -> LLMProvider:
             dspy_max_labeled_demos=config.dspy_max_labeled_demos,
             dspy_mipro_auto=config.dspy_mipro_auto,
             allow_flagged_dspy_optimizers=config.allow_flagged_dspy_optimizers,
+            # Same knob (and same env var, via ``provider_request_timeout``) the
+            # workflow runtime and Aria engines bound their own clients with --
+            # one setting governs every LLM HTTP request CALIBER makes.
+            request_timeout_seconds=provider_request_timeout(),
+            llm_call_max_attempts=config.llm_call_max_attempts,
+            llm_call_retry_base_delay_seconds=config.llm_call_retry_base_delay_seconds,
+            llm_call_retry_max_delay_seconds=config.llm_call_retry_max_delay_seconds,
         )
 
     raise LLMProviderError(f"unknown llm_provider {config.llm_provider!r}")

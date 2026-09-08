@@ -170,6 +170,37 @@ def test_gepa_settings_from_env() -> None:
     assert config.gepa_max_metric_calls == 250
 
 
+def test_llm_call_retry_defaults() -> None:
+    """1 try + 2 retries, 2s base / 30s cap -- absorbs a single slow or
+    momentarily-overloaded provider response without letting a persistently
+    broken provider hold a refinement job for long. See
+    ``caliber.llm.openai_agents._is_retryable_llm_error``."""
+    config = CaliberConfig()
+    assert config.llm_call_max_attempts == 3
+    assert config.llm_call_retry_base_delay_seconds == 2.0
+    assert config.llm_call_retry_max_delay_seconds == 30.0
+
+
+def test_llm_call_retry_settings_from_env() -> None:
+    config = CaliberConfig.load(
+        environ={
+            "CALIBER_LLM_CALL_MAX_ATTEMPTS": "5",
+            "CALIBER_LLM_CALL_RETRY_BASE_DELAY_SECONDS": "1.5",
+            "CALIBER_LLM_CALL_RETRY_MAX_DELAY_SECONDS": "60",
+        }
+    )
+    assert config.llm_call_max_attempts == 5
+    assert config.llm_call_retry_base_delay_seconds == 1.5
+    assert config.llm_call_retry_max_delay_seconds == 60.0
+
+
+def test_llm_call_max_attempts_is_bounded() -> None:
+    with pytest.raises(Exception):  # Pydantic validation
+        CaliberConfig(llm_call_max_attempts=0)
+    with pytest.raises(Exception):  # Pydantic validation
+        CaliberConfig(llm_call_max_attempts=11)
+
+
 def test_reasoning_effort_from_env_is_validated() -> None:
     config = CaliberConfig.load(
         environ={

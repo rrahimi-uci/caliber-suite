@@ -14,6 +14,8 @@ import sys
 import types
 from types import SimpleNamespace
 
+import httpx
+import openai
 import pytest
 
 from caliber.llm import openai_agents
@@ -77,7 +79,17 @@ def _install_agents_module(
     *,
     result: object | None = None,
     error: Exception | None = None,
+    errors: list[Exception | None] | None = None,
 ) -> tuple[type[object], type[object]]:
+    """Fake the ``agents`` package.
+
+    ``error`` raises the same exception on every call (existing tests use
+    this for "always fails"). ``errors`` scripts one outcome per call --
+    ``None`` means "succeed with ``result`` on this attempt" -- so a retry
+    test can say e.g. ``[TimeoutError(...), None]`` for "fails once, then
+    succeeds"; the last entry repeats once the list is exhausted.
+    """
+
     class FakeAgent:
         instances: list[FakeAgent] = []
 
@@ -91,15 +103,35 @@ def _install_agents_module(
         @staticmethod
         def run_sync(agent: object, prompt: str, **kwargs: object) -> object:
             FakeRunner.calls.append({"agent": agent, "prompt": prompt, **kwargs})
+            if errors:
+                index = min(len(FakeRunner.calls) - 1, len(errors) - 1)
+                outcome = errors[index]
+                if outcome is not None:
+                    raise outcome
+                return result
             if error is not None:
                 raise error
             return result
+
+    class FakeOpenAIProvider:
+        """Stands in for ``agents.OpenAIProvider`` -- ``_model_for`` only needs
+        ``get_model`` to return something usable as ``Agent(model=...)``."""
+
+        instances: list[FakeOpenAIProvider] = []
+
+        def __init__(self, **kwargs: object) -> None:
+            self.kwargs = kwargs
+            FakeOpenAIProvider.instances.append(self)
+
+        def get_model(self, model_name: str) -> str:
+            return model_name
 
     agents_mod = types.ModuleType("agents")
     agents_mod.Agent = FakeAgent
     agents_mod.Runner = FakeRunner
     agents_mod.RunConfig = lambda **kw: types.SimpleNamespace(**kw)
     agents_mod.ModelSettings = lambda **kw: types.SimpleNamespace(**kw)
+    agents_mod.OpenAIProvider = FakeOpenAIProvider
     monkeypatch.setitem(sys.modules, "agents", agents_mod)
     return FakeAgent, FakeRunner
 
@@ -368,6 +400,135 @@ def test_run_agent_sync_wraps_sdk_exceptions(monkeypatch: pytest.MonkeyPatch) ->
 
     with pytest.raises(LLMProviderError, match="diagnosis LLM call failed: rate limited"):
         provider._run_agent_sync(object(), "prompt", stage="diagnosis", item_id="FB-1")
+
+
+# ---------------------------------------------------------------------------
+# Retry behavior — see ``_is_retryable_llm_error`` / ``_run_agent_sync``.
+# ---------------------------------------------------------------------------
+
+
+def _openai_timeout_error() -> Exception:
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    return openai.APITimeoutError(request=request)
+
+
+def _openai_status_error(status_code: int) -> Exception:
+    request = httpx.Request("POST", "https://api.openai.com/v1/responses")
+    response = httpx.Response(status_code, request=request)
+    return openai.APIStatusError(f"http {status_code}", response=response, body=None)
+
+
+# Tiny backoff bounds so these tests don't actually wait real seconds.
+_NO_WAIT = {
+    "llm_call_retry_base_delay_seconds": 0.001,
+    "llm_call_retry_max_delay_seconds": 0.001,
+}
+
+
+def test_run_agent_sync_retries_a_timeout_then_succeeds(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A single transient timeout is absorbed -- the caller never sees it."""
+    result = SimpleNamespace(final_output={"ok": True})
+    _fake_agent, fake_runner = _install_agents_module(
+        monkeypatch, errors=[_openai_timeout_error(), None], result=result
+    )
+    provider = _provider(**_NO_WAIT)
+
+    out = provider._run_agent_sync(object(), "prompt", stage="diagnosis", item_id="FB-1")
+
+    assert out is result
+    assert len(fake_runner.calls) == 2
+
+
+def test_run_agent_sync_retries_rate_limit_and_5xx(monkeypatch: pytest.MonkeyPatch) -> None:
+    """429 and 5xx are exactly as retryable as a raw timeout."""
+    result = SimpleNamespace(final_output={"ok": True})
+    _fake_agent, fake_runner = _install_agents_module(
+        monkeypatch,
+        errors=[_openai_status_error(429), _openai_status_error(503), None],
+        result=result,
+    )
+    provider = _provider(llm_call_max_attempts=3, **_NO_WAIT)
+
+    out = provider._run_agent_sync(object(), "prompt", stage="diagnosis", item_id="FB-1")
+
+    assert out is result
+    assert len(fake_runner.calls) == 3
+
+
+def test_run_agent_sync_gives_up_after_max_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A persistently failing provider still fails the job -- just not on the
+    first blip, and not forever: exactly ``llm_call_max_attempts`` calls."""
+    _fake_agent, fake_runner = _install_agents_module(
+        monkeypatch,
+        errors=[_openai_timeout_error()],  # repeats every call
+    )
+    provider = _provider(llm_call_max_attempts=3, **_NO_WAIT)
+
+    with pytest.raises(LLMProviderError, match="diagnosis LLM call failed"):
+        provider._run_agent_sync(object(), "prompt", stage="diagnosis", item_id="FB-1")
+
+    assert len(fake_runner.calls) == 3
+
+
+@pytest.mark.parametrize("status_code", [400, 401, 403, 404, 422])
+def test_run_agent_sync_does_not_retry_non_transient_status_errors(
+    monkeypatch: pytest.MonkeyPatch, status_code: int
+) -> None:
+    """Auth/bad-request/not-found/validation errors fail on the first attempt
+    -- retrying an identical malformed or unauthorized request cannot help,
+    so spending the retry budget on it would only slow down a job that was
+    always going to fail."""
+    _fake_agent, fake_runner = _install_agents_module(
+        monkeypatch, errors=[_openai_status_error(status_code)]
+    )
+    provider = _provider(llm_call_max_attempts=5, **_NO_WAIT)
+
+    with pytest.raises(LLMProviderError, match="diagnosis LLM call failed"):
+        provider._run_agent_sync(object(), "prompt", stage="diagnosis", item_id="FB-1")
+
+    assert len(fake_runner.calls) == 1
+
+
+def test_run_agent_sync_does_not_retry_a_plain_exception(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Only recognized OpenAI transport/provider errors are retried -- an
+    arbitrary exception (a bug, a schema mismatch, ...) fails immediately."""
+    _fake_agent, fake_runner = _install_agents_module(monkeypatch, errors=[RuntimeError("boom")])
+    provider = _provider(llm_call_max_attempts=5, **_NO_WAIT)
+
+    with pytest.raises(LLMProviderError, match="diagnosis LLM call failed: boom"):
+        provider._run_agent_sync(object(), "prompt", stage="diagnosis", item_id="FB-1")
+
+    assert len(fake_runner.calls) == 1
+
+
+def test_run_agent_sync_defaults_to_three_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
+    """The default retry budget (no explicit override) is 1 try + 2 retries."""
+    _fake_agent, fake_runner = _install_agents_module(monkeypatch, errors=[_openai_timeout_error()])
+    provider = _provider(**_NO_WAIT)
+
+    with pytest.raises(LLMProviderError):
+        provider._run_agent_sync(object(), "prompt", stage="diagnosis", item_id="FB-1")
+
+    assert len(fake_runner.calls) == 3
+
+
+def test_model_for_applies_the_configured_request_timeout(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``_ensure_diagnosis_agent`` resolves its model through a provider built
+    with ``request_timeout_seconds`` -- not the SDK's own default -- and reuses
+    it (one client, not one per agent)."""
+    result = SimpleNamespace(final_output={"ok": True})
+    _install_agents_module(monkeypatch, result=result)
+    provider = _provider(request_timeout_seconds=7.5)
+
+    provider._model_for("gpt-4o-mini")
+
+    assert provider._model_provider is not None
+    assert provider._model_provider.kwargs["openai_client"].timeout == 7.5
+    # A second call reuses the same provider/client rather than rebuilding it.
+    provider._model_for("gpt-4o-mini")
+    assert len(type(provider._model_provider).instances) == 1
 
 
 def test_run_agent_sync_falls_back_when_runner_does_not_accept_run_config(

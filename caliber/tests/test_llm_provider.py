@@ -82,6 +82,32 @@ def test_build_provider_threads_flagged_dspy_override(
     assert provider._allow_flagged_dspy_optimizers is True
 
 
+def test_build_provider_threads_retry_and_timeout_settings(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """The retry/backoff knobs and the shared request-timeout knob
+    (``provider_request_timeout`` -- the same one the workflow runtime and
+    Aria engines use) reach the constructed provider, not just the config."""
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-live-test-key")
+    monkeypatch.setenv("CALIBER_PROVIDER_REQUEST_TIMEOUT_SECONDS", "45")
+    provider = build_provider(
+        _config(
+            llm_provider="openai",
+            llm_circuit_breaker_enabled="false",
+            llm_call_max_attempts="5",
+            llm_call_retry_base_delay_seconds="1.5",
+            llm_call_retry_max_delay_seconds="20",
+        )
+    )
+    from caliber.llm.openai_agents import OpenAIAgentsLLMProvider
+
+    assert isinstance(provider, OpenAIAgentsLLMProvider)
+    assert provider._llm_call_max_attempts == 5
+    assert provider._llm_call_retry_base_delay_seconds == 1.5
+    assert provider._llm_call_retry_max_delay_seconds == 20.0
+    assert provider._request_timeout_seconds == 45.0
+
+
 def test_diagnosis_rejects_out_of_range_confidence() -> None:
     """The Diagnosis schema enforces ``0 ≤ confidence ≤ 1``."""
     with pytest.raises(Exception, match=r"(?i)confidence"):

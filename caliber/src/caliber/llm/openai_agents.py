@@ -15,8 +15,10 @@ from __future__ import annotations
 import inspect
 import json
 import logging
+import random
+import time
 from collections.abc import Callable, Iterable
-from typing import TYPE_CHECKING, Any
+from typing import TYPE_CHECKING, Any, Final
 
 from pydantic import BaseModel, ConfigDict, Field
 
@@ -48,6 +50,29 @@ if TYPE_CHECKING:
 logger = logging.getLogger("caliber.llm.openai_agents")
 
 _DSPY_OPTIMIZER = Callable[..., tuple[PromptCandidate, LLMUsage]]
+
+# Retryable provider-side failures for a single triage/diagnosis/candidate/
+# workflow-copilot LLM call: a transport-level connection failure or timeout
+# (``openai.APITimeoutError`` subclasses ``APIConnectionError``), rate
+# limiting, and 5xx. Everything else -- missing SDK, auth, a malformed
+# request, a response that fails schema validation -- means retrying the
+# identical call would fail the identical way, so those raise immediately
+# rather than spend the retry budget. See ``_is_retryable_llm_error``.
+_RETRYABLE_LLM_STATUS_CODES: Final[frozenset[int]] = frozenset({429}) | frozenset(range(500, 600))
+
+
+def _is_retryable_llm_error(exc: BaseException) -> bool:
+    """Whether ``exc`` (raised by the OpenAI SDK inside ``Runner.run_sync``) is
+    worth retrying. See ``_RETRYABLE_LLM_STATUS_CODES`` for the policy.
+    """
+    try:
+        import openai  # noqa: PLC0415
+    except ImportError:
+        return False
+    if isinstance(exc, openai.APIConnectionError):
+        return True
+    status_code = getattr(exc, "status_code", None)
+    return isinstance(exc, openai.APIStatusError) and status_code in _RETRYABLE_LLM_STATUS_CODES
 
 
 _DIAGNOSIS_AGENT_INSTRUCTIONS = """\
@@ -202,6 +227,21 @@ class OpenAIAgentsLLMProvider:
     diagnosis_model:
         Model identifier (by default ``gpt-5.6-luna``) passed to the diagnosis
         agent.
+    request_timeout_seconds:
+        Wall-clock ceiling for a single triage/diagnosis/candidate/workflow-
+        copilot HTTP request. Mirrors ``CaliberConfig.provider_request_timeout_seconds``
+        (:func:`caliber.config.provider_request_timeout`) -- the same knob the
+        workflow runtime and Aria engines use -- so one env var bounds every
+        LLM client CALIBER builds. Without it the raw SDK default governs,
+        which for a slow high-reasoning-effort model can run long enough that
+        an operator has no way to make CALIBER give up sooner.
+    llm_call_max_attempts:
+        Attempts (including the first) for a single agent call before giving
+        up and failing the refinement job. Only transient failures are
+        retried -- see :func:`_is_retryable_llm_error`.
+    llm_call_retry_base_delay_seconds, llm_call_retry_max_delay_seconds:
+        Exponential-backoff-with-jitter bounds between retries. See
+        :meth:`_retry_delay_seconds`.
     """
 
     def __init__(
@@ -215,6 +255,10 @@ class OpenAIAgentsLLMProvider:
         dspy_max_labeled_demos: int = 4,
         dspy_mipro_auto: str = "light",
         allow_flagged_dspy_optimizers: bool = False,
+        request_timeout_seconds: float = 120.0,
+        llm_call_max_attempts: int = 3,
+        llm_call_retry_base_delay_seconds: float = 2.0,
+        llm_call_retry_max_delay_seconds: float = 30.0,
     ) -> None:
         # The OpenAI Agents SDK reads the key from the ``OPENAI_API_KEY``
         # env var or from the OpenAI client we configure. We don't keep
@@ -233,11 +277,20 @@ class OpenAIAgentsLLMProvider:
         self._dspy_max_labeled_demos = dspy_max_labeled_demos
         self._dspy_mipro_auto = dspy_mipro_auto
         self._allow_flagged_dspy_optimizers = allow_flagged_dspy_optimizers
+        self._request_timeout_seconds = request_timeout_seconds
+        self._llm_call_max_attempts = max(1, llm_call_max_attempts)
+        self._llm_call_retry_base_delay_seconds = llm_call_retry_base_delay_seconds
+        self._llm_call_retry_max_delay_seconds = llm_call_retry_max_delay_seconds
         self._diagnosis_agent: Any | None = None
         self._candidate_agent: Any | None = None
         self._workflow_edit_agent: Any | None = None
         self._workflow_gen_agent: Any | None = None
         self._triage_agent: Any | None = None
+        # Lazily built by ``_model_for`` -- constructing the SDK client here
+        # would defeat the point of the lazy ``agents``/``openai`` imports
+        # elsewhere in this class (this provider must stay constructible
+        # without the ``[llm]`` extra installed; only *using* it needs the SDK).
+        self._model_provider: Any | None = None
         self._set_api_key(api_key)
 
     @staticmethod
@@ -284,6 +337,49 @@ class OpenAIAgentsLLMProvider:
         effort = reasoning_effort_for_model(model, self._reasoning_effort)
         return ModelSettings(reasoning=Reasoning(effort=effort)) if effort else ModelSettings()
 
+    def _model_for(self, model_name: str) -> Any:
+        """Resolve ``model_name`` through a provider built with our own request timeout.
+
+        Every ``_ensure_*_agent`` method passes its model string through here
+        instead of directly to ``Agent(model=...)`` so every refinement-
+        pipeline call gets ``self._request_timeout_seconds`` applied, rather
+        than the OpenAI SDK's own (much longer) default. A dedicated
+        ``OpenAIProvider``/client -- not ``agents.set_default_openai_client``
+        -- so this only affects this provider's own agents; the workflow
+        runtime builds its own ``agents``-SDK clients separately and is
+        unaffected.
+
+        Lazy and cached for the same reason as :meth:`_agent_class`: building
+        this must not happen at ``__init__`` time, so constructing this class
+        without the ``[llm]`` extra installed still succeeds.
+        """
+        if self._model_provider is None:
+            try:
+                from agents import OpenAIProvider  # noqa: PLC0415
+                from openai import AsyncOpenAI  # noqa: PLC0415
+            except ImportError as exc:
+                raise LLMProviderError(
+                    "openai-agents is not installed. Install with "
+                    "`pip install caliber-suite[llm]` to enable LLM providers."
+                ) from exc
+            self._model_provider = OpenAIProvider(
+                openai_client=AsyncOpenAI(timeout=self._request_timeout_seconds)
+            )
+        return self._model_provider.get_model(model_name)
+
+    def _retry_delay_seconds(self, attempt: int) -> float:
+        """Exponential backoff with ±50% jitter, capped at the configured max.
+
+        ``attempt`` is the 1-indexed attempt that just failed; the delay
+        before the *next* attempt doubles each time (base, 2x base, 4x base,
+        ...), capped, then jittered so several jobs retrying at once don't
+        all hammer the provider on the same cadence.
+        """
+        exponential = self._llm_call_retry_base_delay_seconds * (2.0 ** (attempt - 1))
+        capped = min(exponential, self._llm_call_retry_max_delay_seconds)
+        # Timing jitter, not a security control -- the standard PRNG is fine.
+        return capped * (0.5 + random.random())  # noqa: S311
+
     def _ensure_triage_agent(self) -> Any:
         if self._triage_agent is not None:
             return self._triage_agent
@@ -292,7 +388,7 @@ class OpenAIAgentsLLMProvider:
             name="caliber.triage",
             instructions=_TRIAGE_AGENT_INSTRUCTIONS,
             output_type=TriageClassification,
-            model=self._diagnosis_model,
+            model=self._model_for(self._diagnosis_model),
             model_settings=self._agent_model_settings(self._diagnosis_model),
         )
         return self._triage_agent
@@ -305,7 +401,7 @@ class OpenAIAgentsLLMProvider:
             name="caliber.diagnosis",
             instructions=_DIAGNOSIS_AGENT_INSTRUCTIONS,
             output_type=Diagnosis,
-            model=self._diagnosis_model,
+            model=self._model_for(self._diagnosis_model),
             model_settings=self._agent_model_settings(self._diagnosis_model),
         )
         return self._diagnosis_agent
@@ -324,7 +420,7 @@ class OpenAIAgentsLLMProvider:
             name="caliber.candidate.metaprompt",
             instructions=_METAPROMPT_CANDIDATE_INSTRUCTIONS,
             output_type=PromptCandidate,
-            model=self._candidate_model,
+            model=self._model_for(self._candidate_model),
             model_settings=self._agent_model_settings(self._candidate_model),
         )
         return self._candidate_agent
@@ -337,7 +433,7 @@ class OpenAIAgentsLLMProvider:
             name="caliber.workflow.copilot",
             instructions=_WORKFLOW_EDIT_AGENT_INSTRUCTIONS,
             output_type=_WorkflowEditDraft,
-            model=self._candidate_model,
+            model=self._model_for(self._candidate_model),
             model_settings=self._agent_model_settings(self._candidate_model),
         )
         return self._workflow_edit_agent
@@ -350,7 +446,7 @@ class OpenAIAgentsLLMProvider:
             name="caliber.workflow.plan_build",
             instructions=_WORKFLOW_GEN_AGENT_INSTRUCTIONS,
             output_type=_WorkflowEditDraft,
-            model=self._candidate_model,
+            model=self._model_for(self._candidate_model),
             model_settings=self._agent_model_settings(self._candidate_model),
         )
         return self._workflow_gen_agent
@@ -731,11 +827,22 @@ class OpenAIAgentsLLMProvider:
             raise LLMProviderError(f"DSPy {optimizer} failed: {exc}") from exc
 
     def _run_agent_sync(self, agent: Any, prompt: str, *, stage: str, item_id: str) -> Any:
-        """Invoke ``Runner.run_sync`` with uniform error handling.
+        """Invoke ``Runner.run_sync`` with uniform error handling and bounded retry.
 
         Centralizing the SDK call means every stage produces the same
         :class:`LLMProviderError` shape on failure (auth, rate limit,
         transport) so the worker's exception handling stays simple.
+
+        Transient provider failures (timeout, connection error, rate limit,
+        5xx -- see :func:`_is_retryable_llm_error`) are retried up to
+        ``self._llm_call_max_attempts`` times with exponential backoff and
+        jitter (:meth:`_retry_delay_seconds`) before giving up. Without this,
+        a single slow or momentarily-overloaded response from the provider
+        permanently failed the whole refinement job -- the worker has no
+        retry path of its own for a plain :class:`LLMProviderError` (unlike
+        :class:`LLMCircuitOpenError`, which re-queues). Non-transient
+        failures (missing SDK, auth, a malformed request) raise on the first
+        attempt since retrying identically cannot help.
         """
         try:
             from agents import RunConfig, Runner  # noqa: PLC0415
@@ -745,22 +852,46 @@ class OpenAIAgentsLLMProvider:
                 "`pip install caliber-suite[llm]` to enable LLM providers."
             ) from exc
 
+        run_config = RunConfig(tracing_disabled=True)
+        params: Iterable[inspect.Parameter]
         try:
-            run_config = RunConfig(tracing_disabled=True)
-            params: Iterable[inspect.Parameter]
+            params = inspect.signature(Runner.run_sync).parameters.values()
+        except (TypeError, ValueError):
+            params = ()
+        accepts_run_config = any(
+            param.name == "run_config" or param.kind is inspect.Parameter.VAR_KEYWORD
+            for param in params
+        )
+
+        attempt = 0
+        while True:
+            attempt += 1
             try:
-                params = inspect.signature(Runner.run_sync).parameters.values()
-            except (TypeError, ValueError):
-                params = ()
-            if any(
-                param.name == "run_config" or param.kind is inspect.Parameter.VAR_KEYWORD
-                for param in params
-            ):
-                return Runner.run_sync(agent, prompt, run_config=run_config)
-            return Runner.run_sync(agent, prompt)
-        except Exception as exc:
-            logger.exception("%s agent failed for id=%s", stage, item_id)
-            raise LLMProviderError(f"{stage} LLM call failed: {exc}") from exc
+                if accepts_run_config:
+                    return Runner.run_sync(agent, prompt, run_config=run_config)
+                return Runner.run_sync(agent, prompt)
+            except Exception as exc:
+                is_last_attempt = attempt >= self._llm_call_max_attempts
+                if is_last_attempt or not _is_retryable_llm_error(exc):
+                    logger.exception(
+                        "%s agent failed for id=%s (attempt %d/%d)",
+                        stage,
+                        item_id,
+                        attempt,
+                        self._llm_call_max_attempts,
+                    )
+                    raise LLMProviderError(f"{stage} LLM call failed: {exc}") from exc
+                delay = self._retry_delay_seconds(attempt)
+                logger.warning(
+                    "%s agent call failed for id=%s (attempt %d/%d); retrying in %.1fs: %s",
+                    stage,
+                    item_id,
+                    attempt,
+                    self._llm_call_max_attempts,
+                    delay,
+                    exc,
+                )
+                time.sleep(delay)
 
 
 # ---------------------------------------------------------------------------
