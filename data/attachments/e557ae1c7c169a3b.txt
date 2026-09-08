@@ -1,0 +1,8 @@
+DEBUG    caliber.assistant.tracing:tracing.py:106 unable to open assistant MLflow span caliber.assistant.start_failure
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/assistant/tracing.py", line 103, in __enter__
+    self._cm = start_span(name=self._name, span_type="CHAIN", attributes=attrs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_assistant_tracing.py", line 84, in start_span
+    raise RuntimeError("start span failed")
+RuntimeError: start span failed
