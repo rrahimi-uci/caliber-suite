@@ -27,13 +27,25 @@ PYPROJECT = CALIBER_ROOT / "pyproject.toml"
 #: Dependency -> the first major this code has **not** been migrated to, with the
 #: reason a reviewer needs when a bot proposes widening the range.
 #:
-#: ``mcp`` 2.0 is a breaking rename, not a drop-in: ``CallToolResult.isError``
-#: became ``is_error``, ``read_timeout_seconds`` changed from ``timedelta`` to
-#: ``float``, a 2-tuple return grew to 3, ``mcp.server.fastmcp`` moved, and
-#: ``streamable_http_client`` switched to an ``httpx2`` client. The last of those
-#: changes the HTTP stack, so adopting it needs testing against live MCP servers.
+#: ``mcp`` 2.0 was the breaking rename this guarded against: ``CallToolResult.isError``
+#: became ``is_error``, ``ClientSession``'s ``read_timeout_seconds`` changed from
+#: ``timedelta`` to a plain ``float``, ``streamable_http_client``'s 3-tuple yield
+#: (read, write, get_session_id) shrank to a 2-tuple, ``mcp.server.fastmcp.FastMCP``
+#: moved to ``mcp.server.mcpserver.MCPServer`` (with host/port/stateless_http/
+#: json_response moving off its constructor and onto ``run(transport=...)``), and
+#: ``streamable_http_client`` switched its ``http_client`` param to a vendored
+#: ``httpx2.AsyncClient`` in place of ``httpx.AsyncClient``. All of that is now
+#: migrated (``mcp_gateway.py``, ``mcp_servers/db/server.py``) and covered by
+#: ``test_mcp_gateway_units.py``, ``test_mcp_db_tools.py``, and
+#: ``test_mcp_db_main.py`` against the actual 2.x package. The cap moves to
+#: block 3 instead, on the same "migrate deliberately, don't ride a bot bump"
+#: principle -- a future 3.x is unverified until it ships and gets the same
+#: treatment.
 UNMIGRATED_MAJORS: dict[str, tuple[int, str]] = {
-    "mcp": (2, "2.0 renames the client API and switches the HTTP stack"),
+    "mcp": (
+        3,
+        "3.0 is unreleased and unverified; migrate 2.x -> 3.x deliberately, as this did 1.x -> 2.x",
+    ),
 }
 
 

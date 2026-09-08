@@ -23,13 +23,18 @@ import time
 from collections.abc import AsyncIterator
 from contextlib import asynccontextmanager, nullcontext
 from dataclasses import dataclass, field
-from datetime import timedelta
 from functools import lru_cache
 from tempfile import TemporaryDirectory
 from typing import Any
 
 import anyio
-import httpx
+
+# mcp 2.x's streamable-HTTP transport takes its own vendored httpx fork
+# (structurally identical -- same ``AsyncClient``/``Timeout`` constructor
+# kwargs -- but a distinct class the SDK checks for), not the project's own
+# ``httpx`` dependency. Used only in ``_transport_streams``' streamable-http
+# branch below; nothing else in this file touches HTTP directly.
+import httpx2
 from mcp import ClientSession
 from mcp.client.sse import sse_client
 from mcp.client.stdio import StdioServerParameters, stdio_client
@@ -219,7 +224,7 @@ async def invoke_tool(
                 raise McpGatewayTransportError(
                     f"MCP tools/call failed: {_exception_message(exc)}"
                 ) from exc
-            if bool(result.isError):
+            if bool(result.is_error):
                 span.set_attribute("caliber.mcp.is_error", True)
                 raise McpGatewayTransportError(_tool_error_message(tool_name, result.content))
             normalized = _normalize_call_result(result)
@@ -303,7 +308,9 @@ async def _session_for(
     *,
     timeout_seconds: float,
 ) -> AsyncIterator[ClientSession]:
-    read_timeout = timedelta(seconds=max(timeout_seconds, 1.0))
+    # mcp 2.x's ``ClientSession`` takes the read timeout as a plain float
+    # (seconds); the 1.x signature took a ``timedelta``.
+    read_timeout = max(timeout_seconds, 1.0)
     async with _transport_streams(server, timeout_seconds=timeout_seconds) as (read, write):
         try:
             async with ClientSession(
@@ -382,20 +389,23 @@ async def _transport_streams(
         uri = server.uri.strip()
         if not uri:
             raise McpGatewayConfigError("streamable-http transport requires a non-empty uri")
-        timeout = httpx.Timeout(
+        timeout = httpx2.Timeout(
             timeout_seconds,
             read=max(timeout_seconds * 2.0, timeout_seconds + 5.0),
         )
         async with (
-            httpx.AsyncClient(
+            httpx2.AsyncClient(
                 headers=_resolved_http_headers(server),
                 timeout=timeout,
             ) as http_client,
+            # mcp 2.x's transport is a ``TransportStreams`` 2-tuple
+            # (read, write); the session-id getter the 1.x 3-tuple carried
+            # was never used here (it was always discarded) and is gone.
             streamable_http_client(
                 uri,
                 http_client=http_client,
                 terminate_on_close=True,
-            ) as (read, write, _get_session_id),
+            ) as (read, write),
         ):
             yield read, write
         return
@@ -407,16 +417,26 @@ async def _transport_streams(
 
 
 def _normalize_tool(tool: Any) -> dict[str, Any]:
+    # mcp 2.x renamed ``Tool.inputSchema``/``outputSchema`` to
+    # ``input_schema``/``output_schema`` (``CallToolResult.structuredContent``
+    # below got the same treatment, as ``structured_content``). These are
+    # ``getattr``s with a default rather than direct attribute access, so the
+    # 1.x names silently returned the fallback instead of raising -- every
+    # discovered tool's real schemas were dropped without an error. mypy's
+    # attr-defined check can't see this class of bug (the default swallows
+    # it); it was found by grepping the file for every camelCase mcp field
+    # name, not by the type checker. Worth the same grep against any new mcp
+    # type this file starts reading.
     return {
         "name": str(getattr(tool, "name", "")),
         "description": str(getattr(tool, "description", "") or ""),
-        "input_schema": dict(getattr(tool, "inputSchema", {}) or {}),
-        "output_schema": _dict_or_none(getattr(tool, "outputSchema", None)),
+        "input_schema": dict(getattr(tool, "input_schema", {}) or {}),
+        "output_schema": _dict_or_none(getattr(tool, "output_schema", None)),
     }
 
 
 def _normalize_call_result(result: Any) -> Any:
-    structured = getattr(result, "structuredContent", None)
+    structured = getattr(result, "structured_content", None)
     if structured is not None:
         return structured
     content = getattr(result, "content", None) or []
