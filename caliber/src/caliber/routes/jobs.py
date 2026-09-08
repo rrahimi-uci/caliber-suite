@@ -7,8 +7,9 @@ Read-only for now: jobs are created by the verify endpoint
 
 from __future__ import annotations
 
+import logging
 from datetime import datetime, timezone
-from typing import Final
+from typing import Any, Final
 
 from sqlalchemy import Select, select, update
 from starlette.applications import Starlette
@@ -31,6 +32,8 @@ from caliber.routes._deps import (
     list_limit,
 )
 from caliber.schemas import JobTargetSchema, JobTargetsResponse, RefinementJobSchema
+
+logger = logging.getLogger("caliber.routes.jobs")
 
 LIST_PATH = "/ajax-api/2.0/mlflow/caliber/jobs"
 DETAIL_PATH = "/ajax-api/2.0/mlflow/caliber/jobs/{job_id}"
@@ -93,6 +96,90 @@ def _apply_filters(
     return stmt
 
 
+_GEPA_PROGRESS_METRIC = "eval_score"
+
+
+def _get_mlflow_module() -> Any | None:
+    """Lazy-import mlflow and return it, or ``None`` if unavailable."""
+    try:
+        import mlflow  # noqa: PLC0415
+
+        return mlflow
+    except ImportError:
+        return None
+
+
+def _fetch_gepa_metric_history(mlflow_mod: Any, job: CaliberRefinementJob) -> list[Any]:
+    """Read the ``eval_score`` metric history off ``job``'s MLflow run.
+
+    Isolated from :func:`_gepa_progress` purely to keep that function's
+    branch count in check; returns ``[]`` (not ``None``) on any failure so
+    the caller's "nothing logged yet" and "lookup failed" paths collapse.
+    """
+    try:
+        client = mlflow_mod.MlflowClient()
+        return list(client.get_metric_history(job.mlflow_run_id, _GEPA_PROGRESS_METRIC))
+    except Exception:
+        logger.debug("failed to read GEPA progress for job=%s", job.job_id, exc_info=True)
+        return []
+
+
+def _gepa_progress(job: CaliberRefinementJob) -> dict[str, object] | None:
+    """Best-effort live progress for an in-flight GEPA candidate-generation stage.
+
+    GEPA can spend minutes inside a single ``candidate`` stage call, during
+    which the job row itself never changes (``status='running'``,
+    ``current_stage='candidate'``) — from the UI's point of view that reads
+    as a static "running" with no signal of movement. But
+    ``_generate_candidate_gepa`` calls ``mlflow.genai.optimize_prompts(...,
+    enable_tracking=True)`` *while the worker's own MLflow run for this job is
+    still active*, so MLflow's autologging reuses that run instead of
+    starting a nested one — every full-validation pass GEPA completes logs an
+    ``eval_score`` metric point (plus per-scorer breakdowns) directly onto
+    ``job.mlflow_run_id``, live, as it happens.
+
+    Reading that metric history back — rather than plumbing a new progress
+    callback through the optimizer boundary — gives the UI an actual
+    "iteration N, latest score S" readout with no new DB columns, no
+    cross-thread session sharing, and no coupling between the LLM provider
+    Protocol and persistence.
+
+    Returns ``None`` when the job isn't a running GEPA candidate stage, MLflow
+    isn't available, or nothing has been logged yet (e.g. GEPA is still on
+    its first pass). Never raises — this is purely a UI nicety.
+    """
+    is_running_gepa_candidate = (
+        job.optimizer_type == "GEPA"
+        and job.status == "running"
+        and job.current_stage == "candidate"
+        and bool(job.mlflow_run_id)
+    )
+    if not is_running_gepa_candidate:
+        return None
+    mlflow_mod = _get_mlflow_module()
+    if mlflow_mod is None:
+        return None
+    history = _fetch_gepa_metric_history(mlflow_mod, job)
+    if not history:
+        return None
+    ordered = sorted(history, key=lambda metric: metric.step)
+    latest = ordered[-1]
+    return {
+        "iterations": len(ordered),
+        "latest_score": latest.value,
+        "latest_step": latest.step,
+        "updated_at": datetime.fromtimestamp(latest.timestamp / 1000, tz=timezone.utc).isoformat(),
+        "history": [{"step": metric.step, "score": metric.value} for metric in ordered],
+    }
+
+
+def _serialize_job(job: CaliberRefinementJob) -> dict[str, object]:
+    """``RefinementJobSchema`` plus the computed, non-persisted GEPA progress."""
+    payload = RefinementJobSchema.model_validate(job).model_dump(mode="json")
+    payload["gepa_progress"] = _gepa_progress(job)
+    return payload
+
+
 async def list_jobs(request: Request) -> JSONResponse:
     """Return refinement jobs, optionally filtered by ``status``, ``stage``, ``agent_id``,
     ``workflow_id``.
@@ -108,8 +195,8 @@ async def list_jobs(request: Request) -> JSONResponse:
     limit, offset = list_limit(request)
     with factory() as session:
         rows = session.execute(stmt.limit(limit).offset(offset)).scalars().all()
-    items = [RefinementJobSchema.model_validate(row) for row in rows]
-    return envelope_response(items)
+        items = [_serialize_job(row) for row in rows]
+    return envelope_response_dict(items)
 
 
 async def get_job(request: Request) -> JSONResponse:
@@ -119,9 +206,10 @@ async def get_job(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         row = session.get(CaliberRefinementJob, job_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"refinement job {job_id!r} not found")
-    return envelope_response(RefinementJobSchema.model_validate(row))
+        if row is None:
+            raise HTTPException(status_code=404, detail=f"refinement job {job_id!r} not found")
+        payload = _serialize_job(row)
+    return envelope_response_dict(payload)
 
 
 async def get_job_targets(request: Request) -> JSONResponse:
