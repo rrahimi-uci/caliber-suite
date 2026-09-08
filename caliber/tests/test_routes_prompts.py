@@ -1131,6 +1131,53 @@ def test_prompt_helpers_handle_missing_or_failing_mlflow_apis(monkeypatch) -> No
     monkeypatch.setattr(prompt_routes, "_get_mlflow_module", lambda: search_failing)
     assert prompt_routes._search_mlflow_prompts() == []
 
+
+def test_search_mlflow_prompts_bounds_a_hung_registry_call(monkeypatch) -> None:
+    """A hanging ``search_prompts()`` must not stall ``list_prompts`` -- or any
+    other concurrent request on the single-threaded ASGI event loop.
+
+    This is the actual "workflow editor toolbar does nothing" symptom: the
+    Prompt Artifacts panel's ``GET /prompts`` load calls this on every page
+    load, and an unbounded call here freezes every other in-flight request
+    for as long as MLflow's own retries take, not just this one.
+    """
+    import threading
+    import time as _time
+
+    release = threading.Event()
+    entered = threading.Event()
+
+    def _hanging_search() -> list[object]:
+        entered.set()
+        # Blocks until the test releases it (see the sibling
+        # ``_load_prompt_infos_for_names`` test for why this beats a fixed
+        # sleep): the deadline becomes the only thing that can return, and
+        # the worker is freed deterministically in the ``finally`` below
+        # rather than staying blocked in the module-level shared pool.
+        release.wait(timeout=30.0)
+        return []
+
+    hanging_mod = types.ModuleType("mlflow")
+    hanging_mod.genai = SimpleNamespace(search_prompts=_hanging_search)
+    monkeypatch.setattr(prompt_routes, "_get_mlflow_module", lambda: hanging_mod)
+    monkeypatch.setattr(prompt_routes, "_PROMPT_LOOKUP_TIMEOUT_SECONDS", 0.3)
+
+    try:
+        start = _time.monotonic()
+        result = prompt_routes._search_mlflow_prompts()
+        elapsed = _time.monotonic() - start
+    finally:
+        release.set()
+
+    assert entered.wait(timeout=5.0), "the fake search_prompts never ran"
+    # Loose bound for the same reason as the sibling test: ~0.3s expected, a
+    # missing deadline sits at the 30s cap, so anything in between still
+    # fails loudly without the bound being flaky on a loaded runner.
+    assert elapsed < 10.0
+    # Degrades to "no prompts" rather than raising or hanging -- matching
+    # every other error path this function already promises.
+    assert result == []
+
     def _load_raises(_ref: str, allow_missing: bool = False) -> object | None:
         raise RuntimeError("load failed")
 

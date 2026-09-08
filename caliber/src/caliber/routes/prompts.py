@@ -942,8 +942,9 @@ def _list_prompt_version_items(name: str) -> list[dict[str, Any]]:
     return _serialize_prompt_version_items(name, versions, alias_by_version)
 
 
-def _search_mlflow_prompts() -> list[dict[str, Any]]:
-    """Return all prompts registered in the MLflow Prompt Registry.
+def _search_mlflow_prompts_uncached() -> list[dict[str, Any]]:
+    """The actual (blocking) registry call. Never call this directly from a
+    route — go through :func:`_search_mlflow_prompts`, which bounds it.
 
     Each item contains ``name``, ``description``, ``creation_timestamp``,
     and ``tags``.  Falls back to an empty list on error or when mlflow
@@ -974,6 +975,38 @@ def _search_mlflow_prompts() -> list[dict[str, Any]]:
             }
         )
     return items
+
+
+def _search_mlflow_prompts() -> list[dict[str, Any]]:
+    """Bounded wrapper around :func:`_search_mlflow_prompts_uncached`.
+
+    ``list_prompts`` runs this synchronously inside an ``async def`` route,
+    on the single-threaded ASGI event loop -- so an unbounded call here
+    doesn't just stall the prompts page, it stalls *every* concurrent
+    request the server is handling (including an unrelated workflow
+    editor's Undo/Save/Validate toolbar) for as long as the registry
+    call's own retries take. ``_load_prompt_infos_for_names`` below solved
+    this exact problem for the N-per-name lookups with a worker pool and a
+    deadline; this call ran before that pool existed and was never moved
+    onto it. Same shared executor, same deadline, same "missing degrades
+    to empty" contract as its caller already promises on error.
+    """
+    future = _prompt_lookup_executor.submit(_search_mlflow_prompts_uncached)
+    _done, not_done = futures_wait([future], timeout=_PROMPT_LOOKUP_TIMEOUT_SECONDS)
+    if not_done:
+        logger.warning(
+            "MLflow prompt registry search exceeded %ss deadline; returning no prompts",
+            _PROMPT_LOOKUP_TIMEOUT_SECONDS,
+        )
+        # Left running on the shared pool rather than cancelled -- cancelling a
+        # future already executing on a worker thread doesn't stop it, and the
+        # pool sizes for exactly this (a few lagging searches, not a leak).
+        return []
+    try:
+        return future.result()
+    except Exception:
+        logger.debug("search_prompts failed", exc_info=True)
+        return []
 
 
 def _workflow_agent_prompt_name(workflow_id: str, node_id: str) -> str:
