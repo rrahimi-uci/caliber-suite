@@ -37,5 +37,24 @@ export default defineConfig({
     testTimeout: process.env.CI ? 20000 : 5000,
     hookTimeout: process.env.CI ? 20000 : 10000,
     retry: process.env.CI ? 2 : 0,
+    coverage: {
+      provider: "v8",
+      reporter: ["text", "html", "json-summary", "lcov"],
+      // Scoped to the app itself. ``scripts/**`` is Node tooling invoked
+      // directly (docs sync, Allure reports, the UX census) -- not part of
+      // the SPA bundle and outside what ``include`` above even runs tests
+      // against, so counting it here just dilutes the number with an
+      // unrelated surface. ``src/test/**`` is test infrastructure (MSW
+      // handlers, jsdom setup, render utils) that real tests exercise, not
+      // app code with its own coverage target.
+      include: ["src/**/*.{ts,tsx}"],
+      exclude: [
+        "src/test/**",
+        "src/**/*.d.ts",
+        "src/main.tsx",
+        "src/**/__tests__/**",
+        "src/**/*.{test,spec}.{ts,tsx}",
+      ],
+    },
   },
 });
