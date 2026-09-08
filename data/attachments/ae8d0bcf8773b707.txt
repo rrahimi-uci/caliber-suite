@@ -1,1 +1,0 @@
-INFO     caliber.orchestrator.evidence:evidence.py:110 evidence complete: job=RFN-SKILL summary={'trace_id': None, 'experiment_id': None, 'session_id': None, 'has_trace_link': False, 'has_session_link': False, 'free_text_preview': 'Tool invocation failed'}
