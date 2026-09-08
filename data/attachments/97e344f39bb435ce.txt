@@ -1,0 +1,1 @@
+WARNING  caliber.events.redis_bus:redis_bus.py:194 dropping malformed Redis event payload

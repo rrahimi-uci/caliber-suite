@@ -1,0 +1,4 @@
+INFO     caliber.events.database_bus:database_bus.py:83 database event bus connected
+INFO     caliber.events.database_bus:database_bus.py:83 database event bus connected
+INFO     caliber.events.database_bus:database_bus.py:101 database event bus disconnected
+INFO     caliber.events.database_bus:database_bus.py:101 database event bus disconnected
