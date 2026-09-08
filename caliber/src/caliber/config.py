@@ -188,6 +188,36 @@ class CaliberConfig(BaseModel):
             "judge, workflow, knowledge, and memory calls. Explicit call-level overrides win."
         ),
     )
+    llm_call_max_attempts: int = Field(
+        default=3,
+        ge=1,
+        le=10,
+        description=(
+            "Attempts (including the first) for a single triage/diagnosis/candidate/"
+            "workflow-copilot LLM call before giving up and failing the refinement job. "
+            "Only transient failures are retried -- a connection error, timeout, rate "
+            "limit (429), or 5xx. An auth failure, bad request, or missing SDK raises on "
+            "the first attempt since retrying identically cannot help. 3 (1 try + 2 "
+            "retries) absorbs a single slow/overloaded provider response -- the common "
+            "case -- without letting a persistently broken provider hold a job for long."
+        ),
+    )
+    llm_call_retry_base_delay_seconds: float = Field(
+        default=2.0,
+        gt=0,
+        description=(
+            "Base delay for the exponential backoff between retried LLM calls (see "
+            "``llm_call_max_attempts``). Attempt N waits "
+            "``base * 2**(N-1)`` seconds (capped at ``llm_call_retry_max_delay_seconds``), "
+            "with +/-50% jitter so several jobs retrying at once don't hammer the "
+            "provider on the same cadence."
+        ),
+    )
+    llm_call_retry_max_delay_seconds: float = Field(
+        default=30.0,
+        gt=0,
+        description="Cap on the exponential backoff delay between retried LLM calls.",
+    )
     gepa_reflection_model: str = Field(
         default=DEFAULT_OPENAI_MODEL,
         description=(
@@ -1952,6 +1982,17 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     (
         "CALIBER_PROVIDER_REQUEST_TIMEOUT_SECONDS",
         "provider_request_timeout_seconds",
+        float,
+    ),
+    ("CALIBER_LLM_CALL_MAX_ATTEMPTS", "llm_call_max_attempts", int),
+    (
+        "CALIBER_LLM_CALL_RETRY_BASE_DELAY_SECONDS",
+        "llm_call_retry_base_delay_seconds",
+        float,
+    ),
+    (
+        "CALIBER_LLM_CALL_RETRY_MAX_DELAY_SECONDS",
+        "llm_call_retry_max_delay_seconds",
         float,
     ),
     ("CALIBER_REGISTERED_TOOL_SANDBOX_ENABLED", "registered_tool_sandbox_enabled", _flag),
