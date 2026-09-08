@@ -1,0 +1,1 @@
+INFO     caliber.orchestrator.eval_stage:eval_stage.py:282 eval rejected: job=RFN-E reasons=["dimension 'tone' regressed by -0.090 (max allowed -0.020)"] overall=0.900

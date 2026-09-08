@@ -1,0 +1,4 @@
+INFO     caliber:server.py:407 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:249 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
+WARNING  caliber.csrf:csrf.py:316 csrf is enabled but the secret source 'CSRF_MISSING_KEY' resolved to empty; CSRF protection will not engage. Set the source named by config.csrf_signing_secret_env.
