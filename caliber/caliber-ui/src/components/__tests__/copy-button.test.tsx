@@ -48,4 +48,48 @@ describe("CopyButton", () => {
     fireEvent.click(screen.getByTestId("copy"));
     expect(screen.getByTestId("copy")).toBeInTheDocument();
   });
+
+  it("flashes a check icon after a successful copy, then reverts to the copy icon ~1.2s later", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+
+    render(<CopyButton value="x" testId="copy" />);
+    const button = screen.getByTestId("copy");
+    expect(button.querySelector("svg.lucide-copy")).toBeInTheDocument();
+
+    fireEvent.click(button);
+    await waitFor(() =>
+      expect(button.querySelector("svg.lucide-check")).toBeInTheDocument(),
+    );
+
+    await waitFor(
+      () => expect(button.querySelector("svg.lucide-copy")).toBeInTheDocument(),
+      { timeout: 2000 },
+    );
+  });
+
+  it("does not throw, and stays on the copy icon, when the clipboard write is rejected", async () => {
+    const writeText = vi.fn().mockRejectedValue(new Error("denied"));
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+
+    render(<CopyButton value="x" testId="copy" />);
+    const button = screen.getByTestId("copy");
+
+    fireEvent.click(button);
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+    expect(button.querySelector("svg.lucide-check")).not.toBeInTheDocument();
+  });
+
+  it("clears its pending revert timer on unmount rather than leaking it", async () => {
+    const clearSpy = vi.spyOn(window, "clearTimeout");
+    const writeText = vi.fn().mockResolvedValue(undefined);
+    vi.stubGlobal("navigator", { clipboard: { writeText } });
+
+    const { unmount } = render(<CopyButton value="x" testId="copy" />);
+    fireEvent.click(screen.getByTestId("copy"));
+    await waitFor(() => expect(writeText).toHaveBeenCalled());
+
+    unmount();
+    expect(clearSpy).toHaveBeenCalled();
+  });
 });
