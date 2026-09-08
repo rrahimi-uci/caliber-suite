@@ -186,14 +186,14 @@ def test_resolve_token_variants(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_normalize_tool() -> None:
-    tool = SimpleNamespace(name="t", description="d", inputSchema={"a": 1}, outputSchema={"b": 2})
+    tool = SimpleNamespace(name="t", description="d", input_schema={"a": 1}, output_schema={"b": 2})
     assert gw._normalize_tool(tool) == {
         "name": "t",
         "description": "d",
         "input_schema": {"a": 1},
         "output_schema": {"b": 2},
     }
-    bare = SimpleNamespace(name="t", description=None, inputSchema=None, outputSchema=None)
+    bare = SimpleNamespace(name="t", description=None, input_schema=None, output_schema=None)
     out = gw._normalize_tool(bare)
     assert out["description"] == "" and out["input_schema"] == {} and out["output_schema"] is None
 
@@ -213,11 +213,47 @@ def test_model_dump_dict() -> None:
 
 
 def test_normalize_call_result_structured_and_content() -> None:
-    assert gw._normalize_call_result(SimpleNamespace(structuredContent={"ok": True})) == {
+    assert gw._normalize_call_result(SimpleNamespace(structured_content={"ok": True})) == {
         "ok": True
     }
-    res = SimpleNamespace(structuredContent=None, content=[_Dumpable({"text": "hi"}), object()])
+    res = SimpleNamespace(structured_content=None, content=[_Dumpable({"text": "hi"}), object()])
     assert gw._normalize_call_result(res) == [{"text": "hi"}]
+
+
+def test_normalize_tool_and_call_result_against_real_mcp_types() -> None:
+    """The two tests above use ``SimpleNamespace`` fixtures the test author
+    names to match whatever the source reads -- so a future rename of the
+    *real* SDK field can't fail here even if source and fixture drift apart,
+    which is exactly how ``inputSchema``/``outputSchema``/``structuredContent``
+    silently became dead reads under mcp 2.x (``getattr`` with a default never
+    raises; every discovered tool's real schema and every structured tool
+    result quietly dropped to ``{}``/``None``/``[]`` instead). This constructs
+    the genuine ``mcp.types`` objects instead, so a future SDK rename fails
+    this test rather than passing it by construction.
+    """
+    from mcp.types import CallToolResult, TextContent, Tool
+
+    tool = Tool(name="t", description="d", input_schema={"a": 1}, output_schema={"b": 2})
+    assert gw._normalize_tool(tool) == {
+        "name": "t",
+        "description": "d",
+        "input_schema": {"a": 1},
+        "output_schema": {"b": 2},
+    }
+
+    ok_result = CallToolResult(
+        content=[TextContent(type="text", text="hi")],
+        structured_content={"ok": True},
+    )
+    assert gw._normalize_call_result(ok_result) == {"ok": True}
+    assert bool(ok_result.is_error) is False
+
+    error_result = CallToolResult(
+        content=[TextContent(type="text", text="bad")],
+        is_error=True,
+    )
+    assert bool(error_result.is_error) is True
+    assert gw._normalize_call_result(error_result) == [{"type": "text", "text": "bad"}]
 
 
 def test_tool_error_message() -> None:
@@ -358,7 +394,7 @@ def _patch_session(monkeypatch: pytest.MonkeyPatch, session: _FakeClientSession)
 
 
 def test_discover_tools_async_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    tool = SimpleNamespace(name="t", description="d", inputSchema={}, outputSchema=None)
+    tool = SimpleNamespace(name="t", description="d", input_schema={}, output_schema=None)
     _patch_session(monkeypatch, _FakeClientSession(tools=[tool]))
     out = asyncio.run(gw.discover_tools(_server(), timeout_seconds=1.0))
     assert out[0]["name"] == "t"
@@ -371,7 +407,7 @@ def test_discover_tools_async_error(monkeypatch: pytest.MonkeyPatch) -> None:
 
 
 def test_invoke_tool_success(monkeypatch: pytest.MonkeyPatch) -> None:
-    res = SimpleNamespace(isError=False, structuredContent={"ok": True}, content=[])
+    res = SimpleNamespace(is_error=False, structured_content={"ok": True}, content=[])
     _patch_session(monkeypatch, _FakeClientSession(call_result=res))
     out = asyncio.run(gw.invoke_tool(_server(), tool_name="t", arguments={}))
     assert out == {"ok": True}
@@ -379,7 +415,7 @@ def test_invoke_tool_success(monkeypatch: pytest.MonkeyPatch) -> None:
 
 def test_invoke_tool_is_error(monkeypatch: pytest.MonkeyPatch) -> None:
     res = SimpleNamespace(
-        isError=True, structuredContent=None, content=[_Dumpable({"text": "bad"})]
+        is_error=True, structured_content=None, content=[_Dumpable({"text": "bad"})]
     )
     _patch_session(monkeypatch, _FakeClientSession(call_result=res))
     with pytest.raises(gw.McpGatewayTransportError, match="bad"):
@@ -400,8 +436,8 @@ def test_invoke_tool_wraps_exception_group_from_session_teardown(
         del timeout_seconds
         yield _FakeClientSession(
             call_result=SimpleNamespace(
-                isError=False,
-                structuredContent={"ok": True},
+                is_error=False,
+                structured_content={"ok": True},
                 content=[],
             )
         )
@@ -466,7 +502,7 @@ class _FakeClientSessionCtx:
     async def list_tools(self) -> Any:
         return SimpleNamespace(
             tools=[
-                SimpleNamespace(name="remote", description="", inputSchema={}, outputSchema=None)
+                SimpleNamespace(name="remote", description="", input_schema={}, output_schema=None)
             ]
         )
 
@@ -497,9 +533,11 @@ def test_session_for_streamable_transport(monkeypatch: pytest.MonkeyPatch) -> No
 
     @asynccontextmanager
     async def _fake_streamable(_uri: str, **_k: object) -> Any:
-        yield ("read", "write", lambda: "session-id")
+        # mcp 2.x's ``TransportStreams`` is a (read, write) 2-tuple -- the
+        # 1.x 3-tuple's session-id getter is gone.
+        yield ("read", "write")
 
-    monkeypatch.setattr(gw.httpx, "AsyncClient", _FakeAsyncClient)
+    monkeypatch.setattr(gw.httpx2, "AsyncClient", _FakeAsyncClient)
     monkeypatch.setattr(gw, "streamable_http_client", _fake_streamable)
     monkeypatch.setattr(gw, "ClientSession", _FakeClientSessionCtx)
     out = asyncio.run(
@@ -563,7 +601,7 @@ def test_invoke_tool_emits_tool_span(monkeypatch: pytest.MonkeyPatch) -> None:
 
     from .test_mlflow_tracing import FakeMlflow
 
-    res = SimpleNamespace(isError=False, structuredContent={"ok": True}, content=[])
+    res = SimpleNamespace(is_error=False, structured_content={"ok": True}, content=[])
     _patch_session(monkeypatch, _FakeClientSession(call_result=res))
     fake = FakeMlflow()
     set_tracer(Tracer(mlflow_module=fake))

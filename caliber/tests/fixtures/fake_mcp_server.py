@@ -2,7 +2,12 @@
 
 from __future__ import annotations
 
-from mcp.server.fastmcp import FastMCP
+# FastMCP was renamed to MCPServer in mcp 2.x (mcp.server.fastmcp now raises
+# ModuleNotFoundError with a migration pointer); see server.py in
+# mcp_servers/db for the fuller rename, including the constructor kwargs
+# that moved to run(transport=...). This fixture only calls .tool()/.run()
+# stdio, neither of which changed shape, so a plain rename is enough here.
+from mcp.server.mcpserver import MCPServer as FastMCP
 
 app = FastMCP("caliber-test")
 
