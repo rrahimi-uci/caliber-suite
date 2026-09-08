@@ -1,1 +1,0 @@
-ERROR    caliber.bundle:bundle.py:239 bundle promotion failed for approval=AP-1: bundle promotion failed at a-1/prompt: simulated failure for a-1

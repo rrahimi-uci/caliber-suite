@@ -1,2 +1,0 @@
-INFO     caliber.orchestrator.worker:worker.py:159 refinement worker started (interval=10.0s)
-INFO     caliber.orchestrator.worker:worker.py:192 refinement worker stopped
