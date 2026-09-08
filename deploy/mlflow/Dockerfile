@@ -9,8 +9,20 @@
 FROM python:3.12-slim
 ENV PYTHONUNBUFFERED=1 \
     PIP_NO_CACHE_DIR=1
+# ``anyio`` is a transitive dependency (via starlette, which mlflow-skinny and
+# fastapi both pull in) that this image has never pinned directly -- so a
+# floating `pip install mlflow` silently picks up whatever anyio release is
+# newest on PyPI the day the image is built, unrelated to any change in this
+# repo. anyio 4.15.0 shipped a regression in its lazy-import shim
+# (`anyio/_lazyimport.py`) that made `anyio.from_thread` raise AttributeError
+# on first access instead of resolving the submodule; starlette's WSGI
+# compatibility layer (`starlette.middleware.wsgi`, which MLflow's Flask app
+# runs through) calls exactly that attribute on every single request, so every
+# MLflow API call 500'd. Fixed upstream in the very next release, 4.15.1 --
+# pinned below rather than left floating, so a future PyPI regression in some
+# *other* transitive dependency doesn't repeat this silently the same way.
 RUN pip install --upgrade pip \
- && pip install "mlflow>=3.14.0,<4" "boto3>=1.34" "psycopg2-binary>=2.9"
+ && pip install "mlflow>=3.14.0,<4" "boto3>=1.34" "psycopg2-binary>=2.9" "anyio>=4.15.1"
 
 # --- Guardrails AI — backend for MLflow's gateway guardrails -----------------
 # MLflow's gateway guardrails (``mlflow.gateway.guardrails``, enforced pre/post

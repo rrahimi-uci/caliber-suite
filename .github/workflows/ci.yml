@@ -772,6 +772,7 @@ jobs:
   compose:
     name: Compose merged-config validation
     runs-on: ubuntu-latest
+    needs: [changes]
     defaults:
       run:
         working-directory: ${{ github.workspace }}
@@ -788,6 +789,36 @@ jobs:
           --profile app
           --profile nats
           config --quiet
+      # `config --quiet` only checks the YAML resolves — it builds nothing and
+      # would not have caught the incident this step exists for: the
+      # standalone MLflow image does a floating `pip install mlflow` with no
+      # pin on its own transitive deps, so a PyPI release of one of them can
+      # silently break every build from that point on with no change to this
+      # repo at all. anyio 4.15.0 did exactly that (a lazy-import regression
+      # that made starlette's WSGI layer 500 on every request) — `/health`
+      # alone would have stayed green through it, since it never touches the
+      # DB-backed store; only a real API call does. Gated on the `compose`
+      # filter so it costs nothing on PRs that don't touch `deploy/**`.
+      - name: Build the standalone MLflow image and verify it actually serves
+        if: needs.changes.outputs.compose == 'true'
+        env:
+          COMPOSE_DISABLE_ENV_FILE: "1"
+        run: |
+          docker compose --env-file deploy/.env.example --env-file .env.example \
+            -f deploy/compose.yaml --profile app up -d --build mlflow
+          for _ in $(seq 1 30); do
+            code=$(curl -s -o /dev/null -w '%{http_code}' -X POST \
+              http://127.0.0.1:5000/api/2.0/mlflow/experiments/search \
+              -H 'Content-Type: application/json' -d '{}') || code=000
+            # 400 (bad request body) is a real, DB-backed response from the
+            # server -- proof the store initialized correctly. 500/000 means
+            # it didn't.
+            if [ "$code" = "400" ]; then echo "MLflow API responded $code (healthy)"; exit 0; fi
+            sleep 2
+          done
+          echo "::error::MLflow never returned a healthy response from a real API call"
+          docker compose -f deploy/compose.yaml logs mlflow
+          exit 1
 
   package:
     name: Wheel build (with bundled SPA)
