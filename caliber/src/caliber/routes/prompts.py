@@ -10,6 +10,7 @@ are always visible from both Caliber and MLflow.
 
 from __future__ import annotations
 
+import asyncio
 import importlib.util
 import logging
 import os
@@ -683,8 +684,20 @@ def _load_prompt_release_info(agent_id: str, alias: str = "prod") -> dict[str, A
 # for concurrency, and an overall deadline so the route always returns quickly.
 _PROMPT_INFO_CACHE_TTL_SECONDS = float(os.getenv("CALIBER_PROMPT_INFO_TTL_SECONDS", "10") or "10")
 _PROMPT_LOOKUP_WORKERS = max(1, int(os.getenv("CALIBER_PROMPT_LOOKUP_WORKERS", "8") or "8"))
+# Must stay comfortably above ``MLFLOW_HTTP_REQUEST_TIMEOUT`` (server.py sets
+# that to 15s by default) — otherwise a merely-*slow* (not hung) MLflow call
+# is always aborted by *our* deadline first, before the underlying HTTP call
+# gets the chance to succeed or fail on its own terms. Cancelling an
+# already-executing future doesn't stop it (see the callers below), so a
+# too-short deadline here doesn't save any latency in that case — it just
+# guarantees every merely-slow call becomes an orphan that keeps occupying a
+# `_prompt_lookup_executor` worker for however much longer MLflow's own
+# timeout takes. Repeated page loads/refreshes during any MLflow slowdown
+# then progressively starve the fixed-size pool, so what should degrade to
+# "empty rows" instead degrades to no free workers at all.
+# See ``test_prompt_lookup_deadline_exceeds_mlflow_http_timeout``.
 _PROMPT_LOOKUP_TIMEOUT_SECONDS = float(
-    os.getenv("CALIBER_PROMPT_LOOKUP_TIMEOUT_SECONDS", "8") or "8"
+    os.getenv("CALIBER_PROMPT_LOOKUP_TIMEOUT_SECONDS", "20") or "20"
 )
 
 # (agent_id, alias) -> (monotonic_ts, info | None)
@@ -735,7 +748,10 @@ def _load_prompt_infos_for_names(
     Every (prompt, alias) lookup runs on the shared worker pool, and the whole
     batch is bounded by ``_PROMPT_LOOKUP_TIMEOUT_SECONDS`` — so a slow or
     unreachable registry degrades to "no live info for the lagging rows" in a
-    few seconds instead of hanging the page for minutes.
+    bounded time instead of hanging the page for minutes. Still a blocking
+    call itself (``futures_wait`` below) — ``list_prompts`` runs it via
+    ``asyncio.to_thread`` so that wait lands on a background thread rather
+    than the event loop.
     """
     unique = [name for name in dict.fromkeys(names) if name]
     result: dict[str, dict[str, dict[str, Any]]] = {name: {} for name in unique}
@@ -980,16 +996,13 @@ def _search_mlflow_prompts_uncached() -> list[dict[str, Any]]:
 def _search_mlflow_prompts() -> list[dict[str, Any]]:
     """Bounded wrapper around :func:`_search_mlflow_prompts_uncached`.
 
-    ``list_prompts`` runs this synchronously inside an ``async def`` route,
-    on the single-threaded ASGI event loop -- so an unbounded call here
-    doesn't just stall the prompts page, it stalls *every* concurrent
-    request the server is handling (including an unrelated workflow
-    editor's Undo/Save/Validate toolbar) for as long as the registry
-    call's own retries take. ``_load_prompt_infos_for_names`` below solved
-    this exact problem for the N-per-name lookups with a worker pool and a
-    deadline; this call ran before that pool existed and was never moved
-    onto it. Same shared executor, same deadline, same "missing degrades
-    to empty" contract as its caller already promises on error.
+    Still a blocking call (it waits on ``_prompt_lookup_executor`` up to
+    ``_PROMPT_LOOKUP_TIMEOUT_SECONDS``) -- ``list_prompts`` is responsible
+    for running it via ``asyncio.to_thread`` rather than directly on the
+    event loop, so a slow/hung registry call stalls only *this* request's
+    background thread, not every other concurrent request the server is
+    handling. Same shared executor, same deadline, same "missing degrades
+    to empty" contract as :func:`_load_prompt_infos_for_names`.
     """
     future = _prompt_lookup_executor.submit(_search_mlflow_prompts_uncached)
     _done, not_done = futures_wait([future], timeout=_PROMPT_LOOKUP_TIMEOUT_SECONDS)
@@ -1173,15 +1186,35 @@ async def list_prompts(request: Request) -> JSONResponse:  # noqa: PLR0912, PLR0
         )
         return status, model
 
-    # 2. All prompts from MLflow Prompt Registry
-    mlflow_prompts = _search_mlflow_prompts()
-
-    # Resolve every prompt's live registry record in ONE bounded, concurrent
-    # batch instead of 3 sequential MLflow calls per row inside the loops below.
-    candidate_names: list[str] = [str(mp["name"]) for mp in mlflow_prompts if mp.get("name")]
-    candidate_names.extend(agent_map.keys())
-    candidate_names.extend(workflow_prompt_map.keys())
-    infos_by_name = _load_prompt_infos_for_names(candidate_names)
+    # 2. All prompts from MLflow Prompt Registry, run concurrently with the
+    #    name-lookup phase below rather than one after the other — both are
+    #    real (multi-second-capable) MLflow round trips, and neither of them
+    #    may block the event loop directly (a route handler with no ``await``
+    #    in its body runs to completion on the single ASGI thread, freezing
+    #    every other concurrent request for as long as it takes — including
+    #    an unrelated page's health check or toolbar action). ``asyncio.to_
+    #    thread`` moves each bounded, blocking call onto its own thread.
+    #
+    #    The two phases aren't quite independent: the *known* names (Caliber
+    #    agents + workflow nodes) don't need the search to resolve, but a
+    #    prompt registered in MLflow with no matching agent/workflow row
+    #    does. So kick off the search and the known-names lookup together,
+    #    then resolve just the (typically few, often zero) leftover names
+    #    the search turned up once it lands.
+    known_names: list[str] = [*agent_map.keys(), *workflow_prompt_map.keys()]
+    mlflow_prompts, infos_by_name = await asyncio.gather(
+        asyncio.to_thread(_search_mlflow_prompts),
+        asyncio.to_thread(_load_prompt_infos_for_names, known_names),
+    )
+    unresolved_names = [
+        str(mp["name"])
+        for mp in mlflow_prompts
+        if mp.get("name") and str(mp["name"]) not in infos_by_name
+    ]
+    if unresolved_names:
+        infos_by_name.update(
+            await asyncio.to_thread(_load_prompt_infos_for_names, unresolved_names)
+        )
 
     # 3. Merge: iterate over MLflow prompts first (they have content),
     #    then add Caliber agents that have no MLflow prompt yet.

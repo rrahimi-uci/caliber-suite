@@ -1239,6 +1239,98 @@ def test_load_prompt_infos_for_names_bounds_slow_lookups(monkeypatch) -> None:
     assert result["slow"] == {}
 
 
+def test_prompt_lookup_deadline_exceeds_mlflow_http_timeout() -> None:
+    """``_PROMPT_LOOKUP_TIMEOUT_SECONDS`` must stay above the MLflow HTTP
+    client's own timeout, or every merely-*slow* (not hung) registry call is
+    guaranteed to be aborted by our deadline before it can succeed or fail on
+    its own -- which just turns it into an orphaned thread that keeps
+    occupying a ``_prompt_lookup_executor`` worker for however much longer
+    MLflow's timeout takes. Repeated page loads during any MLflow slowdown
+    then progressively starve the fixed-size pool. Read straight from
+    server.py's default rather than hardcoding "15" a second time here, so
+    this test still catches drift if that default ever changes.
+    """
+    import re
+    from pathlib import Path
+
+    server_source = (Path(prompt_routes.__file__).parent.parent / "server.py").read_text(
+        encoding="utf-8"
+    )
+    match = re.search(r'MLFLOW_HTTP_REQUEST_TIMEOUT",\s*"(\d+)"', server_source)
+    assert match, "server.py no longer sets a default MLFLOW_HTTP_REQUEST_TIMEOUT"
+    mlflow_http_timeout = float(match.group(1))
+    assert mlflow_http_timeout < prompt_routes._PROMPT_LOOKUP_TIMEOUT_SECONDS
+
+
+@pytest.mark.asyncio
+async def test_list_prompts_does_not_block_other_requests_while_mlflow_is_slow(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slow (not hung) MLflow registry call must not freeze every other
+    concurrent request on the single ASGI event loop.
+
+    Before ``list_prompts`` moved its MLflow round trips onto
+    ``asyncio.to_thread``, this ``async def`` route ran its bounded-but-still-
+    blocking search/lookup calls directly on the event loop, so one slow
+    prompts-list request stalled *every* other in-flight request on the same
+    worker (health checks included) for as long as the deadline allowed.
+    """
+    import asyncio
+    import threading
+
+    import httpx
+
+    from caliber.routes.health import HEALTH_PATH
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _hanging_search() -> list[Any]:
+        entered.set()
+        release.wait(timeout=5.0)
+        return []
+
+    hanging_mod = types.ModuleType("mlflow")
+    hanging_mod.genai = SimpleNamespace(search_prompts=_hanging_search)
+    monkeypatch.setattr(prompt_routes, "_get_mlflow_module", lambda: hanging_mod)
+    # Long enough that the deadline itself can't be what unblocks the
+    # request within this test's assertions.
+    monkeypatch.setattr(prompt_routes, "_PROMPT_LOOKUP_TIMEOUT_SECONDS", 5.0)
+
+    transport = httpx.ASGITransport(app=client.app)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+            headers=dict(client.headers),
+        ) as async_client:
+            slow_task = asyncio.ensure_future(async_client.get(PREFIX))
+
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 5.0
+            while not entered.is_set() and loop.time() < deadline:
+                await asyncio.sleep(0.01)
+            assert entered.is_set(), "the slow prompts request never reached its MLflow call"
+
+            # While the slow request is still blocked in its MLflow call, an
+            # unrelated fast request must complete quickly -- proof the event
+            # loop kept serving other requests instead of freezing behind it.
+            started = loop.time()
+            fast_response = await asyncio.wait_for(async_client.get(HEALTH_PATH), timeout=2.0)
+            elapsed = loop.time() - started
+            assert fast_response.status_code == 200
+            assert elapsed < 2.0, (
+                f"health check took {elapsed:.2f}s -- the event loop was blocked "
+                "behind the slow prompts-list request"
+            )
+
+            release.set()
+            slow_response = await slow_task
+            assert slow_response.status_code == 200
+    finally:
+        release.set()
+
+
 def test_load_prompt_info_cached_reuses_within_ttl(monkeypatch) -> None:
     calls: list[tuple[str, str]] = []
 
