@@ -7480,6 +7480,32 @@ export function PromptOptimizationTab({
                     {activeRun.current_stage}
                   </span>
                 </div>
+                {activeRun.gepa_progress && (
+                  <div
+                    data-testid="job-gepa-progress"
+                    className="flex items-center gap-2 text-xs text-zinc-600"
+                  >
+                    <span
+                      aria-hidden="true"
+                      className="h-1.5 w-1.5 animate-pulse rounded-full bg-caliber-600"
+                    />
+                    <span>
+                      GEPA optimizing — pass{" "}
+                      <span className="font-medium text-zinc-800">
+                        {activeRun.gepa_progress.iterations}
+                      </span>
+                      {activeRun.gepa_progress.latest_score != null && (
+                        <>
+                          {" "}
+                          · latest score{" "}
+                          <span className="font-medium text-zinc-800">
+                            {activeRun.gepa_progress.latest_score.toFixed(2)}
+                          </span>
+                        </>
+                      )}
+                    </span>
+                  </div>
+                )}
                 {activeRun.eval_results && (
                   <div>
                     <span className="text-zinc-500">Score:</span>{" "}

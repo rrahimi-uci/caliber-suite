@@ -297,6 +297,25 @@ export type JobStage =
   | "eval"
   | "done";
 
+/**
+ * Live progress for an in-flight GEPA candidate-generation stage, computed
+ * on read from the job's MLflow run — not persisted, so it's absent (or
+ * `null`) outside of a running GEPA `candidate` stage. See
+ * `caliber.routes.jobs._gepa_progress`.
+ */
+export interface GepaProgress {
+  /** Number of full-validation passes GEPA has logged so far. */
+  iterations: number;
+  /** Aggregate score of the most recently logged validation pass. */
+  latest_score: number | null;
+  /** GEPA's own step counter for the latest logged pass. */
+  latest_step: number;
+  /** ISO timestamp the latest metric point was logged at. */
+  updated_at: string;
+  /** Full score history, oldest first. */
+  history: Array<{ step: number; score: number }>;
+}
+
 export interface RefinementJob {
   job_id: string;
   agent_id: string;
@@ -318,6 +337,7 @@ export interface RefinementJob {
   candidate: Record<string, unknown> | null;
   eval_results: Record<string, unknown> | null;
   calibration_spec: Record<string, unknown> | null;
+  gepa_progress?: GepaProgress | null;
   created_at: string;
   updated_at: string;
 }

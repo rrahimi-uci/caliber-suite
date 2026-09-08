@@ -1064,6 +1064,73 @@ describe("Prompt optimization calibration edge flows", () => {
     );
   });
 
+  it("shows a live GEPA progress readout on the active run", async () => {
+    const gepaJob = {
+      job_id: "job-gepa-running",
+      agent_id: "support-agent",
+      workflow_id: null,
+      primary_item_id: "item-gepa",
+      mlflow_run_id: "run-gepa-1",
+      artifact_type: "prompt",
+      optimizer_type: "GEPA",
+      status: "running",
+      current_stage: "candidate",
+      attempt_count: 1,
+      error_message: null,
+      total_tokens: 0,
+      cost_usd: 0,
+      bundle_targets: [],
+      bundle_expansion_count: 1,
+      diagnosis: null,
+      candidate: null,
+      eval_results: null,
+      calibration_spec: null,
+      gepa_progress: {
+        iterations: 4,
+        latest_score: 0.7123,
+        latest_step: 3,
+        updated_at: "2025-01-02T00:03:00Z",
+        history: [
+          { step: 0, score: 0.4 },
+          { step: 1, score: 0.55 },
+          { step: 2, score: 0.6 },
+          { step: 3, score: 0.7123 },
+        ],
+      },
+      created_at: "2025-01-02T00:00:00Z",
+      updated_at: "2025-01-02T00:03:00Z",
+    };
+    optionHandlers([
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    ]);
+    server.use(
+      // The list handler above already covers "no jobs"; override it with
+      // one in-flight GEPA run so `refreshRuns()` restores it as the active
+      // run on mount (mirrors the "backend calibration failure" test above).
+      http.get(`${API_BASE}/jobs`, () =>
+        HttpResponse.json(envelope([gepaJob])),
+      ),
+      // Not required for this assertion (the initial list response already
+      // populates Active Run), but the run is non-terminal so the component
+      // does start a 2s poll of this endpoint -- keep it mocked so a slow
+      // test run can't hit an unhandled request.
+      http.get(`${API_BASE}/jobs/:jobId`, () =>
+        HttpResponse.json(envelope(gepaJob)),
+      ),
+    );
+
+    renderWithRouter(
+      <PromptOptimizationTab prompts={[supportPrompt]} loading={false} />,
+    );
+
+    const progress = await screen.findByTestId("job-gepa-progress");
+    expect(progress).toHaveTextContent("GEPA optimizing");
+    expect(progress).toHaveTextContent("4");
+    expect(progress).toHaveTextContent("0.71");
+  });
+
   it("validates scorer selections, weights, and scorer config before starting a run", async () => {
     optionHandlers([
       http.get(`${API_BASE}/eval-datasets`, () =>

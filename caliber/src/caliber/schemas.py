@@ -363,6 +363,11 @@ class RefinementJobSchema(BaseModel):
     candidate: dict[str, object] | None
     eval_results: dict[str, object] | None
     calibration_spec: dict[str, object] | None = None
+    # Live progress for an in-flight GEPA candidate-generation stage —
+    # computed on read from the job's MLflow run (not a DB column). ``None``
+    # for every other stage/optimizer, or when GEPA hasn't logged its first
+    # validation pass yet. See ``caliber.routes.jobs._gepa_progress``.
+    gepa_progress: dict[str, object] | None = None
     created_at: datetime
     updated_at: datetime
 
