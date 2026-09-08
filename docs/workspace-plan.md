@@ -14,7 +14,7 @@ prerequisites:
   - Treat current-main behavior and tests as the source of truth
   - Preserve the current single-tenant product boundary unless a separate decision changes it
 reviewed_on: 2026-09-08
-version_applicability: current main at 9061aeccb758; proposal only, not an implemented capability
+version_applicability: architecture baseline 9061aeccb758; UI extension revalidated on current main at 94bffc1108; proposal only, not an implemented capability
 tags:
   - workspace
   - project-scoping
@@ -23,6 +23,7 @@ tags:
   - github
   - environments
   - releases
+  - ui
 ---
 
 # Workspace architecture and implementation proposal
@@ -31,7 +32,10 @@ tags:
 
 This document proposes how to make **Workspace** the coherent project boundary
 for CALIBER. It is implementation-ready planning, not a statement that the
-capability already exists. The source audit is against `main` at `9061aeccb758`.
+capability already exists. The original architecture audit is against `main` at
+`9061aeccb758`; the UI extension was revalidated against current `main` at
+`94bffc1108`. The intervening changes do not modify the UI files inspected in
+Section 6.6.
 
 The recommended decision is:
 
@@ -109,6 +113,12 @@ guarantees are not yet workspace-wide:
     the credential to one project. A CI token used for workspace import would
     otherwise retain its owner's access to every workspace where that owner is
     a member.
+12. The UI has a top-bar selector but no Workspace route or overview. The
+    selector is hidden on small screens, membership editing is embedded in
+    platform Administration, and several individual asset pages call their
+    detail view a “workspace.” Users therefore cannot navigate one coherent
+    project boundary or reliably tell platform, library, project, and asset
+    context apart.
 
 These are not reasons to replace the architecture. They identify where the
 existing project scope should become a real aggregate and where current
@@ -121,6 +131,9 @@ The Workspace initiative should deliver:
 
 - one discoverable project boundary for authored assets, evidence, runs,
   releases, collaborators, and environment state;
+- one responsive Workspace UI that preserves the existing CALIBER shell,
+  routes users to existing domain editors, and never displays data from one
+  workspace under another workspace's request context;
 - strict workspace isolation for every workspace-owned read, write, execution,
   and assistant path;
 - an immutable workspace revision that pins exact domain resource versions and
@@ -724,7 +737,7 @@ Extend current responses and preserve existing methods:
 | `GET /projects` | Visible workspaces; explicit library mode remains separate | authenticated read |
 | `POST /projects` | Create workspace and seed owner + environments | global operator |
 | `GET /projects/{id}` | Workspace details/capabilities/current revision/environment summary | `workspace.read` |
-| `PATCH /projects/{id}` | Name/description/archive policy | `workspace.admin` |
+| `PATCH /projects/{id}` | Name/description/archive policy | `workspace.update` |
 | `POST /projects/{id}/transfer-ownership` | Atomic owner transfer | owner + global admin |
 | Existing member endpoints | List/add/change/deactivate collaborators | `workspace.manage_members` |
 
@@ -736,7 +749,7 @@ rows. A failed seed leaves no partial workspace.
 | Method and path | Purpose | Permission |
 | --- | --- | --- |
 | `GET /projects/{id}/source` | Read source mode/binding/status | `workspace.read` |
-| `PUT /projects/{id}/source` | Create/replace disabled binding with precondition | `workspace.admin` |
+| `PUT /projects/{id}/source` | Create/replace disabled binding with precondition | `workspace.manage_source` |
 | `POST /projects/{id}/revision-imports` | Queue commit-pinned import | `revision.import` |
 | `GET /projects/{id}/revision-imports/{job_id}` | Read durable import status | `workspace.read` |
 | `GET /projects/{id}/revisions` | List immutable revisions | `workspace.read` |
@@ -806,6 +819,487 @@ state returns `409` before any child operation starts.
   capabilities call the same authorization service; prompts or tool text never
   grant authority. Gated release actions remain absent from synchronous
   auto-approval and use durable interactions.
+
+### 6.6 Current UI evidence and constraints
+
+The Workspace UI must extend the application that exists; it must not assume a
+new shell, router, design system, or data-fetching stack. The following audit is
+the UI source of truth for this proposal:
+
+| Current UI component | Verified behavior | Reuse or change |
+| --- | --- | --- |
+| [`App.tsx`](../caliber/caliber-ui/src/App.tsx) | Authenticated routes are manually declared and page modules are lazy-loaded; an authentication-generation change clears the query client | Add lazy Workspace routes inside the existing authenticated shell; retain auth-generation clearing |
+| [`AppShell.tsx`](../caliber/caliber-ui/src/components/AppShell.tsx) | Owns the fixed top bar, collapsible desktop sidebar, mobile drawer, main content, skip link, and lazy Aria panel | Preserve the shell; insert a Workspace provider around the authenticated route content rather than introduce a second application shell |
+| [`Sidebar.tsx`](../caliber/caliber-ui/src/components/Sidebar.tsx) | Dashboard is standalone; Build, Resources, Integrations, Evaluate, Operate, and Admin are collapsible groups; collapsed rail, mobile behavior, active-route opening, persisted groups, and Plans badges are tested | Add one standalone Workspace destination below Dashboard; do not reorganize the existing groups as part of this initiative |
+| [`TopBar.tsx`](../caliber/caliber-ui/src/components/TopBar.tsx) | The tested control order is Workspace, Ask Aria, health, theme, user | Preserve that order and replace only the selector internals; make switching available below the current `sm` breakpoint |
+| [`WorkspaceSelector.tsx`](../caliber/caliber-ui/src/components/WorkspaceSelector.tsx) | Loads projects directly, stores a nullable active project, creates by name, emits a browser event, and invalidates all TanStack queries | Evolve into a searchable switcher backed by shared Workspace context; preserve the lightweight create-and-select path |
+| [`activeWorkspace.ts`](../caliber/caliber-ui/src/workspace/activeWorkspace.ts) | `caliber.active_project_id` and `caliber-workspace-changed` form a process-global ambient selection | Retain the storage key and event as compatibility adapters, but make a typed provider and URL the React source of truth |
+| [`caliberApi.ts`](../caliber/caliber-ui/src/api/caliberApi.ts) | Injects `X-CALIBER-Project` from local storage for API and multipart requests | Continue emitting the header, but support explicit `active`, `none`, and `project_id` request scope so cross-workspace pages do not accidentally inherit ambient context |
+| [`useApi.ts`](../caliber/caliber-ui/src/hooks/useApi.ts) | Refetches on the workspace event, but retains the prior `data` value while the new request is loading | During migration, key/remount scoped consumers by Workspace generation and clear data on a scope change; old rows must never remain actionable under a new header |
+| [`useApiQuery.ts`](../caliber/caliber-ui/src/hooks/useApiQuery.ts) and [`queryClient.ts`](../caliber/caliber-ui/src/lib/queryClient.ts) | TanStack query keys are caller-provided and commonly omit workspace identity; the default stale window is 30 seconds | Introduce one workspace query-key factory and migrate every scoped query; targeted cancellation/removal replaces global invalidation |
+| [`PageHeader.tsx`](../caliber/caliber-ui/src/components/PageHeader.tsx) and [`PageTabs.tsx`](../caliber/caliber-ui/src/components/PageTabs.tsx) | Provide the current page heading and local-state button-tab patterns | Reuse visual styles; Workspace tabs must be URL-backed, bookmarkable links with complete tab semantics |
+| [`MutationGuard.tsx`](../caliber/caliber-ui/src/components/MutationGuard.tsx) | Correctly treats UI gating as an affordance and checks global scopes from `/me` | Add a sibling `WorkspaceCapabilityGuard` driven by server-returned capabilities; never infer authority from a role label in the browser |
+| [`Administration.tsx`](../caliber/caliber-ui/src/pages/Administration.tsx) | Combines platform accounts, project access, and secrets; project access already supports member list/add/change/remove | Extract and reuse the project-access section under Workspace > Collaborators; Administration retains platform account and secret administration |
+| [`Releases.tsx`](../caliber/caliber-ui/src/pages/Releases.tsx) and [`VersionPanel.tsx`](../caliber/caliber-ui/src/components/versioning/VersionPanel.tsx) | Releases is a cross-artifact operating hub; asset-specific version panels retain promote/rollback semantics | Keep `/releases` as a cross-workspace hub and reuse shared workspace-release detail components; do not replace domain version panels |
+| [`environment.ts`](../caliber/caliber-ui/src/lib/environment.ts) | The shipped product is deliberately single-environment with only the `prod` alias; tests pin this behavior | Do not expose a development/staging/production ladder until Phase 4 is implemented and advertised by a server capability |
+
+Three present behaviors are specifically unsafe to carry into strict Workspace
+mode:
+
+1. a project-list failure silently looks like “All workspaces”;
+2. changing local storage can change the request header while old page data is
+   still visible; and
+3. an empty project header ambiguously means personal, public, or aggregate
+   access depending on the endpoint.
+
+The UI foundation phase must close those behaviors before presenting Workspace
+as a security or isolation boundary.
+
+### 6.7 UI information architecture
+
+The UI should express two distinct levels without duplicating functionality:
+
+- **Platform level:** Dashboard, top-level Releases, Observability, Audit Log,
+  Administration, and provider Settings can summarize or operate across
+  workspaces when global authorization permits.
+- **Workspace level:** one selected workspace owns its inventory, revisions,
+  collaborators, environments, releases, and settings. Existing domain pages
+  remain where users author and inspect individual resources.
+
+The current `/` Dashboard is an operational fleet view and should remain one.
+Changing it into a Workspace home would silently alter its meaning and force a
+workspace selection just to see platform health. Add a standalone **Workspace**
+navigation item immediately below Dashboard instead. When a workspace is
+active, its target is `/workspaces/:projectId`; otherwise it targets the
+chooser. It remains reachable in the expanded sidebar, collapsed icon rail,
+and mobile drawer.
+
+```text
++--------------------------------------------------------------------------+
+| CALIBER | Workspace: Claims automation v | Ask Aria | Health | Theme | Me |
++------------------+-------------------------------------------------------+
+| Dashboard        | Claims automation                         [Editor]     |
+| Workspace        | Git-managed | revision WSR-018 | commit 4ac0e91       |
+|                  |-------------------------------------------------------|
+| BUILD            | Overview  Resources  Revisions  Collaborators         |
+|   Workflows      | Environments  Releases  Settings                      |
+|   Cookbooks      |-------------------------------------------------------|
+|   Agents         | Development     Staging          Production           |
+|   Plans          | WREL-104 ready  WREL-101 live    WREL-099 live        |
+| RESOURCES        | 3 checks due    no drift         reconciliation clear |
+| INTEGRATIONS     |-------------------------------------------------------|
+| EVALUATE         | Needs attention              Recent activity          |
+| OPERATE          | - imported revision WSR-018  - release approved       |
+| ADMIN            | - staging evidence due       - collaborator added     |
++------------------+-------------------------------------------------------+
+```
+
+This uses the existing top bar, sidebar, page header, cards, badges, dialogs,
+and responsive breakpoints. It does not introduce a separate visual language.
+
+### 6.8 Routes and URL ownership
+
+Add the following client routes while retaining `/projects` as the backend
+wire contract:
+
+| UI route | Purpose | Selection behavior |
+| --- | --- | --- |
+| `/workspaces` | Workspace chooser, create action, and explicit Library entry | No workspace is implied; choosing one navigates to its overview |
+| `/workspaces/:projectId` | Workspace overview | Redirect-free index route; `projectId` is validated before it becomes active |
+| `/workspaces/:projectId/resources` | Cross-type resource inventory | Links into existing domain editors/detail pages |
+| `/workspaces/:projectId/revisions` | Revision list and comparison entry | List state is represented in search parameters where useful |
+| `/workspaces/:projectId/revisions/:revisionId` | Immutable revision detail, pins, validation, and diff | Revision must belong to the route workspace |
+| `/workspaces/:projectId/collaborators` | Membership and role management | Reuses current Project Access operations |
+| `/workspaces/:projectId/environments` | Environment state and policy | Rendered only when server capability advertises Workspace environments |
+| `/workspaces/:projectId/releases` | Releases for this workspace | Shares release detail/state components with `/releases` |
+| `/workspaces/:projectId/releases/:releaseId` | Release evidence, signoffs, child operations, reconcile/rollback | Release must belong to both route workspace and environment |
+| `/workspaces/:projectId/settings` | Identity, source binding, storage, ownership, archive | Platform provider settings remain at `/settings` |
+
+Route precedence is explicit:
+
+1. On a `/workspaces/:projectId/...` route, the URL wins after a successful
+   server visibility/capability check.
+2. On a workspace-aware domain page, the persisted selection applies.
+3. When a resource detail URL resolves an owning workspace, the verified
+   resource response may synchronize the selection; the UI never guesses by
+   resource name or by a client-only value.
+4. On platform-wide routes, each API call declares whether it is aggregate or
+   explicitly workspace-filtered. Ambient local storage is not allowed to
+   decide this invisibly.
+
+Unknown and non-visible workspaces return the same `404`. A visible workspace
+whose caller lacks a specific capability returns `403` for that operation;
+archived is a read-only workspace shell with a persistent status banner.
+Failure to load the workspace list is an explicit retryable error, never a
+fallback to Library.
+
+### 6.9 Workspace context and safe switching
+
+Add `WorkspaceProvider` beneath the authenticated application boundary and
+above `AppShell`. It owns scope, visible workspaces, effective capabilities,
+switch status, and a monotonically increasing generation:
+
+```ts
+type WorkspaceScope =
+  | { kind: "library" }
+  | { kind: "workspace"; projectId: string };
+
+interface WorkspaceContextValue {
+  scope: WorkspaceScope;
+  workspace: Project | null;
+  capabilities: ReadonlySet<WorkspaceCapability>;
+  generation: number;
+  status: "loading" | "ready" | "switching" | "error";
+  switchTo(next: WorkspaceScope): Promise<void>;
+}
+
+const workspaceQueryKey = (
+  scope: WorkspaceScope,
+  ...parts: readonly unknown[]
+) => ["workspace", scope.kind === "workspace" ? scope.projectId : "library", ...parts] as const;
+```
+
+```mermaid
+flowchart TB
+    Auth[Authenticated application] --> Provider[WorkspaceProvider]
+    Provider --> Shell[Existing AppShell]
+    Shell --> Top[TopBar and switcher]
+    Shell --> Side[Sidebar and dynamic Workspace link]
+    Shell --> Routes[Existing React Router outlet]
+    Shell --> Aria[Existing Aria panel]
+    Routes --> Platform[Platform-wide pages]
+    Routes --> Workspace[Workspace shell and tabs]
+    Workspace --> Domain[Existing domain editors and detail pages]
+    Provider --> Transport[caliberApi explicit request scope]
+    Platform -->|scope: none or explicit filter| Transport
+    Workspace -->|scope: project_id| Transport
+    Domain -->|scope: active or verified owner| Transport
+    Provider -. context and capability projection .-> Top
+    Provider -. context and active route .-> Side
+    Provider -. pinned conversation context .-> Aria
+```
+
+The persisted `caliber.active_project_id` remains a compatibility cache, not
+the authorization source. Library is a positive state, not `null` meaning
+“everything.” It may show personal/shared/public catalog objects according to
+existing visibility rules, but it is read-only for workspace-owned mutations,
+revision creation, and release actions.
+
+```mermaid
+sequenceDiagram
+    actor User
+    participant Switcher as Workspace switcher
+    participant Provider as WorkspaceProvider
+    participant API as CALIBER API
+    participant Cache as Query client and scoped subtree
+    participant Router
+
+    User->>Switcher: Select PRJ-B
+    Switcher->>Provider: switchTo(PRJ-B)
+    Provider->>Provider: Disable scoped actions; status = switching
+    Provider->>API: GET /projects/PRJ-B
+    API-->>Provider: Visible workspace + capabilities
+    Provider->>Cache: Cancel PRJ-A requests and remove PRJ-A scoped cache
+    Provider->>Provider: Commit header scope; persist ID; increment generation
+    Provider->>Router: Navigate or reconcile /workspaces/PRJ-B
+    Provider->>Cache: Remount scoped subtree with empty/loading state
+    Cache->>API: Fetch PRJ-B data with explicit project scope
+    API-->>Cache: PRJ-B data
+    Cache-->>User: Enable actions and render PRJ-B
+```
+
+If validation fails, the provider keeps the previous committed workspace,
+re-enables it, and shows the switch error. It must not relabel prior data as the
+failed target. Every mutation captures the workspace ID when the user confirms
+the action and sends that ID in both path and request context; it must not read
+a potentially changed ambient selection when the promise eventually executes.
+
+The migration does not require an immediate rewrite of every `useApi` call.
+Scoped route content is keyed by `generation`, causing legacy hooks to abort and
+remount with `data = null`; new and touched code uses workspace-prefixed TanStack
+keys. A temporary development assertion should warn when a known scoped query
+is created without the workspace key. Remove the browser event only after its
+remaining listeners reach zero.
+
+### 6.10 Switcher and workspace creation
+
+Replace the current native select with an accessible button/popover or combobox
+that supports keyboard navigation, search, loading/error states, and long names.
+The closed control shows the current workspace name. The open panel shows:
+
+- visible workspaces with active/archived status, the caller's role, and source
+  mode;
+- a distinct **Library** entry rather than “All workspaces”;
+- **Open workspace** for the selected context;
+- **Create workspace** only when the server returns the create capability; and
+- retry/error UI when the list cannot load.
+
+Keep the top-bar order Workspace -> Ask Aria -> Health -> Theme -> User. On
+mobile, show a compact workspace icon/name button in the top bar or as the first
+control in the mobile drawer; it cannot remain `hidden sm:flex`.
+
+Workspace creation stays intentionally small: name, optional description, and
+source mode are enough. A successful create atomically selects the workspace
+and opens its overview with a setup checklist for source, resources, and
+collaborators. Repository binding, storage policy, and credentials do not
+belong in the create modal. If post-create setup fails, retain a visible,
+resumable incomplete workspace instead of deleting it or pretending setup
+succeeded.
+
+### 6.11 Workspace shell and tab contract
+
+All Workspace routes share one shell and one loader. The header shows:
+
+- workspace name and stable `PRJ-*` ID;
+- active/archived status and effective role;
+- `caliber_managed` or `git_managed` source mode;
+- current revision ID, short digest, and source commit when present; and
+- a read-only or setup-incomplete banner when applicable.
+
+The tabs are Overview, Resources, Revisions, Collaborators, Environments,
+Releases, and Settings. They must be URL-backed `NavLink` elements so reload,
+back/forward, deep links, and copied links preserve context. Either extend
+`PageTabs` with an optional `to` while preserving its current button API, or add
+a thin `WorkspaceTabs` wrapper with the same classes. Each tab is exposed as a
+tab or navigation link consistently, has visible focus, and associates the
+active control with its panel. On narrow screens, the row scrolls horizontally
+without hiding destinations.
+
+The workspace loader should fetch one summary projection rather than require
+every tab to issue duplicate project/member/environment/revision requests:
+
+```json
+{
+  "project_id": "PRJ-123",
+  "name": "Claims automation",
+  "status": "active",
+  "access_role": "editor",
+  "capabilities": ["workspace.read", "resource.write", "revision.create"],
+  "source": {"mode": "git_managed", "state": "healthy"},
+  "current_revision": {"revision_id": "WSR-018", "digest": "sha256:..."},
+  "environments": {"enabled": false, "items": []},
+  "counts": {"resources": 17, "collaborators": 4, "open_releases": 1}
+}
+```
+
+This is a display projection, not an alternative authorization source. A
+mutation endpoint always re-authorizes against current server state.
+
+### 6.12 Page-by-page behavior
+
+| Surface | Primary content | Primary actions | Existing UI reused |
+| --- | --- | --- | --- |
+| Overview | Source health, current revision, resource/collaborator counts, environment summary, needs-attention items, recent workspace audit activity | Complete setup, create/import revision, open pending release | `PageHeader`, status badges, current summary cards and empty-state patterns |
+| Resources | Cross-type inventory with type, name, version/pin, source, draft/drift state, and filters | Open existing editor/detail, add an existing library resource, remove from next draft | Existing resource pages remain editors; links and filters reuse current controls |
+| Revisions | Immutable revision list, source commit, digest, validation, creator/time, resource counts, two-revision compare | Snapshot CALIBER-managed selection or start Git import | Existing table/detail/diff patterns; no editing of ready revisions |
+| Collaborators | Members, role descriptions, active state, and effective capability preview | Add, change role, deactivate, transfer ownership | Extract current Project Access section and `ProjectsAPI` member methods |
+| Environments | Development/staging/production cards with current release/revision/config digest, policy, health, and drift | Configure policy, inspect current release, request promotion | Existing badge/card primitives; hidden behind server capability until Phase 4 |
+| Releases | Workspace-filtered timeline and release detail with evidence, signoffs, child effects, rollback point, and reconciliation | Request, evaluate, approve, apply, reconcile, rollback | Shared extraction from top-level `Releases`; asset adapters and `VersionPanel` remain authoritative |
+| Settings | Name/description, source binding/status, storage selection, archive, and ownership | Update metadata, validate/disable source, archive, transfer ownership | Existing forms, `ConfirmDialog`, project patch/member APIs |
+
+#### Resources
+
+The inventory is an aggregate view of references, not a universal editor. A row
+can be `draft`, `pinned`, `shared`, `external`, `unresolved`, or `drifted` and
+links to the domain surface that understands that asset. A revision detail
+always displays the immutable pin, even if the domain resource now has a newer
+draft. Shared/public resources are pinned by exact version and copied only when
+the user chooses to edit them.
+
+The normal path must not require users to open MLflow, GitHub, or an object-store
+browser to reconstruct the workspace. CALIBER displays provider identity,
+version, digest, source commit, and health through its local binding; external
+links are diagnostics. The existing top-level Object Store remains a platform
+storage browser and is not misleadingly renamed “Files.” Workspace-owned file
+references appear in Resources and revisions with their CALIBER provenance.
+
+#### Revisions and imports
+
+Import is a durable job view with `queued`, `fetching`, `validating`,
+`materializing`, `ready`, `failed`, and `reconciliation_required` states. It
+shows bounded logs, manifest validation errors with paths, source commit,
+idempotency identity, and retry eligibility. Closing the page does not cancel a
+durable job. Revision comparison reports added, removed, changed, and
+unchanged pins plus unresolved adapter differences; it does not label two
+resources semantically equivalent merely because their metadata matches.
+
+#### Collaborators
+
+Move the editable member table out of Administration when this tab ships so
+there is one mutation surface. Administration may link to a workspace's
+Collaborators tab from a platform-wide access inventory, but must not retain a
+second editor. Protect the sole active owner, require explicit ownership
+transfer, explain the effective capabilities of each role, and confirm role
+downgrades/removals that can strand active work.
+
+#### Environments and releases
+
+Environment is not a second global top-bar selector. It is release/run context
+inside the selected workspace. The same immutable revision moves through the
+fixed ladder; cards must not suggest that branches are environments.
+
+Until the Phase 4 server contract is active, the UI shows the current single
+live target using existing terminology or an explicit “Workspace environments
+not enabled” state. It must not flip the dormant client constant and imply that
+the backend now guarantees a stage ladder.
+
+The top-level `/releases` page remains the operator's cross-workspace queue and
+timeline, with an explicit workspace filter and no ambient-header ambiguity.
+Workspace > Releases is the focused view. Both use the same release detail,
+evidence, signoff, child-operation, reconcile, and rollback components. New
+aggregate release creation selects a workspace revision and target environment;
+it should not require users to author raw candidate JSON. Legacy asset release
+forms remain available until their migration is complete.
+
+### 6.13 UI authorization contract
+
+The workspace summary and relevant mutation preflights return stable capability
+codes and optional denial reasons. `WorkspaceCapabilityGuard` mirrors the
+existing guard's disclose-by-default behavior but consumes these effective
+capabilities rather than mapping role names in TypeScript.
+
+| UI action | Capability used for rendering | Expected minimum role in the default policy | Additional condition shown by UI |
+| --- | --- | --- | --- |
+| View workspace/tabs | `workspace.read` | Viewer | Active membership and visible workspace |
+| Edit resources/draft | `resource.write` | Editor | Source mode permits UI editing |
+| Create snapshot/import | `revision.create` or `revision.import` | Editor | Valid source mode and no conflicting import |
+| Add/change collaborators | `workspace.manage_members` | Owner | Sole-owner and ownership-transfer constraints |
+| Configure environment/source | `environment.manage` or `workspace.manage_source` | Owner | Global scope ceiling and ETag match |
+| Request/evaluate release | `release.request` | Editor | Ready revision and target-policy preconditions |
+| Approve release | `release.approve` | Reviewer or Owner | Global approver ceiling and actor separation |
+| Apply/reconcile/rollback | `release.apply`, `release.reconcile`, or `release.rollback` | Owner | Global operator/admin ceiling and current-state CAS |
+
+Controls remain visible but inert with a server-provided explanation unless
+their existence would disclose a resource the caller cannot read. Capability
+loading fails closed. The API remains authoritative: tests must invoke each
+endpoint directly with forged UI state and prove denial.
+
+Role changes, archival, source-mode changes, and release-state changes can
+invalidate an already-rendered capability set. A `403` or `409` response must
+refresh the workspace summary and preserve the user's form as a recoverable
+draft where safe; it must not optimistically continue.
+
+### 6.14 Aria interaction
+
+Aria remains in the existing right-side panel, but its conversation and plan
+context must name the workspace, revision, and environment explicitly. The
+panel header should show that context and include it in confirmation surfaces.
+When the user switches workspaces while a conversation or plan is active, Aria
+must offer to start a new workspace context or close the panel; it must not
+silently retarget pending tool calls or a paused plan. Existing plans remain
+pinned to their original workspace even when opened from the global Plans page.
+
+Read and propose actions may use the selected workspace after server-side
+authorization. Approval, apply, rollback, ownership, and source-binding actions
+continue through durable UI interactions and cannot be granted by assistant
+instructions.
+
+### 6.15 Terminology and content rules
+
+Reserve capitalized **Workspace** for the `CaliberProject` product boundary.
+Several current pages use “workspace” for an individual prompt, skill, tool, or
+knowledge-base editing view. Change only their user-facing labels as those
+surfaces are touched:
+
+| Current user-facing phrase | Replacement |
+| --- | --- |
+| Prompt Workspace | Prompt details or Prompt studio |
+| Skill Workspace | Skill details or Skill studio |
+| Tool Workspace | Tool details or Tool studio |
+| Open this prompt's workspace | Open prompt |
+| Knowledge-base workspace | Knowledge-base details |
+
+Internal component names can remain temporarily to avoid a broad mechanical
+rename. Use **Library** only for readable shared/personal/public catalog
+resources, **Revision** for an immutable workspace pin set, **Environment** for
+a governed target, and **Release** for applying a revision to an environment.
+
+### 6.16 Responsive, accessibility, and state requirements
+
+The implementation must preserve current shell behavior and add:
+
+- a mobile-reachable switcher, workspace tabs, and primary actions;
+- keyboard operation and focus return for the switcher and every modal;
+- announced workspace changes, import progress, release transitions, and
+  blocking errors through appropriate live regions;
+- status text/icons in addition to color, including partial and
+  reconciliation-required release states;
+- full digests/commit SHAs available through copy controls while visual labels
+  remain safely truncated;
+- destructive confirmations for archive, removal, source replacement,
+  rollback, and ownership transfer; new flows must not use `window.prompt`;
+- skeleton/empty/error states that distinguish loading, no visible workspaces,
+  Library, forbidden, missing, archived, invalid revision, failed import,
+  blocked release, partial effect, and reconciliation required; and
+- no optimistic environment pointer or “live” success until the authoritative
+  apply operation and follow-up observation complete.
+
+### 6.17 UI component and file change map
+
+The names below are proposed; implementation may adjust them to existing local
+conventions while preserving the contracts.
+
+| File/component | Change | Dependency |
+| --- | --- | --- |
+| `src/App.tsx` | Register lazy `/workspaces/...` routes and mount `WorkspaceProvider` inside authentication | Workspace summary APIs |
+| `src/components/Sidebar.tsx` | Add provider-aware Workspace item after Dashboard; preserve groups, rail, drawer, badges, and persisted state | Routes and provider |
+| `src/components/TopBar.tsx` | Preserve control ordering; host responsive switcher | Provider |
+| `src/components/WorkspaceSelector.tsx` | Refactor into searchable, explicit Library/workspace switcher with errors and role/source metadata | Provider and list API |
+| `src/workspace/activeWorkspace.ts` | Retain compatibility storage/event; add typed explicit-scope store adapter | Provider and API transport |
+| `src/workspace/WorkspaceProvider.tsx` | New URL-aware scope, capability, generation, and safe-switch owner | Project detail/capability API |
+| `src/workspace/queryKeys.ts` | New query-key factory and scoped invalidation helpers | TanStack Query |
+| `src/api/caliberApi.ts` | Add explicit request-scope option and workspace summary/source/revision/environment/release methods | Backend contracts |
+| `src/hooks/useApi.ts` | Clear/remount on generation during migration | Provider |
+| `src/components/WorkspaceCapabilityGuard.tsx` | New server-capability affordance guard | Workspace summary |
+| `src/components/PageTabs.tsx` | Add backward-compatible route-link mode, or leave unchanged and add `WorkspaceTabs` | React Router |
+| `src/pages/workspace/*` | New shell, overview, resources, revisions, collaborators, environments, releases, settings | Above foundations |
+| `src/pages/Administration.tsx` | Extract project member editor; retain platform accounts/secrets and optional access inventory links | Collaborators route shipped |
+| `src/pages/Releases.tsx` | Reuse shared release list/detail with explicit aggregate scope | Workspace release API |
+| `src/components/versioning/*` | Keep asset-specific adapters/panels; add links to containing revision/release where available | Revision bindings |
+| `src/components/assistant/*` | Display and pin Workspace context; handle switch interruption | Provider and durable Aria plans |
+
+### 6.18 UI implementation slices and acceptance tests
+
+The UI work should be split into independently reviewable slices instead of one
+large frontend PR:
+
+1. **Context safety:** add explicit request scope, `WorkspaceProvider`, scoped
+   query keys, switch cancellation/remount, and Library semantics. No new
+   Workspace product claim ships before this slice passes.
+2. **Navigation and shell:** add routes, sidebar destination, responsive
+   switcher, URL-backed tabs, summary loader, error boundaries, and archived
+   behavior.
+3. **Foundation pages:** ship Overview, Resources, and extracted Collaborators;
+   retain links to current domain editors.
+4. **Versioned source:** ship source status, import-job views, revision list,
+   immutable detail, and deterministic comparison after Phase 3 APIs exist.
+5. **Governed delivery:** ship Environment and shared Release surfaces only
+   after Phase 4 server capabilities and state-machine tests pass.
+6. **Integration hardening:** pin Aria context, finish terminology migration,
+   accessibility review, responsive browser journeys, telemetry, and rollout
+   flags.
+
+At minimum, add or update the following deterministic tests:
+
+| Test layer | Required cases |
+| --- | --- |
+| Provider/unit | URL precedence; persisted selection; explicit Library; list failure; invalid/invisible workspace; failed switch retains prior context; generation increments only on committed switch |
+| API transport | `active`, explicit, and `none` project-header modes for JSON and multipart; path/header conflict rejection; mutation captures the confirmed workspace ID |
+| Query/hooks | Workspace ID is in keys; old requests abort; old cache is removed; legacy `useApi` renders no old data after switch; late PRJ-A response cannot populate PRJ-B |
+| Switcher/component | Keyboard search/select/create; mobile availability; loading/error/retry; role/source/status copy; focus return; no ambiguous “All workspaces” option |
+| Navigation | Workspace is after Dashboard in expanded, collapsed, and mobile modes; all current destinations/order/group behavior/Plans badge remain intact; deep-link active state works |
+| Workspace shell | Every tab URL reloads; `403`, `404`, archived, Library, incomplete setup, and server-disabled environments render distinctly |
+| Authorization | Every action's enabled/blocked state follows server capabilities; loading fails closed; forged role labels do not grant controls; direct API negative tests remain authoritative |
+| Collaborators | Existing add/change/remove behavior survives extraction; sole owner protected; ownership transfer explicit; platform Administration no longer offers a competing editor |
+| Revisions/import | Immutable ready revision; job state transitions; bounded errors; compare categories; failed import cannot look ready |
+| Environments/releases | Server feature capability gates the UI; no multi-environment claim in current single-environment mode; actor separation; stale CAS; blocked/partial/reconcile/rollback states |
+| Aria | Context displayed and pinned; workspace switch cannot retarget queued or paused work; approval/apply remains durable |
+| Browser journey | Desktop and mobile switch with no data bleed; editor creates revision, reviewer approves, owner applies through dev/staging/prod; refresh/deep-link/back; keyboard-only critical path |
+
+UI observability should record workspace switch success/failure/latency, rejected
+route-to-header conflicts, failed capability refreshes, import/release state age,
+and reconciliation-required visibility. It must not record manifest bodies,
+secrets, prompt contents, or other authored payloads.
 
 ## 7. Minimum viable RBAC
 
@@ -1157,13 +1651,13 @@ approximately +/-30% until Phase 0 completes the endpoint/resource inventory.
 | 2. Isolation closure | Root/child scoping, prompt binding, runtime resolvers, Aria/worker coverage, constraints | 12-18 days |
 | 3. Workspace revisions and Git import | Manifest, canonical digest, import jobs, adapters, provenance, GitHub Action example | 15-22 days |
 | 4. Environment releases | Parent/item state machines, approvals, CAS, adapters, reconciliation, rollback | 15-24 days |
-| 5. UI, SDK, and CLI | Workspace overview, revisions/environments/releases, SDK parity, selected CLI commands | 9-14 days |
+| 5. UI, SDK, and CLI | Safe context/switching, Workspace shell and pages, revisions/environments/releases, SDK parity, selected CLI commands | 12-18 days |
 | 6. Migration, pilot, and rollout | Backfill tooling, telemetry, compatibility verification, pilot and runbook | 8-12 days |
-| **Total** | Full proposed MVP | **70-107 person-days** |
+| **Total** | Full proposed MVP | **73-111 person-days** |
 
-One experienced engineer should plan roughly 15-22 calendar weeks after review
+One experienced engineer should plan roughly 16-23 calendar weeks after review
 latency and interruptions. Two engineers with clear ownership boundaries can
-target 8-13 weeks; the work does not divide perfectly because authorization,
+target 9-14 weeks; the work does not divide perfectly because authorization,
 schema, and release state machines are sequencing constraints.
 
 A narrower first milestone ending after Phase 2 provides a trustworthy
@@ -1181,7 +1675,9 @@ not yet deliver Git-backed revisions or dev/staging/prod workspace promotion.
 - workflow deploy gates, environment classifier, promotions, and rollback stack;
 - release candidate/signoff and prompt release reconciliation;
 - background-task lifecycle/lease patterns;
-- SDK transport/project header behavior and UI query invalidation.
+- SDK transport/project header behavior and UI explicit request scope;
+- existing `AppShell`, React Router, TanStack Query, legacy `useApi`, page
+  primitives, and deterministic browser-test infrastructure.
 
 ### 11.3 Highest-complexity areas
 
@@ -1423,25 +1919,54 @@ domain pages or raw APIs.
 
 Tasks:
 
-1. Build Workspace overview and Collaborators, Resources, Revisions,
-   Environments, Releases, and Settings tabs.
-2. Enhance the selector and replace ambiguous “All workspaces” behavior.
-3. Show source mode, Git commit, dirty/uncommitted draft state, revision digest,
+1. Implement the context-safety slice from Section 6.18: explicit request
+   scope, `WorkspaceProvider`, URL precedence, scoped query keys, cancellation,
+   generation remount, and positive Library semantics.
+2. Add lazy Workspace routes, the standalone sidebar destination, responsive
+   switcher, shared header, URL-backed tabs, and distinct loading/empty/error/
+   archived states without changing existing navigation groups or top-bar order.
+3. Build Overview and Resources as aggregate navigation/control views, not new
+   asset editors; link to current domain pages.
+4. Extract the current Project Access editor into Collaborators and leave
+   platform accounts/secrets in Administration.
+5. Build source/import status, Revisions list/detail/compare, Environments, and
+   workspace-filtered Releases from the Phase 3/4 contracts. Share release
+   components with the top-level operating hub.
+6. Add `WorkspaceCapabilityGuard`; render actions from stable server
+   capabilities and surface source-mode, ETag, separation-of-duty, gate, CAS,
+   partial-effect, and reconciliation reasons.
+7. Show source mode, Git commit, dirty/uncommitted draft state, revision digest,
    environment current release, evidence, approval, and reconciliation status.
-4. Add typed sync/async SDK models and sub-resources with transport parity tests.
-5. Add bounded CLI import/status/release/approve/apply/rollback commands and
-   documented exit-state mapping.
-6. Add Aria read/propose capabilities only after direct API authorization tests;
-   keep approval/apply behind durable human interaction.
-7. Update OpenAPI, docs, runbooks, backup inventory, and capability catalog.
+8. Pin Aria conversations/plans to workspace/revision/environment and require a
+   new context or panel close on workspace switch; keep approval/apply behind
+   durable human interaction.
+9. Add typed sync/async SDK models and sub-resources with transport parity tests.
+10. Add bounded CLI import/status/release/approve/apply/rollback commands and
+    documented exit-state mapping.
+11. Update OpenAPI, docs, runbooks, backup inventory, capability catalog, UI
+    terminology, accessibility checks, and responsive browser journeys.
 
 Acceptance criteria:
 
 - switching workspace removes stale prior-workspace data from every scoped page;
+- a late response or already-open mutation from workspace A cannot render or
+  execute under workspace B; failed switching retains A without relabeling it;
+- URL, provider, request header, and workspace-owned resource identity agree,
+  with conflicts rejected rather than silently corrected;
+- Workspace remains reachable in expanded, collapsed, and mobile navigation;
+  existing route order, group persistence, Plans badges, top-bar order, theme,
+  health, and Aria controls retain their tested behavior;
 - controls render from server capabilities and direct calls still deny when a
   control is hidden;
+- Administration and Workspace do not expose competing collaborator editors;
+- Library, no visible workspaces, list failure, `403`, `404`, archived,
+  setup-incomplete, import failure, partial release, and reconciliation-required
+  states are visibly distinct;
+- environment/release controls remain unavailable until server capabilities
+  prove Phase 4; the shipping single-environment UI remains truthful;
 - editor -> reviewer -> owner dev/staging/prod browser journey passes against
-  deterministic providers;
+  deterministic providers on desktop and mobile, including refresh, deep link,
+  back/forward, and a keyboard-only critical path;
 - SDK sync/async and CLI contract tests cover all GA workspace endpoints;
 - docs generation is deterministic and committed outputs match sources;
 - no UI label claims multi-environment support before the Phase 4 acceptance
