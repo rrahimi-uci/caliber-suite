@@ -69,6 +69,14 @@ _SEQUENCE_MESSAGE: Final[re.Pattern[str]] = re.compile(
     r"[+-]?\s*[A-Za-z_][\w-]*\s*:\s*(?P<body>.+)$"
 )
 
+#: A sequence-diagram note: ``Note over/left of/right of A[,B]: text``. Same
+#: statement-terminator rule as a message, but it does not start with an actor
+#: name or an arrow, so it needs its own pattern rather than reusing the one
+#: above.
+_SEQUENCE_NOTE: Final[re.Pattern[str]] = re.compile(
+    r"^\s*[Nn]ote\s+(?:over|left of|right of)\s+[\w,\s-]+:\s*(?P<body>.+)$"
+)
+
 #: Shape openers that must be closed by their mirror inside a ``[...]`` label.
 #: ``A[/text/]`` is a parallelogram; ``A[/text]`` opens one and never closes it,
 #: which is a lexical error that kills the block.
@@ -141,24 +149,29 @@ def _diagram_type(body: str) -> str:
 
 
 def _semicolon_violations(block: Block) -> list[str]:
-    """Rule 1 — ``;`` inside a sequence-diagram message body.
+    """Rule 1 — ``;`` inside a sequence-diagram message or note body.
 
     Mermaid reads ``;`` as a statement separator, so everything after it is
     parsed as a new statement and the block fails. ``docs/STYLE.md`` documents
     this: "In a sequenceDiagram message, never use ``;`` -- use ``,`` or
-    ``and``." It is the single most frequent defect in this repository's history.
+    ``and``." It is the single most frequent defect in this repository's
+    history, and it recurs in ``Note over/left of/right of ...: text``
+    statements too — those do not start with an arrow, so they need their own
+    pattern rather than falling out of the message check for free.
     """
     if _diagram_type(block.body) != "sequencediagram":
         return []
     problems: list[str] = []
     for offset, line in enumerate(block.body.split("\n")):
-        match = _SEQUENCE_MESSAGE.match(line)
-        if match and ";" in match.group("body"):
-            problems.append(
-                f"{block.where(offset)}: ';' in a sequenceDiagram message ends the "
-                f"statement and breaks the diagram -- use ',' or 'and'. Line: "
-                f"{line.strip()!r}"
-            )
+        for pattern, kind in ((_SEQUENCE_MESSAGE, "message"), (_SEQUENCE_NOTE, "note")):
+            match = pattern.match(line)
+            if match and ";" in match.group("body"):
+                problems.append(
+                    f"{block.where(offset)}: ';' in a sequenceDiagram {kind} ends the "
+                    f"statement and breaks the diagram -- use ',' or 'and'. Line: "
+                    f"{line.strip()!r}"
+                )
+                break
     return problems
 
 
@@ -245,6 +258,23 @@ def test_rules_catch_the_historical_regressions() -> None:
     assert found, "the ';' rule no longer catches its own historical regression"
     assert "';' in a sequenceDiagram message" in found[0]
 
+    # The same ';' defect inside a Note statement, from the Workspace change-review
+    # diagrams: a Note does not start with an arrow, so it is a distinct pattern
+    # from an ordinary message and was not caught until this rule existed.
+    note_semicolon = Block(
+        path=REPO_ROOT / "docs" / "example.md",
+        start_line=1,
+        body=(
+            "sequenceDiagram\n"
+            "    participant D as Developer\n"
+            "    participant DB as CALIBER DB\n"
+            "    Note over D,DB: r42 stays immutable; Workspace authoring remains open"
+        ),
+    )
+    found = _lint(note_semicolon)
+    assert found, "the ';' rule no longer catches its Note-statement regression"
+    assert "';' in a sequenceDiagram note" in found[0]
+
     # The unclosed-parallelogram defect, from the SDK client architecture diagram.
     unclosed = Block(
         path=REPO_ROOT / "docs" / "example.md",
@@ -273,6 +303,18 @@ def test_rules_catch_the_historical_regressions() -> None:
             path=REPO_ROOT / "docs" / "example.md",
             start_line=1,
             body=('flowchart LR\n    ST[Sync transport] --> API["/projects wire API"]'),
+        )
+    )
+    assert not _lint(
+        Block(
+            path=REPO_ROOT / "docs" / "example.md",
+            start_line=1,
+            body=(
+                "sequenceDiagram\n"
+                "    participant D as Developer\n"
+                "    participant DB as CALIBER DB\n"
+                "    Note over D,DB: r42 stays immutable, Workspace authoring remains open"
+            ),
         )
     )
 

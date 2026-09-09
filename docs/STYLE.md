@@ -113,8 +113,10 @@ block — the generator renders the full color key:
 
 - One idea per diagram. Prefer `flowchart LR` for topology, `sequenceDiagram` for
   request/response flows.
-- In a `sequenceDiagram` message, never use `;` (Mermaid reads it as a statement
-  separator) — use `,` or `and`.
+- In a `sequenceDiagram` message **or `Note over`/`left of`/`right of`
+  statement**, never use `;` (Mermaid reads it as a statement separator) — use
+  `,` or `and`. A `Note` does not start with an arrow, so it is easy to assume
+  the message rule does not apply to it; it does.
 - Quote any node label that begins with `/` or `\`: `A["/projects wire API"]`.
   Unquoted, `A[/text]` opens Mermaid's parallelogram shape and never closes it,
   which fails the whole block.

@@ -175,9 +175,11 @@ flowchart LR
 
 Lifecycle B is the concrete six-stage refinement path documented in
 [The Refinement Loop](refinement-loop.md) and mapped to the seven-term canonical
-chain in [ARCHITECTURE.md](../ARCHITECTURE.md) section 2. Its two human decision
-points — **Verify** and **Apply** — are the only two the platform requires
-today, and they map onto two of the four roles below.
+chain in [ARCHITECTURE.md](../ARCHITECTURE.md) section 2. Those two sources
+describe **Verify** and **Apply** as its human decision points. Only **Apply**
+is a live, separately-exercised one today — section 2.2 corrects the record on
+Verify, which every code path currently collapses into the same click that
+creates the job.
 
 ### 1.1 The four development cycles
 
@@ -258,27 +260,76 @@ no product or custom role provides the function. CALIBER's case for a fixed QA
 role comes from its own architecture rather than from a universal industry
 claim:
 
-**CALIBER's implemented loop already contains a human quality gate that is not
-an authoring action.** Stage ① **Verify** — "is this production failure real?" —
-is what *starts* a refinement job. In the platforms surveyed there is no
-equivalent; a developer decides to run an evaluation when they choose to. Here,
-verification is a production-driven decision with a durable queue behind it.
+**CALIBER's implemented loop already contains one human quality gate that is
+not an authoring action, and a second is designed but not wired.** Stage ⑤
+**Apply** — `POST /jobs/{id}/apply` — is real: a distinct, separately-callable
+decision, gated by `caliber.operator`, that a human takes on an
+already-existing job. That alone does not require QA; an operator applying
+their own job is exactly the self-approval problem section 5.1 names.
 
-That gate needs an owner, and its owner is structurally not the author. QA
-exists here because the platform has quality *decisions*, not merely quality
-*tooling*.
+Stage ① **Verify** — "is this production failure real?" — is the intended
+second gate, and it is where the case for a *separate* role, rather than a
+second permission on the same actor, actually comes from: the design calls for
+production-driven triage that is not the same click as authoring or applying a
+fix. But it is not implemented as its own action today. `CaliberVerificationItem`
+has a full model, five request schemas, and a complete frontend API client —
+and none of it is wired together. Every one of the four code paths that create
+a refinement job (prompt optimization, skill calibration, workflow calibration,
+an Aria-proposed promotion) inserts the verification row already
+`status="verified"`, stamped with the same operator's own identity, inside the
+same transaction that creates the job. No route lists a *pending* item, no
+route lets a different person confirm one, and no ingestion path — the
+model's own docstring calls for "the feedback poller" — exists to create one
+from a real production signal in the first place. "Verify" today is a
+bookkeeping field job creation writes about itself, not a decision distinct
+from it.
+
+That is not a small gap: it is the premise this section's argument rests on, so
+it is worth being direct about what changes when it is corrected. QA's case
+does not collapse to "no gate exists" — Apply is real, and it is genuinely not
+an authoring action. But the platform does not yet have *two* implemented human
+gates that are structurally distinct from authoring, it has one, and the
+second is the reason to build QA's verification capability rather than
+evidence that it is already running. Section 3.6 documents the same
+designed-but-unwired pattern one stage later in the loop, where it is at least
+partly recoverable; Verify has no equivalent consumer waiting for its writer.
 
 ### 2.3 QA is operator-scoped but narrower than Developer
 
-This is the most important correction against the earlier documents. Everything
-QA needs to do is gated today by `SCOPE_OPERATOR`:
+This is the most important correction against the earlier documents. Most of
+what QA needs to do is gated today by `SCOPE_OPERATOR` — but not all of it, and
+the exception is worth stating precisely because it is a weaker gate than the
+rest of the row, not a stronger one:
 
 | QA action | Current gate |
 | --- | --- |
 | Create a test set | `routes/eval_datasets.py` — `SCOPE_OPERATOR` |
 | Create a judge or scorer | `routes/judges.py` — `SCOPE_OPERATOR` |
 | Run an evaluation | `routes/evaluations.py` — `SCOPE_OPERATOR` |
-| File feedback / verify a signal | `routes/review_queues.py` — `SCOPE_OPERATOR` |
+| Create a review queue / enqueue items to it | `routes/review_queues.py` — `SCOPE_OPERATOR` |
+| Submit a review-queue answer (file feedback) | `routes/review_queues.py` `submit_item` — **`require_user` only; no scope check at all** |
+
+`submit_item` is the action that actually writes feedback: it takes a
+reviewer's answers and, outside the request transaction, calls
+`mlflow.log_feedback` / `mlflow.log_expectation` on the covered trace. It is
+gated by project visibility and `queue.status == "active"` only. Any
+authenticated user who can see the queue — including a bare `caliber.viewer` —
+can therefore cause MLflow assessments to be written today; `SCOPE_OPERATOR` is
+not the floor for this one action, it is the ceiling for every *other* QA
+action in this table.
+
+A second, structurally distinct queue exists for the same job — signal triage
+rather than annotation — but it is further from complete than a scope table can
+show: `CaliberVerificationItem` (`caliber_verification_queue`) has full request
+schemas for a generic `POST /caliber/verification-queue` and `POST
+/caliber/verification-queue/{item_id}/verify`, but neither is a registered
+route anywhere. The only code that creates a row today is four
+`SCOPE_OPERATOR`-gated job-creation paths (prompt optimization, skill
+calibration, workflow calibration, an Aria-proposed promotion) that insert it
+pre-`verified`, self-stamped by the same actor, as bookkeeping for the job they
+already started — not a human filing feedback on a signal, and not a decision
+distinct from creating the job. Section 2.2 covers what this means for the
+case for a QA role.
 
 Global scope inheritance is asymmetric: `caliber.admin` implies approver,
 operator and viewer, while **`caliber.approver` implies only `caliber.viewer`**.
@@ -366,10 +417,15 @@ configuration still controls global scopes in this single-tenant MVP.
 is there; it is simply not wired to a permission.
 
 `feedback.submit` and every action after it that is not in today's seven-action
-registry are new. Verification-queue writes currently ride on `resource.write`,
-which is precisely why QA cannot file feedback without also gaining prompt-edit
-rights. Unknown action literals deny and fail a contract test; they never fall
-back to a broader action.
+registry are new. There is no existing action for it to ride on: as section 2.3
+details, submitting review-queue feedback today calls neither
+`require_project_access` nor any project action, only `require_user`, so
+`resource.write` is not actually the gate — the gate is closer to none.
+`feedback.submit` therefore does not need to be carved out of `resource.write`
+so much as it needs to exist at all before isolation closure (Phase 2) can give
+this route a project-role check without accidentally making QA's floor
+`caliber.viewer`-equivalent forever. Unknown action literals deny and fail a
+contract test; they never fall back to a broader action.
 
 `project.create` is the deliberate exception to role intersection because no
 Workspace membership exists yet. It is authorized by the conjunction of the
@@ -468,24 +524,53 @@ and releases nothing. That is the whole content of the
 #### 2.5.3 What the same table looks like today
 
 Nothing above is enforced per-role yet, because there is no per-resource role
-check — only the four global scopes. The honest current state:
+check — only the four global scopes. The honest current state, verified route
+by route rather than assumed from the family's general reputation — several
+rows in an earlier version of this table were wrong in exactly the way a reader
+would not think to double-check, because "create" and "edit" were folded into
+one cell and only "create" was actually checked:
 
-| Resource | Create / edit today | Release today | Reachable by a Developer (`caliber.operator`)? |
-| --- | --- | --- | --- |
-| Prompt | `caliber.operator` | `caliber.operator` | Yes — including release |
-| Workflow | `caliber.operator` | `caliber.operator` | Yes — including release |
-| Skill | `caliber.operator` | `caliber.operator` | Yes |
-| Tool | `caliber.operator` | n/a | Yes |
-| Knowledge base | `caliber.operator` | `caliber.operator` | Yes |
-| **Agent** | **`caliber.admin`** | n/a | **No — admin-gated** |
-| MCP server | mostly `caliber.admin` | `caliber.admin` | Partly |
-| OpenAPI integration | mixed operator/admin | `caliber.admin` | Partly |
-| Test set / eval dataset | `caliber.operator` (delete: admin) | n/a | Yes |
-| Judge / scorer | `caliber.operator` (delete: admin) | n/a | Yes |
-| Evaluation run | `caliber.operator` | n/a | Yes |
-| Feedback / review queue | `caliber.operator` (some admin) | n/a | Yes |
+| Resource | Create | Edit | Release / activate | Delete or archive | Reachable by Developer (`caliber.operator` only)? |
+| --- | --- | --- | --- | --- | --- |
+| Prompt | operator | operator | operator | admin | Yes — including release |
+| Workflow | operator | operator | operator, by shipped default¹ | — | Yes, today¹ |
+| **Skill** | operator | **admin** | **admin** (same action as edit) | admin | **Create only** |
+| **Tool** | **admin** | **admin** | n/a | admin | **No** — operator can test/calibrate an already-registered tool, not register or edit one |
+| Knowledge base | operator | operator | operator | operator | Yes — including release |
+| Agent | admin | admin | n/a | admin | No — admin-gated |
+| MCP server | admin | admin | admin | admin | Partly — operator only for test-case authoring/calibration on an already-registered server |
+| OpenAPI integration | operator² | operator² | **project-role `resource.publish`³**, admin fallback for an org-wide integration | admin (archive) | Yes for create/edit/import/draft; release depends on project role, not global scope |
+| **Test set / eval dataset** | operator | **operator for example content; admin for the dataset record itself** (rename, describe, tag, archive) | n/a | admin (folded into edit — no separate delete route) | Partly — content yes, dataset metadata no |
+| **Judge / scorer** | operator | **admin for every field — no operator-reachable edit exists** | n/a | admin (folded into edit — no separate delete route) | **Create only** |
+| Evaluation run | operator | — (immutable) | n/a | — (no delete/cancel exists at any scope) | Yes |
+| Feedback: review queue itself | operator | admin | n/a | — | Yes to create/enqueue only |
+| Feedback: review-queue answer | — no scope check | — | n/a | — | Yes, and so is anyone with `caliber.viewer` — see section 2.3 |
 
-Three facts in that table are the reason this document argues what it does:
+¹ `promote_deployment`'s required scope is computed at request time —
+`SCOPE_ADMIN if requires_human_approval(alias, config) else SCOPE_OPERATOR` —
+not a flat grant. It resolves to operator for every alias only because
+`GATED_ALIASES` is a hardcoded empty set and
+`release_require_human_approval_for_environment_classes` defaults to `""`. One
+config value, no code change, makes promoting a given environment class
+admin-gated; a Developer's release reach here is a deployment setting, not a
+code guarantee, unlike Prompt's.
+
+² Not "mixed operator/admin" — every create/edit/import/draft route here is
+literally `require_scopes(request, [SCOPE_ADMIN, SCOPE_OPERATOR])`, and
+because `require_scopes` grants on any listed scope while `caliber.admin`
+already implies `caliber.operator` (section 2.3), that list is functionally
+identical to `[SCOPE_OPERATOR]` alone. Every one of those actions is 100%
+reachable by a plain Developer; there is no admin-only-to-the-exclusion-of-
+operator action in this family's create/edit surface.
+
+³ `publish_openapi_tool_draft` calls `require_project_access(...,
+"resource.publish")` for a project-scoped integration — a project-role check
+(`owner`/`editor`, resource_access.py), independent of global scope — and only
+falls back to a hard `caliber.admin` check when the integration has no
+`project_id`. "Release: `caliber.admin`" described the fallback path, not the
+common one.
+
+Four facts in that table are the reason this document argues what it does:
 
 1. **A Developer can release a prompt or a workflow today.** `resource.publish`
    and the apply path are not separated from authoring in practice, so the one
@@ -503,6 +588,14 @@ Three facts in that table are the reason this document argues what it does:
    guard worth keeping or an accident worth fixing, and Phase 0 should decide
    which — but the target table above assumes it becomes a Developer action,
    since authoring an agent is authoring.
+4. **Create-then-stranded is a repeated pattern, not one family's quirk.**
+   Skill, Tool, and Judge/scorer all let a Developer create the resource and
+   then require `caliber.admin` for every subsequent edit — for a Judge, for
+   every field on it, including its own instructions. A role table that only
+   checks the create endpoint of each family, as an earlier version of this one
+   did, will systematically overstate what a Developer can actually do with
+   what they made. The target table in 2.5.2 assumes edit rejoins create at
+   `Dev, Admin`; today's code does not, for three of ten families.
 
 #### 2.5.4 Functionality by role, end to end
 
@@ -940,8 +1033,12 @@ the one that does not exist for an aggregate Workspace release today.
 
 ### 3.6 What the rework cycle needs, and does not have
 
-This is the largest process gap in the platform — larger than the missing
-package artifact, because it affects every failure rather than every release.
+This is the largest gap *after* a job exists — larger than the missing package
+artifact, because it affects every failure rather than every release. Section
+2.2 covers the one that precedes it: Stage ① Verify has the same
+designed-but-unwired shape as the mechanism below, one stage earlier and with
+no consumer already waiting for it, which is why that gap is the harder of the
+two to call partial.
 
 `refinement_max_iterations` **defaults to `0`, meaning off**: "a failed gate
 rejects immediately." The eval stage then sets `job.status = "rejected"` and
@@ -2638,7 +2735,7 @@ sequenceDiagram
     CR->>DB: persist CR-17/g1 and required checks
     R->>API: request changes on g1
     API->>DB: append review and mark changes_requested
-    Note over D,DB: r42 stays immutable and QA-safe; Workspace authoring remains open
+    Note over D,DB: r42 stays immutable and QA-safe, and Workspace authoring remains open
     D->>API: create/import new package r43
     D->>API: update CR with expected lock version, head r43
     API->>DB: append g2 and retain stale g1 checks/reviews as history
@@ -2671,7 +2768,7 @@ sequenceDiagram
     CI->>API: import exact resulting commit and bounded source tree
     API->>DB: materialize immutable revision and bind source digest
     API->>DB: append attestations and coverage digest bound to the same revision head
-    Note over D,DB: new source work continues; QA remains pinned to this package digest
+    Note over D,DB: new source work continues, and QA remains pinned to this package digest
 ```
 
 Webhook and import may arrive in either order. The request becomes technically
@@ -3507,7 +3604,7 @@ arbitrary PR count.
 flowchart LR
   P0[Phase 0 - contracts and inventory] --> P1[Phase 1 - foundation and authorization]
   P1 --> P2[Phase 2 - isolation closure]
-  P1 --> P3[Phase 3 - rework loop]
+  P1 --> P3[Phase 3 - verify and rework]
   P2 --> P4[Phase 4 - revisions, change review and import]
   P3 --> P5[Phase 5 - releases and rollback]
   P4 --> P5
@@ -3518,6 +3615,9 @@ flowchart LR
 Phase 3 internals and the private SDK foundation in `P6-A` may be developed
 beside Phases 1 and 2 after their Phase 0 contracts are stable, but the public
 project-scoped rework routes do not merge before `P1-C` authorization exists.
+`P3-B` is the one exception: it gates on today's existing global scopes, the
+same way the routes it sits beside already do, so it does not wait on `P1-C`
+and may ship as soon as `P0-B` freezes its contract.
 The server path from Phase 1 through Phase 5 remains the critical path. "SDK-first" means contract-first and
 SDK-as-primary-consumer: transport/model scaffolding and contract tests begin in
 Phase 0, but public methods do not claim support before their server routes
@@ -3541,6 +3641,7 @@ combined with a later slice merely to reduce PR count.
 | `P2-B` | Runtime | Project/revision-aware compiler, run queue, workers, callbacks, plan executor and Aria delegation | `P2-A` | Persisted context survives restart; worker cannot widen actor authority or fall back to global registries |
 | `P2-C` | Integrations/storage | Prompt/provider binding, storage and file isolation, public/personal immutable pin semantics | `P2-A` | Colliding logical names resolve correctly; guessed provider/file refs do not disclose another workspace |
 | `P3-A` | Workflow/quality | Refinement/candidate-backed durable rework task, reasoned QA review record, request-changes writer, project-scoped ownership APIs, and exhaustion escalation | `P0-B`, `P1-C` | Current refinement failures have an owner/reason and resolve through a superseding candidate/version; Phase 5 adds the release FK and aggregate path |
+| `P3-B` | Workflow/quality | List/get/create/verify/dismiss/duplicate/batch verification-queue routes and CALIBER SDK methods against the existing `CaliberVerificationItem` model and schemas; no new table | `P0-B` | A human can verify or dismiss a pending item they did not create; none of today's four job-creation paths is required to change; ingestion (a poller creating `pending` items from real signals) is explicitly out of scope here per the Phase 0 decision |
 | `P4-A` | Data/backend | Source/import/revision/resource schema, portable CAS revision allocator, immutable terminal rows and snapshot-retention guards | `P2-B`, `P2-C` | Concurrent snapshots allocate unique monotonic numbers with allowed gaps on SQLite/PostgreSQL; schema remains dormant behind flags |
 | `P4-B` | Import/backend | Manifest/archive limits, canonical retained source snapshot and commit-equivocation guard, reconstructable adapter snapshots, model dependency, and durable import leases | `P4-A` | Golden tree/revision digests stable across archive metadata; mutable rows cannot masquerade as pins; malformed/ambiguous inputs fail closed; worker death resumes or reconciles |
 | `P4-C` | API/integration | Provider-neutral source interface, source transitions, import/reconcile and revision list/get/diff/snapshot routes, cursor pages, GitHub push Action example | `P4-B` | Lost clients rediscover and reconcile jobs; source mode cannot switch with in-flight work; ordinary tests need no network; Workspace services contain no GitHub-specific policy |
@@ -3685,13 +3786,35 @@ other's assets; workers use persisted workspace context and cannot fall back to
 all active tools or prompts; public and personal resources enter a workspace run
 only through an exact pinned dependency.
 
-### Phase 3 — the rework loop
+### Phase 3 — signal intake and the rework loop
 
-**Outcome:** a failed gate or a QA rejection becomes owned work rather than
-silence. The release-candidate subset is independently shippable and improves
-today's refinement path; aggregate Workspace-release linkage completes only
-after the Phase 5 release tables exist.
+**Outcome:** the refinement job's two half-built human decisions —
+**Verify** at intake and **rework** at the far end of a rejection — both
+become real, owned actions instead of a self-stamped bookkeeping field and a
+terminal row that goes silent. The release-candidate subset is independently
+shippable and improves today's refinement path; aggregate Workspace-release
+linkage completes only after the Phase 5 release tables exist. Neither half
+needs Workspace, Change Request, or environment machinery — both extend the
+refinement path that already ships today.
 
+0. **Wire Stage ① Verify to a real, separately-callable action.** Section 2.2
+   found that today's four job-creation paths (prompt optimization, skill
+   calibration, workflow calibration, an Aria-proposed promotion) each insert
+   `CaliberVerificationItem` pre-`status="verified"`, self-stamped by the same
+   operator, in the same transaction that creates the job — so nothing a
+   different person, or the same person later, can act on separately exists.
+   `VerificationItemCreateRequest`/`...VerifyRequest`/`...DismissRequest`/
+   `...DuplicateRequest`/`VerificationBatchRequest` are already fully specified
+   in `schemas.py`, and `caliber-ui`'s API client already has typed methods for
+   all of them — this is route wiring against an existing contract, not new
+   design. Register `list`/`get`/`create`/`verify`/`dismiss`/`duplicate`/`batch`
+   under `/caliber/verification-queue`, gated the same way section 2.4 gates
+   `feedback.submit`; add the matching CALIBER SDK methods. Scope this item to
+   a human-created `pending` item and a human `verify`/`dismiss` decision on
+   it. The automated ingestion half — a poller that creates `pending` items
+   from real MLflow assessments, which the model's own docstring already
+   assumes exists — is deliberately **not** included here; see the Phase 0
+   question below on whether to build it now or defer it.
 1. Add the rework-task model, authorization, list/get/claim/resolve/reassign
    routes, and CALIBER SDK methods so a failed gate or QA rejection produces
    owned, recoverable work instead of only a terminal `rejected` row.
@@ -3702,12 +3825,15 @@ after the Phase 5 release tables exist.
 4. Set `refinement_max_iterations` deliberately and define the escalation when
    it exhausts.
 
-**Acceptance:** every in-scope refinement gate failure and candidate QA
-rejection has an owner and a reason; the Phase 3 refinement path resolves a content fix through a superseding
-candidate/version before re-entering its gate; its QA review is queryable; and
-the automated self-correction loop escalates to a human rather than terminating
-silently. Phase 5 acceptance extends the same invariant to Workspace revisions,
-releases, and immutable release decisions.
+**Acceptance:** a human can list pending verification items and record
+`verify`/`dismiss` on one they did not create, distinct from and after job
+creation — not the same click as today; every in-scope refinement gate failure
+and candidate QA rejection has an owner and a reason; the Phase 3 refinement
+path resolves a content fix through a superseding candidate/version before
+re-entering its gate; its QA review is queryable; and the automated
+self-correction loop escalates to a human rather than terminating silently.
+Phase 5 acceptance extends the same invariant to Workspace revisions, releases,
+and immutable release decisions.
 
 ### Phase 4 — immutable packages, Change Requests, and pluggable Git source
 
@@ -3939,12 +4065,12 @@ two database dialects; it is not a greenfield CRUD estimate.
 | 0. Contract and inventory | Per-plane authority, route/worker/resource matrix, source-provider/review contracts, manifest schema, SDK contract freeze, fixtures | 9-13 days |
 | 1. Foundation and authorization | Model/audit extensions, protected environment seeds, multi-Admin/primary-owner rules, action registry, PAT context, PostgreSQL CI | 15-22 days |
 | 2. Isolation closure | Root/child scoping across registered routes, prompt binding, runtime resolvers, Aria/worker/callback coverage, constraints | 25-40 days |
-| 3. Rework loop | Durable task and APIs/SDK, quality-review record, request-changes writer, escalation policy | 7-11 days |
+| 3. Verify and rework | Verification-queue routes and SDK against the existing model/schemas; durable rework task and APIs/SDK, quality-review record, request-changes writer, escalation policy | 10-16 days |
 | 4. Packages, Change Requests and pluggable Git | Manifest/source digest, snapshots, import jobs/reconcile, resource and source-provider adapters, native/external review state, actor links, signed event inbox, GitHub App, version claims/tags, Action example | 44-70 days |
 | 5. Environment releases | Four-environment predecessor policy, evidence/decision and operation/item state machines, approvals, CAS, adapters, reconciliation, rollback | 32-50 days |
 | 6. CALIBER SDK completeness | Scope safety, cursor pages, models, rework/import/revision/Change Request/version/environment/release operations, async parity, CLI delegates, packaging | 28-42 days |
 | 7. Migration, pilot, rollout | Backfill tooling, baseline reconciliation, telemetry, compatibility verification, drills and runbook | 12-20 days |
-| **Total** | Full proposed Workspace MVP, API + CALIBER SDK + CLI, including one verified GitHub review adapter | **172-268 person-days** |
+| **Total** | Full proposed Workspace MVP, API + CALIBER SDK + CLI, including one verified GitHub review adapter | **175-273 person-days** |
 
 One experienced engineer should plan roughly 40-60 calendar weeks after review
 latency and interruptions. Two engineers with clear ownership boundaries can
@@ -3955,8 +4081,9 @@ semantic divergence. Phase 0 replaces these ranges with ticket estimates after
 the inventory is measured.
 
 A narrower first milestone ending after Phase 3 delivers a trustworthy
-isolation foundation plus a working rework loop in approximately 56-86
-person-days, without Git-backed revisions or multi-environment promotion.
+isolation foundation plus a working verify action and rework loop in
+approximately 59-91 person-days, without Git-backed revisions or
+multi-environment promotion.
 
 If schedule requires deferral, `P4-E` is an independently feature-flagged
 12-20-day increment. The rest of the Workspace remains usable with native
@@ -4312,6 +4439,8 @@ CI dependency.
 | Is agent registration a Developer or an Admin action? | Developer — authoring an agent is authoring | It is `caliber.admin` today (section 2.5.3); changing it moves a guard |
 | Should `release.apply` exist for families with no release? | No — the adapter returns a typed refusal | Prevents a release plan silently skipping a required dependency |
 | Which asset families are in the controlled pilot? | One workflow and its prompt, tool and test-set dependencies | Limits cross-provider release risk |
+| Should job creation require a pending Verify decision, or stay parallel to it? | Stay parallel in `P3-B`; require it only once the ingestion poller exists | Blocking today's four job-creation paths on a not-yet-built poller would stall the refinement path entirely; making Verify optional first is the safe order |
+| Build the verification-queue ingestion poller in `P3-B`, or defer it? | Defer. Ship `create`/`verify`/`dismiss` first; a human can open a pending item by hand until a poller exists | The model's docstring already promises a poller that was never built; promising it again in the same PR that ships the routes repeats the mistake this review found |
 
 ## 20. Definition of done
 
