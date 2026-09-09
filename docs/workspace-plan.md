@@ -8,7 +8,7 @@ audience:
 doc_type: concept
 product_area: platform
 stability: experimental
-summary: Single source of truth for the Workspace initiative — the development and release lifecycle for agentic applications, role responsibilities, the Workspace architecture and data model, isolation and RBAC, the Python SDK contract, and the phased delivery plan. Interfaces covered are API, SDK, and CLI; the web UI is deliberately out of scope.
+summary: Single source of truth for the Workspace initiative — the development and release lifecycle for agentic applications, source-control authority, role responsibilities, the Workspace architecture and data model, isolation and RBAC, the Python SDK contract, and the phased delivery plan. Interfaces covered are API, SDK, and CLI; the web UI is deliberately out of scope.
 prerequisites:
   - Read ARCHITECTURE.md section 2 for the canonical lifecycle chain
   - Treat current-main behavior and tests as the source of truth for every "today" claim
@@ -23,6 +23,7 @@ tags:
   - sdk
   - releases
   - environments
+  - source-control
 ---
 
 # Workspace platform: lifecycle, roles, architecture, and SDK
@@ -44,13 +45,15 @@ deliberately excluded. The platform is being delivered SDK-first, and a UI plan
 written before the server contract stabilizes would be planning against a moving
 target. When the API and SDK contracts are frozen, the UI gets its own document.
 
-The recommended decision remains:
+The recommended decision is:
 
 > Evolve the existing `CaliberProject` and project-membership implementation
-> into the Workspace control boundary; add immutable workspace revisions and
-> environment-scoped releases; retain each asset family's existing version and
-> release semantics; and introduce GitHub as an optional, one-way source for
-> authored workspace content.
+> into the Workspace control boundary; keep CALIBER authoritative for the
+> domain inventory, immutable application packages, environment policy,
+> approvals, deployments, and runtime evidence; and make GitHub, GitLab, or
+> Bitbucket an optional authoritative backend only for authored source and its
+> technical review. Import from that backend in one direction. Do not make any
+> Git provider the system of record for the whole Workspace.
 
 The MVP keeps the existing `PRJ-*` identifiers, `X-CALIBER-Project` header,
 `/projects` routes, four project roles, and current resource tables.
@@ -88,6 +91,8 @@ rest of this document incorporates these corrections:
 | The effort estimate assumed broad isolation and ten resource adapters could be delivered as ordinary small PRs | Estimates now account for roughly forty registered route modules, worker/assistant paths, immutable snapshot work, PostgreSQL migration CI, and provider-operation recovery |
 | A revision could be released, but no PR-like object isolated review from continued development | Add a first-class Change Request over immutable revision heads. Updating a Change Request appends a new head generation, invalidates stale checks and approvals, and never freezes the Workspace or mutates an earlier package |
 | Human release states, semantic versions, and environment labels were all described as if they were interchangeable tags | Keep three separate contracts: immutable package identity/digest, immutable semantic-version tags, and mutable audited environment pointers |
+| GitHub was described as an optional source without deciding which system was authoritative for each kind of state | Split authority by plane: the configured authoring backend owns authored files; CALIBER owns materialized resources, packages, release policy, environment state, operations, and evidence. No bidirectional authority is allowed |
+| A native Change Request and a GitHub Pull Request could perform the same technical review twice | Make the Change Request a provider-neutral package/promotion envelope with an explicit review backend. A Git-managed request may consume exact-head provider review attestations; it does not copy or compete with the provider's source discussion |
 
 These are proposed corrections, not current implementation. In particular,
 [`resource_access.py`](../caliber/src/caliber/resource_access.py) currently maps
@@ -102,7 +107,7 @@ separate current path gated by `caliber.approver`.
 | Sections | Subject |
 | --- | --- |
 | 1–5 | **Lifecycle and roles** — the two lifecycles, the four development cycles, role responsibilities, the pipeline and its rework path, the gates, and separation of duty |
-| 6–11 | **Workspace architecture** — current state, the Workspace concept, services, data model, isolation, and key interactions |
+| 6–11 | **Workspace architecture** — current state, source-authority decision, the Workspace concept, services, data model, isolation, and key interactions |
 | 12–14 | **Interfaces** — API compatibility and routes, the Python SDK contract, and the CLI |
 | 15–20 | **Delivery** — migration, the phased plan, effort, validation, open decisions, and the definition of done |
 
@@ -183,7 +188,7 @@ development cycle" can feel unanswerable.
 | Cycle | Cadence | Owner | What gates it | Stages |
 | --- | --- | --- | --- | --- |
 | **Inner** — author and run | Minutes | Developer | Nothing. It must run, that is all | 1–2 |
-| **Quality** — review, evaluate and fix | Hours to days | Developer + assigned Reviewer + QA | Head checks, technical approval, regression gate, then QA sign-off | 3–8, plus rework |
+| **Quality** — review, evaluate and fix | Hours to days | Developer + selected technical-review backend + QA | Head checks, technical approval, regression gate, then QA sign-off | 3–8, plus rework |
 | **Release** — stage, approve and ship | Per release | Admin + QA | Staging verification, then distinct-actor production decisions | 9–10 |
 | **Refinement** — observe and improve | Continuous, production-driven | QA verifies, platform optimizes, Admin applies | The same regression gate | 11–13, plus rework |
 
@@ -235,6 +240,15 @@ a person with the stored `reviewer` role; lowercase **`qa`** names a runtime
 environment. **Reviewer** with a capital R means a per-Change-Request technical
 review assignment. It does not introduce a fifth role or make the QA role a
 source-code approver by implication.
+
+With `review_backend=source_provider`, a provider approval counts only when its
+human actor is explicitly linked to an active CALIBER Developer/Admin member,
+has the required live global scope, did not author/import the covered change,
+and remains eligible at evaluation time. The provider may require additional
+reviewers or teams; every covered PR/MR must satisfy the CALIBER external-review policy and
+include at least one mapped, eligible non-author approval. CALIBER never turns a
+bot or unmapped external collaborator into a Workspace role. QA and Admin
+decisions are always CALIBER-native.
 
 ### 2.2 Why QA earns a role here when it does not elsewhere
 
@@ -619,8 +633,8 @@ and whether CALIBER implements it today.
 | 2 | Smoke-run | Developer | Trace of a successful run | Runs without error | Developer | Implemented |
 | 3 | Define the quality bar | **QA** | Test sets, scorers, judges, thresholds | Bar is reviewable and reconstructably pinned | — | Partly — datasets are reconstructably versioned; judges are mutable and need snapshots |
 | 4 | Package and pin | Developer or CI automation user with project-bound PAT | One digest-pinned application package (`WorkspaceRevision`) tied to retained source | Manifest validates; every pin is reconstructable | Developer | **Proposed** — workspace revision |
-| 5 | Submit change | Developer | Change Request with accepted-base revision, immutable head revision, proposed semantic version, and assigned Reviewer | Head is ready; base is current; version reservation is unique | Developer | **Proposed** — Change Request |
-| 6 | Technical review | Assigned **Reviewer** — an eligible Developer or Admin, never the head author/importer | Comments, checks, approval or request-changes bound to the exact head generation | Required fast checks pass and one non-author Reviewer approves | **Developer**, through a new package/head generation | **Proposed** |
+| 5 | Submit change | Developer | Change Request with accepted-base revision, immutable head revision, proposed semantic version, selected review backend, and native Reviewer assignment or provider references | Head is ready; base is current; version reservation is unique; backend prerequisites exist | Developer | **Proposed** — Change Request |
+| 6 | Technical review | Native assigned **Reviewer**, or mapped provider reviewers for every PR/MR covering the source delta | Native comments/checks/review or provider attestations bound to the exact head generation and digest | Required fast checks pass and selected backend proves complete non-author review | **Developer**, through a new package/head generation | **Proposed** |
 | 7 | QA candidate | **Admin** applies; **QA** evaluates | Same package in the protected `qa` environment; scores per dimension vs baseline | **Regression gate** — section 4 | **Developer**, with gate reasons and a rework task | **Proposed** for aggregate revisions; current evaluation primitives are reusable |
 | 8 | Quality sign-off and acceptance | **QA** | Digest-bound verdict; `go` accepts the package version, `no_go` records a reason | QA accepts the exact QA evidence and is distinct from the runtime/source author | **Developer**, through a new package/head generation | **Proposed** |
 | 9 | Stage | **Admin** | Accepted package applied to staging; integration/smoke evidence | Exact accepted digest passed QA; staging checks settle | Developer, QA, or Admin per reason | **Proposed** aggregate release; individual mechanisms partly exist |
@@ -661,15 +675,17 @@ manager needs answered, and the reason the workspace revision digest exists.
 
 The missing collaboration object is a **Change Request**. It is similar to a
 Git pull request in purpose, but it does not merge mutable provider state. It
-compares one immutable base package with one immutable head package, gathers
-checks, comments and technical review, and carries the exact head into QA.
+compares one immutable base package with one immutable head package and carries
+the exact head into QA. Technical source checks, comments and review are either
+native CALIBER records or a complete normalized attestation set from the
+configured Git provider—never two competing approval systems.
 
 | Source-development idea | CALIBER lifecycle equivalent | Mutability rule |
 | --- | --- | --- |
 | Commit | Workspace revision / application package | Immutable after `ready`; addressed by `WSR-*`, revision number and SHA-256 digest |
 | Branch | Developer's mutable drafts or Git branch | May change freely; never a release identity |
-| Pull request | Workspace Change Request | Mutable conversation around append-only immutable head generations |
-| Review/check run | Change Request review/check | Append-only and bound to exact head generation + digest |
+| Pull request | Workspace Change Request, optionally linked to the provider PRs/MRs covering its source delta | CALIBER package/promotion envelope around append-only immutable head generations |
+| Review/check run | Native Change Request review/check or provider attestation | Exactly one technical-review backend; evidence is bound to exact head generation + digest |
 | Merge | Accept package after technical approval and QA `go` | Compare-and-set accepted baseline from base to head; no bytes are rewritten |
 | Release tag | Semantic version such as `1.4.0` | Immutable mapping to one package digest |
 | Deployment/environment | `dev`, `qa`, `staging`, or `prod` current-release pointer | Mutable only through audited apply/rollback operations |
@@ -682,7 +698,7 @@ The lifecycle is deliberately three-layered:
    dependency pins and content digests. It is immutable and reconstructable.
 2. **Change review** answers *should this package replace the currently
    accepted application baseline?* A Change Request records base, current head,
-   head history, checks, comments, review and QA outcome.
+   head history, native or provider technical-review evidence, and QA outcome.
 3. **Environment release** answers *where is that exact package running, under
    which configuration, evidence and approval?* A `WorkspaceRelease` plus its
    operations moves an environment pointer. It never mutates the package or
@@ -748,7 +764,7 @@ stateDiagram-v2
     draft --> open: submit
     open --> changes_requested: Reviewer or QA no_go
     changes_requested --> open: append new head generation
-    open --> technically_approved: checks pass and Reviewer approves
+    open --> technically_approved: selected backend proves checks and review
     technically_approved --> changes_requested: Reviewer withdraws via request_changes
     technically_approved --> open: satisfying Reviewer assignment removed
     technically_approved --> qa_in_progress: exact head applied to qa
@@ -797,8 +813,8 @@ holds. For non-library applications whose API
 compatibility is not meaningful, a workspace policy may select calendar
 versions later; the MVP ships SemVer only to avoid two version grammars.
 
-Git tags are optional source mirrors, not CALIBER's aggregate release authority.
-For Git-managed source, CALIBER records and may verify that a Git tag points to
+Git tags/releases are optional source mirrors, not CALIBER's aggregate release
+authority. For Git-managed source, CALIBER records and may verify that a Git tag points to
 the imported commit, but the CALIBER version tag also binds non-Git resource
 pins, configuration-independent model dependencies and the complete package
 digest. `dev`, `qa`, `staging`, `prod`, `approved`, and `latest` must never be
@@ -838,6 +854,11 @@ sequenceDiagram
     A->>C: Final production approval and apply same digest
     C->>C: Audit package, CR, decisions, operations and pointers
 ```
+
+This diagram shows `review_backend=caliber`. With provider review, the Developer
+and source Reviewer work in the PR/MR, CALIBER verifies a digest-bound review
+attestation for the imported resulting commit, and the QA/Admin handoff is
+otherwise identical.
 
 ### 3.3 Traceability, history, and rollback
 
@@ -1034,8 +1055,8 @@ quality bar wherever it happens to sit.
 
 The implemented Lifecycle B has two human decisions today: **Verify** (is this
 failure real?) and **Apply** (should this refinement ship?). The proposed
-Lifecycle A adds three distinct decisions at different boundaries: an assigned
-Reviewer's head-bound **technical review**, QA's release-bound **quality
+Lifecycle A adds three distinct decisions at different boundaries: the selected
+backend's head-bound **technical review**, QA's release-bound **quality
 sign-off**, and Workspace Admin's production-bound **final release approval**.
 Apply is the side effect authorized by the applicable policy, not another
 approval. A technical approval cannot substitute for QA or Admin, and neither
@@ -1065,9 +1086,9 @@ that same actor as `approved_by`.
 
 Closing it needs four things, none of which is a new permanent role:
 
-- **a head-bound technical review assignment** on each submitted Change
-  Request; the Reviewer is an eligible Developer or Admin and is distinct from
-  the current head's authenticated author/importer;
+- **one head-bound technical review backend** on each submitted Change Request;
+  native review assigns an eligible Developer/Admin, while provider review
+  requires complete PR/MR coverage with mapped eligible non-author reviewers;
 - **role-specific distinct-actor checks** on technical review, QA sign-off and
   Admin final approval, all implementing the same
   originator-versus-decision-maker axis;
@@ -1090,8 +1111,9 @@ independent reviewer.
 Two separation-of-duty axes are possible; MVP needs the first:
 
 - **change originator ≠ human decision-maker** — catches bad changes. Applied
-  three times with role-specific originator sets: the assigned Reviewer cannot
-  technically approve a current head they authored or imported; QA cannot
+  three times with role-specific originator sets: each native or mapped
+  provider Reviewer whose decision is required cannot technically approve a
+  covered change they authored or imported; QA cannot
   quality-sign a runtime/source change they authored; Admin cannot finally
   approve a production release they authored or requested. QA cannot request a
   release in the MVP. The immutable Change Request and release records capture
@@ -1140,7 +1162,7 @@ environments are an architecture-evolution feature, not an MVP escape hatch.
 | Environment | Prerequisite | Human decisions | Apply actor |
 | --- | --- | --- | --- |
 | Development | Ready revision or current Change Request head | None | Developer or Admin |
-| QA | Same Change Request head successfully applied in development; required head checks and technical review pass | Assigned Reviewer approval is already bound to that head; QA gives the environment-bound quality decision after evaluation | Admin |
+| QA | Same Change Request head successfully applied in development; selected backend's required head checks and technical review pass | Native Reviewer approval or provider attestation set is already bound to that head; QA gives the environment-bound quality decision after evaluation | Admin |
 | Staging | Accepted package; same digest successfully applied and quality-signed in QA | No duplicate human decision; the accepted-package record and QA decision are predecessor evidence, while staging machine/integration checks bind its own configuration | Admin |
 | Production | Same digest applied and verified in staging; fresh production gates pass | Fresh QA quality sign-off and Admin final approval; neither may be a runtime/source author, and final approver must differ from requester | Admin; may be the final approver |
 
@@ -1291,7 +1313,7 @@ and execution surface.
 | File bytes | Object/workflow storage | Workspace records content-addressed references; it does not duplicate large bytes in SQL or Git |
 | Prompt versions and traces | MLflow | CALIBER adds workspace-local bindings and records exact provider versions |
 | Workflows, tools, skills, datasets, judges, KB metadata | CALIBER relational models | Existing domain versions remain canonical and are pinned by a workspace revision |
-| Authored Git-managed files | GitHub commit | Canonical authored source for a `git_managed` workspace; CALIBER materializes and governs it |
+| Authored Git-managed files | Configured Git provider commit | Canonical authored source for a `git_managed` workspace; CALIBER materializes and governs it |
 | Secret values | Encrypted CALIBER secret versions | Never enter a manifest or audit payload; environments bind `secret://` references |
 
 The CALIBER database is the authoritative inventory: an object that exists only
@@ -1322,12 +1344,241 @@ section 2.4 keys on:
 | Platform service | Identity, encrypted secret value, provider credentials, storage backend | Referenced by name/version where safe | Managed by platform operators, not copied into workspaces |
 | Documentation | Design, runbook, resource documentation | Version in Git for Git-managed workspaces | Not deployed, but included in project provenance |
 
+### 6.5 Architecture decision: Git is a source backend, not the Workspace
+
+The mapping in the question is useful, but only for one architectural plane:
+
+```text
+Workspace       != repository
+Revision/package != commit
+Environment     != branch
+Production state != tag or GitHub deployment
+```
+
+A repository can be the authored representation of a Workspace, and a commit is
+excellent source provenance. It cannot by itself identify the materialized
+MLflow prompt versions, retained snapshots of mutable CALIBER rows, object-store
+bytes, model/provider fingerprints, environment configuration and secret
+versions, evaluation evidence, human release decisions, partial external
+effects, or the current observed deployment state. Those are already CALIBER
+domain and operational concerns. Treating the repository as the whole system of
+record would either omit them or force runtime state and secrets into Git.
+
+#### 6.5.1 The consequential decision: authority is split by plane
+
+The recommended option is **C, hybrid/pluggable**, with an explicit and
+non-overlapping authority contract:
+
+| Plane | Authoritative system | Git-provider role |
+| --- | --- | --- |
+| Workspace identity, inventory, membership and RBAC | CALIBER | Optional identity evidence only; repository permission never grants CALIBER runtime access |
+| Authored declarative source | CALIBER in `caliber_managed`; configured provider in `git_managed` | In `git_managed`, owns files, commits, branches, source diffs and merge history |
+| Technical source review | CALIBER policy, satisfied by native review or configured provider evidence through exactly one backend per request | May own PR/MR discussion, review and source CI when `review_backend=source_provider`; every change in the candidate source range must be covered |
+| Materialized domain versions and snapshots | CALIBER plus the existing domain provider | Commit is an input and provenance reference, not the materialized identity |
+| Aggregate application package and dependency lock | CALIBER | Commit SHA and source-tree digest are package inputs; provider release may mirror the resulting package tag |
+| Quality runs, gate verdicts and QA decisions | CALIBER | Source CI may report a check, but cannot substitute for environment-bound CALIBER evaluation evidence |
+| Environment configuration and secret references | CALIBER; secret values in its encrypted store or an approved external vault | Provider environments/secrets are optional execution plumbing, never the canonical policy or secret inventory |
+| Deployment intent, current state, reconciliation and rollback | CALIBER | Actions/Pipelines may be a child executor; CALIBER records intent before invocation and observes the effect |
+| Runs, traces, incidents and audit correlation | CALIBER and its bound telemetry providers | Commit/PR/run URLs are immutable provenance fields, not the audit ledger |
+
+This means GitHub is neither CALIBER's global system of record nor a generic
+bidirectional synchronization peer. It is an **optional authoritative source
+and review backend for the authoring plane**. CALIBER performs a one-way,
+commit-pinned import and remains the system of record for the package, control,
+release and runtime planes. In `caliber_managed` mode, a future repository
+export can be a read-only mirror/synchronization target, but CALIBER must not
+round-trip changes from that mirror. One workspace has one writer for authored
+state at a time.
+
+#### 6.5.2 Option comparison
+
+| Criterion | A. CALIBER-native lifecycle | B. GitHub-backed whole lifecycle | C. Hybrid/pluggable lifecycle |
+| --- | --- | --- | --- |
+| Source/version collaboration | Must build native diffs, review history and merge-like concurrency | Excellent for Git-representable content | Reuses provider collaboration when configured; retains native path |
+| Domain/package correctness | Natural fit; CALIBER sees every materialized dependency | Poor fit unless non-Git state is duplicated or hidden behind pointers | Strong: CALIBER package binds source plus all non-Git versions/snapshots |
+| Business-user experience | Best; no Git concepts required | Weak; identities, branches and PRs leak into ordinary work | Strong if CALIBER terms remain canonical and provider details are optional provenance |
+| GitHub/GitLab/Bitbucket/no-Git portability | Full | None without rebuilding the product around each provider | Provider adapter plus native fallback; no provider required |
+| Environment and runtime governance | Full control | Provider environment semantics, plan tiers and retention become product constraints | CALIBER policy is stable; provider deployment is an optional child executor |
+| Engineering effort | Highest initial effort, including native review UX | Lowest apparent effort, but high integration and semantic-gap cost | Moderate/high; still builds domain lifecycle plus adapters, but avoids rebuilding developer SCM |
+| Coupling and outage behavior | Lowest external coupling | GitHub outage/rate limit can block the whole platform | Authoring import may pause; existing packages, releases, runs and rollback remain operable |
+| Audit and compliance | One ledger, but CALIBER must build all evidence | Split and mutable provider evidence; export/retention depend on vendor/plan | CALIBER retains normalized, digest-bound evidence and provider provenance |
+| Recommendation | Viable fallback, but duplicates mature SCM for developers | Reject as the Workspace-wide architecture | **Recommend** |
+
+Option B looks smaller only if “application” means files. In this repository it
+also means provider-backed prompts, content-addressed files, workflow
+deployments, release operations, evaluations and runtime lineage. The current
+`CaliberReleaseOperation` already distinguishes `prepared`, `applying`,
+`applied` and `reconcile_required`; a Git tag cannot safely replace that state
+machine. Option A remains necessary as the no-Git fallback and for business
+review, but it should not force developers to abandon a mature SCM. Option C
+preserves the existing architecture and confines provider-specific behavior to
+an adapter boundary.
+
+#### 6.5.3 What fits Git naturally
+
+| Artifact/state | Git fit | Representation |
+| --- | --- | --- |
+| Prompt templates, policies, configuration schemas and documentation | Strong | UTF-8 YAML/JSON/Markdown plus schema validation |
+| Agent and workflow definitions | Strong when declarative | Stable IDs, typed manifests and source paths; generated/runtime state excluded |
+| Tool, OpenAPI and MCP binding definitions | Strong/conditional | Declarative contract and approved connection reference; never credentials or executable import side effects |
+| Evaluation definitions and small fixtures | Strong | Test-set manifest, scorer definition, thresholds and small reviewable fixtures |
+| Large datasets and knowledge sources | Conditional | Manifest plus immutable object/version digest; do not commit indexes, embeddings or large traces by default |
+| Model dependencies | Conditional | Immutable provider/deployment ID plus inference-config fingerprint; reject `latest` for protected environments |
+| Secrets, provider credentials and environment values | Poor/unsafe | Versioned `secret://` or vault references only; values remain outside Git |
+| Evaluation results, traces, review queues and incidents | Poor | Append-only CALIBER evidence linked to package/environment/run |
+| Embeddings, indexes, compiled bundles and mutable provider records | Poor | Build/materialization output in content-addressed storage and provider snapshots |
+| Deployment/current-environment state | Poor | CALIBER release operation and observed environment pointer |
+
+Git provides text history; it does not make an arbitrary mutable provider object
+immutable. Every source adapter still has to resolve the declaration to an
+existing immutable domain version or retain a content-addressed snapshot.
+
+#### 6.5.4 Safe delegation and hard native boundaries
+
+CALIBER may safely delegate commit storage, branching, line/file diffs,
+technical source discussion, required source checks, code-owner review and
+merge protection. It may publish a check back to the provider and mirror an
+accepted semantic version as a tag/release carrying the CALIBER package digest
+and release URL; that mirror is never sufficient to reconstruct environment
+state. GitHub Actions, GitLab CI or
+Bitbucket Pipelines may validate source and invoke a CALIBER import with a
+workspace-bound short-lived credential. A pipeline may execute a CALIBER-owned
+release-operation child only when the operation already records the exact
+package digest and target and CALIBER subsequently observes/reconciles the
+result.
+
+CALIBER must still build and own:
+
+- the Workspace catalog, resource ownership and centralized authorization;
+- manifest validation, provider materialization and immutable snapshots;
+- the aggregate revision/package digest and complete dependency lock;
+- native Change Requests for no-Git or CALIBER-reviewed work;
+- a complete normalized external-review attestation set when provider review is selected;
+- quality gates, QA sign-off, Admin release approval and separation of duties;
+- environment policy, configuration/secret references and protected pointers;
+- intent-first deployment, provider observation, reconciliation and rollback;
+- run/evaluation/deployment lineage and an exportable audit history;
+- provider connection, webhook, idempotency, reconciliation and identity-link
+  infrastructure; and
+- a provider-neutral SDK/CLI vocabulary plus native behavior when no provider
+  is configured.
+
+Git provider deployment approvals are useful defense in depth, but they are not
+portable equivalents of CALIBER policy. Their reviewer limits, plan/tier
+availability, role semantics, audit retention and self-approval behavior differ.
+The CALIBER gate therefore remains authoritative even when the external executor
+also has an approval gate.
+
+#### 6.5.5 Package and dependency contract
+
+The source commit is a **build input**, not the package identity. Packaging is a
+deterministic materialization step:
+
+1. Resolve the full commit and normalized repository subtree. Never package a
+   mutable branch name.
+2. Validate `.caliber/workspace.yaml`, reject undeclared or unsupported runtime
+   dependencies, and canonicalize the source tree.
+3. Resolve every declaration through its domain adapter to an immutable version
+   or retained snapshot. Record object-store version/digest, model fingerprint,
+   provider contract and non-secret integration references. Record only declared
+   secret requirements in the package; each release captures the actual
+   environment-specific secret-version references and configuration digest.
+4. Produce the canonical package descriptor and `revision_sha256` over the
+   source identity, source-tree digest, manifest and sorted resolved pins.
+5. Retain the descriptor and source snapshot in CALIBER. Optionally export a
+   generated `.caliber/workspace.lock.json` or OCI artifact for reproducibility;
+   neither becomes a second authority.
+6. Promote that exact digest through every environment. Rebuilding from the
+   same commit is a verification operation and must reproduce the digest or
+   fail as drift; it never silently replaces the reviewed package.
+
+The package therefore supports source-only dependencies, CALIBER-managed
+resources and external immutable provider versions in one lock. A Git tag may
+mirror `1.4.0`, but the authoritative mapping is CALIBER's immutable version tag
+to `revision_sha256`.
+
+#### 6.5.6 One review workflow, not two
+
+`WorkspaceChangeRequest` is the provider-neutral package/promotion envelope.
+It always binds CALIBER's accepted package baseline to one immutable candidate
+revision and carries quality/release progress. Its `review_backend` determines
+only where **technical source review** happens:
+
+- `caliber`: CALIBER owns reviewer assignment, comments, checks and technical
+  approval. This is the default for `caliber_managed`, no-Git and business-led
+  review.
+- `source_provider`: the provider owns branch conflict resolution, source
+  discussion, checks and PR/MR approval. CALIBER stores normalized immutable
+  attestations bound to provider/repository/request IDs, exact reviewed heads,
+  resulting commits, CALIBER external-review policy, required-check sets,
+  optional observed provider-ruleset snapshots and mapped actors. CALIBER
+  comments do not masquerade as provider comments.
+
+For provider review, the safe default is to materialize the exact commit that
+landed on the protected default branch. Expensive pre-merge CALIBER evaluations
+may be advisory provider checks, but QA acceptance binds the post-merge package
+digest. A squash, rebase, merge-queue result or changed head requires a new
+import and invalidates any attestation not bound to the resulting commit.
+CALIBER never infers approval from “PR merged”; it verifies the configured
+CALIBER external-review policy and exact commit through the provider adapter. If the candidate
+contains several merges since its CALIBER base package, the attestation set must
+cover the complete source-tree delta. Every changed path/commit must be
+attributable to a verified PR/MR under the required policy; direct pushes,
+bypasses and uncovered commits make the set `insufficient`. The first package
+uses an explicit Admin-approved baseline-import procedure because no prior
+CALIBER source commit exists.
+
+Push import alone cannot verify those facts. Until a least-privilege GitHub App
+or equivalent provider connection is installed, the request either uses native
+CALIBER technical review or remains ineligible for environments whose policy
+requires provider-verified review.
+
+#### 6.5.7 Business users and provider portability
+
+The API, SDK and future UI expose `Draft`, `In review`, `Changes requested`,
+`QA candidate`, `Staged`, `Production` and `Rollback`; provider, repository,
+branch and PR/MR appear only as optional provenance. A business user can create,
+compare, comment on and approve CALIBER-managed revisions without a Git account.
+When provider review is selected, only the technical source reviewers need the
+provider workflow; QA and Admin continue entirely in CALIBER. Writing a
+provider comment or review on behalf of a CALIBER user is out of scope until an
+explicit identity link and user-authorized token exist—an installation token
+must never impersonate a human.
+
+Implement a `SourceControlProvider` capability interface rather than a GitHub
+service embedded in Workspace logic. Capabilities include commit/tree fetch,
+commit reachability/range coverage, change-request lookup, exact-head reviews,
+required checks, optional provider-ruleset observation, webhook verification
+and optional status publication. Missing
+capabilities are explicit typed refusals. GitHub is the first adapter; GitLab,
+Bitbucket, self-hosted variants and `none` are later adapters. Provider-specific
+environment, secret and role concepts do not cross this interface.
+
+#### 6.5.8 Coupling, scale, security and governance risks
+
+| Risk | Consequence | Required control |
+| --- | --- | --- |
+| Provider outage, webhook loss or rate limit | Imports/review refresh pause or arrive out of order | Durable event inbox, delivery idempotency, cursor/reconciliation poll, last-verified timestamp; existing releases and rollback remain available |
+| Force-push, deleted repository/tag or retention change | External source/history disappears | Retain canonical source snapshot, descriptor and attestations; reference full commits, never branch/tag alone |
+| Identity mismatch and bots | Wrong actor satisfies separation of duty | Explicit provider-user-to-CALIBER-principal link, actor type, tenant/repository binding and revalidation; unknown actors never count |
+| Forged or weak status checks | Untrusted actor marks a commit green | Pin required check names and trusted app/source identities; retain check conclusions and input SHA |
+| Malicious workflow/fork input | Secret or deployment compromise | No secret on untrusted PR jobs; least-privilege App, short-lived/OIDC credentials, protected execution workflow and CALIBER-side target authorization |
+| Repository admin bypass, direct push or policy drift | Candidate includes source without intended review | Verify complete base-to-head commit/path coverage against CALIBER's external-review policy, record bypass actor/reason, and retain provider ruleset evidence when readable |
+| Repo-per-workspace or monorepo scale | API fan-out, webhook storms, ambiguous path ownership | Bind repository plus normalized root path, index repository/path to workspaces, batch fetches, enforce non-overlapping roots unless explicitly supported |
+| Vendor/edition differences | A policy works only on one product tier | Closed capability discovery, CALIBER-native fallback and policy that refuses unavailable required guarantees |
+| Bidirectional synchronization | Conflicts and unprovable authority | One authoring mode at a time; one-way import or one-way export, never automatic round-trip sync |
+
+These controls are why the provider integration is not a shortcut around the
+Workspace work. It can remove the need to recreate developer-facing Git
+collaboration, but it adds a security-sensitive adapter and evidence ingestion
+boundary.
+
 ## 7. The Workspace concept
 
 A Workspace is the durable collaboration and governance boundary for one
 CALIBER project. It owns or binds collaborators and their roles; authored
 resources and exact resource versions; evidence and operational lineage; zero or
-one GitHub source binding in the MVP; immutable workspace revisions;
+one provider-neutral Git source binding in the MVP; immutable workspace revisions;
 Change Requests and immutable application-version tags; development, QA,
 staging and production environment records; release requests, typed decisions,
 application state and rollback lineage; workspace-scoped file namespaces and
@@ -1372,6 +1623,14 @@ that relates those concepts.
     parent transaction committed.
 15. An environment with unresolved external state is not executable or
     promotable, even when its last confirmed `current_release_id` is readable.
+16. One system writes authored state at a time: CALIBER in `caliber_managed`,
+    the configured repository in `git_managed`. Import/export never creates a
+    bidirectional merge loop.
+17. A submitted Change Request has exactly one immutable technical-review
+    backend. Native and provider approvals cannot be combined to satisfy it.
+18. For provider review, evidence covers the complete source delta from the
+    CALIBER base revision's source commit to the candidate source commit; a
+    linked PR/MR that covers only part of the package is insufficient.
 
 ### 7.2 Ownership and lifecycle
 
@@ -1419,20 +1678,31 @@ Only `active` and `archived` are implemented for the MVP. `PendingDeletion` and
 `Deleted` show the safe extension path and must not be exposed until retention,
 dependency, backup, and recovery contracts exist.
 
-### 7.3 Source modes
+### 7.3 Source and review modes
 
-Each workspace declares one source mode:
+Each workspace declares one source mode and, independently, one technical-review
+backend:
 
 - `caliber_managed`: current behavior. CALIBER domain records are the authored
   source; a revision is created from selected saved versions.
-- `git_managed`: a GitHub commit plus `.caliber/workspace.yaml` is the authored
-  source. CALIBER materializes immutable domain versions and records the
-  mapping.
+- `git_managed`: a full commit from the configured Git provider plus
+  `.caliber/workspace.yaml` is the authored source. CALIBER materializes
+  immutable domain versions and records the mapping. `source_provider` is a
+  separate closed value (`github` first; `gitlab` and `bitbucket` later), not a
+  source mode.
+
+`review_backend` is `caliber` or `source_provider`. It defaults to `caliber` and
+is mandatory for no-Git work. `source_provider` is eligible only when a
+provider adapter can verify the exact imported commit against CALIBER's
+external-review policy, required checks and mapped actors. It delegates technical source review only;
+CALIBER still owns the Change Request's package baseline/head, QA and release
+state.
 
 The source mode prevents dual authority. In a `git_managed` workspace, local
 edits may be used as development drafts, but they are not eligible for staging
-or any later environment until represented by a new imported Git commit. The MVP does not
-silently write commits or PRs from CALIBER.
+or any later environment until represented by a new imported Git commit. The
+MVP does not silently write commits or PRs/MRs from CALIBER. Provider-backed
+review is one-way evidence ingestion, not mirrored comment or approval state.
 
 Source changes are compare-and-set lifecycle transitions, not ordinary mutable
 configuration. An active binding must be disabled before replacement. Switching
@@ -1446,7 +1716,7 @@ a Git import as CALIBER-authored.
 
 ```mermaid
 flowchart LR
-    GH[GitHub repository - authored source] -->|commit-pinned import| API[CALIBER API]
+    SCM[Optional Git provider - authored source and review] -->|commit-pinned import and attestations| API[CALIBER API]
     SDK[SDK / caliberctl / CI] --> API
     API --> AUTH[Workspace authorization]
     AUTH --> DB[(CALIBER metadata DB)]
@@ -1464,6 +1734,7 @@ flowchart LR
     REL --> AUDIT[Audit + release evidence]
     RUN[Workers / Aria] --> AUTH
     RUN --> DB
+    API -.->|optional checks and release mirror| SCM
 ```
 
 ### 8.1 Minimal-disruption decisions
@@ -1481,9 +1752,12 @@ flowchart LR
 5. **Use adapters only at aggregate boundaries.** Import, resolve, validate,
    release, observe, and rollback need a common adapter protocol; ordinary
    domain CRUD remains unchanged.
-6. **Start GitHub integration as push-based CI.** A GitHub Action or trusted CI
-   calls CALIBER with a scoped CALIBER PAT and a commit-pinned bounded source
-   bundle. CALIBER does not need to store a GitHub token in the MVP.
+6. **Start source integration as provider-neutral push CI, then add verified
+   review ingestion.** A GitHub Action or trusted CI submits a commit-pinned
+   bundle first, so CALIBER does not need a provider token for import. A later
+   least-privilege provider App verifies exact-commit PR/MR review evidence;
+   GitLab and Bitbucket implement the same capability contract rather than
+   entering Workspace services directly.
 7. **Represent environments durably.** Alias classification remains reusable,
    but environment identity, policy, current release, and configuration digest
    must be database state rather than process configuration alone.
@@ -1506,8 +1780,9 @@ flowchart LR
 | `WorkspaceService` | Workspace lifecycle, owner transfer, member administration | Domain resource payloads |
 | `WorkspaceAuthorizationService` | One deny-by-default decision for principal/action/workspace/resource/environment/release | Authentication or client-only capability hiding |
 | `WorkspaceRevisionService` | Canonicalize manifest, resolve pins, compute digest, validate completeness, diff revisions | Provider-specific mutation logic |
-| `WorkspaceChangeRequestService` | Base/head generations, version reservation, reviewer assignment, comments, checks, technical review, stale-base CAS acceptance | Source merging, QA quality decisions, or provider effects |
-| `WorkspaceImportService` | Durable import job, path/size validation, adapter orchestration, idempotency, failure reporting | GitHub user credentials in push-based MVP |
+| `WorkspaceChangeRequestService` | Base/head generations, review-backend selection, normalized review evidence, version reservation, stale-base CAS acceptance | Source merging, duplicated provider discussion, QA quality decisions, or provider effects |
+| `WorkspaceImportService` | Durable import job, path/size validation, resource-adapter orchestration, idempotency, failure reporting | Provider user credentials or SCM policy interpretation |
+| `SourceControlProvider` registry | Commit/tree and reachability lookup, PR/MR/check/review-policy attestations, webhook verification, optional status publication | Workspace authorization, package identity, QA/release decisions, environment or secret policy |
 | `WorkspaceEnvironmentService` | Seed/manage environment identities and policy, capture config digest | Secret plaintext |
 | `WorkspaceReleaseService` | Request/evaluate one revision/environment pair and record digest-bound human decisions | Provider effects or mutable approval history |
 | `WorkspaceReleaseOperationService` | Prepare, apply, observe, reconcile, and roll back through intent-first parent/child operations | Pretending child effects are atomic or rewriting release evidence |
@@ -1542,6 +1817,8 @@ erDiagram
     CALIBER_PROJECT ||--o{ PROJECT_MEMBER : has
     CALIBER_PROJECT ||--o{ WORKSPACE_IDEMPOTENCY_RECORD : deduplicates
     CALIBER_PROJECT ||--o| WORKSPACE_SOURCE : binds
+    WORKSPACE_SOURCE ||--o{ SOURCE_EVENT : receives
+    CALIBER_PROJECT ||--o{ SOURCE_ACTOR_LINK : maps
     CALIBER_PROJECT ||--o{ WORKSPACE_REVISION : snapshots
     WORKSPACE_REVISION ||--|{ WORKSPACE_REVISION_RESOURCE : pins
     CALIBER_PROJECT ||--o{ WORKSPACE_CHANGE_REQUEST : reviews
@@ -1551,6 +1828,7 @@ erDiagram
     WORKSPACE_CHANGE_REQUEST ||--o{ WORKSPACE_CHANGE_REQUEST_COMMENT : discusses
     WORKSPACE_CHANGE_REQUEST_HEAD ||--o{ WORKSPACE_CHANGE_REQUEST_CHECK : checks
     WORKSPACE_CHANGE_REQUEST_HEAD ||--o{ WORKSPACE_CHANGE_REQUEST_REVIEW : reviews
+    WORKSPACE_CHANGE_REQUEST_HEAD ||--o{ EXTERNAL_REVIEW_ATTESTATION : attests
     WORKSPACE_CHANGE_REQUEST ||--o{ WORKSPACE_VERSION_CLAIM : reserves
     WORKSPACE_REVISION ||--o{ WORKSPACE_VERSION_TAG : labels
     CALIBER_PROJECT ||--|{ WORKSPACE_ENVIRONMENT : defines
@@ -1669,14 +1947,37 @@ digest incorporates the normalized source-tree digest rather than tar/gzip
 container metadata, after archive safety checks have passed.
 
 **`caliber_workspace_sources`** — `WSS-*` primary key; non-null `project_id`,
-unique in the MVP (zero or one source per workspace); `provider` (`github`);
-`repository` as canonical `owner/name`; `default_branch` (informational — a
-release still pins a SHA); normalized `root_path`; `manifest_path` defaulting to
-`.caliber/workspace.yaml`; `sync_mode` (`push`); `status` (`active`, `disabled`,
-`error`); audit timestamps and actors.
+unique in the MVP (zero or one source per workspace); closed `provider`
+(`github` first, with `gitlab` and `bitbucket` reserved for later adapters);
+provider host/instance plus canonical repository ID and display path;
+`default_branch` (informational — a release still pins a SHA); normalized
+`root_path`; `manifest_path` defaulting to `.caliber/workspace.yaml`;
+`import_mode` (`push` or later `provider_pull`); nullable opaque
+`connection_ref`; provider capability snapshot; versioned CALIBER
+`external_review_policy` and digest specifying required mapped approvals,
+trusted checks/producers and source-range coverage; optional last-observed
+provider ruleset digest; `status` (`active`, `disabled`, `error`); last
+verified/reconciled timestamps; audit timestamps and actors.
 
-No GitHub access token is stored for push mode. A later GitHub App connection
-uses an opaque installation/connection reference, not plaintext credentials.
+No provider access token is stored for push mode. A later GitHub App or
+equivalent connection uses the opaque `connection_ref`; keys and tokens live in
+the encrypted connection/secret facility, never this row.
+
+**`caliber_workspace_source_events`** — `WSSE-*` primary key; non-null
+`source_id`; provider delivery/event ID, event type, repository ID, received and
+processed timestamps, status, bounded redacted error and payload digest. Unique
+`(source_id, provider_delivery_id)`. Store only the minimum normalized payload
+required for replay/audit; raw webhook bodies follow a bounded retention policy.
+Signature verification, repository/installation binding and idempotent inbox
+insert happen before processing. A reconciliation cursor/poll repairs missed or
+out-of-order deliveries.
+
+**`caliber_workspace_source_actor_links`** — `WSSAL-*` primary key; non-null
+`project_id`, provider/host, provider subject ID and CALIBER user ID; status,
+verified method/time and revocation provenance. Unique active provider subject
+and CALIBER user mappings within one provider host/workspace. A provider actor
+without an active unambiguous link is retained as provenance but cannot satisfy
+Reviewer, QA, Admin or separation-of-duty policy.
 
 **`caliber_workspace_import_jobs`** — `WSI-*` primary key; `project_id` and
 `source_id`; `repository` and `commit_sha`; raw `upload_sha256` for transport
@@ -1696,7 +1997,7 @@ source digest. A later upload claiming the same repository/commit with
 different canonical content is rejected as `source_commit_digest_conflict` and
 emits a high-severity audit event. Different compression metadata over the same
 canonical tree is not equivocation. This detects caller inconsistency but still
-does not prove that the content came from GitHub; push provenance is explicitly
+does not prove that the content came from the named provider; push provenance is explicitly
 `caller_attested`.
 
 **`caliber_workspace_revisions`** — `WSR-*` primary key; non-null `project_id`;
@@ -1757,17 +2058,25 @@ guarantee.
 monotonic `head_generation`; title and bounded description; `status` in
 `draft`, `open`, `changes_requested`, `technically_approved`,
 `qa_in_progress`, `out_of_date`, `accepted`, `closed`; nullable
-`accepted_at`, `accepted_by`, and `closed_reason`; monotonic `lock_version`; and
-audit timestamps. Base and head must be ready revisions in the same Workspace
+`accepted_at`, `accepted_by`, and `closed_reason`; closed `review_backend` in
+`caliber`, `source_provider`; monotonic `lock_version`; and audit timestamps.
+Provider change-request references live in the external-attestation rows so one
+CALIBER package may truthfully cover several provider merges. Base and head must
+be ready revisions in the same Workspace
 and must differ when base is present. `base_revision_id` is the expected
 accepted baseline; SQL `NULL` is the explicit compare-and-set expectation when
 the Workspace has never accepted a package. `current_head_revision_id` is a
 cached pointer to the latest append-only
-head row, never an editable package.
+head row, never an editable package. `review_backend` is immutable after
+submission; a team that needs to change it closes the request and opens another
+over the same revision, preserving an unambiguous audit history.
 
-Submission requires exactly one active version claim and at least one eligible Reviewer
-assignment. Acceptance is one transaction that verifies the current head's
-checks, technical approval, QA release/evidence, actor separation and version
+Submission requires exactly one active version claim. A `caliber` review also
+requires at least one eligible Reviewer assignment; a `source_provider` review
+requires a configured active source and one or more provider change-request
+references whose verified resulting commits cover the complete source delta.
+Acceptance is one transaction that verifies the current head's applicable
+native checks/review or external attestation, QA release/evidence, actor separation and version
 precedence, compares
 `caliber_projects.accepted_revision_id` with `base_revision_id`, creates the
 final immutable version tag, moves the accepted pointer to the head, and marks
@@ -1822,6 +2131,29 @@ generation makes all earlier approvals stale by construction. A
 `request_changes` decision before QA apply invalidates any prepared QA release
 for that head. Once the first QA provider effect begins, technical review is
 frozen for that candidate; QA owns the subsequent `go`/`no_go` decision.
+
+Native reviewer, comment, check and review rows are authoritative only when
+`review_backend=caliber`. They may still display imported provider provenance,
+but must not be synthesized into human CALIBER decisions.
+
+**`caliber_workspace_external_review_attestations`** — `WSERA-*` primary key;
+non-null `change_request_id`, `head_id`, `source_id`; provider change-request
+ID/URL; exact provider head commit and imported/resulting commit; source-tree and
+workspace revision digests; CALIBER external-review-policy version/digest;
+optional observed provider-ruleset digest; required check names plus trusted
+source identities and terminal conclusions; normalized
+review actors/decisions with actor-link IDs; merge method, merge actor and
+timestamp; provider event IDs; verification adapter/version/time; status in
+`verified`, `insufficient`, `stale`, `revoked`; bounded reason. Rows are
+append-only. Unique verification input prevents duplicate attestations. Only a
+complete set of `verified` rows whose resulting commit chain/tree delta covers
+the CALIBER base-to-head source change and whose digests equal the current head
+satisfies technical review. Persist a deterministic coverage digest and any
+uncovered commits/paths in the derived summary. A new head, provider review
+dismissal, direct/bypassed commit, policy failure or identity-link revocation
+makes the set ineligible without deleting history. A first-package baseline
+attestation is a distinct Admin-approved kind and cannot be reused as ordinary
+PR evidence.
 
 **`caliber_workspace_version_claims`** — `WSVC-*` primary key; non-null
 `project_id`, `change_request_id`; canonical SemVer without a `v` prefix;
@@ -2193,14 +2525,26 @@ Manifest rules:
 - Do not execute imported tool code during import. Static validation and
   sandboxed test execution are separate explicit steps.
 - Redact secret values from errors, evidence, logs, manifests, and audit rows.
-- Record repository, commit, run URL, actor, digests, and importer/adapter
-  versions. These are provenance, not proof that GitHub reviewed the change.
+- Record provider/host, canonical repository ID, commit, run URL, actor,
+  digests, and importer/adapter versions. These are provenance, not proof that
+  the provider reviewed the change.
 - In push mode the dedicated CI principal is the trust boundary asserting that
-  the uploaded bytes match the named commit. If cryptographic commit/review
-  verification is required, QA/staging/production must wait for the later GitHub
-  App pull mode; CALIBER must not overstate a caller-supplied SHA as proof.
-- Later GitHub App webhook delivery must verify signatures, installation/repo
+  the uploaded bytes match the named commit. If provider-verified commit/review
+  evidence is required, QA/staging/production must wait for a configured App
+  adapter or use native CALIBER review; CALIBER must not overstate a
+  caller-supplied SHA as proof.
+- Provider App webhook delivery must verify signatures, connection/repository
   binding, event replay keys, and commit reachability before queueing an import.
+- Request the minimum provider capabilities. Installation credentials perform
+  automation only; any provider review/comment attributed to a human requires a
+  user-authorized identity and the intersection of provider and CALIBER access.
+- Bind external technical-review evidence to the exact provider request head,
+  resulting commit, imported source-tree digest, trusted status-check sources,
+  effective policy snapshot and mapped actors. “Merged” alone is insufficient.
+- Process webhooks through a durable idempotent inbox and periodically reconcile
+  provider state. Event delivery is a hint, never the only durable evidence.
+- Never expose repository, PR/MR or provider metadata to a caller who lacks
+  CALIBER Workspace read access, even if the provider repository is public.
 
 ### 10.4 Release safety
 
@@ -2242,11 +2586,11 @@ Manifest rules:
 
 ## 11. Key interactions
 
-### 11.1 GitHub import and revision creation
+### 11.1 Git-provider import and revision creation
 
 ```mermaid
 sequenceDiagram
-    participant GH as GitHub Actions
+    participant CI as Provider CI or trusted CI
     participant API as CALIBER API
     participant AZ as Workspace authorization
     participant IQ as Import queue/worker
@@ -2254,11 +2598,11 @@ sequenceDiagram
     participant DB as CALIBER DB
     participant P as MLflow/object providers
 
-    GH->>API: POST revision import (repo, SHA, manifest, bundle, idempotency key)
+    CI->>API: POST revision import (provider, repo ID, SHA, manifest, bundle, key)
     API->>AZ: authorize revision.import for workspace
     AZ-->>API: allow with role/scope decision
     API->>DB: create or return idempotent import job
-    API-->>GH: 202 import_job_id
+    API-->>CI: 202 import_job_id
     IQ->>DB: atomically claim job
     IQ->>IQ: validate archive and canonicalize manifest
     IQ->>DB: store canonical source snapshot, bind or verify repository/commit tree digest
@@ -2278,6 +2622,8 @@ sequenceDiagram
 ```
 
 ### 11.2 Change review while development continues
+
+The native review backend follows this interaction:
 
 ```mermaid
 sequenceDiagram
@@ -2300,6 +2646,37 @@ sequenceDiagram
     R->>API: approve g2
     API->>DB: append technical approval and mark technically_approved
 ```
+
+For `review_backend=source_provider`, CALIBER does not recreate the provider
+discussion:
+
+```mermaid
+sequenceDiagram
+    participant D as Developer
+    participant SCM as Git provider
+    participant CI as Source CI
+    participant API as CALIBER API
+    participant SPA as Source provider adapter
+    participant DB as CALIBER DB
+
+    D->>SCM: push branch and open PR/MR
+    SCM->>CI: run required source checks on exact head
+    D->>SCM: update branch after review
+    SCM->>SCM: invalidate stale approval/check state
+    SCM->>SCM: merge through protected default branch
+    SCM-->>API: signed webhook delivery
+    API->>DB: idempotently persist source event
+    API->>SPA: verify repository, PR/MR, policy, actors, checks, head and merge commit
+    SPA-->>API: normalized range-covering attestation set or typed insufficiency
+    CI->>API: import exact resulting commit and bounded source tree
+    API->>DB: materialize immutable revision and bind source digest
+    API->>DB: append attestations and coverage digest bound to the same revision head
+    Note over D,DB: new source work continues; QA remains pinned to this package digest
+```
+
+Webhook and import may arrive in either order. The request becomes technically
+approved only after both records exist and agree; order never changes the
+result.
 
 ### 11.3 Promotion through environments
 
@@ -2409,6 +2786,8 @@ boundary itself is reliable.
 | `PUT /projects/{id}/source` | Create or replace a disabled binding with `If-Match` | `source.manage` |
 | `POST /projects/{id}/source:enable` | Validate and activate a configured binding with `If-Match` | `source.manage` |
 | `POST /projects/{id}/source:disable` | Disable the active binding before replacement with `If-Match` | `source.manage` |
+| `GET /projects/{id}/source/capabilities` | Provider-neutral capability and last-verification snapshot; no secret/token metadata | `read` |
+| `POST /projects/{id}/source:reconcile` | Refresh commit/review state after missed webhooks or provider recovery | `source.manage` |
 | `POST /projects/{id}/revision-imports` | Queue commit-pinned import | `revision.import` |
 | `GET /projects/{id}/revision-imports/{job_id}` | Read durable import status | `read` |
 | `GET /projects/{id}/revision-imports` | List import jobs — required for recoverability | `read` |
@@ -2431,6 +2810,8 @@ boundary itself is reliable.
 | `DELETE /projects/{id}/change-requests/{cr_id}/reviewers/{user_id}` | Remove a Reviewer without deleting history | `change_request.manage` |
 | `GET /projects/{id}/change-requests/{cr_id}/reviews` | Cursor-paged technical-review history | `read` |
 | `POST /projects/{id}/change-requests/{cr_id}/reviews` | Append `approve`/`request_changes` for the exact current head | `change_request.review` |
+| `GET /projects/{id}/change-requests/{cr_id}/external-review-attestations` | Provider review/check/policy evidence and insufficiency reasons for each head | `read` |
+| `POST /projects/{id}/change-requests/{cr_id}:refresh-external-review` | Queue idempotent provider re-verification; no human decision is synthesized | `change_request.update` |
 | `GET /projects/{id}/change-requests/{cr_id}/checks` | Cursor-paged head-bound check attempts and evidence | `read` |
 | `GET /projects/{id}/version-tags` | Cursor-paged immutable candidate/accepted tag history | `read` |
 | `GET /projects/{id}/version-tags/{tag}` | Exact tag, package digest and source Change Request | `read` |
@@ -2548,8 +2929,8 @@ dictionaries, headers, or polling loops. Support is complete only when:
 typed completeness.
 
 **Non-goals:** the backend tables, services, workers, authorization, or routes;
-the web UI, TypeScript SDK, or plugin SDK; GitHub credentials or GitHub API
-access inside `caliber-sdk`; typed async parity for unrelated resource families;
+the web UI, TypeScript SDK, or plugin SDK; provider credentials or direct
+GitHub/GitLab/Bitbucket API access inside `caliber-sdk`; typed async parity for unrelated resource families;
 bidirectional Git synchronization; local manifest compilation that could diverge
 from server validation; and a new public `/workspaces` route or
 `X-CALIBER-Workspace` header.
@@ -2614,7 +2995,7 @@ client.workspaces                         # same object as client.projects
 ├── files
 │   └── list, upload, create_folder, delete, download
 ├── source
-│   └── get, configure, enable, disable
+│   └── get, configure, enable, disable, capabilities, reconcile
 ├── revision_imports / imports
 │   └── list, get, create, reconcile, wait
 ├── revisions
@@ -2622,7 +3003,9 @@ client.workspaces                         # same object as client.projects
 ├── change_requests
 │   └── list, iter_all, get, create, submit, update_head, rebase, close,
 │       list_comments, comment, list_reviewers, assign_reviewer,
-│       remove_reviewer, list_reviews, review, list_checks, wait_for_checks
+│       remove_reviewer, list_reviews, review, list_checks,
+│       list_external_review_attestations, refresh_external_review,
+│       wait_for_technical_review
 ├── version_tags
 │   └── list, iter_all, get
 ├── environments
@@ -2696,11 +3079,13 @@ explicit project ID even inside a different ambient scope.
 ### 13.5 Models
 
 Add frozen dataclasses in `models/workspaces.py`: `WorkspaceSource`,
+`WorkspaceSourceCapabilities`,
 `WorkspaceRevisionImport`, `WorkspaceRevision`, `WorkspaceRevisionResource`,
 `WorkspaceRevisionDiff`, `WorkspaceChangeRequest`,
 `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReviewer`,
 `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestCheck`,
-`WorkspaceChangeRequestReview`, `WorkspaceVersionClaim`,
+`WorkspaceChangeRequestReview`, `WorkspaceExternalReviewAttestation`,
+`WorkspaceExternalReviewCoverage`, `WorkspaceVersionClaim`,
 `WorkspaceVersionTag`, `WorkspaceEnvironment`, `WorkspaceRelease`,
 `WorkspaceReleaseEvidence`, `WorkspaceReleaseDecision`,
 `WorkspaceReleaseEvaluation`, `WorkspaceBreakGlassAuthorization`,
@@ -2721,6 +3106,7 @@ Complex mutations use typed request models rather than open dictionaries:
 `UpdateWorkspaceChangeRequestHeadRequest`, `RebaseWorkspaceChangeRequestRequest`,
 `CommentOnWorkspaceChangeRequestRequest`,
 `ReviewWorkspaceChangeRequestRequest`, `AssignWorkspaceChangeRequestReviewerRequest`,
+`RefreshWorkspaceExternalReviewRequest`,
 `UpdateWorkspaceEnvironmentRequest`, `CreateWorkspaceReleaseRequest`,
 `EvaluateWorkspaceReleaseRequest`, `QualitySignoffRequest`,
 `ApproveWorkspaceReleaseRequest`,
@@ -2789,7 +3175,7 @@ never poll past a durable state that requires a human or a separate command.
 | Waiter | Continue while | Return successfully when | Raise |
 | --- | --- | --- | --- |
 | `imports.wait` | `queued`, `running` | `succeeded` | `failed`; `reconcile_required` raises a distinct attention exception |
-| `change_requests.wait_for_checks` | Any required current-head check is missing, `queued`, or `running` | All required current-head checks are terminal, including a returned failed summary | malformed/unknown check response |
+| `change_requests.wait_for_technical_review` | Native required checks/review or provider attestation for the current head is pending | Current head is `technically_approved`, `changes_requested`, `out_of_date`, or provider evidence is terminally `insufficient` | malformed/unknown response or provider verification attention state |
 | `releases.wait_for_evaluation` | `draft`, `evaluating` | `blocked`, `awaiting_quality_signoff`, `awaiting_approval`, `approved`, `rejected` | malformed/unknown response; server attempt failures settle the release as `blocked` |
 | `release_operations.wait_for_apply` | `prepared`, `applying` | `applied` | `failed` or `cancelled`; distinct attention exception for `reconcile_required` |
 | `release_operations.wait_for_rollback` | `prepared`, `applying` | `applied` | `failed` or `cancelled`; distinct attention exception for `reconcile_required` |
@@ -2904,6 +3290,7 @@ change = client.workspaces.change_requests.create(
         base_revision_id=workspace.accepted_revision_id,
         head_revision_id=revision.revision_id,
         semantic_version="1.4.0",
+        review_backend="caliber",
         reviewer_ids=["developer-reviewer@example.com"],
         title="Add pricing policy application",
     ),
@@ -3023,6 +3410,9 @@ logic.
 - Preserve existing public/user library semantics during migration.
 - Never assign ambiguous legacy resources to a workspace by name alone.
 - Keep source mode `caliber_managed` for every existing project.
+- Never infer or bind a repository from names, URLs in metadata, or current
+  GitHub organization membership. Provider authority requires an explicit
+  Admin transition and verified canonical repository identity.
 - Seed environments without changing current live aliases.
 - Feature-flag Git import and multi-environment apply independently.
 - A failed migration leaves existing project and resource behavior available; it
@@ -3031,8 +3421,9 @@ logic.
 ### 15.2 Sequence
 
 1. Add project/audit columns and the Workspace idempotency ledger, then
-   source/import/revision/revision-resource, Change Request/head/review/check,
-   version claim/tag, environment, and rework tables. Add
+   source/source-event/actor-link/import/revision/revision-resource, Change
+   Request/head/native-review/check/external-attestation, version claim/tag,
+   environment, and rework tables. Add
    release/evaluation/evidence/decision/break-glass tables and
    release-operation/item tables next; only then add the nullable rework-task
    release FK and exactly-one-source check. Create `current_release_id` and
@@ -3068,6 +3459,14 @@ logic.
    inventory is zero for the affected table.
 10. Turn on strict runtime resolution and environment releases per workspace,
     starting with a controlled pilot.
+11. For a Workspace opting into `git_managed`, bind and verify the provider
+    repository/root, import an exact source commit, compare its materialized
+    package against the CALIBER-managed baseline, and require an Admin-recorded
+    authority transition. Historical CALIBER revisions keep their original
+    provenance; no old commit or PR/MR is retroactively treated as reviewed.
+    The reverse transition snapshots a new CALIBER-authored baseline and
+    disables provider writes before authoring resumes. Neither transition is an
+    automatic bidirectional sync.
 
 Each schema step has a fresh-install test, upgrade test from the preceding
 revision, and ORM-metadata parity test on SQLite and PostgreSQL. The current
@@ -3133,7 +3532,7 @@ combined with a later slice merely to reduce PR count.
 
 | Slice | Owner | Concrete deliverable | Depends on | Exit/rollback gate |
 | --- | --- | --- | --- | --- |
-| `P0-A` | Architecture + security | Machine-readable route/resource/worker/action inventory; resolve every open policy choice | — | Inventory covers every protected route and external effect; document review approved |
+| `P0-A` | Architecture + security | Machine-readable route/resource/worker/action inventory; freeze the per-plane authority matrix and resolve every open policy choice | — | Inventory covers every protected route and external effect; no state has two writers; document review approved |
 | `P0-B` | API + SDK | OpenAPI shapes, closed actions, errors, pagination, ETag/CAS/idempotency contracts, Change Request/version contracts, manifest schema and golden vectors | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
 | `P1-A` | Data/backend | Add project slug/counter/accepted-pointer/archive/audit fields, the Workspace idempotency ledger, and fixed environment rows; deterministic backfill, safe baseline state, and PostgreSQL migration CI | `P0-B` | Fresh/upgrade parity on SQLite and real PostgreSQL; idempotency conflict/replay is durable; new Workspace seeds dev active and qa/staging/prod disabled; migrated live aliases remain `baseline_required` |
 | `P1-B` | Security/backend | Closed action enum, deny-by-default decision service, all-scope conjunction support, stable reasons, and removal of ordinary platform-admin owner bypass | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; policy errors never fall back to legacy allow |
@@ -3144,8 +3543,9 @@ combined with a later slice merely to reduce PR count.
 | `P3-A` | Workflow/quality | Refinement/candidate-backed durable rework task, reasoned QA review record, request-changes writer, project-scoped ownership APIs, and exhaustion escalation | `P0-B`, `P1-C` | Current refinement failures have an owner/reason and resolve through a superseding candidate/version; Phase 5 adds the release FK and aggregate path |
 | `P4-A` | Data/backend | Source/import/revision/resource schema, portable CAS revision allocator, immutable terminal rows and snapshot-retention guards | `P2-B`, `P2-C` | Concurrent snapshots allocate unique monotonic numbers with allowed gaps on SQLite/PostgreSQL; schema remains dormant behind flags |
 | `P4-B` | Import/backend | Manifest/archive limits, canonical retained source snapshot and commit-equivocation guard, reconstructable adapter snapshots, model dependency, and durable import leases | `P4-A` | Golden tree/revision digests stable across archive metadata; mutable rows cannot masquerade as pins; malformed/ambiguous inputs fail closed; worker death resumes or reconciles |
-| `P4-C` | API/integration | Source transitions, import/reconcile and revision list/get/diff/snapshot routes, cursor pages, push Action example | `P4-B` | Lost clients rediscover and reconcile jobs; source mode cannot switch with in-flight work; ordinary tests need no network |
-| `P4-D` | Data/API/security | Change Request/head/comment/check/review and version claim/tag schema, services, routes, stale-base CAS and approval invalidation | `P4-C`, `P1-C` | Parallel-request tests prevent lost acceptance; new heads invalidate authority but preserve history; non-author review and immutable tag rules deny fail-closed |
+| `P4-C` | API/integration | Provider-neutral source interface, source transitions, import/reconcile and revision list/get/diff/snapshot routes, cursor pages, GitHub push Action example | `P4-B` | Lost clients rediscover and reconcile jobs; source mode cannot switch with in-flight work; ordinary tests need no network; Workspace services contain no GitHub-specific policy |
+| `P4-D` | Data/API/security | Change Request/head/comment/check/review/external-attestation and version claim/tag schema, selectable review backend, services, routes, stale-base CAS and approval invalidation | `P4-C`, `P1-C` | Parallel-request tests prevent lost acceptance; one request has exactly one review authority; new heads invalidate authority but preserve history; non-author review and immutable tag rules deny fail-closed |
+| `P4-E` | Integration/security | Least-privilege GitHub App adapter, durable signed-webhook inbox, actor links, exact-commit PR/check/ruleset verification, reconciliation and optional status publication | `P4-D` | Replayed/lost/out-of-order events converge; squash/rebase/merge-queue commits cannot reuse stale approval; unknown actors/check sources do not count; provider outage does not block existing release/rollback history |
 | `P5-A` | Data/backend | Release/evaluation/evidence/decision/break-glass plus operation/item schema and two literal state-machine services | `P3-A`, `P4-D` | Model-based tests reject every illegal decision/operation edge; durable evaluation attempts recover after worker loss; development/staging can reach approved under their predecessor policy; no provider calls yet |
 | `P5-B` | Security/backend | Gate binding, QA quality decision, Admin final decision, actor provenance and interactive break-glass | `P5-A` | Both decisions are digest-bound and append-only; author/requester self-approval and non-interactive break-glass deny |
 | `P5-C` | Release/integrations | Prepare/apply/observe/reconcile/rollback adapters, intent-first release operations, environment lock/pending-operation state and CAS | `P5-B` | Timeout-before/after-effect and partial-child tests never report false success; rollback leaves original release immutable; degraded environment blocks runs |
@@ -3153,12 +3553,13 @@ combined with a later slice merely to reduce PR count.
 | `P6-A` | SDK | Concurrency-safe tri-state scope, shared models/errors/contracts, sync/async resource skeleton | `P0-B` | Legacy SDK tests and signature-normalization tests pass; no unsupported public lifecycle method is exported |
 | `P6-B` | SDK + API | Typed members/source/import/revision/Change Request/version/environment/rework/release/operation methods, cursor pages and waiters, delivered with corresponding route coverage | `P4-D`, `P5-D`, `P6-A` | OpenAPI inventory has no untracked Workspace route; examples drive package, review and development release without raw HTTP |
 | `P6-C` | SDK/docs | Async parity, packaging, executable examples, CLI delegates and compatibility/deprecation notes | `P6-B` | Wheel inspected; sync/async semantic parity and docs contracts pass; pending states retain typed meaning |
-| `P7-A` | Data/operations | Production-like inventory, exception resolution, baseline revisions, backup/restore and feature flags | `P6-C` | Zero unexplained ownership/collision rows; disabling flags stops new effects without hiding history |
-| `P7-B` | Operations + product | One-workspace pilot, failure/reconciliation/rollback drills, telemetry thresholds and go/no-go review | `P7-A` | Commit-to-production-to-rollback journey passes; human rollout decision recorded; PR remains reversible by flags |
+| `P7-A` | Data/operations | Production-like inventory, exception resolution, baseline revisions, provider-event recovery, backup/restore and feature flags | `P6-C`, `P4-E` | Zero unexplained ownership/collision rows; provider reconciliation restores missed state; disabling flags stops new effects without hiding history |
+| `P7-B` | Operations + product | Native/no-Git and GitHub-backed pilot journeys, failure/reconciliation/rollback drills, telemetry thresholds and go/no-go review | `P7-A` | Both source modes reach production and rollback with the same CALIBER package/release guarantees; human rollout decision recorded; PR remains reversible by flags |
 
 Milestones are evidence boundaries: `M1 = P1-C` provides a trustworthy workspace
 administration foundation; `M2 = P2-C` closes isolation; `M3 = P4-D` provides
-immutable packages/import and PR-like review; `M4 = P5-D` provides governed release; `M5 = P6-C`
+immutable packages/import and native PR-like review; `M3b = P4-E` proves the
+first external review backend; `M4 = P5-D` provides governed release; `M5 = P6-C`
 provides complete SDK/CLI consumption; `M6 = P7-B` is the controlled production
 readiness decision. Reaching an earlier milestone must be reported as partial,
 not as complete Workspace support.
@@ -3167,8 +3568,9 @@ not as complete Workspace support.
 
 **Outcome:** approved contracts and a measured migration/isolation scope.
 
-1. Approve this document's terminology, source modes, role matrix, environment
-   policy, and compatibility boundary.
+1. Approve this document's terminology, per-plane system-of-record matrix,
+   source/review modes, role matrix, environment policy, and compatibility
+   boundary. Every state class must have exactly one writer.
 2. Build a machine-readable inventory of every route, worker, Aria capability,
    SDK method, CLI command, and resource root with its current global scope,
    project lookup, owner column, parent path, and external effect.
@@ -3192,8 +3594,11 @@ not as complete Workspace support.
    reference, content-addressed snapshot, or explicit refusal. “Digest only” is
    not an allowed strategy for a mutable source row.
 10. Freeze Change Request base/head, head-generation invalidation, Reviewer
-    eligibility, stale-base CAS, SemVer reservation/tag and QA-acceptance
-    contracts with model-based transition fixtures.
+    eligibility, selectable review backend, normalized provider attestation,
+    stale-base CAS, SemVer reservation/tag and QA-acceptance contracts with
+    model-based transition fixtures.
+11. Freeze the `SourceControlProvider` capabilities, actor-link trust model,
+    webhook/idempotency/reconciliation protocol and provider-outage behavior.
 
 **Acceptance:** every protected operation has one inventory row; every
 workspace-owned model is classified; manifest canonicalization has golden
@@ -3304,7 +3709,7 @@ the automated self-correction loop escalates to a human rather than terminating
 silently. Phase 5 acceptance extends the same invariant to Workspace revisions,
 releases, and immutable release decisions.
 
-### Phase 4 — immutable packages, Change Requests, and GitHub push import
+### Phase 4 — immutable packages, Change Requests, and pluggable Git source
 
 **Outcome:** a commit or selected CALIBER versions produce a deterministic,
 immutable application package that can be reviewed without blocking continued
@@ -3336,10 +3741,12 @@ development.
     plus audit events.
 11. Enforce source-mode transition rules and Git-managed authority: local drafts
     are non-promotable beyond development until imported from a commit.
-12. Add Change Request, append-only head generation, reviewer assignment,
-    comment, check, review, version claim and immutable version-tag models.
-13. Implement create/submit/update-head/rebase/close, comment, reviewer, review and
-    check-history APIs; bind every check and review to the exact current head.
+12. Add Change Request, append-only head generation, selectable review backend,
+    reviewer assignment, comment, check, review, external-attestation, version
+    claim and immutable version-tag models.
+13. Implement create/submit/update-head/rebase/close, comment, reviewer, review,
+    external-attestation and check-history APIs; bind every native or external
+    review result to the exact current head.
 14. Implement technical approval, default approval invalidation on a new head,
     stale-base detection and rebase contracts. Add and test the transactional
     acceptance primitive, but keep it unreachable from the public API until
@@ -3352,6 +3759,18 @@ development.
     acceptance. Enforce greater-than-current accepted precedence; an out-of-date
     rebase may abandon and replace its active reservation, but never reuse an
     abandoned claim.
+16. Introduce a provider-neutral `SourceControlProvider` registry and fake
+    adapter. Workspace and Change Request services consume capabilities and
+    normalized attestations, never GitHub response objects or role names.
+17. Add the least-privilege GitHub App adapter: encrypted connection reference,
+    signed/idempotent webhook inbox, canonical repository identity, commit
+    reachability, exact-head/resulting-commit PR verification, CALIBER
+    external-review-policy evaluation, optional provider-ruleset observation,
+    trusted check-source verification,
+    explicit actor links, complete base-to-head commit/path coverage,
+    first-package baseline procedure, reconciliation polling and optional
+    check/status publication. It does not deploy environments or store their
+    secrets.
 
 **Acceptance:** identical canonical source and pins return the same revision and
 idempotent job; path traversal, archive bomb, symlink, secret literal, unknown
@@ -3367,6 +3786,13 @@ one acceptance-primitive compare-and-set may win and the other becomes
 preserves old checks and reviews but none remains authoritative; self-review,
 unassigned review, stale-head review, moved/deleted tag, duplicate version and
 version-reuse attempts deny deterministically.
+Native and GitHub-backed review produce the same normalized technical outcome
+for the same policy, but never both count on one request. Replayed, missing and
+out-of-order provider events converge; an unlinked actor, untrusted check
+source, moved head, squash/rebase/merge result mismatch, uncovered/direct
+commit or path, repository transfer, policy drift or inaccessible provider
+produces `insufficient`/`stale`, never an approval. GitHub unavailability pauses new imports/attestations without making
+existing CALIBER packages, environment state, rollback or audit unreadable.
 
 Adapter delivery is incremental and feature-flagged, not one mega-PR. The
 controlled pilot starts with one Agent/Workflow, Prompt, Tool, Test Set, model
@@ -3409,8 +3835,9 @@ staging and production under explicit policy.
 10. Stamp workspace revision, environment, release and operation IDs on workflow runs and
    provider evidence.
 
-**Acceptance:** QA cannot accept a head without successful development,
-required checks and non-author technical review; staging cannot accept a
+**Acceptance:** QA cannot accept a head without successful development and the
+selected backend's complete required-check/non-author technical-review
+evidence; staging cannot accept a
 revision that is not the exact QA-approved and accepted package; production
 cannot accept a different revision or runtime-model digest from verified
 staging, and its release must be freshly evaluated and approved against
@@ -3441,11 +3868,12 @@ outcome.
    strict nested decoders and separate release/operation state policies; extend
    errors with precondition, reason-code and retry metadata.
 4. Add grouped members API with flat delegates, root conveniences, ownership
-   transfer, and source get/configure/enable/disable with ETags; implement async root,
-   member, storage and file parity.
+   transfer, and source get/configure/enable/disable/capabilities/reconcile with
+   ETags; implement async root, member, storage and file parity.
 5. Implement sync and async import list/get/create/reconcile, multipart plus
    digest-safe replay, import waiters, revision list/iterate/get/diff/snapshot,
-   Change Request lifecycle/review/history, and version-tag history.
+   Change Request lifecycle/native review/external-attestation/history, and
+   version-tag history.
 6. Implement environment list/get/update/enable/disable/rollback with ETags;
    rework task methods; release list/get/evidence/evaluation-history/request/
    evaluate/signoff/approve/apply; release-operation list/get/reconcile; and the
@@ -3476,10 +3904,11 @@ be invoked through normal apply options.
 3. Create baseline revisions, verify live target/release mappings, and clear
    `baseline_required` only with recorded evidence.
 4. Enable strict workspace isolation for one controlled workspace.
-5. Enable Git import, then development, QA, staging and production release flags in
-   that order.
-6. Run backup/restore, provider outage, worker death, interrupted import,
-   interrupted release, reconciliation and rollback drills.
+5. Enable Git import, native review, the GitHub App review backend, then
+   development, QA, staging and production release flags in that order.
+6. Run backup/restore, lost/replayed/out-of-order webhook, provider outage,
+   worker death, interrupted import, interrupted release, reconciliation and
+   rollback drills.
 7. Monitor authorization denials, unresolved bindings, import latency and
    failure, release duration, partial effects, reconciliation age, and
    cross-workspace probe tests.
@@ -3487,9 +3916,10 @@ be invoked through normal apply options.
 
 **Acceptance:** migration reports no unexplained ownership assignment or hidden
 data loss; backup/restore recovers workspace metadata, revision pins, source
-provenance, release history and provider references together; the pilot
-completes one commit → revision → Change Request → dev → qa → staging →
-production → rollback journey;
+provenance, release history and provider references together; native/no-Git and
+GitHub-backed pilots each complete revision → Change Request → dev → qa →
+staging → production → rollback, with the Git-backed path starting from one
+verified commit/PR;
 all required CI and migration checks pass; feature flags can stop new imports and
 promotions without making existing releases or runs unreadable; and rollout
 remains a human go/no-go — a green test run alone is not a production-readiness
@@ -3506,19 +3936,19 @@ two database dialects; it is not a greenfield CRUD estimate.
 
 | Phase | Scope | Estimate |
 | --- | --- | ---: |
-| 0. Contract and inventory | Decisions, route/worker/resource matrix, Change Request/version contract, manifest schema, SDK contract freeze, fixtures | 9-13 days |
+| 0. Contract and inventory | Per-plane authority, route/worker/resource matrix, source-provider/review contracts, manifest schema, SDK contract freeze, fixtures | 9-13 days |
 | 1. Foundation and authorization | Model/audit extensions, protected environment seeds, multi-Admin/primary-owner rules, action registry, PAT context, PostgreSQL CI | 15-22 days |
 | 2. Isolation closure | Root/child scoping across registered routes, prompt binding, runtime resolvers, Aria/worker/callback coverage, constraints | 25-40 days |
 | 3. Rework loop | Durable task and APIs/SDK, quality-review record, request-changes writer, escalation policy | 7-11 days |
-| 4. Packages, Change Requests and Git import | Manifest/source digest, snapshots, import jobs/reconcile, adapters, Change Request/review/check state, version claims/tags, provenance, Action example | 32-50 days |
+| 4. Packages, Change Requests and pluggable Git | Manifest/source digest, snapshots, import jobs/reconcile, resource and source-provider adapters, native/external review state, actor links, signed event inbox, GitHub App, version claims/tags, Action example | 44-70 days |
 | 5. Environment releases | Four-environment predecessor policy, evidence/decision and operation/item state machines, approvals, CAS, adapters, reconciliation, rollback | 32-50 days |
 | 6. CALIBER SDK completeness | Scope safety, cursor pages, models, rework/import/revision/Change Request/version/environment/release operations, async parity, CLI delegates, packaging | 28-42 days |
 | 7. Migration, pilot, rollout | Backfill tooling, baseline reconciliation, telemetry, compatibility verification, drills and runbook | 12-20 days |
-| **Total** | Full proposed Workspace MVP, API + CALIBER SDK + CLI | **160-248 person-days** |
+| **Total** | Full proposed Workspace MVP, API + CALIBER SDK + CLI, including one verified GitHub review adapter | **172-268 person-days** |
 
-One experienced engineer should plan roughly 37-55 calendar weeks after review
+One experienced engineer should plan roughly 40-60 calendar weeks after review
 latency and interruptions. Two engineers with clear ownership boundaries can
-target roughly 21-34 weeks; the work does not divide perfectly because
+target roughly 23-37 weeks; the work does not divide perfectly because
 authorization, isolation, schema, and release state machines are sequencing
 constraints. Transport, models and path contracts should have one owner to avoid
 semantic divergence. Phase 0 replaces these ranges with ticket estimates after
@@ -3528,6 +3958,14 @@ A narrower first milestone ending after Phase 3 delivers a trustworthy
 isolation foundation plus a working rework loop in approximately 56-86
 person-days, without Git-backed revisions or multi-environment promotion.
 
+If schedule requires deferral, `P4-E` is an independently feature-flagged
+12-20-day increment. The rest of the Workspace remains usable with native
+review and push import, but the product must label the source provenance
+caller-attested and must not claim GitHub PR verification. GitLab and Bitbucket
+adapters are separate post-MVP estimates after the capability contract is
+proven; budget roughly 8-16 days each plus self-hosted/enterprise test-matrix
+cost, not a provider-name switch.
+
 Major dependencies: existing session/PAT authentication and scope resolution;
 project memberships and visibility scoping; Alembic and migration parity tests
 for SQLite and PostgreSQL; existing domain version APIs and deterministic fake
@@ -3535,7 +3973,11 @@ providers; MLflow prompt registry behavior and provider failure simulation;
 project-aware storage paths; workflow deploy gates, environment classifier,
 promotions and rollback stack; artifact-level release candidate evidence and
 prompt release reconciliation; background-task lifecycle and lease patterns;
-and the SDK transport, project header behavior and OpenAPI coverage gate.
+GitHub App registration/installation, webhook ingress and enterprise test
+repositories for the first verified source adapter; and the SDK transport,
+project header behavior and OpenAPI coverage gate. GitLab/Bitbucket credentials
+or availability are not MVP dependencies because those adapters follow the
+provider contract later.
 
 ### 17.1 Highest-complexity areas
 
@@ -3611,6 +4053,26 @@ and the SDK transport, project header behavior and OpenAPI coverage gate.
 20. **Mutable-tag ambiguity.** Calling `prod` a package tag makes rollback look
     like rewriting history. Keep SemVer tags immutable and model environment
     names as audited current-release pointers.
+21. **Whole-Workspace Git authority.** A repository commit cannot capture
+    materialized provider versions, secret/config bindings, quality evidence or
+    partial deployment effects. Keep the per-plane authority matrix enforceable
+    in schemas and services, not only in prose.
+22. **Duplicate review authority.** Counting both a provider approval and a
+    native CALIBER approval makes revocation and separation of duty ambiguous.
+    Freeze one `review_backend` when a Change Request is submitted and normalize
+    only that backend's evidence. Changing backend requires closing and opening
+    a new request.
+23. **Provider identity and policy mismatch.** Repository roles and bots are not
+    Workspace memberships. Require explicit actor links, trusted check sources,
+    exact-commit evidence and CALIBER role/scope revalidation.
+24. **Provider availability and edition coupling.** Webhook delivery, APIs,
+    protected-environment features and approval rules vary by vendor and plan.
+    Use capability discovery, a durable inbox/reconciler and native fallback;
+    required unavailable guarantees fail closed.
+25. **Action/Pipeline supply chain.** Untrusted PR content can modify automation
+    or exfiltrate deployment credentials. Separate untrusted validation from
+    privileged import/release invocation, use least privilege and short-lived
+    credentials, and reauthorize the exact CALIBER target server-side.
 
 ### 17.3 Architecture evolution after MVP
 
@@ -3620,9 +4082,9 @@ the same immutable package, Change Request and release coordinates:
 
 1. Add policy-defined review quorum, required teams/code owners and explicit
    approval carry-forward rules without changing stored Workspace role literals.
-2. Add a GitHub App pull/webhook mode that verifies installation, repository,
-   commit reachability, branch protection and GitHub review evidence; keep the
-   current push-import attestation visible for old packages.
+2. Add GitLab and Bitbucket Cloud/Self-Managed adapters against the proven
+   `SourceControlProvider` contract. Preserve provider capability and edition
+   differences as typed evidence; do not fake GitHub semantic parity.
 3. Add signed package attestations, SBOM-style dependency export and an OCI
    descriptor/bundle representation over the existing package digest. Signing
    adds evidence; it never changes package identity or makes OCI the Workspace
@@ -3637,6 +4099,10 @@ the same immutable package, Change Request and release coordinates:
    reconciliation and rollback are reliable. Cross-workspace orchestration must
    preserve each Workspace's approval and audit boundary rather than creating a
    super-admin bypass.
+7. Add a read-only repository export for `caliber_managed` workspaces and a
+   business-user UI over native Change Requests. Export remains a mirror; a
+   deliberate mode-transition workflow is required before Git can become the
+   authoring authority.
 
 ## 18. Validation strategy
 
@@ -3773,16 +4239,21 @@ CI dependency.
    sign off a runtime/source change they authored, and Admin cannot approve a
    release they authored or requested. Approver and applier may be the same
    Admin.
-6. Git integration starts push-based and one-way, with zero or one repository
-   per workspace. The authenticated caller attests the commit, and CALIBER binds
-   that source/commit to one complete bundle digest to detect equivocation. Git
+6. Adopt option C: CALIBER is authoritative for the domain/package/release and
+   runtime planes; `caliber_managed` or one configured Git provider is
+   authoritative for authored source. Integration starts push-based and
+   one-way, with zero or one repository/root binding per workspace. The
+   authenticated caller attests the commit, and CALIBER binds that
+   source/commit to one complete bundle digest to detect equivocation. Git
    branches are not environments; the same revision digest is promoted.
 7. Platform services and secret values are bound or referenced, never copied
    into a workspace.
-8. A Change Request is the PR-equivalent over immutable base/head revisions.
-   New work creates a new head generation, invalidates checks/approvals and
-   preserves history; acceptance compare-and-sets the Workspace's accepted
-   baseline and never performs an implicit heterogeneous merge.
+8. A Change Request is the provider-neutral package/promotion envelope over
+   immutable base/head revisions. Exactly one technical-review backend is
+   selected: native CALIBER, or an exact-commit provider attestation. New work
+   creates a new head generation, invalidates checks/approvals and preserves
+   history; acceptance compare-and-sets the Workspace's accepted baseline and
+   never performs an implicit heterogeneous merge.
 9. Package identity, semantic version and deployment channel are separate:
    digest and SemVer tags are immutable; `dev`, `qa`, `staging` and `prod` are
    audited mutable environment pointers.
@@ -3810,12 +4281,22 @@ CI dependency.
     production authorization consumed by one apply operation after QA
     acceptance and staging verification. It is not a role, release state,
     reusable approval, or way around a failed machine/integrity gate.
+17. GitHub Actions or another provider pipeline may validate source and invoke
+    CALIBER, but CALIBER remains authoritative for deployment intent, current
+    environment state, reconciliation and rollback. Provider deployments and
+    releases are mirrors or child executors, not competing pointers.
+18. No bidirectional sync is permitted. `git_managed` imports one way;
+    `caliber_managed` may later export a read-only repository mirror. Changing
+    authority is an explicit audited source-mode transition.
 
 ### 19.2 Questions for Phase 0
 
 | Question | Recommended default | Why it can change implementation |
 | --- | --- | --- |
 | Which resource types are required in the first Git import? | Agent/workflow, prompt, tool, test set, immutable model dependency, docs, and secret refs for the controlled pilot; the Phase 0 matrix must explicitly stage skill, KB, judge, OpenAPI, and approved MCP-binding support | Determines adapter waves, reconstructability work, and what may truthfully be called complete |
+| Is GitHub the Workspace system of record? | No. It may be the `git_managed` authoring/review authority; CALIBER owns inventory, packages, environments, release operations and runtime evidence | Prevents non-Git state from becoming ungoverned and keeps no-Git/provider portability |
+| Which review backend applies? | One immutable choice per submitted Change Request: `caliber` by default or verified `source_provider`; changing it requires a new request | Prevents duplicate approvals and defines invalidation/revocation behavior |
+| What provider capability is required for protected promotion? | Exact commit/tree, reachability, review/check/policy evidence, trusted actors/sources, signed events and reconciliation | A push upload alone cannot prove PR/MR review |
 | Are one technical review, one QA quality decision and one Admin production decision enough? | Yes for MVP; keep required decision kinds/counts extensible | Quorum changes the decision and assignment models |
 | May an Admin approve and apply another person's production release? | Yes; never approve their own requested or authored release | Enforces one useful actor-separation axis without a fifth role |
 | Which scope permits QA sign-off? | `caliber.approver`, held alongside `caliber.operator`; action is `release.quality_signoff` | Operator alone cannot authorize a human decision |
@@ -3844,7 +4325,7 @@ Workspace is an implemented capability only when all of the following are true:
 - every in-scope resource and child record has an authorized workspace path;
 - a failed gate or QA rejection produces owned work with a reason, and returned
   content creates a superseding revision/release before re-entering the gate;
-- a Git commit or a CALIBER-managed selection creates a deterministic ready
+- a configured-provider Git commit or a CALIBER-managed selection creates a deterministic ready
   revision with exact reconstructable resource pins or retained snapshots,
   a retained canonical source snapshot when imported, complete provenance, and
   digests;
@@ -3852,9 +4333,11 @@ Workspace is an implemented capability only when all of the following are true:
   continue developing independently, append a new head after requested changes,
   and retain every stale check/review; concurrent acceptance uses CAS and cannot
   lose another accepted change;
-- an assigned non-author Reviewer, head-bound checks and QA evidence are all
-  required before acceptance; candidate and accepted SemVer tags are immutable,
-  while environment channels move only through recorded operations;
+- the selected technical-review backend supplies either assigned non-author
+  native review/checks or a verified exact-commit provider attestation, and QA
+  evidence is required before acceptance; candidate and accepted SemVer tags
+  are immutable, while environment channels move only through recorded
+  operations;
 - Workspace creation atomically produces one primary Admin membership and the
   protected `dev`, `qa`, `staging`, and `prod` rows; their identities and mandatory
   policy cannot be deleted, renamed, reordered, or weakened;
@@ -3875,11 +4358,13 @@ Workspace is an implemented capability only when all of the following are true:
   parity gate reports no untyped GA operation;
 - REST, SDK, CLI, OpenAPI, generated docs and migration tests agree on the
   capability;
-- a controlled pilot, restore drill, interrupted-release drill and rollback
-  drill complete successfully;
-- limitations remain explicit: one tenant, one repository per Git-managed
-  workspace, four fixed roles, fixed default environments, no bidirectional Git
-  sync, asset-specific release guarantees, and no UI in this scope.
+- native/no-Git and GitHub-backed controlled pilots, a provider-event recovery
+  drill, restore drill, interrupted-release drill and rollback drill complete
+  successfully;
+- limitations remain explicit: one tenant, one repository/root binding per
+  Git-managed workspace, GitHub as the only verified provider adapter in the
+  MVP, four fixed roles, fixed default environments, no bidirectional Git sync,
+  asset-specific release guarantees, and no UI in this scope.
 
 Anything less may be a useful foundation or a partial milestone, but it is not a
 complete Workspace implementation.
@@ -3899,6 +4384,11 @@ repository files inline.
 
 - [About pull requests — GitHub Docs](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests) — reviewable proposal, discussion and checks over independently developed changes; the collaboration precedent for Change Requests.
 - [About protected branches — GitHub Docs](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) — required reviews, status checks and stale-approval behavior that inform head-bound gates.
+- [Available rules for GitHub rulesets](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-rulesets/available-rules-for-rulesets) — exact-head stale-review behavior, required review/check policy and trusted GitHub App check sources.
+- [Choosing permissions for a GitHub App](https://docs.github.com/en/apps/creating-github-apps/registering-a-github-app/choosing-permissions-for-a-github-app) and [GitHub App best practices](https://docs.github.com/en/apps/creating-github-apps/about-creating-github-apps/best-practices-for-creating-a-github-app) — least-privilege provider integration and the difference between installation and user-attributed actions.
+- [GitHub deployment environments](https://docs.github.com/en/actions/reference/workflows-and-actions/deployments-and-environments) and [OIDC for cloud providers](https://docs.github.com/en/actions/how-tos/secure-your-work/security-harden-deployments/oidc-in-cloud-providers) — external deployment protection and short-lived credential precedent; these remain defense in depth rather than CALIBER's authority.
+- [GitLab merge request approvals](https://docs.gitlab.com/user/project/merge_requests/approvals/) and [deployment approvals](https://docs.gitlab.com/ci/environments/deployment_approvals/) — evidence that review and environment capabilities/tiers differ by provider and should sit behind a capability contract.
+- [Bitbucket deployment permissions](https://support.atlassian.com/bitbucket-cloud/docs/set-custom-deployment-permissions-for-your-environments/) and [deployment tracking](https://support.atlassian.com/bitbucket-cloud/docs/set-up-and-monitor-deployments/) — provider-specific permissions, environment ordering and deployment-history behavior that must not define CALIBER's portable policy.
 - [Semantic Versioning 2.0.0](https://semver.org/) — canonical major/minor/patch and prerelease syntax used by immutable package tags.
 - [OCI image annotations](https://github.com/opencontainers/image-spec/blob/main/annotations.md) — standard precedent for attaching version and revision metadata to content-addressed artifacts without making mutable deployment channels their identity.
 - [Manage prompt lifecycles with aliases — MLflow](https://mlflow.org/docs/latest/genai/prompt-registry/manage-prompt-lifecycles-with-aliases/) — immutable versions plus mutable stage aliases; the mechanism CALIBER's prompt path builds on.
