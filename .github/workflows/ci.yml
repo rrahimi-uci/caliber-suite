@@ -602,6 +602,7 @@ jobs:
         run: >-
           python -m pytest
           caliber/tests/test_docs_generation_contract.py
+          caliber/tests/test_docs_mermaid_contract.py
           caliber/tests/test_sdk_docs_contract.py
           caliber/tests/test_cookbook_doc_contract.py
           caliber/tests/test_cookbook_steps_contract.py

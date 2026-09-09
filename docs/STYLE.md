@@ -115,6 +115,13 @@ block — the generator renders the full color key:
   request/response flows.
 - In a `sequenceDiagram` message, never use `;` (Mermaid reads it as a statement
   separator) — use `,` or `and`.
+- Quote any node label that begins with `/` or `\`: `A["/projects wire API"]`.
+  Unquoted, `A[/text]` opens Mermaid's parallelogram shape and never closes it,
+  which fails the whole block.
+- Both rules are enforced by `caliber/tests/test_docs_mermaid_contract.py`,
+  which lints every ` ```mermaid ` block in `ARCHITECTURE.md` and `docs/**`. A
+  broken diagram renders as an error box rather than failing a build, so the
+  gate exists to stop one shipping silently.
 - For a line break inside a node label, write a literal `\n`; the generator
   converts it to `<br/>` and the client restores it at render time.
 - A `diagram-svg` asset must be static SVG only: no scripts, no event handlers.
