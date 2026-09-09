@@ -14,7 +14,7 @@ prerequisites:
   - Treat current-main behavior and tests as the source of truth for every "today" claim
   - Preserve the current single-tenant product boundary unless a separate decision changes it
 reviewed_on: 2026-09-08
-version_applicability: architecture baseline 9061aeccb758, revalidated against current main; the Workspace, revision, environment, release, and SDK models are proposed, not implemented
+version_applicability: reviewed against main at a8e00b7605; the Workspace, revision, environment, release, and SDK models are proposed, not implemented
 tags:
   - workspace
   - lifecycle
@@ -58,6 +58,29 @@ The MVP keeps the existing `PRJ-*` identifiers, `X-CALIBER-Project` header,
 physical rename. A later major-version API can rename the wire contract after
 the behavior is proven.
 
+### Review outcome and corrected design constraints
+
+The September 2026 code-level review found several contradictions that would
+have made the previous draft unsafe or impossible to implement as written. The
+rest of this document incorporates these corrections:
+
+| Finding in the previous draft | Corrected decision |
+| --- | --- |
+| QA had only `caliber.operator` but was expected to approve | QA and Workspace Admin require both `caliber.operator` and `caliber.approver`; a workspace role never grants a missing global scope |
+| Workspace Admin was equated with `caliber.admin` | Workspace ownership and platform administration are independent; platform admin has no ordinary implicit workspace access |
+| Section 2 actions and section 12 route actions used different names | Section 2.4 is the canonical closed action registry used by policy, APIs, workers, SDK capability projections, tests, and audit |
+| Production required `approver != applier` while the MVP explicitly rejected that second axis | The only MVP actor-separation rule is runtime/source author or requester `!=` final approver; the same Workspace Admin may approve and apply |
+| A revision was expected to contain evaluation results produced by evaluating that revision | Revisions pin quality definitions; release evidence binds the resulting evaluation runs and human decisions afterward |
+| One existing artifact release candidate/signoff was stretched across QA and final release decisions | Existing release candidates remain reusable evaluation evidence; workspace releases add typed, append-only `quality` and `release` decisions |
+| A partial external apply left the environment pointer unchanged but otherwise usable | An environment enters `applying` or `reconcile_required`; new execution and promotion are blocked until observation settles external state |
+| Revision numbering and circular environment/release foreign keys had no concurrency or migration protocol | Revision numbers use an atomic project counter compatible with SQLite/PostgreSQL; release tables are created before the nullable environment pointer FK is added |
+
+These are proposed corrections, not current implementation. In particular,
+[`resource_access.py`](../caliber/src/caliber/resource_access.py) currently maps
+every platform admin to `owner`, uses free-form strings, and gives owner both
+write and approval authority; the existing release-candidate route has one
+artifact-level final signoff and requires `caliber.admin`.
+
 ### How this document is organized
 
 | Sections | Subject |
@@ -70,14 +93,16 @@ the behavior is proven.
 ## 1. The two lifecycles
 
 CALIBER can look like it has no release process, or two competing ones. It has
-neither. It implements **one** lifecycle thoroughly and leaves a **second**
-mostly unbuilt, and the two are easy to confuse because they share the same
-evaluation and release machinery.
+neither. It has an operational path for **one** lifecycle and leaves a **second**
+mostly unbuilt, and the two are easy to confuse because they share evaluation
+and release machinery. Neither is governance-complete today.
 
 - **Lifecycle B, Observe and Refine** — start from a production failure,
   diagnose it, optimize the artifact, measure it, release the improvement.
-  Implemented end to end: the durable job pipeline, optimizer selection, the
-  regression gate, and intent-first alias release with reconciliation.
+  The main path is implemented: durable jobs, optimizer selection, a refinement
+  regression gate, and intent-first prompt alias release with reconciliation.
+  Rework ownership, distinct actors, and full workspace isolation remain gaps,
+  so this is not an end-to-end production-readiness claim.
 - **Lifecycle A, Build and Release** — author resources from nothing, package
   them as one versioned artifact, test the package, promote it through
   environments. **Partly** implemented. Individual families version and promote
@@ -182,9 +207,9 @@ labels are what users should see.
 
 | Product label | Stored role | Charter | Owns | Does not do |
 | --- | --- | --- | --- | --- |
-| **Developer** | `editor` | Builds the thing | Authors runtime resources — prompts, workflows, tools, skills, knowledge bases. Runs them. Requests release. **Fixes what fails and adds the regression test.** | Approve or apply a release; manage members; register an agent (admin-gated today — see section 2.5) |
-| **QA** | `reviewer` | Owns the quality bar and the human quality gate | Authors test sets, scorers, judges, thresholds. Runs evaluations. Verifies production signals. Files feedback. Signs off — or rejects with a reason. | Edit runtime resources; apply a release; manage members |
-| **Admin** | `owner` | Owns access and the release | Membership and roles. Workspace settings. Acts as **release manager**: approves, applies, reconciles, rolls back. | Approve a change they authored themselves |
+| **Developer** | `editor` | Builds the thing | Authors runtime resources — prompts, workflows, tools, skills, knowledge bases. Runs them. Requests release and may apply to development. **Fixes what fails and adds the regression test.** | Quality-sign or finally approve; apply to staging/production; manage members; register an agent (admin-gated today — see section 2.5) |
+| **QA** | `reviewer` | Owns the quality bar and the human quality gate | Authors test sets, scorers, judges, thresholds. Runs evaluations. Verifies production signals. Files feedback. Signs off — or rejects with a reason. | Edit runtime resources; give final release approval; apply a release; manage members |
+| **Admin** | `owner` | Owns access and the release | Membership and roles. Workspace settings. Acts as **release manager**: gives final approval, applies, reconciles, rolls back. | Approve a change they authored or requested themselves |
 | **Viewer** | `viewer` | Reads, changes nothing | Resources, evidence, release history, audit. | Anything else |
 
 Environment is a scope on an action, not a role. "Reviewer in production" is a
@@ -192,9 +217,11 @@ reviewer permitted by production policy, not a `production_reviewer` role.
 
 ### 2.2 Why QA earns a role here when it does not elsewhere
 
-Section 2.6 reports that no comparable platform ships a QA role. CALIBER is a
-justified exception, for a reason that comes from its own architecture rather
-than from industry precedent:
+Section 2.6 found no dedicated QA system role in the reviewed products' official
+documentation as of September 2026. That bounded observation is not proof that
+no product or custom role provides the function. CALIBER's case for a fixed QA
+role comes from its own architecture rather than from a universal industry
+claim:
 
 **CALIBER's implemented loop already contains a human quality gate that is not
 an authoring action.** Stage ① **Verify** — "is this production failure real?" —
@@ -224,46 +251,70 @@ It does not imply operator. So a user holding `caliber.approver` alone — which
 is what a `reviewer` role naturally maps to — **cannot perform a single QA
 task**, and cannot edit, import, execute, or apply a release either.
 
-QA therefore needs the `caliber.operator` **ceiling**, with runtime-write
-subtracted at the project-role layer. Same ceiling as Developer; the difference
-lives entirely in the project role.
+QA therefore needs both `caliber.operator` and `caliber.approver`, with
+runtime-write subtracted at the project-role layer. Operator permits evidence
+authoring and evaluation; approver permits the human quality decision. The same
+person may be present in both configuration lists because effective authority is
+the intersection with the stored workspace role.
 
 **This makes isolation closure a hard prerequisite for shipping QA.** The
 mutating prompt routes check global scope only, with no project-role
 consultation. Grant QA `caliber.operator` before that changes and QA can edit
 prompts — a role that looks restricted while being fully privileged.
 
-### 2.4 The action vocabulary this implies
+### 2.4 Canonical action registry and scope requirements
 
 The current registry has seven actions — `read`, `project.update`,
 `project.manage_members`, `resource.write`, `resource.publish`,
 `resource.approve`, `resource.execute` — with no way to express "may author
 evidence but not runtime artifacts", and no feedback verb at all.
 
-| Action | Developer | QA | Admin | Viewer |
-| --- | :---: | :---: | :---: | :---: |
-| `read` | Y | Y | Y | Y |
-| `resource.write.runtime` — prompts, workflows, tools, skills | Y | | Y | |
-| `resource.write.evidence` — test sets, scorers, judges | Y | Y | Y | |
-| `resource.execute` — run tests, evals, workflows | Y | Y | Y | |
-| `feedback.submit` — verify signals, flag traces | Y | Y | Y | |
-| `resource.publish` — deploy to development | Y | | Y | |
-| `resource.approve` — release sign-off | | Y* | Y* | |
-| `release.apply` / `rollback` / `reconcile` | | | Y | |
-| `project.update` | Y | | Y | |
-| `project.manage_members` | | | Y | |
-| **global scope ceiling** | `caliber.operator` | `caliber.operator` | `caliber.admin` | `caliber.viewer` |
+The target registry below is authoritative. Route documentation must use these
+exact literals; do not introduce `workspace.read`, `workspace.admin`, or another
+alias vocabulary. Existing actions retain their names where their meaning is
+unchanged, which keeps `require_project_access` a viable compatibility wrapper.
 
-`Y*` — neither QA nor Admin may approve a change they authored or requested.
-See section 5.
+| Action | Developer | QA | Admin | Viewer | Required global scope |
+| --- | :---: | :---: | :---: | :---: | --- |
+| `read` | Y | Y | Y | Y | `caliber.viewer` |
+| `project.update` — name and description only | Y | | Y | | `caliber.operator` |
+| `project.archive` / `project.restore` | | | Y | | `caliber.operator` |
+| `project.manage_members` / `project.transfer_owner` | | | Y | | `caliber.operator` |
+| `source.manage` | | | Y | | `caliber.operator` |
+| `resource.write.runtime` — prompts, workflows, tools, skills | Y | | Y | | `caliber.operator` |
+| `resource.write.evidence` — test sets, scorers, judges | Y | Y | Y | | `caliber.operator` |
+| `resource.execute` — run tests, evals, workflows | Y | Y | Y | | `caliber.operator` |
+| `feedback.submit` — verify signals, flag traces | Y | Y | Y | | `caliber.operator` |
+| `resource.publish` — compatibility path, development only for Developer | Y** | | Y | | `caliber.operator` |
+| `revision.import` / `revision.create` | Y | | Y | | `caliber.operator` |
+| `environment.manage` | | | Y | | `caliber.operator` |
+| `release.request` / `release.evaluate` | Y | Y | Y | | `caliber.operator` |
+| `release.quality_signoff` | | Y* | | | `caliber.approver` |
+| `release.approve` | | | Y* | | `caliber.approver` |
+| `release.apply` | Y** | | Y | | `caliber.operator` |
+| `release.rollback` / `release.reconcile` | | | Y | | `caliber.operator` |
+
+`Y*` — QA may not quality-sign-off a runtime/source change they authored; Admin
+may not finally approve a release they authored or requested. `Y**` — Developer
+may apply only to development. See section 5.
+
+The minimum global-scope assignments are therefore Developer =
+`caliber.operator`; QA = `caliber.operator` + `caliber.approver`; Workspace
+Admin = `caliber.operator` + `caliber.approver`; Viewer = `caliber.viewer`.
+`caliber.admin` remains a platform-operations scope and does **not** imply
+workspace membership or ownership. This is a deliberate change from today's
+`project_role()` bypass and requires an audited, explicit break-glass path for
+platform recovery.
 
 `resource.write` splits because the resource classes already exist in section
 6.4, which separates authored runtime assets from evidence assets. The taxonomy
 is there; it is simply not wired to a permission.
 
-`feedback.submit` is new. Verification-queue writes currently ride on
-`resource.write`, which is precisely why QA cannot file feedback without also
-gaining prompt-edit rights.
+`feedback.submit` and every action after it that is not in today's seven-action
+registry are new. Verification-queue writes currently ride on `resource.write`,
+which is precisely why QA cannot file feedback without also gaining prompt-edit
+rights. Unknown action literals deny and fail a contract test; they never fall
+back to a broader action.
 
 `Y` means the workspace role permits the action *before* global-scope,
 environment-policy, and release-instance checks. The effective decision is:
@@ -320,21 +371,21 @@ environment-policy and release-instance checks. `—` = not permitted.
 
 | Resource | Create | Edit | Release / activate | Delete |
 | --- | --- | --- | --- | --- |
-| Prompt | Dev, Admin | Dev, Admin | **Admin** | Admin |
+| Prompt | Dev, Admin | Dev, Admin | **Admin** (Dev to development only) | Admin |
 | Workflow | Dev, Admin | Dev, Admin | **Admin** (Dev to development only) | Admin |
-| Skill | Dev, Admin | Dev, Admin | **Admin** | Admin |
+| Skill | Dev, Admin | Dev, Admin | **Admin** (Dev to development only) | Admin |
 | Agent | Dev, Admin | Dev, Admin | n/a — `enabled` toggle: Admin | Admin |
 | Tool | Dev, Admin | Dev, Admin | n/a — no release | Admin |
-| Knowledge base | Dev, Admin | Dev, Admin | **Admin** | Admin |
+| Knowledge base | Dev, Admin | Dev, Admin | **Admin** (Dev to development only) | Admin |
 | MCP server | Admin | Admin | **Admin** (connection plus policy binding) | Admin |
-| OpenAPI integration | Dev, Admin | Dev, Admin | **Admin** | Admin |
+| OpenAPI integration | Dev, Admin | Dev, Admin | **Admin** (Dev to development only) | Admin |
 | **Test set / eval dataset** | **QA**, Dev, Admin | **QA**, Dev, Admin | n/a — evidence | Admin |
 | **Judge / scorer** | **QA**, Dev, Admin | **QA**, Dev, Admin | n/a — evidence | Admin |
 | **Evaluation run** | **QA**, Dev, Admin | — (immutable result) | n/a | Admin |
 | **Feedback / verification item** | **QA**, Dev, Admin | **QA** (verify, dismiss) | n/a | Admin |
-| QA sign-off | **QA** | — (immutable decision) | n/a | — |
 | Release request | Dev, QA, Admin | — | — | — |
-| Release approval | **QA**, Admin — never own work | — (immutable decision) | — | — |
+| Release quality sign-off | **QA** — never a runtime/source change they authored | — (immutable decision) | — | — |
+| Final release approval | Admin — never work they authored or requested | — (immutable decision) | — | — |
 | Workspace revision | Dev, Admin (snapshot or import) | — (immutable once ready) | — | — |
 | Environment policy | Admin | Admin | n/a | — |
 | Members and roles | Admin | Admin | n/a | Admin |
@@ -343,8 +394,10 @@ environment-policy and release-instance checks. `—` = not permitted.
 
 The pattern to notice: **QA's write authority is confined to the evidence rows**
 — test sets, judges, scorers, evaluation runs, feedback, and its own sign-off.
-It creates nothing runtime and releases nothing. That is the whole content of
-the `resource.write.evidence` versus `resource.write.runtime` split.
+Evaluation runs and sign-offs are release evidence created *after* a revision;
+they are not pinned into the revision they evaluate. QA creates nothing runtime
+and releases nothing. That is the whole content of the
+`resource.write.evidence` versus `resource.write.runtime` split.
 
 #### 2.5.3 What the same table looks like today
 
@@ -370,8 +423,8 @@ Three facts in that table are the reason this document argues what it does:
 
 1. **A Developer can release a prompt or a workflow today.** `resource.publish`
    and the apply path are not separated from authoring in practice, so the one
-   boundary the industry universally enforces — author versus deployer — is not
-   enforced here yet.
+   boundary consistently visible in the reviewed systems — author versus
+   deployer — is not enforced here yet.
 2. **`caliber.approver` gates none of it.** The scope appears in exactly two
    route modules, neither of which is a resource family. Every mutation above is
    `caliber.operator` or `caliber.admin`.
@@ -396,15 +449,16 @@ Three facts in that table are the reason this document argues what it does:
 | Deploy to development | Y | — | Y | — |
 | Create a workspace revision (snapshot or import) | Y | — | Y | — |
 | Request a release | Y | Y | Y | — |
-| Sign off on quality | — | Y | — | — |
-| Approve a release | — | Y* | Y* | — |
+| Sign off on release quality | — | Y* | — | — |
+| Give final release approval | — | — | Y* | — |
 | Apply, reconcile, roll back a release | — | — | Y | — |
 | Configure environment policy | — | — | Y | — |
 | Manage members and roles | — | — | Y | — |
 | Transfer ownership, archive the workspace | — | — | Y | — |
 | Manage secrets, providers, storage | — | — | platform admin | — |
 
-`Y*` — never for work the same actor authored or requested.
+`Y*` — QA cannot sign off a runtime/source change they authored; Admin cannot
+finally approve work they authored or requested.
 
 ### 2.6 How this compares to shipped platforms
 
@@ -413,9 +467,10 @@ Weights & Biases, Databricks/MLflow, Azure AI Foundry, Vertex AI, Bedrock, Dify,
 Langflow, Flowise, Langfuse and OpenAI produced one uncomfortable finding and
 several supportive ones. The uncomfortable one first.
 
-**No agentic-AI platform ships a QA role.** Not one has a role named QA, Tester,
-Reviewer, Evaluator or Quality. In every one of them, evaluation is done by the
-*authoring* role:
+**The official role sets reviewed did not include a dedicated QA role.** This is
+a time-bounded comparison, not a claim about every product or every custom-role
+configuration. In the reviewed systems, evaluation is generally available to
+an authoring/member role while deployment receives the stronger guard:
 
 - Humanloop's `Member` — its lowest real role — could create evaluators and
   datasets and run evaluations. What was withheld was **deployment**.
@@ -423,7 +478,8 @@ Reviewer, Evaluator or Quality. In every one of them, evaluation is done by the
   publishing an agent requires `Foundry Project Manager` at minimum.
 - W&B lets any Member add model versions but only registry admins move a
   **protected alias**.
-- Databricks gates promotion by withholding `CREATE MODEL VERSION`.
+- Databricks deployment jobs can place approval between evaluation and
+  deployment.
 
 **The boundary the industry enforces is author versus deployer, not author
 versus tester.** If you enforce only one boundary, that is the load-bearing one
@@ -469,12 +525,11 @@ depends on whether the deployment is regulated.
   and a tag policy can block the model owner from approving their own job.
   Independent gates compose. That is a per-instance permission plus policy —
   exactly the conclusion section 5 reaches independently.
-- **Do not put environment into the role.** Every platform that tried it warns
-  against it; the convergent answer is tags plus attribute-based policies.
-  LangSmith explicitly recommends against workspace-per-environment because
-  resources cannot be shared across workspaces, "which would prevent you from
-  promoting resources (like prompts) between environments." The model in section 9
-  — environments *inside* a workspace — avoids that trap. Keep it that way.
+- **Do not put environment into the role.** LangSmith supports workspace-level
+  isolation and finer-grained environment restrictions through attributes. For
+  CALIBER, keeping development, staging and production inside one workspace is
+  the minimal model because it promotes one aggregate revision without copying
+  resources or memberships between containers.
 - **The failure mode predicted for a QA tier has been observed elsewhere.** In
   LangSmith, `Workspace Editor` lacks `projects:create`, which silently blocks
   running experiments, and `Workspace Viewer` lacks `feedback:create`, so it
@@ -482,10 +537,12 @@ depends on whether the deployment is regulated.
   quality tier must be verified against the *create* permissions its workflows
   need, not just the read ones.
 
-One decision to make explicitly, since the two most relevant systems disagree:
-MLflow folds grants with `max()` and has **no explicit deny**, so narrowing
-access means granting narrowly rather than excepting a resource. LangSmith lets
-**deny win**. Pick one deliberately and write it down.
+One decision to make explicitly, since the two most relevant systems differ:
+current MLflow RBAC folds grants with `max()` and has **no explicit deny**, while
+LangSmith supports finer-grained policy restrictions. CALIBER's MVP uses
+grant-narrowly plus deny-by-default: a role action must be present and every
+scope, membership, resource, environment and release predicate must pass. It
+does not add arbitrary explicit-deny rules in the MVP.
 
 ## 3. The pipeline
 
@@ -498,11 +555,11 @@ and whether CALIBER implements it today.
 | 1 | Author | Developer | Prompts, workflow manifest, tools, skills | — | — | Implemented per family |
 | 2 | Smoke-run | Developer | Trace of a successful run | Runs without error | Developer | Implemented |
 | 3 | Define the quality bar | **QA** | Test sets, scorers, judges, thresholds | Bar is reviewable and version-pinned | — | Implemented (eval datasets, judges, scorers) |
-| 4 | Package and pin | CI | One versioned, digest-pinned artifact + Git tag | Manifest validates; every pin resolves | Developer | **Proposed** — workspace revision |
-| 5 | Offline evaluation | CI | Scores per dimension vs baseline | **Regression gate** — section 4 | **Developer**, with gate reasons | Implemented (`eval/gate.py`) |
+| 4 | Package and pin | CI automation user + project-bound PAT, acting within Developer authority | One versioned, digest-pinned artifact + Git tag | Manifest validates; every pin resolves | Developer | **Proposed** — workspace revision |
+| 5 | Offline evaluation | CI automation user + project-bound PAT, acting within Developer authority | Scores per dimension vs baseline | **Regression gate** — section 4 | **Developer**, with gate reasons | Implemented (`eval/gate.py`) |
 | 6 | Quality sign-off | **QA** | Verdict, or rejection with a written reason | QA accepts the evidence | **Developer**, with QA's reason | Partly — evidence exists, no sign-off record |
 | 7 | Release approval | **Admin** | Approval bound to one version + target | Distinct actor from author | Developer or QA, per reason | Partly — see section 5 |
-| 8 | Apply and promote | **Admin** | Live alias moves; before/after recorded | Effect settles or is `reconcile_required` | Admin — reconcile or roll back | Implemented (intent-first release) |
+| 8 | Apply and promote | Developer for development; **Admin** otherwise | Live alias moves; before/after recorded | Effect settles or is `reconcile_required` | Admin — reconcile or roll back | Individual paths partly implemented; aggregate workspace apply proposed |
 | 9 | Online evaluation | Platform + QA | Sampled scores, assessments, incidents | Alert thresholds | QA triages | Implemented (traces, assessments, SLO) |
 | 10 | Feed back | **QA** | Verified failure becomes an eval example | — | — | Implemented (harvested examples) |
 | 11 | Refine | Platform | New candidate via optimizer | Same gate as stage 5 | **Developer**, after N bounded attempts | Implemented (refinement loop, GEPA) |
@@ -687,9 +744,12 @@ quality bar wherever it happens to sit.
 
 ## 5. Human decisions and separation of duty
 
-CALIBER requires exactly two human decisions today: **Verify** (is this failure
-real?) and **Apply** (should this ship?). Verify is QA's; Apply is the release
-manager's.
+The implemented Lifecycle B has two human decisions today: **Verify** (is this
+failure real?) and **Apply** (should this refinement ship?). The proposed
+Lifecycle A records two different release-bound decisions after its machine
+gate: QA's typed **quality sign-off**, followed by Workspace Admin's final
+**release approval**. Apply is the side effect authorized by that final approval,
+not a third independent approval.
 
 Current practice across cloud vendors converges on one required sign-off at the
 **promotion-to-production boundary**, after automated evals have passed, shown
@@ -715,14 +775,17 @@ that same actor as `approved_by`.
 
 Closing it needs three things, none of which is a new role:
 
-- a **distinct-actor constraint** on approval — the only real governance control
-  here;
-- **at least two people who can approve**, which is also the right answer to the
-  bus-factor problem with a single owner field;
-- **break-glass** for genuinely single-admin deployments: self-approval with a
-  mandatory reason, an expiry, one-release scope, global admin scope, and a
-  high-severity audit event. Disabled by default, applies to one release only,
-  and cannot be embedded in an automation token.
+- a **distinct-actor constraint** on final approval — the only new MVP
+  separation-of-duty axis;
+- **two participating actors in staging/production** — QA records quality and
+  Workspace Admin gives final approval. The single-owner bus factor is handled
+  by explicit ownership transfer or audited recovery, not by pretending QA is a
+  second workspace owner;
+- **break-glass** for genuinely single-person deployments: self-approval with a
+  mandatory reason, a short expiry, one-release scope, an interactive
+  `caliber.admin` credential, and a high-severity audit event. Disabled by
+  default, applies to one release only, and is server-refused for PAT and service
+  credentials.
 
 Break-glass is not a normal role and does not turn an owner into their own
 independent reviewer.
@@ -731,7 +794,10 @@ independent reviewer.
 
 Two separation-of-duty axes are possible; MVP needs one:
 
-- **author ≠ approver** — catches bad changes. Required.
+- **runtime/source author or requester ≠ final approver** — catches bad changes.
+  Required. The immutable release records the exact actor set from revision
+  provenance and the requester; evidence-definition authors do not make the
+  revision permanently unapprovable.
 - **approver ≠ applier** — catches malicious deployment. A much rarer threat,
   deliberately not enforced here.
 
@@ -739,16 +805,25 @@ Making Admin both approver and applier is a sound trade because the *author*
 stays distinct. Record it as a decision so a reviewer does not read it as an
 oversight.
 
+For CALIBER-managed resources, the enforceable author set comes from immutable
+domain-version `created_by` provenance. In push-based Git mode, the enforceable
+actors are the authenticated import/request principals; commit author text is
+recorded but is not trusted identity. A later GitHub App may add verified account
+mapping. The MVP must not claim stronger Git author separation than it can
+authenticate.
+
 ### 5.3 Default environment policy
 
-| Environment | Prerequisite | Approval | Apply actor |
+| Environment | Prerequisite | Human decisions | Apply actor |
 | --- | --- | --- | --- |
-| Development | Ready revision | None; Developer or Admin may deploy | Developer or Admin |
-| Staging | Same revision successfully applied in development | One QA or Admin distinct from the revision requester | Admin |
-| Production | Same revision applied and verified in staging; all production gates pass | One approver distinct from source author, requester, and apply actor | Admin after approval |
+| Development | Ready revision | None | Developer or Admin |
+| Staging | Same revision successfully applied in development | QA quality sign-off, then Admin final approval; both bound to the evaluated release coordinates | Admin; may be the final approver |
+| Production | Same revision applied and verified in staging; all production gates pass | Fresh QA quality sign-off and Admin final approval; neither may be a runtime/source author, and final approver must differ from requester | Admin; may be the final approver |
 
 For a single-user local deployment, development remains usable without a second
-actor. Production without a second actor requires the named break-glass action.
+actor. Staging or production without the required actors needs the named
+break-glass action; ordinary policy is never silently relaxed because the team is
+small.
 
 ### 5.4 Central authorization contract
 
@@ -775,6 +850,12 @@ transaction immediately before a release state change.
 A role cannot widen the token's scope, and a PAT cannot widen its owner's live
 scope. Unknown permissions deny. Client-side capability flags are projections of
 the server decision and are never the enforcement boundary.
+
+`caliber.admin` is not an implicit workspace role in the target contract.
+Ordinary platform maintenance therefore cannot read or mutate workspace content.
+A separate break-glass authorization path requires an interactive credential,
+workspace and release IDs, reason, incident/reference, expiry, and an audit
+event; it cannot be reached through `project_role()` or a broad role mapping.
 
 ## 6. Current architecture: what exists and what it proves
 
@@ -858,7 +939,7 @@ and execution surface.
 | Domain version models | MLflow prompt versions; workflow versions; KB builds; skill snapshots; tool version rows; dataset intervals | Keep each domain contract | Add a cross-resource immutable pin set, not a replacement version backend |
 | [`deployment_environments.py`](../caliber/src/caliber/deployment_environments.py) | Classifies aliases as development/staging/production; an unrecognized alias falls back to a configurable default class that ships as production, except the explicit non-deployment aliases which classify as development | Reuse classification and policy helpers | Add durable workspace environment identity and state |
 | Workflow deployments/promotions | Alias CAS, deploy gates, optional human approval, rollback stack | Reuse through a workspace release adapter | Applies only to workflow aliases and current global scopes |
-| Release candidates/signoffs | Evidence rubric, immutable final signoff snapshot | Reuse for workspace release decisions | Current candidate names one artifact/version, not a workspace revision/environment |
+| Release candidates/signoffs | Evidence rubric, immutable artifact-level final signoff snapshot | Reuse as optional workspace release evidence, not as the aggregate decision record | Current candidate names one artifact/version and permits one final signoff, not two typed revision/environment decisions |
 | Prompt release operations | Intent-first external effect with reconciliation | Reuse as a child operation | Other asset paths do not inherit this external-effect guarantee |
 | Audit log | Actor/action/entity/details | Reuse and add workspace/revision/environment correlation | No mandatory structured workspace fields across every event |
 | Storage service | Project/run namespaces, digest-bearing file records, local/S3 backends | Reuse | Revision must pin immutable file refs rather than mutable paths |
@@ -887,7 +968,8 @@ section 2.4 keys on:
 | --- | --- | --- | --- |
 | Authored runtime asset | Prompt, workflow, skill, tool | Pin exact immutable version/content digest | Materialize or bind through an asset-specific adapter |
 | Grounding asset | Knowledge base, source manifest | Pin exact KB build and source fingerprint | Activate a build or bind it as a dependency |
-| Evidence asset | Test set, judge, evaluation run, review result | Pin the version/run/digest that justified the decision | Never deployed; carried with release evidence |
+| Quality definition | Test set, judge/scorer, threshold policy | Pin the immutable version and digest used to evaluate later | Never deployed; revision input |
+| Release evidence | Evaluation run, gate verdict, QA sign-off, final approval | Bind to `(revision, environment-config digest, runtime dependency digest)` after evaluation | Never part of the revision it evaluates; append-only release evidence |
 | Integration definition | OpenAPI snapshot, approved MCP connection binding | Pin contract version and policy | Validate/preflight; environment binding controls use |
 | Operational record | Run, trace, release operation, audit event | Reference the workspace revision and environment | Produced by execution; not part of authored source |
 | Platform service | Identity, encrypted secret value, provider credentials, storage backend | Referenced by name/version where safe | Managed by platform operators, not copied into workspaces |
@@ -900,7 +982,7 @@ CALIBER project. It owns or binds collaborators and their roles; authored
 resources and exact resource versions; evidence and operational lineage; zero or
 one GitHub source binding in the MVP; immutable workspace revisions;
 development, staging and production environment records; release requests,
-signoffs, application state and rollback lineage; workspace-scoped file
+typed decisions, application state and rollback lineage; workspace-scoped file
 namespaces and secret references; and policies controlling import, execution,
 approval and promotion.
 
@@ -933,6 +1015,8 @@ that relates those concepts.
 11. A partial external release is represented as partial or
     `reconcile_required`; it is never recorded as fully applied because the SQL
     parent transaction committed.
+12. An environment with unresolved external state is not executable or
+    promotable, even when its last confirmed `current_release_id` is readable.
 
 ### 7.2 Ownership and lifecycle
 
@@ -941,10 +1025,14 @@ The existing project owner remains the initial workspace owner and initial
 the person independently reviewed a release.
 
 - exactly one active owner relationship is retained through the existing
-  `CaliberProject.owner` compatibility field;
+  `CaliberProject.owner` compatibility field and its matching active `owner`
+  membership; transfer conditionally updates the expected current owner and
+  validates the membership invariant in the same transaction before commit;
 - the owner cannot be removed through ordinary member deletion;
 - ownership transfer is an explicit, audited operation that atomically updates
   the owner field and memberships;
+- startup/migration validation reports a missing, duplicate, or mismatched owner
+  relation and refuses strict mode; it never chooses an owner by name;
 - archiving blocks new writes/imports/releases but preserves reads, runs,
   revisions, audit history, and recovery actions;
 - hard deletion is out of scope; a later retention workflow must prove that no
@@ -979,6 +1067,14 @@ The source mode prevents dual authority. In a `git_managed` workspace, local
 edits may be used as development drafts, but they are not eligible for staging
 or production until represented by a new imported Git commit. The MVP does not
 silently write commits or PRs from CALIBER.
+
+Source changes are compare-and-set lifecycle transitions, not ordinary mutable
+configuration. An active binding must be disabled before replacement. Switching
+between `caliber_managed` and `git_managed` requires no running import or
+non-terminal release, emits an audit event, and affects only future revisions;
+existing ready revisions and release history remain immutable and readable.
+Changing mode never retroactively relabels a CALIBER snapshot as Git-authored or
+a Git import as CALIBER-authored.
 
 ## 8. Proposed architecture
 
@@ -1024,6 +1120,14 @@ flowchart LR
 8. **Use a parent workspace release.** Existing prompt operations, workflow
    promotions, KB activations, and other asset operations become child items.
    This records partial outcomes without claiming cross-provider atomicity.
+9. **Do not replace `CaliberProject` with MLflow Workspace in the MVP.** Current
+   MLflow supports workspace-scoped prompts, scorers, experiments and models,
+   but it does not own CALIBER workflows, skills, tools, files, workers, Aria, or
+   aggregate releases. Replacing the existing project contract would expand the
+   migration while leaving most isolation work intact. The prompt adapter may
+   later map one CALIBER workspace to one MLflow workspace when deployment
+   compatibility and migration tests prove that mapping; CALIBER remains the
+   aggregate authorization authority.
 
 ### 8.2 Service boundaries
 
@@ -1066,8 +1170,9 @@ erDiagram
     CALIBER_PROJECT ||--|{ WORKSPACE_ENVIRONMENT : defines
     WORKSPACE_REVISION ||--o{ WORKSPACE_RELEASE : promoted_as
     WORKSPACE_ENVIRONMENT ||--o{ WORKSPACE_RELEASE : receives
-    RELEASE_CANDIDATE ||--o| WORKSPACE_RELEASE : governs
+    RELEASE_CANDIDATE ||--o{ WORKSPACE_RELEASE : supplies_evidence
     WORKSPACE_RELEASE ||--|{ WORKSPACE_RELEASE_ITEM : applies
+    WORKSPACE_RELEASE ||--o{ WORKSPACE_RELEASE_DECISION : records
     WORKSPACE_RELEASE_ITEM }o--o| RELEASE_OPERATION : may_use
     WORKSPACE_RELEASE_ITEM }o--o| WORKFLOW_PROMOTION : may_use
     WORKSPACE_REVISION ||--o{ WORKFLOW_RUN : traces
@@ -1087,6 +1192,12 @@ erDiagram
 Replace global project-name uniqueness over time with `(tenant_id, slug)`.
 Display names need not be globally unique. Do not drop the old uniqueness
 constraint until collision analysis and all name-based lookups are removed.
+`tenant_id` is non-null (`local` today), so the composite unique key does not
+have nullable-key behavior. Add `next_revision_number`, initialized to `1`, and
+allocate a number with one atomic `UPDATE ... RETURNING` increment in the same
+transaction as the revision insert. This works on supported SQLite and
+PostgreSQL without relying on SQLite's ineffective `SELECT FOR UPDATE`; the
+unique revision key remains the concurrency backstop.
 
 **`caliber_project_members`** — no new role table is required for the MVP. Add
 optional `deactivated_at` and `deactivated_by` only if the existing route
@@ -1111,7 +1222,12 @@ snapshots, and evidence payloads for compatibility and independent recovery.
 project-bound PAT is refused whenever the URL/header, resource owner, or
 persisted worker context names a different workspace. Existing PAT rows remain
 nullable for compatibility and continue to be bounded by the owner's live global
-scopes and workspace memberships. New CI import tokens must be project-bound.
+scopes and workspace memberships. New CI import tokens must be project-bound. A
+CI actor is a dedicated automation user authenticated by a project-bound PAT and
+holding the stored `editor` role; it is not a fifth workspace role and requires
+no new principal model. Durable work records
+both the initiating principal and delegated worker identity, and delegation can
+only narrow authority.
 
 ### 9.2 New tables
 
@@ -1161,12 +1277,27 @@ Unique `(revision_id, resource_type, logical_name)`. A heterogeneous
 resolve and authorize every pin before marking the revision ready. The pin
 carries a content digest so deletion or provider drift is detectable.
 
+Revision resources include runtime assets and **quality definitions** such as
+test-set and judge versions. They do not include evaluation runs, gate verdicts,
+QA sign-offs, or final approvals produced after the revision exists. Those
+outputs bind to the workspace release, avoiding an impossible digest cycle.
+
+Runtime model dependencies are explicit revision resources (or a closed
+`model_dependency` declaration) that pin provider, immutable model/deployment
+snapshot, inference configuration digest, and adapter version. Mutable aliases
+such as `latest` are invalid for staging and production. If a provider cannot
+offer an immutable model identifier, CALIBER records the strongest observable
+fingerprint and refuses production unless policy explicitly accepts that weaker
+guarantee.
+
 **`caliber_workspace_environments`** — `WSE-*` primary key; non-null
 `project_id`; `name` (`dev`, `staging`, `prod`); `environment_class`;
 `promotion_order` (10, 20, 30); `status` (`active` or `disabled`); `policy`
-JSON carrying approval count, predecessor requirement, gate requirements and
-rollback policy; non-secret `config_refs`; `config_sha256` included in release
-evidence; nullable CAS-protected `current_release_id`; audit fields.
+JSON carrying required decision kinds, predecessor requirement, gate
+requirements and rollback policy; non-secret `config_refs`; `config_sha256`
+included in release evidence; `operation_state` in `idle`, `applying`,
+`reconcile_required`, `rolling_back`; nullable `pending_release_id`; nullable
+CAS-protected `current_release_id`; monotonic `lock_version`; audit fields.
 
 Unique `(project_id, name)`. The class must be resolved through the existing
 environment classifier and stored explicitly. Unknown values fail closed to
@@ -1174,10 +1305,12 @@ production policy and cannot bypass validation by spelling.
 
 **`caliber_workspace_releases`** — `WSREL-*` primary key; `project_id`,
 `revision_id` and `environment_id` as exact release coordinates;
-`release_candidate_id`; nullable `expected_current_release_id` for optimistic
-concurrency; nullable `predecessor_release_id`; `environment_config_sha256`;
-`evidence_sha256` over candidate/signoff/evidence inputs; `status` per the state
-machine below; request/apply/complete actors and timestamps; nullable
+nullable `release_candidate_id` referencing reusable artifact-level evaluation
+evidence; nullable `expected_current_release_id` plus expected environment
+`lock_version` for optimistic concurrency; nullable `predecessor_release_id`;
+`environment_config_sha256`; `runtime_dependencies_sha256`; `evidence_sha256`
+over gate outputs and typed decisions; `status` per the state machine below;
+request/apply/complete actors and timestamps; nullable
 `break_glass_used` with reason and expiry, disabled by default; bounded
 `error_code` and `error_summary`.
 
@@ -1187,7 +1320,9 @@ stateDiagram-v2
     draft --> evaluating
     evaluating --> blocked
     blocked --> evaluating: re-evaluate after the blocker is resolved
-    evaluating --> awaiting_approval
+    evaluating --> awaiting_quality_signoff
+    awaiting_quality_signoff --> rejected: quality no_go
+    awaiting_quality_signoff --> awaiting_approval: quality go
     awaiting_approval --> rejected
     awaiting_approval --> approved
     approved --> applying
@@ -1198,6 +1333,7 @@ stateDiagram-v2
     reconcile_required --> failed
     applied --> rolling_back
     rolling_back --> rolled_back
+    rolling_back --> failed
     rolling_back --> reconcile_required
 ```
 
@@ -1207,6 +1343,20 @@ vocabulary used by every other status column here and by the existing
 `evaluating` through the evaluate endpoint once the blocker is resolved;
 `rejected` and `failed` are terminal, and a rejected or failed release is
 superseded by a new release rather than reopened.
+
+`caliber_release_candidates` remains the artifact-level rubric/evidence model it
+is today: one artifact reference, one evaluated status, and one optional legacy
+final signoff. A workspace release may reference one as evidence, but does not
+reuse `caliber_release_signoffs` for its two governance decisions.
+
+**`caliber_workspace_release_decisions`** — `WSRELD-*` primary key; non-null
+`workspace_release_id`; `kind` in `quality`, `release`; `decision` in `go`,
+`no_go`; rationale; `decided_by`; actor-role and effective-scope snapshot;
+revision, environment-config, runtime-dependency, gate-evidence and policy
+digests; `created_at`. Decisions are append-only. A unique final decision per
+`(workspace_release_id, kind)` is enforced transactionally and by a unique key.
+A `no_go` decision rejects that release. Changing any bound digest requires a
+new evaluation and new decisions rather than mutating an old snapshot.
 
 **`caliber_workspace_release_items`** — `WSRELI-*` primary key;
 `workspace_release_id` and `revision_resource_id`; `action` in `no_op`, `bind`,
@@ -1220,6 +1370,16 @@ Unique `(workspace_release_id, revision_resource_id, target_ref)`. The parent is
 `applied` only when every required deployable item is applied and every required
 evidence/config item remains valid. Optional item failure must be declared by
 manifest policy; it cannot be inferred after failure.
+
+Release apply acquires the environment operation lock and sets
+`pending_release_id` before the first provider effect. On complete success it
+moves `current_release_id`, clears the pending pointer, increments
+`lock_version`, and returns to `idle` in one database transaction. On partial or
+ambiguous effect it leaves `current_release_id` unchanged but sets both the
+release and environment to `reconcile_required`. New runtime execution,
+promotion, apply, and rollback are refused for that environment until observed
+provider state is reconciled. The old pointer alone is never treated as proof
+that external state is still old.
 
 ### 9.3 The Git workspace manifest
 
@@ -1265,6 +1425,12 @@ resources:
   integrations:
     - name: servicing-api
       path: caliber/integrations/servicing.openapi.yaml
+
+  models:
+    - name: decision-model
+      provider: example-provider
+      snapshot: immutable-model-or-deployment-id
+      configPath: caliber/models/decision-model.yaml
 
 documentation:
   - docs/architecture.md
@@ -1350,6 +1516,9 @@ Manifest rules:
   external effect where the provider protocol allows it.
 - Serialize incomplete releases per `(environment_id, target_ref)`.
 - Use optimistic concurrency against the environment's current release.
+- Acquire one environment operation lock and set its pending release before the
+  first provider effect. While `applying`, `rolling_back`, or
+  `reconcile_required`, refuse new runs and promotions for that environment.
 - Require the same revision digest at each promotion step.
 - Revalidate membership, approval, revision integrity, environment config
   digest, predecessor evidence, and provider preflight immediately before apply.
@@ -1408,25 +1577,31 @@ sequenceDiagram
     participant A as Resource adapters
     participant DB as CALIBER DB
 
-    E->>API: create release(revision, staging)
-    API->>RS: validate ready revision and dev predecessor
-    RS->>DB: persist evaluated candidate + release plan
-    API-->>E: awaiting_approval
-    R->>API: approve release with rationale
+    E->>API: create release(revision, staging, idempotency key)
+    API->>RS: validate coordinates and persist draft
+    API-->>E: draft release
+    E->>API: evaluate release
+    API->>RS: validate ready revision, dev predecessor, config and model digests
+    RS->>DB: persist release plan and gate evidence
+    API-->>E: blocked or awaiting_quality_signoff
+    R->>API: quality sign-off with rationale
     API->>RS: enforce role, scope, and distinct actor
-    RS->>DB: append signoff snapshot
-    O->>API: apply with expected_current_release_id
+    RS->>DB: append quality decision snapshot
+    O->>API: final release approval with rationale
+    API->>RS: enforce role, scope, requester/author separation
+    RS->>DB: append release decision snapshot
+    O->>API: apply with expected release and lock version
     API->>RS: revalidate membership, policy, digest, CAS
-    RS->>DB: persist prepared child intents
+    RS->>DB: acquire environment lock, set pending release, persist child intents
     loop each deployable item
         RS->>A: apply prepared item
         A-->>RS: applied, failed, or ambiguous
         RS->>DB: settle item
     end
     alt all required items applied
-        RS->>DB: mark release applied, move environment pointer
+        RS->>DB: mark applied, move pointer, clear lock and pending release
     else ambiguous or partial
-        RS->>DB: mark reconcile_required, pointer unchanged
+        RS->>DB: mark release and environment reconcile_required, pointer unchanged
     end
 ```
 
@@ -1442,7 +1617,7 @@ sequenceDiagram
 
     C->>API: run deployed workflow in environment
     API->>AZ: authorize resource.execute
-    AZ->>DB: verify workspace membership and active release
+    AZ->>DB: verify membership, active release, and idle environment
     API->>DB: enqueue run with project, revision, environment, workflow version
     W->>DB: claim run and reload persisted context
     W->>AZ: revalidate principal/delegation and resource bindings
@@ -1475,37 +1650,52 @@ boundary itself is reliable.
 | --- | --- | --- |
 | `GET /projects` | Visible workspaces; explicit library mode remains separate | authenticated read |
 | `POST /projects` | Create workspace and seed owner + environments | global operator |
-| `GET /projects/{id}` | Details, capabilities, current revision, environment summary | `workspace.read` |
-| `PATCH /projects/{id}` | Name, description, archive policy | `workspace.admin` |
-| `POST /projects/{id}/transfer-ownership` | Atomic owner transfer | owner + global admin |
-| Existing member endpoints | List/add/change/deactivate collaborators | `workspace.manage_members` |
-| `GET /projects/{id}/source` | Read source mode, binding, status | `workspace.read` |
-| `PUT /projects/{id}/source` | Create/replace disabled binding with precondition | `workspace.admin` |
+| `GET /projects/{id}` | Details, capabilities, current revision, environment summary | `read` |
+| `PATCH /projects/{id}` | Name and description only | `project.update` |
+| `POST /projects/{id}/archive` / `restore` | Explicit lifecycle transition | `project.archive` / `project.restore` |
+| `POST /projects/{id}/transfer-ownership` | Atomic owner transfer to an active eligible member | `project.transfer_owner` |
+| Existing member endpoints | List/add/change/deactivate collaborators | `project.manage_members` |
+| `GET /projects/{id}/source` | Read source mode, binding, status | `read` |
+| `PUT /projects/{id}/source` | Create or replace a disabled binding with `If-Match` | `source.manage` |
+| `POST /projects/{id}/source:enable` | Validate and activate a configured binding | `source.manage` |
+| `POST /projects/{id}/source:disable` | Disable the active binding before replacement | `source.manage` |
 | `POST /projects/{id}/revision-imports` | Queue commit-pinned import | `revision.import` |
-| `GET /projects/{id}/revision-imports/{job_id}` | Read durable import status | `workspace.read` |
-| `GET /projects/{id}/revision-imports` | List import jobs — required for recoverability | `workspace.read` |
-| `GET /projects/{id}/revisions` | List immutable revisions | `workspace.read` |
-| `GET /projects/{id}/revisions/{revision_id}` | Revision, pins, validation | `workspace.read` |
-| `GET /projects/{id}/revisions/{revision_id}/diff?base=...` | Deterministic pin/content diff | `workspace.read` |
+| `GET /projects/{id}/revision-imports/{job_id}` | Read durable import status | `read` |
+| `GET /projects/{id}/revision-imports` | List import jobs — required for recoverability | `read` |
+| `GET /projects/{id}/revisions` | List immutable revisions | `read` |
+| `GET /projects/{id}/revisions/{revision_id}` | Revision, pins, validation | `read` |
+| `GET /projects/{id}/revisions/{revision_id}/diff?base=...` | Deterministic pin/content diff | `read` |
 | `POST /projects/{id}/revisions:snapshot` | Snapshot selected CALIBER-managed versions | `revision.create` |
-| `GET /projects/{id}/environments` | Environment state and current release | `workspace.read` |
-| `GET /projects/{id}/environments/{name}` | One environment — required for recoverability | `workspace.read` |
+| `GET /projects/{id}/environments` | Environment state and current release | `read` |
+| `GET /projects/{id}/environments/{name}` | One environment — required for recoverability | `read` |
 | `PATCH /projects/{id}/environments/{name}` | Policy and config refs with ETag | `environment.manage` |
-| `GET /projects/{id}/releases` | List releases — required for recoverability | `workspace.read` |
+| `GET /projects/{id}/releases` | List releases — required for recoverability | `read` |
 | `POST /projects/{id}/releases` | Create revision-to-environment candidate | `release.request` |
-| `GET /projects/{id}/releases/{release_id}` | Parent, items, evidence, signoffs | `workspace.read` |
-| `POST /projects/{id}/releases/{release_id}/evaluate` | Run deterministic release checks | `release.request` |
-| `POST /projects/{id}/releases/{release_id}/approve` | Go/no-go signoff | `release.approve` |
+| `GET /projects/{id}/releases/{release_id}` | Parent, items, evidence, decisions | `read` |
+| `POST /projects/{id}/releases/{release_id}/evaluate` | Run deterministic release checks | `release.evaluate` |
+| `POST /projects/{id}/releases/{release_id}/quality-signoff` | QA `go` or `no_go` decision | `release.quality_signoff` |
+| `POST /projects/{id}/releases/{release_id}/approve` | Admin final `go` or `no_go` decision | `release.approve` |
 | `POST /projects/{id}/releases/{release_id}/apply` | Apply an approved release | `release.apply` |
 | `POST /projects/{id}/releases/{release_id}/rollback` | Restore exact prior release | `release.rollback` |
 | `POST /projects/{id}/releases/{release_id}/reconcile` | Observe/settle ambiguous child effects | `release.reconcile` |
-| `POST /projects/{id}/releases/{release_id}/break-glass-apply` | One-release override with reason and expiry when explicitly enabled | owner + global admin |
+| `POST /projects/{id}/releases/{release_id}/break-glass-apply` | One-release interactive override with reason, incident reference and expiry when explicitly enabled | `caliber.admin` plus explicit workspace/release recovery policy; never implicit membership |
+
+Normal ownership transfer requires the current owner, an active target member
+whose live scopes include operator and approver, and one transaction that changes
+both `caliber_projects.owner` and the two membership roles. Platform recovery is
+a different, explicitly audited
+break-glass operation; ordinary transfer never requires or confers global admin.
 
 Create must transactionally create the owner membership and default environment
 rows; a failed seed leaves no partial workspace. Every mutation accepts an
 idempotency key where retries can cross an external effect. Apply also requires
-`expected_current_release_id`; stale environment state returns `409` before any
-child operation starts.
+`expected_current_release_id` and `expected_lock_version`; stale or non-idle
+environment state returns `409` before any child operation starts.
+
+All list routes use the existing bounded envelope shape with cursor, limit,
+stable sort, and documented filters. All update routes use ETags. Error responses
+include stable `reason_code`, request ID, and retry metadata where relevant;
+human-readable detail is not an SDK contract.
 
 The three list/get routes marked "required for recoverability" are not optional
 conveniences. Without them, a client that loses local state cannot rediscover an
@@ -1635,7 +1825,7 @@ client.workspaces                         # same object as client.projects
 ├── files
 │   └── list, upload, create_folder, delete, download
 ├── source
-│   └── get, configure, disable
+│   └── get, configure, enable, disable
 ├── revision_imports / imports
 │   └── list, get, create, wait
 ├── revisions
@@ -1643,7 +1833,7 @@ client.workspaces                         # same object as client.projects
 ├── environments
 │   └── list, get, update
 └── workspace_releases / releases
-    ├── list, get, request, evaluate, approve
+    ├── list, get, request, evaluate, quality_signoff, approve
     ├── apply, reconcile, rollback, break_glass_apply
     └── wait_for_evaluation, wait_for_apply, wait_for_rollback
 ```
@@ -1699,11 +1889,11 @@ explicit project ID even inside a different ambient scope.
 Add frozen dataclasses in `models/workspaces.py`: `WorkspaceSource`,
 `WorkspaceRevisionImport`, `WorkspaceRevision`, `WorkspaceRevisionResource`,
 `WorkspaceRevisionDiff`, `WorkspaceEnvironment`, `WorkspaceRelease`,
-`WorkspaceReleaseItem`, `WorkspaceReleaseSignoff`, `WorkspaceValidationIssue`,
+`WorkspaceReleaseItem`, `WorkspaceReleaseDecision`, `WorkspaceValidationIssue`,
 and a generic `Page[T]`.
 
 Nested objects require explicit decoders — a top-level dataclass decode is not
-enough when `resources`, `items`, `signoffs`, or validation issues contain
+enough when `resources`, `items`, `decisions`, or validation issues contain
 nested dictionaries. All response models retain `extra: dict[str, Any]`.
 Enumerated states are exported constants whose decoder **preserves unknown
 server values**; decoding must not fail because a newer server introduced a
@@ -1713,7 +1903,8 @@ Complex mutations use typed request models rather than open dictionaries:
 `TransferWorkspaceOwnershipRequest`, `ConfigureWorkspaceSourceRequest`,
 `CreateRevisionImportRequest`, `SnapshotWorkspaceRevisionRequest`,
 `UpdateWorkspaceEnvironmentRequest`, `CreateWorkspaceReleaseRequest`,
-`EvaluateWorkspaceReleaseRequest`, `ApproveWorkspaceReleaseRequest`,
+`EvaluateWorkspaceReleaseRequest`, `QualitySignoffRequest`,
+`ApproveWorkspaceReleaseRequest`,
 `ApplyWorkspaceReleaseRequest`, `RollbackWorkspaceReleaseRequest`,
 `ReconcileWorkspaceReleaseRequest`, and `BreakGlassApplyRequest`.
 
@@ -1725,18 +1916,20 @@ lazily and guarding against a server returning an unchanged next offset.
 
 ### 13.6 Idempotency, preconditions, retries, and errors
 
-Mutations that can cross an external effect require an `idempotency_key`
-argument: revision import and snapshot; release request and evaluation;
-approval; apply, rollback, and reconcile; and break-glass apply. The SDK sends
+Every durable lifecycle creator or externally effective mutation requires an
+`idempotency_key` argument: revision import and snapshot; release request and
+evaluation; quality sign-off and final approval; apply, rollback, and reconcile;
+and break-glass apply. The SDK sends
 it as `Idempotency-Key` and **does not silently generate one** — a generated
 value cannot protect a caller retrying after process failure. Empty or
 whitespace-only keys are rejected before I/O.
 
 Source and environment changes use `If-Match`. Release apply, rollback,
-reconcile and break-glass include `expected_current_release_id`, where an
-explicit `None` means "apply only if this environment has no current release"
-and omission is invalid. `412` is a stale ETag; `409` is a valid request
-conflicting with current release state.
+reconcile and break-glass include `expected_current_release_id` and
+`expected_lock_version`; an explicit release ID of `None` means "apply only if
+this environment has no current release" and omission is invalid. `412` is a
+stale ETag; `409` is a valid request conflicting with current release or
+operation state.
 
 Retry policy stays conservative: retry safe reads for configured transient
 statuses; **do not automatically retry writes**, even with an idempotency key;
@@ -1759,7 +1952,8 @@ not happen.
 
 Every error retains status, method, URL, request ID, and safe payload, and
 redacts authorization, cookies, bundle bytes, and secret-bearing metadata.
-Lifecycle outcomes such as `blocked`, `awaiting_approval` and
+Lifecycle outcomes such as `blocked`, `awaiting_quality_signoff`,
+`awaiting_approval` and
 `reconcile_required` are valid server states, **not HTTP errors**.
 
 ### 13.7 Waiters
@@ -1770,13 +1964,13 @@ never poll past a durable state that requires a human or a separate command.
 | Waiter | Continue while | Return successfully when | Raise |
 | --- | --- | --- | --- |
 | `imports.wait` | `queued`, `running` | `succeeded` | `failed`; `reconcile_required` raises a distinct attention exception |
-| `releases.wait_for_evaluation` | `draft`, `evaluating` | `blocked`, `awaiting_approval`, `approved`, `rejected` | terminal technical failure |
+| `releases.wait_for_evaluation` | `draft`, `evaluating` | `blocked`, `awaiting_quality_signoff`, `awaiting_approval`, `approved`, `rejected` | terminal technical failure |
 | `releases.wait_for_apply` | `approved`, `applying` | `applied` | `failed`; distinct attention exception for `reconcile_required` |
 | `releases.wait_for_rollback` | rollback queued/running | `rolled_back` | `failed`; distinct attention exception for `reconcile_required` |
 
-`blocked`, `awaiting_approval` and `rejected` are **returned objects**, so the
-caller can inspect evidence and signoffs. They are not converted into success
-booleans.
+`blocked`, `awaiting_quality_signoff`, `awaiting_approval` and `rejected` are
+**returned objects**, so the caller can inspect evidence and decisions. They are
+not converted into success booleans.
 
 Every waiter accepts `timeout` on a monotonic clock, `poll_interval` with a
 positive minimum, optional deterministic backoff and maximum interval, optional
@@ -1839,7 +2033,7 @@ from caliber_sdk import (
 client = CaliberClient()
 workspace = client.workspaces.create("pricing-policy")
 
-client.workspaces.source.configure(
+source = client.workspaces.source.configure(
     workspace.project_id,
     ConfigureWorkspaceSourceRequest(
         provider="github",
@@ -1850,6 +2044,11 @@ client.workspaces.source.configure(
         sync_mode="push",
     ),
     if_match="*",
+)
+client.workspaces.source.enable(
+    workspace.project_id,
+    if_match=source.etag,
+    idempotency_key=f"enable-source:{source.source_id}",
 )
 
 with Path("caliber-source.tar.gz").open("rb") as bundle:
@@ -1893,7 +2092,8 @@ client.workspaces.releases.apply(
     workspace.project_id,
     release.workspace_release_id,
     ApplyWorkspaceReleaseRequest(
-        expected_current_release_id=environment.current_release_id
+        expected_current_release_id=environment.current_release_id,
+        expected_lock_version=environment.lock_version,
     ),
     idempotency_key=f"apply:{release.workspace_release_id}",
 )
@@ -1954,8 +2154,12 @@ them into a generic failure; and no local authorization logic.
 
 ### 15.2 Sequence
 
-1. Add workspace source/revision/environment/release tables and nullable lineage
-   columns.
+1. Add project columns, then source/import/revision/revision-resource and
+   environment tables. Add release and release-item/decision tables next. Create
+   `current_release_id` and `pending_release_id` as nullable columns first and add
+   their environment-to-release foreign keys only after the release table
+   exists; do not rely on ORM declaration order for the circular relationship.
+   Add nullable lineage columns to existing tables in the same additive stage.
 2. Backfill `slug` from project ID/name with deterministic collision suffixes;
    do not alter display names.
 3. Create `dev`, `staging` and `prod` environment rows for each project, but map
@@ -1975,6 +2179,13 @@ them into a generic failure; and no local authorization logic.
    inventory is zero for the affected table.
 10. Turn on strict runtime resolution and environment releases per workspace,
     starting with a controlled pilot.
+
+Each schema step has a fresh-install test, upgrade test from the preceding
+revision, and ORM-metadata parity test on SQLite and PostgreSQL. Downgrade is
+supported while the columns are additive and unused. After imported revisions or
+release history exist, operational rollback means disabling new imports/releases
+and returning application code to dual-read behavior; dropping those tables would
+destroy provenance and is not an acceptable automated downgrade.
 
 ### 15.3 Naming and identity migration
 
@@ -1997,6 +2208,65 @@ Each implementation ticket should remain one or two developer days where
 possible. The rows below are milestones; split their tasks into focused PRs with
 their own tests and migration impact.
 
+### Delivery dependency graph
+
+```mermaid
+flowchart LR
+  P0[Phase 0 - contracts and inventory] --> P1[Phase 1 - foundation and authorization]
+  P1 --> P2[Phase 2 - isolation closure]
+  P0 --> P3[Phase 3 - rework loop]
+  P2 --> P4[Phase 4 - revisions and import]
+  P3 --> P5[Phase 5 - releases and rollback]
+  P4 --> P5
+  P5 --> P6[Phase 6 - SDK completeness]
+  P6 --> P7[Phase 7 - migrate, pilot, roll out]
+```
+
+Phase 3 and the private SDK foundation in `P6-A` may proceed beside Phases 1 and
+2 after their Phase 0 contracts are stable. The server path from Phase 1 through
+Phase 5 remains the critical path. "SDK-first" means contract-first and
+SDK-as-primary-consumer: transport/model scaffolding and contract tests begin in
+Phase 0, but public methods do not claim support before their server routes
+exist.
+
+### PR-sized development sequence
+
+The sequence below is the estimating and implementation backlog. IDs are stable
+planning handles, not GitHub issue numbers. A slice may become two PRs if its
+migration and behavior cannot be reviewed safely together; it must not be
+combined with a later slice merely to reduce PR count.
+
+| Slice | Owner | Concrete deliverable | Depends on | Exit/rollback gate |
+| --- | --- | --- | --- | --- |
+| `P0-A` | Architecture + security | Machine-readable route/resource/worker/action inventory; resolve every open policy choice | — | Inventory covers every protected route and external effect; document review approved |
+| `P0-B` | API + SDK | OpenAPI shapes, closed actions, errors, pagination, ETag/CAS/idempotency contracts, manifest schema and golden vectors | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
+| `P1-A` | Data/backend | Add project slug/counter/archive fields and environment rows; deterministic backfill and three-environment seed | `P0-B` | Fresh/upgrade parity on SQLite/PostgreSQL; downgrade safe because no new writes are enabled |
+| `P1-B` | Security/backend | Closed action enum, deny-by-default decision service, stable reasons, global-scope intersection, remove ordinary platform-admin owner bypass | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; strict mode is opt-in during migration and policy errors never fall back to legacy allow |
+| `P1-C` | Auth/backend | Project-bound PAT and credential context; owner transfer, explicit archive/restore and capability projection | `P1-B` | PAT cannot cross workspace; owner field and membership change atomically; additive columns can remain dormant |
+| `P2-A` | Backend | Convert root routes by resource family to centralized authorization and non-null-on-create workspace ownership | `P1-C` | Each converted family has two-workspace CRUD/child-ID tests; unconverted routes remain inventoried and flagged |
+| `P2-B` | Runtime | Project/revision-aware compiler, run queue, workers, callbacks, plan executor and Aria delegation | `P2-A` | Persisted context survives restart; worker cannot widen actor authority or fall back to global registries |
+| `P2-C` | Integrations/storage | Prompt/provider binding, storage and file isolation, public/personal immutable pin semantics | `P2-A` | Colliding logical names resolve correctly; guessed provider/file refs do not disclose another workspace |
+| `P3-A` | Workflow/quality | Owned rework task, reasoned QA review record, request-changes writer and exhaustion escalation | `P0-B` | Failed gate/rejection always has owner/reason and re-enters at the gate; no terminal silent rejection |
+| `P4-A` | Data/backend | Source/import/revision/resource schema, atomic project-counter revision allocator, immutable terminal rows | `P2-B`, `P2-C` | Concurrent snapshots allocate unique monotonic numbers on SQLite/PostgreSQL; circular FKs absent; schema remains dormant behind flags |
+| `P4-B` | Import/backend | Manifest parser, archive limits, canonical digests, adapter registry including model dependency, durable import leases | `P4-A` | Golden digests stable; malformed/ambiguous inputs fail closed; worker death resumes or reconciles |
+| `P4-C` | API/integration | Source transitions, import/revision list/get/diff/snapshot routes, push Action example | `P4-B` | Lost clients rediscover jobs; source mode cannot switch with in-flight work; ordinary tests need no network |
+| `P5-A` | Data/backend | Release/item/decision schema and literal state-machine transition service | `P3-A`, `P4-C` | Model-based transition tests reject every illegal edge; no provider calls yet; tables can remain disabled |
+| `P5-B` | Security/backend | Gate binding, QA quality decision, Admin final decision, actor provenance and interactive break-glass | `P5-A` | Both decisions are digest-bound and append-only; author/requester self-approval and non-interactive break-glass deny |
+| `P5-C` | Release/integrations | Prepare/apply/observe/reconcile/rollback adapters, environment lock/pending state and CAS | `P5-B` | Timeout-before/after-effect and partial-child tests never report false success; degraded environment blocks runs |
+| `P5-D` | Runtime/observability | Stamp release/revision/environment/model/config lineage on runs, evidence and provider operations | `P5-C` | One query reconstructs what executed and why it was eligible; missing lineage fails strict execution |
+| `P6-A` | SDK | Concurrency-safe tri-state scope, shared models/errors/contracts, sync/async resource skeleton | `P0-B` | Legacy SDK tests and signature-normalization tests pass; no unsupported public lifecycle method is exported |
+| `P6-B` | SDK + API | Typed members/source/import/revision/environment/release methods and waiters, delivered with corresponding route coverage | `P4-C`, `P5-D`, `P6-A` | OpenAPI inventory has no untracked Workspace route; examples drive a development release without raw HTTP |
+| `P6-C` | SDK/docs | Async parity, packaging, executable examples, CLI delegates and compatibility/deprecation notes | `P6-B` | Wheel inspected; sync/async semantic parity and docs contracts pass; pending states retain typed meaning |
+| `P7-A` | Data/operations | Production-like inventory, exception resolution, baseline revisions, backup/restore and feature flags | `P6-C` | Zero unexplained ownership/collision rows; disabling flags stops new effects without hiding history |
+| `P7-B` | Operations + product | One-workspace pilot, failure/reconciliation/rollback drills, telemetry thresholds and go/no-go review | `P7-A` | Commit-to-production-to-rollback journey passes; human rollout decision recorded; PR remains reversible by flags |
+
+Milestones are evidence boundaries: `M1 = P1-C` provides a trustworthy workspace
+administration foundation; `M2 = P2-C` closes isolation; `M3 = P4-C` provides
+immutable revisions/import; `M4 = P5-D` provides governed release; `M5 = P6-C`
+provides complete SDK/CLI consumption; `M6 = P7-B` is the controlled production
+readiness decision. Reaching an earlier milestone must be reported as partial,
+not as complete Workspace support.
+
 ### Phase 0 — contract freeze and inventory
 
 **Outcome:** approved contracts and a measured migration/isolation scope.
@@ -2018,7 +2288,8 @@ their own tests and migration impact.
 7. Create deterministic fixtures: two workspaces with colliding logical names,
    four users, three environments, a provider-only prompt, a shared catalog
    resource, a partial provider effect, and legacy null rows.
-8. Record whether production requires one or two approvers, and the break-glass
+8. Freeze the two typed decision contracts (QA quality sign-off, Admin final
+   approval), the one actor-separation axis, and the interactive break-glass
    policy.
 
 **Acceptance:** every protected operation has one inventory row; every
@@ -2047,8 +2318,10 @@ Primary areas: `db/models.py`, `db/migrations/versions/`, `schemas.py`,
    decision service.
 8. Add owner-transfer and archive/restore transitions with audit records.
 9. Return effective capabilities from workspace and environment responses.
-10. Deny workspace writes when no active workspace is supplied.
-11. Add the **distinct-actor constraint** on approval.
+10. Remove the platform-admin-to-owner shortcut from ordinary decisions and
+    deny workspace writes when no active workspace is supplied.
+11. Add reusable actor-provenance and distinct-actor policy primitives; release
+    enforcement lands with the release records in Phase 5.
 
 **Acceptance:** existing `/projects`, membership, SDK and header tests remain
 compatible; anonymous is `401`, insufficient visible role is `403`, hidden or
@@ -2098,7 +2371,8 @@ every failure today rather than every release later.
 
 1. Add a rework assignment so a failed gate or QA rejection produces an owned,
    visible task instead of a terminal `rejected` row.
-2. Add a QA sign-off record distinct from the machine gate verdict.
+2. Add a quality-review record distinct from the machine gate verdict; Phase 5
+   binds the same decision contract to an aggregate workspace release.
 3. Restore a request-changes writer for `review_notes`, whose consumer already
    exists in the candidate stage.
 4. Set `refinement_max_iterations` deliberately and define the escalation when
@@ -2116,17 +2390,21 @@ immutable workspace revision.
 
 1. Add source, import-job, revision and revision-resource tables plus ID
    generators and schemas.
-2. Implement the manifest parser, JSON Schema validation, path/archive limits,
+2. Add atomic project-counter revision-number allocation and terminal-revision
+   immutability enforcement.
+3. Implement the manifest parser, JSON Schema validation, path/archive limits,
    and canonical digest golden tests.
-3. Implement the adapter registry with initial workflow, prompt, skill, tool,
+4. Implement the adapter registry with initial workflow, prompt, skill, tool,
    test-set, KB, judge, OpenAPI, documentation and secret-reference adapters.
-4. Implement durable import claim, lease, retry and reconcile behavior.
-5. Add a GitHub Action and SDK example for push import using a project-bound
+5. Add an immutable runtime-model dependency adapter and reject mutable model
+   aliases for staging/production eligibility.
+6. Implement durable import claim, lease, retry and reconcile behavior.
+7. Add a GitHub Action and SDK example for push import using a project-bound
    CALIBER PAT; ordinary tests use local fixtures and fake providers.
-6. Implement CALIBER-managed snapshot creation from selected saved versions.
-7. Add revision list, detail, diff APIs and audit events.
-8. Enforce Git-managed source authority: local drafts are non-promotable beyond
-   development until imported from a commit.
+8. Implement CALIBER-managed snapshot creation from selected saved versions.
+9. Add revision list, detail, diff APIs and audit events.
+10. Enforce source-mode transition rules and Git-managed authority: local drafts
+    are non-promotable beyond development until imported from a commit.
 
 **Acceptance:** identical canonical source and pins return the same revision and
 idempotent job; path traversal, archive bomb, symlink, secret literal, unknown
@@ -2141,16 +2419,18 @@ and import requires no network or credentials in ordinary tests.
 **Outcome:** the same workspace revision can move through development, staging
 and production under explicit policy.
 
-1. Add workspace release and item models, schemas, service and routes, plus the
-   existing release-candidate/environment/revision links.
-2. Extend release candidates to evaluate a workspace revision and environment
-   while retaining single-artifact candidates.
+1. Add workspace release, item, and typed decision models, schemas, service and
+   routes, plus nullable evidence links to existing release candidates.
+2. Reuse existing release candidates as artifact-level evidence without
+   changing their one-artifact/one-legacy-signoff semantics.
 3. Implement predecessor and same-digest rules for dev → staging → prod.
-4. Implement release approval separation of duties and break-glass refusal and
-   audit.
+4. Implement QA quality sign-off, Admin final approval, the single
+   author/requester-versus-approver rule, and interactive-credential break-glass
+   refusal and audit.
 5. Add adapter-backed prepare/apply/observe/rollback for each deployable family;
    classify evidence-only items as verified no-ops.
-6. Add environment-pointer CAS and target-level active locks.
+6. Add environment operation state, pending-release pointer, lock-version CAS,
+   and target-level active locks.
 7. Reuse prompt release operations, workflow promotions, KB activation and skill
    snapshots where sound.
 8. Add parent and item reconciliation, and exact prior-release rollback.
@@ -2158,15 +2438,20 @@ and production under explicit policy.
    provider evidence.
 
 **Acceptance:** staging cannot accept a revision not successfully deployed in
-development; production cannot accept a different revision digest from verified
-staging; requester, source author and apply actor cannot satisfy the configured
-distinct production approval; break-glass is disabled by default, requires owner
-plus global admin, cannot use a PAT, expires, applies to one release and emits a
-high-severity audit event; stale current-release expectation returns `409`
-before provider effects; injected timeout-after-provider-success becomes
-`reconcile_required` and can be settled from observed state; partial child
-application never advances the environment pointer; rollback restores the exact
-prior release with every child outcome visible.
+development; production cannot accept a different revision or runtime-model
+digest from verified staging, and its release must be freshly evaluated and
+approved against production's own environment-config digest; a runtime/source
+author or requester cannot provide final approval, while an eligible Admin may
+both approve and apply; QA quality and Admin release decisions are separately
+queryable and digest-bound; break-glass is disabled by default, requires an
+interactive global-admin credential and explicit one-release recovery policy,
+cannot use a PAT/service token, expires, and emits a high-severity audit event;
+stale current-release or lock-version expectation returns `409` before provider
+effects; injected timeout-after-provider-success makes both release and
+environment `reconcile_required`; new runs and promotions are blocked until
+observed reconciliation settles state; partial child application never advances
+the environment pointer; rollback restores the exact prior release with every
+child outcome visible.
 
 ### Phase 6 — SDK completeness
 
@@ -2180,12 +2465,13 @@ prior release with every child outcome visible.
    decoders and shared state policies; extend errors with precondition,
    reason-code and retry metadata.
 4. Add grouped members API with flat delegates, root conveniences, ownership
-   transfer, and source get/configure/disable with ETags; implement async root,
+   transfer, and source get/configure/enable/disable with ETags; implement async root,
    member, storage and file parity.
 5. Implement sync and async import list/get/create, multipart plus digest-safe
    replay, import waiters, and revision list/iterate/get/diff/snapshot.
-6. Implement environment list/get/update with ETags, release list/get/request
-   and all action methods, and the evaluation/apply/rollback waiters.
+6. Implement environment list/get/update with ETags and operation state; release
+   list/get/request, quality-signoff, approval and all effect methods; and the
+   evaluation/apply/rollback waiters.
 7. Close every GA entry in the API coverage inventory, run signature parity
    tests, add examples and changelog, and build and inspect the wheel.
 
@@ -2231,9 +2517,9 @@ inventory.
 | Phase | Scope | Estimate |
 | --- | --- | ---: |
 | 0. Contract and inventory | Decisions, route/worker/resource matrix, manifest schema, SDK contract freeze, fixtures | 4-6 days |
-| 1. Foundation and authorization | Model extensions, environment seeds, action registry, distinct-actor rule, compatibility APIs | 8-12 days |
+| 1. Foundation and authorization | Model extensions, environment seeds, action registry, actor-provenance primitives, compatibility APIs | 8-12 days |
 | 2. Isolation closure | Root/child scoping, prompt binding, runtime resolvers, Aria/worker coverage, constraints | 12-18 days |
-| 3. Rework loop | Rework assignment, QA sign-off record, request-changes writer, escalation policy | 4-6 days |
+| 3. Rework loop | Rework assignment, quality-review record, request-changes writer, escalation policy | 4-6 days |
 | 4. Revisions and Git import | Manifest, canonical digest, import jobs, adapters, provenance, Action example | 15-22 days |
 | 5. Environment releases | Parent/item state machines, approvals, CAS, adapters, reconciliation, rollback | 15-24 days |
 | 6. SDK completeness | Scope safety, models, imports/revisions, environments/releases, parity, packaging | 22-34 days |
@@ -2255,9 +2541,9 @@ project memberships and visibility scoping; Alembic and migration parity tests
 for SQLite and PostgreSQL; existing domain version APIs and deterministic fake
 providers; MLflow prompt registry behavior and provider failure simulation;
 project-aware storage paths; workflow deploy gates, environment classifier,
-promotions and rollback stack; release candidate/signoff and prompt release
-reconciliation; background-task lifecycle and lease patterns; and the SDK
-transport, project header behavior and OpenAPI coverage gate.
+promotions and rollback stack; artifact-level release candidate evidence and
+prompt release reconciliation; background-task lifecycle and lease patterns;
+and the SDK transport, project header behavior and OpenAPI coverage gate.
 
 ### 17.1 Highest-complexity areas
 
@@ -2298,6 +2584,15 @@ transport, project header behavior and OpenAPI coverage gate.
    only on the server.
 10. **A noisy eval gate being disabled.** See section 4.3 — separate the fast
     PR suite from the release gate.
+11. **Platform-admin scope leakage.** Reusing today's admin-to-owner shortcut
+    would bypass workspace isolation. Remove it from ordinary authorization and
+    test recovery as a separate credential-gated path.
+12. **Evidence digest cycles.** Putting evaluation outputs into the revision
+    they evaluate makes immutable identity impossible. Pin quality definitions
+    in revisions and bind outputs to releases.
+13. **False-safe environment pointers.** A pointer that did not advance says
+    nothing about partial provider effects. Persist operation state and block
+    execution until reconciliation.
 
 ## 18. Validation strategy
 
@@ -2311,6 +2606,8 @@ transport, project header behavior and OpenAPI coverage gate.
 | Cross-workspace regression | Two workspaces, colliding names, guessed root/child IDs, files, workers, Aria, release operations |
 | Provider contract | Fake MLflow/storage/adapters; success, refusal, timeout-before-effect, timeout-after-effect, observed reconciliation |
 | Release state machine | Prerequisites, distinct actors, partial application, exact rollback, concurrent promotion |
+| Revision concurrency | Concurrent import/snapshot number allocation, digest idempotency, immutable terminal rows |
+| Environment liveness | Operation lock, pending release, blocked execution while ambiguous, crash recovery and lock fencing |
 | Rework loop | Gate failure assigns an owner, QA rejection carries a reason, returned work re-enters the gate, escalation on exhausted iterations |
 | SDK models | Complete/minimal payloads, nested decode, unknown fields and states, explicit `None`, malformed strict payloads |
 | SDK serialization | Every request model, omitted versus explicit null, full commit SHA, non-empty idempotency key, secret rejection |
@@ -2339,9 +2636,16 @@ ownership differs.
 - forged workspace/environment context → deny
 - guessed child or provider reference from another workspace → `404`/refusal
 - QA attempting a runtime-resource write → deny
-- Developer approving their own release → deny
+- Developer attempting either human release decision → deny
+- QA quality-signing a runtime/source change they authored → deny
 - Admin approving their own authored change → deny
+- Admin approving a release they requested → deny
+- Admin applying a release they validly approved for another author → allow
 - Admin applying an unapproved production release → deny
+- platform admin without membership using an ordinary workspace route → `404`
+- PAT or service credential invoking break-glass → deny
+- environment in `applying`, `rolling_back`, or `reconcile_required` accepting a
+  new run or promotion → deny
 - unknown role, action, environment or policy version → deny
 - authorization database failure → deny
 - worker or Aria delegated identity exceeding the original actor → deny
@@ -2392,9 +2696,11 @@ CI dependency.
 3. Four roles are sufficient; environment and release-instance policy provide
    the missing security dimensions. Release manager is a function of Admin, not
    a fifth role.
-4. QA's global scope ceiling is `caliber.operator`, not `caliber.approver`, with
-   runtime-write subtracted at the project-role layer.
-5. Approval is a per-instance constraint (`author ≠ approver`), not a role.
+4. QA and Workspace Admin each need `caliber.operator` plus
+   `caliber.approver`; `caliber.admin` is platform authority and grants no
+   ordinary workspace role.
+5. Final approval is a per-release constraint (runtime/source author or
+   requester `!=` final approver). Approver and applier may be the same Admin.
 6. Git integration starts push-based and one-way, with zero or one repository
    per workspace. Git branches are not environments; the same revision digest is
    promoted.
@@ -2417,14 +2723,14 @@ CI dependency.
 | Question | Recommended default | Why it can change implementation |
 | --- | --- | --- |
 | Which resource types are required in the first Git import? | Workflow, prompt, skill, tool, test set, KB manifest, judge, OpenAPI, docs, secret refs | Determines adapters and schedule |
-| Is one distinct production approver enough? | Yes for MVP; keep the policy field extensible | Quorum changes the signoff model |
-| May an Admin approve another person's production release? | Yes, but never their own requested or authored release | Keeps four roles viable |
-| Does QA hold `resource.approve`? | Yes, alongside Admin, never for own work | Gives SoD a second approver without a fifth role |
+| Is one QA quality decision and one Admin final decision enough? | Yes for MVP; keep required decision kinds/counts extensible | Quorum changes the decision model |
+| May an Admin approve and apply another person's production release? | Yes; never approve their own requested or authored release | Enforces one useful actor-separation axis without a fifth role |
+| Which scope permits QA sign-off? | `caliber.approver`, held alongside `caliber.operator`; action is `release.quality_signoff` | Operator alone cannot authorize a human decision |
 | Must staging be mandatory? | Yes for production in the default policy | Controls the predecessor state machine |
 | Can Git-managed local drafts deploy to development? | Yes, clearly marked uncommitted; never staging or production | Preserves experimentation without dual authority |
 | How are provider-only legacy prompts assigned? | An explicit binding workflow; never by name alone | Prevents cross-workspace disclosure |
 | Are public catalog resources copied or pinned? | Pinned by immutable version; copied only when editing | Preserves provenance and avoids drift |
-| Deny semantics | Choose grant-narrowly or deny-wins, once | Silent divergence between the two is a security bug |
+| Deny semantics | Grant narrowly and require every predicate; no arbitrary explicit-deny layer in MVP | Matches the closed action/intersection contract without a second policy language |
 | Do evals block the pull request? | No — the fast suite blocks the PR, the heavy suite gates the release | Prevents the noisy-gate death spiral |
 | Is a provider model version bump a release? | Yes | Highest-value missing control |
 | Gate per axis or on a composite? | Per failure-mode axis | A composite masks single-axis regressions |
@@ -2448,8 +2754,10 @@ Workspace is an implemented capability only when all of the following are true:
 - a Git commit or a CALIBER-managed selection creates a deterministic ready
   revision with exact resource pins and digests;
 - the same revision moves through development, staging and production with
-  environment-specific evidence and distinct production approval;
-- partial or ambiguous provider effects remain visible and reconcilable;
+  environment-specific evidence, explicit model/config digests, QA quality
+  sign-off, and distinct Admin final approval;
+- partial or ambiguous provider effects make the environment unavailable for
+  new execution/promotion until they are visible and reconciled;
 - every run identifies its workspace, revision, environment and deployed
   resource versions;
 - rollback restores the exact prior release or reports precise unrecoverable
@@ -2484,7 +2792,7 @@ repository files inline.
 
 - [Manage prompt lifecycles with aliases — MLflow](https://mlflow.org/docs/latest/genai/prompt-registry/manage-prompt-lifecycles-with-aliases/) — immutable versions plus mutable stage aliases; the mechanism CALIBER's prompt path builds on.
 - [CI/CD and automation for serverless AI — AWS Prescriptive Guidance](https://docs.aws.amazon.com/prescriptive-guidance/latest/agentic-ai-serverless/cicd-and-automation.html) — prompts as versioned assets in source control, tagged versions for rollback, and an explicit approval stage.
-- [MLflow 3 deployment jobs — Databricks](https://learn.microsoft.com/en-us/azure/databricks/mlflow/deployment-job) — evaluation → approval → deployment, and the only native separation-of-duty implementation found.
+- [MLflow 3 deployment jobs — Databricks](https://learn.microsoft.com/en-us/azure/databricks/mlflow/deployment-job) — one documented evaluation → approval → deployment implementation.
 
 ### Evaluation gates
 
@@ -2497,10 +2805,11 @@ repository files inline.
 ### Roles and permissions
 
 - [MLflow role-based access control](https://mlflow.org/docs/latest/self-hosting/security/role-based-access-control/) — `(resource_type, resource_pattern, permission)` grants including `prompt` and `scorer`; `max()` folding with no explicit deny.
-- [LangSmith RBAC](https://docs.langchain.com/langsmith/rbac) and [ABAC](https://docs.langchain.com/langsmith/abac) — namespaced per-resource permissions, the warning against workspace-per-environment, and deny-wins semantics.
+- [MLflow workspace permissions](https://mlflow.org/docs/latest/self-hosting/workspaces/permissions/) — current workspace-scoped membership and management grants; useful precedent for separating workspace management from platform administration.
+- [LangSmith RBAC](https://docs.langchain.com/langsmith/rbac), [ABAC](https://docs.langchain.com/langsmith/abac), and [operation reference](https://docs.langchain.com/langsmith/organization-workspace-operations) — workspace roles, attribute restrictions, and the concrete create permissions required by experiments and feedback workflows.
 - [Braintrust access control](https://www.braintrust.dev/docs/admin/access-control) — permission groups and `restrict_object_type`.
 - [Humanloop access roles](https://humanloop.com/docs/v5/reference/access-roles) — `Member` may run evaluations but not deploy. The product was sunset in 2025; cite as precedent, not as a live option.
-- [Microsoft Foundry RBAC](https://learn.microsoft.com/en-us/azure/foundry/concepts/rbac-foundry) — `Foundry User` builds and tests; publishing requires `Foundry Project Manager`.
+- [Microsoft Foundry authentication and authorization](https://learn.microsoft.com/en-us/azure/foundry/concepts/authentication-authorization-foundry) — `Foundry User` builds and tests; `Foundry Project Manager` manages project deployments. The role names were renamed from their Azure AI-prefixed forms.
 - [Configure registry access — Weights & Biases](https://docs.wandb.ai/guides/registry/configure_registry/) — protected aliases as a promotion gate.
 - [Label Studio Enterprise user roles](https://docs.humansignal.com/guide/admin_roles) — `Reviewer` and `Annotator`, the closest shipped precedent for a quality tier.
 - [NIST AI Risk Management Framework](https://www.nist.gov/itl/ai-risk-management-framework) — separation of those building from those verifying and validating. Justifies having a gate, not a specific threshold.
