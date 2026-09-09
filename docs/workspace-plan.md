@@ -326,7 +326,7 @@ environment-policy and release-instance checks. `—` = not permitted.
 | Agent | Dev, Admin | Dev, Admin | n/a — `enabled` toggle: Admin | Admin |
 | Tool | Dev, Admin | Dev, Admin | n/a — no release | Admin |
 | Knowledge base | Dev, Admin | Dev, Admin | **Admin** | Admin |
-| MCP server binding | Admin | Admin | **Admin** | Admin |
+| MCP server | Admin | Admin | **Admin** (connection plus policy binding) | Admin |
 | OpenAPI integration | Dev, Admin | Dev, Admin | **Admin** | Admin |
 | **Test set / eval dataset** | **QA**, Dev, Admin | **QA**, Dev, Admin | n/a — evidence | Admin |
 | **Judge / scorer** | **QA**, Dev, Admin | **QA**, Dev, Admin | n/a — evidence | Admin |
@@ -338,7 +338,7 @@ environment-policy and release-instance checks. `—` = not permitted.
 | Workspace revision | Dev, Admin (snapshot or import) | — (immutable once ready) | — | — |
 | Environment policy | Admin | Admin | n/a | — |
 | Members and roles | Admin | Admin | n/a | Admin |
-| Secrets | Platform admin | Platform admin | n/a — referenced, never copied | Platform admin |
+| Secrets | platform admin | platform admin | n/a — referenced, never copied | platform admin |
 | Runs, traces, audit | produced by execution | — (append-only) | n/a | — retention only |
 
 The pattern to notice: **QA's write authority is confined to the evidence rows**
