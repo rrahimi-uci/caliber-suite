@@ -175,9 +175,11 @@ flowchart LR
 
 Lifecycle B is the concrete six-stage refinement path documented in
 [The Refinement Loop](refinement-loop.md) and mapped to the seven-term canonical
-chain in [ARCHITECTURE.md](../ARCHITECTURE.md) section 2. Its two human decision
-points — **Verify** and **Apply** — are the only two the platform requires
-today, and they map onto two of the four roles below.
+chain in [ARCHITECTURE.md](../ARCHITECTURE.md) section 2. Those two sources
+describe **Verify** and **Apply** as its human decision points. Only **Apply**
+is a live, separately-exercised one today — section 2.2 corrects the record on
+Verify, which every code path currently collapses into the same click that
+creates the job.
 
 ### 1.1 The four development cycles
 
@@ -258,27 +260,76 @@ no product or custom role provides the function. CALIBER's case for a fixed QA
 role comes from its own architecture rather than from a universal industry
 claim:
 
-**CALIBER's implemented loop already contains a human quality gate that is not
-an authoring action.** Stage ① **Verify** — "is this production failure real?" —
-is what *starts* a refinement job. In the platforms surveyed there is no
-equivalent; a developer decides to run an evaluation when they choose to. Here,
-verification is a production-driven decision with a durable queue behind it.
+**CALIBER's implemented loop already contains one human quality gate that is
+not an authoring action, and a second is designed but not wired.** Stage ⑤
+**Apply** — `POST /jobs/{id}/apply` — is real: a distinct, separately-callable
+decision, gated by `caliber.operator`, that a human takes on an
+already-existing job. That alone does not require QA; an operator applying
+their own job is exactly the self-approval problem section 5.1 names.
 
-That gate needs an owner, and its owner is structurally not the author. QA
-exists here because the platform has quality *decisions*, not merely quality
-*tooling*.
+Stage ① **Verify** — "is this production failure real?" — is the intended
+second gate, and it is where the case for a *separate* role, rather than a
+second permission on the same actor, actually comes from: the design calls for
+production-driven triage that is not the same click as authoring or applying a
+fix. But it is not implemented as its own action today. `CaliberVerificationItem`
+has a full model, five request schemas, and a complete frontend API client —
+and none of it is wired together. Every one of the four code paths that create
+a refinement job (prompt optimization, skill calibration, workflow calibration,
+an Aria-proposed promotion) inserts the verification row already
+`status="verified"`, stamped with the same operator's own identity, inside the
+same transaction that creates the job. No route lists a *pending* item, no
+route lets a different person confirm one, and no ingestion path — the
+model's own docstring calls for "the feedback poller" — exists to create one
+from a real production signal in the first place. "Verify" today is a
+bookkeeping field job creation writes about itself, not a decision distinct
+from it.
+
+That is not a small gap: it is the premise this section's argument rests on, so
+it is worth being direct about what changes when it is corrected. QA's case
+does not collapse to "no gate exists" — Apply is real, and it is genuinely not
+an authoring action. But the platform does not yet have *two* implemented human
+gates that are structurally distinct from authoring, it has one, and the
+second is the reason to build QA's verification capability rather than
+evidence that it is already running. Section 3.6 documents the same
+designed-but-unwired pattern one stage later in the loop, where it is at least
+partly recoverable; Verify has no equivalent consumer waiting for its writer.
 
 ### 2.3 QA is operator-scoped but narrower than Developer
 
-This is the most important correction against the earlier documents. Everything
-QA needs to do is gated today by `SCOPE_OPERATOR`:
+This is the most important correction against the earlier documents. Most of
+what QA needs to do is gated today by `SCOPE_OPERATOR` — but not all of it, and
+the exception is worth stating precisely because it is a weaker gate than the
+rest of the row, not a stronger one:
 
 | QA action | Current gate |
 | --- | --- |
 | Create a test set | `routes/eval_datasets.py` — `SCOPE_OPERATOR` |
 | Create a judge or scorer | `routes/judges.py` — `SCOPE_OPERATOR` |
 | Run an evaluation | `routes/evaluations.py` — `SCOPE_OPERATOR` |
-| File feedback / verify a signal | `routes/review_queues.py` — `SCOPE_OPERATOR` |
+| Create a review queue / enqueue items to it | `routes/review_queues.py` — `SCOPE_OPERATOR` |
+| Submit a review-queue answer (file feedback) | `routes/review_queues.py` `submit_item` — **`require_user` only; no scope check at all** |
+
+`submit_item` is the action that actually writes feedback: it takes a
+reviewer's answers and, outside the request transaction, calls
+`mlflow.log_feedback` / `mlflow.log_expectation` on the covered trace. It is
+gated by project visibility and `queue.status == "active"` only. Any
+authenticated user who can see the queue — including a bare `caliber.viewer` —
+can therefore cause MLflow assessments to be written today; `SCOPE_OPERATOR` is
+not the floor for this one action, it is the ceiling for every *other* QA
+action in this table.
+
+A second, structurally distinct queue exists for the same job — signal triage
+rather than annotation — but it is further from complete than a scope table can
+show: `CaliberVerificationItem` (`caliber_verification_queue`) has full request
+schemas for a generic `POST /caliber/verification-queue` and `POST
+/caliber/verification-queue/{item_id}/verify`, but neither is a registered
+route anywhere. The only code that creates a row today is four
+`SCOPE_OPERATOR`-gated job-creation paths (prompt optimization, skill
+calibration, workflow calibration, an Aria-proposed promotion) that insert it
+pre-`verified`, self-stamped by the same actor, as bookkeeping for the job they
+already started — not a human filing feedback on a signal, and not a decision
+distinct from creating the job. Section 2.2 covers what this means for the
+case for a QA role.
 
 Global scope inheritance is asymmetric: `caliber.admin` implies approver,
 operator and viewer, while **`caliber.approver` implies only `caliber.viewer`**.
@@ -366,10 +417,15 @@ configuration still controls global scopes in this single-tenant MVP.
 is there; it is simply not wired to a permission.
 
 `feedback.submit` and every action after it that is not in today's seven-action
-registry are new. Verification-queue writes currently ride on `resource.write`,
-which is precisely why QA cannot file feedback without also gaining prompt-edit
-rights. Unknown action literals deny and fail a contract test; they never fall
-back to a broader action.
+registry are new. There is no existing action for it to ride on: as section 2.3
+details, submitting review-queue feedback today calls neither
+`require_project_access` nor any project action, only `require_user`, so
+`resource.write` is not actually the gate — the gate is closer to none.
+`feedback.submit` therefore does not need to be carved out of `resource.write`
+so much as it needs to exist at all before isolation closure (Phase 2) can give
+this route a project-role check without accidentally making QA's floor
+`caliber.viewer`-equivalent forever. Unknown action literals deny and fail a
+contract test; they never fall back to a broader action.
 
 `project.create` is the deliberate exception to role intersection because no
 Workspace membership exists yet. It is authorized by the conjunction of the
@@ -940,8 +996,12 @@ the one that does not exist for an aggregate Workspace release today.
 
 ### 3.6 What the rework cycle needs, and does not have
 
-This is the largest process gap in the platform — larger than the missing
-package artifact, because it affects every failure rather than every release.
+This is the largest gap *after* a job exists — larger than the missing package
+artifact, because it affects every failure rather than every release. Section
+2.2 covers the one that precedes it: Stage ① Verify has the same
+designed-but-unwired shape as the mechanism below, one stage earlier and with
+no consumer already waiting for it, which is why that gap is the harder of the
+two to call partial.
 
 `refinement_max_iterations` **defaults to `0`, meaning off**: "a failed gate
 rejects immediately." The eval stage then sets `job.status = "rejected"` and
@@ -2638,7 +2698,7 @@ sequenceDiagram
     CR->>DB: persist CR-17/g1 and required checks
     R->>API: request changes on g1
     API->>DB: append review and mark changes_requested
-    Note over D,DB: r42 stays immutable and QA-safe; Workspace authoring remains open
+    Note over D,DB: r42 stays immutable and QA-safe, and Workspace authoring remains open
     D->>API: create/import new package r43
     D->>API: update CR with expected lock version, head r43
     API->>DB: append g2 and retain stale g1 checks/reviews as history
@@ -2671,7 +2731,7 @@ sequenceDiagram
     CI->>API: import exact resulting commit and bounded source tree
     API->>DB: materialize immutable revision and bind source digest
     API->>DB: append attestations and coverage digest bound to the same revision head
-    Note over D,DB: new source work continues; QA remains pinned to this package digest
+    Note over D,DB: new source work continues, and QA remains pinned to this package digest
 ```
 
 Webhook and import may arrive in either order. The request becomes technically
