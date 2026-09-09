@@ -76,8 +76,8 @@ rest of this document incorporates these corrections:
 | Revision numbering and circular environment/release foreign keys had no concurrency or migration protocol | Revision numbers use a bounded compare-and-set project counter compatible with SQLite/PostgreSQL; release-operation tables are created before nullable environment pointers are constrained |
 | Workspace creation required only `caliber.operator`, although its creator immediately became an Admin that also requires `caliber.approver` | `project.create` is a pre-membership action requiring **both** scopes; do not implement this with today's any-of `require_scopes()` helper |
 | The text treated the single stored `owner` membership as both accountability and the only possible Admin | `CaliberProject.owner` remains one accountable primary owner, while multiple active `owner`-role memberships may carry the Admin permission set; only the primary owner is transfer-protected |
-| Default environments were named but their bootstrap and protection rules were incomplete | Workspace creation transactionally seeds fixed `dev`, `staging`, and `prod` records; they cannot be created, renamed, reordered, or deleted in the MVP; only Admin may configure or enable them |
-| The generic release state machine gave development no path from evaluation to approval, while the SDK example attempted to apply it anyway | Decision state is environment-dependent: a passing development evaluation becomes approved; staging/production wait for QA and Admin decisions |
+| Default environments were named but their bootstrap and protection rules were incomplete | Workspace creation transactionally seeds fixed `dev`, `qa`, `staging`, and `prod` records; they cannot be created, renamed, reordered, or deleted in the MVP; only Admin may configure or enable them |
+| The generic release state machine gave development no path from evaluation to approval, while the SDK example attempted to apply it anyway | Decision state is environment-dependent: development/staging may become approved from machine gates and predecessor policy; QA waits for quality sign-off; production waits for fresh QA and Admin decisions |
 | Approval state and provider-effect state were mixed on one release row, making rollback and repeated reconciliation ambiguous | A release records immutable coordinates/evidence/decisions; separate release-operation rows record apply, rollback, and reconcile attempts and their child effects |
 | Gate rejection returned directly to evaluation even though a ready revision is immutable | Rework creates or selects a **new revision and release** before evaluation; only a non-content operational blocker may re-evaluate the same release |
 | The revision model called every pin immutable even though judge and tool definitions are mutable today | Every adapter must prove an authoritative immutable version or write a content-addressed snapshot; a digest pointing at an overwritten row is not reconstructable provenance |
@@ -86,6 +86,8 @@ rest of this document incorporates these corrections:
 | API prose required cursor pagination while SDK prose extended the existing offset `Page` model | New Workspace history APIs use an opaque cursor and a new `CursorPage[T]`; existing list return types remain compatible |
 | Rework was a required outcome without a model, API, authorization action, or SDK surface | Add a durable rework-task contract linking the failed release/refinement job to its owner and eventual superseding revision |
 | The effort estimate assumed broad isolation and ten resource adapters could be delivered as ordinary small PRs | Estimates now account for roughly forty registered route modules, worker/assistant paths, immutable snapshot work, PostgreSQL migration CI, and provider-operation recovery |
+| A revision could be released, but no PR-like object isolated review from continued development | Add a first-class Change Request over immutable revision heads. Updating a Change Request appends a new head generation, invalidates stale checks and approvals, and never freezes the Workspace or mutates an earlier package |
+| Human release states, semantic versions, and environment labels were all described as if they were interchangeable tags | Keep three separate contracts: immutable package identity/digest, immutable semantic-version tags, and mutable audited environment pointers |
 
 These are proposed corrections, not current implementation. In particular,
 [`resource_access.py`](../caliber/src/caliber/resource_access.py) currently maps
@@ -181,9 +183,9 @@ development cycle" can feel unanswerable.
 | Cycle | Cadence | Owner | What gates it | Stages |
 | --- | --- | --- | --- | --- |
 | **Inner** — author and run | Minutes | Developer | Nothing. It must run, that is all | 1–2 |
-| **Quality** — evaluate and fix | Hours to days | Developer + QA | Regression gate, then QA sign-off | 3–6, plus rework |
-| **Release** — approve and ship | Per release | Admin | Distinct-actor approval | 7–8 |
-| **Refinement** — observe and improve | Continuous, production-driven | QA verifies, platform optimizes, Admin applies | The same regression gate | 9–11, plus rework |
+| **Quality** — review, evaluate and fix | Hours to days | Developer + assigned Reviewer + QA | Head checks, technical approval, regression gate, then QA sign-off | 3–8, plus rework |
+| **Release** — stage, approve and ship | Per release | Admin + QA | Staging verification, then distinct-actor production decisions | 9–10 |
+| **Refinement** — observe and improve | Continuous, production-driven | QA verifies, platform optimizes, Admin applies | The same regression gate | 11–13, plus rework |
 
 Three properties matter more than the stage list:
 
@@ -193,7 +195,7 @@ Three properties matter more than the stage list:
 - **The refinement cycle reuses the quality cycle's gate** rather than having
   its own. An improvement proposed by an optimizer is held to exactly the same
   bar as one authored by a person, which is why the two lifecycles converge at
-  stage 5 instead of running in parallel.
+  package review and QA evaluation instead of running in parallel.
 - **Only the release cycle is calendar-driven.** The other three run at whatever
   rate work arrives. Planning a release train around the inner or refinement
   cycle is planning around something you do not control.
@@ -209,10 +211,12 @@ Most confusion about "who does what" comes from conflating two things:
 - A **permission role** is what the system enforces. A role earns its existence
   only when it gates a decision that a *different human* must make.
 
-There are five job functions and **four** permission roles, because **release
-manager is a function, not a role** — it is what Admin does at stages 7 and 8.
-Adding a fifth role for it is what produced the Operator-versus-Owner
-contradiction between two of the documents this one replaces.
+There are six job functions and **four** permission roles, because **technical
+Reviewer** and **release manager** are change-scoped functions, not permanent
+roles. A Reviewer is an eligible Developer or Admin assigned to one Change
+Request; release manager is what Admin does at stages 9 and 10. Adding stored
+roles for either function would increase standing authority without creating a
+new security boundary.
 
 Four stored roles; three that do work; one that watches. The role literals
 already exist in
@@ -221,13 +225,16 @@ labels are what users should see.
 
 | Product label | Stored role | Charter | Owns | Does not do |
 | --- | --- | --- | --- | --- |
-| **Developer** | `editor` | Builds the thing | Authors runtime resources — prompts, workflows, tools, skills, knowledge bases. Runs them. Requests release and may apply to development. **Fixes what fails and adds the regression test.** | Quality-sign or finally approve; apply to staging/production; manage members; register an agent (admin-gated today — see section 2.5) |
+| **Developer** | `editor` | Builds the thing | Authors runtime resources — prompts, workflows, tools, skills, knowledge bases. Runs them. Creates packages and Change Requests, reviews another developer's request when assigned, requests release and may apply to development. **Fixes what fails and adds the regression test.** | Technically approve their own Change Request; quality-sign or finally approve; apply to QA/staging/production; manage members; register an agent (admin-gated today — see section 2.5) |
 | **QA** | `reviewer` | Owns the quality bar and the human quality gate | Authors test sets, scorers, judges, thresholds. Runs evaluations. Verifies production signals. Files feedback. Signs off — or rejects with a reason. | Edit runtime resources; give final release approval; apply a release; manage members |
-| **Admin** | `owner` | Owns access and the release | Membership and roles. Workspace settings. Acts as **release manager**: gives final approval and starts apply, reconcile, and rollback operations. One Admin is the accountable primary owner; additional Admin collaborators are allowed. | Approve a change they authored or requested themselves; bypass a failed machine gate |
+| **Admin** | `owner` | Owns access and the release | Membership and roles. Workspace settings. Assigns Change Request reviewers. Acts as **release manager**: gives final approval and starts protected-environment apply, reconcile, and rollback operations. One Admin is the accountable primary owner; additional Admin collaborators are allowed. | Technically approve or finally approve a change they authored or requested themselves; bypass a failed machine gate |
 | **Viewer** | `viewer` | Reads, changes nothing | Resources, evidence, release history, audit. | Anything else |
 
-Environment is a scope on an action, not a role. "Reviewer in production" is a
-reviewer permitted by production policy, not a `production_reviewer` role.
+Environment is a scope on an action, not a role. The product label **QA** names
+a person with the stored `reviewer` role; lowercase **`qa`** names a runtime
+environment. **Reviewer** with a capital R means a per-Change-Request technical
+review assignment. It does not introduce a fifth role or make the QA role a
+source-code approver by implication.
 
 ### 2.2 Why QA earns a role here when it does not elsewhere
 
@@ -303,6 +310,10 @@ unchanged, which keeps `require_project_access` a viable compatibility wrapper.
 | `feedback.submit` — verify signals, flag traces | Y | Y | Y | | `caliber.operator` |
 | `resource.publish` — compatibility path, development only for Developer | Y** | | Y | | `caliber.operator` |
 | `revision.import` / `revision.create` | Y | | Y | | `caliber.operator` |
+| `change_request.create` / `change_request.update` | Y* | | Y* | | `caliber.operator` |
+| `change_request.comment` | Y | Y | Y | | `caliber.operator` |
+| `change_request.review` | Y* | | Y* | | `caliber.operator` |
+| `change_request.manage` — assign reviewer, close administratively | | | Y | | `caliber.operator` |
 | `environment.manage` | | | Y | | `caliber.operator` |
 | `release.request` | Y | | Y | | `caliber.operator` |
 | `release.evaluate` | Y | Y | Y | | `caliber.operator` |
@@ -313,10 +324,12 @@ unchanged, which keeps `require_project_access` a viable compatibility wrapper.
 | `release.break_glass_apply` — no ordinary role grant | | | | | `caliber.admin`, interactive credential, explicit recovery policy |
 | `rework.update` — claim, resolve, or reassign under task policy | Y* | | Y | | `caliber.operator` |
 
-`Y*` — QA may not quality-sign-off a runtime/source change they authored; Admin
-may not finally approve a release they authored or requested; Developer may
-update only a task assigned to them. `Y**` — Developer may apply only to
-development. See section 5.
+`Y*` — a Developer may update only a Change Request they opened and a rework
+task assigned to them; an assigned Developer or Admin Reviewer may not review a
+Change Request whose current head they authored or imported; QA may not
+quality-sign-off a runtime/source change they authored; Admin may not finally
+approve a release they authored or requested. `Y**` — Developer may apply only
+to development. See section 5.
 
 The minimum global-scope assignments are therefore Developer =
 `caliber.operator`; QA = `caliber.operator` + `caliber.approver`; Workspace
@@ -490,18 +503,23 @@ Three facts in that table are the reason this document argues what it does:
 | File feedback on an output | Y | Y | Y | — |
 | Deploy to development | Y | — | Y | — |
 | Create a workspace revision (snapshot or import) | Y | — | Y | — |
+| Open/update a Change Request | Y* | — | Y* | — |
+| Technically review an assigned Change Request | Y* | — | Y* | — |
+| Comment on a Change Request | Y | Y | Y | — |
 | Request a release | Y | — | Y | — |
 | Sign off on release quality | — | Y* | — | — |
 | Give final release approval | — | — | Y* | — |
 | Apply to development | Y | — | Y | — |
-| Apply to staging/production; reconcile or roll back | — | — | Y | — |
+| Apply to QA/staging/production; reconcile or roll back | — | — | Y | — |
 | Configure environment policy | — | — | Y | — |
 | Manage members and roles | — | — | Y | — |
 | Transfer ownership, archive the workspace | — | — | Y | — |
 | Manage secrets, providers, storage | — | — | platform admin | — |
 
-`Y*` — QA cannot sign off a runtime/source change they authored; Admin cannot
-finally approve work they authored or requested.
+`Y*` — the Change Request owner may update only their own request; an assigned
+Reviewer cannot approve a head they authored or imported; QA cannot sign off a
+runtime/source change they authored; Admin cannot finally approve work they
+authored or requested.
 
 ### 2.6 How this compares to shipped platforms
 
@@ -572,7 +590,7 @@ depends on whether the deployment is regulated.
   exactly the conclusion section 5 reaches independently.
 - **Do not put environment into the role.** LangSmith supports workspace-level
   isolation and finer-grained environment restrictions through attributes. For
-  CALIBER, keeping development, staging and production inside one workspace is
+  CALIBER, keeping development, QA, staging and production inside one workspace is
   the minimal model because it promotes one aggregate revision without copying
   resources or memberships between containers.
 - **The failure mode predicted for a QA tier has been observed elsewhere.** In
@@ -600,22 +618,26 @@ and whether CALIBER implements it today.
 | 1 | Author | Developer | Prompts, workflow manifest, tools, skills | — | — | Implemented per family |
 | 2 | Smoke-run | Developer | Trace of a successful run | Runs without error | Developer | Implemented |
 | 3 | Define the quality bar | **QA** | Test sets, scorers, judges, thresholds | Bar is reviewable and reconstructably pinned | — | Partly — datasets are reconstructably versioned; judges are mutable and need snapshots |
-| 4 | Package and pin | CI automation user + project-bound PAT, acting within Developer authority | One digest-pinned revision tied to a commit and retained canonical source snapshot | Manifest validates; every pin is reconstructable | Developer | **Proposed** — workspace revision |
-| 5 | Offline evaluation | CI automation user + project-bound PAT, acting within Developer authority | Scores per dimension vs baseline | **Regression gate** — section 4 | **Developer**, with gate reasons and a rework task | Partly — the refinement gate exists; aggregate revision/environment evaluation is proposed |
-| 6 | Quality sign-off | **QA** | Verdict, or rejection with a written reason | QA accepts the evidence | **Developer**, through a new revision and release | **Proposed** for aggregate releases; current evidence primitives are reusable |
-| 7 | Release approval | **Admin** | Approval bound to one version + target | Distinct actor from author | Developer or QA, per reason | Partly — see section 5 |
-| 8 | Apply and promote | Developer for development; **Admin** otherwise | Live alias moves; before/after recorded | Effect settles or is `reconcile_required` | Admin — reconcile or roll back | Individual paths partly implemented; aggregate workspace apply proposed |
-| 9 | Online evaluation | Platform + QA | Sampled scores, assessments, incidents | Alert thresholds | QA triages | Partly — traces, assessments and SLO primitives exist; aggregate revision/environment lineage is proposed |
-| 10 | Feed back | **QA** | Verified failure becomes an eval example | — | — | Implemented (harvested examples) |
-| 11 | Refine | Platform | New candidate via optimizer | Same gate as stage 5 | **Developer**, after N bounded attempts | Partly — refinement and GEPA exist, but automatic retries default off and exhaustion creates no owned task |
+| 4 | Package and pin | Developer or CI automation user with project-bound PAT | One digest-pinned application package (`WorkspaceRevision`) tied to retained source | Manifest validates; every pin is reconstructable | Developer | **Proposed** — workspace revision |
+| 5 | Submit change | Developer | Change Request with accepted-base revision, immutable head revision, proposed semantic version, and assigned Reviewer | Head is ready; base is current; version reservation is unique | Developer | **Proposed** — Change Request |
+| 6 | Technical review | Assigned **Reviewer** — an eligible Developer or Admin, never the head author/importer | Comments, checks, approval or request-changes bound to the exact head generation | Required fast checks pass and one non-author Reviewer approves | **Developer**, through a new package/head generation | **Proposed** |
+| 7 | QA candidate | **Admin** applies; **QA** evaluates | Same package in the protected `qa` environment; scores per dimension vs baseline | **Regression gate** — section 4 | **Developer**, with gate reasons and a rework task | **Proposed** for aggregate revisions; current evaluation primitives are reusable |
+| 8 | Quality sign-off and acceptance | **QA** | Digest-bound verdict; `go` accepts the package version, `no_go` records a reason | QA accepts the exact QA evidence and is distinct from the runtime/source author | **Developer**, through a new package/head generation | **Proposed** |
+| 9 | Stage | **Admin** | Accepted package applied to staging; integration/smoke evidence | Exact accepted digest passed QA; staging checks settle | Developer, QA, or Admin per reason | **Proposed** aggregate release; individual mechanisms partly exist |
+| 10 | Production approval and promote | **Admin** | Fresh final approval, then production environment pointer moves | Same staged digest; production gates pass; Admin is distinct from originator/requester | Admin — reconcile or roll back | Partly — individual paths exist; aggregate release proposed |
+| 11 | Online evaluation | Platform + QA | Sampled scores, assessments, incidents | Alert thresholds | QA triages | Partly — traces, assessments and SLO primitives exist; aggregate revision/environment lineage is proposed |
+| 12 | Feed back | **QA** | Verified failure becomes an eval example | — | — | Implemented (harvested examples) |
+| 13 | Refine | Platform | New candidate via optimizer | Same gate as stage 7 | **Developer**, after N bounded attempts | Partly — refinement and GEPA exist, but automatic retries default off and exhaustion creates no owned task |
 
-Stages 9 through 11 are Lifecycle B — the part CALIBER does best. They close the
-loop back to stage 5 rather than restarting at stage 1.
+Stages 11 through 13 are Lifecycle B — the part CALIBER does best. They close
+the loop back to package/review rather than restarting the application from
+scratch.
 
 Read the "on failure" column as the load-bearing part of the process. A pipeline
 is defined by what it does when something fails, and every quality failure
 converges on the same owner: **the Developer fixes it, adds a regression test,
-creates a new immutable revision and release, and then re-enters at stage 5.**
+creates a new immutable revision, updates the Change Request head, and then
+re-enters at stage 6.**
 
 ### 3.1 The one artifact that does not exist yet
 
@@ -635,7 +657,225 @@ You cannot today answer "which exact prompt, workflow, tool and test-set
 versions constitute release 12" with one identifier — the question a release
 manager needs answered, and the reason the workspace revision digest exists.
 
-### 3.2 The rework cycle
+### 3.2 The PR-like application lifecycle
+
+The missing collaboration object is a **Change Request**. It is similar to a
+Git pull request in purpose, but it does not merge mutable provider state. It
+compares one immutable base package with one immutable head package, gathers
+checks, comments and technical review, and carries the exact head into QA.
+
+| Source-development idea | CALIBER lifecycle equivalent | Mutability rule |
+| --- | --- | --- |
+| Commit | Workspace revision / application package | Immutable after `ready`; addressed by `WSR-*`, revision number and SHA-256 digest |
+| Branch | Developer's mutable drafts or Git branch | May change freely; never a release identity |
+| Pull request | Workspace Change Request | Mutable conversation around append-only immutable head generations |
+| Review/check run | Change Request review/check | Append-only and bound to exact head generation + digest |
+| Merge | Accept package after technical approval and QA `go` | Compare-and-set accepted baseline from base to head; no bytes are rewritten |
+| Release tag | Semantic version such as `1.4.0` | Immutable mapping to one package digest |
+| Deployment/environment | `dev`, `qa`, `staging`, or `prod` current-release pointer | Mutable only through audited apply/rollback operations |
+
+The lifecycle is deliberately three-layered:
+
+1. **Package identity** answers *what exactly is this application?* A ready
+   `WorkspaceRevision` is the application package: the canonical manifest,
+   retained source snapshot, exact resource versions/snapshots, model/runtime
+   dependency pins and content digests. It is immutable and reconstructable.
+2. **Change review** answers *should this package replace the currently
+   accepted application baseline?* A Change Request records base, current head,
+   head history, checks, comments, review and QA outcome.
+3. **Environment release** answers *where is that exact package running, under
+   which configuration, evidence and approval?* A `WorkspaceRelease` plus its
+   operations moves an environment pointer. It never mutates the package or
+   semantic-version tag.
+
+The package is a logical content-addressed manifest, not a second monolithic
+archive that duplicates MLflow, object storage and domain tables. Its canonical
+descriptor contains `schema_version`, `project_id`, source mode/commit/tree
+digest/snapshot reference, and resource entries sorted by
+`(resource_type, logical_name)` with exact version reference, content digest,
+snapshot reference and adapter version. Runtime-model dependencies are ordinary
+closed-type entries. Secret values and environment configuration are excluded.
+Using the repository's existing formatting
+[`canonical_json`](../caliber/src/caliber/workflows/manifest.py)
+convention—UTF-8, lexicographically sorted object keys and
+`separators=(",", ":")`—extended with schema rejection of NaN/infinity and no
+implicit `default=str` coercion, the package identity is:
+
+```text
+revision_sha256 = SHA-256(canonical_json(package_descriptor))
+```
+
+The descriptor and every referenced content-addressed snapshot are retained.
+If exportable bundles are added later, they are transport representations and
+must recompute to the same descriptor digest. This keeps one authoritative
+package without copying every governed document into CALIBER.
+
+#### Concurrent development and candidate locking
+
+Opening a Change Request freezes its **head package**, not the Workspace. The
+Developer may immediately continue editing or importing new work. Those edits
+produce a new package with a new revision number and digest; they cannot alter
+the package already under review or running in QA.
+
+If review or QA requests changes, the Developer creates a new package and
+explicitly updates the Change Request head. The service appends generation
+`g+1`; generation `g`, all comments, checks, approvals and QA evidence remain
+queryable. Every required check reruns and all technical approvals are
+invalidated by default. Carry-forward approval is out of scope for the MVP
+because deciding whether a change is semantically irrelevant is itself a review
+decision.
+
+Multiple Change Requests may be open concurrently. Acceptance is an atomic
+compare-and-set:
+
+```text
+accept only when workspace.accepted_revision_id == change_request.base_revision_id
+then set workspace.accepted_revision_id = change_request.head_revision_id
+```
+
+If another Change Request was accepted first, the stale request becomes
+`out_of_date`. CALIBER does not attempt a generic merge across prompts,
+workflows, tools and provider resources. In Git-managed mode the Developer
+merges/rebases in Git and imports the resulting commit. In CALIBER-managed mode
+the Developer snapshots a new revision based on the latest accepted package,
+resolves conflicts explicitly, and updates the request head.
+
+#### Change Request state machine
+
+```mermaid
+stateDiagram-v2
+    [*] --> draft
+    draft --> open: submit
+    open --> changes_requested: Reviewer or QA no_go
+    changes_requested --> open: append new head generation
+    open --> technically_approved: checks pass and Reviewer approves
+    technically_approved --> changes_requested: Reviewer withdraws via request_changes
+    technically_approved --> open: satisfying Reviewer assignment removed
+    technically_approved --> qa_in_progress: exact head applied to qa
+    qa_in_progress --> changes_requested: machine gate or QA no_go
+    qa_in_progress --> accepted: machine gate passes and QA go
+    qa_in_progress --> out_of_date: QA go but base CAS is stale
+    open --> out_of_date: accepted base moved
+    technically_approved --> out_of_date: accepted base moved
+    out_of_date --> open: new base and head generation
+    draft --> closed
+    open --> closed
+    changes_requested --> closed
+    technically_approved --> closed
+    out_of_date --> closed
+    accepted --> [*]
+    closed --> [*]
+```
+
+`accepted` means the package passed change review and QA and is eligible for
+staging. It does **not** mean deployed to staging or production. A production
+release still requires its own environment-specific evidence and Admin final
+approval. A `no_go` never deletes the package; it creates owned rework and
+preserves the negative result.
+
+#### Version and tag policy
+
+Do not use one mutable label to mean package identity, quality state and
+deployment location. The MVP uses these separate names:
+
+| Name | Example | Authority and rule |
+| --- | --- | --- |
+| Revision number | `r42` | Server-allocated, workspace-local, monotonic with allowed gaps; convenient display identity, never reused |
+| Package digest | `sha256:8c1…` | Canonical immutable identity used by gates, approvals and promotion |
+| Review candidate | `CR-17/g2` | Change Request and append-only head generation; identifies what was reviewed |
+| QA candidate version | `1.4.0-rc.2` | Immutable prerelease tag assigned to the exact head entering QA; a changed head gets `rc.3`, never replaces `rc.2` |
+| Accepted package version | `1.4.0` | Immutable SemVer tag created when the exact candidate is accepted; version uniqueness is reserved transactionally when the request is submitted |
+| Environment channel | `dev`, `qa`, `staging`, `prod` | Mutable current-release pointer moved only by successful apply or rollback operations |
+
+Semantic versioning describes package compatibility; CALIBER cannot infer
+major/minor/patch from heterogeneous content. The Developer proposes the next
+version, policy validates syntax and uniqueness, and Admin may resolve a version
+reservation conflict before submission. Acceptance also requires the proposed
+version to have greater SemVer precedence than the highest accepted version; an
+out-of-date rebase must reserve a newer value when that condition no longer
+holds. For non-library applications whose API
+compatibility is not meaningful, a workspace policy may select calendar
+versions later; the MVP ships SemVer only to avoid two version grammars.
+
+Git tags are optional source mirrors, not CALIBER's aggregate release authority.
+For Git-managed source, CALIBER records and may verify that a Git tag points to
+the imported commit, but the CALIBER version tag also binds non-Git resource
+pins, configuration-independent model dependencies and the complete package
+digest. `dev`, `qa`, `staging`, `prod`, `approved`, and `latest` must never be
+created as immutable version tags; the first four are environment pointers and
+the others are derived states.
+
+An operational retry against unchanged package/config coordinates does not
+consume a new semantic version; it creates another evaluation or operation
+attempt under the same release history. Any content or pinned-dependency change
+before acceptance creates a new revision/head and the next prerelease tag under
+the reserved final version. Any such change after acceptance requires a new
+Change Request and a new semantic version. This prevents a supposedly immutable
+`1.4.0` from acquiring different bytes to repair a failed deployment.
+
+#### End-to-end handoff
+
+```mermaid
+sequenceDiagram
+    participant D as Developer
+    participant C as CALIBER
+    participant R as Assigned Reviewer
+    participant Q as QA
+    participant A as Admin
+
+    D->>C: Create immutable package r42
+    D->>C: Open CR-17 (base r39, head r42, version 1.4.0)
+    C->>C: Run head-bound deterministic checks
+    R->>C: Request changes on CR-17/g1
+    D->>C: Continue work and create immutable r43
+    D->>C: Update CR head to r43 (g2)
+    C->>C: Invalidate g1 approval and rerun checks
+    R->>C: Approve CR-17/g2
+    A->>C: Apply r43 / 1.4.0-rc.2 to qa
+    Q->>C: Evaluate and quality-sign exact qa release
+    C->>C: CAS accept base r39 -> r43 and tag 1.4.0
+    A->>C: Apply same digest to staging
+    A->>C: Final production approval and apply same digest
+    C->>C: Audit package, CR, decisions, operations and pointers
+```
+
+### 3.3 Traceability, history, and rollback
+
+One query must reconstruct this chain without reading free-form log text:
+
+```text
+source commit or CALIBER snapshot
+  -> immutable workspace revision and resource pins
+  -> Change Request base/head generation, checks, comments and reviews
+  -> immutable candidate/accepted version tags
+  -> environment-specific release, evidence and decisions
+  -> apply/rollback operation and provider child effects
+  -> environment current-release pointer
+  -> run, trace, assessment or incident
+```
+
+Every arrow is a typed foreign key plus copied integrity digest. Audit events
+record actor, credential, workspace role, action, decision reason, request ID,
+idempotency key, before/after identifiers, policy version and timestamp. Secret
+values and unbounded provider payloads never enter the audit record. Historical
+packages, rejected heads, stale approvals, failed operations and prior pointer
+moves remain readable under retention policy; they are not garbage-collected
+while a release, audit event, run or legal hold references them.
+
+Rollback is a new forward operation, not a version edit. Admin selects an exact
+previously applied release in the same environment, supplies the expected
+current release and environment lock version, and records a reason. CALIBER
+prepares reverse child effects from retained pins, settles or reconciles them,
+and moves only that environment's current-release pointer after every required
+effect is proven. The original package, Change Request, semantic-version tag,
+approvals and failed/newer release remain unchanged. A rollback from production
+does not automatically move staging or the accepted baseline; those differences
+are visible. A hotfix may start from the deployed production package, but its
+submitted Change Request must still rebase against the current accepted
+baseline and record the production source release as provenance; this prevents
+rollback from silently discarding later accepted work.
+
+### 3.4 The rework cycle
 
 Nothing ships because it passed once. It ships because it passed *after*
 whatever failed was fixed:
@@ -664,7 +904,7 @@ authored the candidate, not a person. So "the Developer fixes it" is really a
 fails, ownership reverts to a human author who may discard it entirely rather
 than patch it.
 
-### 3.3 Two kinds of rejection, one destination
+### 3.5 Two kinds of rejection, one destination
 
 | | Gate failure | QA rejection |
 | --- | --- | --- |
@@ -677,7 +917,7 @@ QA rejection is the more valuable of the two, because a change that passes the
 gate and is still wrong is precisely what a quality function is for. It is also
 the one that does not exist for an aggregate Workspace release today.
 
-### 3.4 What the rework cycle needs, and does not have
+### 3.6 What the rework cycle needs, and does not have
 
 This is the largest process gap in the platform — larger than the missing
 package artifact, because it affects every failure rather than every release.
@@ -794,10 +1034,12 @@ quality bar wherever it happens to sit.
 
 The implemented Lifecycle B has two human decisions today: **Verify** (is this
 failure real?) and **Apply** (should this refinement ship?). The proposed
-Lifecycle A records two different release-bound decisions after its machine
-gate: QA's typed **quality sign-off**, followed by Workspace Admin's final
-**release approval**. Apply is the side effect authorized by that final approval,
-not a third independent approval.
+Lifecycle A adds three distinct decisions at different boundaries: an assigned
+Reviewer's head-bound **technical review**, QA's release-bound **quality
+sign-off**, and Workspace Admin's production-bound **final release approval**.
+Apply is the side effect authorized by the applicable policy, not another
+approval. A technical approval cannot substitute for QA or Admin, and neither
+release decision retroactively approves a changed Change Request head.
 
 Current practice across cloud vendors converges on one required sign-off at the
 **promotion-to-production boundary**, after automated evals have passed, shown
@@ -821,17 +1063,21 @@ in every project. On the prompt refinement path the same is true by
 construction: `POST /jobs/{id}/apply` requires `caliber.operator` and records
 that same actor as `approved_by`.
 
-Closing it needs three things, none of which is a new role:
+Closing it needs four things, none of which is a new permanent role:
 
-- **role-specific distinct-actor checks** on QA sign-off and Admin final
-  approval, both implementing the same author/requester-versus-decision-maker
-  axis;
-- **two participating roles in staging/production** — QA records quality and a
-  Workspace Admin gives final approval. A Workspace may have several eligible
+- **a head-bound technical review assignment** on each submitted Change
+  Request; the Reviewer is an eligible Developer or Admin and is distinct from
+  the current head's authenticated author/importer;
+- **role-specific distinct-actor checks** on technical review, QA sign-off and
+  Admin final approval, all implementing the same
+  originator-versus-decision-maker axis;
+- **two stored decision roles after technical review** — QA records quality and
+  a Workspace Admin gives final approval. A Workspace may have several eligible
   Admin collaborators, while `CaliberProject.owner` retains one primary owner
   for accountability and recovery. QA is not an Admin substitute;
-- **break-glass** for genuinely single-person deployments: self-approval with a
-  mandatory reason, a short expiry, one-release scope, an interactive
+- **break-glass** for an otherwise eligible emergency production release
+  missing its fresh production QA or Admin decision: a mandatory reason, short
+  expiry, one-release scope, an interactive
   `caliber.admin` credential, and a high-severity audit event. Disabled by
   default, applies to one release only, and is server-refused for PAT and service
   credentials.
@@ -844,12 +1090,14 @@ independent reviewer.
 Two separation-of-duty axes are possible; MVP needs the first:
 
 - **change originator ≠ human decision-maker** — catches bad changes. Applied
-  twice with role-specific originator sets: QA cannot quality-sign a
-  runtime/source change they authored; Admin cannot finally approve a release
-  they authored or requested. QA cannot request a release in the MVP. The
-  immutable release records the exact actor set from revision provenance and
-  the requester; evidence-definition authors do not make the revision
-  permanently unapprovable.
+  three times with role-specific originator sets: the assigned Reviewer cannot
+  technically approve a current head they authored or imported; QA cannot
+  quality-sign a runtime/source change they authored; Admin cannot finally
+  approve a production release they authored or requested. QA cannot request a
+  release in the MVP. The immutable Change Request and release records capture
+  the exact actor set from revision provenance and the requester;
+  evidence-definition authors do not make the revision permanently
+  unapprovable.
 - **approver ≠ applier** — catches malicious deployment. A much rarer threat,
   deliberately not enforced here.
 
@@ -858,9 +1106,9 @@ stays distinct. Record it as a decision so a reviewer does not read it as an
 oversight.
 
 Because the target permits Admin to author runtime resources, an Admin-authored
-staging or production release requires a **different Admin** for final approval.
+production release requires a **different Admin** for final approval.
 With only one Admin, that change can use development but cannot progress through
-the normal protected path. Break-glass is emergency recovery, not the routine
+normal production approval. Break-glass is emergency recovery, not the routine
 answer to this staffing constraint.
 
 For CALIBER-managed resources, the enforceable author set comes from immutable
@@ -872,13 +1120,14 @@ authenticate.
 
 ### 5.3 Default environment policy
 
-Workspace creation automatically and transactionally creates exactly three
+Workspace creation automatically and transactionally creates exactly four
 protected environment records. Their canonical API/SDK identifiers, classes,
 and display labels are:
 
 | Identifier | Environment class | Display label | Initial state for a new Workspace |
 | --- | --- | --- | --- |
 | `dev` | `development` | Development | active |
+| `qa` | `qa` | QA | disabled until Admin configuration validates |
 | `staging` | `staging` | Staging | disabled until Admin configuration validates |
 | `prod` | `production` | Production | disabled until Admin configuration validates |
 
@@ -890,18 +1139,22 @@ environments are an architecture-evolution feature, not an MVP escape hatch.
 
 | Environment | Prerequisite | Human decisions | Apply actor |
 | --- | --- | --- | --- |
-| Development | Ready revision | None | Developer or Admin |
-| Staging | Same revision successfully applied in development | QA quality sign-off, then Admin final approval; both bound to the evaluated release coordinates | Admin; may be the final approver |
-| Production | Same revision applied and verified in staging; all production gates pass | Fresh QA quality sign-off and Admin final approval; neither may be a runtime/source author, and final approver must differ from requester | Admin; may be the final approver |
+| Development | Ready revision or current Change Request head | None | Developer or Admin |
+| QA | Same Change Request head successfully applied in development; required head checks and technical review pass | Assigned Reviewer approval is already bound to that head; QA gives the environment-bound quality decision after evaluation | Admin |
+| Staging | Accepted package; same digest successfully applied and quality-signed in QA | No duplicate human decision; the accepted-package record and QA decision are predecessor evidence, while staging machine/integration checks bind its own configuration | Admin |
+| Production | Same digest applied and verified in staging; fresh production gates pass | Fresh QA quality sign-off and Admin final approval; neither may be a runtime/source author, and final approver must differ from requester | Admin; may be the final approver |
 
 For a single-user local deployment, development remains usable without a second
-actor. Staging or production without the required actors needs the named
-break-glass action; ordinary policy is never silently relaxed because the team is
-small.
+actor. The normal protected path requires the named collaborators. Break-glass
+may exceptionally authorize production apply without its fresh production QA
+or Admin decision only after the package was technically reviewed, accepted in
+QA, verified in staging, and passed production machine/integrity gates. It does
+not replace initial QA acceptance or make self-reviewed single-user promotion
+routine. Ordinary policy is never silently relaxed because the team is small.
 
 A migrated project is different from a newly created Workspace: existing live
 aliases cannot be claimed as an aggregate Workspace release. The migration
-seeds all three rows but marks every detected live target
+seeds all four rows but marks every detected live target
 `baseline_required`. Dual-read compatibility may continue serving it, but
 strict Workspace execution and promotion remain disabled until an Admin records
 and verifies a baseline revision/release mapping.
@@ -955,7 +1208,7 @@ answer to:
 
 - Which exact resource versions comprise this project?
 - Which Git commit produced those versions?
-- What is deployed in development, staging, or production?
+- What is deployed in development, QA, staging, or production?
 - Who may edit, review, promote, roll back, or administer this project?
 - Can a run be traced back to the complete project state rather than only its
   workflow version?
@@ -1023,7 +1276,7 @@ and execution surface.
 | [`ProjectsAPI`](../sdk/caliber-sdk/src/caliber_sdk/resources/projects.py) | Typed project, member, and file operations | Extend without breaking existing methods | Add source, revision, environment, and release models/resources |
 | Domain resource models | Project IDs on agents, datasets, judges, review queues, plans, eval runs, skills, workflows, tools, OpenAPI integrations, KBs, files, and several run tables | Keep domain models authoritative | Coverage is nullable, uneven, and not always FK-enforced |
 | Domain version models | MLflow prompt versions; workflow versions; KB builds; skill snapshots; dataset intervals; OpenAPI snapshots | Keep proven immutable domain contracts | Tool and judge rows are mutable despite tool version labels; adapters must create immutable snapshots before those types can be ready revision pins |
-| [`deployment_environments.py`](../caliber/src/caliber/deployment_environments.py) | Classifies aliases as development/staging/production; an unrecognized alias falls back to a configurable default class that ships as production, except the explicit non-deployment aliases which classify as development | Reuse classification and policy helpers | Add durable workspace environment identity and state |
+| [`deployment_environments.py`](../caliber/src/caliber/deployment_environments.py) | Classifies aliases as development/staging/production; an unrecognized alias falls back to a configurable default class that ships as production, except the explicit non-deployment aliases which classify as development | Reuse classification and policy helpers for legacy aliases | Add a closed `qa` class plus durable workspace environment identity/state; Workspace names never use the legacy unknown-alias fallback |
 | Workflow deployments/promotions | Alias CAS, deploy gates, optional human approval, rollback stack | Reuse through a workspace release adapter | Applies only to workflow aliases and current global scopes |
 | Release candidates/signoffs | Evidence rubric, immutable artifact-level final signoff snapshot | Reuse as optional workspace release evidence, not as the aggregate decision record | Current candidate names one artifact/version and permits one final signoff, not two typed revision/environment decisions |
 | Prompt release operations | Intent-first external effect with reconciliation | Reuse as a child operation | Other asset paths do not inherit this external-effect guarantee |
@@ -1075,10 +1328,11 @@ A Workspace is the durable collaboration and governance boundary for one
 CALIBER project. It owns or binds collaborators and their roles; authored
 resources and exact resource versions; evidence and operational lineage; zero or
 one GitHub source binding in the MVP; immutable workspace revisions;
-development, staging and production environment records; release requests,
-typed decisions, application state and rollback lineage; workspace-scoped file
-namespaces and secret references; and policies controlling import, execution,
-approval and promotion.
+Change Requests and immutable application-version tags; development, QA,
+staging and production environment records; release requests, typed decisions,
+application state and rollback lineage; workspace-scoped file namespaces and
+secret references; and policies controlling import, review, execution, approval
+and promotion.
 
 A Workspace is **not** a tenant, a Git repository, a deployment environment, a
 mutable bundle, or a physical storage backend. It is the common logical context
@@ -1094,22 +1348,29 @@ that relates those concepts.
    authority. Provider listings are reconciliation inputs, never an alternate
    workspace catalog.
 4. A ready workspace revision is immutable.
-5. A release always names one ready revision and one target environment.
-6. Staging and production receive the same revision digest that passed the
+5. A Change Request head always names one ready revision. Head updates append a
+   generation and invalidate checks and approvals; they never mutate that
+   revision.
+6. Accepting a Change Request compare-and-sets its base to its head; a stale
+   base becomes `out_of_date`, never an implicit heterogeneous merge.
+7. An immutable semantic-version tag names exactly one accepted revision
+   digest. Environment names are mutable pointers, never package tags.
+8. A release always names one ready revision and one target environment.
+9. QA, staging and production receive the same revision digest that passed the
    previous environment; CALIBER does not rebuild source between promotions.
-7. Environment-specific configuration and secret-version references are
+10. Environment-specific configuration and secret-version references are
    captured separately and hashed into release evidence.
-8. A caller's workspace/environment header or URL is context, not proof of
+11. A caller's workspace/environment header or URL is context, not proof of
    access. Server-side membership and policy decide every action.
-9. Workers, Aria, SDK/CLI calls, and direct HTTP calls enforce the same decision
+12. Workers, Aria, SDK/CLI calls, and direct HTTP calls enforce the same decision
    function.
-10. Unknown roles, actions, environments, revision item types, provider states,
+13. Unknown roles, actions, environments, revision item types, provider states,
     or authorization-store failures deny or remain unresolved; they never widen
     access or become a successful release.
-11. A partial external release is represented as partial or
+14. A partial external release is represented as partial or
     `reconcile_required`; it is never recorded as fully applied because the SQL
     parent transaction committed.
-12. An environment with unresolved external state is not executable or
+15. An environment with unresolved external state is not executable or
     promotable, even when its last confirmed `current_release_id` is readable.
 
 ### 7.2 Ownership and lifecycle
@@ -1170,7 +1431,7 @@ Each workspace declares one source mode:
 
 The source mode prevents dual authority. In a `git_managed` workspace, local
 edits may be used as development drafts, but they are not eligible for staging
-or production until represented by a new imported Git commit. The MVP does not
+or any later environment until represented by a new imported Git commit. The MVP does not
 silently write commits or PRs from CALIBER.
 
 Source changes are compare-and-set lifecycle transitions, not ordinary mutable
@@ -1190,8 +1451,11 @@ flowchart LR
     API --> AUTH[Workspace authorization]
     AUTH --> DB[(CALIBER metadata DB)]
     AUTH --> IMP[Workspace import service]
+    AUTH --> CR[Change Request service]
     AUTH --> REL[Workspace release and operation services]
     IMP --> ADAPT[Resource adapters]
+    CR --> DB
+    CR --> REL
     ADAPT --> DB
     ADAPT --> ML[MLflow prompt registry]
     ADAPT --> OBJ[Object / workflow storage]
@@ -1207,7 +1471,8 @@ flowchart LR
 1. **Reuse `CaliberProject` as Workspace.** Do not rename the table, public ID,
    header, or existing routes in the MVP.
 2. **Add focused services instead of enlarging `routes/projects.py`.** New
-   modules should own sources, revisions, environments, and workspace releases.
+   modules should own sources, revisions, Change Requests, environments, and
+   workspace releases.
 3. **Keep domain models authoritative.** A workspace revision references exact
    domain versions; it does not copy all domain payloads into one generic table.
 4. **Do not add a mutable generic resource catalog in the MVP.** Existing root
@@ -1241,6 +1506,7 @@ flowchart LR
 | `WorkspaceService` | Workspace lifecycle, owner transfer, member administration | Domain resource payloads |
 | `WorkspaceAuthorizationService` | One deny-by-default decision for principal/action/workspace/resource/environment/release | Authentication or client-only capability hiding |
 | `WorkspaceRevisionService` | Canonicalize manifest, resolve pins, compute digest, validate completeness, diff revisions | Provider-specific mutation logic |
+| `WorkspaceChangeRequestService` | Base/head generations, version reservation, reviewer assignment, comments, checks, technical review, stale-base CAS acceptance | Source merging, QA quality decisions, or provider effects |
 | `WorkspaceImportService` | Durable import job, path/size validation, adapter orchestration, idempotency, failure reporting | GitHub user credentials in push-based MVP |
 | `WorkspaceEnvironmentService` | Seed/manage environment identities and policy, capture config digest | Secret plaintext |
 | `WorkspaceReleaseService` | Request/evaluate one revision/environment pair and record digest-bound human decisions | Provider effects or mutable approval history |
@@ -1278,8 +1544,18 @@ erDiagram
     CALIBER_PROJECT ||--o| WORKSPACE_SOURCE : binds
     CALIBER_PROJECT ||--o{ WORKSPACE_REVISION : snapshots
     WORKSPACE_REVISION ||--|{ WORKSPACE_REVISION_RESOURCE : pins
+    CALIBER_PROJECT ||--o{ WORKSPACE_CHANGE_REQUEST : reviews
+    WORKSPACE_REVISION ||--o{ WORKSPACE_CHANGE_REQUEST : base_or_head
+    WORKSPACE_CHANGE_REQUEST ||--|{ WORKSPACE_CHANGE_REQUEST_HEAD : advances
+    WORKSPACE_CHANGE_REQUEST ||--o{ WORKSPACE_CHANGE_REQUEST_REVIEWER : assigns
+    WORKSPACE_CHANGE_REQUEST ||--o{ WORKSPACE_CHANGE_REQUEST_COMMENT : discusses
+    WORKSPACE_CHANGE_REQUEST_HEAD ||--o{ WORKSPACE_CHANGE_REQUEST_CHECK : checks
+    WORKSPACE_CHANGE_REQUEST_HEAD ||--o{ WORKSPACE_CHANGE_REQUEST_REVIEW : reviews
+    WORKSPACE_CHANGE_REQUEST ||--o{ WORKSPACE_VERSION_CLAIM : reserves
+    WORKSPACE_REVISION ||--o{ WORKSPACE_VERSION_TAG : labels
     CALIBER_PROJECT ||--|{ WORKSPACE_ENVIRONMENT : defines
     WORKSPACE_REVISION ||--o{ WORKSPACE_RELEASE : promoted_as
+    WORKSPACE_CHANGE_REQUEST ||--o{ WORKSPACE_RELEASE : exercises
     WORKSPACE_ENVIRONMENT ||--o{ WORKSPACE_RELEASE : receives
     WORKSPACE_RELEASE ||--o{ WORKSPACE_RELEASE_EVIDENCE : binds
     WORKSPACE_RELEASE ||--o{ WORKSPACE_RELEASE_EVALUATION : evaluates
@@ -1305,6 +1581,7 @@ erDiagram
 | --- | --- | --- |
 | `slug` | `String(128)` | Stable, lowercase workspace handle; unique within `tenant_id` |
 | `source_mode` | `String(24)` | `caliber_managed` or `git_managed`; default `caliber_managed` |
+| `accepted_revision_id` | nullable string, then FK | Current package accepted by Change Request CAS; added nullable in Phase 1 and constrained after revision tables exist in Phase 4; not an environment pointer |
 | `archived_at` | nullable datetime | Set with archived status |
 | `archived_by` | nullable string | Actor for lifecycle audit |
 
@@ -1351,7 +1628,8 @@ Keep current aliases, version IDs, environment-class strings, manifest
 snapshots, and evidence payloads for compatibility and independent recovery.
 
 **`caliber_audit_log`** — add nullable indexed `project_id`, `revision_id`,
-`environment_id`, `workspace_release_id`, and
+`change_request_id`, `change_request_head_id`, `environment_id`,
+`workspace_version_tag_id`, `workspace_release_id`, and
 `workspace_release_operation_id`. New Workspace mutations require the relevant
 columns; legacy events remain nullable. Do not rely on unindexed keys inside
 `details` for authorization or incident reconstruction.
@@ -1426,7 +1704,8 @@ monotonic `revision_number` per workspace; nullable `source_id` and
 `source_commit_sha` (required for `git_managed`); canonical normalized
 `manifest` JSON; `manifest_sha256`; `source_bundle_sha256`; immutable
 `source_snapshot_file_id`; `source_attestation` (`caller_attested` in push mode); `revision_sha256` over
-manifest, complete source digest, and sorted resolved pins; `status` in
+the canonical package descriptor defined in section 3.2 (manifest, complete
+source identity/digest, and sorted resolved pins); `status` in
 `validating`, `ready`, `invalid`;
 `validation_report`; provenance fields.
 
@@ -1467,14 +1746,106 @@ outputs bind to the workspace release, avoiding an impossible digest cycle.
 Runtime model dependencies are explicit revision resources (or a closed
 `model_dependency` declaration) that pin provider, immutable model/deployment
 snapshot, inference configuration digest, and adapter version. Mutable aliases
-such as `latest` are invalid for staging and production. If a provider cannot
+such as `latest` are invalid for QA, staging and production. If a provider cannot
 offer an immutable model identifier, CALIBER records the strongest observable
 fingerprint and refuses production unless policy explicitly accepts that weaker
 guarantee.
 
+**`caliber_workspace_change_requests`** — `WSCR-*` primary key; non-null
+`project_id`, `current_head_revision_id`, and `created_by`; nullable
+`base_revision_id` only for the first accepted package;
+monotonic `head_generation`; title and bounded description; `status` in
+`draft`, `open`, `changes_requested`, `technically_approved`,
+`qa_in_progress`, `out_of_date`, `accepted`, `closed`; nullable
+`accepted_at`, `accepted_by`, and `closed_reason`; monotonic `lock_version`; and
+audit timestamps. Base and head must be ready revisions in the same Workspace
+and must differ when base is present. `base_revision_id` is the expected
+accepted baseline; SQL `NULL` is the explicit compare-and-set expectation when
+the Workspace has never accepted a package. `current_head_revision_id` is a
+cached pointer to the latest append-only
+head row, never an editable package.
+
+Submission requires exactly one active version claim and at least one eligible Reviewer
+assignment. Acceptance is one transaction that verifies the current head's
+checks, technical approval, QA release/evidence, actor separation and version
+precedence, compares
+`caliber_projects.accepted_revision_id` with `base_revision_id`, creates the
+final immutable version tag, moves the accepted pointer to the head, and marks
+the request `accepted`. A failed compare-and-set marks the request
+`out_of_date`; it never applies an implicit merge. Accepted and closed requests
+are terminal.
+
+**`caliber_workspace_change_request_heads`** — `WSCRH-*` primary key;
+`change_request_id`; monotonic `generation`; non-null `revision_id` and copied
+`revision_sha256`; review-policy version and digest; `changed_by`, change
+summary, and timestamp. Unique
+`(change_request_id, generation)`. Rows are append-only. Updating the head
+requires an open or changes-requested request, the expected request
+`lock_version`, and a new ready revision. It appends the row, updates the cached
+head pointer and generation, returns the request to `open`, and invalidates all
+prior-generation checks and approvals as current authority while retaining
+them as history. An `out_of_date` request cannot use ordinary head update:
+`:rebase` must atomically set `base_revision_id` to the exact current accepted
+revision and append a new conflict-resolved head generation under one expected
+request lock version.
+
+**`caliber_workspace_change_request_reviewers`** — `WSCRR-*` primary key;
+`change_request_id`; `user_id`; assigned/removed actor and timestamps; active
+flag. An active assignment is unique by request/user. Eligibility is checked
+from live membership and global scopes on assignment and again on review. An
+assigned Reviewer must hold Developer or Admin workspace authority and cannot
+approve a head they authored or imported. Assignment grants no standing
+Workspace permission. Assignment changes are refused once QA apply begins; before
+that boundary, removing the reviewer whose approval satisfied policy recomputes
+the outcome and returns the request from `technically_approved` to `open`.
+
+**`caliber_workspace_change_request_comments`** — `WSCRC-*` primary key;
+`change_request_id`; nullable `head_id` and structured resource/path anchor;
+bounded Markdown body; author and timestamp. Comments are append-only and have
+no edit/delete/resolve operation in the MVP. Secrets and provider payloads are
+rejected or redacted under the same audit-content policy.
+
+**`caliber_workspace_change_request_checks`** — `WSCRCHK-*` primary key;
+non-null `head_id`; closed `check_name`; check implementation version, input
+digest and evidence reference/digest; status in `queued`, `running`, `passed`,
+`failed`, `cancelled`; durable lease fields and timestamps. A partial unique
+index permits one active attempt per `(head_id, check_name)`. Only required
+checks from the policy snapshot bound to that head count toward technical
+approval. Old-head checks remain visible but never satisfy the current head.
+
+**`caliber_workspace_change_request_reviews`** — `WSCRREV-*` primary key;
+non-null `change_request_id`, `head_id`, `reviewer_id`; decision in `approve`,
+`request_changes`; bounded rationale; actor-role/scope snapshot and timestamp.
+Rows are append-only. The current technical outcome is derived only from the
+latest eligible review per assigned reviewer for the current head. A new head
+generation makes all earlier approvals stale by construction. A
+`request_changes` decision before QA apply invalidates any prepared QA release
+for that head. Once the first QA provider effect begins, technical review is
+frozen for that candidate; QA owns the subsequent `go`/`no_go` decision.
+
+**`caliber_workspace_version_claims`** — `WSVC-*` primary key; non-null
+`project_id`, `change_request_id`; canonical SemVer without a `v` prefix;
+status in `reserved`, `accepted`, `abandoned`; actor and timestamps. Unique
+`(project_id, semantic_version)`, with a partial unique index allowing one
+`reserved` claim per Change Request. The string and owner never change. If an
+out-of-date request's version no longer has greater SemVer precedence than the
+highest accepted version, rebase atomically abandons it and reserves a new
+version supplied by the Developer. Closing an unaccepted request abandons its
+active claim. An abandoned version is not reused; this small amount of
+version-number waste avoids ambiguous audit history and race-prone reservation
+recycling.
+
+**`caliber_workspace_version_tags`** — `WSVT-*` primary key; non-null
+`project_id`, `revision_id`, `change_request_id`; canonical immutable `tag`;
+`kind` in `qa_candidate`, `accepted`; and creator/timestamp. Unique
+`(project_id, tag)`. Entering QA creates `<version>-rc.<head_generation>` for the
+exact head. Acceptance creates `<version>` for the same digest and marks the
+claim accepted. Tags cannot be moved or deleted in the MVP. `v` is presentation
+syntax only; API storage and comparison use canonical SemVer.
+
 **`caliber_workspace_environments`** — `WSE-*` primary key; non-null
-`project_id`; `name` (`dev`, `staging`, `prod`); `environment_class`;
-`promotion_order` (10, 20, 30); `status` (`active` or `disabled`); `policy`
+`project_id`; `name` (`dev`, `qa`, `staging`, `prod`); `environment_class`;
+`promotion_order` (10, 20, 30, 40); `status` (`active` or `disabled`); `policy`
 JSON carrying required decision kinds, predecessor requirement, gate
 requirements and rollback policy; `policy_version` and `policy_sha256`;
 non-secret `config_refs`; `config_sha256` included in release evidence;
@@ -1483,7 +1854,7 @@ non-secret `config_refs`; `config_sha256` included in release evidence;
 nullable CAS-protected `current_release_id`; monotonic `lock_version`; audit
 fields.
 
-Unique `(project_id, name)`. Exactly three rows are seeded on Workspace create.
+Unique `(project_id, name)`. Exactly four rows are seeded on Workspace create.
 Database constraints and service validation fix each name to its matching class
 and order; unknown values are rejected rather than classified or silently
 treated as production. The existing classifier remains for legacy aliases and
@@ -1493,11 +1864,14 @@ but cannot remove its required predecessor or human decisions.
 
 **`caliber_workspace_releases`** — `WSREL-*` primary key; `project_id`,
 `revision_id` and `environment_id` as exact release coordinates;
-nullable `predecessor_release_id`; `environment_config_sha256`,
+nullable `change_request_id` and `change_request_head_id` (required for QA and
+protected forward promotion); nullable `version_tag_id` and
+`predecessor_release_id`; `environment_config_sha256`,
 `runtime_dependencies_sha256`, and `policy_sha256` captured before evaluation;
 caller-owned `request_idempotency_key` unique within project;
 `evaluation_evidence_sha256` over the ordered evidence-link set;
-`decision_set_sha256` populated after final approval; `status` for the
+`decision_set_sha256` populated when the environment's required decision set is
+complete (canonical empty set for development/staging); `status` for the
 evaluation/decision state machine below; request/evaluation actors and
 timestamps; monotonic `lock_version` for compare-and-set transitions; bounded
 `error_code` and `error_summary`. Apply actors and provider outcomes do not
@@ -1510,10 +1884,11 @@ stateDiagram-v2
     evaluating --> blocked: operational prerequisite missing
     blocked --> evaluating: same coordinates, blocker resolved
     evaluating --> rejected: machine gate no_go
-    evaluating --> approved: development gate passes
-    evaluating --> awaiting_quality_signoff: staging or production gate passes
+    evaluating --> approved: development or staging gate passes
+    evaluating --> awaiting_quality_signoff: QA or production gate passes
     awaiting_quality_signoff --> rejected: quality no_go
-    awaiting_quality_signoff --> awaiting_approval: quality go
+    awaiting_quality_signoff --> approved: QA quality go
+    awaiting_quality_signoff --> awaiting_approval: production quality go
     awaiting_approval --> rejected: release no_go
     awaiting_approval --> approved: release go
 ```
@@ -1525,8 +1900,16 @@ vocabulary used by every other status column here and by the existing
 valid and a non-content blocker is resolved. Machine or human `rejected` is
 terminal; changed content requires a new revision and release. `approved`
 authorizes creation of an apply operation but does not claim that any provider
-effect occurred. Normal apply requires `approved`. A valid break-glass
-authorization may instead create one operation while a gate-passed release is
+effect occurred. The one normal exception is QA candidate deployment: a QA
+release in `awaiting_quality_signoff` may be applied by Admin after its machine
+gate, technical approval and development predecessor are revalidated, so QA can
+test the actual target. That environment is explicitly test-only, and a
+subsequent `no_go` blocks promotion and leaves the candidate visible until
+rollback or replacement. On QA `go`, the same transaction attempts Change Request
+acceptance; if its base is stale, the QA decision and release remain honest but
+the Change Request becomes `out_of_date` and staging is refused. All other
+normal apply requires `approved`. A valid production break-glass authorization
+may instead create one operation while a production release is
 `awaiting_quality_signoff` or `awaiting_approval`; the release keeps that honest
 decision status and is never relabelled as normally approved.
 
@@ -1569,6 +1952,12 @@ digests; `created_at`. Decisions are append-only. A unique final decision per
 `(workspace_release_id, kind)` is enforced transactionally and by a unique key.
 A `no_go` decision rejects that release. Changing any bound digest requires a
 new evaluation and new decisions rather than mutating an old snapshot.
+QA and production require `quality`; production additionally requires
+`release`. Development and staging require neither human decision on their own
+release row because their predecessor contracts already establish eligibility.
+The QA `quality` decision also binds `change_request_head_id`; production's
+fresh decision binds the production configuration and evidence rather than
+reusing QA's environment-specific assertion.
 
 **`caliber_workspace_break_glass_authorizations`** — `WSBGA-*` primary key;
 non-null `project_id`, `workspace_release_id`, and `environment_id`; mandatory
@@ -1577,7 +1966,8 @@ credential kind and ID; the same revision, environment-config,
 runtime-dependency, gate-evidence and policy digests bound by normal approval;
 `expires_at`; `created_at`. It is
 append-only, can authorize only one apply operation for that exact release, and
-cannot authorize rollback or a different environment. Creation requires an
+can target only the fixed production environment; it cannot authorize rollback
+or a different environment. Creation requires an
 interactive `caliber.admin` credential, a passing machine gate and integrity
 checks, an idle environment, valid CAS expectations, and an explicitly enabled
 Workspace recovery policy. The break-glass endpoint creates the authorization
@@ -1807,7 +2197,7 @@ Manifest rules:
   versions. These are provenance, not proof that GitHub reviewed the change.
 - In push mode the dedicated CI principal is the trust boundary asserting that
   the uploaded bytes match the named commit. If cryptographic commit/review
-  verification is required, staging/production must wait for the later GitHub
+  verification is required, QA/staging/production must wait for the later GitHub
   App pull mode; CALIBER must not overstate a caller-supplied SHA as proof.
 - Later GitHub App webhook delivery must verify signatures, installation/repo
   binding, event replay keys, and commit reachability before queueing an import.
@@ -1825,22 +2215,28 @@ Manifest rules:
   `reconcile_required`, refuse new runs and promotions for that environment.
 - Refuse execution and release operations while an environment is disabled or
   `baseline_required`.
+- Permit an applied QA candidate in `awaiting_quality_signoff` to execute only
+  under QA/runtime-test policy. If QA records `no_go`, block new QA executions
+  and every forward promotion until Admin rolls back or applies a superseding
+  reviewed candidate.
 - Require the same revision digest at each promotion step.
-- Revalidate membership, normal approval or valid single-use break-glass
-  authorization, revision integrity, environment config digest, predecessor
-  evidence, and provider preflight immediately before apply.
+- Revalidate membership, normal approval, narrow QA-candidate eligibility, or
+  valid single-use production break-glass authorization; revision integrity,
+  environment config digest, predecessor evidence, and provider preflight
+  immediately before apply.
 - Store exact before/after refs for every reversible item.
 - If observation cannot distinguish success from failure, use
   `reconcile_required`; do not retry an effect blindly.
 - Rollback creates a new audited Workspace release operation targeting an exact
   prior release. It does not mutate the original release, decrement version
   numbers, or reconstruct state from "latest minus one."
-- Break-glass may substitute for otherwise unavailable human decisions and
-  actor separation only. It never bypasses a failed machine gate, revision or
+- Break-glass may substitute only for fresh production human decisions and
+  actor separation after normal QA acceptance and staging verification. It
+  never bypasses a failed machine gate, revision or
   evidence integrity, workspace isolation, provider preflight, environment
   lock, or stale compare-and-set expectation.
-- Break-glass accepts only a gate-passed release awaiting one or both human
-  decisions. It does not create those decisions or change the release status;
+- Break-glass accepts only a gate-passed production release awaiting one or both
+  production human decisions. It does not create those decisions or change the release status;
   the applied operation and authorization remain the explicit historical basis
   for environment eligibility.
 
@@ -1881,27 +2277,63 @@ sequenceDiagram
     end
 ```
 
-### 11.2 Promotion through environments
+### 11.2 Change review while development continues
+
+```mermaid
+sequenceDiagram
+    participant D as Developer
+    participant API as CALIBER API
+    participant CR as Change Request service
+    participant R as Assigned Reviewer
+    participant DB as CALIBER DB
+
+    D->>API: submit CR(base r39, head r42, version 1.4.0)
+    API->>CR: authorize, reserve version, assign Reviewer
+    CR->>DB: persist CR-17/g1 and required checks
+    R->>API: request changes on g1
+    API->>DB: append review and mark changes_requested
+    Note over D,DB: r42 stays immutable and QA-safe; Workspace authoring remains open
+    D->>API: create/import new package r43
+    D->>API: update CR with expected lock version, head r43
+    API->>DB: append g2 and retain stale g1 checks/reviews as history
+    CR->>DB: run checks bound to g2 digest
+    R->>API: approve g2
+    API->>DB: append technical approval and mark technically_approved
+```
+
+### 11.3 Promotion through environments
 
 ```mermaid
 sequenceDiagram
     participant E as Developer
     participant API as CALIBER API
-    participant R as QA
+    participant R as Assigned Reviewer
+    participant Q as QA
     participant O as Admin
     participant RS as Workspace release service
     participant A as Resource adapters
     participant DB as CALIBER DB
 
-    E->>API: create release(revision, staging, idempotency key)
-    API->>RS: validate coordinates and persist draft
-    API-->>E: draft release
-    E->>API: evaluate release
+    E->>API: create/evaluate/apply release(head, dev)
+    API->>RS: pass development gate and move dev pointer
+    R->>API: technically approve exact Change Request head
+    O->>API: create/evaluate/apply release(head, qa)
+    API->>RS: validate technical approval and exact dev predecessor
+    API-->>Q: QA release awaiting_quality_signoff
+    Q->>API: quality sign-off with rationale
+    API->>RS: append decision and CAS-accept Change Request base to head
+    RS->>DB: create immutable accepted version tag
+    O->>API: create/evaluate/apply accepted revision to staging
+    API->>RS: validate QA predecessor, accepted digest and staging config
+    RS->>DB: settle staging checks and move staging pointer
+    O->>API: create production release for same digest
+    API->>RS: validate staging predecessor and persist draft
+    O->>API: evaluate production release
     API->>RS: validate ready revision, predecessor, config and model digests
     RS->>DB: persist/replay evaluation attempt, then dispatch under a lease
     RS->>DB: settle attempt and persist release plan and gate evidence
-    API-->>E: blocked, rejected, or awaiting_quality_signoff
-    R->>API: quality sign-off with rationale
+    API-->>O: blocked, rejected, or awaiting_quality_signoff
+    Q->>API: fresh production quality sign-off with rationale
     API->>RS: enforce role, scope, and distinct actor
     RS->>DB: append quality decision snapshot
     O->>API: final release approval with rationale
@@ -1922,7 +2354,7 @@ sequenceDiagram
     end
 ```
 
-### 11.3 Runtime execution
+### 11.4 Runtime execution
 
 ```mermaid
 sequenceDiagram
@@ -1968,7 +2400,7 @@ boundary itself is reliable.
 | `GET /projects` | Visible workspaces; explicit library mode remains separate | authenticated read |
 | `GET /admin/projects` | Metadata-only operational inventory; never resource content | `caliber.admin` |
 | `POST /projects` | Create workspace and transactionally seed primary Admin + fixed environments | pre-membership `project.create`; **both** operator and approver scopes |
-| `GET /projects/{id}` | Details, capabilities, current revision, environment summary | `read` |
+| `GET /projects/{id}` | Details, capabilities, accepted revision, open-request summary and environment pointers | `read` |
 | `PATCH /projects/{id}` | Name and description only | `project.update` |
 | `POST /projects/{id}/archive` / `restore` | Explicit lifecycle transition | `project.archive` / `project.restore` |
 | `POST /projects/{id}/transfer-ownership` | Atomic owner transfer to an active eligible member | `project.transfer_owner` |
@@ -1985,6 +2417,23 @@ boundary itself is reliable.
 | `GET /projects/{id}/revisions/{revision_id}` | Revision, pins, validation | `read` |
 | `GET /projects/{id}/revisions/{revision_id}/diff?base=...` | Deterministic pin/content diff | `read` |
 | `POST /projects/{id}/revisions:snapshot` | Snapshot selected CALIBER-managed versions | `revision.create` |
+| `GET /projects/{id}/change-requests` | Cursor-paged requests with filters for status, author, reviewer and version | `read` |
+| `GET /projects/{id}/change-requests/{cr_id}` | One request with current head, capabilities and state summary | `read` |
+| `POST /projects/{id}/change-requests` | Create draft with ready base/head, reserve semantic version and assign Reviewer | `change_request.create` |
+| `POST /projects/{id}/change-requests/{cr_id}:submit` | Validate current base, assignments and policy; start head checks | `change_request.update` |
+| `POST /projects/{id}/change-requests/{cr_id}:update-head` | Append a ready revision as the next head generation using ETag/lock version | `change_request.update` |
+| `POST /projects/{id}/change-requests/{cr_id}:rebase` | From `out_of_date`, atomically replace the base, append a conflict-resolved head and, when required, abandon/reserve the semantic version | `change_request.update` |
+| `POST /projects/{id}/change-requests/{cr_id}:close` | Close without acceptance; preserve/burn the version claim | owner `change_request.update` or Admin `change_request.manage` |
+| `GET /projects/{id}/change-requests/{cr_id}/comments` | Cursor-paged append-only discussion | `read` |
+| `POST /projects/{id}/change-requests/{cr_id}/comments` | Add a comment, optionally anchored to a head/resource | `change_request.comment` |
+| `GET /projects/{id}/change-requests/{cr_id}/reviewers` | Active and historical technical Reviewer assignments | `read` |
+| `PUT /projects/{id}/change-requests/{cr_id}/reviewers/{user_id}` | Assign an eligible technical Reviewer | `change_request.manage` |
+| `DELETE /projects/{id}/change-requests/{cr_id}/reviewers/{user_id}` | Remove a Reviewer without deleting history | `change_request.manage` |
+| `GET /projects/{id}/change-requests/{cr_id}/reviews` | Cursor-paged technical-review history | `read` |
+| `POST /projects/{id}/change-requests/{cr_id}/reviews` | Append `approve`/`request_changes` for the exact current head | `change_request.review` |
+| `GET /projects/{id}/change-requests/{cr_id}/checks` | Cursor-paged head-bound check attempts and evidence | `read` |
+| `GET /projects/{id}/version-tags` | Cursor-paged immutable candidate/accepted tag history | `read` |
+| `GET /projects/{id}/version-tags/{tag}` | Exact tag, package digest and source Change Request | `read` |
 | `GET /projects/{id}/environments` | Environment state and current release | `read` |
 | `GET /projects/{id}/environments/{name}` | One environment — required for recoverability | `read` |
 | `PATCH /projects/{id}/environments/{name}` | Tightening policy and non-secret config refs with ETag; fixed identity fields are not writable | `environment.manage` |
@@ -1999,9 +2448,9 @@ boundary itself is reliable.
 | `POST /projects/{id}/releases/{release_id}/evaluate` | Create/replay a durable deterministic evaluation attempt | `release.evaluate` |
 | `GET /projects/{id}/releases/{release_id}/evaluations` | Cursor-paged evaluation attempts for recovery and audit | `read` |
 | `GET /projects/{id}/releases/{release_id}/evaluations/{evaluation_id}` | One attempt, linked runs and gate result | `read` |
-| `POST /projects/{id}/releases/{release_id}/quality-signoff` | QA `go` or `no_go` decision | `release.quality_signoff` |
+| `POST /projects/{id}/releases/{release_id}/quality-signoff` | QA `go` or `no_go`; QA-environment `go` attempts Change Request acceptance, production `go` advances to Admin decision | `release.quality_signoff` |
 | `POST /projects/{id}/releases/{release_id}/approve` | Admin final `go` or `no_go` decision | `release.approve` |
-| `POST /projects/{id}/releases/{release_id}/apply` | Create an apply operation for an approved release | `release.apply` |
+| `POST /projects/{id}/releases/{release_id}/apply` | Create an apply operation for an approved release, or the narrowly eligible QA candidate described in section 5.3 | `release.apply` |
 | `GET /projects/{id}/release-operations` | Cursor-paged operations, filterable by release/environment/kind/state | `read` |
 | `GET /projects/{id}/release-operations/{operation_id}` | Parent operation and cursor/page-safe child outcomes | `read` |
 | `POST /projects/{id}/release-operations/{operation_id}:reconcile` | Observe/settle an ambiguous operation | `release.reconcile` |
@@ -2016,7 +2465,7 @@ primary ownership. Platform recovery is a different, explicitly audited
 break-glass operation; ordinary transfer never requires or confers global admin.
 
 Create must transactionally create the primary-owner membership and the fixed
-`dev`, `staging`, and `prod` rows; a failed seed leaves no partial workspace.
+`dev`, `qa`, `staging`, and `prod` rows; a failed seed leaves no partial workspace.
 The creator must already hold both required global scopes. Every mutation accepts an
 idempotency key where retries can cross an external effect. Apply also requires
 `expected_current_release_id` and `expected_lock_version`; stale or non-idle
@@ -2170,6 +2619,12 @@ client.workspaces                         # same object as client.projects
 │   └── list, get, create, reconcile, wait
 ├── revisions
 │   └── list, iter_all, get, diff, snapshot
+├── change_requests
+│   └── list, iter_all, get, create, submit, update_head, rebase, close,
+│       list_comments, comment, list_reviewers, assign_reviewer,
+│       remove_reviewer, list_reviews, review, list_checks, wait_for_checks
+├── version_tags
+│   └── list, iter_all, get
 ├── environments
 │   └── list, get, update, enable, disable, rollback
 ├── rework_tasks
@@ -2242,7 +2697,11 @@ explicit project ID even inside a different ambient scope.
 
 Add frozen dataclasses in `models/workspaces.py`: `WorkspaceSource`,
 `WorkspaceRevisionImport`, `WorkspaceRevision`, `WorkspaceRevisionResource`,
-`WorkspaceRevisionDiff`, `WorkspaceEnvironment`, `WorkspaceRelease`,
+`WorkspaceRevisionDiff`, `WorkspaceChangeRequest`,
+`WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReviewer`,
+`WorkspaceChangeRequestComment`, `WorkspaceChangeRequestCheck`,
+`WorkspaceChangeRequestReview`, `WorkspaceVersionClaim`,
+`WorkspaceVersionTag`, `WorkspaceEnvironment`, `WorkspaceRelease`,
 `WorkspaceReleaseEvidence`, `WorkspaceReleaseDecision`,
 `WorkspaceReleaseEvaluation`, `WorkspaceBreakGlassAuthorization`,
 `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `ReworkTask`,
@@ -2258,6 +2717,10 @@ state.
 Complex mutations use typed request models rather than open dictionaries:
 `TransferWorkspaceOwnershipRequest`, `ConfigureWorkspaceSourceRequest`,
 `CreateRevisionImportRequest`, `SnapshotWorkspaceRevisionRequest`,
+`CreateWorkspaceChangeRequestRequest`, `SubmitWorkspaceChangeRequestRequest`,
+`UpdateWorkspaceChangeRequestHeadRequest`, `RebaseWorkspaceChangeRequestRequest`,
+`CommentOnWorkspaceChangeRequestRequest`,
+`ReviewWorkspaceChangeRequestRequest`, `AssignWorkspaceChangeRequestReviewerRequest`,
 `UpdateWorkspaceEnvironmentRequest`, `CreateWorkspaceReleaseRequest`,
 `EvaluateWorkspaceReleaseRequest`, `QualitySignoffRequest`,
 `ApproveWorkspaceReleaseRequest`,
@@ -2277,7 +2740,8 @@ a server returning an unchanged `next_cursor`. The existing offset-based
 
 Every durable lifecycle creator or externally effective mutation requires an
 `idempotency_key` argument: revision import, import reconciliation and snapshot;
-release request and evaluation; quality sign-off and final approval; apply,
+Change Request create/submit/head update/comment/review/close; release request
+and evaluation; quality sign-off and final approval; apply,
 rollback, operation reconciliation; rework resolution; and break-glass apply. The SDK sends
 it as `Idempotency-Key` and **does not silently generate one** — a generated
 value cannot protect a caller retrying after process failure. Empty or
@@ -2313,8 +2777,8 @@ not happen.
 
 Every error retains status, method, URL, request ID, and safe payload, and
 redacts authorization, cookies, bundle bytes, and secret-bearing metadata.
-Lifecycle outcomes such as `blocked`, `awaiting_quality_signoff`,
-`awaiting_approval` and
+Lifecycle outcomes such as `changes_requested`, `out_of_date`, `blocked`,
+`awaiting_quality_signoff`, `awaiting_approval` and
 `reconcile_required` are valid server states, **not HTTP errors**.
 
 ### 13.7 Waiters
@@ -2325,6 +2789,7 @@ never poll past a durable state that requires a human or a separate command.
 | Waiter | Continue while | Return successfully when | Raise |
 | --- | --- | --- | --- |
 | `imports.wait` | `queued`, `running` | `succeeded` | `failed`; `reconcile_required` raises a distinct attention exception |
+| `change_requests.wait_for_checks` | Any required current-head check is missing, `queued`, or `running` | All required current-head checks are terminal, including a returned failed summary | malformed/unknown check response |
 | `releases.wait_for_evaluation` | `draft`, `evaluating` | `blocked`, `awaiting_quality_signoff`, `awaiting_approval`, `approved`, `rejected` | malformed/unknown response; server attempt failures settle the release as `blocked` |
 | `release_operations.wait_for_apply` | `prepared`, `applying` | `applied` | `failed` or `cancelled`; distinct attention exception for `reconcile_required` |
 | `release_operations.wait_for_rollback` | `prepared`, `applying` | `applied` | `failed` or `cancelled`; distinct attention exception for `reconcile_required` |
@@ -2365,9 +2830,9 @@ iterator-protocol differences. Every model and exception type is shared.
 | `client.py` | Expose `workspaces`, add concurrency-safe `workspace_scope`, `project_scope` delegate, `library_scope` |
 | `transport.py` | Tri-state per-request project override and header conflict validation |
 | `resources/projects.py` | Preserve current API, attach sub-resources, add conveniences and aliases |
-| `resources/workspaces.py` | Sync members/source/import/revision/environment/rework/release/operation sub-resources |
+| `resources/workspaces.py` | Sync members/source/import/revision/Change Request/version/environment/rework/release/operation sub-resources |
 | `models/common.py` | Add `CursorPage[T]` without changing the existing offset `Page` contract |
-| `models/workspaces.py` | Response/request models and nested decoders |
+| `models/workspaces.py` | Response/request models and nested decoders, including Change Request/version history |
 | `_workspace_contract.py` | Shared path builders, state policies, headers, serialization |
 | `aio/client.py`, `aio/workspaces.py`, `aio/transport.py` | Async client, complete async tree, matching override and multipart behavior |
 | `errors.py` | Precondition and reason-code support |
@@ -2387,8 +2852,11 @@ from caliber_sdk import (
     CaliberClient,
     ConfigureWorkspaceSourceRequest,
     CreateRevisionImportRequest,
+    CreateWorkspaceChangeRequestRequest,
     CreateWorkspaceReleaseRequest,
     EvaluateWorkspaceReleaseRequest,
+    ReviewWorkspaceChangeRequestRequest,
+    SubmitWorkspaceChangeRequestRequest,
 )
 
 client = CaliberClient()  # authenticated user has operator + approver scopes
@@ -2430,6 +2898,24 @@ revision = client.workspaces.revisions.get(
     workspace.project_id, import_job.revision_id
 )
 
+change = client.workspaces.change_requests.create(
+    workspace.project_id,
+    CreateWorkspaceChangeRequestRequest(
+        base_revision_id=workspace.accepted_revision_id,
+        head_revision_id=revision.revision_id,
+        semantic_version="1.4.0",
+        reviewer_ids=["developer-reviewer@example.com"],
+        title="Add pricing policy application",
+    ),
+    idempotency_key=f"cr:{revision.revision_id}",
+)
+change = client.workspaces.change_requests.submit(
+    workspace.project_id,
+    change.change_request_id,
+    SubmitWorkspaceChangeRequestRequest(expected_lock_version=change.lock_version),
+    idempotency_key=f"submit:{change.change_request_id}:g1",
+)
+
 release = client.workspaces.releases.request(
     workspace.project_id,
     CreateWorkspaceReleaseRequest(
@@ -2464,8 +2950,33 @@ operation = client.workspaces.release_operations.wait_for_apply(
 )
 ```
 
-The same lifecycle is available asynchronously. Staging and production approval
-is shown in **separate reviewer-authenticated code**, because SDK objects must
+At this point the Developer can start another draft or package: `revision` and
+the Change Request head cannot be changed underneath review. The assigned
+Reviewer, QA and Admin continue with **separately authenticated clients**:
+
+```python
+# reviewer_client: assigned Developer/Admin, not the head author/importer
+reviewer_client.workspaces.change_requests.review(
+    workspace.project_id,
+    change.change_request_id,
+    ReviewWorkspaceChangeRequestRequest(
+        head_id=change.current_head.head_id,
+        decision="approve",
+        rationale="Contract and deterministic checks reviewed",
+    ),
+    idempotency_key=f"review:{change.current_head.head_id}:approve",
+)
+
+# admin_client applies the exact head to qa; qa_client evaluates and signs it.
+# The QA go decision atomically accepts the Change Request if its base is current.
+# admin_client then applies the accepted tag to staging and, after fresh
+# production evaluation plus QA and Admin decisions, to prod.
+```
+
+The examples package must include the complete executable multi-client journey,
+including a request-changes/new-head generation, QA acceptance, staging,
+production and rollback; this excerpt keeps the primary developer path
+readable. The same lifecycle is available asynchronously. SDK objects must
 never imply that one process identity can bypass separation of duties.
 
 ### 13.11 Capability behavior
@@ -2495,10 +3006,12 @@ stable. They are thin delegates to the same typed CALIBER SDK methods rather
 than a separately generated client or hand-written HTTP implementation; the
 repository has no general SDK-to-CLI generator today.
 
-Requirements: bounded import, status, release, approve, apply, and rollback
-commands; documented exit-state mapping that exposes pending, blocked, and
-reconcile-required as **distinct non-success states** rather than collapsing
-them into a generic failure; and no local authorization logic.
+Requirements: bounded import, package, Change Request create/update/review,
+version-history, status, release, approve, apply, and rollback commands;
+documented exit-state mapping that exposes pending, changes-requested,
+out-of-date, blocked, and reconcile-required as **distinct non-success states**
+rather than collapsing them into a generic failure; and no local authorization
+logic.
 
 ## 15. Migration strategy
 
@@ -2518,19 +3031,21 @@ them into a generic failure; and no local authorization logic.
 ### 15.2 Sequence
 
 1. Add project/audit columns and the Workspace idempotency ledger, then
-   source/import/revision/revision-resource,
-   environment, and rework tables. Add
+   source/import/revision/revision-resource, Change Request/head/review/check,
+   version claim/tag, environment, and rework tables. Add
    release/evaluation/evidence/decision/break-glass tables and
    release-operation/item tables next; only then add the nullable rework-task
    release FK and exactly-one-source check. Create `current_release_id` and
    `pending_operation_id` as nullable environment columns first and add their
    foreign keys only after the referenced tables exist; do not rely on ORM
-   declaration order for the circular relationships. Add nullable lineage
+   declaration order for the circular relationships. Likewise add
+   `accepted_revision_id` nullable before the revision table and add its FK only
+   in Phase 4 after backfill validation. Add nullable lineage
    columns to existing tables in the same additive stage.
 2. Backfill `slug` from project ID/name with deterministic collision suffixes;
    do not alter display names.
-3. Create fixed `dev`, `staging` and `prod` rows for each project. For new
-   Workspaces, make dev active and staging/prod disabled. For existing projects,
+3. Create fixed `dev`, `qa`, `staging` and `prod` rows for each project. For new
+   Workspaces, make dev active and qa/staging/prod disabled. For existing projects,
    record detected aliases as reconciliation evidence but set every detected
    live target to `baseline_required`; do not create a `current_release_id`
    until an Admin verifies the complete aggregate baseline.
@@ -2542,8 +3057,12 @@ them into a generic failure; and no local authorization logic.
    unresolved. Produce a report; do not guess.
 7. Create CALIBER-managed baseline revisions only for projects whose selected
    versions and dependencies resolve completely and reconstructably. Leave
-   others without a current revision and report the blocker; never infer that a
-   provider alias represents a complete aggregate release.
+   others without an accepted revision and report the blocker; never infer that
+   a provider alias represents a complete aggregate release. A one-time,
+   Admin-verified migration operation may initialize `accepted_revision_id`
+   with an explicit `migration_baseline` audit event; it does not fabricate a
+   Change Request, QA decision or semantic-version tag. The next normal Change
+   Request uses that revision as its base.
 8. Change creation paths to require a workspace for workspace-owned assets.
 9. Add FKs and composite uniqueness in separate migrations after the exception
    inventory is zero for the affected table.
@@ -2590,7 +3109,7 @@ flowchart LR
   P0[Phase 0 - contracts and inventory] --> P1[Phase 1 - foundation and authorization]
   P1 --> P2[Phase 2 - isolation closure]
   P1 --> P3[Phase 3 - rework loop]
-  P2 --> P4[Phase 4 - revisions and import]
+  P2 --> P4[Phase 4 - revisions, change review and import]
   P3 --> P5[Phase 5 - releases and rollback]
   P4 --> P5
   P5 --> P6[Phase 6 - SDK completeness]
@@ -2615,8 +3134,8 @@ combined with a later slice merely to reduce PR count.
 | Slice | Owner | Concrete deliverable | Depends on | Exit/rollback gate |
 | --- | --- | --- | --- | --- |
 | `P0-A` | Architecture + security | Machine-readable route/resource/worker/action inventory; resolve every open policy choice | — | Inventory covers every protected route and external effect; document review approved |
-| `P0-B` | API + SDK | OpenAPI shapes, closed actions, errors, pagination, ETag/CAS/idempotency contracts, manifest schema and golden vectors | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
-| `P1-A` | Data/backend | Add project slug/counter/archive/audit fields, the Workspace idempotency ledger, and fixed environment rows; deterministic backfill, safe baseline state, and PostgreSQL migration CI | `P0-B` | Fresh/upgrade parity on SQLite and real PostgreSQL; idempotency conflict/replay is durable; new Workspace seeds dev active and staging/prod disabled; migrated live aliases remain `baseline_required` |
+| `P0-B` | API + SDK | OpenAPI shapes, closed actions, errors, pagination, ETag/CAS/idempotency contracts, Change Request/version contracts, manifest schema and golden vectors | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
+| `P1-A` | Data/backend | Add project slug/counter/accepted-pointer/archive/audit fields, the Workspace idempotency ledger, and fixed environment rows; deterministic backfill, safe baseline state, and PostgreSQL migration CI | `P0-B` | Fresh/upgrade parity on SQLite and real PostgreSQL; idempotency conflict/replay is durable; new Workspace seeds dev active and qa/staging/prod disabled; migrated live aliases remain `baseline_required` |
 | `P1-B` | Security/backend | Closed action enum, deny-by-default decision service, all-scope conjunction support, stable reasons, and removal of ordinary platform-admin owner bypass | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; policy errors never fall back to legacy allow |
 | `P1-C` | Auth/backend | Eligible multiple-Admin membership, one primary-owner invariant, project-bound PAT/credential context, transfer, explicit archive/restore, Admin metadata inventory, and capability projection | `P1-B` | PAT cannot cross workspace; scope-ineligible role grants fail; primary owner transfer is atomic; secondary Admin does not change primary owner |
 | `P2-A` | Backend | Convert root routes by resource family to centralized authorization and non-null-on-create workspace ownership | `P1-C` | Each converted family has two-workspace CRUD/child-ID tests; unconverted routes remain inventoried and flagged |
@@ -2626,19 +3145,20 @@ combined with a later slice merely to reduce PR count.
 | `P4-A` | Data/backend | Source/import/revision/resource schema, portable CAS revision allocator, immutable terminal rows and snapshot-retention guards | `P2-B`, `P2-C` | Concurrent snapshots allocate unique monotonic numbers with allowed gaps on SQLite/PostgreSQL; schema remains dormant behind flags |
 | `P4-B` | Import/backend | Manifest/archive limits, canonical retained source snapshot and commit-equivocation guard, reconstructable adapter snapshots, model dependency, and durable import leases | `P4-A` | Golden tree/revision digests stable across archive metadata; mutable rows cannot masquerade as pins; malformed/ambiguous inputs fail closed; worker death resumes or reconciles |
 | `P4-C` | API/integration | Source transitions, import/reconcile and revision list/get/diff/snapshot routes, cursor pages, push Action example | `P4-B` | Lost clients rediscover and reconcile jobs; source mode cannot switch with in-flight work; ordinary tests need no network |
-| `P5-A` | Data/backend | Release/evaluation/evidence/decision/break-glass plus operation/item schema and two literal state-machine services | `P3-A`, `P4-C` | Model-based tests reject every illegal decision/operation edge; durable evaluation attempts recover after worker loss; development can reach approved without human decisions; no provider calls yet |
+| `P4-D` | Data/API/security | Change Request/head/comment/check/review and version claim/tag schema, services, routes, stale-base CAS and approval invalidation | `P4-C`, `P1-C` | Parallel-request tests prevent lost acceptance; new heads invalidate authority but preserve history; non-author review and immutable tag rules deny fail-closed |
+| `P5-A` | Data/backend | Release/evaluation/evidence/decision/break-glass plus operation/item schema and two literal state-machine services | `P3-A`, `P4-D` | Model-based tests reject every illegal decision/operation edge; durable evaluation attempts recover after worker loss; development/staging can reach approved under their predecessor policy; no provider calls yet |
 | `P5-B` | Security/backend | Gate binding, QA quality decision, Admin final decision, actor provenance and interactive break-glass | `P5-A` | Both decisions are digest-bound and append-only; author/requester self-approval and non-interactive break-glass deny |
 | `P5-C` | Release/integrations | Prepare/apply/observe/reconcile/rollback adapters, intent-first release operations, environment lock/pending-operation state and CAS | `P5-B` | Timeout-before/after-effect and partial-child tests never report false success; rollback leaves original release immutable; degraded environment blocks runs |
 | `P5-D` | Runtime/observability | Stamp release/revision/environment/model/config lineage on runs, evidence and provider operations | `P5-C` | One query reconstructs what executed and why it was eligible; missing lineage fails strict execution |
 | `P6-A` | SDK | Concurrency-safe tri-state scope, shared models/errors/contracts, sync/async resource skeleton | `P0-B` | Legacy SDK tests and signature-normalization tests pass; no unsupported public lifecycle method is exported |
-| `P6-B` | SDK + API | Typed members/source/import/revision/environment/rework/release/operation methods, cursor pages and waiters, delivered with corresponding route coverage | `P4-C`, `P5-D`, `P6-A` | OpenAPI inventory has no untracked Workspace route; examples drive a development release without raw HTTP |
+| `P6-B` | SDK + API | Typed members/source/import/revision/Change Request/version/environment/rework/release/operation methods, cursor pages and waiters, delivered with corresponding route coverage | `P4-D`, `P5-D`, `P6-A` | OpenAPI inventory has no untracked Workspace route; examples drive package, review and development release without raw HTTP |
 | `P6-C` | SDK/docs | Async parity, packaging, executable examples, CLI delegates and compatibility/deprecation notes | `P6-B` | Wheel inspected; sync/async semantic parity and docs contracts pass; pending states retain typed meaning |
 | `P7-A` | Data/operations | Production-like inventory, exception resolution, baseline revisions, backup/restore and feature flags | `P6-C` | Zero unexplained ownership/collision rows; disabling flags stops new effects without hiding history |
 | `P7-B` | Operations + product | One-workspace pilot, failure/reconciliation/rollback drills, telemetry thresholds and go/no-go review | `P7-A` | Commit-to-production-to-rollback journey passes; human rollout decision recorded; PR remains reversible by flags |
 
 Milestones are evidence boundaries: `M1 = P1-C` provides a trustworthy workspace
-administration foundation; `M2 = P2-C` closes isolation; `M3 = P4-C` provides
-immutable revisions/import; `M4 = P5-D` provides governed release; `M5 = P6-C`
+administration foundation; `M2 = P2-C` closes isolation; `M3 = P4-D` provides
+immutable packages/import and PR-like review; `M4 = P5-D` provides governed release; `M5 = P6-C`
 provides complete SDK/CLI consumption; `M6 = P7-B` is the controlled production
 readiness decision. Reaching an earlier milestone must be reported as partial,
 not as complete Workspace support.
@@ -2663,7 +3183,7 @@ not as complete Workspace support.
    streaming behavior.
 7. Create deterministic fixtures: two workspaces with colliding logical names,
    a primary and secondary Admin, Developer, QA, Viewer, scope-ineligible user,
-   three fixed environments, a provider-only prompt, mutable judge/tool rows, a
+   four fixed environments, a provider-only prompt, mutable judge/tool rows, a
    shared catalog resource, a partial provider effect, and legacy null rows.
 8. Freeze the two typed decision contracts (QA quality sign-off, Admin final
    approval), the one actor-separation axis, the release-versus-operation state
@@ -2671,6 +3191,9 @@ not as complete Workspace support.
 9. Freeze each MVP adapter's reconstructability strategy: immutable source
    reference, content-addressed snapshot, or explicit refusal. “Digest only” is
    not an allowed strategy for a mutable source row.
+10. Freeze Change Request base/head, head-generation invalidation, Reviewer
+    eligibility, stale-base CAS, SemVer reservation/tag and QA-acceptance
+    contracts with model-based transition fixtures.
 
 **Acceptance:** every protected operation has one inventory row; every
 workspace-owned model is classified; manifest canonicalization has golden
@@ -2688,28 +3211,30 @@ Primary areas: `db/models.py`, `db/migrations/versions/`, `schemas.py`,
 1. Add project slug, source mode, archive provenance, audit correlation, and
    environment tables.
 2. Make Workspace creation require operator **and** approver, then seed the
-   primary Admin membership plus fixed dev/staging/prod environments in the same
-   transaction. New dev is active; staging/prod are disabled.
-3. Backfill existing workspaces and environment rows additively.
-4. Replace free-form action strings with a closed `WorkspaceAction` registry,
+   primary Admin membership plus fixed dev/qa/staging/prod environments in the same
+   transaction. New dev is active; qa/staging/prod are disabled.
+3. Extend the closed environment-class registry with `qa`; retain legacy alias
+   behavior only for old routes and reject unknown names in Workspace APIs.
+4. Backfill existing workspaces and environment rows additively.
+5. Replace free-form action strings with a closed `WorkspaceAction` registry,
    including the `resource.write.runtime` / `resource.write.evidence` split and
    `feedback.submit` from section 2.4.
-5. Add conjunction-safe global-scope checks, target eligibility on role grants,
+6. Add conjunction-safe global-scope checks, target eligibility on role grants,
    multiple Admin collaborators, and the single primary-owner invariant.
-6. Add optional PAT project binding and identity credential context; require
+7. Add optional PAT project binding and identity credential context; require
    project-bound PATs for CI import.
-7. Implement `authorize(...)` per section 5.4 with stable reason codes.
-8. Preserve `require_project_access` as a compatibility wrapper over the new
+8. Implement `authorize(...)` per section 5.4 with stable reason codes.
+9. Preserve `require_project_access` as a compatibility wrapper over the new
    decision service.
-9. Add primary-owner transfer, additional-Admin membership, explicit
+10. Add primary-owner transfer, additional-Admin membership, explicit
    environment enable/disable, and archive/restore transitions with audit
    records.
-10. Return effective capabilities from workspace and environment responses.
-11. Remove the platform-admin-to-owner shortcut from ordinary decisions and
+11. Return effective capabilities from workspace and environment responses.
+12. Remove the platform-admin-to-owner shortcut from ordinary decisions and
     deny workspace writes when no active workspace is supplied.
-12. Add a metadata-only platform Admin inventory and keep resource content
+13. Add a metadata-only platform Admin inventory and keep resource content
     behind ordinary membership or explicit audited recovery.
-13. Add reusable actor-provenance and distinct-actor policy primitives; release
+14. Add reusable actor-provenance and distinct-actor policy primitives; release
     enforcement lands with the release records in Phase 5.
 
 **Acceptance:** existing `/projects`, membership, SDK and header wire shapes
@@ -2779,10 +3304,11 @@ the automated self-correction loop escalates to a human rather than terminating
 silently. Phase 5 acceptance extends the same invariant to Workspace revisions,
 releases, and immutable release decisions.
 
-### Phase 4 — immutable revisions and GitHub push import
+### Phase 4 — immutable packages, Change Requests, and GitHub push import
 
 **Outcome:** a commit or selected CALIBER versions produce a deterministic,
-immutable workspace revision.
+immutable application package that can be reviewed without blocking continued
+development.
 
 1. Add source, import-job, revision and revision-resource tables plus ID
    generators and schemas.
@@ -2797,7 +3323,7 @@ immutable workspace revision.
    accepted by digest alone. MCP connection credentials remain platform state;
    the revision pins only the approved connection identity and policy snapshot.
 5. Add an immutable runtime-model dependency adapter and reject mutable model
-   aliases for staging/production eligibility.
+   aliases for QA/staging/production eligibility.
 6. Persist the deterministic content-addressed source snapshot, bind its
    canonical tree digest to the claimed repository/commit, and reject
    conflicting canonical content for an already observed commit.
@@ -2810,6 +3336,22 @@ immutable workspace revision.
     plus audit events.
 11. Enforce source-mode transition rules and Git-managed authority: local drafts
     are non-promotable beyond development until imported from a commit.
+12. Add Change Request, append-only head generation, reviewer assignment,
+    comment, check, review, version claim and immutable version-tag models.
+13. Implement create/submit/update-head/rebase/close, comment, reviewer, review and
+    check-history APIs; bind every check and review to the exact current head.
+14. Implement technical approval, default approval invalidation on a new head,
+    stale-base detection and rebase contracts. Add and test the transactional
+    acceptance primitive, but keep it unreachable from the public API until
+    Phase 5 can supply valid QA release evidence. For Git-managed requests,
+    require conflict resolution in Git; for CALIBER-managed requests, require a
+    new snapshot from the current accepted baseline.
+15. Reserve one canonical SemVer per submitted request and implement the
+    immutable version-tag repository. Phase 5 creates
+    `<version>-rc.<generation>` on QA entry and the final tag on QA-backed
+    acceptance. Enforce greater-than-current accepted precedence; an out-of-date
+    rebase may abandon and replace its active reservation, but never reuse an
+    abandoned claim.
 
 **Acceptance:** identical canonical source and pins return the same revision and
 idempotent job; path traversal, archive bomb, symlink, secret literal, unknown
@@ -2819,6 +3361,12 @@ fail closed; a ready revision contains every required exact version/snapshot and
 content digest; provider ambiguity is `reconcile_required`, not success or blind retry;
 revision rows reject mutation after terminal validation; provenance is visible;
 and import requires no network or credentials in ordinary tests.
+Two parallel Change Requests cannot overwrite the accepted baseline: exactly
+one acceptance-primitive compare-and-set may win and the other becomes
+`out_of_date`; a head update
+preserves old checks and reviews but none remains authoritative; self-review,
+unassigned review, stale-head review, moved/deleted tag, duplicate version and
+version-reuse attempts deny deterministically.
 
 Adapter delivery is incremental and feature-flagged, not one mega-PR. The
 controlled pilot starts with one Agent/Workflow, Prompt, Tool, Test Set, model
@@ -2830,21 +3378,26 @@ ready revision with a silently omitted declaration.
 
 ### Phase 5 — environment releases and rollback
 
-**Outcome:** the same workspace revision can move through development, staging
-and production under explicit policy.
+**Outcome:** the same workspace revision can move through development, QA,
+staging and production under explicit policy.
 
 1. Add Workspace release, durable evaluation, evidence, typed decision,
    break-glass authorization, release-operation and operation-item models,
    schemas, services and routes.
 2. Reuse existing release candidates as many-row artifact-level evidence links
    without changing their one-artifact/one-legacy-signoff semantics.
-3. Implement predecessor and same-digest rules for dev → staging → prod.
-4. Implement QA quality sign-off, Admin final approval, their role-specific
+3. Implement predecessor and same-digest rules for dev → qa → staging → prod,
+   requiring technical approval before QA and accepted-package state before
+   staging.
+4. Implement QA quality sign-off in QA and production, Admin final production
+   approval, their role-specific
    author/requester-versus-decision-maker checks, and the immutable,
    expiring, single-use interactive break-glass authorization record and audit.
-5. Make a passing development evaluation become `approved` without human
-   decisions; staging/production enter the two-decision path. Machine or human
-   rejection is terminal and creates a rework task.
+5. Make passing development and staging evaluations become `approved` under
+   their predecessor policy; QA entry creates the immutable candidate tag, then
+   quality sign-off atomically attempts Change Request acceptance, creates the
+   final tag and settles the version claim; production waits for fresh QA and Admin decisions.
+   Machine or human rejection is terminal and creates a rework task.
 6. Add adapter-backed prepare/apply/observe/rollback for each deployable family;
    classify evidence-only items as verified no-ops.
 7. Add environment operation state, pending-operation pointer, lock-version CAS,
@@ -2856,13 +3409,15 @@ and production under explicit policy.
 10. Stamp workspace revision, environment, release and operation IDs on workflow runs and
    provider evidence.
 
-**Acceptance:** staging cannot accept a revision not successfully deployed in
-development; production cannot accept a different revision or runtime-model
-digest from verified staging, and its release must be freshly evaluated and
-approved against production's own environment-config digest; a runtime/source
+**Acceptance:** QA cannot accept a head without successful development,
+required checks and non-author technical review; staging cannot accept a
+revision that is not the exact QA-approved and accepted package; production
+cannot accept a different revision or runtime-model digest from verified
+staging, and its release must be freshly evaluated and approved against
+production's own environment-config digest; a runtime/source
 author or requester cannot provide final approval, while an eligible Admin may
 both approve and apply; QA quality and Admin release decisions are separately
-queryable and digest-bound; break-glass is disabled by default, requires an
+queryable and digest-bound; production break-glass is disabled by default, requires an
 interactive global-admin credential and explicit one-release recovery policy,
 cannot use a PAT/service token, cannot bypass a failed machine gate or integrity
 check, expires, and emits a high-severity audit event;
@@ -2889,8 +3444,8 @@ outcome.
    transfer, and source get/configure/enable/disable with ETags; implement async root,
    member, storage and file parity.
 5. Implement sync and async import list/get/create/reconcile, multipart plus
-   digest-safe replay, import waiters, and revision
-   list/iterate/get/diff/snapshot.
+   digest-safe replay, import waiters, revision list/iterate/get/diff/snapshot,
+   Change Request lifecycle/review/history, and version-tag history.
 6. Implement environment list/get/update/enable/disable/rollback with ETags;
    rework task methods; release list/get/evidence/evaluation-history/request/
    evaluate/signoff/approve/apply; release-operation list/get/reconcile; and the
@@ -2905,8 +3460,9 @@ outcome.
 gate reports no untracked Workspace operation; current project-based user code
 retains compatible method signatures and read/resource CRUD behavior, while
 Workspace creation and project lifecycle mutation have the explicitly
-documented tighter authorization; documentation examples execute deterministically; a revision can
-be promoted through development with typed calls only; staging and production
+documented tighter authorization; documentation examples execute
+deterministically; a revision can be packaged, reviewed and promoted through
+development with typed calls only; QA, staging and production
 tests enforce distinct actors through real server auth; and break glass cannot
 be invoked through normal apply options.
 
@@ -2920,7 +3476,7 @@ be invoked through normal apply options.
 3. Create baseline revisions, verify live target/release mappings, and clear
    `baseline_required` only with recorded evidence.
 4. Enable strict workspace isolation for one controlled workspace.
-5. Enable Git import, then development, staging and production release flags in
+5. Enable Git import, then development, QA, staging and production release flags in
    that order.
 6. Run backup/restore, provider outage, worker death, interrupted import,
    interrupted release, reconciliation and rollback drills.
@@ -2932,7 +3488,8 @@ be invoked through normal apply options.
 **Acceptance:** migration reports no unexplained ownership assignment or hidden
 data loss; backup/restore recovers workspace metadata, revision pins, source
 provenance, release history and provider references together; the pilot
-completes one commit → revision → dev → staging → production → rollback journey;
+completes one commit → revision → Change Request → dev → qa → staging →
+production → rollback journey;
 all required CI and migration checks pass; feature flags can stop new imports and
 promotions without making existing releases or runs unreadable; and rollout
 remains a human go/no-go — a green test run alone is not a production-readiness
@@ -2949,26 +3506,26 @@ two database dialects; it is not a greenfield CRUD estimate.
 
 | Phase | Scope | Estimate |
 | --- | --- | ---: |
-| 0. Contract and inventory | Decisions, route/worker/resource matrix, manifest schema, SDK contract freeze, fixtures | 7-10 days |
+| 0. Contract and inventory | Decisions, route/worker/resource matrix, Change Request/version contract, manifest schema, SDK contract freeze, fixtures | 9-13 days |
 | 1. Foundation and authorization | Model/audit extensions, protected environment seeds, multi-Admin/primary-owner rules, action registry, PAT context, PostgreSQL CI | 15-22 days |
 | 2. Isolation closure | Root/child scoping across registered routes, prompt binding, runtime resolvers, Aria/worker/callback coverage, constraints | 25-40 days |
 | 3. Rework loop | Durable task and APIs/SDK, quality-review record, request-changes writer, escalation policy | 7-11 days |
-| 4. Revisions and Git import | Manifest/source digest, snapshots for mutable assets, import jobs/reconcile, adapters, provenance, Action example | 22-34 days |
-| 5. Environment releases | Evidence/decision state machine, operation/item state machine, approvals, CAS, adapters, reconciliation, rollback | 28-44 days |
-| 6. CALIBER SDK completeness | Scope safety, cursor pages, models, rework/import/revision/environment/release operations, async parity, CLI delegates, packaging | 24-36 days |
+| 4. Packages, Change Requests and Git import | Manifest/source digest, snapshots, import jobs/reconcile, adapters, Change Request/review/check state, version claims/tags, provenance, Action example | 32-50 days |
+| 5. Environment releases | Four-environment predecessor policy, evidence/decision and operation/item state machines, approvals, CAS, adapters, reconciliation, rollback | 32-50 days |
+| 6. CALIBER SDK completeness | Scope safety, cursor pages, models, rework/import/revision/Change Request/version/environment/release operations, async parity, CLI delegates, packaging | 28-42 days |
 | 7. Migration, pilot, rollout | Backfill tooling, baseline reconciliation, telemetry, compatibility verification, drills and runbook | 12-20 days |
-| **Total** | Full proposed Workspace MVP, API + CALIBER SDK + CLI | **140-217 person-days** |
+| **Total** | Full proposed Workspace MVP, API + CALIBER SDK + CLI | **160-248 person-days** |
 
-One experienced engineer should plan roughly 32-48 calendar weeks after review
+One experienced engineer should plan roughly 37-55 calendar weeks after review
 latency and interruptions. Two engineers with clear ownership boundaries can
-target roughly 18-30 weeks; the work does not divide perfectly because
+target roughly 21-34 weeks; the work does not divide perfectly because
 authorization, isolation, schema, and release state machines are sequencing
 constraints. Transport, models and path contracts should have one owner to avoid
 semantic divergence. Phase 0 replaces these ranges with ticket estimates after
 the inventory is measured.
 
 A narrower first milestone ending after Phase 3 delivers a trustworthy
-isolation foundation plus a working rework loop in approximately 54-83
+isolation foundation plus a working rework loop in approximately 56-86
 person-days, without Git-backed revisions or multi-environment promotion.
 
 Major dependencies: existing session/PAT authentication and scope resolution;
@@ -2988,7 +3545,8 @@ and the SDK transport, project header behavior and OpenAPI coverage gate.
 | Prompt isolation | The provider registry is external and name-oriented | Local workspace binding, provider namespace, exact version pin, fake-provider tests |
 | Global-to-local names | Existing global constraints and bare-name references | Stable IDs first, workspace-aware resolvers, compatibility aliases, later constraint migration |
 | Aggregate release | Provider effects are not one transaction | Parent/item intents, deterministic ordering, observation, reconciliation, no false atomicity |
-| Git source authority | Local authoring can create a competing source | Explicit source mode; staging/prod only from an imported revision in Git-managed mode |
+| Git source authority | Local authoring can create a competing source | Explicit source mode; QA/staging/prod only from an imported revision in Git-managed mode |
+| Parallel Change Requests | Two accepted heads can lose or hide one another | Accepted-base CAS, explicit rebase and no generic cross-resource auto-merge |
 | Legacy null/public rows | Automatic assignment risks disclosure or broken dependencies | Report and classify; no name-based guess; feature-flag strict enforcement |
 | Environment configuration | The same revision behaves differently with different secrets/providers | Capture config and secret-version references and digests in release evidence |
 | Sync/async SDK drift | Different safety or lifecycle behavior between clients | Shared contract module, signature and fixture parity tests |
@@ -3046,6 +3604,39 @@ and the SDK transport, project header behavior and OpenAPI coverage gate.
     snapshot, reject a second tree digest for one source/commit, and label the
     provenance caller-attested. Do not mistake archive-container bytes for the
     canonical tree.
+19. **Stale approval reuse.** A technically reviewed package can be replaced by
+    another head if approvals bind only to the request ID. Bind every check,
+    review, QA decision and tag to the exact head/digest and invalidate current
+    authority on every head generation.
+20. **Mutable-tag ambiguity.** Calling `prod` a package tag makes rollback look
+    like rewriting history. Keep SemVer tags immutable and model environment
+    names as audited current-release pointers.
+
+### 17.3 Architecture evolution after MVP
+
+The MVP's fixed roles, environments and one-reviewer rule are deliberate
+policy defaults, not schema dead ends. Evolution should add capability around
+the same immutable package, Change Request and release coordinates:
+
+1. Add policy-defined review quorum, required teams/code owners and explicit
+   approval carry-forward rules without changing stored Workspace role literals.
+2. Add a GitHub App pull/webhook mode that verifies installation, repository,
+   commit reachability, branch protection and GitHub review evidence; keep the
+   current push-import attestation visible for old packages.
+3. Add signed package attestations, SBOM-style dependency export and an OCI
+   descriptor/bundle representation over the existing package digest. Signing
+   adds evidence; it never changes package identity or makes OCI the Workspace
+   authorization authority.
+4. Add custom environments and promotion graphs only after the four fixed
+   environments prove the predecessor-policy model. Existing environment IDs
+   and releases remain valid nodes in that graph.
+5. Add canary, blue/green and percentage rollout as release-operation strategy
+   types. They reuse one package/release and produce additional observed child
+   effects; they do not create mutable candidate versions.
+6. Add coordinated multi-workspace release sets only after one-workspace
+   reconciliation and rollback are reliable. Cross-workspace orchestration must
+   preserve each Workspace's approval and audit boundary rather than creating a
+   super-admin bypass.
 
 ## 18. Validation strategy
 
@@ -3053,13 +3644,14 @@ and the SDK transport, project header behavior and OpenAPI coverage gate.
 
 | Layer | Required coverage |
 | --- | --- |
-| Pure unit | Manifest canonicalization, digests, environment policy, action matrix, state transitions, adapter refusal |
+| Pure unit | Manifest/package canonicalization, digests, SemVer parsing, environment policy, action matrix, state transitions, adapter refusal |
 | Model/migration | Fresh schema, upgrade from pre-workspace state, safe `baseline_required` backfill, indexes, FKs, uniqueness, downgrade where supported, on SQLite and real PostgreSQL |
 | Route | Auth status, role/scope intersection, project mismatch, idempotency, ETag/CAS, lifecycle conflict codes |
 | Idempotency ledger | Same action/key and digest replays the original result; changed input conflicts; retention prevents a completed effect from becoming repeatable |
 | Cross-workspace regression | Two workspaces, colliding names, guessed root/child IDs, files, workers, Aria, release operations |
 | Provider contract | Fake MLflow/storage/adapters; success, refusal, timeout-before-effect, timeout-after-effect, observed reconciliation |
-| Release state machines | Decision transitions including development auto-approval; separate operation transitions; distinct actors, partial application, immutable original release, exact rollback, concurrent promotion |
+| Change Request lifecycle | Base/head validity, head generation, required checks, stale approval, Reviewer assignment, request changes, stale-base/rebase CAS, acceptance, version reservation and immutable tags |
+| Release state machines | Decision transitions including development/staging auto-approval and QA-candidate apply; separate operation transitions; distinct actors, partial application, immutable original release, exact rollback, concurrent promotion |
 | Revision concurrency | Concurrent import/snapshot CAS number allocation with allowed gaps, digest idempotency, commit/source-digest conflict, immutable terminal rows |
 | Revision reconstruction | Mutable tool/judge source changes and deletion cannot alter or remove a retained ready revision's canonical snapshot |
 | Environment liveness | Operation lock, pending operation, blocked execution while ambiguous, crash recovery and lock fencing |
@@ -3094,12 +3686,20 @@ ownership differs.
 - guessed child or provider reference from another workspace → `404`/refusal
 - QA attempting a runtime-resource write → deny
 - scope-ineligible target being assigned QA or Admin → deny
+- Change Request self-review, unassigned review or review of a stale head → deny
+- new Change Request head attempting to reuse prior checks or approval → deny
+- two Change Requests accepting the same expected baseline → exactly one wins;
+  the other becomes `out_of_date`
+- duplicate, moved, deleted or reused abandoned version claim/tag → deny
+- acceptance with a semantic version not greater than the highest accepted
+  version → deny until rebase reserves a valid successor
 - Developer attempting either human release decision → deny
 - QA quality-signing a runtime/source change they authored → deny
 - Admin approving their own authored change → deny
 - Admin approving a release they requested → deny
 - Admin applying a release they validly approved for another author → allow
-- Admin applying an unapproved production release → deny
+- Admin applying an unapproved release → deny, except the exact
+  machine-passed/technically-approved QA candidate awaiting quality sign-off
 - platform admin without membership using an ordinary workspace route → `404`
 - platform admin using metadata inventory sees no Workspace resource payload → allow metadata only
 - PAT or service credential invoking break-glass → deny
@@ -3108,7 +3708,8 @@ ownership differs.
 - unknown role, action, environment or policy version → deny
 - authorization database failure → deny
 - worker or Aria delegated identity exceeding the original actor → deny
-- break-glass without reason or expiry → deny
+- break-glass outside production, before QA acceptance/staging verification, or
+  without reason or expiry → deny
 - break-glass against a failed machine gate, corrupt digest, stale CAS, or
   non-idle environment → deny
 - environment create/delete/rename/reorder or policy weakening → deny
@@ -3159,13 +3760,16 @@ CI dependency.
    immutable aggregate pin set. A mutable domain row is eligible only through a
    retained content-addressed snapshot, not a digest that cannot reconstruct it.
 3. Four roles are sufficient; environment and release-instance policy provide
-   the missing security dimensions. Release manager is a function of Admin, not
-   a fifth role. Several eligible collaborators may hold the stored `owner`
-   role, while `CaliberProject.owner` identifies exactly one primary owner.
+   the missing security dimensions. Technical Reviewer is a per-Change-Request
+   assignment to an eligible Developer/Admin, and release manager is an Admin
+   function; neither is a fifth role. Several eligible collaborators may hold
+   the stored `owner` role, while `CaliberProject.owner` identifies exactly one
+   primary owner.
 4. QA and Workspace Admin each need `caliber.operator` plus
    `caliber.approver`; `caliber.admin` is platform authority and grants no
    ordinary workspace role.
-5. Author/requester versus decision-maker is the one separation axis: QA cannot
+5. Author/requester versus decision-maker is the one separation axis: an
+   assigned Reviewer cannot approve a head they authored/imported, QA cannot
    sign off a runtime/source change they authored, and Admin cannot approve a
    release they authored or requested. Approver and applier may be the same
    Admin.
@@ -3175,19 +3779,26 @@ CI dependency.
    branches are not environments; the same revision digest is promoted.
 7. Platform services and secret values are bound or referenced, never copied
    into a workspace.
-8. Multi-provider release is explicitly non-atomic and uses parent/item
+8. A Change Request is the PR-equivalent over immutable base/head revisions.
+   New work creates a new head generation, invalidates checks/approvals and
+   preserves history; acceptance compare-and-sets the Workspace's accepted
+   baseline and never performs an implicit heterogeneous merge.
+9. Package identity, semantic version and deployment channel are separate:
+   digest and SemVer tags are immutable; `dev`, `qa`, `staging` and `prod` are
+   audited mutable environment pointers.
+10. Multi-provider release is explicitly non-atomic and uses parent/item
    reconciliation. Immutable release approval state is separate from
    append-only apply, reconcile, and rollback operations.
-9. Existing resources default to `caliber_managed`; migration never guesses
+11. Existing resources default to `caliber_managed`; migration never guesses
    ownership from names.
-10. The SDK exposes capabilities as data and enforces nothing locally.
-11. Interfaces in scope are API, SDK and CLI. The UI is deferred to its own
+12. The SDK exposes capabilities as data and enforces nothing locally.
+13. Interfaces in scope are API, SDK and CLI. The UI is deferred to its own
     document after these contracts are frozen.
-12. Workspace creation transactionally seeds the fixed protected `dev`,
+14. Workspace creation transactionally seeds the fixed protected `dev`, `qa`,
     `staging`, and `prod` environments. The MVP has no custom-environment or
-    environment-delete path; staging and production remain disabled until
+    environment-delete path; QA, staging and production remain disabled until
     valid configuration exists.
-13. Release is not a uniform provider capability. Every required revision item
+15. Release is not a uniform provider capability. Every required revision item
     participates in verification and environment binding, but only prompt,
     workflow, skill, knowledge-base, and supported integration adapters may
     produce external provider effects in the MVP. Tools, test sets and judges
@@ -3195,24 +3806,25 @@ CI dependency.
     environment's released revision rather than by mutating its global
     `enabled` flag; unsupported MCP rollback or provider operations refuse the
     release instead of being silently skipped.
-14. Exceptional break-glass is an immutable, expiring, single-use
-    authorization consumed by one apply operation. It is not a role, release
-    state, reusable approval, or way around a failed machine/integrity gate.
+16. Exceptional break-glass is an immutable, expiring, single-use
+    production authorization consumed by one apply operation after QA
+    acceptance and staging verification. It is not a role, release state,
+    reusable approval, or way around a failed machine/integrity gate.
 
 ### 19.2 Questions for Phase 0
 
 | Question | Recommended default | Why it can change implementation |
 | --- | --- | --- |
 | Which resource types are required in the first Git import? | Agent/workflow, prompt, tool, test set, immutable model dependency, docs, and secret refs for the controlled pilot; the Phase 0 matrix must explicitly stage skill, KB, judge, OpenAPI, and approved MCP-binding support | Determines adapter waves, reconstructability work, and what may truthfully be called complete |
-| Is one QA quality decision and one Admin final decision enough? | Yes for MVP; keep required decision kinds/counts extensible | Quorum changes the decision model |
+| Are one technical review, one QA quality decision and one Admin production decision enough? | Yes for MVP; keep required decision kinds/counts extensible | Quorum changes the decision and assignment models |
 | May an Admin approve and apply another person's production release? | Yes; never approve their own requested or authored release | Enforces one useful actor-separation axis without a fifth role |
 | Which scope permits QA sign-off? | `caliber.approver`, held alongside `caliber.operator`; action is `release.quality_signoff` | Operator alone cannot authorize a human decision |
 | Must staging be mandatory? | Yes for production in the default policy | Controls the predecessor state machine |
-| Can Git-managed local drafts deploy to development? | Yes, clearly marked uncommitted; never staging or production | Preserves experimentation without dual authority |
+| Can Git-managed local drafts deploy to development? | Yes, clearly marked uncommitted; never QA, staging or production | Preserves experimentation without dual authority |
 | How are provider-only legacy prompts assigned? | An explicit binding workflow; never by name alone | Prevents cross-workspace disclosure |
 | Are public catalog resources copied or pinned? | Pinned by immutable version; copied only when editing | Preserves provenance and avoids drift |
 | Deny semantics | Grant narrowly and require every predicate; no arbitrary explicit-deny layer in MVP | Matches the closed action/intersection contract without a second policy language |
-| Do evals block the pull request? | No — the fast suite blocks the PR, the heavy suite gates the release | Prevents the noisy-gate death spiral |
+| Do evals block the Change Request? | Fast deterministic checks block technical approval; the heavy suite runs in QA and blocks acceptance, not authoring | Preserves fast review while keeping package acceptance quality-gated |
 | Is a provider model version bump a release? | Yes | Highest-value missing control |
 | Gate per axis or on a composite? | Per failure-mode axis | A composite masks single-axis regressions |
 | `refinement_max_iterations` | Set above `0` deliberately and define escalation | At `0` there is neither automation nor escalation |
@@ -3236,10 +3848,17 @@ Workspace is an implemented capability only when all of the following are true:
   revision with exact reconstructable resource pins or retained snapshots,
   a retained canonical source snapshot when imported, complete provenance, and
   digests;
+- a Developer can open a Change Request over immutable base/head revisions,
+  continue developing independently, append a new head after requested changes,
+  and retain every stale check/review; concurrent acceptance uses CAS and cannot
+  lose another accepted change;
+- an assigned non-author Reviewer, head-bound checks and QA evidence are all
+  required before acceptance; candidate and accepted SemVer tags are immutable,
+  while environment channels move only through recorded operations;
 - Workspace creation atomically produces one primary Admin membership and the
-  protected `dev`, `staging`, and `prod` rows; their identities and mandatory
+  protected `dev`, `qa`, `staging`, and `prod` rows; their identities and mandatory
   policy cannot be deleted, renamed, reordered, or weakened;
-- the same revision moves through development, staging and production with
+- the same revision moves through development, QA, staging and production with
   environment-specific evidence, explicit model/config digests, QA quality
   sign-off, and distinct Admin final approval;
 - partial or ambiguous provider effects make the environment unavailable for
@@ -3249,8 +3868,9 @@ Workspace is an implemented capability only when all of the following are true:
 - rollback uses a new operation to restore the exact prior release or reports
   precise unrecoverable items, without mutating the original release approval;
 - `CaliberClient` and `AsyncCaliberClient` expose the complete typed resource
-  tree including cursor-paged history, rework, release evidence and release
-  operations; all workspace-bound calls enforce URL/header equality, every
+  tree including cursor-paged Change Request/check/review/version history,
+  rework, release evidence and release operations; all workspace-bound calls
+  enforce URL/header equality, every
   external effect requires a caller-owned idempotency key, and the OpenAPI
   parity gate reports no untyped GA operation;
 - REST, SDK, CLI, OpenAPI, generated docs and migration tests agree on the
@@ -3277,6 +3897,10 @@ repository files inline.
 
 ### Artifacts, promotion, and approval
 
+- [About pull requests — GitHub Docs](https://docs.github.com/en/pull-requests/collaborating-with-pull-requests/proposing-changes-to-your-work-with-pull-requests/about-pull-requests) — reviewable proposal, discussion and checks over independently developed changes; the collaboration precedent for Change Requests.
+- [About protected branches — GitHub Docs](https://docs.github.com/en/repositories/configuring-branches-and-merges-in-your-repository/managing-protected-branches/about-protected-branches) — required reviews, status checks and stale-approval behavior that inform head-bound gates.
+- [Semantic Versioning 2.0.0](https://semver.org/) — canonical major/minor/patch and prerelease syntax used by immutable package tags.
+- [OCI image annotations](https://github.com/opencontainers/image-spec/blob/main/annotations.md) — standard precedent for attaching version and revision metadata to content-addressed artifacts without making mutable deployment channels their identity.
 - [Manage prompt lifecycles with aliases — MLflow](https://mlflow.org/docs/latest/genai/prompt-registry/manage-prompt-lifecycles-with-aliases/) — immutable versions plus mutable stage aliases; the mechanism CALIBER's prompt path builds on.
 - [CI/CD and automation for serverless AI — AWS Prescriptive Guidance](https://docs.aws.amazon.com/prescriptive-guidance/latest/agentic-ai-serverless/cicd-and-automation.html) — prompts as versioned assets in source control, tagged versions for rollback, and an explicit approval stage.
 - [MLflow 3 deployment jobs — Databricks](https://learn.microsoft.com/en-us/azure/databricks/mlflow/deployment-job) — one documented evaluation → approval → deployment implementation.
