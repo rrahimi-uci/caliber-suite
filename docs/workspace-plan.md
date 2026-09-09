@@ -524,24 +524,53 @@ and releases nothing. That is the whole content of the
 #### 2.5.3 What the same table looks like today
 
 Nothing above is enforced per-role yet, because there is no per-resource role
-check — only the four global scopes. The honest current state:
+check — only the four global scopes. The honest current state, verified route
+by route rather than assumed from the family's general reputation — several
+rows in an earlier version of this table were wrong in exactly the way a reader
+would not think to double-check, because "create" and "edit" were folded into
+one cell and only "create" was actually checked:
 
-| Resource | Create / edit today | Release today | Reachable by a Developer (`caliber.operator`)? |
-| --- | --- | --- | --- |
-| Prompt | `caliber.operator` | `caliber.operator` | Yes — including release |
-| Workflow | `caliber.operator` | `caliber.operator` | Yes — including release |
-| Skill | `caliber.operator` | `caliber.operator` | Yes |
-| Tool | `caliber.operator` | n/a | Yes |
-| Knowledge base | `caliber.operator` | `caliber.operator` | Yes |
-| **Agent** | **`caliber.admin`** | n/a | **No — admin-gated** |
-| MCP server | mostly `caliber.admin` | `caliber.admin` | Partly |
-| OpenAPI integration | mixed operator/admin | `caliber.admin` | Partly |
-| Test set / eval dataset | `caliber.operator` (delete: admin) | n/a | Yes |
-| Judge / scorer | `caliber.operator` (delete: admin) | n/a | Yes |
-| Evaluation run | `caliber.operator` | n/a | Yes |
-| Feedback / review queue | `caliber.operator` (some admin) | n/a | Yes |
+| Resource | Create | Edit | Release / activate | Delete or archive | Reachable by Developer (`caliber.operator` only)? |
+| --- | --- | --- | --- | --- | --- |
+| Prompt | operator | operator | operator | admin | Yes — including release |
+| Workflow | operator | operator | operator, by shipped default¹ | — | Yes, today¹ |
+| **Skill** | operator | **admin** | **admin** (same action as edit) | admin | **Create only** |
+| **Tool** | **admin** | **admin** | n/a | admin | **No** — operator can test/calibrate an already-registered tool, not register or edit one |
+| Knowledge base | operator | operator | operator | operator | Yes — including release |
+| Agent | admin | admin | n/a | admin | No — admin-gated |
+| MCP server | admin | admin | admin | admin | Partly — operator only for test-case authoring/calibration on an already-registered server |
+| OpenAPI integration | operator² | operator² | **project-role `resource.publish`³**, admin fallback for an org-wide integration | admin (archive) | Yes for create/edit/import/draft; release depends on project role, not global scope |
+| **Test set / eval dataset** | operator | **operator for example content; admin for the dataset record itself** (rename, describe, tag, archive) | n/a | admin (folded into edit — no separate delete route) | Partly — content yes, dataset metadata no |
+| **Judge / scorer** | operator | **admin for every field — no operator-reachable edit exists** | n/a | admin (folded into edit — no separate delete route) | **Create only** |
+| Evaluation run | operator | — (immutable) | n/a | — (no delete/cancel exists at any scope) | Yes |
+| Feedback: review queue itself | operator | admin | n/a | — | Yes to create/enqueue only |
+| Feedback: review-queue answer | — no scope check | — | n/a | — | Yes, and so is anyone with `caliber.viewer` — see section 2.3 |
 
-Three facts in that table are the reason this document argues what it does:
+¹ `promote_deployment`'s required scope is computed at request time —
+`SCOPE_ADMIN if requires_human_approval(alias, config) else SCOPE_OPERATOR` —
+not a flat grant. It resolves to operator for every alias only because
+`GATED_ALIASES` is a hardcoded empty set and
+`release_require_human_approval_for_environment_classes` defaults to `""`. One
+config value, no code change, makes promoting a given environment class
+admin-gated; a Developer's release reach here is a deployment setting, not a
+code guarantee, unlike Prompt's.
+
+² Not "mixed operator/admin" — every create/edit/import/draft route here is
+literally `require_scopes(request, [SCOPE_ADMIN, SCOPE_OPERATOR])`, and
+because `require_scopes` grants on any listed scope while `caliber.admin`
+already implies `caliber.operator` (section 2.3), that list is functionally
+identical to `[SCOPE_OPERATOR]` alone. Every one of those actions is 100%
+reachable by a plain Developer; there is no admin-only-to-the-exclusion-of-
+operator action in this family's create/edit surface.
+
+³ `publish_openapi_tool_draft` calls `require_project_access(...,
+"resource.publish")` for a project-scoped integration — a project-role check
+(`owner`/`editor`, resource_access.py), independent of global scope — and only
+falls back to a hard `caliber.admin` check when the integration has no
+`project_id`. "Release: `caliber.admin`" described the fallback path, not the
+common one.
+
+Four facts in that table are the reason this document argues what it does:
 
 1. **A Developer can release a prompt or a workflow today.** `resource.publish`
    and the apply path are not separated from authoring in practice, so the one
@@ -559,6 +588,14 @@ Three facts in that table are the reason this document argues what it does:
    guard worth keeping or an accident worth fixing, and Phase 0 should decide
    which — but the target table above assumes it becomes a Developer action,
    since authoring an agent is authoring.
+4. **Create-then-stranded is a repeated pattern, not one family's quirk.**
+   Skill, Tool, and Judge/scorer all let a Developer create the resource and
+   then require `caliber.admin` for every subsequent edit — for a Judge, for
+   every field on it, including its own instructions. A role table that only
+   checks the create endpoint of each family, as an earlier version of this one
+   did, will systematically overstate what a Developer can actually do with
+   what they made. The target table in 2.5.2 assumes edit rejoins create at
+   `Dev, Admin`; today's code does not, for three of ten families.
 
 #### 2.5.4 Functionality by role, end to end
 
