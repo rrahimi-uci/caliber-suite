@@ -69,7 +69,7 @@ rest of this document incorporates these corrections:
 | QA had only `caliber.operator` but was expected to approve | QA and Workspace Admin require both `caliber.operator` and `caliber.approver`; a workspace role never grants a missing global scope |
 | Workspace Admin was equated with `caliber.admin` | Workspace ownership and platform administration are independent; platform admin has no ordinary implicit workspace access |
 | Section 2 actions and section 12 route actions used different names | Section 2.4 is the canonical closed action registry used by policy, APIs, workers, SDK capability projections, tests, and audit |
-| Production required `approver != applier` while the MVP explicitly rejected that second axis | The only MVP actor-separation rule is runtime/source author or requester `!=` final approver; the same Workspace Admin may approve and apply |
+| Production required `approver != applier` while the MVP explicitly rejected that second axis | The MVP uses one separation axis — author/requester versus human decision-maker — with role-specific checks for QA sign-off and Admin approval; the same Workspace Admin may approve and apply |
 | A revision was expected to contain evaluation results produced by evaluating that revision | Revisions pin quality definitions; release evidence binds the resulting evaluation runs and human decisions afterward |
 | One existing artifact release candidate/signoff was stretched across QA and final release decisions | Existing release candidates remain reusable evaluation evidence; workspace releases add typed, append-only `quality` and `release` decisions |
 | A partial external apply left the environment pointer unchanged but otherwise usable | An environment enters `applying` or `reconcile_required`; new execution and promotion are blocked until observation settles external state |
@@ -556,7 +556,7 @@ and whether CALIBER implements it today.
 | 2 | Smoke-run | Developer | Trace of a successful run | Runs without error | Developer | Implemented |
 | 3 | Define the quality bar | **QA** | Test sets, scorers, judges, thresholds | Bar is reviewable and version-pinned | — | Implemented (eval datasets, judges, scorers) |
 | 4 | Package and pin | CI automation user + project-bound PAT, acting within Developer authority | One versioned, digest-pinned artifact + Git tag | Manifest validates; every pin resolves | Developer | **Proposed** — workspace revision |
-| 5 | Offline evaluation | CI automation user + project-bound PAT, acting within Developer authority | Scores per dimension vs baseline | **Regression gate** — section 4 | **Developer**, with gate reasons | Implemented (`eval/gate.py`) |
+| 5 | Offline evaluation | CI automation user + project-bound PAT, acting within Developer authority | Scores per dimension vs baseline | **Regression gate** — section 4 | **Developer**, with gate reasons | Implemented ([`caliber/src/caliber/eval/gate.py`](../caliber/src/caliber/eval/gate.py)) |
 | 6 | Quality sign-off | **QA** | Verdict, or rejection with a written reason | QA accepts the evidence | **Developer**, with QA's reason | Partly — evidence exists, no sign-off record |
 | 7 | Release approval | **Admin** | Approval bound to one version + target | Distinct actor from author | Developer or QA, per reason | Partly — see section 5 |
 | 8 | Apply and promote | Developer for development; **Admin** otherwise | Live alias moves; before/after recorded | Effect settles or is `reconcile_required` | Admin — reconcile or roll back | Individual paths partly implemented; aggregate workspace apply proposed |
@@ -775,8 +775,9 @@ that same actor as `approved_by`.
 
 Closing it needs three things, none of which is a new role:
 
-- a **distinct-actor constraint** on final approval — the only new MVP
-  separation-of-duty axis;
+- **role-specific distinct-actor checks** on QA sign-off and Admin final
+  approval, both implementing the same author/requester-versus-decision-maker
+  axis;
 - **two participating actors in staging/production** — QA records quality and
   Workspace Admin gives final approval. The single-owner bus factor is handled
   by explicit ownership transfer or audited recovery, not by pretending QA is a
@@ -792,12 +793,13 @@ independent reviewer.
 
 ### 5.2 One axis is enough
 
-Two separation-of-duty axes are possible; MVP needs one:
+Two separation-of-duty axes are possible; MVP needs the first:
 
-- **runtime/source author or requester ≠ final approver** — catches bad changes.
-  Required. The immutable release records the exact actor set from revision
-  provenance and the requester; evidence-definition authors do not make the
-  revision permanently unapprovable.
+- **author/requester ≠ human decision-maker** — catches bad changes. Required
+  twice: QA cannot quality-sign a runtime/source change they authored, and Admin
+  cannot finally approve a release they authored or requested. The immutable
+  release records the exact actor set from revision provenance and the requester;
+  evidence-definition authors do not make the revision permanently unapprovable.
 - **approver ≠ applier** — catches malicious deployment. A much rarer threat,
   deliberately not enforced here.
 
@@ -2424,9 +2426,9 @@ and production under explicit policy.
 2. Reuse existing release candidates as artifact-level evidence without
    changing their one-artifact/one-legacy-signoff semantics.
 3. Implement predecessor and same-digest rules for dev → staging → prod.
-4. Implement QA quality sign-off, Admin final approval, the single
-   author/requester-versus-approver rule, and interactive-credential break-glass
-   refusal and audit.
+4. Implement QA quality sign-off, Admin final approval, their role-specific
+   author/requester-versus-decision-maker checks, and interactive-credential
+   break-glass refusal and audit.
 5. Add adapter-backed prepare/apply/observe/rollback for each deployable family;
    classify evidence-only items as verified no-ops.
 6. Add environment operation state, pending-release pointer, lock-version CAS,
@@ -2699,8 +2701,10 @@ CI dependency.
 4. QA and Workspace Admin each need `caliber.operator` plus
    `caliber.approver`; `caliber.admin` is platform authority and grants no
    ordinary workspace role.
-5. Final approval is a per-release constraint (runtime/source author or
-   requester `!=` final approver). Approver and applier may be the same Admin.
+5. Author/requester versus decision-maker is the one separation axis: QA cannot
+   sign off a runtime/source change they authored, and Admin cannot approve a
+   release they authored or requested. Approver and applier may be the same
+   Admin.
 6. Git integration starts push-based and one-way, with zero or one repository
    per workspace. Git branches are not environments; the same revision digest is
    promoted.
