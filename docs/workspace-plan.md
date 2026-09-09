@@ -3604,7 +3604,7 @@ arbitrary PR count.
 flowchart LR
   P0[Phase 0 - contracts and inventory] --> P1[Phase 1 - foundation and authorization]
   P1 --> P2[Phase 2 - isolation closure]
-  P1 --> P3[Phase 3 - rework loop]
+  P1 --> P3[Phase 3 - verify and rework]
   P2 --> P4[Phase 4 - revisions, change review and import]
   P3 --> P5[Phase 5 - releases and rollback]
   P4 --> P5
@@ -3615,6 +3615,9 @@ flowchart LR
 Phase 3 internals and the private SDK foundation in `P6-A` may be developed
 beside Phases 1 and 2 after their Phase 0 contracts are stable, but the public
 project-scoped rework routes do not merge before `P1-C` authorization exists.
+`P3-B` is the one exception: it gates on today's existing global scopes, the
+same way the routes it sits beside already do, so it does not wait on `P1-C`
+and may ship as soon as `P0-B` freezes its contract.
 The server path from Phase 1 through Phase 5 remains the critical path. "SDK-first" means contract-first and
 SDK-as-primary-consumer: transport/model scaffolding and contract tests begin in
 Phase 0, but public methods do not claim support before their server routes
@@ -3638,6 +3641,7 @@ combined with a later slice merely to reduce PR count.
 | `P2-B` | Runtime | Project/revision-aware compiler, run queue, workers, callbacks, plan executor and Aria delegation | `P2-A` | Persisted context survives restart; worker cannot widen actor authority or fall back to global registries |
 | `P2-C` | Integrations/storage | Prompt/provider binding, storage and file isolation, public/personal immutable pin semantics | `P2-A` | Colliding logical names resolve correctly; guessed provider/file refs do not disclose another workspace |
 | `P3-A` | Workflow/quality | Refinement/candidate-backed durable rework task, reasoned QA review record, request-changes writer, project-scoped ownership APIs, and exhaustion escalation | `P0-B`, `P1-C` | Current refinement failures have an owner/reason and resolve through a superseding candidate/version; Phase 5 adds the release FK and aggregate path |
+| `P3-B` | Workflow/quality | List/get/create/verify/dismiss/duplicate/batch verification-queue routes and CALIBER SDK methods against the existing `CaliberVerificationItem` model and schemas; no new table | `P0-B` | A human can verify or dismiss a pending item they did not create; none of today's four job-creation paths is required to change; ingestion (a poller creating `pending` items from real signals) is explicitly out of scope here per the Phase 0 decision |
 | `P4-A` | Data/backend | Source/import/revision/resource schema, portable CAS revision allocator, immutable terminal rows and snapshot-retention guards | `P2-B`, `P2-C` | Concurrent snapshots allocate unique monotonic numbers with allowed gaps on SQLite/PostgreSQL; schema remains dormant behind flags |
 | `P4-B` | Import/backend | Manifest/archive limits, canonical retained source snapshot and commit-equivocation guard, reconstructable adapter snapshots, model dependency, and durable import leases | `P4-A` | Golden tree/revision digests stable across archive metadata; mutable rows cannot masquerade as pins; malformed/ambiguous inputs fail closed; worker death resumes or reconciles |
 | `P4-C` | API/integration | Provider-neutral source interface, source transitions, import/reconcile and revision list/get/diff/snapshot routes, cursor pages, GitHub push Action example | `P4-B` | Lost clients rediscover and reconcile jobs; source mode cannot switch with in-flight work; ordinary tests need no network; Workspace services contain no GitHub-specific policy |
@@ -3782,13 +3786,35 @@ other's assets; workers use persisted workspace context and cannot fall back to
 all active tools or prompts; public and personal resources enter a workspace run
 only through an exact pinned dependency.
 
-### Phase 3 — the rework loop
+### Phase 3 — signal intake and the rework loop
 
-**Outcome:** a failed gate or a QA rejection becomes owned work rather than
-silence. The release-candidate subset is independently shippable and improves
-today's refinement path; aggregate Workspace-release linkage completes only
-after the Phase 5 release tables exist.
+**Outcome:** the refinement job's two half-built human decisions —
+**Verify** at intake and **rework** at the far end of a rejection — both
+become real, owned actions instead of a self-stamped bookkeeping field and a
+terminal row that goes silent. The release-candidate subset is independently
+shippable and improves today's refinement path; aggregate Workspace-release
+linkage completes only after the Phase 5 release tables exist. Neither half
+needs Workspace, Change Request, or environment machinery — both extend the
+refinement path that already ships today.
 
+0. **Wire Stage ① Verify to a real, separately-callable action.** Section 2.2
+   found that today's four job-creation paths (prompt optimization, skill
+   calibration, workflow calibration, an Aria-proposed promotion) each insert
+   `CaliberVerificationItem` pre-`status="verified"`, self-stamped by the same
+   operator, in the same transaction that creates the job — so nothing a
+   different person, or the same person later, can act on separately exists.
+   `VerificationItemCreateRequest`/`...VerifyRequest`/`...DismissRequest`/
+   `...DuplicateRequest`/`VerificationBatchRequest` are already fully specified
+   in `schemas.py`, and `caliber-ui`'s API client already has typed methods for
+   all of them — this is route wiring against an existing contract, not new
+   design. Register `list`/`get`/`create`/`verify`/`dismiss`/`duplicate`/`batch`
+   under `/caliber/verification-queue`, gated the same way section 2.4 gates
+   `feedback.submit`; add the matching CALIBER SDK methods. Scope this item to
+   a human-created `pending` item and a human `verify`/`dismiss` decision on
+   it. The automated ingestion half — a poller that creates `pending` items
+   from real MLflow assessments, which the model's own docstring already
+   assumes exists — is deliberately **not** included here; see the Phase 0
+   question below on whether to build it now or defer it.
 1. Add the rework-task model, authorization, list/get/claim/resolve/reassign
    routes, and CALIBER SDK methods so a failed gate or QA rejection produces
    owned, recoverable work instead of only a terminal `rejected` row.
@@ -3799,12 +3825,15 @@ after the Phase 5 release tables exist.
 4. Set `refinement_max_iterations` deliberately and define the escalation when
    it exhausts.
 
-**Acceptance:** every in-scope refinement gate failure and candidate QA
-rejection has an owner and a reason; the Phase 3 refinement path resolves a content fix through a superseding
-candidate/version before re-entering its gate; its QA review is queryable; and
-the automated self-correction loop escalates to a human rather than terminating
-silently. Phase 5 acceptance extends the same invariant to Workspace revisions,
-releases, and immutable release decisions.
+**Acceptance:** a human can list pending verification items and record
+`verify`/`dismiss` on one they did not create, distinct from and after job
+creation — not the same click as today; every in-scope refinement gate failure
+and candidate QA rejection has an owner and a reason; the Phase 3 refinement
+path resolves a content fix through a superseding candidate/version before
+re-entering its gate; its QA review is queryable; and the automated
+self-correction loop escalates to a human rather than terminating silently.
+Phase 5 acceptance extends the same invariant to Workspace revisions, releases,
+and immutable release decisions.
 
 ### Phase 4 — immutable packages, Change Requests, and pluggable Git source
 
@@ -4036,12 +4065,12 @@ two database dialects; it is not a greenfield CRUD estimate.
 | 0. Contract and inventory | Per-plane authority, route/worker/resource matrix, source-provider/review contracts, manifest schema, SDK contract freeze, fixtures | 9-13 days |
 | 1. Foundation and authorization | Model/audit extensions, protected environment seeds, multi-Admin/primary-owner rules, action registry, PAT context, PostgreSQL CI | 15-22 days |
 | 2. Isolation closure | Root/child scoping across registered routes, prompt binding, runtime resolvers, Aria/worker/callback coverage, constraints | 25-40 days |
-| 3. Rework loop | Durable task and APIs/SDK, quality-review record, request-changes writer, escalation policy | 7-11 days |
+| 3. Verify and rework | Verification-queue routes and SDK against the existing model/schemas; durable rework task and APIs/SDK, quality-review record, request-changes writer, escalation policy | 10-16 days |
 | 4. Packages, Change Requests and pluggable Git | Manifest/source digest, snapshots, import jobs/reconcile, resource and source-provider adapters, native/external review state, actor links, signed event inbox, GitHub App, version claims/tags, Action example | 44-70 days |
 | 5. Environment releases | Four-environment predecessor policy, evidence/decision and operation/item state machines, approvals, CAS, adapters, reconciliation, rollback | 32-50 days |
 | 6. CALIBER SDK completeness | Scope safety, cursor pages, models, rework/import/revision/Change Request/version/environment/release operations, async parity, CLI delegates, packaging | 28-42 days |
 | 7. Migration, pilot, rollout | Backfill tooling, baseline reconciliation, telemetry, compatibility verification, drills and runbook | 12-20 days |
-| **Total** | Full proposed Workspace MVP, API + CALIBER SDK + CLI, including one verified GitHub review adapter | **172-268 person-days** |
+| **Total** | Full proposed Workspace MVP, API + CALIBER SDK + CLI, including one verified GitHub review adapter | **175-273 person-days** |
 
 One experienced engineer should plan roughly 40-60 calendar weeks after review
 latency and interruptions. Two engineers with clear ownership boundaries can
@@ -4052,8 +4081,9 @@ semantic divergence. Phase 0 replaces these ranges with ticket estimates after
 the inventory is measured.
 
 A narrower first milestone ending after Phase 3 delivers a trustworthy
-isolation foundation plus a working rework loop in approximately 56-86
-person-days, without Git-backed revisions or multi-environment promotion.
+isolation foundation plus a working verify action and rework loop in
+approximately 59-91 person-days, without Git-backed revisions or
+multi-environment promotion.
 
 If schedule requires deferral, `P4-E` is an independently feature-flagged
 12-20-day increment. The rest of the Workspace remains usable with native
@@ -4409,6 +4439,8 @@ CI dependency.
 | Is agent registration a Developer or an Admin action? | Developer — authoring an agent is authoring | It is `caliber.admin` today (section 2.5.3); changing it moves a guard |
 | Should `release.apply` exist for families with no release? | No — the adapter returns a typed refusal | Prevents a release plan silently skipping a required dependency |
 | Which asset families are in the controlled pilot? | One workflow and its prompt, tool and test-set dependencies | Limits cross-provider release risk |
+| Should job creation require a pending Verify decision, or stay parallel to it? | Stay parallel in `P3-B`; require it only once the ingestion poller exists | Blocking today's four job-creation paths on a not-yet-built poller would stall the refinement path entirely; making Verify optional first is the safe order |
+| Build the verification-queue ingestion poller in `P3-B`, or defer it? | Defer. Ship `create`/`verify`/`dismiss` first; a human can open a pending item by hand until a poller exists | The model's docstring already promises a poller that was never built; promising it again in the same PR that ships the routes repeats the mistake this review found |
 
 ## 20. Definition of done
 
