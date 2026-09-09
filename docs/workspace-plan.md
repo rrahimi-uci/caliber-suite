@@ -182,7 +182,7 @@ labels are what users should see.
 
 | Product label | Stored role | Charter | Owns | Does not do |
 | --- | --- | --- | --- | --- |
-| **Developer** | `editor` | Builds the thing | Authors runtime resources — prompts, workflows, tools, skills, agent configuration. Runs them. Requests release. **Fixes what fails and adds the regression test.** | Approve or apply a release; manage members |
+| **Developer** | `editor` | Builds the thing | Authors runtime resources — prompts, workflows, tools, skills, knowledge bases. Runs them. Requests release. **Fixes what fails and adds the regression test.** | Approve or apply a release; manage members; register an agent (admin-gated today — see section 2.5) |
 | **QA** | `reviewer` | Owns the quality bar and the human quality gate | Authors test sets, scorers, judges, thresholds. Runs evaluations. Verifies production signals. Files feedback. Signs off — or rejects with a reason. | Edit runtime resources; apply a release; manage members |
 | **Admin** | `owner` | Owns access and the release | Membership and roles. Workspace settings. Acts as **release manager**: approves, applies, reconciles, rolls back. | Approve a change they authored themselves |
 | **Viewer** | `viewer` | Reads, changes nothing | Resources, evidence, release history, audit. | Anything else |
@@ -192,7 +192,7 @@ reviewer permitted by production policy, not a `production_reviewer` role.
 
 ### 2.2 Why QA earns a role here when it does not elsewhere
 
-Section 2.5 reports that no comparable platform ships a QA role. CALIBER is a
+Section 2.6 reports that no comparable platform ships a QA role. CALIBER is a
 justified exception, for a reason that comes from its own architecture rather
 than from industry precedent:
 
@@ -279,7 +279,134 @@ effective decision =
   AND release-instance rules
 ```
 
-### 2.5 How this compares to shipped platforms
+### 2.5 Resource families: who creates, edits, and releases what
+
+The action vocabulary above is deliberately abstract. This section resolves it
+per resource family, because **"release" does not mean the same thing for every
+family, and three families have no release step at all.** The per-family
+guarantees below are the ones recorded in
+[ARCHITECTURE.md](../ARCHITECTURE.md) section 4, not an idealization.
+
+#### 2.5.1 What each family is, and what releasing it means
+
+| Family | Class | How it versions | What "release" means for it | Rollback |
+| --- | --- | --- | --- | --- |
+| **Prompt** | runtime | Immutable MLflow registry versions behind an alias | Move the live alias to a version. Intent-first: the release intent with exact before/after versions is committed *before* the MLflow mutation | Yes — reconcilable, exact prior version |
+| **Workflow** | runtime | Editable drafts → published version rows | Point a deployment alias at a published version, under deploy-gate policy with an optimistic alias check | Yes — pops the deployment's checkpoint stack |
+| **Skill** | runtime | Mutable current record + immutable version snapshots | Select a snapshot as current | Yes — restores the prior snapshot **as a new current version** |
+| **Knowledge base** | grounding | Immutable build versions behind `active_version_id` | Audited activation of a build | Yes — prior active build derived from history |
+| **Agent** | runtime | The record everything else hangs off — items, jobs, approvals | Not released. `enabled` is the pause/resume lever workers read | n/a — toggle `enabled` |
+| **Tool** | runtime | Separate `(name, version)` registry rows with lifecycle status | **No release.** Read-only family history, no live alias | **None** |
+| **Test set** | evidence | Version counter plus example validity intervals | **No release.** It *is* evidence; it is carried with a release, never deployed | **None** |
+| **Judge / scorer** | evidence | Operator-authored, reusable via a `Judge.<id>` token | **No release.** It *is* a scorer | n/a |
+| **MCP server** | integration | Mutable managed definitions with discovered tool inventories | Connection plus policy binding, fail-closed; production workflow preflight | **No version rollback** |
+| **OpenAPI integration** | integration | Contract snapshot | Validate and preflight; environment binding controls use | Re-bind a prior snapshot |
+
+Two consequences follow, and both matter for role design:
+
+- **A role cannot hold a uniform "release" permission**, because for tools, test
+  sets and judges there is nothing to release, and for agents the lever is a
+  boolean rather than a version. `release.apply` is meaningful only for prompt,
+  workflow, skill, knowledge base, and integration bindings.
+- **Rollback is not universal either.** Tools and test sets have none, and MCP
+  servers have no version rollback. A release plan that assumes every item is
+  reversible is wrong; the adapter contract in section 8.2 returns a typed
+  refusal precisely so that this is explicit rather than silently skipped.
+
+#### 2.5.2 Create, edit, release, delete — by role
+
+Target state. `Y` = permitted by the workspace role, before global-scope,
+environment-policy and release-instance checks. `—` = not permitted.
+
+| Resource | Create | Edit | Release / activate | Delete |
+| --- | --- | --- | --- | --- |
+| Prompt | Dev, Admin | Dev, Admin | **Admin** | Admin |
+| Workflow | Dev, Admin | Dev, Admin | **Admin** (Dev to development only) | Admin |
+| Skill | Dev, Admin | Dev, Admin | **Admin** | Admin |
+| Agent | Dev, Admin | Dev, Admin | n/a — `enabled` toggle: Admin | Admin |
+| Tool | Dev, Admin | Dev, Admin | n/a — no release | Admin |
+| Knowledge base | Dev, Admin | Dev, Admin | **Admin** | Admin |
+| MCP server | Admin | Admin | **Admin** (connection plus policy binding) | Admin |
+| OpenAPI integration | Dev, Admin | Dev, Admin | **Admin** | Admin |
+| **Test set / eval dataset** | **QA**, Dev, Admin | **QA**, Dev, Admin | n/a — evidence | Admin |
+| **Judge / scorer** | **QA**, Dev, Admin | **QA**, Dev, Admin | n/a — evidence | Admin |
+| **Evaluation run** | **QA**, Dev, Admin | — (immutable result) | n/a | Admin |
+| **Feedback / verification item** | **QA**, Dev, Admin | **QA** (verify, dismiss) | n/a | Admin |
+| QA sign-off | **QA** | — (immutable decision) | n/a | — |
+| Release request | Dev, QA, Admin | — | — | — |
+| Release approval | **QA**, Admin — never own work | — (immutable decision) | — | — |
+| Workspace revision | Dev, Admin (snapshot or import) | — (immutable once ready) | — | — |
+| Environment policy | Admin | Admin | n/a | — |
+| Members and roles | Admin | Admin | n/a | Admin |
+| Secrets | platform admin | platform admin | n/a — referenced, never copied | platform admin |
+| Runs, traces, audit | produced by execution | — (append-only) | n/a | — retention only |
+
+The pattern to notice: **QA's write authority is confined to the evidence rows**
+— test sets, judges, scorers, evaluation runs, feedback, and its own sign-off.
+It creates nothing runtime and releases nothing. That is the whole content of
+the `resource.write.evidence` versus `resource.write.runtime` split.
+
+#### 2.5.3 What the same table looks like today
+
+Nothing above is enforced per-role yet, because there is no per-resource role
+check — only the four global scopes. The honest current state:
+
+| Resource | Create / edit today | Release today | Reachable by a Developer (`caliber.operator`)? |
+| --- | --- | --- | --- |
+| Prompt | `caliber.operator` | `caliber.operator` | Yes — including release |
+| Workflow | `caliber.operator` | `caliber.operator` | Yes — including release |
+| Skill | `caliber.operator` | `caliber.operator` | Yes |
+| Tool | `caliber.operator` | n/a | Yes |
+| Knowledge base | `caliber.operator` | `caliber.operator` | Yes |
+| **Agent** | **`caliber.admin`** | n/a | **No — admin-gated** |
+| MCP server | mostly `caliber.admin` | `caliber.admin` | Partly |
+| OpenAPI integration | mixed operator/admin | `caliber.admin` | Partly |
+| Test set / eval dataset | `caliber.operator` (delete: admin) | n/a | Yes |
+| Judge / scorer | `caliber.operator` (delete: admin) | n/a | Yes |
+| Evaluation run | `caliber.operator` | n/a | Yes |
+| Feedback / review queue | `caliber.operator` (some admin) | n/a | Yes |
+
+Three facts in that table are the reason this document argues what it does:
+
+1. **A Developer can release a prompt or a workflow today.** `resource.publish`
+   and the apply path are not separated from authoring in practice, so the one
+   boundary the industry universally enforces — author versus deployer — is not
+   enforced here yet.
+2. **`caliber.approver` gates none of it.** The scope appears in exactly two
+   route modules, neither of which is a resource family. Every mutation above is
+   `caliber.operator` or `caliber.admin`.
+3. **Agent registration is admin-only.** `register_agent`, `update_agent` and
+   `delete_agent` all require `caliber.admin`, so a Developer cannot create the
+   record that prompts, jobs and approvals hang off. That is either a deliberate
+   guard worth keeping or an accident worth fixing, and Phase 0 should decide
+   which — but the target table above assumes it becomes a Developer action,
+   since authoring an agent is authoring.
+
+#### 2.5.4 Functionality by role, end to end
+
+| Capability | Developer | QA | Admin | Viewer |
+| --- | :---: | :---: | :---: | :---: |
+| Browse resources, evidence, history, audit | Y | Y | Y | Y |
+| Author prompts, workflows, tools, skills, KBs | Y | — | Y | — |
+| Author test sets, judges, scorers, thresholds | Y | Y | Y | — |
+| Run a workflow or agent | Y | Y | Y | — |
+| Run an evaluation against a test set | Y | Y | Y | — |
+| Verify a production signal is real | Y | Y | Y | — |
+| File feedback on an output | Y | Y | Y | — |
+| Deploy to development | Y | — | Y | — |
+| Create a workspace revision (snapshot or import) | Y | — | Y | — |
+| Request a release | Y | Y | Y | — |
+| Sign off on quality | — | Y | — | — |
+| Approve a release | — | Y* | Y* | — |
+| Apply, reconcile, roll back a release | — | — | Y | — |
+| Configure environment policy | — | — | Y | — |
+| Manage members and roles | — | — | Y | — |
+| Transfer ownership, archive the workspace | — | — | Y | — |
+| Manage secrets, providers, storage | — | — | platform admin | — |
+
+`Y*` — never for work the same actor authored or requested.
+
+### 2.6 How this compares to shipped platforms
 
 A survey of the RBAC actually shipped by LangSmith, Braintrust, Humanloop,
 Weights & Biases, Databricks/MLflow, Azure AI Foundry, Vertex AI, Bedrock, Dify,
@@ -2280,6 +2407,10 @@ CI dependency.
 10. The SDK exposes capabilities as data and enforces nothing locally.
 11. Interfaces in scope are API, SDK and CLI. The UI is deferred to its own
     document after these contracts are frozen.
+12. Release is not a uniform capability. Tools, test sets and judges have no
+    release step, agents use an `enabled` toggle, and MCP servers have no
+    version rollback — so `release.apply` is meaningful only for prompt,
+    workflow, skill, knowledge base and integration bindings (section 2.5.1).
 
 ### 19.2 Questions for Phase 0
 
@@ -2298,6 +2429,8 @@ CI dependency.
 | Is a provider model version bump a release? | Yes | Highest-value missing control |
 | Gate per axis or on a composite? | Per failure-mode axis | A composite masks single-axis regressions |
 | `refinement_max_iterations` | Set above `0` deliberately and define escalation | At `0` there is neither automation nor escalation |
+| Is agent registration a Developer or an Admin action? | Developer — authoring an agent is authoring | It is `caliber.admin` today (section 2.5.3); changing it moves a guard |
+| Should `release.apply` exist for families with no release? | No — the adapter returns a typed refusal | Prevents a release plan silently skipping a required dependency |
 | Which asset families are in the controlled pilot? | One workflow and its prompt, tool and test-set dependencies | Limits cross-provider release risk |
 
 ## 20. Definition of done
