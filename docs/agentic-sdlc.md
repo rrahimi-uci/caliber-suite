@@ -95,19 +95,75 @@ chain in [ARCHITECTURE.md](../ARCHITECTURE.md) section 2. Its two human decision
 points — **Verify** and **Apply** — are the only two the platform requires today,
 and they map cleanly onto two of the four roles below.
 
-## 2. Roles
+### 1.1 The four development cycles inside them
+
+The two lifecycles are the shape. What a team actually experiences day to day is
+four nested cycles with different cadences and different owners. Confusing them
+is why "the development cycle" can feel unanswerable.
+
+| Cycle | Cadence | Owner | What gates it | Stages |
+| --- | --- | --- | --- | --- |
+| **Inner** — author and run | Minutes | Developer | Nothing. It must run, that is all | 1–2 |
+| **Quality** — evaluate and fix | Hours to days | Developer + QA | Regression gate, then QA sign-off | 3–6, plus rework |
+| **Release** — approve and ship | Per release | Admin | Distinct-actor approval | 7–8 |
+| **Refinement** — observe and improve | Continuous, production-driven | QA verifies, platform optimizes, Admin applies | The same regression gate as the quality cycle | 9–11, plus rework |
+
+Three properties of this structure matter more than the stage list:
+
+- **The inner cycle must stay ungated.** Putting an evaluation gate on a
+  developer's edit-and-run loop is the fastest way to make people stop using the
+  platform. Gates belong at the quality and release cycles, never at authoring.
+- **The refinement cycle reuses the quality cycle's gate** rather than having its
+  own. That is why an improvement proposed by an optimizer is held to exactly the
+  same bar as one authored by a person — and why the two lifecycles converge at
+  stage 5 rather than running in parallel.
+- **Only the release cycle is calendar-driven.** The other three run at whatever
+  rate the work arrives. Planning a release train around the inner or refinement
+  cycle is planning around something you do not control.
+
+## 2. Roles and responsibilities
+
+### 2.0 Job functions are not permission roles
+
+Most confusion about "who does what" comes from conflating two different things:
+
+- A **job function** is what a person does: developer, QA, release manager,
+  admin, stakeholder. In a small team one person wears several hats.
+- A **permission role** is what the system enforces. A role only earns its
+  existence when it gates a decision that a *different human* must make.
+
+There are five job functions here and **four** permission roles, because
+**release manager is a function, not a role** — it is what Admin does at stage 7
+and 8. Adding a fifth role for it is what produced the Operator-versus-Owner
+contradiction between `user-story.md` and `workspace-plan.md`.
 
 Four stored roles; three that do work; one that watches. The project role
 literals already exist in
 [`resource_access.py`](../caliber/src/caliber/resource_access.py); the product
 labels are what users should see.
 
-| Product label | Stored role | Owns | Does not do |
-| --- | --- | --- | --- |
-| **Developer** | `editor` | Authors runtime resources — prompts, workflows, tools, skills, agent configuration. Runs them. Requests release. | Approve or apply a release; manage members |
-| **QA** | `reviewer` | Authors the quality bar — test sets, scorers, judges, thresholds. Runs evaluations. Verifies production signals. Files feedback. Signs off on quality. | Edit runtime resources; apply a release; manage members |
-| **Admin** | `owner` | Membership and roles. Workspace settings. Acts as **release manager**: approves, applies, reconciles, rolls back. | Approve a change they authored themselves |
-| **Viewer** | `viewer` | Reads resources, evidence, release history, audit. | Anything else |
+| Product label | Stored role | Charter | Owns | Does not do |
+| --- | --- | --- | --- | --- |
+| **Developer** | `editor` | Builds the thing | Authors runtime resources — prompts, workflows, tools, skills, agent configuration. Runs them. Requests release. **Fixes what fails and adds the regression test.** | Approve or apply a release; manage members |
+| **QA** | `reviewer` | Owns the quality bar and the human quality gate | Authors test sets, scorers, judges, thresholds. Runs evaluations. Verifies production signals. Files feedback. Signs off — or rejects with a reason. | Edit runtime resources; apply a release; manage members |
+| **Admin** | `owner` | Owns access and the release | Membership and roles. Workspace settings. Acts as **release manager**: approves, applies, reconciles, rolls back. | Approve a change they authored themselves |
+| **Viewer** | `viewer` | Reads, changes nothing | Resources, evidence, release history, audit. | Anything else |
+
+### 2.0.1 Why QA earns a role here, when it does not elsewhere
+
+Section 2.3 reports that no comparable platform ships a QA role. CALIBER is a
+justified exception for a reason that comes from its own architecture rather than
+from industry precedent:
+
+**CALIBER's implemented loop already contains a human quality gate that is not an
+authoring action.** Stage ① **Verify** — "is this production failure real?" — is
+what *starts* a refinement job. In the platforms surveyed there is no equivalent:
+a developer decides to run an evaluation when they choose to. In CALIBER,
+verification is a production-driven decision with a durable queue behind it.
+
+That gate needs an owner, and its owner is structurally not the author. Restated:
+QA exists here because the platform has quality *decisions*, not merely quality
+*tooling*.
 
 ### 2.1 Why QA is a restriction of Developer, not a sibling
 
@@ -261,23 +317,109 @@ LangSmith's policies let **deny win**. Pick one deliberately and write it down.
 Stage by stage: who acts, what artifact moves, what gate must pass, and whether
 CALIBER implements it today.
 
-| # | Stage | Actor | Artifact / output | Gate to pass | Today |
-| --- | --- | --- | --- | --- | --- |
-| 0 | Provision | Admin | Workspace, members, roles | — | Implemented (projects + members) |
-| 1 | Author | Developer | Prompts, workflow manifest, tools, skills | — | Implemented per family |
-| 2 | Smoke-run | Developer | Trace of a successful run | Runs without error | Implemented |
-| 3 | Define the quality bar | **QA** | Test sets, scorers, judges, thresholds | Bar is reviewable and version-pinned | Implemented (eval datasets, judges, scorers) |
-| 4 | Package and pin | CI | One versioned, digest-pinned artifact + Git tag | Manifest validates; every pin resolves | **Proposed** — workspace revision |
-| 5 | Offline evaluation | CI | Scores per dimension vs baseline | **Regression gate** — section 4 | Implemented (`eval/gate.py`) |
-| 6 | Quality sign-off | **QA** | Verdict plus feedback on failures | QA accepts the evidence | Partly — evidence exists, no sign-off record |
-| 7 | Release approval | **Admin** | Approval bound to one version + target | Distinct actor from author | Partly — see section 5 |
-| 8 | Apply and promote | **Admin** | Live alias moves; before/after recorded | Effect settles or is `reconcile_required` | Implemented (intent-first release) |
-| 9 | Online evaluation | Platform + QA | Sampled scores, assessments, incidents | Alert thresholds | Implemented (traces, assessments, SLO) |
-| 10 | Feed back | **QA** | Verified failure becomes an eval example | — | Implemented (harvested examples) |
-| 11 | Refine | Platform | New candidate via optimizer | Same gate as stage 5 | Implemented (refinement loop, GEPA) |
+| # | Stage | Actor | Artifact / output | Gate to pass | On failure goes to | Today |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0 | Provision | Admin | Workspace, members, roles | — | — | Implemented (projects + members) |
+| 1 | Author | Developer | Prompts, workflow manifest, tools, skills | — | — | Implemented per family |
+| 2 | Smoke-run | Developer | Trace of a successful run | Runs without error | Developer | Implemented |
+| 3 | Define the quality bar | **QA** | Test sets, scorers, judges, thresholds | Bar is reviewable and version-pinned | — | Implemented (eval datasets, judges, scorers) |
+| 4 | Package and pin | CI | One versioned, digest-pinned artifact + Git tag | Manifest validates; every pin resolves | Developer | **Proposed** — workspace revision |
+| 5 | Offline evaluation | CI | Scores per dimension vs baseline | **Regression gate** — section 4 | **Developer**, with gate reasons | Implemented (`eval/gate.py`) |
+| 6 | Quality sign-off | **QA** | Verdict, or rejection with a written reason | QA accepts the evidence | **Developer**, with QA's reason | Partly — evidence exists, no sign-off record |
+| 7 | Release approval | **Admin** | Approval bound to one version + target | Distinct actor from author | Developer or QA, per reason | Partly — see section 5 |
+| 8 | Apply and promote | **Admin** | Live alias moves; before/after recorded | Effect settles or is `reconcile_required` | Admin — reconcile or roll back | Implemented (intent-first release) |
+| 9 | Online evaluation | Platform + QA | Sampled scores, assessments, incidents | Alert thresholds | QA triages | Implemented (traces, assessments, SLO) |
+| 10 | Feed back | **QA** | Verified failure becomes an eval example | — | — | Implemented (harvested examples) |
+| 11 | Refine | Platform | New candidate via optimizer | Same gate as stage 5 | **Developer**, after N bounded attempts | Implemented (refinement loop, GEPA) |
 
 Stages 9 through 11 are Lifecycle B. They are the part CALIBER does best, and
 they close the loop back to stage 5 rather than restarting at stage 1.
+
+Read the "on failure" column as the load-bearing part of the process. A pipeline
+is defined by what it does when something fails, and every quality failure here
+converges on the same owner: **the Developer fixes it, adds a regression test,
+and re-enters at stage 5.**
+
+### 3.2 The rework cycle
+
+Nothing ships because it passed once. It ships because it passed *after*
+whatever failed was fixed:
+
+```mermaid
+flowchart LR
+  F1[Gate failure<br/>machine verdict] --> D[Developer fixes<br/>and adds a regression test]
+  F2[QA rejection<br/>human judgment] --> D
+  F3[Optimizer candidate<br/>exhausted its attempts] --> D
+  D --> G[CI re-runs the gate]
+  G --> Q[QA re-signs off]
+  Q --> R[Admin approves and releases]
+  G -.->|still failing| D
+  Q -.->|still not acceptable| D
+```
+
+The "adds a regression test" step is the one teams skip and the one that
+compounds. CALIBER supports it directly: a verified failure becomes an
+eval-dataset example through the harvest path, so the fix and its test land
+together and the same failure cannot ship twice.
+
+**One handoff worth naming.** In stages ② through ④ the *platform's optimizer*
+authored the candidate, not a person. So "the Developer fixes it" is really a
+**transfer of authorship**: the optimizer's candidate is a proposal, and when it
+fails, ownership reverts to a human author who may discard it entirely rather
+than patch it.
+
+### 3.3 Two kinds of rejection, one destination
+
+Both route to the Developer, but they are different signals and need different
+records:
+
+| | Gate failure | QA rejection |
+| --- | --- | --- |
+| Decided by | Machine, threshold-based (0.85 / 0.02) | Human judgment |
+| Means | The numbers do not clear the bar | The numbers cleared, but this is still wrong |
+| Carries | Gate reasons and per-dimension deltas | A written reason |
+| Today | `rejected`, terminal, unassigned | Cannot be expressed at all |
+
+QA rejection is the more valuable of the two, because a change that passes the
+gate and is still wrong is precisely what a quality function is for. It is also
+the one that does not exist in any form today.
+
+### 3.4 What the rework cycle needs, and does not have
+
+This is the largest process gap in the platform, larger than the missing
+package artifact, because it affects every failure rather than every release.
+
+`refinement_max_iterations` **defaults to `0`, meaning off** — "a failed gate
+rejects immediately." The eval stage then sets `job.status = "rejected"` and
+stops. Concretely, today:
+
+- nobody is assigned the failure;
+- there is no task, notification, or queue entry for a Developer;
+- **no request-changes endpoint exists**, so QA cannot return work with guidance.
+
+A failed gate produces a `rejected` row and silence.
+
+**One mechanism is already half-built.** `CaliberRefinementJob.review_notes`
+exists, and its docstring reads: *"Reviewer change-request notes. Set by the
+request-changes endpoint when an approver wants a new candidate with specific
+guidance. Read by the candidate stage on the retry pass, then cleared."* The
+candidate stage **still reads it**. The endpoint that wrote it was removed with
+the approval-governance subsystem. The pipeline can already consume human rework
+guidance; it lost the door people walked through.
+
+Four things to build, in value order:
+
+1. **A rework assignment.** A failed gate or QA rejection must produce an owned,
+   visible task rather than a terminal `rejected` row.
+2. **A QA sign-off record**, distinct from the machine gate. Today the gate's
+   verdict is the only quality decision the system stores.
+3. **A request-changes writer** for `review_notes` — nearly free, since the
+   consumer already exists.
+4. **Set `refinement_max_iterations` above `0` deliberately** and define what
+   happens when it exhausts. Shipping at `0` currently gives you zero automation
+   *and* zero escalation.
+
+Items 1 and 2 are the substantive ones.
 
 ### 3.1 The one artifact that does not exist yet
 
@@ -468,6 +610,9 @@ foundations:
 | Gate per axis or on a composite? | Per failure-mode axis | A composite masks single-axis regressions |
 | Is staging mandatory before production? | Yes once environments exist | Cannot be enforced today (single-environment) |
 | Who may self-approve? | Nobody, except audited break-glass | The live hole in section 5.1 |
+| Where does a failed gate go? | To the Developer as an owned task | Today it goes nowhere — `rejected` and silence |
+| Can QA reject work that passed the gate? | Yes, with a written reason | The whole point of a human quality gate |
+| `refinement_max_iterations` | Set above `0` deliberately, and define the escalation | At `0` you get neither automation nor escalation |
 
 ## 8. Sequencing
 
@@ -479,17 +624,23 @@ depends on project-role checks that most routes do not yet perform.
    ceiling is effectively a Developer.
 2. **Action vocabulary.** Split `resource.write`, add `feedback.submit`, add the
    distinct-actor constraint on approval.
-3. **Roles and labels.** Surface Developer / QA / Admin / Viewer, keeping the
+3. **The rework loop.** A failed gate or QA rejection must become an owned task,
+   QA sign-off must be a stored decision, and `review_notes` needs its writer
+   back. Section 3.4. This is independent of the Workspace work and can ship
+   first — it improves every failure today, not every release later.
+4. **Roles and labels.** Surface Developer / QA / Admin / Viewer, keeping the
    stored literals.
-4. **The package.** Workspace revisions and the manifest — stage 4, which makes a
+5. **The package.** Workspace revisions and the manifest — stage 4, which makes a
    release identifiable as one artifact.
-5. **Environments and promotion.** The dev → staging → production ladder, which
+6. **Environments and promotion.** The dev → staging → production ladder, which
    is what makes staging enforceable.
 
-Do not surface a QA role before step 1. A role that appears restricted while
-being fully privileged is worse than no role at all — it is the
-"terminology without enforcement" risk `workspace-plan.md` lists first among its
-architectural risks.
+Two ordering constraints are worth stating plainly. **Do not surface a QA role
+before step 1** — a role that appears restricted while being fully privileged is
+worse than no role at all, and it is the "terminology without enforcement" risk
+`workspace-plan.md` lists first among its architectural risks. And **do not ship
+the QA sign-off gate before step 3** — a gate a human can fail, with no path for
+the work to come back, converts a quality process into a dead end.
 
 ## Sources
 
