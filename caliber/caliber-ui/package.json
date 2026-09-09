@@ -72,7 +72,7 @@
     "@typescript-eslint/eslint-plugin": "^8.13.0",
     "@typescript-eslint/parser": "^8.13.0",
     "@vitejs/plugin-react-swc": "^4.3.1",
-    "@vitest/coverage-v8": "4.1.7",
+    "@vitest/coverage-v8": "4.1.11",
     "autoprefixer": "^10.4.20",
     "eslint": "^9.14.0",
     "eslint-plugin-react-hooks": "^5.0.0",
@@ -84,7 +84,7 @@
     "tailwindcss": "^3.4.14",
     "typescript": "^5.6.3",
     "vite": "^8.0.16",
-    "vitest": "^4.1.7"
+    "vitest": "^4.1.11"
   },
   "overrides": {
     "js-yaml": "~4.3.2",
