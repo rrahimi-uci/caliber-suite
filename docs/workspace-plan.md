@@ -2,12 +2,11 @@
 audience:
   - architect
   - developer
-  - security
   - operator
   - decision-maker
-doc_type: proposal
+doc_type: concept
 product_area: platform
-stability: draft
+stability: experimental
 summary: Repository-grounded architecture and phased implementation plan for making the existing CALIBER project scope a first-class Workspace with revisions, collaborators, Git-backed authoring, isolation, and governed environment promotion.
 prerequisites:
   - Read the layered architecture and platform architecture
@@ -100,10 +99,13 @@ guarantees are not yet workspace-wide:
 7. Asset history is intentionally heterogeneous. Prompts, workflows, knowledge
    bases, skills, tools, test sets, judges, and MCP servers do not share one
    release or rollback contract.
-8. Environment classification exists and is fail-closed for unknown aliases,
-   but the supported product remains single-environment. Prompt discovery uses
-   only `prod`; workflow deployment stores a derived environment class rather
-   than a first-class workspace environment.
+8. Environment classification exists and an unrecognized alias falls back to
+   the configured default class, which ships as production — but that fallback
+   is configurable rather than an invariant, and the explicit non-deployment
+   aliases classify as development. The supported product also remains
+   single-environment: prompt discovery uses only `prod`, and workflow
+   deployment stores a derived environment class rather than a first-class
+   workspace environment.
 9. Release candidates, signoffs, prompt release operations, workflow
    promotions, and rollback checkpoints exist, but there is no parent release
    that binds a complete workspace revision to an environment.
@@ -187,7 +189,7 @@ The MVP does not include:
 | [`ProjectsAPI`](../sdk/caliber-sdk/src/caliber_sdk/resources/projects.py) | Typed project, member, and file operations | Extend without breaking existing methods | Add source, revision, environment, and release models/resources |
 | Domain resource models | Project IDs on agents, datasets, judges, review queues, plans, eval runs, skills, workflows, tools, OpenAPI integrations, KBs, files, and several run tables | Keep domain models authoritative | Coverage is nullable, uneven, and not always FK-enforced |
 | Domain version models | MLflow prompt versions; workflow versions; KB builds; skill snapshots; tool version rows; dataset intervals | Keep each domain contract | Add a cross-resource immutable pin set, not a replacement version backend |
-| [`deployment_environments.py`](../caliber/src/caliber/deployment_environments.py) | Classifies aliases as development/staging/production; unknown aliases fail closed to production | Reuse classification and policy helpers | Add durable workspace environment identity and state |
+| [`deployment_environments.py`](../caliber/src/caliber/deployment_environments.py) | Classifies aliases as development/staging/production; an unrecognized alias falls back to the configured default class, which ships as production, except for the explicit non-deployment aliases (`manual`, `preview`, `draft`) that classify as development | Reuse classification and policy helpers | Add durable workspace environment identity and state; note that the production fallback is a configurable default rather than an invariant |
 | Workflow deployments/promotions | Alias CAS, deploy gates, optional human approval, rollback stack | Reuse through a workspace release adapter | Applies only to workflow aliases and current global scopes |
 | Release candidates/signoffs | Evidence rubric, immutable final signoff snapshot | Reuse for workspace release decisions | Current candidate names one artifact/version, not a workspace revision/environment |
 | Prompt release operations | Intent-first external effect with reconciliation | Reuse as a child operation | Other asset paths do not inherit this external-effect guarantee |
@@ -604,22 +606,30 @@ Release states:
 
 ```mermaid
 stateDiagram-v2
-    [*] --> Draft
-    Draft --> Evaluating
-    Evaluating --> Blocked
-    Evaluating --> AwaitingApproval
-    AwaitingApproval --> Rejected
-    AwaitingApproval --> Approved
-    Approved --> Applying
-    Applying --> Applied
-    Applying --> Failed
-    Applying --> ReconcileRequired
-    ReconcileRequired --> Applied
-    ReconcileRequired --> Failed
-    Applied --> RollingBack
-    RollingBack --> RolledBack
-    RollingBack --> ReconcileRequired
+    [*] --> draft
+    draft --> evaluating
+    evaluating --> blocked
+    blocked --> evaluating: re-evaluate after the blocker is resolved
+    evaluating --> awaiting_approval
+    awaiting_approval --> rejected
+    awaiting_approval --> approved
+    approved --> applying
+    applying --> applied
+    applying --> failed
+    applying --> reconcile_required
+    reconcile_required --> applied
+    reconcile_required --> failed
+    applied --> rolling_back
+    rolling_back --> rolled_back
+    rolling_back --> reconcile_required
 ```
+
+The state names are the literal `status` values, matching the snake_case
+vocabulary used by every other status column in this document and by the
+existing `caliber_release_operations` and refinement-job statuses. `blocked`
+returns to `evaluating` through `POST .../evaluate` once the blocker is
+resolved; `rejected` and `failed` are terminal, and a rejected or failed
+release is superseded by a new release rather than reopened.
 
 #### `caliber_workspace_release_items`
 
@@ -885,7 +895,7 @@ and mobile drawer.
 |   Workflows      | Environments  Releases  Settings                      |
 |   Cookbooks      |-------------------------------------------------------|
 |   Agents         | Development     Staging          Production           |
-|   Plans          | WREL-104 ready  WREL-101 live    WREL-099 live        |
+|   Plans          | WSREL-104 ready WSREL-101 live   WSREL-099 live       |
 | RESOURCES        | 3 checks due    no drift         reconciliation clear |
 | INTEGRATIONS     |-------------------------------------------------------|
 | EVALUATE         | Needs attention              Recent activity          |
@@ -996,11 +1006,11 @@ sequenceDiagram
 
     User->>Switcher: Select PRJ-B
     Switcher->>Provider: switchTo(PRJ-B)
-    Provider->>Provider: Disable scoped actions; status = switching
+    Provider->>Provider: Disable scoped actions, status = switching
     Provider->>API: GET /projects/PRJ-B
     API-->>Provider: Visible workspace + capabilities
     Provider->>Cache: Cancel PRJ-A requests and remove PRJ-A scoped cache
-    Provider->>Provider: Commit header scope; persist ID; increment generation
+    Provider->>Provider: Commit header scope, persist ID, increment generation
     Provider->>Router: Navigate or reconcile /workspaces/PRJ-B
     Provider->>Cache: Remount scoped subtree with empty/loading state
     Cache->>API: Fetch PRJ-B data with explicit project scope
@@ -1115,8 +1125,12 @@ references appear in Resources and revisions with their CALIBER provenance.
 
 #### Revisions and imports
 
-Import is a durable job view with `queued`, `fetching`, `validating`,
-`materializing`, `ready`, `failed`, and `reconciliation_required` states. It
+Import is a durable job view over the `caliber_workspace_import_jobs` statuses
+defined in section 5.3 — `queued`, `running`, `succeeded`, `failed`, and
+`reconcile_required`. Finer progress inside `running` (fetching, validating,
+materializing) is display detail derived from a bounded progress field, not an
+additional status value, and the resulting revision's own `validating` /
+`ready` / `invalid` state stays distinct from the job's. It
 shows bounded logs, manifest validation errors with paths, source commit,
 idempotency identity, and retry eligibility. Closing the page does not cancel a
 durable job. Revision comparison reports added, removed, changed, and
@@ -1378,6 +1392,12 @@ Reuse current global scopes as credential/platform ceilings:
 | `caliber.approver` | Review and approve |
 | `caliber.admin` | Workspace administration and approved release application; current inheritance remains but release-instance rules still apply |
 
+These rows are ceilings, not a partition, and the implemented inheritance is
+asymmetric: `caliber.admin` implies approver, operator, and viewer, while
+`caliber.approver` implies **only** viewer. An approver therefore cannot edit,
+import, execute, or apply a release on the strength of that scope alone, and a
+reviewer who also needs to author requires `caliber.operator` as well.
+
 A role cannot widen the token's scope, and a PAT cannot widen its owner's live
 scope. Unknown permissions deny. UI capability flags are projections of the
 server decision and are never the enforcement boundary.
@@ -1518,9 +1538,9 @@ sequenceDiagram
     end
     IQ->>DB: compute revision digest and validation report
     alt complete and valid
-        IQ->>DB: mark revision ready; job succeeded
+        IQ->>DB: mark revision ready, job succeeded
     else deterministic invalidity
-        IQ->>DB: mark revision invalid; job failed
+        IQ->>DB: mark revision invalid, job failed
     else ambiguous provider outcome
         IQ->>DB: mark job reconcile_required
     end
@@ -1554,9 +1574,9 @@ sequenceDiagram
         RS->>DB: settle item
     end
     alt all required items applied
-        RS->>DB: mark release applied; move environment pointer
+        RS->>DB: mark release applied, move environment pointer
     else ambiguous or partial
-        RS->>DB: mark reconcile_required; pointer unchanged
+        RS->>DB: mark reconcile_required, pointer unchanged
     end
 ```
 
