@@ -236,7 +236,7 @@ def _components() -> dict[str, Any]:
                         },
                     },
                 },
-                "required": ["detail", "status_code"],
+                "required": ["detail", "status_code", "errors"],
             },
         },
     }

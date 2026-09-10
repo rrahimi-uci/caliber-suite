@@ -81,7 +81,7 @@ These pieces come directly from the served management OpenAPI document and apply
 | --- | --- | --- |
 | `Envelope` | `data` | Standard success wrapper for JSON responses. Required: data. |
 | `Error` | `detail`, `status_code` | Rendered from HTTPException by routes/_errors.py. Required: detail, status_code. |
-| `ValidationError` | `detail`, `status_code`, `errors` | Structured 400 emitted for request-body validation failures. Required: detail, status_code. |
+| `ValidationError` | `detail`, `status_code`, `errors` | Structured 400 emitted for request-body validation failures. Required: detail, status_code, errors. |
 
 ### Shared response components
 

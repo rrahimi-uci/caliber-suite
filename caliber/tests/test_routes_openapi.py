@@ -125,6 +125,14 @@ def test_the_envelope_and_error_shapes_are_documented(client: TestClient) -> Non
     assert schemas["Envelope"]["required"] == ["data"]
     assert set(schemas["Error"]["required"]) == {"detail", "status_code"}
     assert "errors" in schemas["ValidationError"]["properties"]
+    # validation_error_handler (routes/_errors.py) always emits `errors`,
+    # never omits the key -- the documented schema must say so too, or an
+    # SDK/OpenAPI consumer could wrongly treat it as optional.
+    assert set(schemas["ValidationError"]["required"]) == {
+        "detail",
+        "status_code",
+        "errors",
+    }
 
 
 def test_request_and_success_bodies_are_declared(client: TestClient) -> None:
