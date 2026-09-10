@@ -133,7 +133,7 @@ def test_the_envelope_and_error_shapes_are_documented(client: TestClient) -> Non
         "status_code",
         "errors",
     }
-    # Same reasoning one level down: every item validation_error_handler
+    # Same reasoning one level down: each item that validation_error_handler
     # appends always carries all three keys (its list comprehension builds
     # a fixed dict, never a subset), so the nested item schema must say so.
     item_schema = schemas["ValidationError"]["properties"]["errors"]["items"]

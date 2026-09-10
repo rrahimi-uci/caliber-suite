@@ -254,7 +254,7 @@ _SHARED_RESPONSES: dict[str, Any] = {
     # call sites) renders via http_exception_handler as bare `Error`
     # ({detail, status_code}, no `errors` key); a Pydantic body-validation
     # failure renders via validation_error_handler as `ValidationError`
-    # ({detail, status_code, errors: [...]})``. Only one of those two shapes
+    # (`{detail, status_code, errors: [...]}`). Only one of those two shapes
     # is guaranteed to carry `errors`, so the response must document the
     # union, not just the richer shape -- `ValidationError` alone would make
     # the contract reject the common case. `anyOf`, not `oneOf`: `Error` is
