@@ -140,6 +140,14 @@ SDK_SURFACE_MAP = {
         "entry": "`client.review_queues`",
         "notes": "Queue creation, enqueue/submit flows, and alignment examples.",
     },
+    "verification-queue": {
+        "entry": "`client.verification_queue`",
+        "notes": (
+            "Stage ① Verify for a manually-flagged concern: list/get/create/"
+            "verify/dismiss/mark_duplicate/batch. Verifying does not create a "
+            "refinement job."
+        ),
+    },
     "aria": {
         "entry": "`client.aria`",
         "notes": "Goal-plan creation, approval, execution, polling, and interactions.",
@@ -197,6 +205,7 @@ PREFERRED_TAG_ORDER = {
     "openapi-integrations": 23.5,
     "releases": 24,
     "review-queues": 25,
+    "verification-queue": 25.5,
     "jobs": 26,
     "observability": 27,
     "events": 28,

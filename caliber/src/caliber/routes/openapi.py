@@ -108,6 +108,7 @@ _STABILITY: dict[str, str] = {
     "object-store": STABILITY_BETA,
     "jobs": STABILITY_BETA,
     "review-queues": STABILITY_BETA,
+    "verification-queue": STABILITY_BETA,
     "aria": STABILITY_BETA,
     "releases": STABILITY_BETA,
     "observability": STABILITY_BETA,

@@ -28,7 +28,7 @@ from .operations import (
     SystemAPI,
 )
 from .projects import ProjectFilesAPI, ProjectsAPI
-from .quality import EvalDatasetsAPI, EvaluationsAPI, JudgesAPI
+from .quality import EvalDatasetsAPI, EvaluationsAPI, JudgesAPI, VerificationQueueAPI
 from .raw import RawAPI
 from .system import CapabilitiesAPI, MeAPI, SettingsAPI
 from .workflows import (
@@ -80,6 +80,7 @@ __all__ = [
     "SystemAPI",
     "TokensAPI",
     "ToolsAPI",
+    "VerificationQueueAPI",
     "WorkflowPromotionsAPI",
     "WorkflowRunFailed",
     "WorkflowRunsAPI",

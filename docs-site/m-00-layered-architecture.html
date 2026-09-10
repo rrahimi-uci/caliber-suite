@@ -125,7 +125,7 @@
     subgraph L6["6 · SURFACES"]
       direction LR
       s1["&lt;b&gt;React SPA&lt;/b&gt;&lt;br/&gt;&lt;code&gt;/caliber/&lt;/code&gt;"]:::ui
-      s2["&lt;b&gt;HTTP API&lt;/b&gt;&lt;br/&gt;388 HTTP operations&lt;br/&gt;across 45 route modules"]:::ui
+      s2["&lt;b&gt;HTTP API&lt;/b&gt;&lt;br/&gt;395 HTTP operations&lt;br/&gt;across 46 route modules"]:::ui
       s3["&lt;b&gt;Aria copilot&lt;/b&gt;&lt;br/&gt;permissioned&lt;br/&gt;agentic tool loop"]:::ui
       s4["&lt;b&gt;Headless&lt;/b&gt;&lt;br/&gt;service tokens ·&lt;br/&gt;SSE · webhooks"]:::ui
       s1 --- s2 --- s3 --- s4
@@ -236,7 +236,7 @@
 
     classDef chain fill:#ede9fe,stroke:#7c3aed,color:#4c1d95;</pre></div>
 <p>Implemented paths leave durable state and evidence across the chain. A concept is not necessarily a distinct worker stage, table, or row:</p>
-<div class="table-wrap"><table><thead><tr><th>Concept</th><th>What it leaves behind</th></tr></thead><tbody><tr><td>Signal</td><td>Verification item — the queue entry an operator confirms is real</td></tr><tr><td>Evidence</td><td>Refinement job with assembled trace evidence</td></tr><tr><td>Candidate</td><td>Diagnosis + candidate artifact, produced by the policy-selected optimizer</td></tr><tr><td>Measurement</td><td>Job, regression, or evaluation records with scores and an enforced candidate-advancement gate decision; a separate per-version gate-verdict row, where written, is advisory release evidence</td></tr><tr><td>Decision</td><td>An explicit operator/admin Apply action; implemented refinement release paths then mint a born-approved provenance anchor carrying the candidate and evaluation evidence</td></tr><tr><td>Release</td><td>Implemented paths leave rollback and audit evidence. Prompt alias paths additionally commit an idempotent release intent with exact before/after versions before the external effect, then settle it or expose it for reconciliation; other provider paths must establish their own guarantees.</td></tr><tr><td>Trace</td><td>New MLflow traces and assessments — and, when SLO reconciliation runs on the observability surface, a durable incident</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Concept</th><th>What it leaves behind</th></tr></thead><tbody><tr><td>Signal</td><td>Verification item — the queue entry an operator confirms is real via <code>POST /verification-queue/{id}/verify</code> for a manually-flagged concern. The prompt/skill/workflow job-creation paths below still self-stamp their own item <code>verified</code> inline rather than routing through it — see <code>docs/workspace-plan.md</code> section 2.2</td></tr><tr><td>Evidence</td><td>Refinement job with assembled trace evidence</td></tr><tr><td>Candidate</td><td>Diagnosis + candidate artifact, produced by the policy-selected optimizer</td></tr><tr><td>Measurement</td><td>Job, regression, or evaluation records with scores and an enforced candidate-advancement gate decision; a separate per-version gate-verdict row, where written, is advisory release evidence</td></tr><tr><td>Decision</td><td>An explicit operator/admin Apply action; implemented refinement release paths then mint a born-approved provenance anchor carrying the candidate and evaluation evidence</td></tr><tr><td>Release</td><td>Implemented paths leave rollback and audit evidence. Prompt alias paths additionally commit an idempotent release intent with exact before/after versions before the external effect, then settle it or expose it for reconciliation; other provider paths must establish their own guarantees.</td></tr><tr><td>Trace</td><td>New MLflow traces and assessments — and, when SLO reconciliation runs on the observability surface, a durable incident</td></tr></tbody></table></div>
 <p>The canonical <strong>prompt</strong> path is the fullest instance of the chain, with two explicit human decisions — verification, and an operator Apply action:</p>
 <div class="diagram"><pre class="mermaid">flowchart LR
     trace["Production agent&lt;br/&gt;MLflow trace"]:::src
@@ -255,6 +255,7 @@
     classDef human fill:#fef3c7,stroke:#d97706,color:#78350f;
     classDef auto fill:#dbeafe,stroke:#2563eb,color:#1e3a8f;
     classDef ship fill:#dcfce7,stroke:#16a34a,color:#14532d;</pre></div>
+<p>Verify has a live route (<code>POST /verification-queue/{id}/verify</code>) for a manually-flagged concern, but the prompt-optimization path pictured here still creates and self-verifies its own item in one step — Verify is not yet a second human's click on <em>this</em> path. See <code>docs/workspace-plan.md</code> section 2.2 for the full account and what closing that gap requires.</p>
 <p>Other asset families reuse the chain but <strong>not</strong> its full guarantees — a workflow is measured by manifest replay, a tool by a revision-fenced deterministic suite, a knowledge base by retrieval calibration. The chain is the shape; the evidence and the release idiom are asset-specific. See §4.</p>
 <hr>
 <h2 id="3-anatomy-of-a-governed-asset">3 · Anatomy of a governed asset<a class="anchor" href="#3-anatomy-of-a-governed-asset" aria-hidden="true" tabindex="-1">#</a></h2>

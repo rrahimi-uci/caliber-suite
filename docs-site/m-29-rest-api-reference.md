@@ -42,6 +42,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | Workflows | `GET/POST /workflows`, `GET/POST /workflows/{id}/versions`, `POST /workflow-versions/{version_id}/run` | Registry, version lifecycle, execution, and deployment are split across route families |
 | Workflow services | `POST /workflows/{workflow_id}/service`, `POST /services/{workflow_id}/invoke`, `GET /services/{workflow_id}/openapi.json` | Publish a workflow externally and inspect its invocation contract |
 | Datasets and evaluations | `GET/POST /eval-datasets`, `GET/POST /evaluations`, `GET/POST /judges` | Evaluation evidence and scoring |
+| Verification queue | `GET/POST /verification-queue`, `POST /verification-queue/{id}/verify`, `.../dismiss`, `.../duplicate`, `POST /verification-queue/batch` | Stage ① Verify for a manually-flagged concern; verifying does not create a refinement job |
 | Knowledge | `GET/POST /knowledge-bases`, `POST /knowledge/query` | Corpus lifecycle plus retrieval |
 | MCP | `GET/POST /mcp-servers`, tool inventory and invoke routes | Governed external tool connectivity |
 | Releases | `GET/POST /releases/candidates`, `POST /releases/candidates/{id}/signoffs`, `GET /releases/operations` | Signoff, waivers, and reconcile workflows |
@@ -124,6 +125,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | OpenAPI Integrations (`openapi-integrations`) | `beta` | `23` | Typed SDK | `client.openapi_integrations` | Governed OpenAPI import, curation, dependency review, and tool-draft publication. |
 | Releases (`releases`) | `beta` | `13` | Typed SDK | `client.releases` | Release candidates, evaluation, waivers, reports, and signoff. |
 | Review Queues (`review-queues`) | `beta` | `7` | Typed SDK | `client.review_queues` | Queue creation, enqueue/submit flows, and alignment examples. |
+| Verification Queue (`verification-queue`) | `beta` | `7` | Typed SDK | `client.verification_queue` | Stage ① Verify for a manually-flagged concern: list/get/create/verify/dismiss/mark_duplicate/batch. Verifying does not create a refinement job. |
 | Jobs (`jobs`) | `beta` | `4` | Typed SDK | `client.jobs` | Durable background jobs, targets, apply, and wait semantics. |
 | Observability (`observability`) | `beta` | `7` | Typed SDK | `client.observability` | Trace listing/detail, experiments, and metrics reads. |
 | Events (`events`) | `beta` | `1` | Typed SDK | `client.events` | Server-sent events stream access. |
@@ -156,12 +158,12 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `314` |
-| Operations | `388` |
+| Route paths | `320` |
+| Operations | `395` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
-| Beta families | `19` |
+| Beta families | `20` |
 | Internal families | `9` |
 
 ### Auth and scoping contract
@@ -213,6 +215,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [OpenAPI Integrations (`openapi-integrations`)](#openapi-integrations-openapi-integrations) | `23` | `20` |
 | [Releases (`releases`)](#releases-releases) | `13` | `12` |
 | [Review Queues (`review-queues`)](#review-queues-review-queues) | `7` | `5` |
+| [Verification Queue (`verification-queue`)](#verification-queue-verification-queue) | `7` | `6` |
 | [Jobs (`jobs`)](#jobs-jobs) | `4` | `4` |
 | [Observability (`observability`)](#observability-observability) | `7` | `7` |
 | [Events (`events`)](#events-events) | `1` | `1` |
@@ -718,6 +721,20 @@ Supported but still moving route groups. Expect capability growth and narrower c
 | `GET` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/alignment-examples` | `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_review_queues_queue_id_alignment_examples` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items` | `queue_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_review_queues_queue_id_items`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items/{item_id}/submit` | `item_id`, `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_review_queues_queue_id_items_item_id_submit`; request body documented in OpenAPI |
+
+#### Verification Queue (`verification-queue`)
+
+7 operation(s) across 6 route path(s).
+
+| Method | Path | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/verification-queue` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_verification_queue` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue/batch` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue_batch`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/verification-queue/{item_id}` | `item_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_verification_queue_item_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue/{item_id}/dismiss` | `item_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue_item_id_dismiss`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue/{item_id}/duplicate` | `item_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue_item_id_duplicate`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue/{item_id}/verify` | `item_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue_item_id_verify`; request body documented in OpenAPI |
 
 #### Jobs (`jobs`)
 

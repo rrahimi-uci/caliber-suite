@@ -6,7 +6,7 @@ product_area: api
 stability: ga
 prerequisites:
   - A CALIBER API integration question
-reviewed_on: 2026-08-20
+reviewed_on: 2026-09-09
 version_applicability: current main branch docs contract
 tags:
   - api
@@ -55,6 +55,7 @@ does this capability live?" before you drop into per-route details.
 | `/evaluations` | Scored evaluation runs |
 | `/judges` | Model-backed graders and alignment |
 | `/review-queues` | Human review queues and adjudication outputs |
+| `/verification-queue` | Stage ① Verify: manually-flagged concerns, list/create/verify/dismiss/mark-duplicate/batch. Does not create a refinement job — see the SDK reference |
 | `/knowledge-runs/{id}/events` | Live build-progress events for a knowledge-base run |
 | `/playground-runs/{id}/files` | Files produced by an ad-hoc playground run |
 | `/memory` | Long-term agent memory: add, search, list, and delete, always scoped by agent/user/run |

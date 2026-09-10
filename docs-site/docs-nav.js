@@ -519,7 +519,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-09-09",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "refinement",
@@ -896,7 +896,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-09-09",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "qa",
@@ -1050,7 +1050,7 @@ window.DOCS_DATA = {
         "A CALIBER API integration question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-20",
+      "reviewed_on": "2026-09-09",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "api",
@@ -1075,7 +1075,7 @@ window.DOCS_DATA = {
         "A CALIBER API integration question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-11",
+      "reviewed_on": "2026-09-09",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "api",
@@ -1838,7 +1838,7 @@ window.DOCS_DATA = {
         "Python 3.10+"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-11",
+      "reviewed_on": "2026-09-09",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "sdk",

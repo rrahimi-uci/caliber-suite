@@ -350,10 +350,22 @@ export interface HarvestedExample {
   dataset_version: number;
 }
 
-/** Verify endpoint returns the updated item + the newly created job. */
+/**
+ * Verify endpoint response.
+ *
+ * `job` is `null` today: `caliber.routes.verification.verify_item` marks the
+ * item verified but does not create a `RefinementJob`. Doing that for real
+ * means generalizing three separate, bespoke job-creation paths
+ * (prompt/skill/workflow) behind a shared interface -- adapter-shaped work
+ * for a later phase, not this endpoint. See `docs/workspace-plan.md` section
+ * 2.2 and the route module's own docstring. This type was previously
+ * `job: RefinementJob` (non-optional), which the server has never actually
+ * returned -- corrected here rather than left to mislead a caller into
+ * expecting one.
+ */
 export interface VerifyResponse {
   item: VerificationItem;
-  job: RefinementJob;
+  job: RefinementJob | null;
   /** The correction captured as an eval example, when harvesting is enabled. */
   harvested?: HarvestedExample | null;
 }

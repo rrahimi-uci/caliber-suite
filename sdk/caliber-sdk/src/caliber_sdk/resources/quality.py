@@ -1,11 +1,20 @@
-"""Datasets, judges, and evaluations — the evidence and scoring surfaces."""
+"""Datasets, judges, evaluations, and verification — the evidence and scoring
+surfaces."""
 
 from __future__ import annotations
 
 from typing import Any
 
 from ..models._decode import decode, decode_list
-from ..models.quality import EvalDataset, EvalExample, Evaluation, Judge, JudgeAlignment
+from ..models.quality import (
+    EvalDataset,
+    EvalExample,
+    Evaluation,
+    Judge,
+    JudgeAlignment,
+    VerificationBatchResult,
+    VerificationItem,
+)
 from ..waiters import wait_for
 from ._base import Resource
 
@@ -202,4 +211,83 @@ class EvaluationsAPI(Resource):
         )
 
 
-__all__ = ["EvalDatasetsAPI", "EvaluationsAPI", "JudgesAPI"]
+class VerificationQueueAPI(Resource):
+    """Stage ① Verify — manually-flagged concerns awaiting confirmation.
+
+    Verifying or dismissing an item here does **not** create a refinement
+    job. Building that requires generalizing three separate job-creation
+    paths (prompt/skill/workflow) behind a shared interface, which is
+    adapter-shaped work for a later phase, not this resource. See
+    ``docs/workspace-plan.md`` section 2.2 and
+    ``caliber/src/caliber/routes/verification.py``'s module docstring.
+    """
+
+    def list(
+        self,
+        *,
+        status: str | None = "pending",
+        severity: str | None = None,
+        agent_id: str | None = None,
+    ) -> _List[VerificationItem]:
+        params = {
+            key: value
+            for key, value in {"status": status, "severity": severity, "agent_id": agent_id}.items()
+            if value is not None
+        }
+        return decode_list(VerificationItem, self._get("/verification-queue", params=params))
+
+    def get(self, item_id: str) -> VerificationItem:
+        return decode(VerificationItem, self._get(f"/verification-queue/{item_id}"))
+
+    def create(
+        self, agent_id: str, *, category: str, free_text: str, **options: Any
+    ) -> VerificationItem:
+        """Manually flag a concern that isn't tied to an already-running job."""
+        body: dict[str, Any] = {
+            "agent_id": agent_id,
+            "category": category,
+            "free_text": free_text,
+            **options,
+        }
+        return decode(VerificationItem, self._post("/verification-queue", json=body))
+
+    def verify(self, item_id: str, **options: Any) -> VerificationItem:
+        """Confirm the flagged concern is real.
+
+        Returns the updated item. The server's response also carries a
+        ``job`` key, which is always ``None`` today — see the class
+        docstring.
+        """
+        response = self._post(f"/verification-queue/{item_id}/verify", json=options)
+        item = response.get("item", response) if isinstance(response, dict) else response
+        return decode(VerificationItem, item)
+
+    def dismiss(self, item_id: str, **options: Any) -> VerificationItem:
+        """Mark the flagged concern as not real (or, with ``duplicate_of_id``,
+        as a duplicate of another item)."""
+        return decode(
+            VerificationItem, self._post(f"/verification-queue/{item_id}/dismiss", json=options)
+        )
+
+    def mark_duplicate(
+        self, item_id: str, duplicate_of_id: str, **options: Any
+    ) -> VerificationItem:
+        """Dedicated route for "this is a duplicate of X" — same mutation as
+        :meth:`dismiss` with ``duplicate_of_id`` set, but a distinct call
+        makes the intent unambiguous in audit logs."""
+        body = {"duplicate_of_id": duplicate_of_id, **options}
+        return decode(
+            VerificationItem, self._post(f"/verification-queue/{item_id}/duplicate", json=body)
+        )
+
+    def batch(self, action: str, item_ids: _List[str], **options: Any) -> VerificationBatchResult:
+        """Verify or dismiss several items in one round-trip.
+
+        Per-item failures don't fail the whole batch — inspect
+        ``result.results`` for which items succeeded.
+        """
+        body = {"action": action, "item_ids": item_ids, **options}
+        return decode(VerificationBatchResult, self._post("/verification-queue/batch", json=body))
+
+
+__all__ = ["EvalDatasetsAPI", "EvaluationsAPI", "JudgesAPI", "VerificationQueueAPI"]

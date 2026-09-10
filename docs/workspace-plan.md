@@ -176,10 +176,11 @@ flowchart LR
 Lifecycle B is the concrete six-stage refinement path documented in
 [The Refinement Loop](refinement-loop.md) and mapped to the seven-term canonical
 chain in [ARCHITECTURE.md](../ARCHITECTURE.md) section 2. Those two sources
-describe **Verify** and **Apply** as its human decision points. Only **Apply**
-is a live, separately-exercised one today — section 2.2 corrects the record on
-Verify, which every code path currently collapses into the same click that
-creates the job.
+describe **Verify** and **Apply** as its human decision points. Both are live,
+separately-exercised routes today, but not evenly: **Apply** governs every
+job, while **Verify** (`P3-B`, section 16) only reaches a manually-flagged
+concern — the four paths that create most refinement jobs still self-verify
+inline, unchanged by `P3-B`. Section 2.2 has the full account.
 
 ### 1.1 The four development cycles
 
@@ -260,39 +261,42 @@ no product or custom role provides the function. CALIBER's case for a fixed QA
 role comes from its own architecture rather than from a universal industry
 claim:
 
-**CALIBER's implemented loop already contains one human quality gate that is
-not an authoring action, and a second is designed but not wired.** Stage ⑤
-**Apply** — `POST /jobs/{id}/apply` — is real: a distinct, separately-callable
-decision, gated by `caliber.operator`, that a human takes on an
-already-existing job. That alone does not require QA; an operator applying
-their own job is exactly the self-approval problem section 5.1 names.
+**CALIBER's implemented loop contains two human quality gates that are not
+authoring actions, one of them only partly reaching the traffic it is meant
+to govern.** Stage ⑤ **Apply** — `POST /jobs/{id}/apply` — is real: a
+distinct, separately-callable decision, gated by `caliber.operator`, that a
+human takes on an already-existing job. That alone does not require QA; an
+operator applying their own job is exactly the self-approval problem
+section 5.1 names.
 
-Stage ① **Verify** — "is this production failure real?" — is the intended
-second gate, and it is where the case for a *separate* role, rather than a
-second permission on the same actor, actually comes from: the design calls for
-production-driven triage that is not the same click as authoring or applying a
-fix. But it is not implemented as its own action today. `CaliberVerificationItem`
-has a full model, five request schemas, and a complete frontend API client —
-and none of it is wired together. Every one of the four code paths that create
-a refinement job (prompt optimization, skill calibration, workflow calibration,
-an Aria-proposed promotion) inserts the verification row already
-`status="verified"`, stamped with the same operator's own identity, inside the
-same transaction that creates the job. No route lists a *pending* item, no
-route lets a different person confirm one, and no ingestion path — the
-model's own docstring calls for "the feedback poller" — exists to create one
-from a real production signal in the first place. "Verify" today is a
-bookkeeping field job creation writes about itself, not a decision distinct
-from it.
+Stage ① **Verify** — "is this production failure real?" — is where the case
+for a *separate* role, rather than a second permission on the same actor,
+actually comes from: the design calls for production-driven triage that is
+not the same click as authoring or applying a fix. `P3-B` (section 16) gave it
+a real route: `POST /verification-queue/{item_id}/verify`, gated by
+`caliber.operator`, distinct from and callable after item creation. It is
+genuinely a separate action today for a *manually*-flagged concern.
 
-That is not a small gap: it is the premise this section's argument rests on, so
-it is worth being direct about what changes when it is corrected. QA's case
-does not collapse to "no gate exists" — Apply is real, and it is genuinely not
-an authoring action. But the platform does not yet have *two* implemented human
-gates that are structurally distinct from authoring, it has one, and the
-second is the reason to build QA's verification capability rather than
-evidence that it is already running. Section 3.6 documents the same
-designed-but-unwired pattern one stage later in the loop, where it is at least
-partly recoverable; Verify has no equivalent consumer waiting for its writer.
+It does not yet reach the traffic that matters most. The four code paths that
+create a refinement job (prompt optimization, skill calibration, workflow
+calibration, an Aria-proposed promotion) are unchanged by `P3-B` and still
+insert the verification row pre-`status="verified"`, stamped with the same
+operator's own identity, in the same transaction that creates the job — the
+`verify` route is never in that path. There is also still no ingestion path:
+the model's own docstring calls for "the feedback poller," and none exists, so
+a `pending` item only appears when a human creates one by hand through the new
+route. And verifying an item does not create a `CaliberRefinementJob` — see
+`caliber/src/caliber/routes/verification.py`'s module docstring for why that
+was deliberately deferred rather than half-built.
+
+So the honest state is narrower than either "not implemented" or "done": a
+human can verify a manually-flagged concern as a decision distinct from
+authoring it, which is what this section's argument needs to be true, but the
+majority of today's refinement jobs still bypass that gate entirely by
+self-verifying at creation, and Verify does not yet connect to Diagnose the
+way Apply connects backward to a real job. Section 3.6 documents the
+still-open half of this — the ingestion path and the job link — which shares
+the review's designed-but-unwired shape one stage later in the loop.
 
 ### 2.3 QA is operator-scoped but narrower than Developer
 
@@ -319,16 +323,18 @@ not the floor for this one action, it is the ceiling for every *other* QA
 action in this table.
 
 A second, structurally distinct queue exists for the same job — signal triage
-rather than annotation — but it is further from complete than a scope table can
-show: `CaliberVerificationItem` (`caliber_verification_queue`) has full request
-schemas for a generic `POST /caliber/verification-queue` and `POST
-/caliber/verification-queue/{item_id}/verify`, but neither is a registered
-route anywhere. The only code that creates a row today is four
-`SCOPE_OPERATOR`-gated job-creation paths (prompt optimization, skill
-calibration, workflow calibration, an Aria-proposed promotion) that insert it
-pre-`verified`, self-stamped by the same actor, as bookkeeping for the job they
-already started — not a human filing feedback on a signal, and not a decision
-distinct from creating the job. Section 2.2 covers what this means for the
+rather than annotation — and (as of `P3-B`, section 16) is more complete than
+a scope table alone can show: `CaliberVerificationItem`
+(`caliber_verification_queue`) has a registered `POST
+/caliber/verification-queue` and `POST
+/caliber/verification-queue/{item_id}/verify`, both `SCOPE_OPERATOR`-gated,
+for a *manually*-flagged concern. What that route still does not reach is the
+majority path: the four `SCOPE_OPERATOR`-gated job-creation paths (prompt
+optimization, skill calibration, workflow calibration, an Aria-proposed
+promotion) are unchanged and still insert their own item pre-`verified`,
+self-stamped by the same actor, as bookkeeping for the job they already
+started — not a human filing feedback on a signal, and not a decision distinct
+from creating the job. Section 2.2 covers what this split state means for the
 case for a QA role.
 
 Global scope inheritance is asymmetric: `caliber.admin` implies approver,
@@ -1035,10 +1041,10 @@ the one that does not exist for an aggregate Workspace release today.
 
 This is the largest gap *after* a job exists — larger than the missing package
 artifact, because it affects every failure rather than every release. Section
-2.2 covers the one that precedes it: Stage ① Verify has the same
-designed-but-unwired shape as the mechanism below, one stage earlier and with
-no consumer already waiting for it, which is why that gap is the harder of the
-two to call partial.
+2.2 covers the one that precedes it: Stage ① Verify (`P3-B`) now has a live
+route, but only for a manually-flagged concern; the ingestion path and the
+job-link below share this section's designed-but-unwired shape, one stage
+earlier and with no consumer already waiting for them.
 
 `refinement_max_iterations` **defaults to `0`, meaning off**: "a failed gate
 rejects immediately." The eval stage then sets `job.status = "rejected"` and
@@ -3641,7 +3647,7 @@ combined with a later slice merely to reduce PR count.
 | `P2-B` | Runtime | Project/revision-aware compiler, run queue, workers, callbacks, plan executor and Aria delegation | `P2-A` | Persisted context survives restart; worker cannot widen actor authority or fall back to global registries |
 | `P2-C` | Integrations/storage | Prompt/provider binding, storage and file isolation, public/personal immutable pin semantics | `P2-A` | Colliding logical names resolve correctly; guessed provider/file refs do not disclose another workspace |
 | `P3-A` | Workflow/quality | Refinement/candidate-backed durable rework task, reasoned QA review record, request-changes writer, project-scoped ownership APIs, and exhaustion escalation | `P0-B`, `P1-C` | Current refinement failures have an owner/reason and resolve through a superseding candidate/version; Phase 5 adds the release FK and aggregate path |
-| `P3-B` | Workflow/quality | List/get/create/verify/dismiss/duplicate/batch verification-queue routes and CALIBER SDK methods against the existing `CaliberVerificationItem` model and schemas; no new table | `P0-B` | A human can verify or dismiss a pending item they did not create; none of today's four job-creation paths is required to change; ingestion (a poller creating `pending` items from real signals) is explicitly out of scope here per the Phase 0 decision |
+| `P3-B` | Workflow/quality | **Delivered.** List/get/create/verify/dismiss/duplicate/batch verification-queue routes and CALIBER SDK methods against the existing `CaliberVerificationItem` model and schemas; no new table | `P0-B` | A human can verify or dismiss a pending item they did not create; none of today's four job-creation paths was required to change (and none did); ingestion (a poller creating `pending` items from real signals) remains explicitly out of scope per the Phase 0 decision |
 | `P4-A` | Data/backend | Source/import/revision/resource schema, portable CAS revision allocator, immutable terminal rows and snapshot-retention guards | `P2-B`, `P2-C` | Concurrent snapshots allocate unique monotonic numbers with allowed gaps on SQLite/PostgreSQL; schema remains dormant behind flags |
 | `P4-B` | Import/backend | Manifest/archive limits, canonical retained source snapshot and commit-equivocation guard, reconstructable adapter snapshots, model dependency, and durable import leases | `P4-A` | Golden tree/revision digests stable across archive metadata; mutable rows cannot masquerade as pins; malformed/ambiguous inputs fail closed; worker death resumes or reconciles |
 | `P4-C` | API/integration | Provider-neutral source interface, source transitions, import/reconcile and revision list/get/diff/snapshot routes, cursor pages, GitHub push Action example | `P4-B` | Lost clients rediscover and reconcile jobs; source mode cannot switch with in-flight work; ordinary tests need no network; Workspace services contain no GitHub-specific policy |
@@ -3797,24 +3803,27 @@ linkage completes only after the Phase 5 release tables exist. Neither half
 needs Workspace, Change Request, or environment machinery — both extend the
 refinement path that already ships today.
 
-0. **Wire Stage ① Verify to a real, separately-callable action.** Section 2.2
-   found that today's four job-creation paths (prompt optimization, skill
-   calibration, workflow calibration, an Aria-proposed promotion) each insert
-   `CaliberVerificationItem` pre-`status="verified"`, self-stamped by the same
-   operator, in the same transaction that creates the job — so nothing a
-   different person, or the same person later, can act on separately exists.
-   `VerificationItemCreateRequest`/`...VerifyRequest`/`...DismissRequest`/
-   `...DuplicateRequest`/`VerificationBatchRequest` are already fully specified
-   in `schemas.py`, and `caliber-ui`'s API client already has typed methods for
-   all of them — this is route wiring against an existing contract, not new
-   design. Register `list`/`get`/`create`/`verify`/`dismiss`/`duplicate`/`batch`
-   under `/caliber/verification-queue`, gated the same way section 2.4 gates
-   `feedback.submit`; add the matching CALIBER SDK methods. Scope this item to
-   a human-created `pending` item and a human `verify`/`dismiss` decision on
-   it. The automated ingestion half — a poller that creates `pending` items
-   from real MLflow assessments, which the model's own docstring already
-   assumes exists — is deliberately **not** included here; see the Phase 0
-   question below on whether to build it now or defer it.
+0. **`P3-B` — delivered.** Stage ① Verify is wired to a real,
+   separately-callable action: `caliber/src/caliber/routes/verification.py`
+   registers `list`/`get`/`create`/`verify`/`dismiss`/`duplicate`/`batch`
+   under `/caliber/verification-queue` against the existing
+   `CaliberVerificationItem` model and `schemas.py` request/response types,
+   gated the way section 2.4 gates `feedback.submit`
+   (`caliber.operator` for writes, an authenticated read for list/get), with
+   route tests, `caliber-sdk`'s `client.verification_queue`, and its own SDK
+   tests. What shipped is deliberately narrower than the name suggests, and
+   section 2.2 has the full account: today's four job-creation paths (prompt
+   optimization, skill calibration, workflow calibration, an Aria-proposed
+   promotion) are unchanged and still self-verify inline, so the new route
+   only reaches a *manually*-flagged concern; there is still no ingestion
+   poller (the model's own docstring promises one that was never built,
+   before or after this slice); and verifying an item does not create a
+   `CaliberRefinementJob` — building that means generalizing three separate,
+   bespoke job-creation functions behind a shared interface, which is
+   adapter-shaped work for a later phase. The frontend's `VerifyResponse`
+   type, which previously claimed `job` was always present, was corrected to
+   `job: RefinementJob | null` rather than left to promise something the
+   server has never returned.
 1. Add the rework-task model, authorization, list/get/claim/resolve/reassign
    routes, and CALIBER SDK methods so a failed gate or QA rejection produces
    owned, recoverable work instead of only a terminal `rejected` row.
@@ -3825,15 +3834,18 @@ refinement path that already ships today.
 4. Set `refinement_max_iterations` deliberately and define the escalation when
    it exhausts.
 
-**Acceptance:** a human can list pending verification items and record
-`verify`/`dismiss` on one they did not create, distinct from and after job
-creation — not the same click as today; every in-scope refinement gate failure
-and candidate QA rejection has an owner and a reason; the Phase 3 refinement
-path resolves a content fix through a superseding candidate/version before
-re-entering its gate; its QA review is queryable; and the automated
-self-correction loop escalates to a human rather than terminating silently.
-Phase 5 acceptance extends the same invariant to Workspace revisions, releases,
-and immutable release decisions.
+**Acceptance:** item 0 passes today — a human can list pending verification
+items and record `verify`/`dismiss` on one they did not create, distinct from
+and after item creation, for a manually-flagged concern. It does not yet pass
+for the traffic that matters most: none of today's four job-creation paths
+routes through it, so most refinement jobs still self-verify. Items 1-4
+remain to build: every in-scope refinement gate failure and candidate QA
+rejection has an owner and a reason; the Phase 3 refinement path resolves a
+content fix through a superseding candidate/version before re-entering its
+gate; its QA review is queryable; and the automated self-correction loop
+escalates to a human rather than terminating silently. Phase 5 acceptance
+extends the same invariant to Workspace revisions, releases, and immutable
+release decisions.
 
 ### Phase 4 — immutable packages, Change Requests, and pluggable Git source
 
@@ -4439,8 +4451,8 @@ CI dependency.
 | Is agent registration a Developer or an Admin action? | Developer — authoring an agent is authoring | It is `caliber.admin` today (section 2.5.3); changing it moves a guard |
 | Should `release.apply` exist for families with no release? | No — the adapter returns a typed refusal | Prevents a release plan silently skipping a required dependency |
 | Which asset families are in the controlled pilot? | One workflow and its prompt, tool and test-set dependencies | Limits cross-provider release risk |
-| Should job creation require a pending Verify decision, or stay parallel to it? | Stay parallel in `P3-B`; require it only once the ingestion poller exists | Blocking today's four job-creation paths on a not-yet-built poller would stall the refinement path entirely; making Verify optional first is the safe order |
-| Build the verification-queue ingestion poller in `P3-B`, or defer it? | Defer. Ship `create`/`verify`/`dismiss` first; a human can open a pending item by hand until a poller exists | The model's docstring already promises a poller that was never built; promising it again in the same PR that ships the routes repeats the mistake this review found |
+| Should job creation require a pending Verify decision, or stay parallel to it? | **Decided and shipped in `P3-B`: stays parallel.** Require it only once the ingestion poller exists | Blocking today's four job-creation paths on a not-yet-built poller would stall the refinement path entirely; making Verify optional first was the safe order |
+| Build the verification-queue ingestion poller in `P3-B`, or defer it? | **Decided and shipped in `P3-B`: deferred.** `create`/`verify`/`dismiss` shipped first; a human opens a pending item by hand until a poller exists | The model's docstring already promised a poller that was never built; promising it again in the same PR that shipped the routes would have repeated the mistake this review found |
 
 ## 20. Definition of done
 
