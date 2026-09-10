@@ -1352,7 +1352,10 @@ action with no concrete workspace denies. This keeps one action registry
 without pretending a not-yet-created Workspace has a membership record.
 
 `AccessDecision` includes `allowed`, a stable reason code, role, effective
-permissions, and policy version. Sensitive not-found cases return an
+permissions, and policy version — a distinct concept from the HTTP error
+envelope's per-error `reason_code` (section 13.6, Phase 0 item 6): this one
+explains an authorization verdict, that one explains why a `409`/`412`
+happened. Sensitive not-found cases return an
 indistinguishable `404`; visible resources with insufficient authority return
 `403`. Every write path authorizes before mutation and revalidates under the
 transaction immediately before a release state change.
@@ -3282,6 +3285,12 @@ a server returning an unchanged `next_cursor`. The existing offset-based
 
 ### 13.6 Idempotency, preconditions, retries, and errors
 
+The `reason_code` below is a per-error transport code (why this `409`/`412`
+happened) and is distinct from `AccessDecision`'s "stable reason code"
+(section 5.4/Phase 1 item 8 — why an authorization decision was allowed or
+denied), even though both share the name. Neither is implemented yet; see
+Phase 0 item 6 for the envelope-vs-reason-code split this table target-designs.
+
 Every durable lifecycle creator or externally effective mutation requires an
 `idempotency_key` argument: revision import, import reconciliation and snapshot;
 Change Request create/submit/head update/comment/review/close; release request
@@ -3697,7 +3706,7 @@ combined with a later slice merely to reduce PR count.
 | Slice | Owner | Concrete deliverable | Depends on | Exit/rollback gate |
 | --- | --- | --- | --- | --- |
 | `P0-A` | Architecture + security | **Delivered.** Machine-readable route required-scope inventory (`routes/scope_inference.py`, `x-caliber-required-scope` on the served OpenAPI document, enforced by `tests/test_route_scope_inventory.py`) — every one of 403 operations classified by reading its own authorization call, not a hand-duplicated table — plus a background-worker inventory (`observability/worker_inventory.py`, `tests/test_worker_inventory.py`) and a per-model project-scoping inventory (`db/resource_inventory.py`, `tests/test_resource_inventory.py`, all 85 models classified with zero hand-maintenance needed); the per-plane authority matrix and every question section 19.2 posed are ratified as decisions (section 19) | — | Every route, every background worker, and every model has one inventory row and none can drift from the real code; every policy question this document posed has a named, ratified decision rather than an implicit default (gate on today's live route table / lifespan / model registry, same as `P3-B`/`P3-A`/`P3-C`'s "doesn't wait" exceptions in spirit, though these have no `P1-C` dependency to begin with) |
-| `P0-B` | API + SDK | **Partially delivered.** OpenAPI shapes: `x-caliber-required-scope` (`P0-A`'s route-scope inventory) is now rendered as a "Required scope" column in the published REST API reference (`docs-site/generate_rest_api_docs.py::_format_required_scope`), not just visible in the raw served JSON. Still open: closed actions, errors/reason codes, pagination, ETag/CAS/idempotency contracts, Change Request/version contracts, manifest schema and golden vectors — most of the remainder is Workspace-only design work with no code to build against until Phase 1+ | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
+| `P0-B` | API + SDK | **Partially delivered.** OpenAPI shapes: `x-caliber-required-scope` (`P0-A`'s route-scope inventory) is now rendered as a "Required scope" column in the published REST API reference (`docs-site/generate_rest_api_docs.py::_format_required_scope`), not just visible in the raw served JSON. Error envelope: ratified as frozen — `routes/_errors.py`'s `{detail, status_code}` / `{detail, status_code, errors[]}` shapes were already implemented, tested, OpenAPI-declared, and published before this PR; no code changed. Still open: closed actions, reason codes (real gap — no route or SDK exception carries one today; see Phase 0 item 6), pagination, ETag/CAS/idempotency contracts, Change Request/version contracts, manifest schema and golden vectors — most of the remainder is Workspace-only design work with no code to build against until Phase 1+ | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
 | `P1-A` | Data/backend | Add project slug/counter/accepted-pointer/archive/audit fields, the Workspace idempotency ledger, and fixed environment rows; deterministic backfill, safe baseline state, and PostgreSQL migration CI | `P0-B` | Fresh/upgrade parity on SQLite and real PostgreSQL; idempotency conflict/replay is durable; new Workspace seeds dev active and qa/staging/prod disabled; migrated live aliases remain `baseline_required` |
 | `P1-B` | Security/backend | Closed action enum, deny-by-default decision service, all-scope conjunction support, stable reasons, and removal of ordinary platform-admin owner bypass | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; policy errors never fall back to legacy allow |
 | `P1-C` | Auth/backend | Eligible multiple-Admin membership, one primary-owner invariant, project-bound PAT/credential context, transfer, explicit archive/restore, Admin metadata inventory, and capability projection | `P1-B` | PAT cannot cross workspace; scope-ineligible role grants fail; primary owner transfer is atomic; secondary Admin does not change primary owner |
@@ -3800,6 +3809,29 @@ not as complete Workspace support.
    reason codes, ETag behavior, idempotency replay, apply compare-and-set
    semantics, multipart field names, maximum bundle size, and sync/async
    streaming behavior.
+   **The error-envelope slice is delivered** (`P0-B`): the transport-level
+   shape — `{detail, status_code}` for a generic `HTTPException`, `{detail,
+   status_code, errors: [{loc, msg, type}]}` for a request-body validation
+   failure — is already implemented (`routes/_errors.py`), locked by 4 tests
+   (`tests/test_routes_errors.py`), declared as OpenAPI component schemas
+   (`Error`, `ValidationError` in `routes/openapi.py::_components()`,
+   referenced by every `_SHARED_RESPONSES` entry), and already rendered into
+   the published REST API reference's "Shared JSON shapes" table — no code
+   changed to reach any of that; this item ratifies it as frozen. **Reason
+   codes remain a real, open gap**, not yet built anywhere: no route among
+   728 `raise HTTPException(...)` call sites attaches a machine-readable
+   code today, only a human-`detail` string, and the SDK's exception
+   hierarchy (`sdk/caliber-sdk/src/caliber_sdk/errors.py`) has no
+   `reason_code` attribute and no `CaliberPreconditionError` class (no route
+   emits `412` yet). Section 13.6 already describes the target shape in
+   full; turning it into a closed reason-code registry attached to every
+   call site is a materially larger, separate undertaking than this
+   ratification pass, left as a distinct future follow-up (no new
+   planning-handle ID invented, matching how PR #279 and the agent-
+   registration scope widening it ratified were both left as unbundled
+   follow-ups). Pagination, ETag behavior, idempotency replay, apply
+   compare-and-set, multipart field names, maximum bundle size, and
+   sync/async streaming are all still open, untouched by this slice.
 7. Create deterministic fixtures: two workspaces with colliding logical names,
    a primary and secondary Admin, Developer, QA, Viewer, scope-ineligible user,
    four fixed environments, a provider-only prompt, mutable judge/tool rows, a
