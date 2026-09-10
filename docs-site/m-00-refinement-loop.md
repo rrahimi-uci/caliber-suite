@@ -36,7 +36,7 @@ flowchart LR
 
 | Stage | What happens | Reference |
 |---|---|---|
-| **① Verify** | A human confirms the flagged trace is actionable — one click. | Platform |
+| **① Verify** | A human confirms the flagged trace is actionable — one click. Real today via `POST /verification-queue/{id}/verify` for a manually-flagged concern; the canonical prompt/skill/workflow paths below still create their own item already verified in the same step that starts the job, so this stage is not yet a second person's click on those paths. | Platform |
 | **② Diagnose** | An LLM identifies the root cause from the trace and its evidence. | Calibration |
 | **③ Optimize** | A policy-selected optimizer proposes a fix. A manual pin or agent override wins; diagnosis heuristics choose among the remaining live paths. | Calibration |
 | **④ Evaluate** | The candidate is scored against a pinned test set with per-dimension regression checks. A pass advances the job to `candidate_ready`; it does not promote automatically, and registry gate verdicts elsewhere remain advisory. | Evaluation · Test sets |

@@ -52,6 +52,7 @@ from caliber.routes import (
     system_effects,
     system_services,
     tools,
+    verification,
     workflow_calibration,
     workflow_deployments,
     workflow_runs,
@@ -88,6 +89,7 @@ def register_routes(app: Starlette) -> None:
     gate_verdicts.register(app)
     llm_pricing.register(app)
     review_queues.register(app)
+    verification.register(app)
     aria_plans.register(app)
     jobs.register(app)
     rollback.register(app)

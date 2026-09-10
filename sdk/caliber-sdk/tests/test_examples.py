@@ -25,6 +25,7 @@ from examples.openapi_integration_readonly import import_and_publish_readonly_to
 from examples.prompt_lifecycle import prompt_lifecycle
 from examples.quickstart import quickstart
 from examples.tokens import issue_scoped_token
+from examples.verification_queue import flag_and_verify
 from examples.workflow_bundle import clone_sealed_release
 from examples.workflow_deployment import promote_and_rollback, record_gate_verdict
 from examples.workflow_run import run_and_wait
@@ -162,6 +163,34 @@ def test_evaluation_example_uses_a_judge_with_an_evaluation_variable() -> None:
         result = build_and_score(caliber)
 
     assert result == {"dataset_id": "ED-1", "judge_id": "J-1", "evaluation_id": "EV-1"}
+
+
+def test_verification_queue_example_lists_before_verifying() -> None:
+    """A different step lists and decides — not the same click that flagged it."""
+
+    def verify(request: httpx.Request) -> Any:
+        body = jsonlib.loads(request.content)
+        assert body["verification_notes"] == "Confirmed against the source doc."
+        return {
+            "item": {"item_id": "FB-1", "status": "verified", "verified_by": "@you"},
+            "job": None,
+        }
+
+    caliber = stub_server(
+        {
+            "POST /verification-queue": {
+                "item_id": "FB-1",
+                "agent_id": "support-agent",
+                "status": "pending",
+            },
+            "GET /verification-queue": [{"item_id": "FB-1", "status": "pending"}],
+            "POST /verification-queue/FB-1/verify": verify,
+        }
+    )
+    with caliber:
+        result = flag_and_verify(caliber)
+
+    assert result == {"item_id": "FB-1", "status": "verified"}
 
 
 def test_workflow_example_targets_an_alias_and_waits() -> None:

@@ -55,6 +55,7 @@ from .resources import (
     SkillsAPI,
     SystemAPI,
     ToolsAPI,
+    VerificationQueueAPI,
     WorkflowsAPI,
 )
 from .transport import Transport
@@ -122,6 +123,7 @@ class CaliberClient:
         self.object_store = ObjectStoreAPI(self._transport)
         self.jobs = JobsAPI(self._transport)
         self.review_queues = ReviewQueuesAPI(self._transport)
+        self.verification_queue = VerificationQueueAPI(self._transport)
         self.aria = AriaAPI(self._transport)
         self.releases = ReleasesAPI(self._transport)
         self.observability = ObservabilityAPI(self._transport)

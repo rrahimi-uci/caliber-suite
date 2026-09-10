@@ -238,6 +238,14 @@ Every documented class and module-level function, with the module that defines i
 | [`Transport`](#transport) | [`caliber_sdk.transport`](#module-caliber_sdktransport) |
 | [`TrustedHeaderAuth`](#trustedheaderauth) | [`caliber_sdk.auth`](#module-caliber_sdkauth) |
 
+**V**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`VerificationBatchResult`](#verificationbatchresult) | [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality) |
+| [`VerificationItem`](#verificationitem) | [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality) |
+| [`VerificationQueueAPI`](#verificationqueueapi) | [`caliber_sdk.resources.quality`](#module-caliber_sdkresourcesquality) |
+
 **W**
 
 | Symbol | Defined in |
@@ -367,6 +375,7 @@ Operate on the caliber client surface with the supplied arguments and return the
 | `object_store` | `ObjectStoreAPI` | Buckets and objects under the storage substrate. |
 | `jobs` | `JobsAPI` | Long-running background jobs. |
 | `review_queues` | `ReviewQueuesAPI` | Human review queues and queue items. |
+| `verification_queue` | `VerificationQueueAPI` | — |
 | `aria` | `AriaAPI` | The approval-aware plan and interaction loop. |
 | `releases` | `ReleasesAPI` | Release candidates, waivers, signoff, and reports. |
 | `observability` | `ObservabilityAPI` | Traces, experiments, and metrics. |
@@ -1430,7 +1439,7 @@ Resource modules — typed façades over route groups.
 
 **Public exports**
 
-`AccountsAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `LlmPricingAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `PlaygroundRunsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+`AccountsAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `LlmPricingAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `PlaygroundRunsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `VerificationQueueAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
 
 ### Module `caliber_sdk.resources.auth`
 
@@ -4905,7 +4914,7 @@ path.
 
 ### Module `caliber_sdk.resources.quality`
 
-Datasets, judges, and evaluations — the evidence and scoring surfaces.
+Datasets, judges, evaluations, and verification — the evidence and scoring surfaces.
 
 **Tested example**
 
@@ -4915,7 +4924,7 @@ sdk/caliber-sdk/examples/evaluation.py#build_and_score
 
 **Public exports**
 
-`EvalDatasetsAPI`, `EvaluationsAPI`, `JudgesAPI`
+`EvalDatasetsAPI`, `EvaluationsAPI`, `JudgesAPI`, `VerificationQueueAPI`
 
 #### Classes
 
@@ -5344,6 +5353,147 @@ measurement, not an error in the call.
 - [`CaliberTransportError`](#calibertransporterror)
 - [`WaitFailed`](#waitfailed)
 - [`WaitTimeout`](#waittimeout)
+
+##### `VerificationQueueAPI`
+
+`class VerificationQueueAPI()`
+
+Stage ① Verify — manually-flagged concerns awaiting confirmation.
+
+Verifying or dismissing an item here does **not** create a refinement
+job. Building that requires generalizing three separate job-creation
+paths (prompt/skill/workflow) behind a shared interface, which is
+adapter-shaped work for a later phase, not this resource. See
+``docs/workspace-plan.md`` section 2.2 and
+``caliber/src/caliber/routes/verification.py``'s module docstring.
+
+**Methods**
+
+###### `list(*, status: str | None = 'pending', severity: str | None = None, agent_id: str | None = None) -> list[VerificationItem]`
+
+Return the current collection of verification queue, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status` | keyword-only | `str | None` | `'pending'` |
+| `severity` | keyword-only | `str | None` | `None` |
+| `agent_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `list[VerificationItem]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(item_id: str) -> VerificationItem`
+
+Fetch one record from the verification queue surface identified by `item_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `item_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `VerificationItem`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(agent_id: str, *, category: str, free_text: str, **options) -> VerificationItem`
+
+Manually flag a concern that isn't tied to an already-running job.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `agent_id` | positional-or-keyword | `str` | `—` |
+| `category` | keyword-only | `str` | `—` |
+| `free_text` | keyword-only | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `VerificationItem`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `verify(item_id: str, **options) -> VerificationItem`
+
+Confirm the flagged concern is real.
+
+Returns the updated item. The server's response also carries a
+``job`` key, which is always ``None`` today — see the class
+docstring.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `item_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `VerificationItem`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `dismiss(item_id: str, **options) -> VerificationItem`
+
+Mark the flagged concern as not real (or, with ``duplicate_of_id``,
+as a duplicate of another item).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `item_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `VerificationItem`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `mark_duplicate(item_id: str, duplicate_of_id: str, **options) -> VerificationItem`
+
+Dedicated route for "this is a duplicate of X" — same mutation as
+:meth:`dismiss` with ``duplicate_of_id`` set, but a distinct call
+makes the intent unambiguous in audit logs.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `item_id` | positional-or-keyword | `str` | `—` |
+| `duplicate_of_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `VerificationItem`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `batch(action: str, item_ids: list[str], **options) -> VerificationBatchResult`
+
+Verify or dismiss several items in one round-trip.
+
+Per-item failures don't fail the whole batch — inspect
+``result.results`` for which items succeeded.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `action` | positional-or-keyword | `str` | `—` |
+| `item_ids` | positional-or-keyword | `list[str]` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `VerificationBatchResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
 
 ### Module `caliber_sdk.resources.integrations`
 
@@ -8757,7 +8907,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -9531,7 +9681,7 @@ sdk/caliber-sdk/examples/evaluation.py#build_and_score
 
 **Public exports**
 
-`EvalDataset`, `EvalExample`, `Evaluation`, `Judge`, `JudgeAlignment`
+`EvalDataset`, `EvalExample`, `Evaluation`, `Judge`, `JudgeAlignment`, `VerificationBatchResult`, `VerificationItem`
 
 #### Classes
 
@@ -9681,6 +9831,70 @@ Cohen's kappa matters more than raw agreement: a judge that always says
 | `kappa` | `float | None` | `None` |
 | `sample_size` | `int` | `0` |
 | `per_example` | `list[dict[str, Any]]` | `field(default_factory=list)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `VerificationItem`
+
+`class VerificationItem()`
+
+A manually-flagged concern awaiting Stage ① Verify.
+
+``duplicate_of_id`` and the ``duplicate`` status exist because dismissing
+a report as "already seen" is common enough to deserve its own outcome,
+distinct from "not real" — see
+:meth:`VerificationQueueAPI.mark_duplicate`.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `item_id` | `str` | `''` |
+| `agent_id` | `str` | `''` |
+| `assessment_id` | `str | None` | `None` |
+| `trace_id` | `str | None` | `None` |
+| `experiment_id` | `str | None` | `None` |
+| `session_id` | `str | None` | `None` |
+| `workflow_id` | `str | None` | `None` |
+| `category` | `str` | `''` |
+| `free_text` | `str` | `''` |
+| `severity` | `str` | `''` |
+| `artifact_type_hint` | `str | None` | `None` |
+| `artifact_ref` | `str | None` | `None` |
+| `submitted_context` | `dict[str, Any] | None` | `None` |
+| `status` | `str` | `''` |
+| `priority` | `int` | `0` |
+| `assigned_to` | `str | None` | `None` |
+| `verified_by` | `str | None` | `None` |
+| `verified_at` | `str | None` | `None` |
+| `verification_notes` | `str | None` | `None` |
+| `refinement_target` | `str | None` | `None` |
+| `duplicate_of_id` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `VerificationBatchResult`
+
+`class VerificationBatchResult()`
+
+Response envelope for :meth:`VerificationQueueAPI.batch`.
+
+``results`` stays a list of raw dicts (``{item_id, status, reason,
+linked_job_id}`` per row) rather than a nested dataclass — the same
+choice :class:`JudgeAlignment.per_example` makes, since :func:`decode`
+only maps top-level fields and per-item failures are meant to be
+inspected, not modeled deeply. ``linked_job_id`` is always ``None``
+today: verifying an item does not create a job. See
+``caliber/src/caliber/routes/verification.py``'s module docstring.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `action` | `str` | `''` |
+| `requested` | `int` | `0` |
+| `succeeded` | `int` | `0` |
+| `failed` | `int` | `0` |
+| `results` | `list[dict[str, Any]]` | `field(default_factory=list)` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ### Module `caliber_sdk.models.integrations`

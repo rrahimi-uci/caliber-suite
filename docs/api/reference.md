@@ -6,7 +6,7 @@ product_area: api
 stability: ga
 prerequisites:
   - A CALIBER API integration question
-reviewed_on: 2026-08-11
+reviewed_on: 2026-09-09
 version_applicability: current main branch docs contract
 tags:
   - api
@@ -56,6 +56,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | Workflows | `GET/POST /workflows`, `GET/POST /workflows/{id}/versions`, `POST /workflow-versions/{version_id}/run` | Registry, version lifecycle, execution, and deployment are split across route families |
 | Workflow services | `POST /workflows/{workflow_id}/service`, `POST /services/{workflow_id}/invoke`, `GET /services/{workflow_id}/openapi.json` | Publish a workflow externally and inspect its invocation contract |
 | Datasets and evaluations | `GET/POST /eval-datasets`, `GET/POST /evaluations`, `GET/POST /judges` | Evaluation evidence and scoring |
+| Verification queue | `GET/POST /verification-queue`, `POST /verification-queue/{id}/verify`, `.../dismiss`, `.../duplicate`, `POST /verification-queue/batch` | Stage ① Verify for a manually-flagged concern; verifying does not create a refinement job |
 | Knowledge | `GET/POST /knowledge-bases`, `POST /knowledge/query` | Corpus lifecycle plus retrieval |
 | MCP | `GET/POST /mcp-servers`, tool inventory and invoke routes | Governed external tool connectivity |
 | Releases | `GET/POST /releases/candidates`, `POST /releases/candidates/{id}/signoffs`, `GET /releases/operations` | Signoff, waivers, and reconcile workflows |

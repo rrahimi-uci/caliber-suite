@@ -55,7 +55,15 @@ from .operations import (
     ReviewQueue,
     Trace,
 )
-from .quality import EvalDataset, EvalExample, Evaluation, Judge, JudgeAlignment
+from .quality import (
+    EvalDataset,
+    EvalExample,
+    Evaluation,
+    Judge,
+    JudgeAlignment,
+    VerificationBatchResult,
+    VerificationItem,
+)
 from .workflows import (
     FAILED_RUN_STATES,
     TERMINAL_RUN_STATES,
@@ -123,6 +131,8 @@ __all__ = [
     "StoredObject",
     "Tool",
     "Trace",
+    "VerificationBatchResult",
+    "VerificationItem",
     "Workflow",
     "WorkflowRun",
     "WorkflowRunCapabilities",

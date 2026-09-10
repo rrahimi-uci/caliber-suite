@@ -1,7 +1,8 @@
-"""Dataset, judge, and evaluation resource modules."""
+"""Dataset, judge, evaluation, and verification-queue resource modules."""
 
 from __future__ import annotations
 
+import json as jsonlib
 from typing import Any
 
 import httpx
@@ -142,3 +143,149 @@ def test_running_a_judge_hits_the_real_test_run_route() -> None:
 
     assert seen == ["POST /judges/JDG-1/test-run"]
     assert result == {"score": 1.0, "value": True, "rationale": "matches"}
+
+
+# ---------------------------------------------------------------------------
+# Verification queue -- Stage ① Verify
+# ---------------------------------------------------------------------------
+
+
+def test_verification_queue_list_sends_only_provided_filters() -> None:
+    """``status`` defaults to ``pending``; omitted filters are not sent as
+    empty query params, matching the server's ``request.query_params.get``
+    handling (an empty string would not equal ``None`` there)."""
+    seen: dict[str, str] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.update(dict(request.url.params))
+        return envelope([])
+
+    with client_with(handler) as caliber:
+        caliber.verification_queue.list()
+
+    assert seen == {"status": "pending"}
+
+
+def test_verification_queue_list_decodes_items() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/verification-queue")
+        return envelope(
+            [{"item_id": "FB-1", "agent_id": "support-agent", "status": "pending"}]
+        )
+
+    with client_with(handler) as caliber:
+        items = caliber.verification_queue.list(status="all")
+
+    assert len(items) == 1
+    assert items[0].item_id == "FB-1"
+    assert items[0].status == "pending"
+
+
+def test_verification_queue_create_posts_the_flagged_concern() -> None:
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(jsonlib.loads(request.content))
+        assert request.url.path.endswith("/verification-queue")
+        return envelope(
+            {
+                "item_id": "FB-1",
+                "agent_id": "support-agent",
+                "category": "hallucination",
+                "status": "pending",
+            }
+        )
+
+    with client_with(handler) as caliber:
+        item = caliber.verification_queue.create(
+            "support-agent", category="hallucination", free_text="Cited a fake policy."
+        )
+
+    assert sent["agent_id"] == "support-agent"
+    assert sent["free_text"] == "Cited a fake policy."
+    assert item.item_id == "FB-1"
+    assert item.status == "pending"
+
+
+def test_verification_queue_verify_decodes_the_nested_item_and_ignores_job() -> None:
+    """The server's ``VerifyResponse`` envelope is ``{item, job}``; ``job`` is
+    always ``None`` today (verifying an item does not create one -- see
+    ``caliber/src/caliber/routes/verification.py``). The SDK method decodes
+    ``item`` and does not expose ``job`` at all, rather than surface a field
+    that never carries anything yet."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/verify")
+        return envelope(
+            {
+                "item": {
+                    "item_id": "FB-1",
+                    "status": "verified",
+                    "verified_by": "@sarah",
+                },
+                "job": None,
+            }
+        )
+
+    with client_with(handler) as caliber:
+        item = caliber.verification_queue.verify("FB-1", verification_notes="confirmed")
+
+    assert item.item_id == "FB-1"
+    assert item.status == "verified"
+    assert item.verified_by == "@sarah"
+
+
+def test_verification_queue_dismiss_and_mark_duplicate_hit_distinct_routes() -> None:
+    seen: list[str] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.url.path.rsplit("/caliber", 1)[-1])
+        return envelope({"item_id": "FB-1", "status": "dismissed"})
+
+    with client_with(handler) as caliber:
+        caliber.verification_queue.dismiss("FB-1", reason="not real")
+        caliber.verification_queue.mark_duplicate("FB-2", "FB-1")
+
+    assert seen == [
+        "/verification-queue/FB-1/dismiss",
+        "/verification-queue/FB-2/duplicate",
+    ]
+
+
+def test_verification_queue_batch_reports_per_item_results() -> None:
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent.update(jsonlib.loads(request.content))
+        assert request.url.path.endswith("/verification-queue/batch")
+        return envelope(
+            {
+                "action": "verify",
+                "requested": 2,
+                "succeeded": 1,
+                "failed": 1,
+                "results": [
+                    {
+                        "item_id": "FB-1",
+                        "status": "succeeded",
+                        "reason": None,
+                        "linked_job_id": None,
+                    },
+                    {
+                        "item_id": "FB-2",
+                        "status": "failed",
+                        "reason": "already verified",
+                        "linked_job_id": None,
+                    },
+                ],
+            }
+        )
+
+    with client_with(handler) as caliber:
+        result = caliber.verification_queue.batch("verify", ["FB-1", "FB-2"])
+
+    assert sent == {"action": "verify", "item_ids": ["FB-1", "FB-2"]}
+    assert result.succeeded == 1
+    assert result.failed == 1
+    assert result.results[0]["item_id"] == "FB-1"
+    assert result.results[1]["reason"] == "already verified"

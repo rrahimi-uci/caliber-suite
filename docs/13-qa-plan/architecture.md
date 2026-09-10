@@ -8,7 +8,7 @@ product_area: governance
 stability: ga
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-08-10
+reviewed_on: 2026-09-09
 version_applicability: current main branch docs contract
 tags:
   - qa
@@ -94,6 +94,7 @@ which serve as the entry points for the rest of this document:
 - `caliber/src/caliber/routes/prompts.py`
 - `caliber/src/caliber/routes/skills.py`
 - `caliber/src/caliber/routes/workflow_calibration.py`
+- `caliber/src/caliber/routes/verification.py`
 - `caliber/src/caliber/routes/jobs.py`
 - `caliber/src/caliber/routes/workflow_runs.py`
 - `caliber/src/caliber/routes/capabilities.py`
@@ -133,7 +134,8 @@ quality story.
 
 | Responsibility | Owner | Notes |
 | --- | --- | --- |
-| Verification-item ingress | `routes/prompts.py`, `routes/skills.py`, `routes/workflow_calibration.py`, `assistant/service.py` | Feature-specific entry points create already-verified items and queued refinement jobs directly. |
+| Verification-item ingress | `routes/prompts.py`, `routes/skills.py`, `routes/workflow_calibration.py`, `assistant/service.py` | Feature-specific entry points create already-verified items and queued refinement jobs directly — unchanged by the row below. |
+| Manually-flagged Stage ① Verify | `routes/verification.py` + `CaliberVerificationItem` | `/verification-queue` list/get/create/verify/dismiss/duplicate/batch for a concern raised separately from an already-running job. Verifying does not create a refinement job — see `docs/workspace-plan.md` section 2.2. |
 | Curated human-review queues | `routes/review_queues.py` + `CaliberReviewQueue` (migration 0054), FE `ReviewQueues.tsx` | Dedicated CRUD, the workflow `review_queue_enqueue` component, submit/writeback, and provenance-bearing alignment export. |
 | Authored judges | `routes/judges.py` + `CaliberJudge` (migration 0053), FE `Judges.tsx` | `/test-run` and `/alignment`; Human Alignment imports completed binary queue labels rather than requiring transcription. |
 | Release signoff | `routes/releases.py`, `CaliberReleaseCandidate`, `CaliberReleaseSignoff`, `CaliberReleaseReportJob`, FE `Releases.tsx` | Server-computed criteria/blockers, accountable waivers, required rollback target, immutable go/no-go snapshot, and durable Allure-compatible evidence. |
@@ -391,18 +393,23 @@ Its canonical entry points are:
 A few contract nuances are worth noting, because the surface as deployed differs
 from the surface the client still anticipates:
 
-- The frontend API client and test mocks still model generic
-  `/verification-queue`, `/verification-queue/{id}/verify`,
-  `/verification-queue/{id}/dismiss`, `/verification-queue/{id}/duplicate`, and
-  `/verification-queue/batch` endpoints.
-- The artifact-QA ingress is served by a dedicated queue route module,
-  `routes/review_queues.py` (the `/review-queues` CRUD plus enqueue/submit
-  surface, backed by `CaliberReviewQueue`, migration 0054, FE page
-  `ReviewQueues.tsx`), alongside `routes/judges.py` (`/judges`
+- The frontend API client's generic `/verification-queue`,
+  `/verification-queue/{id}/verify`, `/verification-queue/{id}/dismiss`,
+  `/verification-queue/{id}/duplicate`, and `/verification-queue/batch`
+  endpoints are now served for real by `routes/verification.py` — this was a
+  frontend-only stub until `P3-B` (`docs/workspace-plan.md` section 16) wired
+  it. Verifying an item there does not create a `CaliberRefinementJob`; that
+  remains adapter-shaped work for a later phase, deliberately deferred rather
+  than half-built. It also does not change the row above: the four
+  feature-specific entry points still create their own already-verified item
+  inline, so the generic route only reaches a manually-flagged concern, not
+  the majority of today's refinement jobs.
+- The artifact-QA ingress is otherwise served by a dedicated queue route
+  module, `routes/review_queues.py` (the `/review-queues` CRUD plus
+  enqueue/submit surface, backed by `CaliberReviewQueue`, migration 0054, FE
+  page `ReviewQueues.tsx`), alongside `routes/judges.py` (`/judges`
   list/create/detail/update plus `/test-run` and `/alignment`, backed by
-  `CaliberJudge`, migration 0053, FE page `Judges.tsx`). The narrower claim
-  that there is no backend `/verification-queue` route specifically still holds —
-  that generic contract above remains only a frontend client stub.
+  `CaliberJudge`, migration 0053, FE page `Judges.tsx`).
 - The engineering validation plane is driven by CLI contracts first and product
   routes second, because report serving is downstream of test execution.
 

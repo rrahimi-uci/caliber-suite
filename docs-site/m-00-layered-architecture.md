@@ -104,7 +104,7 @@ flowchart LR
     subgraph L6["6 · SURFACES"]
       direction LR
       s1["<b>React SPA</b><br/><code>/caliber/</code>"]:::ui
-      s2["<b>HTTP API</b><br/>388 HTTP operations<br/>across 45 route modules"]:::ui
+      s2["<b>HTTP API</b><br/>395 HTTP operations<br/>across 46 route modules"]:::ui
       s3["<b>Aria copilot</b><br/>permissioned<br/>agentic tool loop"]:::ui
       s4["<b>Headless</b><br/>service tokens ·<br/>SSE · webhooks"]:::ui
       s1 --- s2 --- s3 --- s4
@@ -254,7 +254,7 @@ not necessarily a distinct worker stage, table, or row:
 
 | Concept | What it leaves behind |
 | --- | --- |
-| Signal | Verification item — the queue entry an operator confirms is real |
+| Signal | Verification item — the queue entry an operator confirms is real via `POST /verification-queue/{id}/verify` for a manually-flagged concern. The prompt/skill/workflow job-creation paths below still self-stamp their own item `verified` inline rather than routing through it — see `docs/workspace-plan.md` section 2.2 |
 | Evidence | Refinement job with assembled trace evidence |
 | Candidate | Diagnosis + candidate artifact, produced by the policy-selected optimizer |
 | Measurement | Job, regression, or evaluation records with scores and an enforced candidate-advancement gate decision; a separate per-version gate-verdict row, where written, is advisory release evidence |
@@ -284,6 +284,12 @@ flowchart LR
     classDef auto fill:#dbeafe,stroke:#2563eb,color:#1e3a8f;
     classDef ship fill:#dcfce7,stroke:#16a34a,color:#14532d;
 ```
+
+Verify has a live route (`POST /verification-queue/{id}/verify`) for a
+manually-flagged concern, but the prompt-optimization path pictured here still
+creates and self-verifies its own item in one step — Verify is not yet a
+second human's click on *this* path. See `docs/workspace-plan.md` section 2.2
+for the full account and what closing that gap requires.
 
 Other asset families reuse the chain but **not** its full guarantees — a workflow
 is measured by manifest replay, a tool by a revision-fenced deterministic suite,

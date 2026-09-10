@@ -6,7 +6,7 @@ product_area: sdk
 stability: ga
 prerequisites:
   - Python 3.10+
-reviewed_on: 2026-08-11
+reviewed_on: 2026-09-09
 version_applicability: current main branch docs contract
 tags:
   - sdk
@@ -176,6 +176,19 @@ Judge instructions must reference at least one evaluation variable —
 `{{ trace }}`. The server enforces it because a judge with no variable grades
 nothing: it returns the same verdict for every example, and the resulting
 scorecard would look like evidence while measuring nothing.
+
+## Flagging and verifying a concern
+
+`client.verification_queue` is for a concern raised separately from an
+already-running job — Stage ① Verify. It does not create a refinement job:
+today's job-creation paths (prompt optimization, skill calibration, workflow
+calibration) still create and self-verify their own item in one step, so this
+resource is for the case where flagging and confirming are two different
+moments, possibly by two different people.
+
+```python-example
+sdk/caliber-sdk/examples/verification_queue.py#flag_and_verify
+```
 
 ## Running workflows
 
