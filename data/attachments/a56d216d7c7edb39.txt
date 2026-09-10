@@ -1,0 +1,2 @@
+{"t":"2026-09-10T17:22:12.038Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:43271/oauth/token \"HTTP/1.0 200 OK\""}
+{"t":"2026-09-10T17:22:12.058Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:43271/tickets/T-1 \"HTTP/1.0 200 OK\""}

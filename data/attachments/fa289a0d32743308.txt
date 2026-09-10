@@ -1,0 +1,12 @@
+{"t":"2026-09-10T17:25:36.563Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-10T17:25:36.594Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-10T17:25:36.598Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-10T17:25:36.600Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-10T17:25:36.644Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-10T17:25:36.705Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-f18930ad/import \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-10T17:25:36.718Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-f18930ad/operations \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-10T17:25:36.735Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-f18930ad/tool-drafts/generate \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-10T17:25:36.773Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-f18930ad/tool-drafts/OATD-4b4493fe/publish \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-10T17:25:36.788Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PUT http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-bdf17742/test-cases \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-10T17:25:36.841Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET https://tickets.example.com/tickets/T-1 \"HTTP/1.1 200 OK\"","trace_id":"36b63a82feec217e"}
+{"t":"2026-09-10T17:25:36.852Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-bdf17742/calibrate \"HTTP/1.1 200 OK\""}

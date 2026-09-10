@@ -1,0 +1,1 @@
+INFO     caliber.orchestrator.triage:triage.py:136 triage complete: job=RFN-SKILL class={'cluster': 'skill', 'artifact_type': 'skill', 'skill_name': 'tool-use', 'confidence': 0.8}
