@@ -19,6 +19,7 @@ CALIBER_ROOT = REPO_ROOT / "caliber"
 ALLOWLIST_PATH = REPO_ROOT / "sdk" / "caliber-sdk" / "coverage_allowlist.toml"
 sys.path.insert(0, str(CALIBER_ROOT / "src"))
 
+from caliber import auth as caliber_auth  # noqa: E402
 from caliber.routes.openapi import PREFIX, build_openapi_document  # noqa: E402
 from caliber.server import create_app  # noqa: E402
 
@@ -408,6 +409,53 @@ def _format_responses(operation: dict[str, object]) -> str:
     return ", ".join(f"`{code}`" for code in responses)
 
 
+def _scope_value(constant_name: str) -> str:
+    """`"SCOPE_OPERATOR"` -> `"caliber.operator"`.
+
+    Resolved dynamically against `caliber.auth`'s actual constants rather
+    than a hand-maintained mapping here, so it can't drift from what the
+    scope name really means -- the same "don't hand-duplicate a derivable
+    fact" reasoning `routes/scope_inference.py` itself is built on.
+    """
+    return str(getattr(caliber_auth, constant_name, constant_name))
+
+
+def _format_scope_names(requirement: dict[str, object]) -> str:
+    names = requirement.get("scopes")
+    names = names if isinstance(names, list) else []
+    values = sorted(_scope_value(n) for n in names if isinstance(n, str))
+    return ", ".join(f"`{v}`" for v in values) if values else "—"
+
+
+def _format_project_role(requirement: dict[str, object]) -> str:
+    action = requirement.get("action")
+    return f"project role (`{action}`)" if isinstance(action, str) and action else "project role"
+
+
+def _format_kind_with_note(requirement: dict[str, object], *, label: str) -> str:
+    note = requirement.get("note")
+    return f"{label} — {note}" if isinstance(note, str) and note else label
+
+
+def _format_required_scope(operation: dict[str, object]) -> str:
+    """Render `x-caliber-required-scope` (P0-A's route-scope inventory,
+    `routes/scope_inference.py`) for the published reference table."""
+    requirement = operation.get("x-caliber-required-scope")
+    if not isinstance(requirement, dict):
+        return "—"
+
+    kind = requirement.get("kind")
+    formatters = {
+        "scope": _format_scope_names,
+        "authenticated": lambda _req: "any authenticated user",
+        "project_role": _format_project_role,
+        "dynamic": lambda req: _format_kind_with_note(req, label="dynamic"),
+        "public": lambda req: _format_kind_with_note(req, label="public"),
+    }
+    formatter = formatters.get(str(kind))
+    return formatter(requirement) if formatter is not None else "—"
+
+
 def _format_details(operation: dict[str, object]) -> str:
     details: list[str] = []
     operation_id = operation.get("operationId")
@@ -615,8 +663,8 @@ def render_inventory() -> str:
                     "",
                     f"{len(entries)} operation(s) across {unique_paths} route path(s).",
                     "",
-                    "| Method | Path | Parameters | Responses | Details |",
-                    "| --- | --- | --- | --- | --- |",
+                    "| Method | Path | Required scope | Parameters | Responses | Details |",
+                    "| --- | --- | --- | --- | --- | --- |",
                 ]
             )
             for path, method, operation in entries:
@@ -626,6 +674,7 @@ def render_inventory() -> str:
                         [
                             f"`{method}`",
                             f"`{path}`",
+                            _escape_cell(_format_required_scope(operation)),
                             _format_params(operation),
                             _format_responses(operation),
                             _escape_cell(_format_details(operation)),
