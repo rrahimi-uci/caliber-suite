@@ -3295,7 +3295,7 @@ unimplemented today; a live analog of the authorization reason already exists
 richer `authorize(...)` service (adding policy version and the full workspace
 action registry) is what's still pending, not the concept of a stable
 authorization reason itself. See Phase 0 item 6 for the envelope-vs-reason-code
-split this table target-designs.
+split; this table describes the target design, not what's implemented today.
 
 Every durable lifecycle creator or externally effective mutation requires an
 `idempotency_key` argument: revision import, import reconciliation and snapshot;
