@@ -1,6 +1,0 @@
-{"t":"2026-09-10T04:13:28.870Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-09-10T04:13:33.609Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-09-10T04:13:36.230Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
-{"t":"2026-09-10T04:13:40.768Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-09-10T04:13:43.765Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}
-{"t":"2026-09-10T04:13:48.968Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/never-existed-del/object?key=x \"HTTP/1.1 404 Not Found\""}
