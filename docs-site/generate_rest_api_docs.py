@@ -340,9 +340,13 @@ def _sdk_surface_row(
     """
     surface = SDK_SURFACE_MAP.get(tag)
     entry = surface["entry"] if surface else "`client.raw`"
-    note = surface["notes"] if surface else (
-        "No typed wrapper documented for this family yet. Use raw HTTP or "
-        "generate a client against the served OpenAPI document if you need it today."
+    note = (
+        surface["notes"]
+        if surface
+        else (
+            "No typed wrapper documented for this family yet. Use raw HTTP or "
+            "generate a client against the served OpenAPI document if you need it today."
+        )
     )
     if total_count == 0:
         return (
@@ -421,10 +425,20 @@ def _scope_value(constant_name: str) -> str:
 
 
 def _format_scope_names(requirement: dict[str, object]) -> str:
+    """`require_scopes()` grants access if the caller holds *any* of the
+    listed scopes (`caliber/src/caliber/auth.py`'s `required.isdisjoint(granted)`
+    check) -- comma-joining multiple values would read as "all of these
+    are required," the opposite of what the route actually enforces. State
+    the OR explicitly instead.
+    """
     names = requirement.get("scopes")
     names = names if isinstance(names, list) else []
     values = sorted(_scope_value(n) for n in names if isinstance(n, str))
-    return ", ".join(f"`{v}`" for v in values) if values else "—"
+    if not values:
+        return "—"
+    if len(values) == 1:
+        return f"`{values[0]}`"
+    return "one of " + " or ".join(f"`{v}`" for v in values)
 
 
 def _format_project_role(requirement: dict[str, object]) -> str:
@@ -483,9 +497,7 @@ def render_inventory() -> str:
     components = document.get("components", {})
     schemas = components.get("schemas", {}) if isinstance(components, dict) else {}
     responses = components.get("responses", {}) if isinstance(components, dict) else {}
-    security_schemes = (
-        components.get("securitySchemes", {}) if isinstance(components, dict) else {}
-    )
+    security_schemes = components.get("securitySchemes", {}) if isinstance(components, dict) else {}
 
     grouped: dict[str, list[tuple[str, str, dict[str, object]]]] = defaultdict(list)
     for path, operations in document["paths"].items():
@@ -590,35 +602,38 @@ def render_inventory() -> str:
 
     lines.extend(
         [
-        "",
-        "## Current route inventory",
-        "",
-        "This inventory is generated at build time from the live CALIBER route table and the same OpenAPI builder that serves `GET /ajax-api/2.0/mlflow/caliber/openapi.json`.",
-        "The served contract is route-table grounded and body-complete: paths and methods come from the live router, while request and success-response bodies are inferred from the handlers and the Pydantic models they already use.",
-        "",
-        "### Coverage summary",
-        "",
-        "| Field | Value |",
-        "| --- | --- |",
-        f"| Route paths | `{path_count}` |",
-        f"| Operations | `{operation_count}` |",
-        f"| Path coverage | `{coverage.get('paths', 'unknown')}` |",
-        f"| Request bodies | `{coverage.get('request_bodies', 'unknown')}` |",
-        f"| GA families | `{len(tiered_tags.get('ga', []))}` |",
-        f"| Beta families | `{len(tiered_tags.get('beta', []))}` |",
-        f"| Internal families | `{len(tiered_tags.get('internal', []))}` |",
-        "",
-        "### Auth and scoping contract",
-        "",
-        "- Every route below requires an authenticated CALIBER caller.",
-        "- Browser-style writes additionally require `X-CALIBER-CSRF` when CSRF enforcement is enabled.",
-        "- Project-scoped automation can supply `X-CALIBER-Project` to select the active workspace.",
-        "- Internal routes are listed for completeness, not as a supported public SDK contract.",
-        "",
-        "### Jump by resource family",
-        "",
-        "Use these quick jumps when you already know the CALIBER subsystem and want the detailed route table directly.",
-        "",
+            "",
+            "## Current route inventory",
+            "",
+            "This inventory is generated at build time from the live CALIBER route table and the same OpenAPI builder that serves `GET /ajax-api/2.0/mlflow/caliber/openapi.json`.",
+            "The served contract is route-table grounded and body-complete: paths and methods come from the live router, while request and success-response bodies are inferred from the handlers and the Pydantic models they already use.",
+            "",
+            "### Coverage summary",
+            "",
+            "| Field | Value |",
+            "| --- | --- |",
+            f"| Route paths | `{path_count}` |",
+            f"| Operations | `{operation_count}` |",
+            f"| Path coverage | `{coverage.get('paths', 'unknown')}` |",
+            f"| Request bodies | `{coverage.get('request_bodies', 'unknown')}` |",
+            f"| GA families | `{len(tiered_tags.get('ga', []))}` |",
+            f"| Beta families | `{len(tiered_tags.get('beta', []))}` |",
+            f"| Internal families | `{len(tiered_tags.get('internal', []))}` |",
+            "",
+            "### Auth and scoping contract",
+            "",
+            "- Most routes below require an authenticated CALIBER caller; each operation's "
+            "**Required scope** column states its actual requirement, including the small set "
+            "of routes (login, health/readiness, CSRF issuance, and a few others) that are "
+            "reachable without one by design -- see each row's note for why.",
+            "- Browser-style writes additionally require `X-CALIBER-CSRF` when CSRF enforcement is enabled.",
+            "- Project-scoped automation can supply `X-CALIBER-Project` to select the active workspace.",
+            "- Internal routes are listed for completeness, not as a supported public SDK contract.",
+            "",
+            "### Jump by resource family",
+            "",
+            "Use these quick jumps when you already know the CALIBER subsystem and want the detailed route table directly.",
+            "",
         ]
     )
 
