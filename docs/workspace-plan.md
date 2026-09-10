@@ -3696,7 +3696,7 @@ combined with a later slice merely to reduce PR count.
 
 | Slice | Owner | Concrete deliverable | Depends on | Exit/rollback gate |
 | --- | --- | --- | --- | --- |
-| `P0-A` | Architecture + security | **Partially delivered.** Machine-readable route required-scope inventory (`routes/scope_inference.py`, `x-caliber-required-scope` on the served OpenAPI document, enforced by `tests/test_route_scope_inventory.py`) — every one of 403 operations classified by reading its own authorization call, not a hand-duplicated table. Still open: the worker inventory, the per-model resource-root inventory, freezing the per-plane authority matrix, and resolving section 19.2's 19 open policy questions | — | Every route has one inventory row and it can't drift from the real enforcement code; the resolved slice needs nothing else in Phase 0 (gates on today's live route table, same as `P3-B`/`P3-A`/`P3-C`'s "doesn't wait" exceptions in spirit, though this one has no `P1-C` dependency to begin with) |
+| `P0-A` | Architecture + security | **Partially delivered.** Machine-readable route required-scope inventory (`routes/scope_inference.py`, `x-caliber-required-scope` on the served OpenAPI document, enforced by `tests/test_route_scope_inventory.py`) — every one of 403 operations classified by reading its own authorization call, not a hand-duplicated table — plus a background-worker inventory (`observability/worker_inventory.py`, `tests/test_worker_inventory.py`) deriving which of the 9 lifespan-started workers exist and whether each reports a liveness heartbeat, cross-referenced with a small hand-maintained per-worker note. Still open: the per-model resource-root inventory, freezing the per-plane authority matrix, and resolving section 19.2's 19 open policy questions | — | Every route and every background worker has one inventory row and neither can drift from the real code; the resolved slices need nothing else in Phase 0 (gate on today's live route table / lifespan, same as `P3-B`/`P3-A`/`P3-C`'s "doesn't wait" exceptions in spirit, though these have no `P1-C` dependency to begin with) |
 | `P0-B` | API + SDK | OpenAPI shapes, closed actions, errors, pagination, ETag/CAS/idempotency contracts, Change Request/version contracts, manifest schema and golden vectors | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
 | `P1-A` | Data/backend | Add project slug/counter/accepted-pointer/archive/audit fields, the Workspace idempotency ledger, and fixed environment rows; deterministic backfill, safe baseline state, and PostgreSQL migration CI | `P0-B` | Fresh/upgrade parity on SQLite and real PostgreSQL; idempotency conflict/replay is durable; new Workspace seeds dev active and qa/staging/prod disabled; migrated live aliases remain `baseline_required` |
 | `P1-B` | Security/backend | Closed action enum, deny-by-default decision service, all-scope conjunction support, stable reasons, and removal of ordinary platform-admin owner bypass | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; policy errors never fall back to legacy allow |
@@ -3750,11 +3750,26 @@ not as complete Workspace support.
    `tests/test_route_scope_inventory.py` — a route with no authorization
    call and no reviewed justification fails the test by name, the same
    defect class as the `review_queues.py::submit_item` gap PR #279 fixed.
-   Still open: the worker inventory (9 background workers, only 1 kind of
-   which has any liveness registry today), the per-model resource-root
+   **The worker slice is also delivered:**
+   `observability/worker_inventory.py` derives which background loops exist
+   at all — 9 today — by reading `server.py::_build_lifespan`'s own
+   `await <name>.start()` calls and typed parameters with `ast` (porting
+   `paper/scripts/gen_stats.py::_lifespan_loops`'s already-proven technique
+   for the paper's loop count into a form `caliber/tests/` can enforce),
+   cross-referenced against a small hand-maintained note per worker
+   (description, primary tables — a tick method's full effect set isn't
+   safely AST-derivable the way a route's bounded `require_scopes(...)`
+   call is, so this stays documentation, verified only for table *names*
+   that actually exist on `db.models`, not for completeness) plus a
+   genuinely derived `registers_heartbeat` flag (does the worker's module
+   call `worker_registry.record_heartbeat` — true for exactly
+   `WorkflowRunWorker` today). `tests/test_worker_inventory.py` fails by
+   name if a worker is added to or removed from the lifespan without a
+   matching registry update. Still open: the per-model resource-root
    inventory (project FK/owner/visibility across 85 ORM models — item 3
-   below), and rendering the new field into the published REST API
-   reference (deferred to `P0-B`'s "OpenAPI shapes" work).
+   below) and rendering either new field into published documentation
+   (deferred to `P0-B`'s "OpenAPI shapes" work for the route/scope side;
+   the worker side has no existing published surface to extend).
 3. Inventory every table's project FK, nullability, visibility and uniqueness,
    plus all bare-name resolvers.
 4. Define the `v1alpha1` manifest JSON Schema and canonicalization algorithm
