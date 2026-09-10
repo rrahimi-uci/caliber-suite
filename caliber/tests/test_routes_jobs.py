@@ -602,9 +602,7 @@ def test_request_changes_missing_job_returns_404(client: TestClient) -> None:
     assert response.status_code == 404
 
 
-def test_request_changes_requires_operator_scope(
-    client: TestClient, db_session: Session
-) -> None:
+def test_request_changes_requires_operator_scope(client: TestClient, db_session: Session) -> None:
     _seed_candidate_ready_job(db_session)
     response = client.post(
         REQUEST_CHANGES_PATH.replace("{job_id}", "RFN-RC"),

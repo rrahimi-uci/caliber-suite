@@ -249,9 +249,7 @@ class CaliberReworkTask(Base):
     )
 
     task_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    job_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("caliber_refinement_jobs.job_id")
-    )
+    job_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_refinement_jobs.job_id"))
     # Denormalized from the job so list/filter don't need a join.
     agent_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_agent_config.agent_id"))
 

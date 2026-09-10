@@ -138,7 +138,9 @@ def test_list_tasks_defaults_to_open_status(client: TestClient, db_session: Sess
     assert ids == {"RWT-OPEN"}
 
 
-def test_list_tasks_status_all_returns_every_status(client: TestClient, db_session: Session) -> None:
+def test_list_tasks_status_all_returns_every_status(
+    client: TestClient, db_session: Session
+) -> None:
     _seed_task(db_session, task_id="RWT-OPEN", job_id="RFN-1", status="open")
     _seed_task(db_session, task_id="RWT-RESOLVED", job_id="RFN-2", status="resolved")
 
@@ -149,8 +151,12 @@ def test_list_tasks_status_all_returns_every_status(client: TestClient, db_sessi
 
 
 def test_list_tasks_filters_by_assigned_to(client: TestClient, db_session: Session) -> None:
-    _seed_task(db_session, task_id="RWT-MINE", job_id="RFN-1", status="in_progress", assigned_to="@sarah")
-    _seed_task(db_session, task_id="RWT-THEIRS", job_id="RFN-2", status="in_progress", assigned_to="@alex")
+    _seed_task(
+        db_session, task_id="RWT-MINE", job_id="RFN-1", status="in_progress", assigned_to="@sarah"
+    )
+    _seed_task(
+        db_session, task_id="RWT-THEIRS", job_id="RFN-2", status="in_progress", assigned_to="@alex"
+    )
 
     response = client.get(LIST_PATH, params={"status": "all", "assigned_to": "@sarah"})
     assert response.status_code == 200
@@ -210,9 +216,7 @@ def test_claim_404_when_missing(client: TestClient) -> None:
 
 def test_claim_requires_operator_scope(client: TestClient, db_session: Session) -> None:
     _seed_task(db_session)
-    response = client.post(
-        CLAIM_PATH.replace("{task_id}", "RWT-1"), headers={"X-CALIBER-User": ""}
-    )
+    response = client.post(CLAIM_PATH.replace("{task_id}", "RWT-1"), headers={"X-CALIBER-User": ""})
     assert response.status_code in (401, 403)
 
 
@@ -271,9 +275,7 @@ def test_resolve_conflicts_when_not_in_progress(client: TestClient, db_session: 
     assert response.status_code == 409
 
 
-def test_resolve_with_resolution_job_id_records_it(
-    client: TestClient, db_session: Session
-) -> None:
+def test_resolve_with_resolution_job_id_records_it(client: TestClient, db_session: Session) -> None:
     _seed_task(db_session, status="in_progress", assigned_to="@reza")
     db_session.add(
         CaliberRefinementJob(
