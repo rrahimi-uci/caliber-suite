@@ -1,0 +1,4 @@
+INFO     caliber.orchestrator.worker:worker.py:454 job=RFN-W skipping mlflow run binding: experiment 'exp' is not resolvable
+INFO     caliber.orchestrator.triage:triage.py:136 triage complete: job=RFN-W class={'cluster': 'hallucination', 'artifact_type': 'prompt', 'confidence': 0.6, 'rationale': '[fake] hallucination', 'source': 'llm'}
+INFO     caliber.orchestrator.evidence:evidence.py:110 evidence complete: job=RFN-W summary={'trace_id': None, 'experiment_id': None, 'session_id': None, 'has_trace_link': False, 'has_session_link': False, 'free_text_preview': '...'}
+WARNING  caliber.orchestrator.worker:worker.py:384 job=RFN-W deferred: llm circuit open (circuit is open)

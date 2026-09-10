@@ -1,0 +1,1 @@
+WARNING  caliber.observability.logging:logging.py:334 S3 log sink unavailable; continuing with stderr only: missing optional s3 dependency
