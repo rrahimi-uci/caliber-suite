@@ -3696,7 +3696,7 @@ combined with a later slice merely to reduce PR count.
 
 | Slice | Owner | Concrete deliverable | Depends on | Exit/rollback gate |
 | --- | --- | --- | --- | --- |
-| `P0-A` | Architecture + security | **Partially delivered.** Machine-readable route required-scope inventory (`routes/scope_inference.py`, `x-caliber-required-scope` on the served OpenAPI document, enforced by `tests/test_route_scope_inventory.py`) — every one of 403 operations classified by reading its own authorization call, not a hand-duplicated table — plus a background-worker inventory (`observability/worker_inventory.py`, `tests/test_worker_inventory.py`) deriving which of the 9 lifespan-started workers exist and whether each reports a liveness heartbeat, cross-referenced with a small hand-maintained per-worker note. Still open: the per-model resource-root inventory, freezing the per-plane authority matrix, and resolving section 19.2's 19 open policy questions | — | Every route and every background worker has one inventory row and neither can drift from the real code; the resolved slices need nothing else in Phase 0 (gate on today's live route table / lifespan, same as `P3-B`/`P3-A`/`P3-C`'s "doesn't wait" exceptions in spirit, though these have no `P1-C` dependency to begin with) |
+| `P0-A` | Architecture + security | **Partially delivered.** Machine-readable route required-scope inventory (`routes/scope_inference.py`, `x-caliber-required-scope` on the served OpenAPI document, enforced by `tests/test_route_scope_inventory.py`) — every one of 403 operations classified by reading its own authorization call, not a hand-duplicated table — plus a background-worker inventory (`observability/worker_inventory.py`, `tests/test_worker_inventory.py`) and a per-model project-scoping inventory (`db/resource_inventory.py`, `tests/test_resource_inventory.py`, all 85 models classified with zero hand-maintenance needed). Still open: freezing the per-plane authority matrix and resolving section 19.2's 19 open policy questions | — | Every route, every background worker, and every model has one inventory row and none can drift from the real code; the resolved slices need nothing else in Phase 0 (gate on today's live route table / lifespan / model registry, same as `P3-B`/`P3-A`/`P3-C`'s "doesn't wait" exceptions in spirit, though these have no `P1-C` dependency to begin with) |
 | `P0-B` | API + SDK | OpenAPI shapes, closed actions, errors, pagination, ETag/CAS/idempotency contracts, Change Request/version contracts, manifest schema and golden vectors | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
 | `P1-A` | Data/backend | Add project slug/counter/accepted-pointer/archive/audit fields, the Workspace idempotency ledger, and fixed environment rows; deterministic backfill, safe baseline state, and PostgreSQL migration CI | `P0-B` | Fresh/upgrade parity on SQLite and real PostgreSQL; idempotency conflict/replay is durable; new Workspace seeds dev active and qa/staging/prod disabled; migrated live aliases remain `baseline_required` |
 | `P1-B` | Security/backend | Closed action enum, deny-by-default decision service, all-scope conjunction support, stable reasons, and removal of ordinary platform-admin owner bypass | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; policy errors never fall back to legacy allow |
@@ -3765,13 +3765,29 @@ not as complete Workspace support.
    call `worker_registry.record_heartbeat` — true for exactly
    `WorkflowRunWorker` today). `tests/test_worker_inventory.py` fails by
    name if a worker is added to or removed from the lifespan without a
-   matching registry update. Still open: the per-model resource-root
-   inventory (project FK/owner/visibility across 85 ORM models — item 3
-   below) and rendering either new field into published documentation
-   (deferred to `P0-B`'s "OpenAPI shapes" work for the route/scope side;
-   the worker side has no existing published surface to extend).
+   matching registry update. Still open: rendering either new field into
+   published documentation (deferred to `P0-B`'s "OpenAPI shapes" work for
+   the route/scope side; the worker side has no existing published surface
+   to extend).
 3. Inventory every table's project FK, nullability, visibility and uniqueness,
    plus all bare-name resolvers.
+   **The project-FK/visibility slice is delivered** (`P0-A`, section 16):
+   `db/resource_inventory.py` classifies every one of the 85 `Base`
+   subclasses by its `project_id`/`visibility`/owner columns — reusing
+   `db/scoping.py::owner_column` directly rather than re-deriving the same
+   owner-vs-`created_by` fact a second way — into a clean 4-way partition
+   (40 `unscoped`, 24 `owned_catalog`, 14 `visibility`, 7 `project_only`;
+   see section 16 for the exact per-category meaning). Unlike the route and
+   worker slices, nothing here needed a hand-maintained note: every fact is
+   safely, mechanically derivable. `tests/test_resource_inventory.py`
+   asserts zero models carry `visibility` without also carrying
+   `project_id` and a resolvable owner column — the exact shape of the
+   historical `CaliberEvalRun` defect `owner_column`'s own docstring names
+   — which holds cleanly across all 85 models today. Still open: a full
+   nullability/uniqueness audit (materially bigger than the project-scoping
+   classification this delivers) and the "bare-name resolvers" inventory
+   (needs semantic code reading, not model introspection) — both distinct
+   follow-ups, not started.
 4. Define the `v1alpha1` manifest JSON Schema and canonicalization algorithm
    with golden vectors.
 5. Define the resource adapter capability contract and supported MVP types.
