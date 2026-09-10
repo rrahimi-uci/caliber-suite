@@ -19,6 +19,7 @@ from ..models.operations import (
     AuditEntry,
     CookbookRecipe,
     Job,
+    QualityReview,
     ReleaseCandidate,
     ReviewQueue,
     ReworkTask,
@@ -127,8 +128,9 @@ class ReviewQueuesAPI(Resource):
 class ReworkTasksAPI(Resource):
     """Owned, recoverable work created when a refinement job is rejected.
 
-    Every task today originates automatically from the machine eval gate
-    (see :class:`~caliber_sdk.models.operations.ReworkTask`) -- there is no
+    Every task originates automatically -- from the machine eval gate, or
+    from a ``"no_go"`` :class:`QualityReviewsAPI` decision (see
+    :class:`~caliber_sdk.models.operations.ReworkTask`) -- so there is no
     ``create`` here by design.
     """
 
@@ -164,6 +166,36 @@ class ReworkTasksAPI(Resource):
             ReworkTask,
             self._post(f"/rework-tasks/{task_id}/reassign", json={"assigned_to": assigned_to}),
         )
+
+
+class QualityReviewsAPI(Resource):
+    """A human go/no-go decision on a refinement job's candidate, distinct
+    from the machine eval gate.
+
+    Nested under a job (``/jobs/{job_id}/quality-reviews``) rather than its
+    own top-level collection -- a review always belongs to exactly one job,
+    with no independent "list every review" use case.
+    """
+
+    def create(self, job_id: str, *, decision: str, rationale: str) -> QualityReview:
+        """Record a decision. ``decision`` is ``"go"`` or ``"no_go"``.
+
+        ``"go"`` is advisory only -- the job is untouched.
+        ``"no_go"`` terminally rejects the job and creates a
+        :class:`~caliber_sdk.models.operations.ReworkTask` with
+        ``failure_kind == "quality_no_go"`` (see :attr:`CaliberClient.rework_tasks`).
+        """
+        return decode(
+            QualityReview,
+            self._post(
+                f"/jobs/{job_id}/quality-reviews",
+                json={"decision": decision, "rationale": rationale},
+            ),
+        )
+
+    def list(self, job_id: str) -> _List[QualityReview]:
+        """A job's review history, newest first."""
+        return decode_list(QualityReview, self._get(f"/jobs/{job_id}/quality-reviews"))
 
 
 class AriaSessionsAPI(Resource):
@@ -777,6 +809,7 @@ __all__ = [
     "LlmPricingAPI",
     "MemoryAPI",
     "ObservabilityAPI",
+    "QualityReviewsAPI",
     "ReleasesAPI",
     "ReviewQueuesAPI",
     "ReworkTasksAPI",

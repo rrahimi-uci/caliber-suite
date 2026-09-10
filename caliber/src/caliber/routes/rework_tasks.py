@@ -12,11 +12,12 @@ terminal ``rejected`` row. See ``docs/workspace-plan.md`` section 3.6.
 * ``POST /rework-tasks/{task_id}/resolve`` (operator, assignee or admin) — ``in_progress`` -> ``resolved``.
 * ``POST /rework-tasks/{task_id}/reassign`` (admin) — change the assignee.
 
-**Deliberately not built here:** a ``quality_no_go``/``release_no_go``
-failure kind, or a route that creates a task directly from a QA decision —
-there is no quality-review record for a refinement job yet (see
-``docs/workspace-plan.md`` section 3.6's note on the deferred item). Every
-task today originates from ``eval_stage.py``'s machine-gate rejection.
+**Deliberately not built here:** a ``release_no_go`` failure kind — that
+needs an aggregate Workspace release, which doesn't exist yet (see
+``docs/workspace-plan.md`` section 3.6). ``quality_no_go`` is no longer in
+this category: ``routes/quality_reviews.py`` creates a task with that
+``failure_kind`` directly from a human "no_go" decision, the same way
+``eval_stage.py`` creates one from a machine-gate rejection.
 
 Every handler offloads its synchronous SQLAlchemy work to
 :func:`starlette.concurrency.run_in_threadpool`, matching

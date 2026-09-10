@@ -44,6 +44,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | Datasets and evaluations | `GET/POST /eval-datasets`, `GET/POST /evaluations`, `GET/POST /judges` | Evaluation evidence and scoring |
 | Verification queue | `GET/POST /verification-queue`, `POST /verification-queue/{id}/verify`, `.../dismiss`, `.../duplicate`, `POST /verification-queue/batch` | Stage ① Verify for a manually-flagged concern; verifying does not create a refinement job |
 | Rework tasks | `GET /rework-tasks`, `POST /rework-tasks/{id}/claim`, `.../resolve`, `.../reassign`; `POST /jobs/{id}/request-changes` | Owned, recoverable work auto-created when a refinement job is terminally rejected |
+| Quality reviews | `POST /jobs/{id}/quality-reviews`, `GET /jobs/{id}/quality-reviews` | A human go/no-go on a job's candidate, distinct from the machine eval gate; `no_go` creates a rework task |
 | Knowledge | `GET/POST /knowledge-bases`, `POST /knowledge/query` | Corpus lifecycle plus retrieval |
 | MCP | `GET/POST /mcp-servers`, tool inventory and invoke routes | Governed external tool connectivity |
 | Releases | `GET/POST /releases/candidates`, `POST /releases/candidates/{id}/signoffs`, `GET /releases/operations` | Signoff, waivers, and reconcile workflows |
@@ -127,7 +128,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Releases (`releases`) | `beta` | `13` | Typed SDK | `client.releases` | Release candidates, evaluation, waivers, reports, and signoff. |
 | Review Queues (`review-queues`) | `beta` | `7` | Typed SDK | `client.review_queues` | Queue creation, enqueue/submit flows, and alignment examples. |
 | Verification Queue (`verification-queue`) | `beta` | `7` | Typed SDK | `client.verification_queue` | Stage ① Verify for a manually-flagged concern: list/get/create/verify/dismiss/mark_duplicate/batch. Verifying does not create a refinement job. |
-| Jobs (`jobs`) | `beta` | `5` | Typed SDK | `client.jobs` | Durable background jobs, targets, apply, wait semantics, and request-changes (send a candidate_ready job back for another pass). |
+| Jobs (`jobs`) | `beta` | `7` | Typed SDK | `client.jobs`, `client.quality_reviews` | Durable background jobs, targets, apply, wait semantics, and request-changes (send a candidate_ready job back for another pass). `client.quality_reviews` covers the nested quality-review sub-resource: a human go/no-go on a job's candidate, distinct from the machine eval gate. |
 | Rework Tasks (`rework-tasks`) | `beta` | `5` | Typed SDK | `client.rework_tasks` | Owned, recoverable work auto-created when a refinement job is terminally rejected: list/get/claim/resolve/reassign. |
 | Observability (`observability`) | `beta` | `7` | Typed SDK | `client.observability` | Trace listing/detail, experiments, and metrics reads. |
 | Events (`events`) | `beta` | `1` | Typed SDK | `client.events` | Server-sent events stream access. |
@@ -160,8 +161,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `326` |
-| Operations | `401` |
+| Route paths | `327` |
+| Operations | `403` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -218,7 +219,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Releases (`releases`)](#releases-releases) | `13` | `12` |
 | [Review Queues (`review-queues`)](#review-queues-review-queues) | `7` | `5` |
 | [Verification Queue (`verification-queue`)](#verification-queue-verification-queue) | `7` | `6` |
-| [Jobs (`jobs`)](#jobs-jobs) | `5` | `5` |
+| [Jobs (`jobs`)](#jobs-jobs) | `7` | `6` |
 | [Rework Tasks (`rework-tasks`)](#rework-tasks-rework-tasks) | `5` | `5` |
 | [Observability (`observability`)](#observability-observability) | `7` | `7` |
 | [Events (`events`)](#events-events) | `1` | `1` |
@@ -741,13 +742,15 @@ Supported but still moving route groups. Expect capability growth and narrower c
 
 #### Jobs (`jobs`)
 
-5 operation(s) across 5 route path(s).
+7 operation(s) across 6 route path(s).
 
 | Method | Path | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/jobs` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs_job_id` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/apply` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_jobs_job_id_apply` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/quality-reviews` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs_job_id_quality_reviews` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/quality-reviews` | `job_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_jobs_job_id_quality_reviews`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/request-changes` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_jobs_job_id_request_changes`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/targets` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs_job_id_targets` |
 

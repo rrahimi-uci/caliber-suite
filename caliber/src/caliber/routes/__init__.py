@@ -42,6 +42,7 @@ from caliber.routes import (
     openapi_integrations,
     projects,
     prompts,
+    quality_reviews,
     releases,
     review_queues,
     rework_tasks,
@@ -94,6 +95,7 @@ def register_routes(app: Starlette) -> None:
     aria_plans.register(app)
     jobs.register(app)
     rework_tasks.register(app)
+    quality_reviews.register(app)
     rollback.register(app)
     releases.register(app)
     dashboard.register(app)

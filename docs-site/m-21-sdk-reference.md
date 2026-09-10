@@ -195,6 +195,12 @@ Every documented class and module-level function, with the module that defines i
 | [`Prompt`](#prompt) | [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets) |
 | [`PromptsAPI`](#promptsapi) | [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets) |
 
+**Q**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`QualityReviewsAPI`](#qualityreviewsapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+
 **R**
 
 | Symbol | Defined in |
@@ -377,6 +383,7 @@ Operate on the caliber client surface with the supplied arguments and return the
 | `jobs` | `JobsAPI` | Long-running background jobs. |
 | `review_queues` | `ReviewQueuesAPI` | Human review queues and queue items. |
 | `rework_tasks` | `ReworkTasksAPI` | Owned, recoverable work auto-created from a rejected refinement job. |
+| `quality_reviews` | `QualityReviewsAPI` | A human go/no-go on a job's candidate, distinct from the machine eval gate. |
 | `verification_queue` | `VerificationQueueAPI` | — |
 | `aria` | `AriaAPI` | The approval-aware plan and interaction loop. |
 | `releases` | `ReleasesAPI` | Release candidates, waivers, signoff, and reports. |
@@ -1441,7 +1448,7 @@ Resource modules — typed façades over route groups.
 
 **Public exports**
 
-`AccountsAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `LlmPricingAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `PlaygroundRunsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `ReworkTasksAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `VerificationQueueAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+`AccountsAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `LlmPricingAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `PlaygroundRunsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `QualityReviewsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `ReworkTasksAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `VerificationQueueAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
 
 ### Module `caliber_sdk.resources.auth`
 
@@ -6948,7 +6955,7 @@ sdk/caliber-sdk/examples/agentic.py#plan_from_intent
 
 **Public exports**
 
-`AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `CookbooksAPI`, `EventsAPI`, `GateVerdictsAPI`, `JobsAPI`, `LlmPricingAPI`, `MemoryAPI`, `ObservabilityAPI`, `ReleasesAPI`, `ReviewQueuesAPI`, `ReworkTasksAPI`, `SecretsAPI`, `SystemAPI`
+`AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `CookbooksAPI`, `EventsAPI`, `GateVerdictsAPI`, `JobsAPI`, `LlmPricingAPI`, `MemoryAPI`, `ObservabilityAPI`, `QualityReviewsAPI`, `ReleasesAPI`, `ReviewQueuesAPI`, `ReworkTasksAPI`, `SecretsAPI`, `SystemAPI`
 
 #### Classes
 
@@ -7202,8 +7209,9 @@ impossible to avoid since it accepted no query parameters at all.
 
 Owned, recoverable work created when a refinement job is rejected.
 
-Every task today originates automatically from the machine eval gate
-(see :class:`~caliber_sdk.models.operations.ReworkTask`) -- there is no
+Every task originates automatically -- from the machine eval gate, or
+from a ``"no_go"`` :class:`QualityReviewsAPI` decision (see
+:class:`~caliber_sdk.models.operations.ReworkTask`) -- so there is no
 ``create`` here by design.
 
 **Methods**
@@ -7284,6 +7292,56 @@ task. This also claims it -- the task becomes ``in_progress``.
 | `assigned_to` | positional-or-keyword | `str` | `—` |
 
 **Returns:** `ReworkTask`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `QualityReviewsAPI`
+
+`class QualityReviewsAPI()`
+
+A human go/no-go decision on a refinement job's candidate, distinct
+from the machine eval gate.
+
+Nested under a job (``/jobs/{job_id}/quality-reviews``) rather than its
+own top-level collection -- a review always belongs to exactly one job,
+with no independent "list every review" use case.
+
+**Methods**
+
+###### `create(job_id: str, *, decision: str, rationale: str) -> QualityReview`
+
+Record a decision. ``decision`` is ``"go"`` or ``"no_go"``.
+
+``"go"`` is advisory only -- the job is untouched.
+``"no_go"`` terminally rejects the job and creates a
+:class:`~caliber_sdk.models.operations.ReworkTask` with
+``failure_kind == "quality_no_go"`` (see :attr:`CaliberClient.rework_tasks`).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `job_id` | positional-or-keyword | `str` | `—` |
+| `decision` | keyword-only | `str` | `—` |
+| `rationale` | keyword-only | `str` | `—` |
+
+**Returns:** `QualityReview`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list(job_id: str) -> list[QualityReview]`
+
+A job's review history, newest first.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `job_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `list[QualityReview]`
 
 **Raises:**
 
@@ -9025,7 +9083,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 

@@ -50,7 +50,9 @@ class ReworkTask:
     terminally rejected (see ``client.jobs``' rejected/terminal status).
 
     ``status`` is ``"open"``, ``"in_progress"``, or ``"resolved"``.
-    ``failure_kind`` is ``"machine_gate"`` or ``"iterations_exhausted"``.
+    ``failure_kind`` is ``"machine_gate"``, ``"iterations_exhausted"``, or
+    ``"quality_no_go"`` (created via ``client.quality_reviews.create(...)``
+    rather than an automatic rejection).
     """
 
     task_id: str = ""
@@ -68,6 +70,28 @@ class ReworkTask:
     updated_at: str | None = None
     resolved_by: str | None = None
     resolved_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class QualityReview:
+    """A human go/no-go decision on a refinement job's candidate, distinct
+    from the machine eval gate (``client.jobs``'s regression gate).
+
+    ``"go"`` is advisory only -- it does not change the job. ``"no_go"``
+    terminally rejects the job and creates a :class:`ReworkTask` with
+    ``failure_kind == "quality_no_go"``.
+    """
+
+    review_id: str = ""
+    job_id: str = ""
+    agent_id: str = ""
+    decision: str = ""
+    rationale: str = ""
+    decided_by: str = ""
+    candidate_snapshot: dict[str, Any] | None = None
+    eval_results_snapshot: dict[str, Any] | None = None
+    created_at: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 

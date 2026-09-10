@@ -58,6 +58,16 @@ _WRITE_ENDPOINTS: list[tuple[str, str, str, dict[str, object], str]] = [
         "operator",
     ),
     (
+        # "go" only -- a "no_go" would create a second rework task for
+        # RFN-EXIST, colliding with the RWT-EXIST row this fixture already
+        # seeds for that same job_id (caliber_rework_tasks.job_id is unique).
+        "jobs:quality-review",
+        "POST",
+        "/ajax-api/2.0/mlflow/caliber/jobs/RFN-EXIST/quality-reviews",
+        {"decision": "go", "rationale": "cites the refund policy correctly"},
+        "operator",
+    ),
+    (
         "rework-tasks:claim",
         "POST",
         "/ajax-api/2.0/mlflow/caliber/rework-tasks/RWT-EXIST/claim",

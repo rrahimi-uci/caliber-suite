@@ -29,6 +29,7 @@ RELEASE_CANDIDATE_PREFIX = "RC-"
 RELEASE_SIGNOFF_PREFIX = "RSO-"
 RELEASE_REPORT_JOB_PREFIX = "RRJ-"
 REWORK_TASK_PREFIX = "RWT-"
+QUALITY_REVIEW_PREFIX = "QRV-"
 SKILL_PREFIX = "SK-"
 EVAL_DATASET_PREFIX = "ED-"
 EVAL_EXAMPLE_PREFIX = "EX-"
@@ -139,6 +140,17 @@ def new_rework_task_id() -> str:
     rename.
     """
     return f"{REWORK_TASK_PREFIX}{_suffix()}"
+
+
+def new_quality_review_id() -> str:
+    """Return a fresh quality-review ID, e.g. ``QRV-1a2b3c4d``.
+
+    Unlike ``new_rework_task_id()``, this table has no later-phase target
+    schema it's a narrower slice of — the aggregate Workspace-release version
+    of this decision is a separate table (``caliber_workspace_release_decisions``,
+    see ``docs/workspace-plan.md`` section 9.2), so no rename is anticipated.
+    """
+    return f"{QUALITY_REVIEW_PREFIX}{_suffix()}"
 
 
 def new_checkpoint_id() -> str:
