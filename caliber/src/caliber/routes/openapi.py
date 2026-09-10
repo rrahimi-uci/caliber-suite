@@ -233,10 +233,13 @@ def _components() -> dict[str, Any]:
                                 "msg": {"type": "string"},
                                 "type": {"type": "string"},
                             },
+                            # validation_error_handler's list comprehension always
+                            # builds all three keys per item -- never a subset.
+                            "required": ["loc", "msg", "type"],
                         },
                     },
                 },
-                "required": ["detail", "status_code"],
+                "required": ["detail", "status_code", "errors"],
             },
         },
     }
@@ -245,10 +248,31 @@ def _components() -> dict[str, Any]:
 #: Shared error responses. Success responses are per-operation because their body
 #: shape and status code now differ materially across the surface.
 _SHARED_RESPONSES: dict[str, Any] = {
+    # openapi_inference._error_ref("400") maps *every* default 400 to this
+    # response, but two different handlers can produce a 400: a plain
+    # `HTTPException(400, ...)` (e.g. _deps.parse_json_object -- 170+
+    # call sites) renders via http_exception_handler as bare `Error`
+    # ({detail, status_code}, no `errors` key); a Pydantic body-validation
+    # failure renders via validation_error_handler as `ValidationError`
+    # ({detail, status_code, errors: [...]})``. Only one of those two shapes
+    # is guaranteed to carry `errors`, so the response must document the
+    # union, not just the richer shape -- `ValidationError` alone would make
+    # the contract reject the common case. `anyOf`, not `oneOf`: `Error` is
+    # structurally a subset of `ValidationError` (neither restricts extra
+    # properties), so a `ValidationError`-shaped payload legitimately
+    # validates against both -- `oneOf`'s "exactly one" semantics would
+    # reject a real validation-error payload as ambiguous.
     "ValidationFailed": {
         "description": "Validation or request error.",
         "content": {
-            "application/json": {"schema": {"$ref": "#/components/schemas/ValidationError"}}
+            "application/json": {
+                "schema": {
+                    "anyOf": [
+                        {"$ref": "#/components/schemas/Error"},
+                        {"$ref": "#/components/schemas/ValidationError"},
+                    ]
+                }
+            }
         },
     },
     "Unauthenticated": {

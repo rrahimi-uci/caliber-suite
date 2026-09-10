@@ -125,6 +125,80 @@ def test_the_envelope_and_error_shapes_are_documented(client: TestClient) -> Non
     assert schemas["Envelope"]["required"] == ["data"]
     assert set(schemas["Error"]["required"]) == {"detail", "status_code"}
     assert "errors" in schemas["ValidationError"]["properties"]
+    # validation_error_handler (routes/_errors.py) always emits `errors`,
+    # never omits the key -- the documented schema must say so too, or an
+    # SDK/OpenAPI consumer could wrongly treat it as optional.
+    assert set(schemas["ValidationError"]["required"]) == {
+        "detail",
+        "status_code",
+        "errors",
+    }
+    # Same reasoning one level down: every item validation_error_handler
+    # appends always carries all three keys (its list comprehension builds
+    # a fixed dict, never a subset), so the nested item schema must say so.
+    item_schema = schemas["ValidationError"]["properties"]["errors"]["items"]
+    assert set(item_schema["required"]) == {"loc", "msg", "type"}
+
+
+def test_validation_failed_response_is_a_union_not_just_validation_error(
+    client: TestClient,
+) -> None:
+    """`ValidationFailed` backs *every* default 400 (`openapi_inference._error_ref`),
+    but two different handlers can produce one: a plain `HTTPException(400, ...)`
+    (170+ call sites, e.g. `_deps.parse_json_object`) renders via
+    `http_exception_handler` with no `errors` key at all; only a Pydantic
+    body-validation failure renders via `validation_error_handler` with one.
+    Documenting this response as `ValidationError` alone would make the
+    published contract reject the common, `errors`-less case.
+    """
+    doc = client.get(OPENAPI_URL).json()
+    schema = doc["components"]["responses"]["ValidationFailed"]["content"]["application/json"][
+        "schema"
+    ]
+    refs = {entry["$ref"] for entry in schema["anyOf"]}
+    assert refs == {
+        "#/components/schemas/Error",
+        "#/components/schemas/ValidationError",
+    }
+
+
+@pytest.mark.asyncio
+async def test_generic_and_validation_400_payloads_both_satisfy_the_documented_union(
+    client: TestClient,
+) -> None:
+    """Exercises the real handlers, not just the schema: a bare `HTTPException`
+    400 and a real Pydantic validation failure both must validate against the
+    union schema `ValidationFailed` actually serves -- the regression guard for
+    the mismatch this test's sibling assertions were added to catch."""
+    import json
+
+    import jsonschema
+    from pydantic import BaseModel
+    from pydantic import ValidationError as PydanticValidationError
+    from starlette.exceptions import HTTPException
+    from starlette.requests import Request
+
+    from caliber.routes._errors import http_exception_handler, validation_error_handler
+
+    schemas = client.get(OPENAPI_URL).json()["components"]["schemas"]
+    union_schema = {"anyOf": [schemas["Error"], schemas["ValidationError"]]}
+    scope = {"type": "http", "method": "POST", "path": "/test", "headers": []}
+    request = Request(scope)
+
+    generic = await http_exception_handler(
+        request, HTTPException(status_code=400, detail="malformed request body")
+    )
+    jsonschema.validate(instance=json.loads(generic.body), schema=union_schema)
+
+    class _Probe(BaseModel):
+        n: int
+
+    try:
+        _Probe.model_validate({"n": "not-an-int"})
+        pytest.fail("expected a ValidationError")
+    except PydanticValidationError as exc:
+        structured = await validation_error_handler(request, exc)
+    jsonschema.validate(instance=json.loads(structured.body), schema=union_schema)
 
 
 def test_request_and_success_bodies_are_declared(client: TestClient) -> None:

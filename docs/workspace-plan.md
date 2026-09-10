@@ -3288,8 +3288,14 @@ a server returning an unchanged `next_cursor`. The existing offset-based
 The `reason_code` below is a per-error transport code (why this `409`/`412`
 happened) and is distinct from `AccessDecision`'s "stable reason code"
 (section 5.4/Phase 1 item 8 — why an authorization decision was allowed or
-denied), even though both share the name. Neither is implemented yet; see
-Phase 0 item 6 for the envelope-vs-reason-code split this table target-designs.
+denied), even though both share the name. Only the transport `reason_code` is
+unimplemented today; a live analog of the authorization reason already exists
+(`resource_access.py::AccessDecision.reason`, e.g. `"granted"` /
+`"permission_denied"` / `"project_not_found"`) — section 5.4/Phase 1 item 8's
+richer `authorize(...)` service (adding policy version and the full workspace
+action registry) is what's still pending, not the concept of a stable
+authorization reason itself. See Phase 0 item 6 for the envelope-vs-reason-code
+split; this table describes the target design, not what's implemented today.
 
 Every durable lifecycle creator or externally effective mutation requires an
 `idempotency_key` argument: revision import, import reconciliation and snapshot;
