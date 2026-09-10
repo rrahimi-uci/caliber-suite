@@ -326,6 +326,7 @@ CLIENT_ATTRIBUTE_NOTES = {
     "object_store": "Buckets and objects under the storage substrate.",
     "jobs": "Long-running background jobs.",
     "review_queues": "Human review queues and queue items.",
+    "rework_tasks": "Owned, recoverable work auto-created from a rejected refinement job.",
     "aria": "The approval-aware plan and interaction loop.",
     "releases": "Release candidates, waivers, signoff, and reports.",
     "observability": "Traces, experiments, and metrics.",

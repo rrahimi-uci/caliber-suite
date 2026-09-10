@@ -50,6 +50,7 @@ from .resources import (
     RawAPI,
     ReleasesAPI,
     ReviewQueuesAPI,
+    ReworkTasksAPI,
     SecretsAPI,
     SettingsAPI,
     SkillsAPI,
@@ -123,6 +124,7 @@ class CaliberClient:
         self.object_store = ObjectStoreAPI(self._transport)
         self.jobs = JobsAPI(self._transport)
         self.review_queues = ReviewQueuesAPI(self._transport)
+        self.rework_tasks = ReworkTasksAPI(self._transport)
         self.verification_queue = VerificationQueueAPI(self._transport)
         self.aria = AriaAPI(self._transport)
         self.releases = ReleasesAPI(self._transport)

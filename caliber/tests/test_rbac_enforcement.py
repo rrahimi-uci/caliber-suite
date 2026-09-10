@@ -31,6 +31,7 @@ from caliber.db.models import (
     CaliberEvalDataset,
     CaliberEvalDatasetExample,
     CaliberRefinementJob,
+    CaliberReworkTask,
     CaliberRollbackCheckpoint,
     CaliberSkill,
     CaliberVerificationItem,
@@ -48,6 +49,34 @@ _WRITE_ENDPOINTS: list[tuple[str, str, str, dict[str, object], str]] = [
         "/ajax-api/2.0/mlflow/caliber/jobs/RFN-EXIST/apply",
         {},
         "operator",
+    ),
+    (
+        "jobs:request-changes",
+        "POST",
+        "/ajax-api/2.0/mlflow/caliber/jobs/RFN-EXIST/request-changes",
+        {"notes": "please cite the refund policy"},
+        "operator",
+    ),
+    (
+        "rework-tasks:claim",
+        "POST",
+        "/ajax-api/2.0/mlflow/caliber/rework-tasks/RWT-EXIST/claim",
+        {},
+        "operator",
+    ),
+    (
+        "rework-tasks:resolve",
+        "POST",
+        "/ajax-api/2.0/mlflow/caliber/rework-tasks/RWT-EXIST/resolve",
+        {},
+        "operator",
+    ),
+    (
+        "rework-tasks:reassign",
+        "POST",
+        "/ajax-api/2.0/mlflow/caliber/rework-tasks/RWT-EXIST/reassign",
+        {"assigned_to": "@someone"},
+        "admin",
     ),
     (
         "agents:register",
@@ -274,6 +303,17 @@ def seeded_db(db_session: Session) -> Session:
             artifact_ref_after="prompts:/agent/2",
             version_before=1,
             version_after=2,
+        )
+    )
+    db_session.add(
+        CaliberReworkTask(
+            task_id="RWT-EXIST",
+            job_id="RFN-EXIST",
+            agent_id="agent",
+            failure_kind="machine_gate",
+            reason="regression gate failed",
+            status="open",
+            created_by="@x",
         )
     )
     db_session.add(

@@ -104,7 +104,7 @@ flowchart LR
     subgraph L6["6 · SURFACES"]
       direction LR
       s1["<b>React SPA</b><br/><code>/caliber/</code>"]:::ui
-      s2["<b>HTTP API</b><br/>395 HTTP operations<br/>across 46 route modules"]:::ui
+      s2["<b>HTTP API</b><br/>401 HTTP operations<br/>across 47 route modules"]:::ui
       s3["<b>Aria copilot</b><br/>permissioned<br/>agentic tool loop"]:::ui
       s4["<b>Headless</b><br/>service tokens ·<br/>SSE · webhooks"]:::ui
       s1 --- s2 --- s3 --- s4

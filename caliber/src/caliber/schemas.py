@@ -372,6 +372,45 @@ class RefinementJobSchema(BaseModel):
     updated_at: datetime
 
 
+class ReworkTaskSchema(BaseModel):
+    """Serialized form of :class:`caliber.db.models.CaliberReworkTask`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    task_id: str
+    job_id: str
+    agent_id: str
+    failure_kind: str
+    reason: str
+    gate_evidence: dict[str, object] | None
+    assigned_to: str | None
+    status: str
+    resolution_job_id: str | None
+    resolution_notes: str | None
+    created_by: str
+    created_at: datetime
+    updated_at: datetime
+    resolved_by: str | None
+    resolved_at: datetime | None
+
+
+class ReworkTaskResolveRequest(BaseModel):
+    """Body of ``POST /caliber/rework-tasks/{task_id}/resolve``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    resolution_job_id: str | None = Field(default=None, max_length=64)
+    resolution_notes: str | None = None
+
+
+class ReworkTaskReassignRequest(BaseModel):
+    """Body of ``POST /caliber/rework-tasks/{task_id}/reassign``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    assigned_to: str = Field(min_length=1, max_length=256)
+
+
 class HarvestedExampleSchema(BaseModel):
     """Eval-dataset example harvested from a verified correction (R2.3)."""
 
@@ -578,11 +617,14 @@ class ApprovalRejectRequest(BaseModel):
 
 
 class ApprovalRequestChangesRequest(BaseModel):
-    """Body of ``POST /caliber/approvals/{id}/request-changes``.
+    """Body of ``POST /caliber/jobs/{job_id}/request-changes``.
 
-    Like reject, ``notes`` is required. Until a proper retry mechanism
-    lands, this endpoint behaves like a reject with a different status —
-    the reviewer's feedback is recorded but the job is terminal.
+    ``notes`` is required and becomes the job's ``review_notes`` --
+    ``orchestrator/candidate.py`` already reads and clears that field on the
+    next candidate-generation pass, so this is a non-terminal action: the job
+    returns to ``running`` at the ``candidate`` stage rather than ending, and
+    ``refine_iteration`` is left untouched (this is a human request, not a
+    consumption of the automatic self-correction budget).
     """
 
     model_config = ConfigDict(extra="forbid")

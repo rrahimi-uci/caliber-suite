@@ -13,6 +13,7 @@ from typing import Any, Final
 
 from sqlalchemy import Select, select, update
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -30,8 +31,14 @@ from caliber.routes._deps import (
     envelope_response_dict,
     get_session_factory,
     list_limit,
+    parse_json_object,
 )
-from caliber.schemas import JobTargetSchema, JobTargetsResponse, RefinementJobSchema
+from caliber.schemas import (
+    ApprovalRequestChangesRequest,
+    JobTargetSchema,
+    JobTargetsResponse,
+    RefinementJobSchema,
+)
 
 logger = logging.getLogger("caliber.routes.jobs")
 
@@ -39,6 +46,7 @@ LIST_PATH = "/ajax-api/2.0/mlflow/caliber/jobs"
 DETAIL_PATH = "/ajax-api/2.0/mlflow/caliber/jobs/{job_id}"
 TARGETS_PATH = "/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/targets"
 APPLY_PATH = "/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/apply"
+REQUEST_CHANGES_PATH = "/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/request-changes"
 
 # Vocabulary mirrors caliber_refinement_jobs.status — kept here as an allowlist
 # rather than imported from anywhere so any future status addition is forced
@@ -407,9 +415,78 @@ async def apply_job(request: Request) -> JSONResponse:
     return envelope_response_dict(payload)
 
 
+def _request_changes_sync(
+    factory: Any, *, job_id: str, actor: str, payload: ApprovalRequestChangesRequest
+) -> RefinementJobSchema:
+    with factory() as session:
+        # Same conditional-UPDATE claim idiom as apply_job: the transient
+        # status lives in this transaction, so a racing request observes
+        # rowcount=0 before any further effect runs.
+        claim = session.execute(
+            update(CaliberRefinementJob)
+            .where(CaliberRefinementJob.job_id == job_id)
+            .where(CaliberRefinementJob.status == "candidate_ready")
+            .values(status="running")
+        )
+        if int(getattr(claim, "rowcount", 0) or 0) != 1:
+            current = session.get(CaliberRefinementJob, job_id)
+            if current is None:
+                raise HTTPException(status_code=404, detail=f"refinement job {job_id!r} not found")
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"job {job_id!r} cannot have changes requested: "
+                    f"current status is {current.status!r} (expected 'candidate_ready')"
+                ),
+            )
+        job = session.get(CaliberRefinementJob, job_id)
+        assert job is not None
+        job.review_notes = payload.notes
+        job.current_stage = "candidate"
+
+        audit_record(
+            session,
+            actor=actor,
+            action="request_changes",
+            entity_type="refinement_job",
+            entity_id=job.job_id,
+            details={"notes": payload.notes},
+        )
+        session.commit()
+        return RefinementJobSchema.model_validate(job)
+
+
+async def request_changes(request: Request) -> JSONResponse:
+    """Send a ``candidate_ready`` job's candidate back for another pass.
+
+    A human collaboration action, distinct from the automatic self-correction
+    loop: it records reviewer feedback in ``job.review_notes`` (which
+    ``orchestrator/candidate.py`` already reads and clears on the next
+    candidate-generation pass) and returns the job to ``running`` at the
+    ``candidate`` stage. Deliberately does **not** touch ``refine_iteration``
+    -- this is not a way to bypass ``refinement_max_iterations``.
+
+    Offloads its synchronous SQLAlchemy work to
+    :func:`starlette.concurrency.run_in_threadpool`, matching
+    ``routes/verification.py`` and ``routes/rework_tasks.py`` — see
+    ``tests/test_async_offload_ratchet.py``.
+    """
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    job_id = request.path_params["job_id"]
+    body = await parse_json_object(request)
+    payload = ApprovalRequestChangesRequest.model_validate(body)
+
+    factory = get_session_factory(request)
+    schema = await run_in_threadpool(
+        _request_changes_sync, factory, job_id=job_id, actor=actor, payload=payload
+    )
+    return envelope_response_dict({"job": schema.model_dump(mode="json")})
+
+
 def register(app: Starlette) -> None:
     """Add the jobs routes to the given Starlette application."""
     app.routes.append(Route(LIST_PATH, list_jobs, methods=["GET"]))
     app.routes.append(Route(DETAIL_PATH, get_job, methods=["GET"]))
     app.routes.append(Route(TARGETS_PATH, get_job_targets, methods=["GET"]))
     app.routes.append(Route(APPLY_PATH, apply_job, methods=["POST"]))
+    app.routes.append(Route(REQUEST_CHANGES_PATH, request_changes, methods=["POST"]))

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import re
 
-from caliber.ids import new_approval_id, new_item_id, new_job_id
+from caliber.ids import new_approval_id, new_item_id, new_job_id, new_rework_task_id
 
 
 def test_item_id_has_fb_prefix_and_hex_suffix() -> None:
@@ -20,6 +20,11 @@ def test_job_id_has_rfn_prefix_and_hex_suffix() -> None:
 def test_approval_id_has_ap_prefix_and_hex_suffix() -> None:
     approval_id = new_approval_id()
     assert re.match(r"^AP-[0-9a-f]{8}$", approval_id), approval_id
+
+
+def test_rework_task_id_has_rwt_prefix_and_hex_suffix() -> None:
+    task_id = new_rework_task_id()
+    assert re.match(r"^RWT-[0-9a-f]{8}$", task_id), task_id
 
 
 def test_ids_are_unique() -> None:
