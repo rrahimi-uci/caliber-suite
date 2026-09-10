@@ -3696,7 +3696,7 @@ combined with a later slice merely to reduce PR count.
 
 | Slice | Owner | Concrete deliverable | Depends on | Exit/rollback gate |
 | --- | --- | --- | --- | --- |
-| `P0-A` | Architecture + security | **Partially delivered.** Machine-readable route required-scope inventory (`routes/scope_inference.py`, `x-caliber-required-scope` on the served OpenAPI document, enforced by `tests/test_route_scope_inventory.py`) — every one of 403 operations classified by reading its own authorization call, not a hand-duplicated table — plus a background-worker inventory (`observability/worker_inventory.py`, `tests/test_worker_inventory.py`) and a per-model project-scoping inventory (`db/resource_inventory.py`, `tests/test_resource_inventory.py`, all 85 models classified with zero hand-maintenance needed). Still open: freezing the per-plane authority matrix and resolving section 19.2's 19 open policy questions | — | Every route, every background worker, and every model has one inventory row and none can drift from the real code; the resolved slices need nothing else in Phase 0 (gate on today's live route table / lifespan / model registry, same as `P3-B`/`P3-A`/`P3-C`'s "doesn't wait" exceptions in spirit, though these have no `P1-C` dependency to begin with) |
+| `P0-A` | Architecture + security | **Delivered.** Machine-readable route required-scope inventory (`routes/scope_inference.py`, `x-caliber-required-scope` on the served OpenAPI document, enforced by `tests/test_route_scope_inventory.py`) — every one of 403 operations classified by reading its own authorization call, not a hand-duplicated table — plus a background-worker inventory (`observability/worker_inventory.py`, `tests/test_worker_inventory.py`) and a per-model project-scoping inventory (`db/resource_inventory.py`, `tests/test_resource_inventory.py`, all 85 models classified with zero hand-maintenance needed); the per-plane authority matrix and every question section 19.2 posed are ratified as decisions (section 19) | — | Every route, every background worker, and every model has one inventory row and none can drift from the real code; every policy question this document posed has a named, ratified decision rather than an implicit default (gate on today's live route table / lifespan / model registry, same as `P3-B`/`P3-A`/`P3-C`'s "doesn't wait" exceptions in spirit, though these have no `P1-C` dependency to begin with) |
 | `P0-B` | API + SDK | OpenAPI shapes, closed actions, errors, pagination, ETag/CAS/idempotency contracts, Change Request/version contracts, manifest schema and golden vectors | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
 | `P1-A` | Data/backend | Add project slug/counter/accepted-pointer/archive/audit fields, the Workspace idempotency ledger, and fixed environment rows; deterministic backfill, safe baseline state, and PostgreSQL migration CI | `P0-B` | Fresh/upgrade parity on SQLite and real PostgreSQL; idempotency conflict/replay is durable; new Workspace seeds dev active and qa/staging/prod disabled; migrated live aliases remain `baseline_required` |
 | `P1-B` | Security/backend | Closed action enum, deny-by-default decision service, all-scope conjunction support, stable reasons, and removal of ordinary platform-admin owner bypass | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; policy errors never fall back to legacy allow |
@@ -3737,6 +3737,11 @@ not as complete Workspace support.
 1. Approve this document's terminology, per-plane system-of-record matrix,
    source/review modes, role matrix, environment policy, and compatibility
    boundary. Every state class must have exactly one writer.
+   **Delivered** (`P0-A`, section 16): sections 19.1 and 19.2 ratify the
+   terminology, per-plane authority split, and every policy question this
+   document posed. The "one writer per state class" bar is what the
+   resource-root inventory (item 3 below) makes verifiable, rather than a
+   separate approval step.
 2. Build a machine-readable inventory of every route, worker, Aria capability,
    SDK method, CLI command, and resource root with its current global scope,
    project lookup, owner column, parent path, and external effect.
@@ -4512,9 +4517,14 @@ deterministic Git metadata. A separately labelled live-compatible test may
 exercise GitHub or MLflow, but credentials and network cannot become a required
 CI dependency.
 
-## 19. Decisions and open questions
+## 19. Decisions, ratified in `P0-A`
 
-### 19.1 Recommended decisions
+### 19.1 Decisions (ratified in `P0-A`)
+
+Frozen as of `P0-A` (section 16) rather than still open for revision, per
+Phase 0's own acceptance bar ("document review approved"). These were
+already-argued conclusions, not open questions — `P0-A`'s job for this
+section was to ratify them, not deliberate them.
 
 1. Workspace is the product term; `CaliberProject`, `PRJ-*`, `/projects` and
    `X-CALIBER-Project` remain compatibility contracts for the MVP.
@@ -4585,29 +4595,35 @@ CI dependency.
     `caliber_managed` may later export a read-only repository mirror. Changing
     authority is an explicit audited source-mode transition.
 
-### 19.2 Questions for Phase 0
+### 19.2 Decisions from Phase 0
 
-| Question | Recommended default | Why it can change implementation |
+Ratified in `P0-A` (section 16): every question this section posed already
+carried a recommended default, so resolving it means formally accepting
+that default as decided, not deliberating a new position. One row (agent
+registration scope) is ratified as policy without yet being true in the
+running system — flagged explicitly rather than implied.
+
+| Question | Decision | Why it can change implementation |
 | --- | --- | --- |
-| Which resource types are required in the first Git import? | Agent/workflow, prompt, tool, test set, immutable model dependency, docs, and secret refs for the controlled pilot; the Phase 0 matrix must explicitly stage skill, KB, judge, OpenAPI, and approved MCP-binding support | Determines adapter waves, reconstructability work, and what may truthfully be called complete |
-| Is GitHub the Workspace system of record? | No. It may be the `git_managed` authoring/review authority; CALIBER owns inventory, packages, environments, release operations and runtime evidence | Prevents non-Git state from becoming ungoverned and keeps no-Git/provider portability |
-| Which review backend applies? | One immutable choice per submitted Change Request: `caliber` by default or verified `source_provider`; changing it requires a new request | Prevents duplicate approvals and defines invalidation/revocation behavior |
-| What provider capability is required for protected promotion? | Exact commit/tree, reachability, review/check/policy evidence, trusted actors/sources, signed events and reconciliation | A push upload alone cannot prove PR/MR review |
-| Are one technical review, one QA quality decision and one Admin production decision enough? | Yes for MVP; keep required decision kinds/counts extensible | Quorum changes the decision and assignment models |
-| May an Admin approve and apply another person's production release? | Yes; never approve their own requested or authored release | Enforces one useful actor-separation axis without a fifth role |
-| Which scope permits QA sign-off? | `caliber.approver`, held alongside `caliber.operator`; action is `release.quality_signoff` | Operator alone cannot authorize a human decision |
-| Must staging be mandatory? | Yes for production in the default policy | Controls the predecessor state machine |
-| Can Git-managed local drafts deploy to development? | Yes, clearly marked uncommitted; never QA, staging or production | Preserves experimentation without dual authority |
-| How are provider-only legacy prompts assigned? | An explicit binding workflow; never by name alone | Prevents cross-workspace disclosure |
-| Are public catalog resources copied or pinned? | Pinned by immutable version; copied only when editing | Preserves provenance and avoids drift |
-| Deny semantics | Grant narrowly and require every predicate; no arbitrary explicit-deny layer in MVP | Matches the closed action/intersection contract without a second policy language |
-| Do evals block the Change Request? | Fast deterministic checks block technical approval; the heavy suite runs in QA and blocks acceptance, not authoring | Preserves fast review while keeping package acceptance quality-gated |
-| Is a provider model version bump a release? | Yes | Highest-value missing control |
-| Gate per axis or on a composite? | Per failure-mode axis | A composite masks single-axis regressions |
-| `refinement_max_iterations` | Set above `0` deliberately and define escalation | At `0` there is neither automation nor escalation |
-| Is agent registration a Developer or an Admin action? | Developer — authoring an agent is authoring | It is `caliber.admin` today (section 2.5.3); changing it moves a guard |
-| Should `release.apply` exist for families with no release? | No — the adapter returns a typed refusal | Prevents a release plan silently skipping a required dependency |
-| Which asset families are in the controlled pilot? | One workflow and its prompt, tool and test-set dependencies | Limits cross-provider release risk |
+| Which resource types are required in the first Git import? | **Decided:** Agent/workflow, prompt, tool, test set, immutable model dependency, docs, and secret refs for the controlled pilot; the Phase 0 matrix must explicitly stage skill, KB, judge, OpenAPI, and approved MCP-binding support | Determines adapter waves, reconstructability work, and what may truthfully be called complete |
+| Is GitHub the Workspace system of record? | **Decided:** No. It may be the `git_managed` authoring/review authority; CALIBER owns inventory, packages, environments, release operations and runtime evidence | Prevents non-Git state from becoming ungoverned and keeps no-Git/provider portability |
+| Which review backend applies? | **Decided:** One immutable choice per submitted Change Request: `caliber` by default or verified `source_provider`; changing it requires a new request | Prevents duplicate approvals and defines invalidation/revocation behavior |
+| What provider capability is required for protected promotion? | **Decided:** Exact commit/tree, reachability, review/check/policy evidence, trusted actors/sources, signed events and reconciliation | A push upload alone cannot prove PR/MR review |
+| Are one technical review, one QA quality decision and one Admin production decision enough? | **Decided:** Yes for MVP; keep required decision kinds/counts extensible | Quorum changes the decision and assignment models |
+| May an Admin approve and apply another person's production release? | **Decided:** Yes; never approve their own requested or authored release | Enforces one useful actor-separation axis without a fifth role |
+| Which scope permits QA sign-off? | **Decided:** `caliber.approver`, held alongside `caliber.operator`; action is `release.quality_signoff` | Operator alone cannot authorize a human decision |
+| Must staging be mandatory? | **Decided:** Yes for production in the default policy | Controls the predecessor state machine |
+| Can Git-managed local drafts deploy to development? | **Decided:** Yes, clearly marked uncommitted; never QA, staging or production | Preserves experimentation without dual authority |
+| How are provider-only legacy prompts assigned? | **Decided:** An explicit binding workflow; never by name alone | Prevents cross-workspace disclosure |
+| Are public catalog resources copied or pinned? | **Decided:** Pinned by immutable version; copied only when editing | Preserves provenance and avoids drift |
+| Deny semantics | **Decided:** Grant narrowly and require every predicate; no arbitrary explicit-deny layer in MVP | Matches the closed action/intersection contract without a second policy language |
+| Do evals block the Change Request? | **Decided:** Fast deterministic checks block technical approval; the heavy suite runs in QA and blocks acceptance, not authoring | Preserves fast review while keeping package acceptance quality-gated |
+| Is a provider model version bump a release? | **Decided:** Yes | Highest-value missing control |
+| Gate per axis or on a composite? | **Decided:** Per failure-mode axis | A composite masks single-axis regressions |
+| `refinement_max_iterations` | **Decided:** Set above `0` deliberately and define escalation | At `0` there is neither automation nor escalation |
+| Is agent registration a Developer or an Admin action? | **Decided, implementation pending:** Developer — authoring an agent is authoring. `register_agent`/`update_agent`/`delete_agent` remain `caliber.admin`-gated in code today; this ratifies the target policy without changing that. Widening the scope is a separate, small follow-up (the same confirm-before-touching-a-real-gate shape as PR #279's fixes), not bundled into this documentation pass | It is `caliber.admin` today (section 2.5.3); changing it moves a guard |
+| Should `release.apply` exist for families with no release? | **Decided:** No — the adapter returns a typed refusal | Prevents a release plan silently skipping a required dependency |
+| Which asset families are in the controlled pilot? | **Decided:** One workflow and its prompt, tool and test-set dependencies | Limits cross-provider release risk |
 | Should job creation require a pending Verify decision, or stay parallel to it? | **Decided and shipped in `P3-B`: stays parallel.** Require it only once the ingestion poller exists | Blocking today's four job-creation paths on a not-yet-built poller would stall the refinement path entirely; making Verify optional first was the safe order |
 | Build the verification-queue ingestion poller in `P3-B`, or defer it? | **Decided and shipped in `P3-B`: deferred.** `create`/`verify`/`dismiss` shipped first; a human opens a pending item by hand until a poller exists | The model's docstring already promised a poller that was never built; promising it again in the same PR that shipped the routes would have repeated the mistake this review found |
 
