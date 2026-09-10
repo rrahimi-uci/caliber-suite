@@ -300,27 +300,35 @@ the review's designed-but-unwired shape one stage later in the loop.
 
 ### 2.3 QA is operator-scoped but narrower than Developer
 
-This is the most important correction against the earlier documents. Most of
-what QA needs to do is gated today by `SCOPE_OPERATOR` — but not all of it, and
-the exception is worth stating precisely because it is a weaker gate than the
-rest of the row, not a stronger one:
+This is the most important correction against the earlier documents. Everything
+QA needs to do is gated today by `SCOPE_OPERATOR`:
 
 | QA action | Current gate |
 | --- | --- |
 | Create a test set | `routes/eval_datasets.py` — `SCOPE_OPERATOR` |
-| Create a judge or scorer | `routes/judges.py` — `SCOPE_OPERATOR` |
+| Create a judge or scorer, or edit its content | `routes/judges.py` — `SCOPE_OPERATOR` |
 | Run an evaluation | `routes/evaluations.py` — `SCOPE_OPERATOR` |
 | Create a review queue / enqueue items to it | `routes/review_queues.py` — `SCOPE_OPERATOR` |
-| Submit a review-queue answer (file feedback) | `routes/review_queues.py` `submit_item` — **`require_user` only; no scope check at all** |
+| Submit a review-queue answer (file feedback) | `routes/review_queues.py` `submit_item` — `SCOPE_OPERATOR` |
 
 `submit_item` is the action that actually writes feedback: it takes a
 reviewer's answers and, outside the request transaction, calls
-`mlflow.log_feedback` / `mlflow.log_expectation` on the covered trace. It is
-gated by project visibility and `queue.status == "active"` only. Any
-authenticated user who can see the queue — including a bare `caliber.viewer` —
-can therefore cause MLflow assessments to be written today; `SCOPE_OPERATOR` is
-not the floor for this one action, it is the ceiling for every *other* QA
-action in this table.
+`mlflow.log_feedback` / `mlflow.log_expectation` on the covered trace. It
+previously required only `require_user` — any authenticated caller, including a
+bare `caliber.viewer`, could cause MLflow assessments to be written — found
+during this review and fixed to match every sibling write in the same module.
+
+Judge editing was the other asymmetry this review found and has since closed:
+`update_judge` required `caliber.admin` for every field, including a judge's
+own `instructions`, with no operator-reachable edit at all. It is now split —
+content fields (`description`, `instructions`, `model`, `feedback_value_type`,
+`tags`) need `caliber.operator`; a request that includes `status` (archive,
+the delete-equivalent for a judge) still needs `caliber.admin`, checked before
+either field lands. The lookup that used to be a bare `session.get()` — safe
+only because admins bypass visibility filtering by design — now goes through
+`get_visible()`, the same fix `test_run_judge` in the same file already had
+for the identical reason (a judge's instructions are its authored grading
+logic; an unscoped read handed any signed-in caller another project's).
 
 A second, structurally distinct queue exists for the same job — signal triage
 rather than annotation — and (as of `P3-B`, section 16) is more complete than
@@ -547,10 +555,10 @@ one cell and only "create" was actually checked:
 | MCP server | admin | admin | admin | admin | Partly — operator only for test-case authoring/calibration on an already-registered server |
 | OpenAPI integration | operator² | operator² | **project-role `resource.publish`³**, admin fallback for an org-wide integration | admin (archive) | Yes for create/edit/import/draft; release depends on project role, not global scope |
 | **Test set / eval dataset** | operator | **operator for example content; admin for the dataset record itself** (rename, describe, tag, archive) | n/a | admin (folded into edit — no separate delete route) | Partly — content yes, dataset metadata no |
-| **Judge / scorer** | operator | **admin for every field — no operator-reachable edit exists** | n/a | admin (folded into edit — no separate delete route) | **Create only** |
+| Judge / scorer | operator | operator for content; **admin for `status`** (archive, folded into the same endpoint — no separate delete route) | n/a | admin | Yes for content; archive stays admin-only |
 | Evaluation run | operator | — (immutable) | n/a | — (no delete/cancel exists at any scope) | Yes |
 | Feedback: review queue itself | operator | admin | n/a | — | Yes to create/enqueue only |
-| Feedback: review-queue answer | — no scope check | — | n/a | — | Yes, and so is anyone with `caliber.viewer` — see section 2.3 |
+| Feedback: review-queue answer | operator | — | n/a | — | Yes |
 
 ¹ `promote_deployment`'s required scope is computed at request time —
 `SCOPE_ADMIN if requires_human_approval(alias, config) else SCOPE_OPERATOR` —
@@ -594,14 +602,22 @@ Four facts in that table are the reason this document argues what it does:
    guard worth keeping or an accident worth fixing, and Phase 0 should decide
    which — but the target table above assumes it becomes a Developer action,
    since authoring an agent is authoring.
-4. **Create-then-stranded is a repeated pattern, not one family's quirk.**
-   Skill, Tool, and Judge/scorer all let a Developer create the resource and
-   then require `caliber.admin` for every subsequent edit — for a Judge, for
-   every field on it, including its own instructions. A role table that only
-   checks the create endpoint of each family, as an earlier version of this one
-   did, will systematically overstate what a Developer can actually do with
-   what they made. The target table in 2.5.2 assumes edit rejoins create at
-   `Dev, Admin`; today's code does not, for three of ten families.
+4. **Create-then-stranded was a repeated pattern, not one family's quirk —
+   and one instance of it has since closed.** Skill and Tool still let a
+   Developer create the resource and then require `caliber.admin` for every
+   subsequent edit. Judge/scorer had the same shape (admin-only for every
+   field, including its own instructions) and this review fixed it: content
+   edits are now `caliber.operator`, with the fix's own review finding a
+   second issue baked into the first — the route's bare `session.get()` was
+   safe only because it required admin, and widening the scope without also
+   routing the lookup through `get_visible()` would have handed a plain
+   Developer another project's judge instructions by id, the exact defect
+   `test_run_judge` in the same file was already audited and fixed for once.
+   A role table that only checks the create endpoint of each family, as an
+   earlier version of this one did, will systematically overstate what a
+   Developer can actually do with what they made. The target table in 2.5.2
+   assumes edit rejoins create at `Dev, Admin`; today's code still does not,
+   for two of ten families.
 
 #### 2.5.4 Functionality by role, end to end
 

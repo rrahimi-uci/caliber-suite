@@ -519,7 +519,13 @@ async def submit_item(request: Request) -> JSONResponse:
     item_id = request.path_params["item_id"]
     body = await parse_json_object(request)
     payload = ReviewItemSubmitRequest.model_validate(body)
-    actor = require_user(request)
+    # Writes MLflow feedback/expectation assessments to the trace -- a real
+    # external effect, not a read. Every sibling write in this module
+    # (create_queue, update_queue, add_items) already requires a scope; this
+    # one previously required only an authenticated identity, so a bare
+    # caliber.viewer could reach it. caliber.operator matches the
+    # feedback.submit action docs/workspace-plan.md section 2.4 specifies.
+    actor = require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
 
     factory = get_session_factory(request)

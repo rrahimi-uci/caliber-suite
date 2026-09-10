@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from collections.abc import Iterator
+
 import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
@@ -154,6 +156,82 @@ def test_update_judge_rejects_bad_instructions(client: TestClient, db_session: S
         json={"instructions": "no variables here"},
     )
     assert response.status_code == 400
+
+
+@pytest.fixture
+def operator_only_client(client: TestClient) -> Iterator[TestClient]:
+    """Grant ``@operator-only`` exactly ``caliber.operator`` (not admin) for
+    the duration of one test, then restore the shared client's config.
+
+    ``CaliberConfig`` is frozen, so this replaces the object (``model_copy``)
+    rather than mutating a field in place -- the same shared ``client``/
+    ``db_session`` fixtures the rest of this file uses, just with one
+    additional scoped test identity for the duration of the test.
+    """
+    original = client.app.state.config
+    client.app.state.config = original.model_copy(update={"operator_users": "@operator-only"})
+    try:
+        yield client
+    finally:
+        client.app.state.config = original
+
+
+def test_operator_can_edit_judge_content(
+    operator_only_client: TestClient, db_session: Session
+) -> None:
+    """A judge is evidence-authoring, the same class of action as a test
+    set -- a plain operator (not admin) can edit its content fields."""
+    _seed(db_session, judge_id="JDG-1", owner="@operator-only", visibility="user")
+    response = operator_only_client.patch(
+        DETAIL_PATH.replace("{judge_id}", "JDG-1"),
+        json={"description": "Rewritten by an operator."},
+        headers={"X-CALIBER-User": "@operator-only"},
+    )
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["description"] == "Rewritten by an operator."
+
+
+def test_operator_cannot_archive_judge(
+    operator_only_client: TestClient, db_session: Session
+) -> None:
+    """Archiving is the delete-equivalent for a judge and stays admin-only,
+    even when the request also carries a content field."""
+    _seed(db_session, judge_id="JDG-1", owner="@operator-only", visibility="user")
+    response = operator_only_client.patch(
+        DETAIL_PATH.replace("{judge_id}", "JDG-1"),
+        json={"description": "sneaking in with the archive", "status": "archived"},
+        headers={"X-CALIBER-User": "@operator-only"},
+    )
+    assert response.status_code == 403
+    # Neither field was applied -- the scope check runs before any mutation.
+    refreshed = db_session.get(CaliberJudge, "JDG-1")
+    assert refreshed is not None
+    assert refreshed.status == "active"
+    assert refreshed.description != "sneaking in with the archive"
+
+
+def test_operator_cannot_edit_a_judge_outside_their_visibility(
+    operator_only_client: TestClient, db_session: Session
+) -> None:
+    """The widened scope must not reintroduce the C3 defect this file's
+    ``test_run_judge`` comment describes: an unscoped lookup that let any
+    authenticated caller read (and now edit) another project's judge
+    instructions -- its actual authored grading logic."""
+    _seed(
+        db_session,
+        judge_id="JDG-priv",
+        name="private-judge",
+        owner="@other",
+        project_id="proj-x",
+        visibility="project",
+    )
+    response = operator_only_client.patch(
+        DETAIL_PATH.replace("{judge_id}", "JDG-priv"),
+        json={"description": "should not land"},
+        headers={"X-CALIBER-User": "@operator-only"},
+    )
+    # 404, not 403: existence of another project's judge isn't leaked.
+    assert response.status_code == 404
 
 
 # --- "Try it" playground (POST /judges/{id}/test-run) -----------------------

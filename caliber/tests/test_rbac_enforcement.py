@@ -132,6 +132,34 @@ _WRITE_ENDPOINTS: list[tuple[str, str, str, dict[str, object], str]] = [
         {},
         "admin",
     ),
+    (
+        # Previously required only an authenticated identity -- no scope at
+        # all -- for an action that writes MLflow feedback/expectation
+        # assessments to a trace. Added here so this table would have caught
+        # it; every other write endpoint in this file already had a row.
+        "review-queues:submit",
+        "POST",
+        "/ajax-api/2.0/mlflow/caliber/review-queues/RVQ-MISSING/items/RVI-MISSING/submit",
+        {"answers": {}},
+        "operator",
+    ),
+    (
+        # Content edit: operator-reachable. The status/archive variant is a
+        # separate row below since update_judge requires a stronger scope
+        # only when the body includes "status" -- one endpoint, two gates.
+        "judges:update-content",
+        "PATCH",
+        "/ajax-api/2.0/mlflow/caliber/judges/JDG-MISSING",
+        {"description": "x"},
+        "operator",
+    ),
+    (
+        "judges:archive",
+        "PATCH",
+        "/ajax-api/2.0/mlflow/caliber/judges/JDG-MISSING",
+        {"status": "archived"},
+        "admin",
+    ),
 ]
 
 _ENDPOINT_IDS = [row[0] for row in _WRITE_ENDPOINTS]
