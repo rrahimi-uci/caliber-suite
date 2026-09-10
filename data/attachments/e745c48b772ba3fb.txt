@@ -1,1 +1,0 @@
-INFO     caliber.orchestrator.candidate:candidate.py:266 candidate complete: job=RFN-SKILL optimizer=MetaPrompt cost_usd=0.0040

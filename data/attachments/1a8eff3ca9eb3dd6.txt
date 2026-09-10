@@ -1,0 +1,1 @@
+{"t":"2026-09-10T04:16:07.832Z","severity":"WARNING","logger":"caliber.secrets","message":"secret source 'test' has empty file path"}
