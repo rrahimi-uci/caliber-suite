@@ -3696,7 +3696,7 @@ combined with a later slice merely to reduce PR count.
 
 | Slice | Owner | Concrete deliverable | Depends on | Exit/rollback gate |
 | --- | --- | --- | --- | --- |
-| `P0-A` | Architecture + security | Machine-readable route/resource/worker/action inventory; freeze the per-plane authority matrix and resolve every open policy choice | — | Inventory covers every protected route and external effect; no state has two writers; document review approved |
+| `P0-A` | Architecture + security | **Partially delivered.** Machine-readable route required-scope inventory (`routes/scope_inference.py`, `x-caliber-required-scope` on the served OpenAPI document, enforced by `tests/test_route_scope_inventory.py`) — every one of 403 operations classified by reading its own authorization call, not a hand-duplicated table. Still open: the worker inventory, the per-model resource-root inventory, freezing the per-plane authority matrix, and resolving section 19.2's 19 open policy questions | — | Every route has one inventory row and it can't drift from the real enforcement code; the resolved slice needs nothing else in Phase 0 (gates on today's live route table, same as `P3-B`/`P3-A`/`P3-C`'s "doesn't wait" exceptions in spirit, though this one has no `P1-C` dependency to begin with) |
 | `P0-B` | API + SDK | OpenAPI shapes, closed actions, errors, pagination, ETag/CAS/idempotency contracts, Change Request/version contracts, manifest schema and golden vectors | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
 | `P1-A` | Data/backend | Add project slug/counter/accepted-pointer/archive/audit fields, the Workspace idempotency ledger, and fixed environment rows; deterministic backfill, safe baseline state, and PostgreSQL migration CI | `P0-B` | Fresh/upgrade parity on SQLite and real PostgreSQL; idempotency conflict/replay is durable; new Workspace seeds dev active and qa/staging/prod disabled; migrated live aliases remain `baseline_required` |
 | `P1-B` | Security/backend | Closed action enum, deny-by-default decision service, all-scope conjunction support, stable reasons, and removal of ordinary platform-admin owner bypass | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; policy errors never fall back to legacy allow |
@@ -3740,6 +3740,21 @@ not as complete Workspace support.
 2. Build a machine-readable inventory of every route, worker, Aria capability,
    SDK method, CLI command, and resource root with its current global scope,
    project lookup, owner column, parent path, and external effect.
+   **The route/scope slice is delivered** (`P0-A`, section 16):
+   `routes/scope_inference.py` classifies every one of the management API's
+   403 operations by reading each handler's own `require_scopes()` /
+   `require_user()` / `require_project_access()` call with `ast` (never a
+   hand-duplicated second copy of the truth that could disagree with the
+   real enforcement code), exposed on the served OpenAPI document as
+   `x-caliber-required-scope` and enforced by
+   `tests/test_route_scope_inventory.py` — a route with no authorization
+   call and no reviewed justification fails the test by name, the same
+   defect class as the `review_queues.py::submit_item` gap PR #279 fixed.
+   Still open: the worker inventory (9 background workers, only 1 kind of
+   which has any liveness registry today), the per-model resource-root
+   inventory (project FK/owner/visibility across 85 ORM models — item 3
+   below), and rendering the new field into the published REST API
+   reference (deferred to `P0-B`'s "OpenAPI shapes" work).
 3. Inventory every table's project FK, nullability, visibility and uniqueness,
    plus all bare-name resolvers.
 4. Define the `v1alpha1` manifest JSON Schema and canonicalization algorithm
