@@ -28,6 +28,7 @@ RELEASE_OPERATION_PREFIX = "REL-"
 RELEASE_CANDIDATE_PREFIX = "RC-"
 RELEASE_SIGNOFF_PREFIX = "RSO-"
 RELEASE_REPORT_JOB_PREFIX = "RRJ-"
+REWORK_TASK_PREFIX = "RWT-"
 SKILL_PREFIX = "SK-"
 EVAL_DATASET_PREFIX = "ED-"
 EVAL_EXAMPLE_PREFIX = "EX-"
@@ -128,6 +129,16 @@ def new_job_id() -> str:
 def new_approval_id() -> str:
     """Return a fresh approval-request ID, e.g. ``AP-c2f55681``."""
     return f"{APPROVAL_PREFIX}{_suffix()}"
+
+
+def new_rework_task_id() -> str:
+    """Return a fresh rework-task ID, e.g. ``RWT-1a2b3c4d``.
+
+    Prefix matches ``docs/workspace-plan.md``'s final target schema for this
+    table, so a later phase's Workspace-scoped rework tasks won't need a
+    rename.
+    """
+    return f"{REWORK_TASK_PREFIX}{_suffix()}"
 
 
 def new_checkpoint_id() -> str:

@@ -13,7 +13,7 @@ from caliber.db.models import (
     CaliberVerificationItem,
 )
 from caliber.routes import jobs as jobs_routes
-from caliber.routes.jobs import DETAIL_PATH, LIST_PATH
+from caliber.routes.jobs import DETAIL_PATH, LIST_PATH, REQUEST_CHANGES_PATH
 
 
 def _seed(session: Session) -> None:
@@ -502,3 +502,111 @@ def test_gepa_progress_none_when_mlflow_client_raises(
     response = client.get(DETAIL_PATH.replace("{job_id}", "RFN-GEPA-BOOM"))
     assert response.status_code == 200
     assert response.json()["data"]["gepa_progress"] is None
+
+
+# ---------------------------------------------------------------------------
+# POST /jobs/{id}/request-changes
+# ---------------------------------------------------------------------------
+
+
+def _seed_candidate_ready_job(session: Session, job_id: str = "RFN-RC") -> None:
+    session.add(
+        CaliberAgentConfig(
+            agent_id="support-agent",
+            experiment_id="exp",
+            name="Support",
+            owner="@sarah",
+            artifact_types=["prompt"],
+            eval_thresholds={},
+            optimizer_config={},
+            approval_policy={},
+        )
+    )
+    session.flush()
+    session.add(
+        CaliberVerificationItem(
+            item_id="FB-RC",
+            agent_id="support-agent",
+            category="hallucination",
+            free_text="...",
+            severity="critical",
+            status="verified",
+        )
+    )
+    session.flush()
+    session.add(
+        CaliberRefinementJob(
+            job_id=job_id,
+            agent_id="support-agent",
+            primary_item_id="FB-RC",
+            artifact_type="prompt",
+            status="candidate_ready",
+            current_stage="done",
+            refine_iteration=2,
+            bundle_targets=[],
+            candidate={"content": "rewritten prompt body", "artifact_type": "prompt"},
+        )
+    )
+    session.commit()
+
+
+def test_request_changes_returns_job_to_running_at_candidate_stage(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_candidate_ready_job(db_session)
+    response = client.post(
+        REQUEST_CHANGES_PATH.replace("{job_id}", "RFN-RC"),
+        json={"notes": "please cite the refund policy"},
+    )
+    assert response.status_code == 200, response.text
+    data = response.json()["data"]["job"]
+    assert data["status"] == "running"
+    assert data["current_stage"] == "candidate"
+
+    db_session.expire_all()
+    job = db_session.get(CaliberRefinementJob, "RFN-RC")
+    assert job is not None
+    assert job.review_notes == "please cite the refund policy"
+    # A deliberate human action, distinct from the automatic self-correction
+    # budget: it must not consume/reset refine_iteration.
+    assert job.refine_iteration == 2
+
+
+def test_request_changes_requires_notes(client: TestClient, db_session: Session) -> None:
+    _seed_candidate_ready_job(db_session)
+    response = client.post(REQUEST_CHANGES_PATH.replace("{job_id}", "RFN-RC"), json={})
+    assert response.status_code == 400
+
+
+def test_request_changes_on_non_candidate_ready_job_returns_409(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_candidate_ready_job(db_session)
+    job = db_session.get(CaliberRefinementJob, "RFN-RC")
+    assert job is not None
+    job.status = "running"
+    db_session.commit()
+
+    response = client.post(
+        REQUEST_CHANGES_PATH.replace("{job_id}", "RFN-RC"),
+        json={"notes": "please cite the refund policy"},
+    )
+    assert response.status_code == 409
+
+
+def test_request_changes_missing_job_returns_404(client: TestClient) -> None:
+    response = client.post(
+        REQUEST_CHANGES_PATH.replace("{job_id}", "RFN-NONE"),
+        json={"notes": "please cite the refund policy"},
+    )
+    assert response.status_code == 404
+
+
+def test_request_changes_requires_operator_scope(client: TestClient, db_session: Session) -> None:
+    _seed_candidate_ready_job(db_session)
+    response = client.post(
+        REQUEST_CHANGES_PATH.replace("{job_id}", "RFN-RC"),
+        json={"notes": "please cite the refund policy"},
+        headers={"X-CALIBER-User": ""},
+    )
+    assert response.status_code in (401, 403)

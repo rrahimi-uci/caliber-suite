@@ -109,6 +109,7 @@ _STABILITY: dict[str, str] = {
     "jobs": STABILITY_BETA,
     "review-queues": STABILITY_BETA,
     "verification-queue": STABILITY_BETA,
+    "rework-tasks": STABILITY_BETA,
     "aria": STABILITY_BETA,
     "releases": STABILITY_BETA,
     "observability": STABILITY_BETA,

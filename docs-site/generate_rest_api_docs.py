@@ -134,7 +134,17 @@ SDK_SURFACE_MAP = {
     },
     "jobs": {
         "entry": "`client.jobs`",
-        "notes": "Durable background jobs, targets, apply, and wait semantics.",
+        "notes": (
+            "Durable background jobs, targets, apply, wait semantics, and "
+            "request-changes (send a candidate_ready job back for another pass)."
+        ),
+    },
+    "rework-tasks": {
+        "entry": "`client.rework_tasks`",
+        "notes": (
+            "Owned, recoverable work auto-created when a refinement job is "
+            "terminally rejected: list/get/claim/resolve/reassign."
+        ),
     },
     "review-queues": {
         "entry": "`client.review_queues`",
@@ -207,6 +217,7 @@ PREFERRED_TAG_ORDER = {
     "review-queues": 25,
     "verification-queue": 25.5,
     "jobs": 26,
+    "rework-tasks": 26.5,
     "observability": 27,
     "events": 28,
     "gateway": 29,

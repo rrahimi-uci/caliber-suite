@@ -24,6 +24,7 @@ from .operations import (
     ObservabilityAPI,
     ReleasesAPI,
     ReviewQueuesAPI,
+    ReworkTasksAPI,
     SecretsAPI,
     SystemAPI,
 )
@@ -74,6 +75,7 @@ __all__ = [
     "ReleasesAPI",
     "Resource",
     "ReviewQueuesAPI",
+    "ReworkTasksAPI",
     "SecretsAPI",
     "SettingsAPI",
     "SkillsAPI",

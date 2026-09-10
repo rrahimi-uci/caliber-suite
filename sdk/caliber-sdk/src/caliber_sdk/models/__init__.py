@@ -53,6 +53,7 @@ from .operations import (
     Job,
     ReleaseCandidate,
     ReviewQueue,
+    ReworkTask,
     Trace,
 )
 from .quality import (
@@ -120,6 +121,7 @@ __all__ = [
     "RegisteredOptimizer",
     "ReleaseCandidate",
     "ReviewQueue",
+    "ReworkTask",
     "RuntimeSettings",
     "RuntimeSettingsSummary",
     "SessionInfo",

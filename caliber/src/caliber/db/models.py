@@ -222,6 +222,71 @@ class CaliberRefinementJob(Base):
     )
 
 
+class CaliberReworkTask(Base):
+    """Owned, recoverable work created when a refinement job is rejected.
+
+    Before this table existed, a failed eval gate set ``job.status =
+    "rejected"`` and stopped: nobody was assigned the failure, and there was
+    no task, notification, or queue entry for a Developer. This is a
+    deliberately narrower slice of ``docs/workspace-plan.md``'s final target
+    schema for this table (section 9.2) — Phase 3 only permits a refinement
+    job as the source; the Workspace-release source and the ``quality_no_go``
+    / ``release_no_go`` failure kinds require machinery (an aggregate release,
+    a QA quality-review record) that doesn't exist yet. Adding them here would
+    declare reachable-looking values nothing can ever set — the same
+    aspirational-allowlist problem ``routes/jobs.py``'s own ``_VALID_STATUSES``
+    already has for ``awaiting_approval``/``completed``/``cancelled``.
+
+    One row per rejected job (``job_id`` is unique): a job is rejected at most
+    once, since ``rejected`` is terminal and a content fix produces a new,
+    superseding job rather than resurrecting the old one.
+    """
+
+    __tablename__ = "caliber_rework_tasks"
+    __table_args__ = (
+        UniqueConstraint("job_id", name="uq_rework_task_job"),
+        Index("ix_rework_tasks_status_created", "status", "created_at"),
+    )
+
+    task_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    job_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_refinement_jobs.job_id"))
+    # Denormalized from the job so list/filter don't need a join.
+    agent_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_agent_config.agent_id"))
+
+    # "machine_gate" | "iterations_exhausted" — the two cases eval_stage.py
+    # can distinguish today (whether refine_iteration > 0 at the terminal
+    # rejection). "quality_no_go" and "release_no_go" are the target schema's
+    # remaining values, deferred with the quality-review record and the
+    # aggregate release respectively.
+    failure_kind: Mapped[str] = mapped_column(String(32))
+    reason: Mapped[str] = mapped_column(Text)
+    # decision.to_json() snapshot at rejection time — there is no separate
+    # durable gate-verdict row for refinement jobs to reference instead.
+    gate_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+    assigned_to: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    # "open" | "in_progress" | "resolved" — "cancelled" is the target schema's
+    # fourth value; no route reaches it yet, so it isn't declared here either.
+    status: Mapped[str] = mapped_column(String(16), default="open")
+
+    # The superseding job that fixed the content, if resolution created one.
+    # Named for a refinement job rather than the target schema's
+    # resolution_revision_id/resolution_release_id, which are Workspace/
+    # release concepts Phase 3 doesn't have yet.
+    resolution_job_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_refinement_jobs.job_id"), nullable=True
+    )
+    resolution_notes: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+    created_by: Mapped[str] = mapped_column(String(256))
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    resolved_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
 class CaliberApprovalRequest(Base):
     """Born-``approved`` provenance anchor for a promoted candidate.
 

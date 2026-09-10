@@ -21,6 +21,7 @@ from ..models.operations import (
     Job,
     ReleaseCandidate,
     ReviewQueue,
+    ReworkTask,
     Trace,
 )
 from ..waiters import wait_for
@@ -55,6 +56,16 @@ class JobsAPI(Resource):
     def apply(self, job_id: str, **options: Any) -> Any:
         """Apply a job's candidate. This is the human decision, made explicit."""
         return self._post(f"/jobs/{job_id}/apply", json=options)
+
+    def request_changes(self, job_id: str, notes: str, **options: Any) -> Any:
+        """Send a ``candidate_ready`` job's candidate back for another pass.
+
+        Records ``notes`` as the job's review feedback and returns it to
+        ``running`` at the ``candidate`` stage rather than ending it — a
+        human collaboration action, distinct from the automatic
+        self-correction loop (``refine_iteration`` is left untouched).
+        """
+        return self._post(f"/jobs/{job_id}/request-changes", json={"notes": notes, **options})
 
     def wait(self, job_id: str, *, timeout: float = 900.0, **options: Any) -> Job:
         """Poll until the job stops *or* stops for a person.
@@ -111,6 +122,48 @@ class ReviewQueuesAPI(Resource):
         impossible to avoid since it accepted no query parameters at all.
         """
         return self._get(f"/review-queues/{queue_id}/alignment-examples", params=params or None)
+
+
+class ReworkTasksAPI(Resource):
+    """Owned, recoverable work created when a refinement job is rejected.
+
+    Every task today originates automatically from the machine eval gate
+    (see :class:`~caliber_sdk.models.operations.ReworkTask`) -- there is no
+    ``create`` here by design.
+    """
+
+    def list(
+        self, *, status: str | None = None, assigned_to: str | None = None
+    ) -> _List[ReworkTask]:
+        """``status`` defaults server-side to ``"open"``; pass ``"all"`` for
+        every status."""
+        params: dict[str, Any] = {}
+        if status is not None:
+            params["status"] = status
+        if assigned_to is not None:
+            params["assigned_to"] = assigned_to
+        return decode_list(ReworkTask, self._get("/rework-tasks", params=params or None))
+
+    def get(self, task_id: str) -> ReworkTask:
+        return decode(ReworkTask, self._get(f"/rework-tasks/{task_id}"))
+
+    def claim(self, task_id: str) -> ReworkTask:
+        """``open`` -> ``in_progress``, assigned to the calling identity."""
+        return decode(ReworkTask, self._post(f"/rework-tasks/{task_id}/claim"))
+
+    def resolve(self, task_id: str, **options: Any) -> ReworkTask:
+        """``in_progress`` -> ``resolved``. ``options`` may carry
+        ``resolution_job_id`` and ``resolution_notes``. Only the assignee or
+        an admin may resolve a task."""
+        return decode(ReworkTask, self._post(f"/rework-tasks/{task_id}/resolve", json=options))
+
+    def reassign(self, task_id: str, assigned_to: str) -> ReworkTask:
+        """Admin-only: change the assignee of an ``open`` or ``in_progress``
+        task. This also claims it -- the task becomes ``in_progress``."""
+        return decode(
+            ReworkTask,
+            self._post(f"/rework-tasks/{task_id}/reassign", json={"assigned_to": assigned_to}),
+        )
 
 
 class AriaSessionsAPI(Resource):
@@ -726,6 +779,7 @@ __all__ = [
     "ObservabilityAPI",
     "ReleasesAPI",
     "ReviewQueuesAPI",
+    "ReworkTasksAPI",
     "SecretsAPI",
     "SystemAPI",
 ]

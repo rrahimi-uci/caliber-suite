@@ -1047,7 +1047,7 @@ than patch it.
 | Decided by | Machine, threshold-based (0.85 / 0.02) | Human judgment |
 | Means | The numbers do not clear the bar | The numbers cleared, but this is still wrong |
 | Carries | Gate reasons and per-dimension deltas | A written reason |
-| Today | `rejected`, terminal, unassigned | Cannot be expressed for an aggregate Workspace release |
+| Today | `rejected`, then owned via an auto-created rework task (`P3-A`, section 16) | Cannot be expressed for an aggregate Workspace release |
 
 QA rejection is the more valuable of the two, because a change that passes the
 gate and is still wrong is precisely what a quality function is for. It is also
@@ -1062,39 +1062,58 @@ route, but only for a manually-flagged concern; the ingestion path and the
 job-link below share this section's designed-but-unwired shape, one stage
 earlier and with no consumer already waiting for them.
 
-`refinement_max_iterations` **defaults to `0`, meaning off**: "a failed gate
-rejects immediately." The eval stage then sets `job.status = "rejected"` and
-stops. Concretely, today:
+`refinement_max_iterations` **still defaults to `0`, meaning off**: "a failed
+gate rejects immediately." The eval stage sets `job.status = "rejected"` — but
+as of `P3-A` (section 16), that terminal transition now also creates a
+`CaliberReworkTask` row in the same transaction (`orchestrator/eval_stage.py`),
+so concretely, today:
 
-- nobody is assigned the failure;
-- there is no task, notification or queue entry for a Developer;
-- **no request-changes endpoint exists**, so QA cannot return work with
-  guidance.
+- the failure is assigned once someone claims the task (`POST
+  /rework-tasks/{id}/claim`), or an admin reassigns it directly;
+- there is a task: `GET /rework-tasks` lists it, filterable by status and
+  assignee, with the gate's reasons and evidence snapshot attached;
+- **a request-changes endpoint now exists** — `POST
+  /jobs/{id}/request-changes` — so an operator can return a `candidate_ready`
+  job for another pass with written guidance.
 
-A failed gate produces a `rejected` row and silence.
+A failed gate produces a `rejected` row and an owned rework task, not silence.
 
-**One mechanism is already half-built.** `CaliberRefinementJob.review_notes`
-exists, and its docstring reads: *"Reviewer change-request notes. Set by the
-request-changes endpoint when an approver wants a new candidate with specific
-guidance. Read by the candidate stage on the retry pass, then cleared."* The
-candidate stage **still reads it**. The endpoint that wrote it was removed with
-the approval-governance subsystem. The pipeline can already consume human rework
-guidance; it lost the door people walked through.
+**One mechanism was already half-built, and is now wired end to end.**
+`CaliberRefinementJob.review_notes` exists, and its docstring reads: *"Reviewer
+change-request notes. Set by the request-changes endpoint when an approver
+wants a new candidate with specific guidance. Read by the candidate stage on
+the retry pass, then cleared."* The candidate stage **still reads it**, and
+`request-changes` (item 3 below) is the writer that was missing.
 
 Four things to build, in value order:
 
-1. **A rework assignment.** A failed gate or QA rejection must produce an owned,
-   visible task rather than a terminal `rejected` row.
-2. **A QA sign-off record**, distinct from the machine gate. Current workflow
-   promotion approval and artifact release signoff are different contracts;
-   neither is the proposed aggregate quality decision.
-3. **A request-changes writer** for `review_notes` — nearly free, since the
-   consumer already exists.
+1. **A rework assignment.** *Delivered by `P3-A`.* A failed gate produces an
+   owned, visible `caliber_rework_tasks` row (global scope today, not yet
+   project-scoped) rather than a terminal `rejected` row with nothing pointing
+   at it. `claim`/`resolve`/`reassign` cover the ownership lifecycle;
+   `resolve` optionally links the superseding job that fixed it.
+2. **A QA sign-off record**, distinct from the machine gate. **Still open** —
+   current workflow promotion approval and artifact release signoff are
+   different contracts; neither is the proposed aggregate quality decision.
+   Deliberately deferred rather than rushed into `P3-A`: no existing model
+   represents a human go/no-go on a `CaliberRefinementJob` today, so this
+   deserves its own design pass.
+3. **A request-changes writer** for `review_notes`. *Delivered by `P3-A`* —
+   `POST /jobs/{id}/request-changes`, gated the same way `apply` is
+   (`caliber.operator`), claims `candidate_ready -> running` with the same
+   conditional-UPDATE idiom `apply` uses, and deliberately does not touch
+   `refine_iteration` (a human request is not a way to spend the automatic
+   self-correction budget).
 4. **Set `refinement_max_iterations` above `0`** deliberately and define what
-   happens when it exhausts. Shipping at `0` gives you zero automation *and*
-   zero escalation.
+   happens when it exhausts. *Escalation is now defined, the default is
+   unchanged.* Item 1 means exhausting retries (or rejecting immediately at the
+   shipped `0`) always produces an owned rework task — "what happens when it
+   exhausts" now has a concrete answer regardless of the configured value.
+   Raising the default itself would change cost/latency for every existing
+   refinement flow platform-wide, which stays a separate, deliberate
+   operational decision this slice does not make unilaterally.
 
-Items 1 and 2 are the substantive ones.
+Item 2 is the one substantive gap left.
 
 ## 4. The gates
 
@@ -2508,6 +2527,15 @@ only a non-null refinement-job/candidate source. Phase 5 additively introduces
 the Workspace-release foreign key and then enforces the exactly-one-source
 check; Phase 3 cannot reference a table that does not exist yet.
 
+`P3-A` delivered exactly that narrower slice, and only that slice: no
+`project_id`, no Workspace-release FK, `resolution_job_id` in place of the
+not-yet-existing `resolution_revision_id`/`resolution_release_id`, and
+`failure_kind`/`status` restricted to the values `orchestrator/eval_stage.py`
+and `routes/rework_tasks.py` can actually produce today (`machine_gate` /
+`iterations_exhausted`; `open` / `in_progress` / `resolved` — no
+`quality_no_go`, `release_no_go`, or `cancelled`, since nothing creates or
+reaches those yet). See section 16, Phase 3, item 1.
+
 ### 9.3 The Git workspace manifest
 
 The repository owns authored source. CALIBER owns the resolved lock represented
@@ -3637,9 +3665,12 @@ flowchart LR
 Phase 3 internals and the private SDK foundation in `P6-A` may be developed
 beside Phases 1 and 2 after their Phase 0 contracts are stable, but the public
 project-scoped rework routes do not merge before `P1-C` authorization exists.
-`P3-B` is the one exception: it gates on today's existing global scopes, the
-same way the routes it sits beside already do, so it does not wait on `P1-C`
-and may ship as soon as `P0-B` freezes its contract.
+`P3-B` and the delivered slice of `P3-A` are the two exceptions: both gate on
+today's existing global scopes, the same way the routes they sit beside
+already do, so neither waits on `P1-C` and both may ship as soon as `P0-B`
+freezes its contract. `P3-A`'s remaining scope — the project-scoped
+`/projects/{id}/rework-tasks` routes and the QA review record — still waits on
+`P1-C` and Phase 5 respectively; see section 3.6.
 The server path from Phase 1 through Phase 5 remains the critical path. "SDK-first" means contract-first and
 SDK-as-primary-consumer: transport/model scaffolding and contract tests begin in
 Phase 0, but public methods do not claim support before their server routes
@@ -3662,7 +3693,7 @@ combined with a later slice merely to reduce PR count.
 | `P2-A` | Backend | Convert root routes by resource family to centralized authorization and non-null-on-create workspace ownership | `P1-C` | Each converted family has two-workspace CRUD/child-ID tests; unconverted routes remain inventoried and flagged |
 | `P2-B` | Runtime | Project/revision-aware compiler, run queue, workers, callbacks, plan executor and Aria delegation | `P2-A` | Persisted context survives restart; worker cannot widen actor authority or fall back to global registries |
 | `P2-C` | Integrations/storage | Prompt/provider binding, storage and file isolation, public/personal immutable pin semantics | `P2-A` | Colliding logical names resolve correctly; guessed provider/file refs do not disclose another workspace |
-| `P3-A` | Workflow/quality | Refinement/candidate-backed durable rework task, reasoned QA review record, request-changes writer, project-scoped ownership APIs, and exhaustion escalation | `P0-B`, `P1-C` | Current refinement failures have an owner/reason and resolve through a superseding candidate/version; Phase 5 adds the release FK and aggregate path |
+| `P3-A` | Workflow/quality | **Partially delivered.** `caliber_rework_tasks` (global, not yet project-scoped) auto-created in the same transaction that terminally rejects a `CaliberRefinementJob`; list/get/claim/resolve/reassign routes and CALIBER SDK methods (`client.rework_tasks`); `POST /jobs/{id}/request-changes` writer for the already-existing `review_notes` consumer. Exhaustion escalation is satisfied by (1) without changing the shipped `refinement_max_iterations=0` default — see section 3.6. Still open: the QA review record (item 2) and the project-scoped `/projects/{id}/rework-tasks` API, which needs `P1-C`'s Workspace authorization | `P0-B`, `P1-C` | A rejected refinement job produces an owned, claimable, resolvable task instead of a terminal row nobody sees; the resolved slice needs no `P1-C` (gates on today's existing global scopes, see section 16 delivery-dependency notes); Phase 5 adds the release FK and aggregate path |
 | `P3-B` | Workflow/quality | **Delivered.** List/get/create/verify/dismiss/duplicate/batch verification-queue routes and CALIBER SDK methods against the existing `CaliberVerificationItem` model and schemas; no new table | `P0-B` | A human can verify or dismiss a pending item they did not create; none of today's four job-creation paths was required to change (and none did); ingestion (a poller creating `pending` items from real signals) remains explicitly out of scope per the Phase 0 decision |
 | `P4-A` | Data/backend | Source/import/revision/resource schema, portable CAS revision allocator, immutable terminal rows and snapshot-retention guards | `P2-B`, `P2-C` | Concurrent snapshots allocate unique monotonic numbers with allowed gaps on SQLite/PostgreSQL; schema remains dormant behind flags |
 | `P4-B` | Import/backend | Manifest/archive limits, canonical retained source snapshot and commit-equivocation guard, reconstructable adapter snapshots, model dependency, and durable import leases | `P4-A` | Golden tree/revision digests stable across archive metadata; mutable rows cannot masquerade as pins; malformed/ambiguous inputs fail closed; worker death resumes or reconciles |
@@ -3840,28 +3871,66 @@ refinement path that already ships today.
    type, which previously claimed `job` was always present, was corrected to
    `job: RefinementJob | null` rather than left to promise something the
    server has never returned.
-1. Add the rework-task model, authorization, list/get/claim/resolve/reassign
-   routes, and CALIBER SDK methods so a failed gate or QA rejection produces
-   owned, recoverable work instead of only a terminal `rejected` row.
+1. **`P3-A` (partial) — delivered.** Added the rework-task model,
+   authorization, list/get/claim/resolve/reassign routes, and CALIBER SDK
+   methods so a failed gate produces owned, recoverable work instead of only a
+   terminal `rejected` row: `caliber/src/caliber/db/models.py`'s
+   `CaliberReworkTask` (migration `0091_rework_tasks.py`) is created by
+   `orchestrator/eval_stage.py` in the same transaction that sets
+   `job.status = "rejected"`, with `failure_kind` distinguishing
+   `iterations_exhausted` from an immediate `machine_gate` rejection and a
+   `gate_evidence` snapshot of the gate's own decision. Routes live in
+   `routes/rework_tasks.py` (`GET /rework-tasks`, `GET /rework-tasks/{id}`,
+   `POST .../claim`, `.../resolve`, `.../reassign`), gated the same way `P3-B`
+   gates verification-queue writes (`caliber.operator` for claim/resolve —
+   `resolve` additionally requires the assignee or an admin — `caliber.admin`
+   for reassign, matching this section's own admin-only reassign policy
+   above), with `caliber-sdk`'s `client.rework_tasks` and its own SDK tests.
+   Deliberately narrower than the final target schema (section 9.2): global
+   scope, not yet project-scoped (no `project_id`, no Workspace-release FK);
+   `failure_kind` and `status` only declare the values a route can actually
+   produce today (no `quality_no_go`/`release_no_go`/`cancelled`), the same
+   anti-aspirational-value discipline `P3-B`'s review applied elsewhere.
 2. Add a quality-review record distinct from the machine gate verdict; Phase 5
    binds the same decision contract to an aggregate workspace release.
-3. Restore a request-changes writer for `review_notes`, whose consumer already
-   exists in the candidate stage.
+   **Still open** — deliberately deferred rather than folded into `P3-A`:
+   research confirmed no existing model represents a human go/no-go on a
+   `CaliberRefinementJob` (`CaliberApprovalRequest` is the Apply-decision
+   provenance anchor, always minted already-`approved`; `CaliberReleaseSignoff`
+   is a separate release-candidate-artifact contract with no FK to refinement
+   jobs), so this is new territory that deserves its own design pass rather
+   than a rushed add-on.
+3. **`P3-A` — delivered.** Restored a request-changes writer for
+   `review_notes`: `POST /jobs/{id}/request-changes` in `routes/jobs.py`,
+   beside `apply_job` and gated the same way (`caliber.operator`), claims
+   `candidate_ready -> running` with the same conditional-UPDATE idiom `apply`
+   uses (409 if the precondition doesn't hold), sets `review_notes` and
+   `current_stage = "candidate"`, and deliberately leaves `refine_iteration`
+   untouched — a human request for changes is not a way to spend the
+   automatic self-correction budget. The consumer in the candidate stage
+   needed no changes; it already read and cleared this field.
 4. Set `refinement_max_iterations` deliberately and define the escalation when
-   it exhausts.
+   it exhausts. **Escalation is now defined; the default is unchanged.**
+   Item 1 means exhausting retries (or rejecting immediately at the shipped
+   `0`) always produces an owned rework task, which is a concrete answer to
+   "what happens when it exhausts" regardless of the configured value.
+   Raising the shipped default itself would change cost/latency behavior for
+   every existing refinement flow platform-wide — a separate, deliberate
+   operational decision this slice does not make unilaterally.
 
-**Acceptance:** item 0 passes today — a human can list pending verification
-items and record `verify`/`dismiss` on one they did not create, distinct from
-and after item creation, for a manually-flagged concern. It does not yet pass
-for the traffic that matters most: none of today's four job-creation paths
-routes through it, so most refinement jobs still self-verify. Items 1-4
-remain to build: every in-scope refinement gate failure and candidate QA
-rejection has an owner and a reason; the Phase 3 refinement path resolves a
-content fix through a superseding candidate/version before re-entering its
-gate; its QA review is queryable; and the automated self-correction loop
-escalates to a human rather than terminating silently. Phase 5 acceptance
-extends the same invariant to Workspace revisions, releases, and immutable
-release decisions.
+**Acceptance:** items 0, 1, 3, and the escalation half of item 4 pass today —
+a human can list pending verification items and record `verify`/`dismiss` on
+one they did not create; every refinement job whose gate rejects it (whether
+immediately or after exhausting `refinement_max_iterations` retries) produces
+an owned `caliber_rework_tasks` row that can be listed, claimed, and resolved,
+optionally linked to the superseding job that fixed it; and an operator can
+send a `candidate_ready` job back for another pass with written guidance via
+`request-changes`. It does not yet pass for the traffic that matters most on
+item 0: none of today's four job-creation paths routes through Verify, so
+most refinement jobs still self-verify. Item 2 remains to build: the Phase 3
+refinement path's QA review is not yet queryable as its own record, distinct
+from the machine gate. Phase 5 acceptance extends items 1 and 2's invariant to
+Workspace revisions, releases, and immutable release decisions.
 
 ### Phase 4 — immutable packages, Change Requests, and pluggable Git source
 

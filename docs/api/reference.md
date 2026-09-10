@@ -57,6 +57,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | Workflow services | `POST /workflows/{workflow_id}/service`, `POST /services/{workflow_id}/invoke`, `GET /services/{workflow_id}/openapi.json` | Publish a workflow externally and inspect its invocation contract |
 | Datasets and evaluations | `GET/POST /eval-datasets`, `GET/POST /evaluations`, `GET/POST /judges` | Evaluation evidence and scoring |
 | Verification queue | `GET/POST /verification-queue`, `POST /verification-queue/{id}/verify`, `.../dismiss`, `.../duplicate`, `POST /verification-queue/batch` | Stage ① Verify for a manually-flagged concern; verifying does not create a refinement job |
+| Rework tasks | `GET /rework-tasks`, `POST /rework-tasks/{id}/claim`, `.../resolve`, `.../reassign`; `POST /jobs/{id}/request-changes` | Owned, recoverable work auto-created when a refinement job is terminally rejected |
 | Knowledge | `GET/POST /knowledge-bases`, `POST /knowledge/query` | Corpus lifecycle plus retrieval |
 | MCP | `GET/POST /mcp-servers`, tool inventory and invoke routes | Governed external tool connectivity |
 | Releases | `GET/POST /releases/candidates`, `POST /releases/candidates/{id}/signoffs`, `GET /releases/operations` | Signoff, waivers, and reconcile workflows |

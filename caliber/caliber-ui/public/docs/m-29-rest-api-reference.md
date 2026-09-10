@@ -43,6 +43,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | Workflow services | `POST /workflows/{workflow_id}/service`, `POST /services/{workflow_id}/invoke`, `GET /services/{workflow_id}/openapi.json` | Publish a workflow externally and inspect its invocation contract |
 | Datasets and evaluations | `GET/POST /eval-datasets`, `GET/POST /evaluations`, `GET/POST /judges` | Evaluation evidence and scoring |
 | Verification queue | `GET/POST /verification-queue`, `POST /verification-queue/{id}/verify`, `.../dismiss`, `.../duplicate`, `POST /verification-queue/batch` | Stage ① Verify for a manually-flagged concern; verifying does not create a refinement job |
+| Rework tasks | `GET /rework-tasks`, `POST /rework-tasks/{id}/claim`, `.../resolve`, `.../reassign`; `POST /jobs/{id}/request-changes` | Owned, recoverable work auto-created when a refinement job is terminally rejected |
 | Knowledge | `GET/POST /knowledge-bases`, `POST /knowledge/query` | Corpus lifecycle plus retrieval |
 | MCP | `GET/POST /mcp-servers`, tool inventory and invoke routes | Governed external tool connectivity |
 | Releases | `GET/POST /releases/candidates`, `POST /releases/candidates/{id}/signoffs`, `GET /releases/operations` | Signoff, waivers, and reconcile workflows |
@@ -126,7 +127,8 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Releases (`releases`) | `beta` | `13` | Typed SDK | `client.releases` | Release candidates, evaluation, waivers, reports, and signoff. |
 | Review Queues (`review-queues`) | `beta` | `7` | Typed SDK | `client.review_queues` | Queue creation, enqueue/submit flows, and alignment examples. |
 | Verification Queue (`verification-queue`) | `beta` | `7` | Typed SDK | `client.verification_queue` | Stage ① Verify for a manually-flagged concern: list/get/create/verify/dismiss/mark_duplicate/batch. Verifying does not create a refinement job. |
-| Jobs (`jobs`) | `beta` | `4` | Typed SDK | `client.jobs` | Durable background jobs, targets, apply, and wait semantics. |
+| Jobs (`jobs`) | `beta` | `5` | Typed SDK | `client.jobs` | Durable background jobs, targets, apply, wait semantics, and request-changes (send a candidate_ready job back for another pass). |
+| Rework Tasks (`rework-tasks`) | `beta` | `5` | Typed SDK | `client.rework_tasks` | Owned, recoverable work auto-created when a refinement job is terminally rejected: list/get/claim/resolve/reassign. |
 | Observability (`observability`) | `beta` | `7` | Typed SDK | `client.observability` | Trace listing/detail, experiments, and metrics reads. |
 | Events (`events`) | `beta` | `1` | Typed SDK | `client.events` | Server-sent events stream access. |
 | Gateway (`gateway`) | `beta` | `9` | Typed SDK | `client.gateway` | Gateway endpoint discovery, guardrails, and trace-derived usage. |
@@ -158,12 +160,12 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `320` |
-| Operations | `395` |
+| Route paths | `326` |
+| Operations | `401` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
-| Beta families | `20` |
+| Beta families | `21` |
 | Internal families | `9` |
 
 ### Auth and scoping contract
@@ -216,7 +218,8 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Releases (`releases`)](#releases-releases) | `13` | `12` |
 | [Review Queues (`review-queues`)](#review-queues-review-queues) | `7` | `5` |
 | [Verification Queue (`verification-queue`)](#verification-queue-verification-queue) | `7` | `6` |
-| [Jobs (`jobs`)](#jobs-jobs) | `4` | `4` |
+| [Jobs (`jobs`)](#jobs-jobs) | `5` | `5` |
+| [Rework Tasks (`rework-tasks`)](#rework-tasks-rework-tasks) | `5` | `5` |
 | [Observability (`observability`)](#observability-observability) | `7` | `7` |
 | [Events (`events`)](#events-events) | `1` | `1` |
 | [Gateway (`gateway`)](#gateway-gateway) | `9` | `7` |
@@ -738,14 +741,27 @@ Supported but still moving route groups. Expect capability growth and narrower c
 
 #### Jobs (`jobs`)
 
-4 operation(s) across 4 route path(s).
+5 operation(s) across 5 route path(s).
 
 | Method | Path | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/jobs` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs_job_id` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/apply` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_jobs_job_id_apply` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/request-changes` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_jobs_job_id_request_changes`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/targets` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs_job_id_targets` |
+
+#### Rework Tasks (`rework-tasks`)
+
+5 operation(s) across 5 route path(s).
+
+| Method | Path | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/rework-tasks` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_rework_tasks` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}` | `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_rework_tasks_task_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}/claim` | `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_rework_tasks_task_id_claim` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}/reassign` | `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_rework_tasks_task_id_reassign`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}/resolve` | `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_rework_tasks_task_id_resolve`; request body documented in OpenAPI |
 
 #### Observability (`observability`)
 

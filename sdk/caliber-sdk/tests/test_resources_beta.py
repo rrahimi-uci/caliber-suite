@@ -14,7 +14,7 @@ from typing import Any
 import httpx
 
 from caliber_sdk import CaliberClient
-from caliber_sdk.models import AriaPlan, CookbookRecipe, Job, McpServer, decode
+from caliber_sdk.models import AriaPlan, CookbookRecipe, Job, McpServer, ReworkTask, decode
 
 BASE = "https://caliber.test"
 
@@ -57,6 +57,119 @@ def test_waiting_on_a_job_returns_when_it_stops_for_a_person() -> None:
 
     assert job.awaits_human
     assert job.status == "candidate_ready"
+
+
+def test_request_changes_sends_notes_and_returns_the_job() -> None:
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent["path"] = request.url.path.rsplit("/caliber", 1)[-1]
+        sent["body"] = jsonlib.loads(request.content)
+        return envelope({"job_id": "RFN-1", "status": "running", "current_stage": "candidate"})
+
+    with client_with(handler) as caliber:
+        result = caliber.jobs.request_changes("RFN-1", "please cite the refund policy")
+
+    assert sent["path"] == "/jobs/RFN-1/request-changes"
+    assert sent["body"] == {"notes": "please cite the refund policy"}
+    assert result["status"] == "running"
+
+
+# --- rework tasks -----------------------------------------------------------
+
+
+def test_rework_tasks_list_passes_status_and_assigned_to() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path.rsplit("/caliber", 1)[-1]
+        seen["params"] = dict(request.url.params)
+        return envelope(
+            [
+                {
+                    "task_id": "RWT-1",
+                    "job_id": "RFN-1",
+                    "agent_id": "support-agent",
+                    "failure_kind": "machine_gate",
+                    "status": "open",
+                }
+            ]
+        )
+
+    with client_with(handler) as caliber:
+        tasks = caliber.rework_tasks.list(status="open", assigned_to="@sarah")
+
+    assert seen["path"] == "/rework-tasks"
+    assert seen["params"] == {"status": "open", "assigned_to": "@sarah"}
+    assert tasks == [
+        ReworkTask(
+            task_id="RWT-1",
+            job_id="RFN-1",
+            agent_id="support-agent",
+            failure_kind="machine_gate",
+            status="open",
+        )
+    ]
+
+
+def test_rework_tasks_get_hits_the_detail_path() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/rework-tasks/RWT-1")
+        return envelope({"task_id": "RWT-1", "status": "open"})
+
+    with client_with(handler) as caliber:
+        task = caliber.rework_tasks.get("RWT-1")
+
+    assert task.task_id == "RWT-1"
+
+
+def test_rework_tasks_claim_posts_with_no_body() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path.rsplit("/caliber", 1)[-1]
+        seen["method"] = request.method
+        return envelope({"task_id": "RWT-1", "status": "in_progress", "assigned_to": "@sarah"})
+
+    with client_with(handler) as caliber:
+        task = caliber.rework_tasks.claim("RWT-1")
+
+    assert seen == {"path": "/rework-tasks/RWT-1/claim", "method": "POST"}
+    assert task.status == "in_progress"
+
+
+def test_rework_tasks_resolve_sends_optional_fields() -> None:
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent["path"] = request.url.path.rsplit("/caliber", 1)[-1]
+        sent["body"] = jsonlib.loads(request.content)
+        return envelope({"task_id": "RWT-1", "status": "resolved"})
+
+    with client_with(handler) as caliber:
+        task = caliber.rework_tasks.resolve(
+            "RWT-1", resolution_job_id="RFN-2", resolution_notes="fixed via re-run"
+        )
+
+    assert sent["path"] == "/rework-tasks/RWT-1/resolve"
+    assert sent["body"] == {"resolution_job_id": "RFN-2", "resolution_notes": "fixed via re-run"}
+    assert task.status == "resolved"
+
+
+def test_rework_tasks_reassign_sends_assigned_to() -> None:
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent["path"] = request.url.path.rsplit("/caliber", 1)[-1]
+        sent["body"] = jsonlib.loads(request.content)
+        return envelope({"task_id": "RWT-1", "status": "in_progress", "assigned_to": "@marcus"})
+
+    with client_with(handler) as caliber:
+        task = caliber.rework_tasks.reassign("RWT-1", "@marcus")
+
+    assert sent["path"] == "/rework-tasks/RWT-1/reassign"
+    assert sent["body"] == {"assigned_to": "@marcus"}
+    assert task.assigned_to == "@marcus"
 
 
 def test_a_paused_aria_plan_needs_you() -> None:

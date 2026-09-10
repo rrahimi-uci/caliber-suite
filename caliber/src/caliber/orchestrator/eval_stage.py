@@ -30,10 +30,12 @@ from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberRefinementJob,
+    CaliberReworkTask,
     CaliberVerificationItem,
 )
 from caliber.eval.gate import apply_gate
 from caliber.eval.provider import EvalComparison, EvalProvider, EvalProviderError, EvalRequest
+from caliber.ids import new_rework_task_id
 from caliber.regression import record_regression_run
 
 logger = logging.getLogger("caliber.orchestrator.eval_stage")
@@ -278,12 +280,38 @@ def run_eval(  # noqa: PLR0915 — sequential stage: pass→candidate_ready, fai
             "gate": decision.to_json(),
         },
     )
+
+    # A rejected job used to end here: a terminal row nobody was assigned to
+    # act on. This creates the owned rework task in the same transaction, so
+    # "rejected" always produces visible, recoverable work rather than
+    # silence — see docs/workspace-plan.md section 3.6.
+    task = CaliberReworkTask(
+        task_id=new_rework_task_id(),
+        job_id=job.job_id,
+        agent_id=job.agent_id,
+        failure_kind="iterations_exhausted" if job.refine_iteration > 0 else "machine_gate",
+        reason=rejection_reason,
+        gate_evidence=decision.to_json(),
+        status="open",
+        created_by=actor,
+    )
+    session.add(task)
+    session.flush()
+    audit_record(
+        session,
+        actor=actor,
+        action="create_rework_task",
+        entity_type="rework_task",
+        entity_id=task.task_id,
+        details={"job_id": job.job_id, "failure_kind": task.failure_kind},
+    )
     session.commit()
     logger.info(
-        "eval rejected: job=%s reasons=%s overall=%.3f",
+        "eval rejected: job=%s reasons=%s overall=%.3f rework_task=%s",
         job_id,
         decision.reasons,
         comparison.candidate.overall,
+        task.task_id,
     )
     return job
 

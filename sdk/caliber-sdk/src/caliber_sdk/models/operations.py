@@ -45,6 +45,33 @@ class Job:
 
 
 @dataclass
+class ReworkTask:
+    """Owned, recoverable work auto-created when a refinement job is
+    terminally rejected (see ``client.jobs``' rejected/terminal status).
+
+    ``status`` is ``"open"``, ``"in_progress"``, or ``"resolved"``.
+    ``failure_kind`` is ``"machine_gate"`` or ``"iterations_exhausted"``.
+    """
+
+    task_id: str = ""
+    job_id: str = ""
+    agent_id: str = ""
+    failure_kind: str = ""
+    reason: str = ""
+    gate_evidence: dict[str, Any] | None = None
+    assigned_to: str | None = None
+    status: str = ""
+    resolution_job_id: str | None = None
+    resolution_notes: str | None = None
+    created_by: str = ""
+    created_at: str | None = None
+    updated_at: str | None = None
+    resolved_by: str | None = None
+    resolved_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class ReviewQueue:
     """A structured human-review queue."""
 
