@@ -1,0 +1,8 @@
+{"t":"2026-09-10T03:54:36.207Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-10T03:54:36.231Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-10T03:54:36.233Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-10T03:54:36.235Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-10T03:54:36.271Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/review-queues \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-10T03:54:36.287Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/review-queues/RVQ-fef57df1/items \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-10T03:54:36.302Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/review-queues/RVQ-fef57df1/items/RVI-c17bd0f4/submit \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-10T03:54:36.320Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/review-queues/RVQ-fef57df1 \"HTTP/1.1 200 OK\""}
