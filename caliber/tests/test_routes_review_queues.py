@@ -115,6 +115,23 @@ def test_submit_writes_answers_back_and_completes_item(
     assert targets == {"correct": "feedback", "gold": "expectation"}
 
 
+def test_submit_item_requires_operator_scope(client: TestClient, db_session: Session) -> None:
+    """Regression test: this route used to accept a bare authenticated caller
+    -- including a plain caliber.viewer -- for an action that writes MLflow
+    feedback/expectation assessments to a trace, a real external effect every
+    sibling write in this module already gates on a scope."""
+    queue_id = _create_queue(client)
+    add = client.post(ITEMS_PATH.replace("{queue_id}", queue_id), json={"trace_ids": ["tr-1"]})
+    item_id = add.json()["data"][0]["item_id"]
+
+    resp = client.post(
+        SUBMIT_PATH.replace("{queue_id}", queue_id).replace("{item_id}", item_id),
+        json={"answers": {"correct": True}},
+        headers={"X-CALIBER-User": "@viewer"},
+    )
+    assert resp.status_code == 403
+
+
 def test_completed_review_labels_import_as_alignment_examples(
     client: TestClient,
     monkeypatch: pytest.MonkeyPatch,

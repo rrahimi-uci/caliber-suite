@@ -189,24 +189,33 @@ async def update_judge(request: Request) -> JSONResponse:
     judge_id = request.path_params["judge_id"]
     body = await parse_json_object(request)
     payload = JudgeUpdateRequest.model_validate(body)
-    actor = require_scopes(request, [SCOPE_ADMIN])
 
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         raise HTTPException(status_code=400, detail="request body must include at least one field")
 
+    # Content edits (description/instructions/model/feedback_value_type/tags)
+    # are operator-reachable -- a judge is evidence-authoring, the same class
+    # of action as a test set. ``status`` (archive/restore) is the
+    # delete-equivalent for a judge and stays admin-only, so a request that
+    # touches it needs the stronger scope even when it also carries content
+    # fields. Checked before touching the row: a caller who fails this either
+    # check should not learn whether the judge exists via a later 404.
+    required_scope = SCOPE_ADMIN if "status" in changes else SCOPE_OPERATOR
+    actor = require_scopes(request, [required_scope])
+    identity = resolve_identity(request)
+
     factory = get_session_factory(request)
     with factory() as session:
-        # Deliberately a bare read, unlike the test-run/alignment routes below.
-        #
-        # This route requires ``SCOPE_ADMIN``, and ``db/scoping.py`` short-circuits
-        # visibility for admins by design (the single-organization target). Routing it
-        # through ``get_visible`` would therefore be a provable no-op: every caller who can
-        # reach this line already bypasses the filter. Adding it anyway would leave a call
-        # that *reads* as an access-control boundary while enforcing nothing — the exact
-        # decorative-control defect this codebase has been audited for. If this route is
-        # ever widened below admin, it must be scoped at the same time.
-        judge = session.get(CaliberJudge, judge_id)
+        # Scoped, not a bare read (C3) -- get_judge and test_run_judge above
+        # already resolve through get_visible; this route did not while
+        # requiring SCOPE_ADMIN, which was safe only because db/scoping.py
+        # short-circuits visibility for admins by design, making the missing
+        # filter a provable no-op. Now that a plain caliber.operator can reach
+        # content edits, the same unscoped read would let them look up (and
+        # edit) another project's judge -- its instructions are the authored
+        # grading logic, exactly what C3 protected on test_run_judge.
+        judge = get_visible(session, CaliberJudge, CaliberJudge.judge_id, judge_id, identity)
         if judge is None:
             raise HTTPException(status_code=404, detail=f"judge {judge_id!r} not found")
 
