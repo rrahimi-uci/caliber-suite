@@ -22,6 +22,7 @@ from starlette.routing import Route
 from caliber import __version__
 from caliber.auth import require_user
 from caliber.routes.openapi_inference import infer_operation_contract
+from caliber.routes.scope_inference import infer_required_scope, serialize_scope_requirement
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 OPENAPI_PATH = PREFIX + "/openapi.json"
@@ -303,6 +304,12 @@ def build_openapi_document(app: Starlette) -> dict[str, Any]:
                 # Per-operation so a generator can gate on it directly, rather
                 # than joining against a tag table it may not read.
                 "x-caliber-stability": stability_for(tag),
+                # Derived from the handler's own require_scopes()/require_user()/
+                # require_project_access() calls (routes/scope_inference.py) --
+                # part of P0-A's machine-readable route inventory.
+                "x-caliber-required-scope": serialize_scope_requirement(
+                    infer_required_scope(route.endpoint)
+                ),
                 "responses": contract["responses"],
             }
             if parameters:
