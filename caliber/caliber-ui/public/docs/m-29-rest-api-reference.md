@@ -171,7 +171,7 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 ### Auth and scoping contract
 
-- Every route below requires an authenticated CALIBER caller.
+- Most routes below require an authenticated CALIBER caller; each operation's **Required scope** column states its actual requirement, including the small set of routes (login, health/readiness, CSRF issuance, and a few others) that are reachable without one by design -- see each row's note for why.
 - Browser-style writes additionally require `X-CALIBER-CSRF` when CSRF enforcement is enabled.
 - Project-scoped automation can supply `X-CALIBER-Project` to select the active workspace.
 - Internal routes are listed for completeness, not as a supported public SDK contract.
@@ -256,357 +256,357 @@ Supported management routes that belong to the stable public automation surface.
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi.json` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_json` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi.json` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_json` |
 
 #### Auth (`auth`)
 
 11 operation(s) across 9 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/auth/accounts` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_auth_accounts` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/auth/accounts` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_auth_accounts`; request body documented in OpenAPI |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/auth/accounts/{user_id}` | `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_auth_accounts_user_id`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/auth/accounts/{user_id}/sessions` | `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_auth_accounts_user_id_sessions` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/auth/login` | — | `400`, `401`, `403`, `404` | `operationId`: `post_auth_login`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/auth/logout` | — | `400`, `401`, `403`, `404` | `operationId`: `post_auth_logout` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/auth/session` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_auth_session` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/auth/tokens` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_auth_tokens` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/auth/tokens` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_auth_tokens`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/auth/tokens/{token_id}` | `token_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_auth_tokens_token_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/auth/tokens/{token_id}/rotate` | `token_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_auth_tokens_token_id_rotate` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/auth/accounts` | `caliber.admin` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_auth_accounts` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/auth/accounts` | `caliber.admin` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_auth_accounts`; request body documented in OpenAPI |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/auth/accounts/{user_id}` | `caliber.admin` | `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_auth_accounts_user_id`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/auth/accounts/{user_id}/sessions` | `caliber.admin` | `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_auth_accounts_user_id_sessions` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/auth/login` | public — Pre-authentication by definition -- this is what establishes identity. | — | `400`, `401`, `403`, `404` | `operationId`: `post_auth_login`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/auth/logout` | public — Acts on whatever session cookie is present, including none/expired; there is nothing to hold a scope check against. | — | `400`, `401`, `403`, `404` | `operationId`: `post_auth_logout` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/auth/session` | public — Reports whether a session is currently valid; an anonymous caller must be able to ask this rather than getting a 401 for asking. | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_auth_session` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/auth/tokens` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_auth_tokens` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/auth/tokens` | any authenticated user | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_auth_tokens`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/auth/tokens/{token_id}` | any authenticated user | `token_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_auth_tokens_token_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/auth/tokens/{token_id}/rotate` | any authenticated user | `token_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_auth_tokens_token_id_rotate` |
 
 #### CSRF (`csrf`)
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/csrf` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_csrf` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/csrf` | public — Anonymous is a legitimate caller by design (see the route's own comment): CSRF token issuance must work before login. | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_csrf` |
 
 #### Me (`me`)
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/me` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_me` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/me` | public — Reports the caller's own resolved identity/scopes, including the anonymous case -- the same 'must answer before login' shape as /csrf and /auth/session. | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_me` |
 
 #### Capabilities (`capabilities`)
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/capabilities` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_capabilities` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/capabilities` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_capabilities` |
 
 #### Settings (`settings`)
 
 3 operation(s) across 2 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/settings/llm` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_settings_llm` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/settings/llm` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_settings_llm`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/settings/runtime` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_settings_runtime` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/settings/llm` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_settings_llm` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/settings/llm` | `caliber.admin` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_settings_llm`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/settings/runtime` | `caliber.admin` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_settings_runtime` |
 
 #### Projects (`projects`)
 
 14 operation(s) across 9 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/projects` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/projects` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/storage` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_storage` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}` | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}` | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_projects_project_id`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files` | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_files` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files` | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_files` |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files/{file_id}` | `file_id`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_projects_project_id_files_file_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files/{file_id}/content` | `file_id`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_files_file_id_content` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/folders` | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_folders`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members` | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_members` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members` | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_members`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members/{user_id}` | `project_id`, `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_projects_project_id_members_user_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members/{user_id}` | `project_id`, `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_projects_project_id_members_user_id`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects` | project role (`read`) | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/storage` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_storage` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}` | project role (`project.update`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_projects_project_id`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files` | any authenticated user | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_files` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files` | project role (`resource.write`) | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_files` |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files/{file_id}` | project role (`resource.write`) | `file_id`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_projects_project_id_files_file_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files/{file_id}/content` | project role (`read`) | `file_id`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_files_file_id_content` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/folders` | project role (`resource.write`) | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_folders`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_members` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members` | project role (`project.manage_members`) | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_members`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members/{user_id}` | project role (`project.manage_members`) | `project_id`, `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_projects_project_id_members_user_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members/{user_id}` | project role (`project.manage_members`) | `project_id`, `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_projects_project_id_members_user_id`; request body documented in OpenAPI |
 
 #### Prompts (`prompts`)
 
 22 operation(s) across 18 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/calibration/options` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_calibration_options` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/calibration/runs` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_calibration_runs`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/optimization/options` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_optimization_options` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/optimization/runs` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_optimization_runs`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/template-library` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_template_library` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/template-library/preview` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_template_library_preview`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/test-runs` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_test_runs` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/test-runs` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_test_runs`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/test-runs/{test_run_id}` | `test_run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_test_runs_test_run_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/{agent_id}/test-render` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_agent_id_test_render`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_prompts_name` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_name` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/aliases/{alias}` | `alias`, `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_name_aliases_alias`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/baseline` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_name_baseline`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/bind` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_name_bind`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/rollback` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_name_rollback`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/versions` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_name_versions` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/versions` | `name` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_name_versions`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/versions/{version}` | `name`, `version` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_name_versions_version` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/workspace` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_name_workspace` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/calibration/options` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_calibration_options` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/calibration/runs` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_calibration_runs`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/optimization/options` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_optimization_options` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/optimization/runs` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_optimization_runs`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/template-library` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_template_library` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/template-library/preview` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_template_library_preview`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/test-runs` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_test_runs` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/test-runs` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_test_runs`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/test-runs/{test_run_id}` | any authenticated user | `test_run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_test_runs_test_run_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/{agent_id}/test-render` | `caliber.operator` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_agent_id_test_render`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}` | `caliber.admin` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_prompts_name` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}` | any authenticated user | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_name` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/aliases/{alias}` | `caliber.operator` | `alias`, `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_name_aliases_alias`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/baseline` | `caliber.operator` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_name_baseline`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/bind` | `caliber.operator` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_name_bind`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/rollback` | `caliber.operator` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_name_rollback`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/versions` | any authenticated user | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_name_versions` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/versions` | `caliber.operator` | `name` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_prompts_name_versions`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/versions/{version}` | any authenticated user | `name`, `version` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_name_versions_version` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/prompts/{name}/workspace` | any authenticated user | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_prompts_name_workspace` |
 
 #### Skills (`skills`)
 
 19 operation(s) across 16 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/skills` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/skills` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_skills`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/import-package` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_import_package`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/import-package.zip` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_import_package_zip` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/test-runs` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_test_runs` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/test-runs` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_test_runs`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/test-runs/{test_run_id}` | `test_run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_test_runs_test_run_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_skill_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_skills_skill_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/baseline` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_skill_id_baseline`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/bind` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_skill_id_bind`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/calibrate` | `skill_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_skill_id_calibrate`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/package` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_skill_id_package` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/package.zip` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_skill_id_package_zip` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/rollback` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_skill_id_rollback`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/test-render` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_skill_id_test_render`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/test-selection` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_skill_id_test_selection`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/versions` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_skill_id_versions` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/workspace` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_skill_id_workspace` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/skills` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/skills` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_skills`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/import-package` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_import_package`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/import-package.zip` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_import_package_zip` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/test-runs` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_test_runs` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/test-runs` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_test_runs`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/test-runs/{test_run_id}` | any authenticated user | `test_run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_test_runs_test_run_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}` | any authenticated user | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_skill_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}` | `caliber.admin` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_skills_skill_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/baseline` | `caliber.operator` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_skill_id_baseline`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/bind` | `caliber.operator` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_skill_id_bind`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/calibrate` | `caliber.operator` | `skill_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_skill_id_calibrate`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/package` | any authenticated user | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_skill_id_package` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/package.zip` | any authenticated user | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_skill_id_package_zip` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/rollback` | `caliber.admin` | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_skill_id_rollback`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/test-render` | any authenticated user | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_skill_id_test_render`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/test-selection` | any authenticated user | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_skills_skill_id_test_selection`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/versions` | any authenticated user | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_skill_id_versions` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/skills/{skill_id}/workspace` | any authenticated user | `skill_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_skills_skill_id_workspace` |
 
 #### Tools (`tools`)
 
 20 operation(s) across 16 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/tools` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/tools` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_tools`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/test-runs` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_test_runs` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/test-runs` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_test_runs`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/test-runs/{test_run_id}` | `test_run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_test_runs_test_run_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_tools_tool_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/archive` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_tool_id_archive`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/baseline` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_tool_id_baseline`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/calibrate` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_tool_id_calibrate`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/calibration-jobs` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id_calibration_jobs` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/calibration-jobs` | `tool_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_tool_id_calibration_jobs` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/calibration-jobs/{job_id}` | `job_id`, `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id_calibration_jobs_job_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/calibration-jobs/{job_id}/resolve` | `job_id`, `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_tool_id_calibration_jobs_job_id_resolve`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/source` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id_source` |
-| `PUT` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/test-cases` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `put_tools_tool_id_test_cases`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/test-run` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_tool_id_test_run`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/usage` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id_usage` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/versions` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id_versions` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/workspace` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id_workspace` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/tools` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/tools` | `caliber.admin` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_tools`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/test-runs` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_test_runs` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/test-runs` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_test_runs`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/test-runs/{test_run_id}` | any authenticated user | `test_run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_test_runs_test_run_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}` | any authenticated user | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}` | `caliber.admin` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_tools_tool_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/archive` | `caliber.admin` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_tool_id_archive`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/baseline` | `caliber.operator` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_tool_id_baseline`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/calibrate` | `caliber.operator` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_tool_id_calibrate`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/calibration-jobs` | any authenticated user | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id_calibration_jobs` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/calibration-jobs` | `caliber.operator` | `tool_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_tool_id_calibration_jobs` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/calibration-jobs/{job_id}` | any authenticated user | `job_id`, `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id_calibration_jobs_job_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/calibration-jobs/{job_id}/resolve` | `caliber.operator` | `job_id`, `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_tool_id_calibration_jobs_job_id_resolve`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/source` | any authenticated user | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id_source` |
+| `PUT` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/test-cases` | `caliber.operator` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `put_tools_tool_id_test_cases`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/test-run` | `caliber.operator` | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_tools_tool_id_test_run`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/usage` | any authenticated user | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id_usage` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/versions` | any authenticated user | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id_versions` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/tools/{tool_id}/workspace` | any authenticated user | `tool_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_tools_tool_id_workspace` |
 
 #### Agents (`agents`)
 
 9 operation(s) across 6 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/agents` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/agents` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_agents`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_agents_agent_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents_agent_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_agents_agent_id`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}/checkpoints` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents_agent_id_checkpoints` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}/experiment` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents_agent_id_experiment` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}/rollback` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_agents_agent_id_rollback`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}/skills` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents_agent_id_skills` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/agents` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/agents` | `caliber.admin` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_agents`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}` | `caliber.admin` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_agents_agent_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}` | any authenticated user | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents_agent_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}` | `caliber.admin` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_agents_agent_id`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}/checkpoints` | any authenticated user | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents_agent_id_checkpoints` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}/experiment` | any authenticated user | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents_agent_id_experiment` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}/rollback` | `caliber.operator` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_agents_agent_id_rollback`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}/skills` | any authenticated user | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents_agent_id_skills` |
 
 #### Workflows (`workflows`)
 
 28 operation(s) across 20 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/import` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_import`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/import/preview` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_import_preview`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflows_workflow_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_workflows_workflow_id`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/calibration/options` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_calibration_options` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/calibration/runs` | `workflow_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_calibration_runs`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/deployments` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_deployments` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/deployments/{alias}/promote` | `alias`, `workflow_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_deployments_alias_promote`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/deployments/{alias}/rollback` | `alias`, `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_deployments_alias_rollback`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/patches` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_patches` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/promotions` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_promotions` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/runs` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_runs` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/runs/stats` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_runs_stats` |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflows_workflow_id_service` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_service` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_service`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service/openapi.json` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_service_openapi_json` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service/tokens` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_service_tokens` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service/tokens` | `workflow_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_service_tokens`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service/tokens/{token_id}` | `token_id`, `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflows_workflow_id_service_tokens_token_id` |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/session-memory` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflows_workflow_id_session_memory` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/session-memory` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_session_memory` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/trigger` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_trigger`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/versions` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_versions` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/versions` | `workflow_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_versions`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/import` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_import`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/import/preview` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_import_preview`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}` | `caliber.operator` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflows_workflow_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}` | `caliber.operator` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_workflows_workflow_id`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/calibration/options` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_calibration_options` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/calibration/runs` | `caliber.operator` | `workflow_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_calibration_runs`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/deployments` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_deployments` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/deployments/{alias}/promote` | dynamic — SCOPE_ADMIN if requires_human_approval(alias, config) -- i.e. the target alias is a gated environment under the deployment's release policy -- else SCOPE_OPERATOR for an immediate rotation. | `alias`, `workflow_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_deployments_alias_promote`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/deployments/{alias}/rollback` | `caliber.operator` | `alias`, `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_deployments_alias_rollback`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/patches` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_patches` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/promotions` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_promotions` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/runs` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_runs` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/runs/stats` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_runs_stats` |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service` | `caliber.operator` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflows_workflow_id_service` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_service` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service` | `caliber.operator` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_service`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service/openapi.json` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_service_openapi_json` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service/tokens` | `caliber.operator` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_service_tokens` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service/tokens` | `caliber.operator` | `workflow_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_service_tokens`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service/tokens/{token_id}` | `caliber.operator` | `token_id`, `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflows_workflow_id_service_tokens_token_id` |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/session-memory` | `caliber.operator` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflows_workflow_id_session_memory` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/session-memory` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_session_memory` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/trigger` | `caliber.operator` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_trigger`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/versions` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_versions` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/versions` | `caliber.operator` | `workflow_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_versions`; request body documented in OpenAPI |
 
 #### Workflow Versions (`workflow-versions`)
 
 16 operation(s) across 15 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_workflow_versions_version_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/compile` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_compile` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/copilot-edit` | `version_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_copilot_edit`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/deployment-bundle/status` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_deployment_bundle_status` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/diff/{other_version_id}` | `other_version_id`, `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_diff_other_version_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/export/deployment-bundle` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_export_deployment_bundle` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/export/manifest` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_export_manifest` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/export/python` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_export_python` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/plan-build` | `version_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_plan_build`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/preview-run` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_preview_run`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/propose-patch` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_propose_patch`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/publish` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_publish`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/restore` | `version_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_restore` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/run` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_run`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/validate` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_validate` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}` | `caliber.operator` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_workflow_versions_version_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/compile` | `caliber.operator` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_compile` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/copilot-edit` | `caliber.operator` | `version_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_copilot_edit`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/deployment-bundle/status` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_deployment_bundle_status` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/diff/{other_version_id}` | any authenticated user | `other_version_id`, `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_diff_other_version_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/export/deployment-bundle` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_export_deployment_bundle` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/export/manifest` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_export_manifest` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/export/python` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_versions_version_id_export_python` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/plan-build` | `caliber.operator` | `version_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_plan_build`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/preview-run` | `caliber.operator` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_preview_run`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/propose-patch` | `caliber.operator` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_propose_patch`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/publish` | `caliber.operator` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_publish`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/restore` | `caliber.operator` | `version_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_restore` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/run` | `caliber.operator` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_run`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-versions/{version_id}/validate` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_versions_version_id_validate` |
 
 #### Workflow Runs (`workflow-runs`)
 
 20 operation(s) across 19 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs` | — | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/by-trace/{trace_id}` | `trace_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_by_trace_trace_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/resume-by-event` | — | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_resume_by_event`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_approval_approve`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/reject` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_approval_reject`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approvals` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_approvals` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/artifacts` | `run_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_artifacts`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/cancel` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_cancel`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/checkpoints` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_checkpoints` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/events` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_events` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_files` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files` | `run_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_files` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files/{file_id}` | `file_id`, `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_files_file_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files/{file_id}/content` | `file_id`, `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_files_file_id_content` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/lineage` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_lineage` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/manifest` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_manifest` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/resume` | `run_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_resume`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/retry` | `run_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_retry`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/trace` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_trace` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs` | `caliber.operator` | — | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/by-trace/{trace_id}` | any authenticated user | `trace_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_by_trace_trace_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/resume-by-event` | `caliber.operator` | — | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_resume_by_event`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_approval_approve`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/reject` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_approval_reject`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approvals` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_approvals` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/artifacts` | `caliber.operator` | `run_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_artifacts`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/cancel` | `caliber.operator` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_cancel`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/checkpoints` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_checkpoints` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/events` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_events` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_files` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files` | `caliber.operator` | `run_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_files` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files/{file_id}` | any authenticated user | `file_id`, `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_files_file_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files/{file_id}/content` | any authenticated user | `file_id`, `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_files_file_id_content` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/lineage` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_lineage` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/manifest` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_manifest` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/resume` | `caliber.operator` | `run_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_resume`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/retry` | `caliber.operator` | `run_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_retry`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/trace` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_trace` |
 
 #### Workflow Components (`workflow-components`)
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-components` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_components` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-components` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_components` |
 
 #### Workflow Templates (`workflow-templates`)
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-templates` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_templates` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-templates` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_templates` |
 
 #### Workflow Files (`workflow-files`)
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-files` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_files` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-files` | project role (`resource.write`) | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_files` |
 
 #### Services (`services`)
 
 3 operation(s) across 3 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/services/{workflow_id}/invoke` | `workflow_id` | `400`, `401`, `403`, `404` | `operationId`: `post_services_workflow_id_invoke`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/services/{workflow_id}/openapi.json` | `workflow_id` | `400`, `401`, `403`, `404` | `operationId`: `get_services_workflow_id_openapi_json` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/services/{workflow_id}/runs/{run_id}` | `run_id`, `workflow_id` | `400`, `401`, `403`, `404` | `operationId`: `get_services_workflow_id_runs_run_id` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/services/{workflow_id}/invoke` | public — Same per-service token gate as service_openapi -- see _preauthorize_service_invocation. | `workflow_id` | `400`, `401`, `403`, `404` | `operationId`: `post_services_workflow_id_invoke`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/services/{workflow_id}/openapi.json` | public — Per-service, operator-configured token gate (service.auth_required, validated in-handler), not the caller-identity scope system -- an externally published service authenticates its own callers. | `workflow_id` | `400`, `401`, `403`, `404` | `operationId`: `get_services_workflow_id_openapi_json` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/services/{workflow_id}/runs/{run_id}` | public — Same per-service token gate as service_openapi. | `run_id`, `workflow_id` | `400`, `401`, `403`, `404` | `operationId`: `get_services_workflow_id_runs_run_id` |
 
 #### Eval Datasets (`eval-datasets`)
 
 11 operation(s) across 8 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/eval-datasets` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_eval_datasets` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}` | `dataset_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_eval_datasets_dataset_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}` | `dataset_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_eval_datasets_dataset_id`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples` | `dataset_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_eval_datasets_dataset_id_examples` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples` | `dataset_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_examples`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/from-trace` | `dataset_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_examples_from_trace`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/{example_id}/revise` | `dataset_id`, `example_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_examples_example_id_revise`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/{example_id}/supersede` | `dataset_id`, `example_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_examples_example_id_supersede`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/restore` | `dataset_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_restore`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/sync` | `dataset_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_sync`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/eval-datasets` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_eval_datasets` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}` | any authenticated user | `dataset_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_eval_datasets_dataset_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}` | `caliber.admin` | `dataset_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_eval_datasets_dataset_id`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples` | any authenticated user | `dataset_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_eval_datasets_dataset_id_examples` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples` | `caliber.operator` | `dataset_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_examples`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/from-trace` | `caliber.operator` | `dataset_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_examples_from_trace`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/{example_id}/revise` | `caliber.operator` | `dataset_id`, `example_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_examples_example_id_revise`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/{example_id}/supersede` | `caliber.admin` | `dataset_id`, `example_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_examples_example_id_supersede`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/restore` | `caliber.operator` | `dataset_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_restore`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/sync` | `caliber.operator` | `dataset_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_sync`; request body documented in OpenAPI |
 
 #### Evaluations (`evaluations`)
 
 3 operation(s) across 2 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/evaluations` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_evaluations` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/evaluations` | — | `400`, `401`, `403`, `404` | `operationId`: `post_evaluations`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/evaluations/{run_id}` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_evaluations_run_id` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/evaluations` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_evaluations` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/evaluations` | `caliber.operator` | — | `400`, `401`, `403`, `404` | `operationId`: `post_evaluations`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/evaluations/{run_id}` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_evaluations_run_id` |
 
 #### Judges (`judges`)
 
 6 operation(s) across 4 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/judges` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_judges` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/judges` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_judges`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/judges/{judge_id}` | `judge_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_judges_judge_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/judges/{judge_id}` | `judge_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_judges_judge_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/judges/{judge_id}/alignment` | `judge_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_judges_judge_id_alignment`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/judges/{judge_id}/test-run` | `judge_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_judges_judge_id_test_run`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/judges` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_judges` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/judges` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_judges`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/judges/{judge_id}` | any authenticated user | `judge_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_judges_judge_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/judges/{judge_id}` | dynamic — SCOPE_ADMIN if the request body includes 'status' (archive/restore, the delete-equivalent for a judge), else SCOPE_OPERATOR for content fields (description/instructions/model/feedback_value_type/tags). | `judge_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_judges_judge_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/judges/{judge_id}/alignment` | any authenticated user | `judge_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_judges_judge_id_alignment`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/judges/{judge_id}/test-run` | any authenticated user | `judge_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_judges_judge_id_test_run`; request body documented in OpenAPI |
 
 #### Workflow Cron Preview (`workflow-cron-preview`)
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-cron-preview` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_cron_preview` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-cron-preview` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_cron_preview` |
 
 #### Workflow Promotions (`workflow-promotions`)
 
 2 operation(s) across 2 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-promotions/{promotion_id}/approve` | `promotion_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflow_promotions_promotion_id_approve`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-promotions/{promotion_id}/reject` | `promotion_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_promotions_promotion_id_reject`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-promotions/{promotion_id}/approve` | `caliber.approver` | `promotion_id` | `400`, `401`, `403`, `404` | `operationId`: `post_workflow_promotions_promotion_id_approve`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-promotions/{promotion_id}/reject` | `caliber.approver` | `promotion_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_promotions_promotion_id_reject`; request body documented in OpenAPI |
 
 ### Beta routes
 
@@ -616,302 +616,302 @@ Supported but still moving route groups. Expect capability growth and narrower c
 
 14 operation(s) across 10 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/options` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases_options` |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_knowledge_bases_knowledge_base_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases_knowledge_base_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_knowledge_bases_knowledge_base_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/baseline` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases_knowledge_base_id_baseline`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/calibrate` | `knowledge_base_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases_knowledge_base_id_calibrate`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/rollback` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases_knowledge_base_id_rollback` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/runs` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases_knowledge_base_id_runs` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/test-runs` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases_knowledge_base_id_test_runs` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/versions` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases_knowledge_base_id_versions` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/versions` | `knowledge_base_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases_knowledge_base_id_versions`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/versions/{version_id}/activate` | `knowledge_base_id`, `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases_knowledge_base_id_versions_version_id_activate` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/options` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases_options` |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}` | `caliber.operator` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_knowledge_bases_knowledge_base_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}` | any authenticated user | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases_knowledge_base_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}` | `caliber.operator` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_knowledge_bases_knowledge_base_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/baseline` | `caliber.operator` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases_knowledge_base_id_baseline`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/calibrate` | `caliber.operator` | `knowledge_base_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases_knowledge_base_id_calibrate`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/rollback` | `caliber.operator` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases_knowledge_base_id_rollback` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/runs` | any authenticated user | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases_knowledge_base_id_runs` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/test-runs` | any authenticated user | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases_knowledge_base_id_test_runs` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/versions` | any authenticated user | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases_knowledge_base_id_versions` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/versions` | `caliber.operator` | `knowledge_base_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases_knowledge_base_id_versions`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/versions/{version_id}/activate` | `caliber.operator` | `knowledge_base_id`, `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases_knowledge_base_id_versions_version_id_activate` |
 
 #### Knowledge (`knowledge`)
 
 2 operation(s) across 2 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge/query` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_query`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge/test-runs/{test_run_id}` | `test_run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_test_runs_test_run_id` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge/query` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_query`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge/test-runs/{test_run_id}` | any authenticated user | `test_run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_test_runs_test_run_id` |
 
 #### MCP Servers (`mcp-servers`)
 
 13 operation(s) across 10 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/mcp-servers` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_mcp_servers` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}` | `server_id` | `204`, `400`, `401`, `403`, `404` | `operationId`: `delete_mcp_servers_server_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_mcp_servers_server_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_mcp_servers_server_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/discover-tools` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_discover_tools` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/history` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_mcp_servers_server_id_history` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/invoke-tool` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_invoke_tool`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/test-connection` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_test_connection` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_mcp_servers_server_id_tools` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/calibrate` | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_tools_tool_name_calibrate` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/policy` | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_mcp_servers_server_id_tools_tool_name_policy`; request body documented in OpenAPI |
-| `PUT` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/test-cases` | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `put_mcp_servers_server_id_tools_tool_name_test_cases`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/mcp-servers` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_mcp_servers` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers` | `caliber.admin` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}` | `caliber.admin` | `server_id` | `204`, `400`, `401`, `403`, `404` | `operationId`: `delete_mcp_servers_server_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}` | any authenticated user | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_mcp_servers_server_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}` | `caliber.admin` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_mcp_servers_server_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/discover-tools` | `caliber.admin` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_discover_tools` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/history` | any authenticated user | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_mcp_servers_server_id_history` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/invoke-tool` | `caliber.admin` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_invoke_tool`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/test-connection` | `caliber.admin` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_test_connection` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools` | any authenticated user | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_mcp_servers_server_id_tools` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/calibrate` | `caliber.operator` | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_tools_tool_name_calibrate` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/policy` | `caliber.admin` | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_mcp_servers_server_id_tools_tool_name_policy`; request body documented in OpenAPI |
+| `PUT` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/test-cases` | `caliber.operator` | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `put_mcp_servers_server_id_tools_tool_name_test_cases`; request body documented in OpenAPI |
 
 #### OpenAPI Integrations (`openapi-integrations`)
 
 23 operation(s) across 20 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/archive` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_archive`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/dependencies` | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_dependencies` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/dependencies/{dependency_id}` | `dependency_id`, `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id_dependencies_dependency_id`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/graph` | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_graph` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/import` | `integration_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_import`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/operations` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_operations` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/operations/{operation_id}` | `integration_id`, `operation_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_operations_operation_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/reimport` | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_reimport` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_tool_drafts` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/generate` | `integration_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_tool_drafts_generate`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}` | `draft_id`, `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_tool_drafts_draft_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}` | `draft_id`, `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id_tool_drafts_draft_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}/preview` | `draft_id`, `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_tool_drafts_draft_id_preview`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}/publish` | `draft_id`, `integration_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_tool_drafts_draft_id_publish`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/validate-credential-binding` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_validate_credential_binding`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/validate-spec-source` | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_validate_spec_source`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/versions` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_versions` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/versions/{version_id}` | `integration_id`, `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_versions_version_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/versions/{version_id}/diff` | `integration_id`, `version_id` | `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_versions_version_id_diff`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations` | one of `caliber.admin` or `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}` | any authenticated user | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}` | one of `caliber.admin` or `caliber.operator` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/archive` | one of `caliber.admin` or `caliber.operator` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_archive`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/dependencies` | any authenticated user | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_dependencies` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/dependencies/{dependency_id}` | one of `caliber.admin` or `caliber.operator` | `dependency_id`, `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id_dependencies_dependency_id`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/graph` | any authenticated user | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_graph` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/import` | one of `caliber.admin` or `caliber.operator` | `integration_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_import`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/operations` | any authenticated user | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_operations` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/operations/{operation_id}` | any authenticated user | `integration_id`, `operation_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_operations_operation_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/reimport` | one of `caliber.admin` or `caliber.operator` | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_reimport` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts` | any authenticated user | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_tool_drafts` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/generate` | one of `caliber.admin` or `caliber.operator` | `integration_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_tool_drafts_generate`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}` | any authenticated user | `draft_id`, `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_tool_drafts_draft_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}` | one of `caliber.admin` or `caliber.operator` | `draft_id`, `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id_tool_drafts_draft_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}/preview` | one of `caliber.admin` or `caliber.operator` | `draft_id`, `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_tool_drafts_draft_id_preview`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/tool-drafts/{draft_id}/publish` | project role (`resource.publish`) | `draft_id`, `integration_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_tool_drafts_draft_id_publish`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/validate-credential-binding` | one of `caliber.admin` or `caliber.operator` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_validate_credential_binding`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/validate-spec-source` | one of `caliber.admin` or `caliber.operator` | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_validate_spec_source`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/versions` | any authenticated user | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_versions` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/versions/{version_id}` | any authenticated user | `integration_id`, `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_versions_version_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/versions/{version_id}/diff` | any authenticated user | `integration_id`, `version_id` | `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_versions_version_id_diff`; request body documented in OpenAPI |
 
 #### Releases (`releases`)
 
 13 operation(s) across 12 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/releases/candidates` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_releases_candidates` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/candidates` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_candidates`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/releases/candidates/{candidate_id}` | `candidate_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_releases_candidates_candidate_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/candidates/{candidate_id}/evaluate` | `candidate_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_candidates_candidate_id_evaluate`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/candidates/{candidate_id}/reports` | `candidate_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_candidates_candidate_id_reports`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/candidates/{candidate_id}/signoffs` | `candidate_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_candidates_candidate_id_signoffs`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/candidates/{candidate_id}/waivers` | `candidate_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_candidates_candidate_id_waivers`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/releases/live` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_releases_live` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/releases/operations` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_releases_operations` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/operations/reconcile` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_operations_reconcile` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/operations/{operation_id}/resolve` | `operation_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_operations_operation_id_resolve`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/releases/report-jobs/{report_job_id}` | `report_job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_releases_report_jobs_report_job_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/releases/timeline` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_releases_timeline` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/releases/candidates` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_releases_candidates` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/candidates` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_candidates`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/releases/candidates/{candidate_id}` | any authenticated user | `candidate_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_releases_candidates_candidate_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/candidates/{candidate_id}/evaluate` | `caliber.operator` | `candidate_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_candidates_candidate_id_evaluate`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/candidates/{candidate_id}/reports` | `caliber.operator` | `candidate_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_candidates_candidate_id_reports`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/candidates/{candidate_id}/signoffs` | `caliber.admin` | `candidate_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_candidates_candidate_id_signoffs`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/candidates/{candidate_id}/waivers` | `caliber.admin` | `candidate_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_candidates_candidate_id_waivers`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/releases/live` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_releases_live` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/releases/operations` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_releases_operations` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/operations/reconcile` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_operations_reconcile` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/releases/operations/{operation_id}/resolve` | `caliber.operator` | `operation_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_releases_operations_operation_id_resolve`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/releases/report-jobs/{report_job_id}` | any authenticated user | `report_job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_releases_report_jobs_report_job_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/releases/timeline` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_releases_timeline` |
 
 #### Review Queues (`review-queues`)
 
 7 operation(s) across 5 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/review-queues` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_review_queues` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/review-queues` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_review_queues`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}` | `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_review_queues_queue_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}` | `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_review_queues_queue_id`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/alignment-examples` | `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_review_queues_queue_id_alignment_examples` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items` | `queue_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_review_queues_queue_id_items`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items/{item_id}/submit` | `item_id`, `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_review_queues_queue_id_items_item_id_submit`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/review-queues` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_review_queues` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/review-queues` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_review_queues`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}` | any authenticated user | `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_review_queues_queue_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}` | `caliber.admin` | `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_review_queues_queue_id`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/alignment-examples` | any authenticated user | `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_review_queues_queue_id_alignment_examples` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items` | `caliber.operator` | `queue_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_review_queues_queue_id_items`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items/{item_id}/submit` | `caliber.operator` | `item_id`, `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_review_queues_queue_id_items_item_id_submit`; request body documented in OpenAPI |
 
 #### Verification Queue (`verification-queue`)
 
 7 operation(s) across 6 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/verification-queue` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_verification_queue` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue/batch` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue_batch`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/verification-queue/{item_id}` | `item_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_verification_queue_item_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue/{item_id}/dismiss` | `item_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue_item_id_dismiss`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue/{item_id}/duplicate` | `item_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue_item_id_duplicate`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue/{item_id}/verify` | `item_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue_item_id_verify`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/verification-queue` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_verification_queue` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue/batch` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue_batch`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/verification-queue/{item_id}` | any authenticated user | `item_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_verification_queue_item_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue/{item_id}/dismiss` | `caliber.operator` | `item_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue_item_id_dismiss`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue/{item_id}/duplicate` | `caliber.operator` | `item_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue_item_id_duplicate`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/verification-queue/{item_id}/verify` | `caliber.operator` | `item_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_verification_queue_item_id_verify`; request body documented in OpenAPI |
 
 #### Jobs (`jobs`)
 
 7 operation(s) across 6 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/jobs` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs_job_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/apply` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_jobs_job_id_apply` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/quality-reviews` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs_job_id_quality_reviews` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/quality-reviews` | `job_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_jobs_job_id_quality_reviews`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/request-changes` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_jobs_job_id_request_changes`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/targets` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs_job_id_targets` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/jobs` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}` | any authenticated user | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs_job_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/apply` | `caliber.operator` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_jobs_job_id_apply` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/quality-reviews` | any authenticated user | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs_job_id_quality_reviews` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/quality-reviews` | `caliber.operator` | `job_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_jobs_job_id_quality_reviews`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/request-changes` | `caliber.operator` | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_jobs_job_id_request_changes`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/jobs/{job_id}/targets` | any authenticated user | `job_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_jobs_job_id_targets` |
 
 #### Rework Tasks (`rework-tasks`)
 
 5 operation(s) across 5 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/rework-tasks` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_rework_tasks` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}` | `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_rework_tasks_task_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}/claim` | `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_rework_tasks_task_id_claim` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}/reassign` | `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_rework_tasks_task_id_reassign`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}/resolve` | `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_rework_tasks_task_id_resolve`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/rework-tasks` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_rework_tasks` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}` | any authenticated user | `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_rework_tasks_task_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}/claim` | `caliber.operator` | `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_rework_tasks_task_id_claim` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}/reassign` | `caliber.admin` | `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_rework_tasks_task_id_reassign`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}/resolve` | `caliber.operator` | `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_rework_tasks_task_id_resolve`; request body documented in OpenAPI |
 
 #### Observability (`observability`)
 
 7 operation(s) across 7 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/observability/allure-report` | — | `400`, `401`, `403`, `404` | `operationId`: `get_observability_allure_report` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/observability/allure-report/{path}` | `path` | `400`, `401`, `403`, `404` | `operationId`: `get_observability_allure_report_path` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/observability/experiments` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_observability_experiments` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/observability/metrics` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_observability_metrics` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/observability/traces` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_observability_traces` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/observability/traces/{trace_id}` | `trace_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_observability_traces_trace_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/observability/traces/{trace_id}/feedback` | `trace_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_observability_traces_trace_id_feedback`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/observability/allure-report` | any authenticated user | — | `400`, `401`, `403`, `404` | `operationId`: `get_observability_allure_report` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/observability/allure-report/{path}` | any authenticated user | `path` | `400`, `401`, `403`, `404` | `operationId`: `get_observability_allure_report_path` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/observability/experiments` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_observability_experiments` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/observability/metrics` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_observability_metrics` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/observability/traces` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_observability_traces` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/observability/traces/{trace_id}` | any authenticated user | `trace_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_observability_traces_trace_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/observability/traces/{trace_id}/feedback` | any authenticated user | `trace_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_observability_traces_trace_id_feedback`; request body documented in OpenAPI |
 
 #### Events (`events`)
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/events/stream` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_events_stream` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/events/stream` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_events_stream` |
 
 #### Gateway (`gateway`)
 
 9 operation(s) across 7 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/gateway` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_gateway` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/gateway/endpoints/{endpoint_id}/guardrails` | `endpoint_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_gateway_endpoints_endpoint_id_guardrails`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/gateway/endpoints/{endpoint_id}/guardrails/{guardrail_id}` | `endpoint_id`, `guardrail_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_gateway_endpoints_endpoint_id_guardrails_guardrail_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/gateway/endpoints/{endpoint_id}/guardrails/{guardrail_id}` | `endpoint_id`, `guardrail_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_gateway_endpoints_endpoint_id_guardrails_guardrail_id`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/gateway/guardrails` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_gateway_guardrails` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/gateway/guardrails` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_gateway_guardrails`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/gateway/guardrails/catalog` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_gateway_guardrails_catalog` |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/gateway/guardrails/{guardrail_id}` | `guardrail_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_gateway_guardrails_guardrail_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/gateway/usage` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_gateway_usage` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/gateway` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_gateway` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/gateway/endpoints/{endpoint_id}/guardrails` | `caliber.operator` | `endpoint_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_gateway_endpoints_endpoint_id_guardrails`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/gateway/endpoints/{endpoint_id}/guardrails/{guardrail_id}` | `caliber.operator` | `endpoint_id`, `guardrail_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_gateway_endpoints_endpoint_id_guardrails_guardrail_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/gateway/endpoints/{endpoint_id}/guardrails/{guardrail_id}` | `caliber.operator` | `endpoint_id`, `guardrail_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_gateway_endpoints_endpoint_id_guardrails_guardrail_id`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/gateway/guardrails` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_gateway_guardrails` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/gateway/guardrails` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_gateway_guardrails`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/gateway/guardrails/catalog` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_gateway_guardrails_catalog` |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/gateway/guardrails/{guardrail_id}` | `caliber.operator` | `guardrail_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_gateway_guardrails_guardrail_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/gateway/usage` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_gateway_usage` |
 
 #### Cookbooks (`cookbooks`)
 
 2 operation(s) across 2 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/cookbooks` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_cookbooks` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/cookbooks/{cookbook_id}/install` | `cookbook_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_cookbooks_cookbook_id_install`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/cookbooks` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_cookbooks` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/cookbooks/{cookbook_id}/install` | `caliber.operator` | `cookbook_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_cookbooks_cookbook_id_install`; request body documented in OpenAPI |
 
 #### Aria (`aria`)
 
 10 operation(s) across 8 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/aria/capabilities` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_aria_capabilities` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/interactions/{interaction_id}/answer` | `interaction_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_interactions_interaction_id_answer`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/aria/plans` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_aria_plans` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}` | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_aria_plans_plan_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}` | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_aria_plans_plan_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/approve` | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_approve` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/execute` | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_execute` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/interactions` | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_aria_plans_plan_id_interactions` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/poll` | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_poll` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/aria/capabilities` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_aria_capabilities` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/interactions/{interaction_id}/answer` | any authenticated user | `interaction_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_interactions_interaction_id_answer`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/aria/plans` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_aria_plans` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans` | any authenticated user | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_aria_plans_plan_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_aria_plans_plan_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/approve` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_approve` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/execute` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_execute` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/interactions` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_aria_plans_plan_id_interactions` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/poll` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_poll` |
 
 #### Audit Log (`audit-log`)
 
 2 operation(s) across 2 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/audit-log` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_audit_log` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/audit-log/export` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_audit_log_export` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/audit-log` | `caliber.admin` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_audit_log` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/audit-log/export` | `caliber.admin` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_audit_log_export` |
 
 #### Knowledge Base Versions (`knowledge-base-versions`)
 
 7 operation(s) across 7 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_base_versions_version_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}/age-sync` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_base_versions_version_id_age_sync` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}/chunks` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_base_versions_version_id_chunks` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}/entities` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_base_versions_version_id_entities` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}/graph` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_base_versions_version_id_graph` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}/relationships` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_base_versions_version_id_relationships` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}/sources` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_base_versions_version_id_sources` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_base_versions_version_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}/age-sync` | `caliber.operator` | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_base_versions_version_id_age_sync` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}/chunks` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_base_versions_version_id_chunks` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}/entities` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_base_versions_version_id_entities` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}/graph` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_base_versions_version_id_graph` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}/relationships` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_base_versions_version_id_relationships` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-base-versions/{version_id}/sources` | any authenticated user | `version_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_base_versions_version_id_sources` |
 
 #### Knowledge Runs (`knowledge-runs`)
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-runs/{run_id}/events` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_runs_run_id_events` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-runs/{run_id}/events` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_runs_run_id_events` |
 
 #### Object Store (`object-store`)
 
 13 operation(s) across 10 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}` | `bucket` | `204`, `400`, `401`, `403`, `404` | `operationId`: `delete_object_store_buckets_bucket` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/folders` | `bucket` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets_bucket_folders`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object` | `bucket` | `204`, `400`, `401`, `403`, `404` | `operationId`: `delete_object_store_buckets_bucket_object` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object` | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets_bucket_object` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object/extract` | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets_bucket_object_extract` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object/import` | `bucket` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets_bucket_object_import`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object/preview` | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets_bucket_object_preview` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/objects` | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets_bucket_objects` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/objects` | `bucket` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets_bucket_objects`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/objects/delete` | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets_bucket_objects_delete`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/status` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_status` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets` | `caliber.admin` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}` | `caliber.admin` | `bucket` | `204`, `400`, `401`, `403`, `404` | `operationId`: `delete_object_store_buckets_bucket` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/folders` | `caliber.admin` | `bucket` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets_bucket_folders`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object` | `caliber.admin` | `bucket` | `204`, `400`, `401`, `403`, `404` | `operationId`: `delete_object_store_buckets_bucket_object` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object` | any authenticated user | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets_bucket_object` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object/extract` | any authenticated user | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets_bucket_object_extract` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object/import` | project role (`resource.write`) | `bucket` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets_bucket_object_import`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object/preview` | any authenticated user | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets_bucket_object_preview` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/objects` | any authenticated user | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets_bucket_objects` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/objects` | `caliber.admin` | `bucket` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets_bucket_objects`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/objects/delete` | `caliber.admin` | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets_bucket_objects_delete`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/status` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_status` |
 
 #### Playground Runs (`playground-runs`)
 
 3 operation(s) across 2 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/playground-runs/{run_id}/files` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_playground_runs_run_id_files` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/playground-runs/{run_id}/files` | `run_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_playground_runs_run_id_files` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/playground-runs/{run_id}/files/{file_id}/content` | `file_id`, `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_playground_runs_run_id_files_file_id_content` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/playground-runs/{run_id}/files` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_playground_runs_run_id_files` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/playground-runs/{run_id}/files` | `caliber.operator` | `run_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_playground_runs_run_id_files` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/playground-runs/{run_id}/files/{file_id}/content` | any authenticated user | `file_id`, `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_playground_runs_run_id_files_file_id_content` |
 
 #### Secrets (`secrets`)
 
 4 operation(s) across 3 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/secrets` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_secrets` |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/secrets/{name}` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_secrets_name` |
-| `PUT` | `/ajax-api/2.0/mlflow/caliber/secrets/{name}` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `put_secrets_name`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/secrets/{name}/revoke` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_secrets_name_revoke` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/secrets` | `caliber.admin` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_secrets` |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/secrets/{name}` | `caliber.admin` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_secrets_name` |
+| `PUT` | `/ajax-api/2.0/mlflow/caliber/secrets/{name}` | `caliber.admin` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `put_secrets_name`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/secrets/{name}/revoke` | `caliber.admin` | `name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_secrets_name_revoke` |
 
 #### Workflow Benchmark Reports (`workflow-benchmark-reports`)
 
 4 operation(s) across 2 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_benchmark_reports` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_benchmark_reports`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports/{report_id}` | `report_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflow_benchmark_reports_report_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports/{report_id}` | `report_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_workflow_benchmark_reports_report_id`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_benchmark_reports` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_benchmark_reports`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports/{report_id}` | `caliber.operator` | `report_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflow_benchmark_reports_report_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports/{report_id}` | `caliber.operator` | `report_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_workflow_benchmark_reports_report_id`; request body documented in OpenAPI |
 
 ### Internal routes
 
@@ -921,118 +921,118 @@ Published for route-table completeness, but not part of the supported SDK contra
 
 29 operation(s) across 22 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/assistant/attachments/{attachment_id}` | `attachment_id` | `204`, `400`, `401`, `403`, `404` | `operationId`: `delete_assistant_attachments_attachment_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/config` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_config` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/assistant/config` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_assistant_config`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/drafts/{draft_id}` | `draft_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_drafts_draft_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/assistant/drafts/{draft_id}` | `draft_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_assistant_drafts_draft_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/drafts/{draft_id}/approve` | `draft_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_drafts_draft_id_approve` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/drafts/{draft_id}/publish` | `draft_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_drafts_draft_id_publish` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/drafts/{draft_id}/test` | `draft_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_drafts_draft_id_test` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/drafts/{draft_id}/validate` | `draft_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_drafts_draft_id_validate` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/prompt-draft` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_prompt_draft`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/assistant/queue/{queue_id}` | `queue_id` | `204`, `400`, `401`, `403`, `404` | `operationId`: `delete_assistant_queue_queue_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/runs/{run_id}` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_runs_run_id` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}` | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}` | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_assistant_sessions_session_id`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/attachments` | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id_attachments` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/attachments` | `session_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_attachments`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/attachments/upload` | `session_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_attachments_upload` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/drafts` | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id_drafts` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/intent/resolve` | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_intent_resolve`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/messages` | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id_messages` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/messages` | `session_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_messages`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/operations/{operation_id}` | `operation_id`, `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id_operations_operation_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/plans` | `session_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_plans`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/plans/execute` | `session_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_plans_execute`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/plans/latest` | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id_plans_latest` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/queue` | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id_queue` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/queue` | `session_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_queue`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/assistant/attachments/{attachment_id}` | `caliber.operator` | `attachment_id` | `204`, `400`, `401`, `403`, `404` | `operationId`: `delete_assistant_attachments_attachment_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/config` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_config` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/assistant/config` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_assistant_config`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/drafts/{draft_id}` | any authenticated user | `draft_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_drafts_draft_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/assistant/drafts/{draft_id}` | `caliber.operator` | `draft_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_assistant_drafts_draft_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/drafts/{draft_id}/approve` | `caliber.operator` | `draft_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_drafts_draft_id_approve` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/drafts/{draft_id}/publish` | `caliber.operator` | `draft_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_drafts_draft_id_publish` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/drafts/{draft_id}/test` | `caliber.operator` | `draft_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_drafts_draft_id_test` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/drafts/{draft_id}/validate` | `caliber.operator` | `draft_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_drafts_draft_id_validate` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/prompt-draft` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_prompt_draft`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/assistant/queue/{queue_id}` | `caliber.operator` | `queue_id` | `204`, `400`, `401`, `403`, `404` | `operationId`: `delete_assistant_queue_queue_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/runs/{run_id}` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_runs_run_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}` | any authenticated user | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}` | `caliber.operator` | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_assistant_sessions_session_id`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/attachments` | any authenticated user | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id_attachments` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/attachments` | `caliber.operator` | `session_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_attachments`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/attachments/upload` | `caliber.operator` | `session_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_attachments_upload` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/drafts` | any authenticated user | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id_drafts` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/intent/resolve` | `caliber.operator` | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_intent_resolve`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/messages` | any authenticated user | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id_messages` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/messages` | `caliber.operator` | `session_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_messages`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/operations/{operation_id}` | any authenticated user | `operation_id`, `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id_operations_operation_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/plans` | `caliber.operator` | `session_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_plans`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/plans/execute` | `caliber.operator` | `session_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_plans_execute`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/plans/latest` | any authenticated user | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id_plans_latest` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/queue` | any authenticated user | `session_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_assistant_sessions_session_id_queue` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/assistant/sessions/{session_id}/queue` | `caliber.operator` | `session_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_assistant_sessions_session_id_queue`; request body documented in OpenAPI |
 
 #### Dashboard (`dashboard`)
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/dashboard/summary` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_dashboard_summary` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/dashboard/summary` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_dashboard_summary` |
 
 #### Gate Verdicts (`gate-verdicts`)
 
 2 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/gate-verdicts/{artifact_type}/{version_key}` | `artifact_type`, `version_key` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_gate_verdicts_artifact_type_version_key` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/gate-verdicts/{artifact_type}/{version_key}` | `artifact_type`, `version_key` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_gate_verdicts_artifact_type_version_key`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/gate-verdicts/{artifact_type}/{version_key}` | any authenticated user | `artifact_type`, `version_key` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_gate_verdicts_artifact_type_version_key` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/gate-verdicts/{artifact_type}/{version_key}` | `caliber.operator` | `artifact_type`, `version_key` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_gate_verdicts_artifact_type_version_key`; request body documented in OpenAPI |
 
 #### Health (`health`)
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/health` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_health` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/health` | public — Liveness probe; load balancers and deploy gates call it pre-auth. | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_health` |
 
 #### LLM Pricing (`llm-pricing`)
 
 4 operation(s) across 2 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/llm-pricing` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_llm_pricing` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/llm-pricing` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_llm_pricing`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/llm-pricing/{pricing_id}` | `pricing_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_llm_pricing_pricing_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/llm-pricing/{pricing_id}` | `pricing_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_llm_pricing_pricing_id`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/llm-pricing` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_llm_pricing` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/llm-pricing` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_llm_pricing`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/llm-pricing/{pricing_id}` | any authenticated user | `pricing_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_llm_pricing_pricing_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/llm-pricing/{pricing_id}` | `caliber.admin` | `pricing_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_llm_pricing_pricing_id`; request body documented in OpenAPI |
 
 #### Memory (`memory`)
 
 4 operation(s) across 2 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/memory` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_memory`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/memory` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_memory` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/memory` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_memory`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/memory/search` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_memory_search`; request body documented in OpenAPI |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/memory` | `caliber.admin` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_memory`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/memory` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_memory` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/memory` | `caliber.admin` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_memory`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/memory/search` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_memory_search`; request body documented in OpenAPI |
 
 #### Metrics (`metrics`)
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/metrics` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_metrics` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/metrics` | public — Opt-in bearer-token gate configured via CALIBER_METRICS_TOKEN_ENV (see the route module's own docstring), not the caller-identity scope system -- a Prometheus scrape config cannot carry a session. | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_metrics` |
 
 #### Readiness (`readiness`)
 
 1 operation(s) across 1 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/readiness` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_readiness` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/readiness` | public — Dependency-readiness probe; same pre-auth callers as health. | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_readiness` |
 
 #### System (`system`)
 
 11 operation(s) across 11 route path(s).
 
-| Method | Path | Parameters | Responses | Details |
-| --- | --- | --- | --- | --- |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/system/alerts` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_alerts` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/system/effects` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_effects` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/system/effects/{effect_key}/resolve` | `effect_key` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_effects_effect_key_resolve`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/system/incidents` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_incidents` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/system/incidents/{incident_id}/acknowledge` | `incident_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_incidents_incident_id_acknowledge` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/system/incidents/{incident_id}/silence` | `incident_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_incidents_incident_id_silence`; request body documented in OpenAPI |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/system/queue` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_queue` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/system/services` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_services` |
-| `GET` | `/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_webhook_dead_letters` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters/{dead_letter_id}/acknowledge` | `dead_letter_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_webhook_dead_letters_dead_letter_id_acknowledge`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters/{dead_letter_id}/replay` | `dead_letter_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_webhook_dead_letters_dead_letter_id_replay` |
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/system/alerts` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_alerts` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/system/effects` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_effects` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/system/effects/{effect_key}/resolve` | `caliber.admin` | `effect_key` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_effects_effect_key_resolve`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/system/incidents` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_incidents` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/system/incidents/{incident_id}/acknowledge` | `caliber.operator` | `incident_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_incidents_incident_id_acknowledge` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/system/incidents/{incident_id}/silence` | `caliber.operator` | `incident_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_incidents_incident_id_silence`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/system/queue` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_queue` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/system/services` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_services` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_webhook_dead_letters` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters/{dead_letter_id}/acknowledge` | `caliber.operator` | `dead_letter_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_webhook_dead_letters_dead_letter_id_acknowledge`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters/{dead_letter_id}/replay` | `caliber.operator` | `dead_letter_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_webhook_dead_letters_dead_letter_id_replay` |
 
 ## Practical integration order
 

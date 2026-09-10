@@ -19,6 +19,7 @@ CALIBER_ROOT = REPO_ROOT / "caliber"
 ALLOWLIST_PATH = REPO_ROOT / "sdk" / "caliber-sdk" / "coverage_allowlist.toml"
 sys.path.insert(0, str(CALIBER_ROOT / "src"))
 
+from caliber import auth as caliber_auth  # noqa: E402
 from caliber.routes.openapi import PREFIX, build_openapi_document  # noqa: E402
 from caliber.server import create_app  # noqa: E402
 
@@ -339,9 +340,13 @@ def _sdk_surface_row(
     """
     surface = SDK_SURFACE_MAP.get(tag)
     entry = surface["entry"] if surface else "`client.raw`"
-    note = surface["notes"] if surface else (
-        "No typed wrapper documented for this family yet. Use raw HTTP or "
-        "generate a client against the served OpenAPI document if you need it today."
+    note = (
+        surface["notes"]
+        if surface
+        else (
+            "No typed wrapper documented for this family yet. Use raw HTTP or "
+            "generate a client against the served OpenAPI document if you need it today."
+        )
     )
     if total_count == 0:
         return (
@@ -408,6 +413,63 @@ def _format_responses(operation: dict[str, object]) -> str:
     return ", ".join(f"`{code}`" for code in responses)
 
 
+def _scope_value(constant_name: str) -> str:
+    """`"SCOPE_OPERATOR"` -> `"caliber.operator"`.
+
+    Resolved dynamically against `caliber.auth`'s actual constants rather
+    than a hand-maintained mapping here, so it can't drift from what the
+    scope name really means -- the same "don't hand-duplicate a derivable
+    fact" reasoning `routes/scope_inference.py` itself is built on.
+    """
+    return str(getattr(caliber_auth, constant_name, constant_name))
+
+
+def _format_scope_names(requirement: dict[str, object]) -> str:
+    """`require_scopes()` grants access if the caller holds *any* of the
+    listed scopes (`caliber/src/caliber/auth.py`'s `required.isdisjoint(granted)`
+    check) -- comma-joining multiple values would read as "all of these
+    are required," the opposite of what the route actually enforces. State
+    the OR explicitly instead.
+    """
+    names = requirement.get("scopes")
+    names = names if isinstance(names, list) else []
+    values = sorted(_scope_value(n) for n in names if isinstance(n, str))
+    if not values:
+        return "—"
+    if len(values) == 1:
+        return f"`{values[0]}`"
+    return "one of " + " or ".join(f"`{v}`" for v in values)
+
+
+def _format_project_role(requirement: dict[str, object]) -> str:
+    action = requirement.get("action")
+    return f"project role (`{action}`)" if isinstance(action, str) and action else "project role"
+
+
+def _format_kind_with_note(requirement: dict[str, object], *, label: str) -> str:
+    note = requirement.get("note")
+    return f"{label} — {note}" if isinstance(note, str) and note else label
+
+
+def _format_required_scope(operation: dict[str, object]) -> str:
+    """Render `x-caliber-required-scope` (P0-A's route-scope inventory,
+    `routes/scope_inference.py`) for the published reference table."""
+    requirement = operation.get("x-caliber-required-scope")
+    if not isinstance(requirement, dict):
+        return "—"
+
+    kind = requirement.get("kind")
+    formatters = {
+        "scope": _format_scope_names,
+        "authenticated": lambda _req: "any authenticated user",
+        "project_role": _format_project_role,
+        "dynamic": lambda req: _format_kind_with_note(req, label="dynamic"),
+        "public": lambda req: _format_kind_with_note(req, label="public"),
+    }
+    formatter = formatters.get(str(kind))
+    return formatter(requirement) if formatter is not None else "—"
+
+
 def _format_details(operation: dict[str, object]) -> str:
     details: list[str] = []
     operation_id = operation.get("operationId")
@@ -435,9 +497,7 @@ def render_inventory() -> str:
     components = document.get("components", {})
     schemas = components.get("schemas", {}) if isinstance(components, dict) else {}
     responses = components.get("responses", {}) if isinstance(components, dict) else {}
-    security_schemes = (
-        components.get("securitySchemes", {}) if isinstance(components, dict) else {}
-    )
+    security_schemes = components.get("securitySchemes", {}) if isinstance(components, dict) else {}
 
     grouped: dict[str, list[tuple[str, str, dict[str, object]]]] = defaultdict(list)
     for path, operations in document["paths"].items():
@@ -542,35 +602,38 @@ def render_inventory() -> str:
 
     lines.extend(
         [
-        "",
-        "## Current route inventory",
-        "",
-        "This inventory is generated at build time from the live CALIBER route table and the same OpenAPI builder that serves `GET /ajax-api/2.0/mlflow/caliber/openapi.json`.",
-        "The served contract is route-table grounded and body-complete: paths and methods come from the live router, while request and success-response bodies are inferred from the handlers and the Pydantic models they already use.",
-        "",
-        "### Coverage summary",
-        "",
-        "| Field | Value |",
-        "| --- | --- |",
-        f"| Route paths | `{path_count}` |",
-        f"| Operations | `{operation_count}` |",
-        f"| Path coverage | `{coverage.get('paths', 'unknown')}` |",
-        f"| Request bodies | `{coverage.get('request_bodies', 'unknown')}` |",
-        f"| GA families | `{len(tiered_tags.get('ga', []))}` |",
-        f"| Beta families | `{len(tiered_tags.get('beta', []))}` |",
-        f"| Internal families | `{len(tiered_tags.get('internal', []))}` |",
-        "",
-        "### Auth and scoping contract",
-        "",
-        "- Every route below requires an authenticated CALIBER caller.",
-        "- Browser-style writes additionally require `X-CALIBER-CSRF` when CSRF enforcement is enabled.",
-        "- Project-scoped automation can supply `X-CALIBER-Project` to select the active workspace.",
-        "- Internal routes are listed for completeness, not as a supported public SDK contract.",
-        "",
-        "### Jump by resource family",
-        "",
-        "Use these quick jumps when you already know the CALIBER subsystem and want the detailed route table directly.",
-        "",
+            "",
+            "## Current route inventory",
+            "",
+            "This inventory is generated at build time from the live CALIBER route table and the same OpenAPI builder that serves `GET /ajax-api/2.0/mlflow/caliber/openapi.json`.",
+            "The served contract is route-table grounded and body-complete: paths and methods come from the live router, while request and success-response bodies are inferred from the handlers and the Pydantic models they already use.",
+            "",
+            "### Coverage summary",
+            "",
+            "| Field | Value |",
+            "| --- | --- |",
+            f"| Route paths | `{path_count}` |",
+            f"| Operations | `{operation_count}` |",
+            f"| Path coverage | `{coverage.get('paths', 'unknown')}` |",
+            f"| Request bodies | `{coverage.get('request_bodies', 'unknown')}` |",
+            f"| GA families | `{len(tiered_tags.get('ga', []))}` |",
+            f"| Beta families | `{len(tiered_tags.get('beta', []))}` |",
+            f"| Internal families | `{len(tiered_tags.get('internal', []))}` |",
+            "",
+            "### Auth and scoping contract",
+            "",
+            "- Most routes below require an authenticated CALIBER caller; each operation's "
+            "**Required scope** column states its actual requirement, including the small set "
+            "of routes (login, health/readiness, CSRF issuance, and a few others) that are "
+            "reachable without one by design -- see each row's note for why.",
+            "- Browser-style writes additionally require `X-CALIBER-CSRF` when CSRF enforcement is enabled.",
+            "- Project-scoped automation can supply `X-CALIBER-Project` to select the active workspace.",
+            "- Internal routes are listed for completeness, not as a supported public SDK contract.",
+            "",
+            "### Jump by resource family",
+            "",
+            "Use these quick jumps when you already know the CALIBER subsystem and want the detailed route table directly.",
+            "",
         ]
     )
 
@@ -615,8 +678,8 @@ def render_inventory() -> str:
                     "",
                     f"{len(entries)} operation(s) across {unique_paths} route path(s).",
                     "",
-                    "| Method | Path | Parameters | Responses | Details |",
-                    "| --- | --- | --- | --- | --- |",
+                    "| Method | Path | Required scope | Parameters | Responses | Details |",
+                    "| --- | --- | --- | --- | --- | --- |",
                 ]
             )
             for path, method, operation in entries:
@@ -626,6 +689,7 @@ def render_inventory() -> str:
                         [
                             f"`{method}`",
                             f"`{path}`",
+                            _escape_cell(_format_required_scope(operation)),
                             _format_params(operation),
                             _format_responses(operation),
                             _escape_cell(_format_details(operation)),
