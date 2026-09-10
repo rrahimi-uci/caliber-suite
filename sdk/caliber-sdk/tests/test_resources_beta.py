@@ -14,7 +14,15 @@ from typing import Any
 import httpx
 
 from caliber_sdk import CaliberClient
-from caliber_sdk.models import AriaPlan, CookbookRecipe, Job, McpServer, ReworkTask, decode
+from caliber_sdk.models import (
+    AriaPlan,
+    CookbookRecipe,
+    Job,
+    McpServer,
+    QualityReview,
+    ReworkTask,
+    decode,
+)
 
 BASE = "https://caliber.test"
 
@@ -170,6 +178,78 @@ def test_rework_tasks_reassign_sends_assigned_to() -> None:
     assert sent["path"] == "/rework-tasks/RWT-1/reassign"
     assert sent["body"] == {"assigned_to": "@marcus"}
     assert task.assigned_to == "@marcus"
+
+
+# --- quality reviews ---------------------------------------------------------
+
+
+def test_quality_review_create_sends_decision_and_rationale() -> None:
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent["path"] = request.url.path.rsplit("/caliber", 1)[-1]
+        sent["body"] = jsonlib.loads(request.content)
+        return envelope(
+            {
+                "review_id": "QRV-1",
+                "job_id": "RFN-1",
+                "agent_id": "support-agent",
+                "decision": "go",
+                "rationale": "cites the refund policy correctly",
+                "decided_by": "@qa",
+            }
+        )
+
+    with client_with(handler) as caliber:
+        review = caliber.quality_reviews.create(
+            "RFN-1", decision="go", rationale="cites the refund policy correctly"
+        )
+
+    assert sent["path"] == "/jobs/RFN-1/quality-reviews"
+    assert sent["body"] == {"decision": "go", "rationale": "cites the refund policy correctly"}
+    assert review == QualityReview(
+        review_id="QRV-1",
+        job_id="RFN-1",
+        agent_id="support-agent",
+        decision="go",
+        rationale="cites the refund policy correctly",
+        decided_by="@qa",
+    )
+
+
+def test_quality_review_no_go_uses_the_same_create_call() -> None:
+    """ "go" and "no_go" share one method -- the server, not the SDK, decides
+    what a "no_go" does to the job."""
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        sent["body"] = jsonlib.loads(request.content)
+        return envelope({"review_id": "QRV-2", "job_id": "RFN-1", "decision": "no_go"})
+
+    with client_with(handler) as caliber:
+        review = caliber.quality_reviews.create(
+            "RFN-1", decision="no_go", rationale="misses a required disclaimer"
+        )
+
+    assert sent["body"] == {"decision": "no_go", "rationale": "misses a required disclaimer"}
+    assert review.decision == "no_go"
+
+
+def test_quality_review_list_hits_the_documented_path() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/jobs/RFN-1/quality-reviews")
+        assert request.method == "GET"
+        return envelope(
+            [
+                {"review_id": "QRV-2", "job_id": "RFN-1", "decision": "no_go"},
+                {"review_id": "QRV-1", "job_id": "RFN-1", "decision": "go"},
+            ]
+        )
+
+    with client_with(handler) as caliber:
+        reviews = caliber.quality_reviews.list("RFN-1")
+
+    assert [r.review_id for r in reviews] == ["QRV-2", "QRV-1"]
 
 
 def test_a_paused_aria_plan_needs_you() -> None:

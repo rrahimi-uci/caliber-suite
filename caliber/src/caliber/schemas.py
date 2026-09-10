@@ -411,6 +411,37 @@ class ReworkTaskReassignRequest(BaseModel):
     assigned_to: str = Field(min_length=1, max_length=256)
 
 
+class QualityReviewSchema(BaseModel):
+    """Serialized form of :class:`caliber.db.models.CaliberQualityReview`."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    review_id: str
+    job_id: str
+    agent_id: str
+    decision: str
+    rationale: str
+    decided_by: str
+    candidate_snapshot: dict[str, object] | None
+    eval_results_snapshot: dict[str, object] | None
+    created_at: datetime
+
+
+class QualityReviewRequest(BaseModel):
+    """Body of ``POST /caliber/jobs/{job_id}/quality-reviews``.
+
+    Same validation bounds as :class:`ReleaseSignoffRequest` (its closest
+    precedent: an append-only go/no-go with a required rationale) -- a
+    separate class rather than reusing that one, since the two are unrelated
+    domain objects that happen to share a shape today.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: str = Field(pattern="^(go|no_go)$")
+    rationale: str = Field(min_length=8, max_length=10000)
+
+
 class HarvestedExampleSchema(BaseModel):
     """Eval-dataset example harvested from a verified correction (R2.3)."""
 

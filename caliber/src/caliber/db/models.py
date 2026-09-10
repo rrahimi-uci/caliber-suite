@@ -230,12 +230,13 @@ class CaliberReworkTask(Base):
     no task, notification, or queue entry for a Developer. This is a
     deliberately narrower slice of ``docs/workspace-plan.md``'s final target
     schema for this table (section 9.2) — Phase 3 only permits a refinement
-    job as the source; the Workspace-release source and the ``quality_no_go``
-    / ``release_no_go`` failure kinds require machinery (an aggregate release,
-    a QA quality-review record) that doesn't exist yet. Adding them here would
-    declare reachable-looking values nothing can ever set — the same
-    aspirational-allowlist problem ``routes/jobs.py``'s own ``_VALID_STATUSES``
-    already has for ``awaiting_approval``/``completed``/``cancelled``.
+    job as the source; the Workspace-release source and the
+    ``release_no_go`` failure kind require machinery (an aggregate release)
+    that doesn't exist yet. Adding it here would declare a reachable-looking
+    value nothing can ever set — the same aspirational-allowlist problem
+    ``routes/jobs.py``'s own ``_VALID_STATUSES`` already has for
+    ``awaiting_approval``/``completed``/``cancelled``. ``quality_no_go`` no
+    longer has this problem: ``routes/quality_reviews.py`` produces it.
 
     One row per rejected job (``job_id`` is unique): a job is rejected at most
     once, since ``rejected`` is terminal and a content fix produces a new,
@@ -255,13 +256,15 @@ class CaliberReworkTask(Base):
 
     # "machine_gate" | "iterations_exhausted" — the two cases eval_stage.py
     # can distinguish today (whether refine_iteration > 0 at the terminal
-    # rejection). "quality_no_go" and "release_no_go" are the target schema's
-    # remaining values, deferred with the quality-review record and the
-    # aggregate release respectively.
+    # rejection) — plus "quality_no_go", set by routes/quality_reviews.py
+    # when a human reviewer vetoes a candidate the machine gate passed.
+    # "release_no_go" is the target schema's remaining value, deferred with
+    # the aggregate Workspace release.
     failure_kind: Mapped[str] = mapped_column(String(32))
     reason: Mapped[str] = mapped_column(Text)
-    # decision.to_json() snapshot at rejection time — there is no separate
-    # durable gate-verdict row for refinement jobs to reference instead.
+    # decision.to_json() snapshot at rejection time for a machine-gate
+    # rejection; None for "quality_no_go" rows, since there is no gate
+    # decision object on that path (the review itself is the decision).
     gate_evidence: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
 
     assigned_to: Mapped[str | None] = mapped_column(String(256), nullable=True)
@@ -285,6 +288,58 @@ class CaliberReworkTask(Base):
     )
     resolved_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
     resolved_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class CaliberQualityReview(Base):
+    """A human go/no-go decision on a job's candidate, distinct from the
+    machine eval gate.
+
+    Unlike :class:`CaliberReworkTask`, this is not a narrower slice of a
+    later-phase target schema — the aggregate Workspace-release version of
+    this decision is a separate table
+    (``caliber_workspace_release_decisions``, ``docs/workspace-plan.md``
+    section 9.2), the same way that table's own docstring notes the release
+    path "does not reuse ``caliber_release_signoffs``" for its governance
+    decisions either. This table is Phase 3-scoped and standalone; no rename
+    is anticipated.
+
+    ``"go"`` is purely advisory: it records the row and nothing else --
+    ``POST /jobs/{id}/apply`` isn't coupled to it, matching the "advisory in
+    v1" precedent ``routes/gate_verdicts.py`` already set. ``"no_go"`` is not
+    advisory: a human explicitly vetoing a candidate the machine gate passed
+    is exactly the case ``CaliberReworkTask.failure_kind == "quality_no_go"``
+    exists for, so a ``no_go`` review terminally rejects the job
+    (``routes/quality_reviews.py`` performs both writes in one transaction --
+    see that module for why doing them separately would risk leaving the job
+    ``rejected`` with no owned task, or vice versa).
+
+    ``job_id`` is deliberately **not** unique, unlike ``CaliberReworkTask``'s
+    ``job_id``: a job can cycle through ``candidate_ready`` more than once
+    (a ``request-changes`` retry), and each pass may get its own review --
+    the same non-uniqueness ``CaliberApprovalRequest.job_id`` already has for
+    the same reason.
+    """
+
+    __tablename__ = "caliber_quality_reviews"
+    __table_args__ = (Index("ix_quality_reviews_job_created", "job_id", "created_at"),)
+
+    review_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    job_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_refinement_jobs.job_id"))
+    # Denormalized from the job, matching CaliberReworkTask's convention.
+    agent_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_agent_config.agent_id"))
+
+    decision: Mapped[str] = mapped_column(String(16))  # "go" | "no_go"
+    rationale: Mapped[str] = mapped_column(Text)
+    decided_by: Mapped[str] = mapped_column(String(256))
+
+    # Denormalized copies at review time, matching CaliberReleaseSignoff's
+    # own candidate_snapshot. eval_results is included specifically because
+    # this record's whole point is being "distinct from the machine gate
+    # verdict" -- the machine's own result is what the human is weighing.
+    candidate_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    eval_results_snapshot: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
 class CaliberApprovalRequest(Base):

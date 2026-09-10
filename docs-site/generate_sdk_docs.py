@@ -327,6 +327,9 @@ CLIENT_ATTRIBUTE_NOTES = {
     "jobs": "Long-running background jobs.",
     "review_queues": "Human review queues and queue items.",
     "rework_tasks": "Owned, recoverable work auto-created from a rejected refinement job.",
+    "quality_reviews": (
+        "A human go/no-go on a job's candidate, distinct from the machine eval gate."
+    ),
     "aria": "The approval-aware plan and interaction loop.",
     "releases": "Release candidates, waivers, signoff, and reports.",
     "observability": "Traces, experiments, and metrics.",

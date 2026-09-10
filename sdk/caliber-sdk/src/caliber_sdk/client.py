@@ -47,6 +47,7 @@ from .resources import (
     PlaygroundRunsAPI,
     ProjectsAPI,
     PromptsAPI,
+    QualityReviewsAPI,
     RawAPI,
     ReleasesAPI,
     ReviewQueuesAPI,
@@ -125,6 +126,7 @@ class CaliberClient:
         self.jobs = JobsAPI(self._transport)
         self.review_queues = ReviewQueuesAPI(self._transport)
         self.rework_tasks = ReworkTasksAPI(self._transport)
+        self.quality_reviews = QualityReviewsAPI(self._transport)
         self.verification_queue = VerificationQueueAPI(self._transport)
         self.aria = AriaAPI(self._transport)
         self.releases = ReleasesAPI(self._transport)

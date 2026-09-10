@@ -133,10 +133,13 @@ SDK_SURFACE_MAP = {
         "notes": "Bucket/object console operations, distinct from project file management.",
     },
     "jobs": {
-        "entry": "`client.jobs`",
+        "entry": "`client.jobs`, `client.quality_reviews`",
         "notes": (
             "Durable background jobs, targets, apply, wait semantics, and "
-            "request-changes (send a candidate_ready job back for another pass)."
+            "request-changes (send a candidate_ready job back for another pass). "
+            "`client.quality_reviews` covers the nested quality-review "
+            "sub-resource: a human go/no-go on a job's candidate, distinct "
+            "from the machine eval gate."
         ),
     },
     "rework-tasks": {
