@@ -1,2 +1,0 @@
-INFO     caliber.events.redis_bus:redis_bus.py:59 Redis event bus connected (channel=caliber.test)
-INFO     caliber.events.redis_bus:redis_bus.py:102 Redis event bus disconnected

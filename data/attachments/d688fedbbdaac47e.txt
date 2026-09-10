@@ -1,1 +1,0 @@
-WARNING  caliber.routes.static:static.py:134 rejected SPA asset path outside ui_dir: ../../../etc/passwd

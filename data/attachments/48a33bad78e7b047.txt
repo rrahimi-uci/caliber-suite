@@ -1,1 +1,0 @@
-INFO     caliber.orchestrator.calibration_drain:calibration_drain.py:273 calibration job CAL-TL-1-1 finished against stale inputs (tool_definition_changed, test_cases_changed); result recorded on the job but not on the tool
