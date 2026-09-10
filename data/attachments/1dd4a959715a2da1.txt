@@ -1,0 +1,12 @@
+{"t":"2026-09-10T18:14:28.074Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-10T18:14:28.096Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-10T18:14:28.098Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-10T18:14:28.100Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-10T18:14:28.136Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-10T18:14:28.152Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-31362874/versions \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-10T18:14:28.160Z","severity":"INFO","logger":"caliber.workflows.run","message":"version_number race on workflow WF-31362874 (attempt 1/5); retrying","trace_id":"1df8f7909b144152"}
+{"t":"2026-09-10T18:14:28.164Z","severity":"INFO","logger":"caliber.workflows.run","message":"version_number race on workflow WF-31362874 (attempt 2/5); retrying","trace_id":"1df8f7909b144152"}
+{"t":"2026-09-10T18:14:28.168Z","severity":"INFO","logger":"caliber.workflows.run","message":"version_number race on workflow WF-31362874 (attempt 3/5); retrying","trace_id":"1df8f7909b144152"}
+{"t":"2026-09-10T18:14:28.172Z","severity":"INFO","logger":"caliber.workflows.run","message":"version_number race on workflow WF-31362874 (attempt 4/5); retrying","trace_id":"1df8f7909b144152"}
+{"t":"2026-09-10T18:14:28.175Z","severity":"INFO","logger":"caliber.workflows.run","message":"version_number race on workflow WF-31362874 (attempt 5/5); retrying","trace_id":"1df8f7909b144152"}
+{"t":"2026-09-10T18:14:28.176Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-31362874/versions \"HTTP/1.1 409 Conflict\""}

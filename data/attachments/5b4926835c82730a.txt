@@ -1,0 +1,42 @@
+rotated     yes
+deployment  {'deployment_id': 'DEP-123c7365', 'workflow_id': 'WF-748556bd', 'alias': 'dev', 'version_id': 'WFV-037444ca', 'environment': 'development', 'status': 'active', 'deployed_by': '@test', 'deployed_at': '2026-09-10T18:15:07.529837Z', 'rollback_checkpoint': []}
+promotion   -
+gate        {'has_gate': False, 'passed': True, 'executor': None, 'runs': []}
+{'deployment_id': 'DEP-123c7365', 'workflow_id': 'WF-748556bd', 'alias': 'dev', 'version_id': 'WFV-037444ca', 'environment': 'development', 'status': 'active', 'deployed_by': '@test', 'deployed_at': '2026-09-10T18:15:07.529837', 'rollback_checkpoint': []}
+rotated     yes
+deployment  {'deployment_id': 'DEP-123c7365', 'workflow_id': 'WF-748556bd', 'alias': 'dev', 'version_id': 'WFV-6fb1bb6c', 'environment': 'development', 'status': 'active', 'deployed_by': '@test', 'deployed_at': '2026-09-10T18:15:07.610122Z', 'rollback_checkpoint': [{'version_id': 'WFV-037444ca', 'deployed_at': '2026-09-10T18:15:07.529837', 'deployed_by': '@test'}]}
+promotion   -
+gate        {'has_gate': False, 'passed': True, 'executor': None, 'runs': []}
+deployment_id        DEP-123c7365
+workflow_id          WF-748556bd
+alias                dev
+version_id           WFV-037444ca
+environment          development
+status               active
+deployed_by          @test
+deployed_at          2026-09-10T18:15:07.647107Z
+rollback_checkpoint  -
+state                 pass
+score                 -
+baseline_score        -
+min_aggregate_score   -
+worst_regression      -
+max_regression_delta  -
+eval_run_id           -
+evaluated_at          -
+state                 pass
+score                 -
+baseline_score        -
+min_aggregate_score   -
+worst_regression      -
+max_regression_delta  -
+eval_run_id           -
+evaluated_at          -
+state                 fail
+score                 -
+baseline_score        -
+min_aggregate_score   -
+worst_regression      -
+max_regression_delta  -
+eval_run_id           -
+evaluated_at          -

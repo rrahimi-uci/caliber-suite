@@ -1,8 +1,0 @@
-{"t":"2026-09-10T17:14:52.655Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-09-10T17:14:52.680Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-09-10T17:14:52.822Z","severity":"INFO","logger":"caliber","message":"created bootstrap admin account '@owner' (no accounts existed); grant it scopes via CALIBER_ADMIN_USERS"}
-{"t":"2026-09-10T17:14:52.824Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
-{"t":"2026-09-10T17:14:52.827Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-09-10T17:14:52.857Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/csrf \"HTTP/1.1 200 OK\""}
-{"t":"2026-09-10T17:14:52.978Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@owner' from testclient","trace_id":"20f3f60c09aa967d"}
-{"t":"2026-09-10T17:14:52.981Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
