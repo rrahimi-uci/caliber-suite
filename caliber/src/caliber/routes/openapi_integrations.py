@@ -1548,6 +1548,11 @@ async def publish_openapi_tool_draft(request: Request) -> JSONResponse:
         integration = _visible_integration_or_404(session, request, integration_id)
         identity = resolve_identity(request)
         if integration.project_id:
+            # `resource.publish` requires `caliber.operator` (section 2.4) --
+            # a project owner/editor with only `caliber.viewer` holds the
+            # project-role permission but not the global-scope ceiling.
+            # Found missing here during P1-B's GitHub Copilot review.
+            require_scopes(request, [SCOPE_ADMIN, SCOPE_OPERATOR])
             require_project_access(session, identity, integration.project_id, "resource.publish")
         elif not identity.has_scope(SCOPE_ADMIN):
             raise HTTPException(

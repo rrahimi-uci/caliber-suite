@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 
-from caliber.auth import SCOPE_ADMIN, SCOPE_VIEWER, CaliberIdentity
+from caliber.auth import SCOPE_ADMIN, SCOPE_APPROVER, SCOPE_OPERATOR, SCOPE_VIEWER, CaliberIdentity
 from caliber.db.models import CaliberProject, CaliberProjectMember
 from caliber.resource_access import (
     ACCESS_REASONS,
@@ -140,10 +140,30 @@ class TestAuthorize:
         assert decision.allowed
         assert decision.role == ROLE_OWNER
 
-    def test_no_workspace_id_denies(self, db_session) -> None:
-        decision = authorize(db_session, _identity("@owner"), "project.create", None)
+    def test_no_workspace_id_denies_for_ordinary_actions(self, db_session) -> None:
+        decision = authorize(db_session, _identity("@owner"), "read", None)
         assert not decision.allowed
         assert decision.reason == "project_not_found"
+
+    def test_project_create_with_no_workspace_id_is_the_documented_exception(
+        self, db_session
+    ) -> None:
+        """Section 5.4: `workspace_id=None` is valid *only* for
+        `project.create`'s pre-membership bootstrap check -- confirmed as a
+        GitHub Copilot finding on this PR (an earlier version denied this
+        case unconditionally, contradicting the documented contract and its
+        own test)."""
+        no_scopes = CaliberIdentity(user_id="@nobody", scopes=frozenset({SCOPE_VIEWER}))
+        denied = authorize(db_session, no_scopes, "project.create", None)
+        assert not denied.allowed
+        assert denied.reason == "permission_denied"
+
+        both_scopes = CaliberIdentity(
+            user_id="@both", scopes=frozenset({SCOPE_VIEWER, SCOPE_OPERATOR, SCOPE_APPROVER})
+        )
+        granted = authorize(db_session, both_scopes, "project.create", None)
+        assert granted.allowed
+        assert granted.reason == "granted"
 
     def test_unknown_workspace_id_is_project_not_found(self, db_session) -> None:
         decision = authorize(db_session, _identity("@owner"), "read", "P-nope")
