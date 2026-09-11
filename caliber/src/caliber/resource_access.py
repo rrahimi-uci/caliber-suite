@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 
-from caliber.auth import CaliberIdentity
+from caliber.auth import SCOPE_APPROVER, SCOPE_OPERATOR, CaliberIdentity
 from caliber.db.models import CaliberProject, CaliberProjectMember
 
 ROLE_OWNER: Final[str] = "owner"
@@ -140,10 +140,22 @@ def authorize(
         AND environment policy
         AND release-instance rules
 
-    The first three conjuncts are already satisfied by the time a route
-    calls this function -- `require_scopes`/`require_all_scopes` and
-    `resolve_identity` run first, at the route layer, exactly as they do
-    today. This function is responsible for the rest.
+    "Authenticated principal" is the route layer's job (`require_user`/
+    `resolve_identity` run before this function is ever reached). The
+    "credential/global-scope ceiling" conjunct is *supposed* to be the
+    calling route's responsibility too (`require_scopes`/`require_all_scopes`
+    before this function runs) -- but that is a convention this function
+    cannot itself enforce or verify, and a GitHub Copilot review of this
+    same PR found several existing routes that called
+    `require_project_access` without a preceding scope check at all,
+    letting a project-role holder with only `caliber.viewer` perform an
+    action section 2.4 says needs `caliber.operator`. Those call sites were
+    fixed directly (`routes/projects.py`'s member-mutation and
+    `project.update` routes; `routes/openapi_integrations.py`'s publish
+    route) rather than papering over the gap here: the fix belongs at each
+    call site until the closed `WorkspaceAction` registry (item 5/6, not
+    this slice) can carry a real action-to-scope mapping this function
+    could enforce centrally instead of trusting every caller to get right.
 
     `resource`/`environment`/`release` are typed `object | None` -- no
     `ResourceContext`/`EnvironmentContext`/`ReleaseContext` class exists
@@ -155,10 +167,19 @@ def authorize(
     trip over without noticing nothing was actually checked.
     """
     if workspace_id is None:
-        # Only `project.create`'s pre-membership bootstrap check has no
-        # concrete workspace (section 5.4), and that check is
-        # `require_all_scopes`, not this function -- every action reaching
-        # here with no workspace id denies.
+        if action == "project.create":
+            # The one documented exception (section 5.4): the pre-membership
+            # bootstrap check has no concrete workspace yet. `create_project`
+            # itself still enforces this via `require_all_scopes` at the
+            # route layer (unchanged) -- this branch exists so `authorize()`
+            # is not self-contradictory for the one case section 5.4 names
+            # as valid with `workspace_id=None`, for any caller that reaches
+            # this function directly instead.
+            required = frozenset({SCOPE_OPERATOR, SCOPE_APPROVER})
+            if required <= principal.scopes:
+                return AccessDecision(True, None, REASON_GRANTED, frozenset())
+            return AccessDecision(False, None, REASON_PERMISSION_DENIED, frozenset())
+        # Every other action with no concrete workspace denies (section 5.4).
         return AccessDecision(False, None, REASON_PROJECT_NOT_FOUND, frozenset())
     if resource is not None:
         raise NotImplementedError(

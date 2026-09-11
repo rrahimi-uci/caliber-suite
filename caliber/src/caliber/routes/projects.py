@@ -323,7 +323,9 @@ def _require_project(
     files, create folder, and upload all funnelled through -- so a known project id read
     and mutated another owner's project even though listing hid it.
 
-    Projects are visible to their owner, active members, and admins. The same helper
+    Projects are visible to their owner and active members only -- `P1-B`
+    removed the platform-admin owner bypass (`caliber.admin` is no longer
+    an implicit workspace role). The same helper
     is used by list, detail, file, and membership routes so a detail rule cannot drift
     from its list rule.
 
@@ -599,6 +601,12 @@ async def list_project_members(request: Request) -> JSONResponse:
 async def add_project_member(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = ProjectMemberCreateRequest.model_validate(body)
+    # `project.manage_members` requires `caliber.operator` (section 2.4) --
+    # a project owner with only the universal `caliber.viewer` scope holds
+    # the project-role permission but not the global-scope ceiling. Found
+    # missing here during P1-B's GitHub Copilot review; the project-role
+    # check alone (below) does not enforce this.
+    require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
     project_id = request.path_params["project_id"]
     user_id = payload.user_id.strip()
@@ -652,6 +660,9 @@ async def add_project_member(request: Request) -> JSONResponse:
 async def update_project_member(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = ProjectMemberUpdateRequest.model_validate(body)
+    # See `add_project_member`: `project.manage_members` requires
+    # `caliber.operator`, not just the project-role permission.
+    require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
     project_id = request.path_params["project_id"]
     user_id = request.path_params["user_id"]
@@ -690,6 +701,9 @@ async def update_project_member(request: Request) -> JSONResponse:
 
 
 async def remove_project_member(request: Request) -> JSONResponse:
+    # See `add_project_member`: `project.manage_members` requires
+    # `caliber.operator`, not just the project-role permission.
+    require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
     project_id = request.path_params["project_id"]
     user_id = request.path_params["user_id"]
@@ -722,6 +736,11 @@ async def remove_project_member(request: Request) -> JSONResponse:
 async def update_project(request: Request) -> JSONResponse:
     project_id = request.path_params["project_id"]
     body = await parse_json_object(request)
+    # `project.update` requires `caliber.operator` (section 2.4) -- same
+    # gap class as `add_project_member`, found during the same review: an
+    # editor with only `caliber.viewer` holds the project-role permission
+    # but not the global-scope ceiling.
+    require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
     factory = get_session_factory(request)
     with factory() as session:
