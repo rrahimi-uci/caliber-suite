@@ -1,0 +1,42 @@
+rotated     yes
+deployment  {'deployment_id': 'DEP-37b63c6d', 'workflow_id': 'WF-22dbc43b', 'alias': 'dev', 'version_id': 'WFV-9f3c034b', 'environment': 'development', 'status': 'active', 'deployed_by': '@test', 'deployed_at': '2026-09-11T12:25:14.952081Z', 'rollback_checkpoint': []}
+promotion   -
+gate        {'has_gate': False, 'passed': True, 'executor': None, 'runs': []}
+{'deployment_id': 'DEP-37b63c6d', 'workflow_id': 'WF-22dbc43b', 'alias': 'dev', 'version_id': 'WFV-9f3c034b', 'environment': 'development', 'status': 'active', 'deployed_by': '@test', 'deployed_at': '2026-09-11T12:25:14.952081', 'rollback_checkpoint': []}
+rotated     yes
+deployment  {'deployment_id': 'DEP-37b63c6d', 'workflow_id': 'WF-22dbc43b', 'alias': 'dev', 'version_id': 'WFV-ebd361bf', 'environment': 'development', 'status': 'active', 'deployed_by': '@test', 'deployed_at': '2026-09-11T12:25:15.044853Z', 'rollback_checkpoint': [{'version_id': 'WFV-9f3c034b', 'deployed_at': '2026-09-11T12:25:14.952081', 'deployed_by': '@test'}]}
+promotion   -
+gate        {'has_gate': False, 'passed': True, 'executor': None, 'runs': []}
+deployment_id        DEP-37b63c6d
+workflow_id          WF-22dbc43b
+alias                dev
+version_id           WFV-9f3c034b
+environment          development
+status               active
+deployed_by          @test
+deployed_at          2026-09-11T12:25:15.084584Z
+rollback_checkpoint  -
+state                 pass
+score                 -
+baseline_score        -
+min_aggregate_score   -
+worst_regression      -
+max_regression_delta  -
+eval_run_id           -
+evaluated_at          -
+state                 pass
+score                 -
+baseline_score        -
+min_aggregate_score   -
+worst_regression      -
+max_regression_delta  -
+eval_run_id           -
+evaluated_at          -
+state                 fail
+score                 -
+baseline_score        -
+min_aggregate_score   -
+worst_regression      -
+max_regression_delta  -
+eval_run_id           -
+evaluated_at          -

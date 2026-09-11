@@ -1,2 +1,0 @@
-WARNING  caliber.orchestrator.triage:triage.py:241 LLM triage failed for item FB-SKILL (model down); using heuristic
-INFO     caliber.orchestrator.triage:triage.py:136 triage complete: job=RFN-SKILL class={'cluster': 'hallucination', 'artifact_type': 'prompt', 'confidence': 0.6}

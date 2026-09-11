@@ -1,0 +1,8 @@
+{"t":"2026-09-11T12:22:42.691Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-11T12:22:42.710Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-11T12:22:42.712Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-11T12:22:42.714Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-11T12:22:42.773Z","severity":"INFO","logger":"caliber.orchestrator.eval_stage","message":"eval rejected: job=RFN-E reasons=['overall 0.500 below min_aggregate_score 0.850'] overall=0.500 rework_task=RWT-748ddb21"}
+{"t":"2026-09-11T12:22:42.780Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/rework-tasks \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-11T12:22:42.790Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/rework-tasks/RWT-748ddb21/claim \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-11T12:22:42.799Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/rework-tasks/RWT-748ddb21/resolve \"HTTP/1.1 200 OK\""}
