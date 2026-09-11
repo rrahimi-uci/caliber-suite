@@ -141,12 +141,11 @@ _PAGINATION_NOTES: dict[tuple[str, str], PaginationNote] = {
         PaginationShape.BESPOKE_TOTAL_ENVELOPE,
         "audit.py::list_audit_log; own `limit`+`offset` parsing, returns "
         "`AuditLogPageSchema` (`entries`/`total`/`limit`/`offset`) -- structurally "
-        "different from every other list route's `{\"data\": [...]}` envelope",
+        'different from every other list route\'s `{"data": [...]}` envelope',
     ),
     _key("/auth/accounts"): PaginationNote(
         PaginationShape.UNPAGINATED_FAKE_TOTAL,
-        "auth.py::list_accounts; no client params, full unpaginated scan, "
-        "`total=len(accounts)`",
+        "auth.py::list_accounts; no client params, full unpaginated scan, `total=len(accounts)`",
     ),
     _key("/tools/{tool_id}/calibration-jobs"): PaginationNote(
         PaginationShape.UNPAGINATED_FAKE_TOTAL,

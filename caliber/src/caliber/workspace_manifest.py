@@ -204,9 +204,7 @@ class WorkspaceManifest(_StrictModel):
         field is a materialization-time content scan, out of scope here."""
         for ref in value:
             if not ref.startswith("secret://"):
-                raise ValueError(
-                    f"secretRefs entries must be secret:// references, got: {ref!r}"
-                )
+                raise ValueError(f"secretRefs entries must be secret:// references, got: {ref!r}")
             if ref == "secret://":
                 raise ValueError("secretRefs entry has an empty secret name")
         return value

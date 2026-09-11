@@ -144,11 +144,15 @@ def test_the_golden_digest_is_pinned() -> None:
     ("mutation", "match"),
     [
         pytest.param(
-            lambda m: m.update({"apiVersion": "caliber/v1beta1"}), "apiVersion", id="bad-api-version"
+            lambda m: m.update({"apiVersion": "caliber/v1beta1"}),
+            "apiVersion",
+            id="bad-api-version",
         ),
         pytest.param(lambda m: m.update({"kind": "Project"}), "kind", id="bad-kind"),
         pytest.param(
-            lambda m: m.update({"unknownTopLevelField": "x"}), "unknownTopLevelField", id="unknown-top-level-key"
+            lambda m: m.update({"unknownTopLevelField": "x"}),
+            "unknownTopLevelField",
+            id="unknown-top-level-key",
         ),
     ],
 )
