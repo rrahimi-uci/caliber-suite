@@ -1,1 +1,0 @@
-{"t":"2026-09-10T23:45:28.757Z","severity":"WARNING","logger":"caliber.routes.static","message":"rejected SPA asset path outside ui_dir: ../../../etc/passwd"}
