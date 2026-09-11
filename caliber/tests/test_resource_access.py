@@ -165,6 +165,36 @@ class TestAuthorize:
         assert granted.allowed
         assert granted.reason == "granted"
 
+    def test_a_real_admin_identity_satisfies_the_bootstrap_check(self, db_session) -> None:
+        """GitHub Copilot review: a `CaliberIdentity` built directly with
+        only the literal `SCOPE_ADMIN` value (bypassing `resolve_identity`)
+        would not satisfy the two-scope check above. That is not a bug in
+        `authorize()` -- `auth.py::current_scopes()` always expands
+        `caliber.admin` into every scope it implies (operator, approver,
+        viewer) *before* a real `CaliberIdentity` is ever constructed, the
+        same assumption every other scope check in this codebase makes
+        (`CaliberIdentity.has_scope` has no hierarchy logic of its own).
+        This test builds the identity the way `current_scopes()` actually
+        would, proving the real-world case works."""
+        real_admin = CaliberIdentity(
+            user_id="@admin",
+            scopes=frozenset({SCOPE_ADMIN, SCOPE_APPROVER, SCOPE_OPERATOR, SCOPE_VIEWER}),
+        )
+        decision = authorize(db_session, real_admin, "project.create", None)
+        assert decision.allowed
+
+    def test_unmodeled_context_guard_runs_even_for_the_bootstrap_case(self, db_session) -> None:
+        """GitHub Copilot review: the `project.create`/`workspace_id=None`
+        branch used to return before the `resource`/`environment`/`release`
+        guards, so a caller could bypass the "not modeled yet" signal by
+        combining it with the bootstrap case. The guards must run first,
+        unconditionally."""
+        both_scopes = CaliberIdentity(
+            user_id="@both", scopes=frozenset({SCOPE_VIEWER, SCOPE_OPERATOR, SCOPE_APPROVER})
+        )
+        with pytest.raises(NotImplementedError, match="per-resource"):
+            authorize(db_session, both_scopes, "project.create", None, resource=object())
+
     def test_unknown_workspace_id_is_project_not_found(self, db_session) -> None:
         decision = authorize(db_session, _identity("@owner"), "read", "P-nope")
         assert not decision.allowed

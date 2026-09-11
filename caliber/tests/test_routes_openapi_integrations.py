@@ -20,9 +20,12 @@ from caliber.db.models import (
     CaliberOpenApiIntegrationVersion,
     CaliberOpenApiOperation,
     CaliberOpenApiToolDraft,
+    CaliberProject,
+    CaliberProjectMember,
     CaliberToolRegistry,
 )
 from caliber.integrations.openapi import executor as executor_module
+from caliber.resource_access import ROLE_EDITOR
 from tests.workflow_helpers import create_draft, create_workflow, make_manifest
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
@@ -86,10 +89,12 @@ paths:
 """
 
 
-def _create_integration(client: TestClient, **payload: object) -> dict[str, object]:
+def _create_integration(
+    client: TestClient, *, headers: dict[str, str] | None = None, **payload: object
+) -> dict[str, object]:
     body = {"name": "Ticketing", "description": "External ticket API"}
     body.update(payload)
-    response = client.post(BASE, json=body)
+    response = client.post(BASE, json=body, headers=headers)
     assert response.status_code == 201, response.text
     return response.json()["data"]
 
@@ -100,10 +105,12 @@ def _import_version(
     *,
     spec_text: str = OPENAPI_SPEC,
     source_ref: str = "inline://ticketing",
+    headers: dict[str, str] | None = None,
 ) -> dict[str, object]:
     response = client.post(
         f"{BASE}/{integration_id}/import",
         json={"source_kind": "inline_text", "source_ref": source_ref, "spec_text": spec_text},
+        headers=headers,
     )
     assert response.status_code == 201, response.text
     return response.json()["data"]
@@ -386,6 +393,82 @@ def test_generate_preview_and_publish_openapi_tool_draft(
     assert draft_row.published_tool_id == tool["tool_id"]
     assert tool_row is not None
     assert tool_row.execution_backend == "openapi_http"
+
+
+def test_publish_project_scoped_draft_requires_operator_scope_not_just_project_role(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    """GitHub Copilot review (round 2, PR #294): the project-scoped branch
+    of `publish_openapi_tool_draft` gained a `require_scopes(request,
+    [SCOPE_ADMIN, SCOPE_OPERATOR])` call, closing a gap where a project
+    owner/editor holding only the universal `caliber.viewer` scope could
+    still publish (`resource.publish` requires `caliber.operator` per
+    section 2.4). The existing publish test never exercises this because it
+    never sets a project on the integration at all -- this proves the
+    negative case directly with a real, project-scoped integration and a
+    real (non-admin) project editor."""
+    project_id = "PRJ-openapi-publish-scope"
+    db_session.add(
+        CaliberProject(project_id=project_id, name="OpenAPI scope check", owner="@owner")
+    )
+    db_session.add(
+        CaliberProjectMember(
+            member_id="M-openapi-editor",
+            project_id=project_id,
+            user_id="@viewer-editor",
+            role=ROLE_EDITOR,
+            created_by="@owner",
+        )
+    )
+    db_session.commit()
+
+    project_headers = {"X-CALIBER-Project": project_id}
+    integration = _create_integration(client, headers=project_headers)
+    assert integration["project_id"] == project_id
+
+    _import_version(client, str(integration["integration_id"]), headers=project_headers)
+    operations = client.get(
+        f"{BASE}/{integration['integration_id']}/operations", headers=project_headers
+    ).json()["data"]
+    target = next(
+        item for item in operations if item["operation_key"] == "GET /tickets/{ticket_id}"
+    )
+
+    monkeypatch.setenv("OPENAPI_TICKET_TOKEN", "ticket-secret")
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(200, json={"ticket_id": "T-1", "status": "open"})
+
+    _mock_http(monkeypatch, handler)
+
+    generated = client.post(
+        f"{BASE}/{integration['integration_id']}/tool-drafts/generate",
+        json={
+            "operation_ids": [target["operation_id"]],
+            "auth_binding": {"kind": "bearer", "secret_ref": "env://OPENAPI_TICKET_TOKEN"},
+            "allow_in_preview": True,
+        },
+        headers=project_headers,
+    )
+    assert generated.status_code == 201, generated.text
+    draft = generated.json()["data"][0]
+
+    # "@viewer-editor" is a genuine editor on this project (real
+    # `resource.publish` project-role permission) but is not in any
+    # operator/approver/admin allow-list, so `resolve_identity` grants it
+    # only `caliber.viewer` -- no global-scope ceiling.
+    published = client.post(
+        f"{BASE}/{integration['integration_id']}/tool-drafts/{draft['draft_id']}/publish",
+        json={"version": "1.0"},
+        headers={**project_headers, "X-CALIBER-User": "@viewer-editor"},
+    )
+    assert published.status_code == 403, published.text
+
+    draft_row = db_session.get(CaliberOpenApiToolDraft, draft["draft_id"])
+    assert draft_row is not None
+    assert draft_row.published_tool_id is None
 
 
 def test_published_openapi_tool_runs_in_workflow_preview(client: TestClient, monkeypatch) -> None:
