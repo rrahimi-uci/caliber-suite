@@ -22,16 +22,23 @@ a single-function AST walk (matching `openapi_inference.py::_analyze`'s own
 scope) is sufficient; this does not chase into helpers the handler calls
 beyond the two known project-access wrapper names.
 
-Five possible classifications (:class:`ScopeRequirement.kind`):
+Six possible classifications (:class:`ScopeRequirement.kind`):
 
 * ``"scope"`` -- one or more `require_scopes(request, [SCOPE_X, ...])` calls
   where every argument is a literal reference to one of the four scope
   constants. Multiple calls in one handler are a conjunction (AND): each
   independently raises if unsatisfied, so reaching the code after both means
   both passed. (`require_scopes` itself is OR-within-one-call -- "at least
-  one of" its own list -- matching `docs/workspace-plan.md` section 2.4's
-  note that today's helper cannot express a single call requiring two scopes
-  at once.)
+  one of" its own list.)
+* ``"scope_all"`` -- one or more `require_all_scopes(request, [SCOPE_X, ...])`
+  calls, same literal-argument requirement as `"scope"` above, but a single
+  call already means AND ("all of" its own list) -- the primitive
+  `docs/workspace-plan.md` section 2.4 named as missing (`P1-A` added it to
+  `auth.py` for `project.create`'s pre-membership two-scope bootstrap
+  check). Kept as a distinct kind from `"scope"` rather than folded into it:
+  collapsing "at least one of these" and "all of these" into the same kind
+  would silently erase the one distinction a reader of this inventory most
+  needs.
 * ``"authenticated"`` -- `require_user(request)` only: any signed-in caller,
   no specific scope.
 * ``"project_role"`` -- gated by `require_project_access(...)` (or the
@@ -155,7 +162,7 @@ _PUBLIC_ROUTES: dict[str, str] = {
 class ScopeRequirement:
     """The result of inferring one handler's required scope."""
 
-    kind: str  # "scope" | "authenticated" | "project_role" | "dynamic" | "public"
+    kind: str  # "scope" | "scope_all" | "authenticated" | "project_role" | "dynamic" | "public"
     scopes: frozenset[str] = frozenset()
     action: str | None = None  # the project action string, for kind="project_role"
     note: str | None = None
@@ -200,6 +207,7 @@ def _function_body(endpoint: Any) -> list[ast.stmt]:
 @dataclass
 class _CallSurvey:
     scope_calls: list[ast.Call] = field(default_factory=list)
+    all_scope_calls: list[ast.Call] = field(default_factory=list)
     project_access_calls: list[ast.Call] = field(default_factory=list)
     has_require_user: bool = False
 
@@ -212,6 +220,8 @@ def _survey_calls(statements: list[ast.stmt]) -> _CallSurvey:
         name = _call_name(node)
         if name == "require_scopes":
             survey.scope_calls.append(node)
+        elif name == "require_all_scopes":
+            survey.all_scope_calls.append(node)
         elif name == "require_user":
             survey.has_require_user = True
         elif name in _PROJECT_ACCESS_CALL_NAMES:
@@ -264,6 +274,11 @@ def _literal_project_action(call: ast.Call) -> str | None:
 def _literal_scope_names(call: ast.Call) -> frozenset[str] | None:
     """The call's scope-list argument, if it's a clean literal.
 
+    Shared by `require_scopes` and `require_all_scopes` calls alike -- both
+    take `(request, scopes)`, so the same extraction applies regardless of
+    which one the caller resolved via :func:`_call_name`; only the meaning
+    of the result (OR vs. AND) differs, decided by the caller.
+
     Returns the resolved scope constant names, or ``None`` if the argument
     isn't a `List` of bare `Name` references to the four known scope
     constants -- e.g. a variable computed by an earlier conditional
@@ -283,6 +298,23 @@ def _literal_scope_names(call: ast.Call) -> frozenset[str] | None:
     return frozenset(names) if names else None
 
 
+def _classify_literal_scope_calls(
+    calls: list[ast.Call], *, kind: str, qualified: str
+) -> ScopeRequirement:
+    """Resolve one or more `require_scopes`/`require_all_scopes` calls into
+    a `kind` requirement, or `"dynamic"` if any call's scope list isn't a
+    clean literal. Shared by both call kinds -- they differ only in what
+    `kind` label their literal result gets (OR vs. AND semantics), not in
+    how the literal is extracted or how a non-literal falls back."""
+    resolved: set[str] = set()
+    for call in calls:
+        names = _literal_scope_names(call)
+        if names is None:
+            return ScopeRequirement(kind="dynamic", note=_DYNAMIC_SCOPE_NOTES.get(qualified))
+        resolved |= names
+    return ScopeRequirement(kind=kind, scopes=frozenset(resolved))
+
+
 def infer_required_scope(endpoint: Any) -> ScopeRequirement:
     """Classify one route handler's required scope from its own source."""
     target = _unwrap_endpoint(endpoint)
@@ -300,24 +332,17 @@ def infer_required_scope(endpoint: Any) -> ScopeRequirement:
         )
         return ScopeRequirement(kind="project_role", action=action)
 
-    if not survey.scope_calls:
-        if survey.has_require_user:
-            return ScopeRequirement(kind="authenticated")
-        return ScopeRequirement(
-            kind="public",
-            note=_PUBLIC_ROUTES.get(qualified),
+    if survey.all_scope_calls:
+        return _classify_literal_scope_calls(
+            survey.all_scope_calls, kind="scope_all", qualified=qualified
         )
 
-    resolved: set[str] = set()
-    for call in survey.scope_calls:
-        names = _literal_scope_names(call)
-        if names is None:
-            return ScopeRequirement(
-                kind="dynamic",
-                note=_DYNAMIC_SCOPE_NOTES.get(qualified),
-            )
-        resolved |= names
-    return ScopeRequirement(kind="scope", scopes=frozenset(resolved))
+    if survey.scope_calls:
+        return _classify_literal_scope_calls(survey.scope_calls, kind="scope", qualified=qualified)
+
+    if survey.has_require_user:
+        return ScopeRequirement(kind="authenticated")
+    return ScopeRequirement(kind="public", note=_PUBLIC_ROUTES.get(qualified))
 
 
 def serialize_scope_requirement(requirement: ScopeRequirement) -> dict[str, Any]:

@@ -54,6 +54,26 @@ def test_multiple_scopes_render_with_explicit_or_semantics() -> None:
     assert rendered == "one of `caliber.admin` or `caliber.operator`"
 
 
+def test_scope_all_single_scope_renders_as_one_code_span() -> None:
+    op = {"x-caliber-required-scope": {"kind": "scope_all", "scopes": ["SCOPE_OPERATOR"]}}
+    assert gen._format_required_scope(op) == "`caliber.operator`"
+
+
+def test_scope_all_multiple_scopes_render_with_explicit_and_semantics() -> None:
+    """`require_all_scopes()` (`P1-A`) grants access only when the caller
+    holds EVERY listed scope -- the opposite of `scope`'s OR semantics, so
+    it must render distinctly ("all of ... and ...", not "one of ... or
+    ...")."""
+    op = {
+        "x-caliber-required-scope": {
+            "kind": "scope_all",
+            "scopes": ["SCOPE_APPROVER", "SCOPE_OPERATOR"],
+        }
+    }
+    rendered = gen._format_required_scope(op)
+    assert rendered == "all of `caliber.approver` and `caliber.operator`"
+
+
 def test_authenticated_kind_renders_plainly() -> None:
     op = {"x-caliber-required-scope": {"kind": "authenticated"}}
     assert gen._format_required_scope(op) == "any authenticated user"

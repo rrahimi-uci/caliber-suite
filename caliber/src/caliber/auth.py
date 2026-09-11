@@ -368,6 +368,42 @@ def require_scopes(request: Request, scopes: Iterable[str]) -> str:
     return actor
 
 
+def require_all_scopes(request: Request, scopes: Iterable[str]) -> str:
+    """Assert the caller holds every one of the named scopes.
+
+    ``require_scopes`` is an OR check ("at least one of") -- it has no way
+    to express a conjunction, and reusing it with multiple scopes would
+    silently grant access on any *one* of them. Section 2.4 names this exact
+    gap for actions like ``project.create`` that require **both**
+    `SCOPE_OPERATOR` and `SCOPE_APPROVER` (the pre-membership two-scope
+    bootstrap check -- no Workspace membership exists yet to fall back on).
+
+    Same two-status split as :func:`require_scopes`: no identity → 401;
+    identity present but missing any required scope → 403.
+    """
+    required = frozenset(scopes)
+    if not required:
+        raise RuntimeError("require_all_scopes called with empty scope set")
+
+    actor = current_user(request)
+    if actor == ANONYMOUS:
+        raise HTTPException(
+            status_code=401,
+            detail="authentication required (no identity in request)",
+        )
+    granted = current_scopes(request)
+    missing = required - granted
+    if missing:
+        raise HTTPException(
+            status_code=403,
+            detail=(
+                f"missing required scope(s); expected all of {sorted(required)}, "
+                f"have {sorted(granted)}"
+            ),
+        )
+    return actor
+
+
 def _parse_user_list(raw: str) -> frozenset[str]:
     """Split a comma-separated user list, ignoring empty entries.
 

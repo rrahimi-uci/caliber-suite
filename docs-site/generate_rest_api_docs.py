@@ -441,6 +441,24 @@ def _format_scope_names(requirement: dict[str, object]) -> str:
     return "one of " + " or ".join(f"`{v}`" for v in values)
 
 
+def _format_scope_names_all(requirement: dict[str, object]) -> str:
+    """`require_all_scopes()` grants access only if the caller holds *every*
+    listed scope (`caliber/src/caliber/auth.py`'s `required - granted` check)
+    -- the AND counterpart to `_format_scope_names`'s OR. Comma-joining
+    would happen to read correctly here (unlike the OR case), but stating
+    "all of" explicitly keeps the two kinds visually distinct in the table
+    rather than looking like the same shape with different data.
+    """
+    names = requirement.get("scopes")
+    names = names if isinstance(names, list) else []
+    values = sorted(_scope_value(n) for n in names if isinstance(n, str))
+    if not values:
+        return "—"
+    if len(values) == 1:
+        return f"`{values[0]}`"
+    return "all of " + " and ".join(f"`{v}`" for v in values)
+
+
 def _format_project_role(requirement: dict[str, object]) -> str:
     action = requirement.get("action")
     return f"project role (`{action}`)" if isinstance(action, str) and action else "project role"
@@ -461,6 +479,7 @@ def _format_required_scope(operation: dict[str, object]) -> str:
     kind = requirement.get("kind")
     formatters = {
         "scope": _format_scope_names,
+        "scope_all": _format_scope_names_all,
         "authenticated": lambda _req: "any authenticated user",
         "project_role": _format_project_role,
         "dynamic": lambda req: _format_kind_with_note(req, label="dynamic"),

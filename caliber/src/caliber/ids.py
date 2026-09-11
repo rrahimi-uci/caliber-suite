@@ -78,6 +78,7 @@ WORKFLOW_FILE_PREFIX = "FILE-"
 # Project / workspace prefix.
 PROJECT_PREFIX = "PRJ-"
 PROJECT_MEMBER_PREFIX = "PRJM-"
+WORKSPACE_ENVIRONMENT_PREFIX = "WSE-"
 
 # Ad-hoc prompt-test run prefix.
 PROMPT_TEST_RUN_PREFIX = "PTR-"
@@ -428,6 +429,17 @@ def new_project_id() -> str:
 def new_project_member_id() -> str:
     """Return a fresh project-membership ID, e.g. ``PRJM-3a8f2c7e``."""
     return f"{PROJECT_MEMBER_PREFIX}{_suffix()}"
+
+
+def new_workspace_environment_id() -> str:
+    """Return a fresh Workspace-environment ID, e.g. ``WSE-3a8f2c7e``.
+
+    Prefix matches ``docs/workspace-plan.md`` section 9.2's
+    ``caliber_workspace_environments`` table naming (``WSE-*``) -- this is
+    the minimal, `P1-A`-shaped slice of that table (see
+    ``db/models.py::CaliberWorkspaceEnvironment``), not a rename target.
+    """
+    return f"{WORKSPACE_ENVIRONMENT_PREFIX}{_suffix()}"
 
 
 def new_prompt_test_run_id() -> str:

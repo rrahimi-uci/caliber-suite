@@ -30,7 +30,10 @@ _EXPECTED_COUNTS = {
     SCOPING_UNSCOPED: 40,
     SCOPING_OWNED_CATALOG: 24,
     SCOPING_VISIBILITY: 14,
-    SCOPING_PROJECT_ONLY: 7,
+    # +1 (`P1-A`): CaliberWorkspaceEnvironment has project_id, no
+    # visibility/owner column -- correctly project_only, confirmed by
+    # direct look, not a drive-by bump.
+    SCOPING_PROJECT_ONLY: 8,
 }
 
 

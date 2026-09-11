@@ -377,3 +377,64 @@ def test_skill_snapshot_migration_backfills_only_missing_current_versions(
         }
     finally:
         engine.dispose()
+
+
+@pytest.mark.slow
+def test_0093_backfills_slug_source_mode_and_four_environments_per_project(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """`P1-A`'s backfill: every pre-existing project gets a derived,
+    tenant-unique slug, a default source mode, and its four fixed
+    environment rows -- additively, with no data loss. Two projects whose
+    names slugify identically ("Demo" / "demo!") must not collide."""
+    db_path = tmp_path / "workspace_environments.db"
+    db_url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+    monkeypatch.chdir(PROJECT_ROOT)
+    cfg = Config(str(ALEMBIC_INI))
+    command.upgrade(cfg, "0092")
+
+    engine = create_engine(db_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_projects (project_id, tenant_id, name, owner) VALUES "
+                    "(:id1, 'local', 'Demo', 'alice'), "
+                    "(:id2, 'local', 'demo!', 'bob')"
+                ),
+                {"id1": "PRJ-demo-1", "id2": "PRJ-demo-2"},
+            )
+
+        command.upgrade(cfg, "0093")
+
+        with engine.connect() as connection:
+            projects = {
+                row.project_id: (row.slug, row.source_mode)
+                for row in connection.execute(
+                    text("SELECT project_id, slug, source_mode FROM caliber_projects")
+                )
+            }
+            assert projects == {
+                "PRJ-demo-1": ("demo", "caliber_managed"),
+                "PRJ-demo-2": ("demo-2", "caliber_managed"),
+            }
+
+            for project_id in ("PRJ-demo-1", "PRJ-demo-2"):
+                environments = connection.execute(
+                    text(
+                        "SELECT name, environment_class, promotion_order, status "
+                        "FROM caliber_workspace_environments "
+                        "WHERE project_id = :project_id ORDER BY promotion_order"
+                    ),
+                    {"project_id": project_id},
+                ).fetchall()
+                assert [tuple(row) for row in environments] == [
+                    ("dev", "development", 10, "active"),
+                    ("qa", "qa", 20, "disabled"),
+                    ("staging", "staging", 30, "disabled"),
+                    ("prod", "production", 40, "disabled"),
+                ]
+    finally:
+        engine.dispose()
+        os.environ.pop("CALIBER_DATABASE_URL", None)

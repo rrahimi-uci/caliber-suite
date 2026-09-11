@@ -28,6 +28,7 @@ from caliber.auth import (
     _parse_user_list,
     current_scopes,
     current_user,
+    require_all_scopes,
     require_scopes,
 )
 from caliber.config import CaliberConfig
@@ -149,3 +150,51 @@ def test_require_scopes_empty_set_is_a_developer_error() -> None:
     request = _stub_request("@admin", _config(admin_users="@admin"))
     with pytest.raises(RuntimeError, match="empty scope set"):
         require_scopes(request, [])
+
+
+# ---------------------------------------------------------------------------
+# require_all_scopes — the AND-semantics primitive `P1-A` adds
+# (require_scopes above is OR-only: "at least one of").
+# ---------------------------------------------------------------------------
+
+
+def test_require_all_scopes_passes_when_every_scope_is_granted() -> None:
+    request = _stub_request("@dual", _config(operator_users="@dual", approver_users="@dual"))
+    assert require_all_scopes(request, [SCOPE_OPERATOR, SCOPE_APPROVER]) == "@dual"
+
+
+def test_require_all_scopes_admin_satisfies_any_conjunction() -> None:
+    """Admin implies both operator and approver, so it satisfies the
+    conjunction too — not just either scope alone."""
+    request = _stub_request("@admin", _config(admin_users="@admin"))
+    assert require_all_scopes(request, [SCOPE_OPERATOR, SCOPE_APPROVER]) == "@admin"
+
+
+def test_require_all_scopes_denies_operator_only() -> None:
+    """Holding *one* of the two required scopes is not enough — this is
+    the exact case ``require_scopes`` would have wrongly admitted."""
+    request = _stub_request("@op", _config(operator_users="@op"))
+    with pytest.raises(HTTPException) as excinfo:
+        require_all_scopes(request, [SCOPE_OPERATOR, SCOPE_APPROVER])
+    assert excinfo.value.status_code == 403
+    assert "missing required scope" in excinfo.value.detail.lower()
+
+
+def test_require_all_scopes_denies_approver_only() -> None:
+    request = _stub_request("@review", _config(approver_users="@review"))
+    with pytest.raises(HTTPException) as excinfo:
+        require_all_scopes(request, [SCOPE_OPERATOR, SCOPE_APPROVER])
+    assert excinfo.value.status_code == 403
+
+
+def test_require_all_scopes_raises_401_for_anonymous() -> None:
+    request = _stub_request(None, _config())
+    with pytest.raises(HTTPException) as excinfo:
+        require_all_scopes(request, [SCOPE_OPERATOR, SCOPE_APPROVER])
+    assert excinfo.value.status_code == 401
+
+
+def test_require_all_scopes_empty_set_is_a_developer_error() -> None:
+    request = _stub_request("@admin", _config(admin_users="@admin"))
+    with pytest.raises(RuntimeError, match="empty scope set"):
+        require_all_scopes(request, [])
