@@ -172,26 +172,32 @@ async def staging_upload(request: Request) -> JSONResponse:
     """Upload a file before a run exists (workflow_run_id NULL, storage doc §4.7)."""
     actor = require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
+    # `P1-B`: "deny workspace writes when no active workspace is supplied"
+    # (section 16, Phase 1 item 12) -- this used to fall back to a
+    # `"default"` project namespace with no authorization check at all
+    # beyond the scope above. Checked before reading the (potentially
+    # large) upload body, so a request with no project context fails cheap.
+    if not identity.active_project_id:
+        raise HTTPException(
+            status_code=400,
+            detail="X-CALIBER-Project header is required to upload files",
+        )
     data, filename, kind, media_type, metadata = await _read_upload(request)
     session_id = request.query_params.get("session_id")
     service = get_working_dir_service(request)
     factory = get_session_factory(request)
     try:
         with factory() as session:
-            project_id = identity.active_project_id or "default"
-            tenant_id = "local"
-            scoped_service = service
-            if identity.active_project_id:
-                project, _decision = require_project_access(
-                    session, identity, identity.active_project_id, "resource.write"
+            project, _decision = require_project_access(
+                session, identity, identity.active_project_id, "resource.write"
+            )
+            if project.status != "active":
+                raise HTTPException(
+                    status_code=409, detail="archived projects cannot receive files"
                 )
-                if project.status != "active":
-                    raise HTTPException(
-                        status_code=409, detail="archived projects cannot receive files"
-                    )
-                project_id = project.project_id
-                tenant_id = project.tenant_id
-                scoped_service = service.for_backend(project.storage_backend)
+            project_id = project.project_id
+            tenant_id = project.tenant_id
+            scoped_service = service.for_backend(project.storage_backend)
             # Staging namespace keyed by session (or a generated one).
             staging_run = f"staging-{session_id}" if session_id else "staging"
             ctx = scoped_service.create_run_workspace(

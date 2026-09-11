@@ -2,12 +2,18 @@
 
 from __future__ import annotations
 
+import pytest
+
 from caliber.auth import SCOPE_ADMIN, SCOPE_VIEWER, CaliberIdentity
 from caliber.db.models import CaliberProject, CaliberProjectMember
 from caliber.resource_access import (
+    ACCESS_REASONS,
+    POLICY_VERSION,
     ROLE_EDITOR,
+    ROLE_OWNER,
     ROLE_REVIEWER,
     ROLE_VIEWER,
+    authorize,
     decide_project_access,
     permissions_for_role,
 )
@@ -67,7 +73,12 @@ def test_project_roles_have_expected_action_boundaries(db_session) -> None:
     ).allowed
 
 
-def test_owner_and_admin_have_management_permissions(db_session) -> None:
+def test_owner_has_management_permissions_admin_alone_does_not(db_session) -> None:
+    """`P1-B`: `caliber.admin` is deliberately not an implicit workspace
+    role (section 5.4) -- an admin with no real ownership/membership is
+    denied, the direct regression-proving test for the bypass removal.
+    Bare fail-closed deny, by this ticket's own explicit design: no
+    replacement recovery path exists yet (that's `P1-C`/Phase 5's job)."""
     project = CaliberProject(project_id="P2", name="two", owner="@owner")
     db_session.add(project)
     db_session.commit()
@@ -75,7 +86,83 @@ def test_owner_and_admin_have_management_permissions(db_session) -> None:
     assert decide_project_access(
         db_session, _identity("@owner"), project, "project.manage_members"
     ).allowed
-    assert decide_project_access(
+    admin_decision = decide_project_access(
         db_session, _identity("@admin", admin=True), project, "project.manage_members"
-    ).allowed
+    )
+    assert not admin_decision.allowed
+    assert admin_decision.role is None
+    assert admin_decision.reason == "project_access_denied"
     assert "project.manage_members" not in permissions_for_role(ROLE_VIEWER)
+
+
+def test_every_decision_carries_a_closed_reason_and_the_current_policy_version(
+    db_session,
+) -> None:
+    """`P1-B` (section 5.4): every `AccessDecision` carries a stable reason
+    code from a closed vocabulary, plus `policy_version` -- across a
+    representative matrix covering all four reason outcomes."""
+    project = CaliberProject(project_id="P3", name="three", owner="@owner")
+    db_session.add(project)
+    db_session.add(
+        CaliberProjectMember(
+            member_id="M-viewer3",
+            project_id="P3",
+            user_id="@viewer3",
+            role=ROLE_VIEWER,
+            created_by="@owner",
+        )
+    )
+    db_session.commit()
+
+    decisions = [
+        decide_project_access(db_session, _identity("@owner"), project, "read"),  # granted
+        decide_project_access(db_session, _identity("@owner"), None, "read"),  # not found
+        decide_project_access(db_session, _identity("@stranger"), project, "read"),  # no membership
+        decide_project_access(
+            db_session, _identity("@viewer3"), project, "project.update"
+        ),  # permission denied
+    ]
+    for decision in decisions:
+        assert decision.reason in ACCESS_REASONS
+        assert decision.policy_version == POLICY_VERSION
+
+
+class TestAuthorize:
+    """`authorize()` -- the section 5.4 decision service `require_project_access`
+    now wraps."""
+
+    def test_delegates_to_the_role_permission_conjunct(self, db_session) -> None:
+        project = CaliberProject(project_id="P4", name="four", owner="@owner")
+        db_session.add(project)
+        db_session.commit()
+
+        decision = authorize(db_session, _identity("@owner"), "read", "P4")
+        assert decision.allowed
+        assert decision.role == ROLE_OWNER
+
+    def test_no_workspace_id_denies(self, db_session) -> None:
+        decision = authorize(db_session, _identity("@owner"), "project.create", None)
+        assert not decision.allowed
+        assert decision.reason == "project_not_found"
+
+    def test_unknown_workspace_id_is_project_not_found(self, db_session) -> None:
+        decision = authorize(db_session, _identity("@owner"), "read", "P-nope")
+        assert not decision.allowed
+        assert decision.reason == "project_not_found"
+
+    @pytest.mark.parametrize(
+        ("kwarg", "expected_substring"),
+        [
+            ("resource", "per-resource"),
+            ("environment", "environment-policy"),
+            ("release", "release-instance"),
+        ],
+    )
+    def test_a_not_yet_modeled_context_raises_rather_than_silently_passing(
+        self, db_session, kwarg: str, expected_substring: str
+    ) -> None:
+        """No `ResourceContext`/`EnvironmentContext`/`ReleaseContext` type
+        exists yet -- a caller passing one anyway must get a loud
+        `NotImplementedError`, not a decision that silently ignored it."""
+        with pytest.raises(NotImplementedError, match=expected_substring):
+            authorize(db_session, _identity("@owner"), "read", "P1", **{kwarg: object()})
