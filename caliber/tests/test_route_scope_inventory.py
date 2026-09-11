@@ -331,3 +331,27 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
         "resource.publish",
     }
     assert set(PROJECT_ACTIONS) - live_actions == {"resource.approve", "resource.execute"}
+
+
+# ---------------------------------------------------------------------------
+# ETag/CAS/idempotency ratification (`P0-B`)
+# ---------------------------------------------------------------------------
+
+
+def test_no_live_route_declares_a_412_response(client: TestClient) -> None:
+    """Section 13.6's target design defines `412` as "stale ETag" -- but no
+    route emits it today. Today's two real compare-and-set checks
+    (`workflow_versions.py`'s `manifest_hash`, `object_store.py`'s
+    `expected_etag`) both use `409` against a body field, not a header. This
+    pins that fact so the documentation's "no 412 yet" claim can't silently
+    go stale -- a route that starts declaring `412` is a real event that
+    should prompt updating the ratified contract, not drift past unnoticed.
+    """
+    doc = client.get(OPENAPI_URL).json()
+    with_412 = [
+        f"{method.upper()} {path}"
+        for path, operations in doc["paths"].items()
+        for method, operation in operations.items()
+        if "412" in operation.get("responses", {})
+    ]
+    assert not with_412, f"route(s) now declare 412, update the ETag/CAS ratification: {with_412}"
