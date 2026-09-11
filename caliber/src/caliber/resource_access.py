@@ -40,7 +40,7 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
 #: a way an auditor reading old decisions would need to know about (e.g. the
 #: admin-owner-bypass removal this same PR makes) -- not on every unrelated
 #: edit to this file.
-POLICY_VERSION: Final[str] = "p1b-2026-09"
+POLICY_VERSION: Final[str] = "p1b-2026-09-02"
 
 #: `AccessDecision.reason` values, named rather than left as bare literals
 #: sprinkled through `decide_project_access` -- matching this module's own
@@ -144,18 +144,31 @@ def authorize(
     `resolve_identity` run before this function is ever reached). The
     "credential/global-scope ceiling" conjunct is *supposed* to be the
     calling route's responsibility too (`require_scopes`/`require_all_scopes`
-    before this function runs) -- but that is a convention this function
-    cannot itself enforce or verify, and a GitHub Copilot review of this
-    same PR found several existing routes that called
-    `require_project_access` without a preceding scope check at all,
-    letting a project-role holder with only `caliber.viewer` perform an
-    action section 2.4 says needs `caliber.operator`. Those call sites were
-    fixed directly (`routes/projects.py`'s member-mutation and
-    `project.update` routes; `routes/openapi_integrations.py`'s publish
-    route) rather than papering over the gap here: the fix belongs at each
-    call site until the closed `WorkspaceAction` registry (item 5/6, not
-    this slice) can carry a real action-to-scope mapping this function
-    could enforce centrally instead of trusting every caller to get right.
+    before this function runs) for every **workspace-backed** action -- but
+    that is a convention this function cannot itself enforce or verify for
+    those, and a GitHub Copilot review of this same PR found several
+    existing routes that called `require_project_access` without a
+    preceding scope check at all, letting a project-role holder with only
+    `caliber.viewer` perform an action section 2.4 says needs
+    `caliber.operator`. Those call sites were fixed directly
+    (`routes/projects.py`'s member-mutation and `project.update` routes;
+    `routes/openapi_integrations.py`'s publish route) rather than papering
+    over the gap here: the fix belongs at each call site until the closed
+    `WorkspaceAction` registry (item 5/6, not this slice) can carry a real
+    action-to-scope mapping this function could enforce centrally instead
+    of trusting every caller to get right. The one exception is the
+    `project.create` bootstrap case below (`workspace_id=None`), which this
+    function *does* check directly, since no workspace/route exists yet to
+    delegate that check to.
+
+    `principal.scopes` is assumed already fully resolved (`auth.py`'s
+    `current_scopes()` expands `caliber.admin` into every scope it implies
+    before a `CaliberIdentity` is ever constructed) -- the same assumption
+    every other scope check in this codebase makes (`CaliberIdentity.has_scope`
+    is a bare containment check with no hierarchy logic of its own). A
+    `CaliberIdentity` built directly with only the literal `SCOPE_ADMIN`
+    value, bypassing `resolve_identity`, would not satisfy the bootstrap
+    check below even though a real admin identity always does.
 
     `resource`/`environment`/`release` are typed `object | None` -- no
     `ResourceContext`/`EnvironmentContext`/`ReleaseContext` class exists
@@ -164,8 +177,22 @@ def authorize(
     anything but `None` today. Passing a non-`None` value raises
     `NotImplementedError` naming the unmodeled conjunct -- an honest
     "not built yet" signal, not a silent no-op a future real caller could
-    trip over without noticing nothing was actually checked.
+    trip over without noticing nothing was actually checked. Checked
+    first, unconditionally, so the `project.create` bootstrap branch below
+    cannot short-circuit past this guard.
     """
+    if resource is not None:
+        raise NotImplementedError(
+            "authorize(): per-resource authorization context is not modeled yet"
+        )
+    if environment is not None:
+        raise NotImplementedError(
+            "authorize(): environment-policy authorization context is not modeled yet"
+        )
+    if release is not None:
+        raise NotImplementedError(
+            "authorize(): release-instance authorization context is not modeled yet"
+        )
     if workspace_id is None:
         if action == "project.create":
             # The one documented exception (section 5.4): the pre-membership
@@ -181,18 +208,6 @@ def authorize(
             return AccessDecision(False, None, REASON_PERMISSION_DENIED, frozenset())
         # Every other action with no concrete workspace denies (section 5.4).
         return AccessDecision(False, None, REASON_PROJECT_NOT_FOUND, frozenset())
-    if resource is not None:
-        raise NotImplementedError(
-            "authorize(): per-resource authorization context is not modeled yet"
-        )
-    if environment is not None:
-        raise NotImplementedError(
-            "authorize(): environment-policy authorization context is not modeled yet"
-        )
-    if release is not None:
-        raise NotImplementedError(
-            "authorize(): release-instance authorization context is not modeled yet"
-        )
     project = session.get(CaliberProject, workspace_id)
     return decide_project_access(session, principal, project, action)
 

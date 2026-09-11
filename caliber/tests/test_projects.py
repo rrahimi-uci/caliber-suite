@@ -10,7 +10,8 @@ from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from caliber.config import WorkflowStorageConfig
-from caliber.db.models import CaliberProject, CaliberWorkspaceEnvironment
+from caliber.db.models import CaliberProject, CaliberProjectMember, CaliberWorkspaceEnvironment
+from caliber.resource_access import ROLE_EDITOR, ROLE_OWNER
 from caliber.storage import LocalStorageBackend, WorkingDirectoryService
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
@@ -256,6 +257,85 @@ def test_project_membership_roles_and_permissions(proj_client: TestClient) -> No
     removed = proj_client.delete(f"{PREFIX}/projects/{pid}/members/@reader")
     assert removed.status_code == 200
     assert proj_client.get(f"{PREFIX}/projects/{pid}", headers=reader_headers).status_code == 404
+
+
+def test_project_role_alone_is_not_enough_without_the_operator_scope(
+    proj_client: TestClient, db_session: Session
+) -> None:
+    """GitHub Copilot review (round 2, PR #294): `add_project_member` /
+    `update_project_member` / `remove_project_member` / `update_project` all
+    gained a `require_scopes(request, [SCOPE_OPERATOR])` call, closing a gap
+    where a real project-role holder with only the universal
+    `caliber.viewer` scope could still perform an action section 2.4 says
+    needs `caliber.operator`. That fix had route-level test coverage only
+    through the (admin-scoped, and therefore operator-implying) default
+    `@test` identity, which cannot regress-test the scope check at all. This
+    proves the negative case directly with real, non-admin project members.
+
+    `add_project_member` refuses `role="owner"` at the API layer (`payload.role
+    not in PROJECT_ROLES - {ROLE_OWNER}` -> 400), so the owner-role member
+    used for the member-mutation routes is inserted directly via
+    `db_session`, not through the API.
+    """
+    pid = _create(proj_client, "Scope ceiling check")
+
+    db_session.add_all(
+        [
+            CaliberProjectMember(
+                member_id="M-viewer-owner",
+                project_id=pid,
+                user_id="@viewer-owner",
+                role=ROLE_OWNER,
+                created_by="@test",
+            ),
+            CaliberProjectMember(
+                member_id="M-viewer-editor",
+                project_id=pid,
+                user_id="@viewer-editor",
+                role=ROLE_EDITOR,
+                created_by="@test",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    # Neither "@viewer-owner" nor "@viewer-editor" is in any
+    # operator/approver/admin allow-list, so `resolve_identity` grants them
+    # only `caliber.viewer` (the universal default) -- real project-role
+    # permission, no global-scope ceiling.
+    viewer_owner_headers = {"X-CALIBER-User": "@viewer-owner"}
+    viewer_editor_headers = {"X-CALIBER-User": "@viewer-editor"}
+
+    add_resp = proj_client.post(
+        f"{PREFIX}/projects/{pid}/members",
+        json={"user_id": "@newcomer", "role": "viewer"},
+        headers=viewer_owner_headers,
+    )
+    assert add_resp.status_code == 403, add_resp.text
+
+    update_resp = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/members/@test",
+        json={"role": "viewer"},
+        headers=viewer_owner_headers,
+    )
+    assert update_resp.status_code == 403, update_resp.text
+
+    remove_resp = proj_client.delete(
+        f"{PREFIX}/projects/{pid}/members/@test",
+        headers=viewer_owner_headers,
+    )
+    assert remove_resp.status_code == 403, remove_resp.text
+
+    rename_resp = proj_client.patch(
+        f"{PREFIX}/projects/{pid}",
+        json={"name": "should not change"},
+        headers=viewer_editor_headers,
+    )
+    assert rename_resp.status_code == 403, rename_resp.text
+
+    # The project itself, and the real membership rows, are untouched.
+    detail = proj_client.get(f"{PREFIX}/projects/{pid}").json()["data"]
+    assert detail["name"] == "Scope ceiling check"
 
 
 def test_upload_list_download_project_file(proj_client: TestClient) -> None:
