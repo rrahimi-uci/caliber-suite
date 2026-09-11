@@ -3712,7 +3712,7 @@ combined with a later slice merely to reduce PR count.
 | Slice | Owner | Concrete deliverable | Depends on | Exit/rollback gate |
 | --- | --- | --- | --- | --- |
 | `P0-A` | Architecture + security | **Delivered.** Machine-readable route required-scope inventory (`routes/scope_inference.py`, `x-caliber-required-scope` on the served OpenAPI document, enforced by `tests/test_route_scope_inventory.py`) — every one of 403 operations classified by reading its own authorization call, not a hand-duplicated table — plus a background-worker inventory (`observability/worker_inventory.py`, `tests/test_worker_inventory.py`) and a per-model project-scoping inventory (`db/resource_inventory.py`, `tests/test_resource_inventory.py`, all 85 models classified with zero hand-maintenance needed); the per-plane authority matrix and every question section 19.2 posed are ratified as decisions (section 19) | — | Every route, every background worker, and every model has one inventory row and none can drift from the real code; every policy question this document posed has a named, ratified decision rather than an implicit default (gate on today's live route table / lifespan / model registry, same as `P3-B`/`P3-A`/`P3-C`'s "doesn't wait" exceptions in spirit, though these have no `P1-C` dependency to begin with) |
-| `P0-B` | API + SDK | **Partially delivered.** OpenAPI shapes: `x-caliber-required-scope` (`P0-A`'s route-scope inventory) is now rendered as a "Required scope" column in the published REST API reference (`docs-site/generate_rest_api_docs.py::_format_required_scope`), not just visible in the raw served JSON. Error envelope: ratified as frozen — `routes/_errors.py`'s `{detail, status_code}` / `{detail, status_code, errors[]}` shapes were already implemented, tested, OpenAPI-declared, and published before this PR; no code changed. Closed actions: ratified — today's live route table requires only 5 of `PROJECT_ACTIONS`'s 7 keys, closure enforced by `tests/test_route_scope_inventory.py`; this is *not* `P1-B`'s "Closed action enum" (section 2.4's much larger future `WorkspaceAction` vocabulary), which remains unstarted and gated on `P1-A`. Still open: reason codes (real gap — no route or SDK exception carries one today; see Phase 0 item 6), pagination, ETag/CAS/idempotency contracts, Change Request/version contracts, manifest schema and golden vectors — most of the remainder is Workspace-only design work with no code to build against until Phase 1+ | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
+| `P0-B` | API + SDK | **Delivered.** OpenAPI shapes: `x-caliber-required-scope` (`P0-A`'s route-scope inventory) is now rendered as a "Required scope" column in the published REST API reference (`docs-site/generate_rest_api_docs.py::_format_required_scope`), not just visible in the raw served JSON. Error envelope: ratified as frozen — `routes/_errors.py`'s `{detail, status_code}` / `{detail, status_code, errors[]}` shapes were already implemented, tested, OpenAPI-declared, and published before this PR; no code changed. Closed actions: ratified — today's live route table requires only 5 of `PROJECT_ACTIONS`'s 7 keys, closure enforced by `tests/test_route_scope_inventory.py`; this is *not* `P1-B`'s "Closed action enum" (section 2.4's much larger future `WorkspaceAction` vocabulary), which remains unstarted and gated on `P1-A`. Reason codes: named as a real, deliberately deferred gap (Phase 0 item 6). Pagination: inventoried and ratified (`routes/pagination_inventory.py`, 6 distinct shapes across ~27 routes pinned, `list_limit()` ratified as the near-term baseline, deviations named not reconciled). ETag/CAS/idempotency: today's real `409`-based mechanisms ratified as the current precursor to section 13.6's target `412`/header contract, with a pin confirming no route emits `412` yet. Change Request/version contracts: sections 3.2/9.2's already-written design ratified as frozen, plus `workspace_change_requests.py`'s model-based transition fixtures (Phase 4 still owns all real implementation). Manifest schema and golden vectors: `workspace_manifest.py` implements and tests the `v1alpha1` schema and canonicalization (22 golden-vector tests) — the manifest-document half of the eventual `revision_sha256`; full materialization remains Phase 4. Multipart field names, maximum bundle size (a new, reasoned policy decision), and sync/async streaming (decision ratified, heartbeat-test verification pending real async upload code) round out item 6 in full. **Explicitly out of scope for this ticket** (Phase 0 items with no PR-sequence ticket, not owned by "API + SDK," left exactly as open as before): item 3's remaining nullability/uniqueness audit and bare-name-resolver inventory, item 5 (resource adapter capability contract), item 7 (deterministic fixtures), item 8 (the two typed decision contracts), item 9 (per-adapter reconstructability strategy), item 11 (`SourceControlProvider` capabilities) | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
 | `P1-A` | Data/backend | Add project slug/counter/accepted-pointer/archive/audit fields, the Workspace idempotency ledger, and fixed environment rows; deterministic backfill, safe baseline state, and PostgreSQL migration CI | `P0-B` | Fresh/upgrade parity on SQLite and real PostgreSQL; idempotency conflict/replay is durable; new Workspace seeds dev active and qa/staging/prod disabled; migrated live aliases remain `baseline_required` |
 | `P1-B` | Security/backend | Closed action enum, deny-by-default decision service, all-scope conjunction support, stable reasons, and removal of ordinary platform-admin owner bypass | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; policy errors never fall back to legacy allow |
 | `P1-C` | Auth/backend | Eligible multiple-Admin membership, one primary-owner invariant, project-bound PAT/credential context, transfer, explicit archive/restore, Admin metadata inventory, and capability projection | `P1-B` | PAT cannot cross workspace; scope-ineligible role grants fail; primary owner transfer is atomic; secondary Admin does not change primary owner |
@@ -3831,6 +3831,26 @@ not as complete Workspace support.
    follow-ups, not started.
 4. Define the `v1alpha1` manifest JSON Schema and canonicalization algorithm
    with golden vectors.
+   **Delivered** (`P0-B`): `workspace_manifest.py` implements the `v1alpha1`
+   schema (Pydantic, `extra="forbid"` throughout — unknown keys/types
+   refused; POSIX-relative path validation that refuses root escapes;
+   duplicate-logical-name-per-type rejection; `secretRefs` restricted to
+   `secret://` references) and a canonicalization function (normalized
+   JSON, all object keys sorted, each resource type's entry list sorted by
+   logical name so author-chosen ordering never changes the digest).
+   `tests/test_workspace_manifest.py`'s 22 golden-vector tests pin the
+   canonical digest for section 9.3's own example manifest, prove
+   reordering doesn't change it, prove a real content change does, and
+   exercise every rule above being refused. Deliberately **not**
+   implemented: source bundle size/file count/decompression-ratio/symlink/
+   media-type bounds (the numeric bundle-size decision is ratified
+   separately under item 6), mutable-URL/unversioned-pin rejection,
+   mutable-row snapshotting, repository/commit content-conflict detection,
+   and materialization-failure semantics — every one of those needs the
+   actual archive/bundle materialization pipeline, which doesn't exist yet
+   (Phase 4 item 3). This module covers only the manifest-*document* half
+   of section 9.3's `revision_sha256` formula; the source-tree/bundle hash
+   half is Phase 4's to add once real materialization exists.
 5. Define the resource adapter capability contract and supported MVP types.
 6. Freeze the SDK-facing contracts: list pagination shape, error envelope and
    reason codes, ETag behavior, idempotency replay, apply compare-and-set
@@ -3856,9 +3876,75 @@ not as complete Workspace support.
    ratification pass, left as a distinct future follow-up (no new
    planning-handle ID invented, matching how PR #279 and the agent-
    registration scope widening it ratified were both left as unbundled
-   follow-ups). Pagination, ETag behavior, idempotency replay, apply
-   compare-and-set, multipart field names, maximum bundle size, and
-   sync/async streaming are all still open, untouched by this slice.
+   follow-ups).
+
+   **Pagination is ratified as inventoried, not as reconciled** (`P0-B`):
+   research found this is not one contract today — at least six shapes
+   across ~27 list routes (`routes/pagination_inventory.py`): a shared
+   `_deps.list_limit()` helper (`limit`+`offset`, default 500/cap 2000, 10
+   routes); ad hoc `limit`-only parsing with each route's own default/cap
+   (12 routes); one bespoke `limit`+`offset`+`total` envelope
+   (`audit-log`, structurally different from every other list route's
+   `{"data": [...]}` shape); two routes with no client params and a `total`
+   that is really just the returned-row count (`auth/accounts`,
+   `tools/{id}/calibration-jobs`); one route with real cursor pagination
+   (`workflows/{id}/runs`); and two routes with an `after`+`limit` sequence
+   watermark (`workflow-runs/{id}/events`, `.../checkpoints`).
+   `tests/test_pagination_inventory.py` pins this exact distribution and
+   fails by name if a pagination-looking route (detected by reading a
+   `limit`/`offset`/`cursor` query param) appears with no classification.
+   `_deps.list_limit()`'s shape is ratified as the near-term baseline
+   convention; every deviating route is now a named, deferred
+   inconsistency — reconciling them into one real behavior is a genuine
+   behavior change (Phase 1+/2+ work), not attempted here. The future
+   `CursorPage[T]` (already designed in section 13.5, for new
+   Workspace-history list methods — imports, revisions, Change Requests,
+   releases, rework tasks) remains a separate, later, additive contract
+   that coexists with today's offset `Page`, per section 13.5's own text.
+
+   **ETag/CAS/idempotency: today's real mechanisms are ratified as the
+   current, narrower precursor to section 13.6's target contract**
+   (`P0-B`). Confirmed live: real, tested compare-and-set exists today —
+   `workflow_versions.py::update_version`'s `manifest_hash` check and
+   `object_store.py::import_object_to_project`'s `expected_etag` check —
+   and real, tested idempotency-key replay exists for workflow-run creation
+   and `/services` invocation. All of it is `409`-based against a body
+   field, not header-based. No route anywhere emits `412`
+   (`tests/test_route_scope_inventory.py::test_no_live_route_declares_a_412_response`
+   pins this), no code reads a real `If-Match` header (every "If-Match"
+   mention in source today is a docstring/comment analogy, not a header
+   read), and no general Workspace idempotency ledger exists — confirmed
+   Phase-1 (`P1-A`) scope, gated on this very `P0-B` slice (section 15.2
+   item 1; `P1-A`'s own PR-sequence row). Section 13.6's `412`/header-based
+   contract is ratified as the future target; today's `409`/body-field
+   mechanisms are ratified as what actually runs now, explicitly not yet
+   reconciled into that target.
+
+   **Multipart field names are ratified as frozen**: the `metadata`+`bundle`
+   fields already specified in section 12's `revision-imports` example are
+   the frozen contract; no revision-import route exists yet to build
+   against; **P1-A**/Phase 4/6 implement the route that will use them.
+
+   **Maximum bundle size is a new, ratified policy decision** (none existed
+   before this slice): 100 MB maximum compressed source bundle, 10,000
+   files, 25 MB maximum individual file, and a 50:1 maximum decompression
+   ratio (guards against a compressed-archive bomb). These bound a
+   realistic Git-imported prompt/agent/workflow workspace generously while
+   still capping pathological input, matching `_deps.list_limit()`'s own
+   generous-default-plus-hard-cap philosophy. Added to section 9.3's
+   manifest rules.
+
+   **Sync/async streaming: the decision is ratified, verification is
+   pending.** Section 13.8 already names the decision (move a blocking
+   bundle-upload read to a worker thread, or require an async byte-stream
+   type) and asks to "test it with a heartbeat task." Confirmed: no async
+   bundle-upload code exists anywhere yet — the SDK's `aio/` tree has no
+   async equivalent of `resources/projects.py::ProjectFilesAPI.upload` at
+   all, so there is nothing real to attach a heartbeat, non-blocking-I/O
+   test to. This is decided-but-verification-pending, the same treatment
+   PR #285 gave the agent-registration scope item: not silently implied as
+   verified, not bundled into building the async upload path itself
+   (Phase 4/6 scope).
 7. Create deterministic fixtures: two workspaces with colliding logical names,
    a primary and secondary Admin, Developer, QA, Viewer, scope-ineligible user,
    four fixed environments, a provider-only prompt, mutable judge/tool rows, a
@@ -3873,6 +3959,27 @@ not as complete Workspace support.
     eligibility, selectable review backend, normalized provider attestation,
     stale-base CAS, SemVer reservation/tag and QA-acceptance contracts with
     model-based transition fixtures.
+    **Delivered** (`P0-B`): sections 3.2 and 9.2 already contain a
+    fully-written, internally consistent design (package identity, the
+    Change Request state machine, head-generation invalidation, reviewer
+    eligibility, review backend selection, provider-attestation
+    normalization, stale-base CAS, SemVer reservation/tag policy, and every
+    supporting table's columns) — confirmed against the codebase: zero
+    Change-Request-related code exists anywhere (`grep` for
+    `change_request`/`ChangeRequest`/`WorkspaceRevision` across all of
+    `caliber/src` returns nothing; there is no `Workspace` model at all
+    today). This item ratifies that design as frozen; real implementation
+    (tables, routes, the CAS acceptance primitive, SemVer reservation
+    logic) is confirmed Phase 4 (items 12–17), not Phase 0.
+    `workspace_change_requests.py` is this item's "model-based transition
+    fixtures": the state diagram transcribed as data (states, terminal
+    states, every transition, in diagram order), with
+    `tests/test_change_request_transitions.py` asserting the transcription
+    is internally consistent (every state reachable from `draft`, no
+    transition to an undeclared state, `accepted`/`closed` are correctly
+    terminal, the transition count is pinned) — a fixture Phase 4's real
+    state machine can be checked against, containing no database table,
+    route, or CAS/SemVer logic of its own.
 11. Freeze the `SourceControlProvider` capabilities, actor-link trust model,
     webhook/idempotency/reconciliation protocol and provider-outage behavior.
 
