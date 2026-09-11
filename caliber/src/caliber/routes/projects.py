@@ -26,7 +26,6 @@ from starlette.routing import Route
 
 from caliber.audit import record as audit_record
 from caliber.auth import (
-    SCOPE_ADMIN,
     SCOPE_APPROVER,
     SCOPE_OPERATOR,
     CaliberIdentity,
@@ -370,25 +369,30 @@ async def list_projects(request: Request) -> JSONResponse:
             stmt = stmt.where(CaliberProject.status == status)
         elif not status:
             stmt = stmt.where(CaliberProject.status == "active")
-        # Owners and active members can see a project; admins see all.
-        if not identity.has_scope(SCOPE_ADMIN):
-            stmt = (
-                stmt.outerjoin(
-                    CaliberProjectMember,
-                    and_(
-                        CaliberProjectMember.project_id == CaliberProject.project_id,
-                        CaliberProjectMember.user_id == identity.user_id,
-                        CaliberProjectMember.status == "active",
-                    ),
-                )
-                .where(
-                    or_(
-                        CaliberProject.owner == identity.user_id,
-                        CaliberProjectMember.member_id.is_not(None),
-                    )
-                )
-                .distinct()
+        # Owners and active members can see a project. `caliber.admin` is
+        # deliberately *not* an implicit workspace role (`P1-B`, section
+        # 5.4) -- this filter now applies unconditionally, admin included.
+        # It must stay coupled to `resource_access.py::project_role()`'s own
+        # admin-bypass removal: the per-row `require_project_access` call
+        # below has no try/except, so every row this query returns must
+        # already be one the caller has genuine access to, for every caller.
+        stmt = (
+            stmt.outerjoin(
+                CaliberProjectMember,
+                and_(
+                    CaliberProjectMember.project_id == CaliberProject.project_id,
+                    CaliberProjectMember.user_id == identity.user_id,
+                    CaliberProjectMember.status == "active",
+                ),
             )
+            .where(
+                or_(
+                    CaliberProject.owner == identity.user_id,
+                    CaliberProjectMember.member_id.is_not(None),
+                )
+            )
+            .distinct()
+        )
         rows = session.execute(stmt.order_by(CaliberProject.created_at.desc())).scalars().all()
         # file counts per project (visible files only) — a single grouped query
         # rather than one per project (avoids an N+1 as the project list grows).

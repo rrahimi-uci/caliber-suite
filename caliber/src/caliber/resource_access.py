@@ -14,7 +14,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 
-from caliber.auth import SCOPE_ADMIN, CaliberIdentity
+from caliber.auth import CaliberIdentity
 from caliber.db.models import CaliberProject, CaliberProjectMember
 
 ROLE_OWNER: Final[str] = "owner"
@@ -35,6 +35,28 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     "resource.execute": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER}),
 }
 
+#: `P1-B`: a hand-bumped marker for `AccessDecision.policy_version` (section
+#: 5.4). Bump this string whenever this module's decision policy changes in
+#: a way an auditor reading old decisions would need to know about (e.g. the
+#: admin-owner-bypass removal this same PR makes) -- not on every unrelated
+#: edit to this file.
+POLICY_VERSION: Final[str] = "p1b-2026-09"
+
+#: `AccessDecision.reason` values, named rather than left as bare literals
+#: sprinkled through `decide_project_access` -- matching this module's own
+#: `ROLE_*`/`PROJECT_ROLES` idiom (a closed vocabulary, not a Python `Enum`;
+#: no precedent for that pattern anywhere in this codebase). Literal values
+#: are unchanged from before this PR -- confirmed nothing outside this
+#: module and its own tests pattern-matches them, so naming them is
+#: additive, not a behavior change.
+REASON_GRANTED: Final[str] = "granted"
+REASON_PROJECT_NOT_FOUND: Final[str] = "project_not_found"
+REASON_NO_MEMBERSHIP: Final[str] = "project_access_denied"
+REASON_PERMISSION_DENIED: Final[str] = "permission_denied"
+ACCESS_REASONS: Final[frozenset[str]] = frozenset(
+    {REASON_GRANTED, REASON_PROJECT_NOT_FOUND, REASON_NO_MEMBERSHIP, REASON_PERMISSION_DENIED}
+)
+
 
 @dataclass(frozen=True)
 class AccessDecision:
@@ -42,6 +64,9 @@ class AccessDecision:
     role: str | None
     reason: str
     permissions: frozenset[str]
+    #: Section 5.4's fifth `AccessDecision` field. Trails with a default so
+    #: every existing 4-positional-arg construction below keeps working.
+    policy_version: str = POLICY_VERSION
 
 
 def permissions_for_role(role: str | None) -> frozenset[str]:
@@ -53,9 +78,16 @@ def permissions_for_role(role: str | None) -> frozenset[str]:
 def project_role(
     session: Session, identity: CaliberIdentity, project: CaliberProject
 ) -> str | None:
-    """Resolve the caller's project role, with admin and owner compatibility."""
-    if identity.has_scope(SCOPE_ADMIN):
-        return ROLE_OWNER
+    """Resolve the caller's project role.
+
+    `caliber.admin` is deliberately **not** an implicit workspace role
+    (section 5.4, `P1-B`) -- ordinary platform maintenance cannot read or
+    mutate workspace content through this path. A future audited-recovery
+    path is `P1-C`'s job (a metadata-only platform Admin inventory); the
+    real interactive break-glass mechanism is Phase 5's (`P5-B`). Neither
+    exists yet -- an admin with no real membership is denied here, with no
+    replacement access path, by this ticket's own explicit design.
+    """
     if project.owner == identity.user_id:
         return ROLE_OWNER
     member = session.execute(
@@ -75,14 +107,73 @@ def decide_project_access(
     action: str = "read",
 ) -> AccessDecision:
     if project is None:
-        return AccessDecision(False, None, "project_not_found", frozenset())
+        return AccessDecision(False, None, REASON_PROJECT_NOT_FOUND, frozenset())
     role = project_role(session, identity, project)
     permissions = permissions_for_role(role)
     if role is not None and action in permissions:
-        return AccessDecision(True, role, "granted", permissions)
+        return AccessDecision(True, role, REASON_GRANTED, permissions)
     if role is None:
-        return AccessDecision(False, None, "project_access_denied", permissions)
-    return AccessDecision(False, role, "permission_denied", permissions)
+        return AccessDecision(False, None, REASON_NO_MEMBERSHIP, permissions)
+    return AccessDecision(False, role, REASON_PERMISSION_DENIED, permissions)
+
+
+def authorize(
+    session: Session,
+    principal: CaliberIdentity,
+    action: str,
+    workspace_id: str | None,
+    *,
+    resource: object | None = None,
+    environment: object | None = None,
+    release: object | None = None,
+) -> AccessDecision:
+    """The central authorization decision, per `docs/workspace-plan.md`
+    section 5.4.
+
+    Implements section 2.4's effective-decision AND-chain:
+
+        authenticated principal
+        AND credential/global-scope ceiling
+        AND credential workspace ceiling, when present
+        AND active workspace membership/role
+        AND resource belongs to or is pinned by workspace
+        AND environment policy
+        AND release-instance rules
+
+    The first three conjuncts are already satisfied by the time a route
+    calls this function -- `require_scopes`/`require_all_scopes` and
+    `resolve_identity` run first, at the route layer, exactly as they do
+    today. This function is responsible for the rest.
+
+    `resource`/`environment`/`release` are typed `object | None` -- no
+    `ResourceContext`/`EnvironmentContext`/`ReleaseContext` class exists
+    yet (no per-resource pinning model, no environment-scoped route, no
+    release/Change-Request model -- Phase 4/5's job). No caller passes
+    anything but `None` today. Passing a non-`None` value raises
+    `NotImplementedError` naming the unmodeled conjunct -- an honest
+    "not built yet" signal, not a silent no-op a future real caller could
+    trip over without noticing nothing was actually checked.
+    """
+    if workspace_id is None:
+        # Only `project.create`'s pre-membership bootstrap check has no
+        # concrete workspace (section 5.4), and that check is
+        # `require_all_scopes`, not this function -- every action reaching
+        # here with no workspace id denies.
+        return AccessDecision(False, None, REASON_PROJECT_NOT_FOUND, frozenset())
+    if resource is not None:
+        raise NotImplementedError(
+            "authorize(): per-resource authorization context is not modeled yet"
+        )
+    if environment is not None:
+        raise NotImplementedError(
+            "authorize(): environment-policy authorization context is not modeled yet"
+        )
+    if release is not None:
+        raise NotImplementedError(
+            "authorize(): release-instance authorization context is not modeled yet"
+        )
+    project = session.get(CaliberProject, workspace_id)
+    return decide_project_access(session, principal, project, action)
 
 
 def require_project_access(
@@ -97,9 +188,13 @@ def require_project_access(
 
     Hidden projects return 404 to avoid existence leaks. A visible project with
     an insufficient role returns 403, which lets the UI explain the missing role.
+
+    A compatibility wrapper over `authorize()` (`P1-B`, section 5.4's
+    decision service) -- existing callers keep this exact shape/signature;
+    `authorize()` is the new canonical decision function underneath.
     """
     project = session.get(CaliberProject, project_id)
-    decision = decide_project_access(session, identity, project, action)
+    decision = authorize(session, identity, action, project_id)
     if project is None or (not decision.allowed and decision.role is None and hide_forbidden):
         raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
     if not decision.allowed:

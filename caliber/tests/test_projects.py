@@ -46,6 +46,24 @@ def test_create_list_get_project(proj_client: TestClient) -> None:
     assert detail["name"] == "Acme Support" and detail["file_count"] == 0
 
 
+def test_admin_lists_only_their_own_projects(proj_client: TestClient, db_session: Session) -> None:
+    """`P1-B`: `caliber.admin` is no longer an implicit workspace role, so
+    `list_projects` must apply the owner/member filter to admins too --
+    the regression-proving test for the bypass removal *and* its coupled
+    `list_projects` fix (an admin viewing a mix of owned and non-owned
+    projects used to crash with an uncaught 404 the moment the
+    `project_role()` bypass alone was removed without this fix)."""
+    mine = _create(proj_client, "Mine")
+    db_session.add(CaliberProject(project_id="PRJ-someone-elses", name="Not mine", owner="@other"))
+    db_session.commit()
+
+    resp = proj_client.get(f"{PREFIX}/projects")
+    assert resp.status_code == 200, resp.text
+    ids = {p["project_id"] for p in resp.json()["data"]}
+    assert mine in ids
+    assert "PRJ-someone-elses" not in ids
+
+
 def test_project_storage_endpoint_reports_active_backend(proj_client: TestClient) -> None:
     resp = proj_client.get(f"{PREFIX}/projects/storage")
     assert resp.status_code == 200

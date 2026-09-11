@@ -86,9 +86,16 @@ def test_run_upload_list_get_content(files_client: TestClient, run_id: str) -> N
     assert "attachment" in resp.headers["content-disposition"]
 
 
-def test_staging_upload_then_list_empty_for_run(files_client: TestClient, run_id: str) -> None:
+def test_staging_upload_then_list_empty_for_run(
+    files_client: TestClient, run_id: str, session_factory: sessionmaker[Session]
+) -> None:
+    with session_factory() as session:
+        session.add(CaliberProject(project_id="PRJ-staging", name="Staging", owner="@test"))
+        session.commit()
+
     resp = files_client.post(
         f"{PREFIX}/workflow-files",
+        headers={"X-CALIBER-Project": "PRJ-staging"},
         files={"file": ("in.txt", b"hi", "text/plain")},
         data={"kind": "input"},
     )
@@ -96,6 +103,19 @@ def test_staging_upload_then_list_empty_for_run(files_client: TestClient, run_id
     assert resp.json()["data"]["workflow_run_id"] is None
     # staged file is not bound to the run, so the run lists nothing
     assert files_client.get(f"{PREFIX}/workflow-runs/{run_id}/files").json()["data"]["items"] == []
+
+
+def test_staging_upload_without_active_project_is_denied(files_client: TestClient) -> None:
+    """`P1-B`: "deny workspace writes when no active workspace is
+    supplied" -- this used to silently write into a `"default"` namespace
+    with no authorization check at all."""
+    resp = files_client.post(
+        f"{PREFIX}/workflow-files",
+        files={"file": ("in.txt", b"hi", "text/plain")},
+        data={"kind": "input"},
+    )
+    assert resp.status_code == 400
+    assert "X-CALIBER-Project" in resp.json()["detail"]
 
 
 def test_project_staging_and_run_upload_keep_tenant_project_scope(
