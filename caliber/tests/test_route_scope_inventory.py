@@ -69,6 +69,19 @@ async def _two_sequential_calls(request: Request) -> None:
     require_scopes(request, [SCOPE_ADMIN])
 
 
+async def _all_scopes_one_call(request: Request) -> None:
+    from caliber.auth import SCOPE_APPROVER, SCOPE_OPERATOR, require_all_scopes
+
+    require_all_scopes(request, [SCOPE_OPERATOR, SCOPE_APPROVER])
+
+
+async def _all_scopes_dynamic(request: Request) -> None:
+    from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_all_scopes
+
+    computed = SCOPE_ADMIN if request.query_params.get("x") else SCOPE_OPERATOR
+    require_all_scopes(request, [computed])
+
+
 async def _authenticated_only(request: Request) -> None:
     from caliber.auth import require_user
 
@@ -121,6 +134,21 @@ def test_two_sequential_calls_union_their_scopes() -> None:
     assert result.scopes == frozenset({"SCOPE_OPERATOR", "SCOPE_ADMIN"})
 
 
+def test_require_all_scopes_one_call_is_classified_as_scope_all() -> None:
+    """`require_all_scopes` is AND-within-one-call, kept as a distinct kind
+    from `require_scopes`'s `"scope"` (OR-within-one-call) -- collapsing the
+    two would erase the one distinction a reader of this inventory needs."""
+    result = infer_required_scope(_all_scopes_one_call)
+    assert result.kind == "scope_all"
+    assert result.scopes == frozenset({"SCOPE_OPERATOR", "SCOPE_APPROVER"})
+
+
+def test_require_all_scopes_non_literal_is_dynamic() -> None:
+    result = infer_required_scope(_all_scopes_dynamic)
+    assert result.kind == "dynamic"
+    assert result.scopes == frozenset()
+
+
 def test_require_user_only_is_authenticated() -> None:
     result = infer_required_scope(_authenticated_only)
     assert result == ScopeRequirement(kind="authenticated")
@@ -160,6 +188,9 @@ def test_serialize_omits_empty_fields() -> None:
         "kind": "project_role",
         "action": "read",
     }
+    assert serialize_scope_requirement(
+        ScopeRequirement(kind="scope_all", scopes=frozenset({"SCOPE_OPERATOR", "SCOPE_APPROVER"}))
+    ) == {"kind": "scope_all", "scopes": ["SCOPE_APPROVER", "SCOPE_OPERATOR"]}
 
 
 # ---------------------------------------------------------------------------
@@ -232,6 +263,19 @@ def test_register_agent_requires_admin_scope(client: TestClient) -> None:
     assert operation["x-caliber-required-scope"] == {
         "kind": "scope",
         "scopes": ["SCOPE_ADMIN"],
+    }
+
+
+def test_create_project_requires_operator_and_approver_scope(client: TestClient) -> None:
+    """`P1-A`: `project.create`'s pre-membership bootstrap check is a
+    conjunction, not the plain single-scope check `POST /projects` used to
+    be -- pinned as its own kind (`scope_all`) so a regression back to
+    single-scope OR would fail this test, not just silently under-enforce."""
+    doc = client.get(OPENAPI_URL).json()
+    operation = doc["paths"][PREFIX + "/projects"]["post"]
+    assert operation["x-caliber-required-scope"] == {
+        "kind": "scope_all",
+        "scopes": ["SCOPE_APPROVER", "SCOPE_OPERATOR"],
     }
 
 

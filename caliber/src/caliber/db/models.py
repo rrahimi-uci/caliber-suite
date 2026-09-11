@@ -640,6 +640,7 @@ class CaliberAuditLog(Base):
     __table_args__ = (
         Index("ix_audit_log_entity", "entity_type", "entity_id"),
         Index("ix_audit_log_actor_timestamp", "actor", "timestamp"),
+        Index("ix_audit_log_environment", "environment_id"),
     )
 
     log_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -649,6 +650,11 @@ class CaliberAuditLog(Base):
     entity_type: Mapped[str] = mapped_column(String(32))
     entity_id: Mapped[str] = mapped_column(String(128))
     details: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    #: `P1-A` audit correlation (docs/workspace-plan.md §9.1). Only
+    #: `environment_id` is buildable now -- the table's other correlation
+    #: columns (`revision_id`, `change_request_id`, `workspace_release_id`,
+    #: etc.) reference Phase 4/5 tables that don't exist yet.
+    environment_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
 
 
 class CaliberEvalDataset(Base):
@@ -1995,7 +2001,28 @@ class CaliberProject(Base):
     """
 
     __tablename__ = "caliber_projects"
-    __table_args__ = (UniqueConstraint("name", name="uq_project_name"),)
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_project_name"),
+        # Partial, not a plain UniqueConstraint: `slug` defaults to `""` at
+        # the Python/SQL level (no server-side generator can derive a real
+        # slug from `name` at insert time), and plenty of test fixtures and
+        # direct-model call sites construct a `CaliberProject` without ever
+        # setting one. A blanket unique constraint on `(tenant_id, slug)`
+        # would make the *second* such row anywhere a hard `IntegrityError`
+        # -- confirmed live (running the full suite surfaced exactly that
+        # collision in two unrelated tests). Restricting the constraint to
+        # non-blank slugs keeps the real invariant (`create_project` and
+        # migration 0093's backfill always set a real, unique slug) without
+        # demanding every incidental test fixture supply one.
+        Index(
+            "uq_project_tenant_slug",
+            "tenant_id",
+            "slug",
+            unique=True,
+            sqlite_where=text("slug <> ''"),
+            postgresql_where=text("slug <> ''"),
+        ),
+    )
 
     project_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     tenant_id: Mapped[str] = mapped_column(String(64), default="local")
@@ -2004,6 +2031,58 @@ class CaliberProject(Base):
     owner: Mapped[str] = mapped_column(String(256), default="")
     status: Mapped[str] = mapped_column(String(16), default="active")
     storage_backend: Mapped[str] = mapped_column(String(16), default="local")
+    # `P1-A` (docs/workspace-plan.md §9.1) -- "Workspace" foundation fields.
+    # `uq_project_name` above stays in place until every name-based lookup is
+    # migrated to `slug` (§9.1's own instruction: don't drop it prematurely).
+    slug: Mapped[str] = mapped_column(String(128), default="")
+    source_mode: Mapped[str] = mapped_column(String(24), default="caliber_managed")
+    archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    archived_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    #: Current package accepted by Change Request CAS (§9.1). Added nullable,
+    #: unconstrained here; a real FK to the revision table lands once Phase 4
+    #: creates it. Not an environment pointer.
+    accepted_revision_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CaliberWorkspaceEnvironment(Base):
+    """One of a project's four fixed environment identities (`P1-A`).
+
+    A minimal slice of docs/workspace-plan.md section 9.2's
+    ``caliber_workspace_environments`` table: just enough to seed and name
+    the four fixed environments (``dev``/``qa``/``staging``/``prod``) per
+    project. The release/operation-tracking columns section 9.2 also
+    describes (``current_release_id``, ``pending_operation_id``,
+    ``operation_state``, ``policy``/``policy_sha256``, ``lock_version``) are
+    deliberately not here yet -- nothing consumes them until Phase 5's
+    release/operation machinery exists, and adding them now would be dead
+    schema with no test able to exercise it honestly.
+
+    Exactly four rows are seeded per project (`P1-A` transactionally on
+    create; backfilled additively for pre-existing projects by migration
+    ``0093``). ``name``/``environment_class``/``promotion_order`` are fixed
+    by :mod:`caliber.deployment_environments`'s
+    ``WORKSPACE_ENVIRONMENT_CLASSES``/``WORKSPACE_ENVIRONMENT_PROMOTION_ORDER``,
+    never caller input -- there is no create/rename/delete path in the MVP.
+    """
+
+    __tablename__ = "caliber_workspace_environments"
+    __table_args__ = (
+        UniqueConstraint("project_id", "name", name="uq_workspace_environment_project_name"),
+    )
+
+    environment_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    name: Mapped[str] = mapped_column(String(16), nullable=False)
+    environment_class: Mapped[str] = mapped_column(String(16), nullable=False)
+    promotion_order: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="disabled")
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -2197,6 +2276,11 @@ class CaliberProjectMember(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+    #: `P1-A` schema prep (docs/workspace-plan.md §9.1) -- inert until `P1-C`
+    #: wires up explicit archive/restore/deactivation transitions that set
+    #: them. Added now (cheap, nullable) so that ticket needs no migration.
+    deactivated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    deactivated_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
 
 
 class CaliberKnowledgeBaseVersion(Base):

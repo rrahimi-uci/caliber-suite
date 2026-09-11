@@ -10,6 +10,7 @@ File operations reuse the storage service + the multipart/error helpers from
 from __future__ import annotations
 
 import importlib.util
+import re
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
 from typing import Any
@@ -26,14 +27,27 @@ from starlette.routing import Route
 from caliber.audit import record as audit_record
 from caliber.auth import (
     SCOPE_ADMIN,
+    SCOPE_APPROVER,
     SCOPE_OPERATOR,
     CaliberIdentity,
+    require_all_scopes,
     require_scopes,
     require_user,
     resolve_identity,
 )
-from caliber.db.models import CaliberProject, CaliberProjectMember, CaliberWorkflowFile
-from caliber.ids import new_project_id, new_project_member_id
+from caliber.db.models import (
+    CaliberProject,
+    CaliberProjectMember,
+    CaliberWorkflowFile,
+    CaliberWorkspaceEnvironment,
+)
+from caliber.deployment_environments import (
+    WORKSPACE_ENVIRONMENT_DEFAULT_STATUS,
+    WORKSPACE_ENVIRONMENT_NAMES,
+    WORKSPACE_ENVIRONMENT_PROMOTION_ORDER,
+    workspace_environment_class,
+)
+from caliber.ids import new_project_id, new_project_member_id, new_workspace_environment_id
 from caliber.resource_access import (
     PROJECT_ROLES,
     ROLE_OWNER,
@@ -412,9 +426,58 @@ async def get_project_storage(request: Request) -> JSONResponse:
     return envelope_response(storage)
 
 
+#: `caliber_projects.tenant_id`'s only value anywhere in the system today
+#: (no multi-tenant support exists) -- named here rather than repeating the
+#: literal, since it's about to gain a second use (slug-uniqueness scoping).
+_DEFAULT_TENANT_ID = "local"
+
+_SLUG_COLLAPSE = re.compile(r"[^a-z0-9]+")
+
+
+def _slugify(name: str) -> str:
+    """Lowercase, non-alphanumeric runs collapsed to a single ``-``, trimmed.
+
+    Mirrors migration ``0093``'s backfill exactly (same regex, same
+    fallback) -- a project created live and a pre-existing project the
+    migration backfilled must derive the same slug from the same name.
+    """
+    slug = _SLUG_COLLAPSE.sub("-", name.strip().lower()).strip("-")
+    return slug or "workspace"
+
+
+def _derive_unique_slug(session: Session, tenant_id: str, name: str) -> str:
+    """A slugified, tenant-unique handle for a new project.
+
+    Same collision strategy as migration ``0093``'s backfill: append ``-2``,
+    ``-3``, ... until free. A true concurrent race (two creates deriving the
+    same slug at once) still falls through to the ``uq_project_tenant_slug``
+    database constraint at flush time -- this pre-check only avoids the
+    common case of a 409 for what the caller would see as two differently
+    named projects (``"Demo"`` and ``"demo"``).
+    """
+    base_slug = _slugify(name)
+    slug = base_slug
+    suffix = 2
+    while (
+        session.execute(
+            select(CaliberProject.project_id).where(
+                CaliberProject.tenant_id == tenant_id, CaliberProject.slug == slug
+            )
+        ).first()
+        is not None
+    ):
+        slug = f"{base_slug}-{suffix}"
+        suffix += 1
+    return slug
+
+
 async def create_project(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
-    actor = require_scopes(request, [SCOPE_OPERATOR])
+    # `project.create` is the one action authorized before any Workspace
+    # membership exists (section 2.4's pre-membership bootstrap check) --
+    # both scopes are required, not either, so an Operator alone or an
+    # Approver alone cannot unilaterally create a workspace.
+    actor = require_all_scopes(request, [SCOPE_OPERATOR, SCOPE_APPROVER])
     name = body.get("name")
     if not isinstance(name, str) or not name.strip():
         raise HTTPException(status_code=400, detail="'name' is required")
@@ -425,12 +488,16 @@ async def create_project(request: Request) -> JSONResponse:
     _require_configured_backend(request, storage_backend)
     factory = get_session_factory(request)
     with factory() as session:
+        slug = _derive_unique_slug(session, _DEFAULT_TENANT_ID, name.strip())
         project = CaliberProject(
             project_id=new_project_id(),
+            tenant_id=_DEFAULT_TENANT_ID,
             name=name.strip(),
             description=description.strip() if isinstance(description, str) else "",
             owner=actor,
             storage_backend=storage_backend,
+            slug=slug,
+            source_mode="caliber_managed",
         )
         session.add(project)
         session.add(
@@ -443,6 +510,21 @@ async def create_project(request: Request) -> JSONResponse:
                 created_by=actor,
             )
         )
+        # Seed the four fixed environment identities in the same transaction
+        # as the project + owner membership -- a failed seed must leave no
+        # partial workspace (section 12.2).
+        for env_name in WORKSPACE_ENVIRONMENT_NAMES:
+            session.add(
+                CaliberWorkspaceEnvironment(
+                    environment_id=new_workspace_environment_id(),
+                    project_id=project.project_id,
+                    name=env_name,
+                    environment_class=workspace_environment_class(env_name),
+                    promotion_order=WORKSPACE_ENVIRONMENT_PROMOTION_ORDER[env_name],
+                    status=WORKSPACE_ENVIRONMENT_DEFAULT_STATUS[env_name],
+                    created_by=actor,
+                )
+            )
         try:
             session.flush()
         except IntegrityError as exc:
@@ -455,7 +537,7 @@ async def create_project(request: Request) -> JSONResponse:
             action="create_project",
             entity_type="project",
             entity_id=project.project_id,
-            details={"name": project.name, "storage_backend": storage_backend},
+            details={"name": project.name, "storage_backend": storage_backend, "slug": slug},
         )
         session.commit()
         payload = _project_to_schema(

@@ -41,9 +41,16 @@ if TYPE_CHECKING:  # pragma: no cover - typing only
 PRODUCTION: Final = "production"
 STAGING: Final = "staging"
 DEVELOPMENT: Final = "development"
+QA: Final = "qa"
 
 #: Every class this module can return, ordered most to least restrictive.
-ENVIRONMENT_CLASSES: Final[tuple[str, ...]] = (PRODUCTION, STAGING, DEVELOPMENT)
+#: `QA` is new (`P1-A`, docs/workspace-plan.md Phase 1 item 3) and is
+#: deliberately *not* added to `_PATTERNS` below: the legacy alias-based
+#: classifier keeps folding `qa`-like deployment aliases into `STAGING` for
+#: backward compatibility with routes that predate Workspace environments.
+#: `QA` exists as its own class only for `WORKSPACE_ENVIRONMENT_CLASSES`
+#: below and for operators who want to reference it in an explicit mapping.
+ENVIRONMENT_CLASSES: Final[tuple[str, ...]] = (PRODUCTION, STAGING, DEVELOPMENT, QA)
 
 #: Built-in alias patterns. Matched against the *normalized* alias (casefolded,
 #: with ``_`` and whitespace folded to ``-``), so ``PROD_EU`` and ``prod eu``
@@ -163,11 +170,68 @@ def requires_external_isolation(alias: str, config: CaliberConfig | None = None)
     return normalize_alias(alias) in legacy_aliases
 
 
+#: Strict name -> environment class map for Workspace-owned environment rows
+#: (`P1-A`, ``caliber_workspace_environments``). Deliberately separate from
+#: ``environment_class()``'s alias-based, fail-closed-to-production
+#: classifier above: a Workspace environment's ``name`` is one of exactly
+#: four closed, caller-supplied-nowhere values (they're server-seeded), so an
+#: unrecognized name is a bug to reject outright, never something to
+#: classify defensively. See docs/workspace-plan.md Phase 1 item 3 ("reject
+#: unknown names in Workspace APIs").
+WORKSPACE_ENVIRONMENT_CLASSES: Final[dict[str, str]] = {
+    "dev": DEVELOPMENT,
+    "qa": QA,
+    "staging": STAGING,
+    "prod": PRODUCTION,
+}
+
+#: Fixed promotion order for each Workspace environment name, per
+#: docs/workspace-plan.md section 9.2 (`caliber_workspace_environments`).
+WORKSPACE_ENVIRONMENT_PROMOTION_ORDER: Final[dict[str, int]] = {
+    "dev": 10,
+    "qa": 20,
+    "staging": 30,
+    "prod": 40,
+}
+
+#: The four fixed environment names, in seeding/promotion order.
+WORKSPACE_ENVIRONMENT_NAMES: Final[tuple[str, ...]] = ("dev", "qa", "staging", "prod")
+
+#: Which of the four seeded environments starts enabled. Section 16 Phase 1
+#: item 2: "New dev is active; qa/staging/prod are disabled."
+WORKSPACE_ENVIRONMENT_DEFAULT_STATUS: Final[dict[str, str]] = {
+    "dev": "active",
+    "qa": "disabled",
+    "staging": "disabled",
+    "prod": "disabled",
+}
+
+
+def workspace_environment_class(name: str) -> str:
+    """The environment class for one of the four closed Workspace
+    environment names.
+
+    Raises :class:`ValueError` for anything else -- unlike
+    :func:`environment_class`, there is no fail-closed default here: an
+    unrecognized name reaching a Workspace API is a caller/programming bug,
+    not a deployment alias that needs defensive classification.
+    """
+    try:
+        return WORKSPACE_ENVIRONMENT_CLASSES[name]
+    except KeyError:
+        raise ValueError(f"unknown Workspace environment name: {name!r}") from None
+
+
 __all__ = [
     "DEVELOPMENT",
     "ENVIRONMENT_CLASSES",
     "PRODUCTION",
+    "QA",
     "STAGING",
+    "WORKSPACE_ENVIRONMENT_CLASSES",
+    "WORKSPACE_ENVIRONMENT_DEFAULT_STATUS",
+    "WORKSPACE_ENVIRONMENT_NAMES",
+    "WORKSPACE_ENVIRONMENT_PROMOTION_ORDER",
     "allows_host_path_nodes",
     "default_environment_class",
     "environment_class",
@@ -175,4 +239,5 @@ __all__ = [
     "isolation_required_classes",
     "normalize_alias",
     "requires_external_isolation",
+    "workspace_environment_class",
 ]

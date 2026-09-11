@@ -5,9 +5,12 @@ from __future__ import annotations
 from pathlib import Path
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from caliber.config import WorkflowStorageConfig
+from caliber.db.models import CaliberProject, CaliberWorkspaceEnvironment
 from caliber.storage import LocalStorageBackend, WorkingDirectoryService
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
@@ -99,6 +102,91 @@ def test_create_requires_name_and_operator(proj_client: TestClient) -> None:
         headers={"X-CALIBER-User": "@viewer-only"},
     )
     assert resp.status_code == 403
+
+
+def test_create_project_seeds_slug_source_mode_and_environments(
+    proj_client: TestClient, db_session: Session
+) -> None:
+    """`P1-A`: creation transactionally derives a slug, defaults the source
+    mode, and seeds all four fixed environments (dev active, the rest
+    disabled) -- none of this is in the response schema yet (a separate,
+    later slice), so this asserts against the DB directly."""
+    pid = _create(proj_client, "Mortgage Underwriting")
+
+    project = db_session.execute(
+        select(CaliberProject).where(CaliberProject.project_id == pid)
+    ).scalar_one()
+    assert project.slug == "mortgage-underwriting"
+    assert project.source_mode == "caliber_managed"
+
+    environments = (
+        db_session.execute(
+            select(CaliberWorkspaceEnvironment)
+            .where(CaliberWorkspaceEnvironment.project_id == pid)
+            .order_by(CaliberWorkspaceEnvironment.promotion_order)
+        )
+        .scalars()
+        .all()
+    )
+    assert [(e.name, e.environment_class, e.promotion_order, e.status) for e in environments] == [
+        ("dev", "development", 10, "active"),
+        ("qa", "qa", 20, "disabled"),
+        ("staging", "staging", 30, "disabled"),
+        ("prod", "production", 40, "disabled"),
+    ]
+
+
+def test_create_project_slug_collision_gets_a_deterministic_suffix(
+    proj_client: TestClient, db_session: Session
+) -> None:
+    """Two projects whose names slugify identically (``"Demo"`` and
+    ``"demo!"``) must not collide -- the second gets a numeric suffix, the
+    same strategy migration 0093's backfill uses for pre-existing rows."""
+    first = _create(proj_client, "Demo")
+    second = _create(proj_client, "demo!")
+
+    slugs = {
+        pid: db_session.execute(
+            select(CaliberProject.slug).where(CaliberProject.project_id == pid)
+        ).scalar_one()
+        for pid in (first, second)
+    }
+    assert slugs[first] == "demo"
+    assert slugs[second] == "demo-2"
+
+
+def test_create_requires_both_operator_and_approver(proj_client: TestClient) -> None:
+    """`P1-A`: `project.create` is now an AND of two scopes, not an OR --
+    holding only one is not enough. The default test identity (`@test`) is
+    admin-scoped, which implies both, so this reconfigures the fixture app
+    with dedicated single-scope users to prove the conjunction directly."""
+    proj_client.app.state.config = proj_client.app.state.config.model_copy(
+        update={"operator_users": "@op-only", "approver_users": "@appr-only"}
+    )
+
+    operator_only = proj_client.post(
+        f"{PREFIX}/projects",
+        json={"name": "Operator Only"},
+        headers={"X-CALIBER-User": "@op-only"},
+    )
+    assert operator_only.status_code == 403
+
+    approver_only = proj_client.post(
+        f"{PREFIX}/projects",
+        json={"name": "Approver Only"},
+        headers={"X-CALIBER-User": "@appr-only"},
+    )
+    assert approver_only.status_code == 403
+
+    proj_client.app.state.config = proj_client.app.state.config.model_copy(
+        update={"operator_users": "@both", "approver_users": "@both"}
+    )
+    both = proj_client.post(
+        f"{PREFIX}/projects",
+        json={"name": "Both Scopes"},
+        headers={"X-CALIBER-User": "@both"},
+    )
+    assert both.status_code == 201, both.text
 
 
 def test_update_project_rename_and_archive(proj_client: TestClient) -> None:

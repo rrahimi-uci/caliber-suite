@@ -31,9 +31,15 @@ from caliber.db.models import (
 from caliber.deployment_environments import (
     DEVELOPMENT,
     PRODUCTION,
+    QA,
     STAGING,
+    WORKSPACE_ENVIRONMENT_CLASSES,
+    WORKSPACE_ENVIRONMENT_DEFAULT_STATUS,
+    WORKSPACE_ENVIRONMENT_NAMES,
+    WORKSPACE_ENVIRONMENT_PROMOTION_ORDER,
     environment_class,
     requires_external_isolation,
+    workspace_environment_class,
 )
 from caliber.mcp_policy import (
     _MAX_SUBWORKFLOW_DEPTH,
@@ -89,6 +95,58 @@ def test_unrecognised_alias_fails_closed_into_production() -> None:
     requirements, not escape them."""
     assert environment_class("canary", CaliberConfig()) == PRODUCTION
     assert environment_class("blue", CaliberConfig()) == PRODUCTION
+
+
+# ---------------------------------------------------------------------------
+# `P1-A`: the strict Workspace environment name -> class map
+# ---------------------------------------------------------------------------
+
+
+def test_qa_is_a_distinct_class_from_staging() -> None:
+    """`P1-A` adds a genuine `QA` class -- confirms it's not just an alias
+    for `STAGING` under a new name."""
+    assert QA != STAGING
+    assert QA in WORKSPACE_ENVIRONMENT_CLASSES.values()
+
+
+def test_legacy_qa_alias_still_classifies_as_staging() -> None:
+    """The *legacy*, alias-based classifier must not change: old
+    deployment-alias routes that call `environment_class("qa", ...)` still
+    get `STAGING`, exactly as `test_environment_class_is_insensitive_to_spelling`
+    already pins above. `QA` only exists for the new, separate Workspace
+    environment map below -- this test exists to make the "don't touch the
+    legacy path" intent explicit, not just implicit in the parametrized
+    table staying green."""
+    assert environment_class("qa", CaliberConfig()) == STAGING
+
+
+def test_workspace_environment_class_map_matches_the_fixed_four_names() -> None:
+    assert workspace_environment_class("dev") == DEVELOPMENT
+    assert workspace_environment_class("qa") == QA
+    assert workspace_environment_class("staging") == STAGING
+    assert workspace_environment_class("prod") == PRODUCTION
+
+
+def test_workspace_environment_class_rejects_an_unrecognized_name() -> None:
+    """Unlike `environment_class()`, there is no fail-closed default here --
+    an unrecognized Workspace environment name is a bug, not an alias to
+    classify defensively."""
+    with pytest.raises(ValueError, match="unknown Workspace environment name"):
+        workspace_environment_class("canary")
+
+
+def test_workspace_environment_names_promotion_order_and_default_status_agree() -> None:
+    """The four constants line up with each other and with section 9.2's
+    fixed promotion order / initial-status policy (dev active; the rest
+    disabled)."""
+    assert WORKSPACE_ENVIRONMENT_NAMES == ("dev", "qa", "staging", "prod")
+    assert WORKSPACE_ENVIRONMENT_PROMOTION_ORDER == {"dev": 10, "qa": 20, "staging": 30, "prod": 40}
+    assert WORKSPACE_ENVIRONMENT_DEFAULT_STATUS == {
+        "dev": "active",
+        "qa": "disabled",
+        "staging": "disabled",
+        "prod": "disabled",
+    }
 
 
 def test_operator_mapping_overrides_the_patterns() -> None:

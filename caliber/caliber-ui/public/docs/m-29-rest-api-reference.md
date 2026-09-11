@@ -319,7 +319,7 @@ Supported management routes that belong to the stable public automation surface.
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects` | project role (`read`) | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/projects` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects` | all of `caliber.approver` and `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/storage` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_storage` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id` |
 | `PATCH` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}` | project role (`project.update`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_projects_project_id`; request body documented in OpenAPI |

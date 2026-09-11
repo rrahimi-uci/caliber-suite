@@ -3713,7 +3713,7 @@ combined with a later slice merely to reduce PR count.
 | --- | --- | --- | --- | --- |
 | `P0-A` | Architecture + security | **Delivered.** Machine-readable route required-scope inventory (`routes/scope_inference.py`, `x-caliber-required-scope` on the served OpenAPI document, enforced by `tests/test_route_scope_inventory.py`) — every one of 403 operations classified by reading its own authorization call, not a hand-duplicated table — plus a background-worker inventory (`observability/worker_inventory.py`, `tests/test_worker_inventory.py`) and a per-model project-scoping inventory (`db/resource_inventory.py`, `tests/test_resource_inventory.py`, all 85 models classified with zero hand-maintenance needed); the per-plane authority matrix and every question section 19.2 posed are ratified as decisions (section 19) | — | Every route, every background worker, and every model has one inventory row and none can drift from the real code; every policy question this document posed has a named, ratified decision rather than an implicit default (gate on today's live route table / lifespan / model registry, same as `P3-B`/`P3-A`/`P3-C`'s "doesn't wait" exceptions in spirit, though these have no `P1-C` dependency to begin with) |
 | `P0-B` | API + SDK | **Delivered.** OpenAPI shapes: `x-caliber-required-scope` (`P0-A`'s route-scope inventory) is now rendered as a "Required scope" column in the published REST API reference (`docs-site/generate_rest_api_docs.py::_format_required_scope`), not just visible in the raw served JSON. Error envelope: ratified as frozen — `routes/_errors.py`'s `{detail, status_code}` / `{detail, status_code, errors[]}` shapes were already implemented, tested, OpenAPI-declared, and published before this PR; no code changed. Closed actions: ratified — today's live route table requires only 5 of `PROJECT_ACTIONS`'s 7 keys, closure enforced by `tests/test_route_scope_inventory.py`; this is *not* `P1-B`'s "Closed action enum" (section 2.4's much larger future `WorkspaceAction` vocabulary), which remains unstarted and gated on `P1-A`. Reason codes: named as a real, deliberately deferred gap (Phase 0 item 6). Pagination: inventoried and ratified (`routes/pagination_inventory.py`, 6 distinct shapes across ~27 routes pinned, `list_limit()` ratified as the near-term baseline, deviations named not reconciled). ETag/CAS/idempotency: today's real `409`-based mechanisms ratified as the current precursor to section 13.6's target `412`/header contract, with a pin confirming no route emits `412` yet. Change Request/version contracts: sections 3.2/9.2's already-written design ratified as frozen, plus `workspace_change_requests.py`'s model-based transition fixtures (Phase 4 still owns all real implementation). Manifest schema and golden vectors: `workspace_manifest.py` implements and tests the `v1alpha1` schema and canonicalization (22 golden-vector tests) — the manifest-document half of the eventual `revision_sha256`; full materialization remains Phase 4. Multipart field names, maximum bundle size (a new, reasoned policy decision), and sync/async streaming (decision ratified, heartbeat-test verification pending real async upload code) round out item 6 in full. **Explicitly out of scope for this ticket** (Phase 0 items with no PR-sequence ticket, not owned by "API + SDK," left exactly as open as before): item 3's remaining nullability/uniqueness audit and bare-name-resolver inventory, item 5 (resource adapter capability contract), item 7 (deterministic fixtures), item 8 (the two typed decision contracts), item 9 (per-adapter reconstructability strategy), item 11 (`SourceControlProvider` capabilities) | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
-| `P1-A` | Data/backend | Add project slug/counter/accepted-pointer/archive/audit fields, the Workspace idempotency ledger, and fixed environment rows; deterministic backfill, safe baseline state, and PostgreSQL migration CI | `P0-B` | Fresh/upgrade parity on SQLite and real PostgreSQL; idempotency conflict/replay is durable; new Workspace seeds dev active and qa/staging/prod disabled; migrated live aliases remain `baseline_required` |
+| `P1-A` | Data/backend | **Partially delivered.** Project slug/source-mode/archive/accepted-revision fields, the minimal `caliber_workspace_environments` table, project-member deactivation fields, and audit-log environment correlation are all added (migration `0093`), with a deterministic additive backfill for every existing project. Workspace creation now requires operator **and** approver (a new `require_all_scopes` primitive) and transactionally seeds the four fixed environments. The environment-class registry gained a genuine `qa` class without touching legacy alias behavior. Still open: the Workspace idempotency ledger (a separate table, not built — nothing needs it yet) and PostgreSQL migration CI (zero infra exists; a distinct CI/infra task, out of scope for this slice by explicit choice) | `P0-B` | Fresh/upgrade parity on SQLite and real PostgreSQL; idempotency conflict/replay is durable; new Workspace seeds dev active and qa/staging/prod disabled; migrated live aliases remain `baseline_required` |
 | `P1-B` | Security/backend | Closed action enum, deny-by-default decision service, all-scope conjunction support, stable reasons, and removal of ordinary platform-admin owner bypass | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; policy errors never fall back to legacy allow |
 | `P1-C` | Auth/backend | Eligible multiple-Admin membership, one primary-owner invariant, project-bound PAT/credential context, transfer, explicit archive/restore, Admin metadata inventory, and capability projection | `P1-B` | PAT cannot cross workspace; scope-ineligible role grants fail; primary owner transfer is atomic; secondary Admin does not change primary owner |
 | `P2-A` | Backend | Convert root routes by resource family to centralized authorization and non-null-on-create workspace ownership | `P1-C` | Each converted family has two-workspace CRUD/child-ID tests; unconverted routes remain inventoried and flagged |
@@ -3998,12 +3998,56 @@ Primary areas: `db/models.py`, `db/migrations/versions/`, `schemas.py`,
 
 1. Add project slug, source mode, archive provenance, audit correlation, and
    environment tables.
+   **Delivered** (`P1-A`): `caliber_projects` gains `slug` (unique within
+   `tenant_id`, partial index so blank-slug rows never collide — see below),
+   `source_mode`, `archived_at`/`archived_by`, and a nullable, unconstrained
+   `accepted_revision_id`; `caliber_project_members` gains
+   `deactivated_at`/`deactivated_by` (inert until `P1-C` wires up
+   archive/restore); `caliber_audit_log` gains a nullable, indexed
+   `environment_id` (the only correlation column buildable now — the
+   others reference Phase 4/5 tables that don't exist yet); a new,
+   deliberately *minimal* `caliber_workspace_environments` table (identity/
+   class/order/status/audit columns only — section 9.2's release/operation
+   columns have no consumer until Phase 5 and would be dead schema today).
+   Migration `0093` (`db/migrations/versions/0093_workspace_environments.py`).
+   **Not included**: the Workspace idempotency ledger this ticket's own
+   PR-sequence row also names — a genuinely separate table this slice does
+   not build (no code needs it yet; deferred to whichever future PR
+   actually requires idempotency-key replay across Workspace endpoints).
 2. Make Workspace creation require operator **and** approver, then seed the
    primary Admin membership plus fixed dev/qa/staging/prod environments in the same
    transaction. New dev is active; qa/staging/prod are disabled.
+   **Delivered** (`P1-A`): `auth.py` gains `require_all_scopes(request,
+   scopes)` — the AND-semantics primitive section 2.4 named as missing
+   (`require_scopes` is OR-only). `routes/projects.py::create_project` now
+   calls `require_all_scopes(request, [SCOPE_OPERATOR, SCOPE_APPROVER])` and,
+   in the same transaction as the project + owner-membership rows, derives a
+   tenant-unique slug and inserts the four fixed environment rows (dev
+   active, the rest disabled) — a failed seed leaves no partial workspace.
+   **This is a live behavior change**: a caller with only `SCOPE_OPERATOR`
+   today gets `403` now; previously it succeeded.
+   `routes/scope_inference.py`'s inventory gained a matching `"scope_all"`
+   classification (distinct from `"scope"`'s OR semantics) so this doesn't
+   silently misclassify as unauthenticated in the P0-A inventory — the
+   published REST API reference's "Required scope" column renders it as
+   "all of `caliber.approver` and `caliber.operator`".
 3. Extend the closed environment-class registry with `qa`; retain legacy alias
    behavior only for old routes and reject unknown names in Workspace APIs.
+   **Delivered** (`P1-A`): `deployment_environments.py` adds a genuine `QA`
+   class to `ENVIRONMENT_CLASSES`, plus a separate, strict
+   `WORKSPACE_ENVIRONMENT_CLASSES` name→class map (and
+   `workspace_environment_class()`, which raises rather than falling back
+   to a default) used only by the new environment-seeding code. The
+   existing alias-based `environment_class()` classifier is untouched —
+   `qa`-like deployment aliases still fold into `STAGING` for old routes,
+   pinned by regression test.
 4. Backfill existing workspaces and environment rows additively.
+   **Delivered** (`P1-A`, migration `0093`): every pre-existing project gets
+   a derived, tenant-unique slug (same slugify-and-suffix algorithm as live
+   creation; two projects whose names slugify identically don't collide),
+   `source_mode="caliber_managed"`, and its four environment rows — a
+   Python-driven backfill (per-row collision handling isn't expressible in
+   pure SQL), tested against a fixture DB with a real name collision.
 5. Replace free-form action strings with a closed `WorkspaceAction` registry,
    including the `resource.write.runtime` / `resource.write.evidence` split and
    `feedback.submit` from section 2.4.
