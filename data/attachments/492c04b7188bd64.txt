@@ -1,1 +1,0 @@
-INFO     httpx:_client.py:1025 HTTP Request: GET https://unused.test/prompts/support-agent?alias=prod "HTTP/1.1 200 OK"

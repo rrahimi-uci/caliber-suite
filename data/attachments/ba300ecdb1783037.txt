@@ -1,0 +1,12 @@
+{"t":"2026-09-11T19:26:57.239Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-11T19:26:57.264Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-11T19:26:57.267Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-11T19:26:57.269Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-11T19:26:57.308Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-11T19:26:57.369Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-7e039cd2/import \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-11T19:26:57.382Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-7e039cd2/operations \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-11T19:26:57.397Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-7e039cd2/tool-drafts/generate \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-11T19:26:57.406Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-7e039cd2/tool-drafts/OATD-f515514f/preview \"HTTP/1.1 409 Conflict\""}
+{"t":"2026-09-11T19:26:57.422Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-7e039cd2/tool-drafts/OATD-f515514f \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-11T19:26:57.470Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST https://tickets.example.com/tickets \"HTTP/1.1 201 Created\"","trace_id":"dafb02e4bfd603eb"}
+{"t":"2026-09-11T19:26:57.474Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-7e039cd2/tool-drafts/OATD-f515514f/preview \"HTTP/1.1 200 OK\""}
