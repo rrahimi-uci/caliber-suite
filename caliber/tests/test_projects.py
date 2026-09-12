@@ -208,19 +208,63 @@ def test_create_requires_both_operator_and_approver(proj_client: TestClient) -> 
     assert both.status_code == 201, both.text
 
 
-def test_update_project_rename_and_archive(proj_client: TestClient) -> None:
+def test_update_project_rename(proj_client: TestClient) -> None:
     pid = _create(proj_client, "Old Name")
-    resp = proj_client.patch(
-        f"{PREFIX}/projects/{pid}", json={"name": "New Name", "status": "archived"}
-    )
+    resp = proj_client.patch(f"{PREFIX}/projects/{pid}", json={"name": "New Name"})
     assert resp.status_code == 200
     assert resp.json()["data"]["name"] == "New Name"
+
+
+def test_update_project_rejects_status_in_favor_of_dedicated_routes(
+    proj_client: TestClient,
+) -> None:
+    """`P1-C`, section 12.2: `PATCH` narrows to name/description only --
+    lifecycle status now moves exclusively through `:archive`/`:restore`,
+    which also record provenance (`archived_at`/`archived_by`) that the old
+    bare status flip never set."""
+    pid = _create(proj_client, "Still Active")
+    resp = proj_client.patch(f"{PREFIX}/projects/{pid}", json={"status": "archived"})
+    assert resp.status_code == 400
+    assert proj_client.get(f"{PREFIX}/projects/{pid}").json()["data"]["status"] == "active"
+
+
+def test_archive_and_restore_project(proj_client: TestClient) -> None:
+    pid = _create(proj_client, "Archivable")
+
+    archived = proj_client.post(f"{PREFIX}/projects/{pid}/archive")
+    assert archived.status_code == 200, archived.text
+    data = archived.json()["data"]
+    assert data["status"] == "archived"
+    assert data["archived_by"] == "@test"
+    assert data["archived_at"] is not None
+
     # archived projects are excluded from the default list
     listing = proj_client.get(f"{PREFIX}/projects").json()["data"]
     assert all(p["project_id"] != pid for p in listing)
     # ...but visible with ?status=all
     all_listing = proj_client.get(f"{PREFIX}/projects?status=all").json()["data"]
     assert any(p["project_id"] == pid for p in all_listing)
+
+    # archiving an already-archived project conflicts
+    assert proj_client.post(f"{PREFIX}/projects/{pid}/archive").status_code == 409
+    # restoring a non-archived project conflicts
+    other = _create(proj_client, "Never Archived")
+    assert proj_client.post(f"{PREFIX}/projects/{other}/restore").status_code == 409
+
+    restored = proj_client.post(f"{PREFIX}/projects/{pid}/restore")
+    assert restored.status_code == 200, restored.text
+    restored_data = restored.json()["data"]
+    assert restored_data["status"] == "active"
+    assert restored_data["archived_at"] is None
+    assert restored_data["archived_by"] is None
+
+
+def test_archive_requires_operator_scope(proj_client: TestClient) -> None:
+    pid = _create(proj_client, "Scope Guarded")
+    resp = proj_client.post(
+        f"{PREFIX}/projects/{pid}/archive", headers={"X-CALIBER-User": "@viewer-only"}
+    )
+    assert resp.status_code == 403
 
 
 def test_project_membership_roles_and_permissions(proj_client: TestClient) -> None:
@@ -272,10 +316,15 @@ def test_project_role_alone_is_not_enough_without_the_operator_scope(
     `@test` identity, which cannot regress-test the scope check at all. This
     proves the negative case directly with real, non-admin project members.
 
-    `add_project_member` refuses `role="owner"` at the API layer (`payload.role
-    not in PROJECT_ROLES - {ROLE_OWNER}` -> 400), so the owner-role member
-    used for the member-mutation routes is inserted directly via
-    `db_session`, not through the API.
+    `add_project_member` now allows granting `role="owner"` (`P1-C`), but
+    only to a target whose live platform scopes already include both
+    `caliber.operator` and `caliber.approver` -- `@viewer-owner` here has
+    neither, so it would be rejected (409) at the API layer too. The
+    owner-role member used below is inserted directly via `db_session`,
+    bypassing that eligibility check, specifically to exercise
+    `update_project_member`/`remove_project_member`'s *scope-ceiling* gap
+    (this test's actual subject) against a real non-primary-owner Admin,
+    without also having to construct an eligible one.
     """
     pid = _create(proj_client, "Scope ceiling check")
 
@@ -336,6 +385,190 @@ def test_project_role_alone_is_not_enough_without_the_operator_scope(
     # The project itself, and the real membership rows, are untouched.
     detail = proj_client.get(f"{PREFIX}/projects/{pid}").json()["data"]
     assert detail["name"] == "Scope ceiling check"
+
+
+def _make_eligible(client: TestClient, *user_ids: str) -> None:
+    """Grant every ``user_id`` both `caliber.operator` and `caliber.approver`
+    -- the scopes `is_eligible_for_owner_role` requires -- by adding them to
+    both allow-lists, matching `test_create_requires_both_operator_and_approver`'s
+    own config-mutation pattern."""
+    csv = ",".join(user_ids)
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"operator_users": csv, "approver_users": csv}
+    )
+
+
+def test_add_member_as_owner_requires_scope_eligibility(proj_client: TestClient) -> None:
+    """`P1-C`: multiple `owner`-role (Admin) memberships are now allowed,
+    but only for a target whose live scopes already include both
+    `caliber.operator` and `caliber.approver` (section 2.4/19.1 item 4)."""
+    pid = _create(proj_client, "Multi Admin")
+
+    ineligible = proj_client.post(
+        f"{PREFIX}/projects/{pid}/members",
+        json={"user_id": "@ineligible", "role": "owner"},
+    )
+    assert ineligible.status_code == 409, ineligible.text
+
+    _make_eligible(proj_client, "@second-admin")
+    eligible = proj_client.post(
+        f"{PREFIX}/projects/{pid}/members",
+        json={"user_id": "@second-admin", "role": "owner"},
+    )
+    assert eligible.status_code == 201, eligible.text
+    assert eligible.json()["data"]["role"] == "owner"
+
+    # The primary owner (`CaliberProject.owner`) is unchanged by adding a
+    # second Admin -- adding another Admin is ordinary member administration.
+    detail = proj_client.get(f"{PREFIX}/projects/{pid}").json()["data"]
+    assert detail["owner"] == "@test"
+
+
+def test_promote_existing_member_to_owner_requires_eligibility(proj_client: TestClient) -> None:
+    pid = _create(proj_client, "Promotion")
+    proj_client.post(
+        f"{PREFIX}/projects/{pid}/members", json={"user_id": "@future-admin", "role": "editor"}
+    )
+
+    still_ineligible = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/members/@future-admin", json={"role": "owner"}
+    )
+    assert still_ineligible.status_code == 409, still_ineligible.text
+
+    _make_eligible(proj_client, "@future-admin")
+    promoted = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/members/@future-admin", json={"role": "owner"}
+    )
+    assert promoted.status_code == 200, promoted.text
+    assert promoted.json()["data"]["role"] == "owner"
+
+
+def test_primary_owner_row_protected_but_secondary_admin_is_not(proj_client: TestClient) -> None:
+    """`P1-C`: the primary-owner invariant now lives on `CaliberProject.owner`,
+    not on holding the `owner` role -- a secondary Admin's membership row can
+    be demoted/removed through the ordinary member routes; the primary
+    owner's own row cannot (that's `transfer-ownership`'s job)."""
+    pid = _create(proj_client, "Ownership Guarded")
+    _make_eligible(proj_client, "@second-admin")
+    proj_client.post(
+        f"{PREFIX}/projects/{pid}/members", json={"user_id": "@second-admin", "role": "owner"}
+    )
+
+    # The primary owner ("@test") cannot be demoted or removed here.
+    demote_owner = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/members/@test", json={"role": "viewer"}
+    )
+    assert demote_owner.status_code == 409, demote_owner.text
+    remove_owner = proj_client.delete(f"{PREFIX}/projects/{pid}/members/@test")
+    assert remove_owner.status_code == 409, remove_owner.text
+
+    # The secondary Admin can be demoted...
+    demote_secondary = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/members/@second-admin", json={"role": "editor"}
+    )
+    assert demote_secondary.status_code == 200, demote_secondary.text
+    assert demote_secondary.json()["data"]["role"] == "editor"
+
+    # ...and removed.
+    _make_eligible(proj_client, "@second-admin", "@third-admin")
+    proj_client.post(
+        f"{PREFIX}/projects/{pid}/members", json={"user_id": "@third-admin", "role": "owner"}
+    )
+    remove_secondary = proj_client.delete(f"{PREFIX}/projects/{pid}/members/@third-admin")
+    assert remove_secondary.status_code == 200, remove_secondary.text
+
+
+def test_transfer_ownership_moves_the_primary_owner_pointer(
+    proj_client: TestClient, db_session: Session
+) -> None:
+    pid = _create(proj_client, "Transferable")
+    _make_eligible(proj_client, "@new-owner")
+    proj_client.post(
+        f"{PREFIX}/projects/{pid}/members", json={"user_id": "@new-owner", "role": "owner"}
+    )
+
+    resp = proj_client.post(
+        f"{PREFIX}/projects/{pid}/transfer-ownership",
+        json={"new_owner_user_id": "@new-owner"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["owner"] == "@new-owner"
+
+    project = db_session.execute(
+        select(CaliberProject).where(CaliberProject.project_id == pid)
+    ).scalar_one()
+    assert project.owner == "@new-owner"
+    # Both Admin memberships (old and new primary owner) still exist --
+    # transfer moves the pointer, it does not touch membership rows.
+    roles = {
+        (m.user_id, m.role)
+        for m in db_session.execute(
+            select(CaliberProjectMember).where(CaliberProjectMember.project_id == pid)
+        )
+        .scalars()
+        .all()
+    }
+    assert roles == {("@test", ROLE_OWNER), ("@new-owner", ROLE_OWNER)}
+
+
+def test_transfer_ownership_only_current_primary_owner_may_initiate(
+    proj_client: TestClient,
+) -> None:
+    """Exit criterion: "secondary Admin does not change primary owner" --
+    an `owner`-role member who is not `CaliberProject.owner` may not
+    transfer ownership, even to themselves."""
+    pid = _create(proj_client, "Guarded Transfer")
+    _make_eligible(proj_client, "@second-admin")
+    proj_client.post(
+        f"{PREFIX}/projects/{pid}/members", json={"user_id": "@second-admin", "role": "owner"}
+    )
+
+    resp = proj_client.post(
+        f"{PREFIX}/projects/{pid}/transfer-ownership",
+        json={"new_owner_user_id": "@second-admin"},
+        headers={"X-CALIBER-User": "@second-admin"},
+    )
+    assert resp.status_code == 403, resp.text
+
+    project_owner = proj_client.get(f"{PREFIX}/projects/{pid}").json()["data"]["owner"]
+    assert project_owner == "@test"
+
+
+def test_transfer_ownership_target_must_be_an_eligible_active_admin(
+    proj_client: TestClient,
+) -> None:
+    pid = _create(proj_client, "Target Checks")
+
+    not_a_member = proj_client.post(
+        f"{PREFIX}/projects/{pid}/transfer-ownership",
+        json={"new_owner_user_id": "@nobody"},
+    )
+    assert not_a_member.status_code == 409, not_a_member.text
+
+    proj_client.post(
+        f"{PREFIX}/projects/{pid}/members", json={"user_id": "@just-editor", "role": "editor"}
+    )
+    wrong_role = proj_client.post(
+        f"{PREFIX}/projects/{pid}/transfer-ownership",
+        json={"new_owner_user_id": "@just-editor"},
+    )
+    assert wrong_role.status_code == 409, wrong_role.text
+
+    # An Admin whose scopes are later revoked stays scope-ineligible for
+    # transfer, even though the stored `owner` role is untouched -- the
+    # eligibility check reads *live* scopes, not a grant-time snapshot.
+    _make_eligible(proj_client, "@lapsed-admin")
+    proj_client.post(
+        f"{PREFIX}/projects/{pid}/members", json={"user_id": "@lapsed-admin", "role": "owner"}
+    )
+    proj_client.app.state.config = proj_client.app.state.config.model_copy(
+        update={"operator_users": "", "approver_users": ""}
+    )
+    lapsed = proj_client.post(
+        f"{PREFIX}/projects/{pid}/transfer-ownership",
+        json={"new_owner_user_id": "@lapsed-admin"},
+    )
+    assert lapsed.status_code == 409, lapsed.text
 
 
 def test_upload_list_download_project_file(proj_client: TestClient) -> None:

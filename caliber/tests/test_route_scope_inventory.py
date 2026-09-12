@@ -344,7 +344,8 @@ def test_every_live_project_role_action_is_a_known_action(client: TestClient) ->
 def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
     """Ratchet, matching this session's inventory-test style (e.g.
     `test_resource_inventory.py`'s distribution pin): `PROJECT_ACTIONS`
-    declares 7 actions today, but only 5 are wired to any live route's
+    declares 10 actions today (`P1-C` added `project.archive`/`.restore`/
+    `.transfer_owner`), and 8 are wired to a live route's
     `require_project_access()`/`_require_project_action()` call --
     `resource.approve` and `resource.execute` are reserved, declared for a
     future check that doesn't exist yet. A change to either side is a real
@@ -371,6 +372,9 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
         "read",
         "project.update",
         "project.manage_members",
+        "project.archive",
+        "project.restore",
+        "project.transfer_owner",
         "resource.write",
         "resource.publish",
     }

@@ -2224,6 +2224,11 @@ class ProjectSchema(BaseModel):
     file_count: int | None = None
     access_role: str | None = None
     permissions: list[str] = Field(default_factory=list)
+    # `P1-C`: provenance for the current archive transition, if any --
+    # `None`/`None` for a project that has never been archived, or one
+    # that was archived and then restored (restore clears both).
+    archived_at: str | None = None
+    archived_by: str | None = None
 
 
 class ProjectMemberSchema(BaseModel):
@@ -2249,6 +2254,12 @@ class ProjectMemberCreateRequest(BaseModel):
 class ProjectMemberUpdateRequest(BaseModel):
     role: str | None = None
     status: str | None = None
+
+
+class ProjectTransferOwnershipRequest(BaseModel):
+    """`P1-C`: the body for ``POST /projects/{id}/transfer-ownership``."""
+
+    new_owner_user_id: str
 
 
 class ProjectStorageSchema(BaseModel):
