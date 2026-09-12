@@ -217,6 +217,7 @@ def test_archive_restore_and_transfer_ownership() -> None:
         path = request.url.path.rsplit("/caliber", 1)[-1]
         body = _json.loads(request.content) if request.content else None
         seen.append((request.method, path, body))
+        data: dict[str, Any]
         if path.endswith("/archive"):
             data = {
                 "project_id": "PRJ-1",
