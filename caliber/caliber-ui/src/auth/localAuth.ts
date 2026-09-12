@@ -159,26 +159,35 @@ export function getAuthEpoch(): string {
   return window.localStorage.getItem(AUTH_EPOCH_KEY) ?? "";
 }
 
-let fallbackTokenCounter = 0;
-
-/** CSPRNG token, falling back to `crypto.getRandomValues` when `randomUUID` is unavailable. */
-function randomToken(): string {
-  if (typeof globalThis.crypto?.randomUUID === "function") {
-    return globalThis.crypto.randomUUID();
+/**
+ * An opaque, effectively-unique token -- used for `AUTH_EPOCH_KEY` and
+ * `LocalAuthSession.generation`, both race-detection markers this module
+ * compares for equality/change, never a credential or anything an attacker
+ * gains from predicting.
+ *
+ * Prefers `crypto.randomUUID()`, then `crypto.getRandomValues()` (both
+ * cryptographically strong); a security scanner (correctly) flags
+ * `Math.random()` as an insecure PRNG for a "security context" value, so
+ * this avoids it even in the oldest-runtime fallback tier rather than
+ * relying on a human to judge these particular tokens as low-stakes enough
+ * to be an exception.
+ */
+function randomOpaqueToken(): string {
+  const cryptoObj = globalThis.crypto;
+  if (typeof cryptoObj?.randomUUID === "function") return cryptoObj.randomUUID();
+  if (typeof cryptoObj?.getRandomValues === "function") {
+    const bytes = cryptoObj.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
   }
-  if (typeof globalThis.crypto?.getRandomValues === "function") {
-    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
-    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
-  }
-  // No CSPRNG available (non-browser test environment). This value is a display-only
-  // tie-breaker, never an authorization input, so a non-random monotonic fallback is
-  // acceptable — it still guarantees uniqueness without relying on Math.random().
-  fallbackTokenCounter += 1;
-  return `${Date.now()}:${fallbackTokenCounter}`;
+  // No Web Crypto at all (a non-browser or ancient runtime) -- fall back to
+  // a purely time-based value. Not random, but every reader of this value
+  // only ever compares it for equality/change, so predictability costs
+  // nothing here, unlike a weak PRNG standing in for real randomness would.
+  return `no-crypto:${Date.now()}:${performance.now()}`;
 }
 
 function advanceAuthEpoch(): void {
-  const epoch = randomToken();
+  const epoch = randomOpaqueToken();
   // Write this before the session value. A startup validation that races a cross-tab
   // login/logout then sees the changed epoch before it could apply its stale response.
   window.localStorage.setItem(AUTH_EPOCH_KEY, epoch);
@@ -197,7 +206,7 @@ export function getCaliberUserHeader(): string | null {
 
 export function createLocalAuthSession(username: string): LocalAuthSession {
   const createdAt = new Date().toISOString();
-  const generation = randomToken();
+  const generation = randomOpaqueToken();
   return {
     username,
     identity: identityForUsername(username),

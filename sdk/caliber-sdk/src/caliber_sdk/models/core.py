@@ -266,6 +266,15 @@ class Project:
     access_role: str | None = None
     permissions: list[str] = field(default_factory=list)
     extra: dict[str, Any] = field(default_factory=dict)
+    # Provenance for the current archive transition, if any -- ``None``/
+    # ``None`` for a project never archived, or one archived and restored.
+    # Appended *after* `extra` (not inserted before it) -- a `@dataclass`
+    # field's position is also its positional-constructor position, and a
+    # GitHub Copilot review of this PR's first version caught that
+    # inserting new fields before `extra` would silently rebind an existing
+    # caller's positional `extra` argument to `archived_at` instead.
+    archived_at: str | None = None
+    archived_by: str | None = None
 
 
 @dataclass
@@ -281,6 +290,10 @@ class ProjectMember:
     created_at: str | None = None
     updated_at: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    # Appended after `extra` -- see `Project.archived_at`'s own comment on
+    # why new fields go after it, not before.
+    deactivated_at: str | None = None
+    deactivated_by: str | None = None
 
 
 @dataclass

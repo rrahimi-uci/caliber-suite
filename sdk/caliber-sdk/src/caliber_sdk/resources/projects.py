@@ -7,6 +7,7 @@ themselves and the files they hold.
 
 from __future__ import annotations
 
+import warnings
 from typing import Any, BinaryIO
 
 from ..models._decode import decode, decode_list
@@ -97,11 +98,64 @@ class ProjectsAPI(Resource):
         description: str | None = None,
         status: str | None = None,
     ) -> Project:
+        """Rename/redescribe a project, and (deprecated) flip its lifecycle status.
+
+        Section 13.3's compatibility contract: ``status`` stays accepted
+        during a deprecation window rather than becoming a hard `TypeError`
+        (the server itself now rejects a ``status`` field on the underlying
+        ``PATCH`` route with a ``400`` -- name/description only). Passing it
+        here still works, emits a ``DeprecationWarning``, and delegates to
+        ``archive()``/``restore()`` -- the new Admin-only lifecycle routes,
+        which also record who made the change and when (``archived_at``/
+        ``archived_by`` on the returned ``Project``). Passing both ``status``
+        and ``name``/``description`` together sends two requests and returns
+        the second (name/description) response, which reflects both.
+
+        Prefer calling ``archive()``/``restore()`` directly in new code.
+        """
+        result: Project | None = None
+        if status is not None:
+            if status not in {"active", "archived"}:
+                raise ValueError(f"unsupported status {status!r}; expected 'active' or 'archived'")
+            warnings.warn(
+                "ProjectsAPI.update(status=...) is deprecated; call archive()/restore() "
+                "directly. The server now enforces this as an Admin-only lifecycle "
+                "transition, separate from name/description updates.",
+                DeprecationWarning,
+                stacklevel=2,
+            )
+            result = self.archive(project_id) if status == "archived" else self.restore(project_id)
         body: dict[str, Any] = {}
-        for key, value in (("name", name), ("description", description), ("status", status)):
+        for key, value in (("name", name), ("description", description)):
             if value is not None:
                 body[key] = value
-        return decode(Project, self._patch(f"/projects/{project_id}", json=body))
+        if body or result is None:
+            result = decode(Project, self._patch(f"/projects/{project_id}", json=body))
+        return result
+
+    def archive(self, project_id: str) -> Project:
+        """Move a project to the ``archived`` status, recording who/when."""
+        return decode(Project, self._post(f"/projects/{project_id}/archive"))
+
+    def restore(self, project_id: str) -> Project:
+        """Move an archived project back to ``active``, clearing provenance."""
+        return decode(Project, self._post(f"/projects/{project_id}/restore"))
+
+    def transfer_ownership(self, project_id: str, new_owner_user_id: str) -> Project:
+        """Atomically move the primary-owner pointer to another active,
+        eligible ``owner``-role (Admin) member.
+
+        Only the current primary owner may call this; the target must
+        already hold the ``owner`` role (see ``add_member``/
+        ``update_member``) and pass a live scope-eligibility check.
+        """
+        return decode(
+            Project,
+            self._post(
+                f"/projects/{project_id}/transfer-ownership",
+                json={"new_owner_user_id": new_owner_user_id},
+            ),
+        )
 
     def list_members(self, project_id: str) -> _List[ProjectMember]:
         """List active members and their effective project roles."""

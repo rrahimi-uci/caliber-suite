@@ -1956,7 +1956,20 @@ Create a new record on the projects surface and return the server-normalized res
 
 ###### `update(project_id: str, *, name: str | None = None, description: str | None = None, status: str | None = None) -> Project`
 
-Patch an existing record on the projects surface and return the updated result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
+Rename/redescribe a project, and (deprecated) flip its lifecycle status.
+
+Section 13.3's compatibility contract: ``status`` stays accepted
+during a deprecation window rather than becoming a hard `TypeError`
+(the server itself now rejects a ``status`` field on the underlying
+``PATCH`` route with a ``400`` -- name/description only). Passing it
+here still works, emits a ``DeprecationWarning``, and delegates to
+``archive()``/``restore()`` -- the new Admin-only lifecycle routes,
+which also record who made the change and when (``archived_at``/
+``archived_by`` on the returned ``Project``). Passing both ``status``
+and ``name``/``description`` together sends two requests and returns
+the second (name/description) response, which reflects both.
+
+Prefer calling ``archive()``/``restore()`` directly in new code.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1964,6 +1977,58 @@ Patch an existing record on the projects surface and return the updated result. 
 | `name` | keyword-only | `str | None` | `None` |
 | `description` | keyword-only | `str | None` | `None` |
 | `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- `ValueError`
+
+###### `archive(project_id: str) -> Project`
+
+Move a project to the ``archived`` status, recording who/when.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `restore(project_id: str) -> Project`
+
+Move an archived project back to ``active``, clearing provenance.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `transfer_ownership(project_id: str, new_owner_user_id: str) -> Project`
+
+Atomically move the primary-owner pointer to another active,
+eligible ``owner``-role (Admin) member.
+
+Only the current primary owner may call this; the target must
+already hold the ``owner`` role (see ``add_member``/
+``update_member``) and pass a live scope-eligibility check.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `new_owner_user_id` | positional-or-keyword | `str` | `—` |
 
 **Returns:** [`Project`](#project)
 
@@ -9570,6 +9635,8 @@ means "not reported here", which is why it is not defaulted to 0.
 | `access_role` | `str | None` | `None` |
 | `permissions` | `list[str]` | `field(default_factory=list)` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `archived_at` | `str | None` | `None` |
+| `archived_by` | `str | None` | `None` |
 
 ##### `ProjectMember`
 
@@ -9590,6 +9657,8 @@ A user's active or inactive membership in a project.
 | `created_at` | `str | None` | `None` |
 | `updated_at` | `str | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `deactivated_at` | `str | None` | `None` |
+| `deactivated_by` | `str | None` | `None` |
 
 ##### `ProjectFile`
 

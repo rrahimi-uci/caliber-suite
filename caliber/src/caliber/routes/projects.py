@@ -16,6 +16,7 @@ from pathlib import PurePosixPath
 from typing import Any
 
 from sqlalchemy import and_, or_, select
+from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
@@ -602,6 +603,29 @@ async def list_project_members(request: Request) -> JSONResponse:
     return envelope_response(payload)
 
 
+def _require_owner_role_eligible(request: Request, user_id: str) -> None:
+    """Raise `409` unless `user_id`'s live platform scopes qualify them for
+    the `owner` (Admin) role.
+
+    Shared by every call site that grants, reactivates into, or transfers
+    primary ownership to that role (`add_project_member`,
+    `update_project_member`, `transfer_project_ownership`) -- a review of
+    the first version of this PR found the check duplicated three times
+    with slightly different guard conditions, and one of those three copies
+    (`update_project_member`'s) had a real gap (see that function's own
+    comment). One shared call site can no longer drift out of sync with the
+    other two the way that duplication did.
+    """
+    if not is_eligible_for_owner_role(getattr(request.app.state, "config", None), user_id):
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"{user_id!r} lacks the caliber.operator + caliber.approver scopes "
+                "required for the owner role"
+            ),
+        )
+
+
 async def add_project_member(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = ProjectMemberCreateRequest.model_validate(body)
@@ -631,17 +655,13 @@ async def add_project_member(request: Request) -> JSONResponse:
         # one primary-owner pointer -- requires the target to already carry
         # both platform scopes section 2.4 names (`caliber.operator` +
         # `caliber.approver`). A scope-ineligible target is rejected, not
-        # silently downgraded, so the caller sees exactly why.
-        if payload.role == ROLE_OWNER and not is_eligible_for_owner_role(
-            getattr(request.app.state, "config", None), user_id
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"{user_id!r} lacks the caliber.operator + caliber.approver scopes "
-                    "required for the owner role"
-                ),
-            )
+        # silently downgraded, so the caller sees exactly why. Checked
+        # whenever the request would create/reactivate a member *with* the
+        # `owner` role -- `payload.role` is required on this request (unlike
+        # `update_project_member`'s optional one), so this single check also
+        # covers reactivating a previously-removed `owner`-role member.
+        if payload.role == ROLE_OWNER:
+            _require_owner_role_eligible(request, user_id)
         existing = session.execute(
             select(CaliberProjectMember).where(
                 CaliberProjectMember.project_id == project_id,
@@ -724,16 +744,24 @@ async def update_project_member(request: Request) -> JSONResponse:
                 status_code=409,
                 detail="the primary owner cannot be changed here; use transfer-ownership",
             )
-        if payload.role == ROLE_OWNER and not is_eligible_for_owner_role(
-            getattr(request.app.state, "config", None), user_id
-        ):
-            raise HTTPException(
-                status_code=409,
-                detail=(
-                    f"{user_id!r} lacks the caliber.operator + caliber.approver scopes "
-                    "required for the owner role"
-                ),
-            )
+        # `P1-C` review fix: checking only `payload.role == ROLE_OWNER` missed
+        # reactivating an *already* `owner`-role member through a status-only
+        # update (`{"status": "active"}`, no `role` field) -- `payload.role`
+        # is `None` there, so the check never ran and a member deactivated
+        # while eligible could be reactivated with zero re-verification,
+        # contradicting `is_eligible_for_owner_role`'s own "checked against
+        # live grants, not a snapshot" contract. Re-derive the *effective*
+        # role/reactivation instead of trusting `payload.role` alone: the
+        # check now fires whenever this request explicitly grants the
+        # `owner` role, or reactivates a member whose stored role already is
+        # `owner`. A demotion away from `owner` (even one that also
+        # reactivates) is never blocked by this -- `effective_role` would
+        # not be `ROLE_OWNER` in that case.
+        effective_role = payload.role if payload.role is not None else member.role
+        reactivating = payload.status == "active" and member.status != "active"
+        granting_owner_role = payload.role == ROLE_OWNER
+        if effective_role == ROLE_OWNER and (granting_owner_role or reactivating):
+            _require_owner_role_eligible(request, user_id)
         if payload.role is not None:
             member.role = payload.role
         if payload.status is not None:
@@ -958,17 +986,35 @@ async def transfer_project_ownership(request: Request) -> JSONResponse:
                 status_code=409,
                 detail="new_owner_user_id must be an active owner-role (Admin) member",
             )
-        if not is_eligible_for_owner_role(
-            getattr(request.app.state, "config", None), new_owner_user_id
-        ):
+        _require_owner_role_eligible(request, new_owner_user_id)
+        previous_owner = project.owner
+        # Copilot review of this PR's first version: the earlier `project.owner
+        # != identity.user_id` check above reads a value that can go stale --
+        # two concurrent transfer requests from the same primary owner both
+        # pass it before either commits, and whichever commits second silently
+        # overwrites the first (a lost update, plus a misleading audit record
+        # for a transfer that never actually took effect). Making the write
+        # itself conditional on `owner` still matching `identity.user_id` at
+        # commit time -- not just at the earlier read -- closes that window:
+        # only the request that still sees the expected current owner can
+        # ever change the row, and a loser gets a `409` instead of silently
+        # clobbering the winner.
+        result = session.execute(
+            sa_update(CaliberProject)
+            .where(
+                CaliberProject.project_id == project_id,
+                CaliberProject.owner == previous_owner,
+            )
+            .values(owner=new_owner_user_id)
+        )
+        if int(getattr(result, "rowcount", 0) or 0) != 1:
             raise HTTPException(
                 status_code=409,
-                detail=(
-                    f"{new_owner_user_id!r} lacks the caliber.operator + caliber.approver "
-                    "scopes required for the owner role"
-                ),
+                detail="primary owner changed since this request was read; retry",
             )
-        previous_owner = project.owner
+        # Keep the already-loaded ORM object in sync with the conditional
+        # update just applied above (a plain Core `update()` bypasses the
+        # ORM's own change tracking) -- `_project_to_schema` below reads it.
         project.owner = new_owner_user_id
         audit_record(
             session,

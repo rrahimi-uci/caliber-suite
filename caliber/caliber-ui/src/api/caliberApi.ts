@@ -4927,15 +4927,53 @@ export const caliberApi = {
     });
   },
 
-  /** PATCH /projects/{id} */
+  /**
+   * PATCH /projects/{id}
+   *
+   * Name/description only -- the server rejects a `status` field with a
+   * `400` (`P1-C`; use {@link archiveProject}/{@link restoreProject}
+   * instead, which also record who made the change and when).
+   */
   updateProject(
     projectId: string,
-    payload: { name?: string; description?: string; status?: string },
+    payload: { name?: string; description?: string },
   ): Promise<Project> {
     return request<Project>(`/projects/${encodeURIComponent(projectId)}`, {
       method: "PATCH",
       body: payload,
     });
+  },
+
+  /** POST /projects/{id}/archive */
+  archiveProject(projectId: string): Promise<Project> {
+    return request<Project>(
+      `/projects/${encodeURIComponent(projectId)}/archive`,
+      { method: "POST" },
+    );
+  },
+
+  /** POST /projects/{id}/restore */
+  restoreProject(projectId: string): Promise<Project> {
+    return request<Project>(
+      `/projects/${encodeURIComponent(projectId)}/restore`,
+      { method: "POST" },
+    );
+  },
+
+  /**
+   * POST /projects/{id}/transfer-ownership
+   *
+   * Only the current primary owner may call this; `newOwnerUserId` must
+   * already be an active `owner`-role (Admin) member.
+   */
+  transferProjectOwnership(
+    projectId: string,
+    newOwnerUserId: string,
+  ): Promise<Project> {
+    return request<Project>(
+      `/projects/${encodeURIComponent(projectId)}/transfer-ownership`,
+      { method: "POST", body: { new_owner_user_id: newOwnerUserId } },
+    );
   },
 
   /** GET /projects/{id}/members */
