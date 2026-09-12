@@ -1,0 +1,16 @@
+{"t":"2026-09-12T17:31:04.549Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-12T17:31:04.558Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-12T17:31:04.559Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-12T17:31:04.560Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-12T17:31:04.581Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-12T17:31:04.592Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-3442bdab/versions \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-12T17:31:04.608Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-02d1a27d/publish \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-12T17:31:04.617Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-3442bdab/versions \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-12T17:31:04.630Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-295f5e81/publish \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-12T17:31:04.647Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-3442bdab/deployments/staging/promote \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-12T17:31:04.653Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-3442bdab/deployments \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-12T17:31:04.659Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-3442bdab/deployments/staging/rollback \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-09-12T17:31:04.673Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-3442bdab/deployments/staging/promote \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-12T17:31:04.676Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-3442bdab/deployments \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-12T17:31:04.685Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-3442bdab/deployments/staging/rollback \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-12T17:31:04.688Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-3442bdab/deployments \"HTTP/1.1 200 OK\""}

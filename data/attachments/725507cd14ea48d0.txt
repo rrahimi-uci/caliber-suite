@@ -1,0 +1,9 @@
+{"t":"2026-09-12T17:22:31.482Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-12T17:22:34.898Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-12T17:22:38.480Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-12T17:22:40.435Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-12T17:22:45.462Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}
+{"t":"2026-09-12T17:22:47.362Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-12T17:22:49.670Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/bad-docx/objects \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-12T17:22:55.072Z","severity":"WARNING","logger":"caliber.routes.object_store","message":"object-store extract failed for bad-docx/corrupt.docx: File is not a zip file","trace_id":"1783ff92afe111bb"}
+{"t":"2026-09-12T17:22:57.931Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/bad-docx/object/extract?key=corrupt.docx \"HTTP/1.1 200 OK\""}

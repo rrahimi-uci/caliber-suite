@@ -1,0 +1,1 @@
+{"t":"2026-09-12T17:23:59.538Z","severity":"INFO","logger":"caliber.orchestrator.candidate","message":"candidate complete: job=RFN-D optimizer=DSPyMIPRO cost_usd=0.0040"}

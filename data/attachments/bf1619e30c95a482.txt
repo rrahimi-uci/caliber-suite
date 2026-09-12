@@ -1,0 +1,1 @@
+{"t":"2026-09-12T17:25:49.436Z","severity":"WARNING","logger":"caliber.extensibility.registry","message":"optimizer plugin acme-caliber-optimizers failed to load: AttributeError: module 'acme_caliber' has no attribute 'no_such_name'"}

@@ -1,3 +1,0 @@
-{"t":"2026-09-12T04:09:04.891Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook delivery disabled (no URLs configured); durable recovery remains active"}
-{"t":"2026-09-12T04:09:05.134Z","severity":"WARNING","logger":"caliber.events.webhooks","message":"recovered 1 webhook event(s) accepted by a previous process; recorded as 'shutdown' dead letters for replay"}
-{"t":"2026-09-12T04:09:05.137Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher stopped"}
