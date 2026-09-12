@@ -17,7 +17,7 @@
  */
 
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
@@ -140,6 +140,116 @@ describe("Administration", () => {
     expect(await screen.findByText("@admin")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Add member" })).toBeInTheDocument();
     expect(screen.getByText("Manage who can read, edit, review, and publish resources in each project.")).toBeInTheDocument();
+  });
+
+  it("lets the primary owner manage a secondary Admin and transfer ownership, but not their own row", async () => {
+    // `P1-C`: multiple active `owner`-role (Admin) memberships are allowed
+    // alongside `project.owner`'s one primary-owner pointer -- the old
+    // `member.role !== "owner"` gate would have hidden every control for
+    // *both* rows here, since both hold the `owner` role.
+    saveLocalAuthSession(createLocalAuthSession("admin"));
+    stubStores({
+      projects: [
+        {
+          project_id: "PRJ-1",
+          name: "Support",
+          description: "",
+          owner: "@admin",
+          status: "active",
+          permissions: ["read", "project.manage_members"],
+          access_role: "owner",
+        },
+      ],
+    });
+    server.use(
+      http.get(`${API_BASE}/projects/PRJ-1/members`, () =>
+        HttpResponse.json(
+          envelope({
+            members: [
+              {
+                member_id: "PRJM-1",
+                project_id: "PRJ-1",
+                user_id: "@admin",
+                role: "owner",
+                status: "active",
+                created_by: "@admin",
+                created_at: null,
+                updated_at: null,
+              },
+              {
+                member_id: "PRJM-2",
+                project_id: "PRJ-1",
+                user_id: "@second-admin",
+                role: "owner",
+                status: "active",
+                created_by: "@admin",
+                created_at: null,
+                updated_at: null,
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+    let transferBody: unknown;
+    server.use(
+      http.post(
+        `${API_BASE}/projects/PRJ-1/transfer-ownership`,
+        async ({ request }) => {
+          transferBody = await request.json();
+          return HttpResponse.json(
+            envelope({ project_id: "PRJ-1", owner: "@second-admin" }),
+          );
+        },
+      ),
+    );
+    renderPage();
+
+    const primaryRow = (await screen.findByText("@admin")).closest("tr");
+    const secondaryRow = (await screen.findByText("@second-admin")).closest(
+      "tr",
+    );
+    expect(primaryRow).not.toBeNull();
+    expect(secondaryRow).not.toBeNull();
+
+    // The primary owner's own row has no role select or Remove button.
+    expect(primaryRow).toHaveTextContent("(primary owner)");
+    expect(
+      within(primaryRow as HTMLElement).queryByRole("combobox"),
+    ).not.toBeInTheDocument();
+    expect(
+      within(primaryRow as HTMLElement).queryByRole("button", {
+        name: "Remove",
+      }),
+    ).not.toBeInTheDocument();
+
+    // The secondary Admin's row is fully manageable: a role select
+    // (offering "Owner (Admin)"), a Remove button, and -- because the
+    // viewer *is* the current primary owner -- a transfer action.
+    const secondarySelect = within(secondaryRow as HTMLElement).getByRole(
+      "combobox",
+    );
+    expect(
+      within(secondarySelect as HTMLElement).getByRole("option", {
+        name: "Owner (Admin)",
+      }),
+    ).toBeInTheDocument();
+    expect(
+      within(secondaryRow as HTMLElement).getByRole("button", { name: "Remove" }),
+    ).toBeInTheDocument();
+    const transferButton = within(secondaryRow as HTMLElement).getByRole(
+      "button",
+      { name: "Make primary owner" },
+    );
+
+    fireEvent.click(transferButton);
+
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent(
+        "Transferred primary ownership to @second-admin",
+      ),
+    );
+    expect(transferBody).toEqual({ new_owner_user_id: "@second-admin" });
   });
 
   it("lists accounts with their status and last login", async () => {

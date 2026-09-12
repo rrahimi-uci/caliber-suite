@@ -637,8 +637,10 @@ describe("caliberApi", () => {
     await api.caliberApi.getProject("PRJ/1");
     await api.caliberApi.updateProject("PRJ/1", {
       name: "Support workspace v2",
-      status: "active",
     });
+    await api.caliberApi.archiveProject("PRJ/1");
+    await api.caliberApi.restoreProject("PRJ/1");
+    await api.caliberApi.transferProjectOwnership("PRJ/1", "@new-owner");
     await api.caliberApi.listProjectFiles("PRJ/1");
     await api.caliberApi.createProjectFolder("PRJ/1", "service/2026");
     await api.caliberApi.deleteProjectFile("PRJ/1", "FILE/1");

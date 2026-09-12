@@ -265,6 +265,10 @@ class Project:
     file_count: int | None = None
     access_role: str | None = None
     permissions: list[str] = field(default_factory=list)
+    # Provenance for the current archive transition, if any -- ``None``/
+    # ``None`` for a project never archived, or one archived and restored.
+    archived_at: str | None = None
+    archived_by: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 
@@ -280,6 +284,8 @@ class ProjectMember:
     created_by: str = ""
     created_at: str | None = None
     updated_at: str | None = None
+    deactivated_at: str | None = None
+    deactivated_by: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 

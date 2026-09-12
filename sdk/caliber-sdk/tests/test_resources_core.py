@@ -183,6 +183,70 @@ def test_projects_list_and_get_decode() -> None:
     assert detail.file_count is None
 
 
+def test_update_no_longer_accepts_status() -> None:
+    """`P1-C` review fix: the server now rejects a `status` field on
+    `PATCH /projects/{id}` with a `400` (use `archive`/`restore` instead).
+    `update()` dropped the parameter entirely rather than keep sending a
+    field the server would reject -- confirmed here by asserting the sent
+    body never carries `status` even though `update()`'s signature no
+    longer accepts one to send in the first place (a `TypeError` from
+    passing `status=` is the actual regression-proofing; see below)."""
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        sent.update(_json.loads(request.content))
+        return envelope({"project_id": "PRJ-1", "name": "renamed"})
+
+    with client_with(handler) as caliber:
+        updated = caliber.projects.update("PRJ-1", name="renamed")
+
+    assert sent == {"name": "renamed"}
+    assert updated.name == "renamed"
+    with pytest.raises(TypeError):
+        caliber.projects.update("PRJ-1", status="archived")  # type: ignore[call-arg]
+
+
+def test_archive_restore_and_transfer_ownership() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        path = request.url.path.rsplit("/caliber", 1)[-1]
+        body = _json.loads(request.content) if request.content else None
+        seen.append((request.method, path, body))
+        if path.endswith("/archive"):
+            data = {
+                "project_id": "PRJ-1",
+                "status": "archived",
+                "archived_at": "2026-01-01T00:00:00+00:00",
+                "archived_by": "@alice",
+            }
+        elif path.endswith("/restore"):
+            data = {"project_id": "PRJ-1", "status": "active", "archived_at": None}
+        else:
+            data = {"project_id": "PRJ-1", "owner": "@bob"}
+        return envelope(data)
+
+    with client_with(handler) as caliber:
+        archived = caliber.projects.archive("PRJ-1")
+        restored = caliber.projects.restore("PRJ-1")
+        transferred = caliber.projects.transfer_ownership("PRJ-1", "@bob")
+
+    assert archived.status == "archived"
+    assert archived.archived_by == "@alice"
+    assert restored.status == "active"
+    assert restored.archived_at is None
+    assert transferred.owner == "@bob"
+    assert seen == [
+        ("POST", "/projects/PRJ-1/archive", None),
+        ("POST", "/projects/PRJ-1/restore", None),
+        ("POST", "/projects/PRJ-1/transfer-ownership", {"new_owner_user_id": "@bob"}),
+    ]
+
+
 def test_project_access_members_decode_and_mutate() -> None:
     seen: list[tuple[str, str, dict[str, Any] | None]] = []
 

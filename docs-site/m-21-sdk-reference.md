@@ -1954,16 +1954,72 @@ Create a new record on the projects surface and return the server-normalized res
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `update(project_id: str, *, name: str | None = None, description: str | None = None, status: str | None = None) -> Project`
+###### `update(project_id: str, *, name: str | None = None, description: str | None = None) -> Project`
 
-Patch an existing record on the projects surface and return the updated result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
+Rename or redescribe a project.
+
+No longer accepts ``status`` (`P1-C`): the server now rejects a
+``status`` field on this route with a ``400`` -- use :meth:`archive`
+/ :meth:`restore` instead, which also record who made the change
+and when (``archived_at``/``archived_by`` on the returned
+:class:`Project`).
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `project_id` | positional-or-keyword | `str` | `—` |
 | `name` | keyword-only | `str | None` | `None` |
 | `description` | keyword-only | `str | None` | `None` |
-| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `archive(project_id: str) -> Project`
+
+Move a project to the ``archived`` status, recording who/when.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `restore(project_id: str) -> Project`
+
+Move an archived project back to ``active``, clearing provenance.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `transfer_ownership(project_id: str, new_owner_user_id: str) -> Project`
+
+Atomically move the primary-owner pointer to another active,
+eligible ``owner``-role (Admin) member.
+
+Only the current primary owner may call this; the target must
+already hold the ``owner`` role (see :meth:`add_member`/
+:meth:`update_member`) and pass a live scope-eligibility check.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `new_owner_user_id` | positional-or-keyword | `str` | `—` |
 
 **Returns:** [`Project`](#project)
 
@@ -9569,6 +9625,8 @@ means "not reported here", which is why it is not defaulted to 0.
 | `file_count` | `int | None` | `None` |
 | `access_role` | `str | None` | `None` |
 | `permissions` | `list[str]` | `field(default_factory=list)` |
+| `archived_at` | `str | None` | `None` |
+| `archived_by` | `str | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `ProjectMember`
@@ -9589,6 +9647,8 @@ A user's active or inactive membership in a project.
 | `created_by` | `str` | `''` |
 | `created_at` | `str | None` | `None` |
 | `updated_at` | `str | None` | `None` |
+| `deactivated_at` | `str | None` | `None` |
+| `deactivated_by` | `str | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `ProjectFile`

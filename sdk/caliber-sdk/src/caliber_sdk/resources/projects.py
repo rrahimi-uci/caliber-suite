@@ -95,13 +95,44 @@ class ProjectsAPI(Resource):
         *,
         name: str | None = None,
         description: str | None = None,
-        status: str | None = None,
     ) -> Project:
+        """Rename or redescribe a project.
+
+        No longer accepts ``status`` (`P1-C`): the server now rejects a
+        ``status`` field on this route with a ``400`` -- use :meth:`archive`
+        / :meth:`restore` instead, which also record who made the change
+        and when (``archived_at``/``archived_by`` on the returned
+        :class:`Project`).
+        """
         body: dict[str, Any] = {}
-        for key, value in (("name", name), ("description", description), ("status", status)):
+        for key, value in (("name", name), ("description", description)):
             if value is not None:
                 body[key] = value
         return decode(Project, self._patch(f"/projects/{project_id}", json=body))
+
+    def archive(self, project_id: str) -> Project:
+        """Move a project to the ``archived`` status, recording who/when."""
+        return decode(Project, self._post(f"/projects/{project_id}/archive"))
+
+    def restore(self, project_id: str) -> Project:
+        """Move an archived project back to ``active``, clearing provenance."""
+        return decode(Project, self._post(f"/projects/{project_id}/restore"))
+
+    def transfer_ownership(self, project_id: str, new_owner_user_id: str) -> Project:
+        """Atomically move the primary-owner pointer to another active,
+        eligible ``owner``-role (Admin) member.
+
+        Only the current primary owner may call this; the target must
+        already hold the ``owner`` role (see :meth:`add_member`/
+        :meth:`update_member`) and pass a live scope-eligibility check.
+        """
+        return decode(
+            Project,
+            self._post(
+                f"/projects/{project_id}/transfer-ownership",
+                json={"new_owner_user_id": new_owner_user_id},
+            ),
+        )
 
     def list_members(self, project_id: str) -> _List[ProjectMember]:
         """List active members and their effective project roles."""

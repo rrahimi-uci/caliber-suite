@@ -443,6 +443,97 @@ def test_promote_existing_member_to_owner_requires_eligibility(proj_client: Test
     assert promoted.json()["data"]["role"] == "owner"
 
 
+def test_reactivating_a_lapsed_owner_role_member_rechecks_eligibility(
+    proj_client: TestClient,
+) -> None:
+    """Review finding on the first version of this PR: `update_project_member`'s
+    eligibility check only fired when the request body explicitly set
+    `role: "owner"` -- a status-only reactivation (`{"status": "active"}`,
+    no `role` field) of a member whose *stored* role was already `owner`
+    skipped the check entirely, since `payload.role` was `None`. That let a
+    secondary Admin, deactivated while eligible and since lapsed, be
+    silently reactivated with full Admin permissions and zero
+    re-verification -- contradicting `is_eligible_for_owner_role`'s own
+    "checked against live grants, not a snapshot" contract. This proves the
+    fix: reactivation now re-checks eligibility even with no `role` field
+    in the request.
+    """
+    pid = _create(proj_client, "Reactivation Check")
+    _make_eligible(proj_client, "@second-admin")
+    proj_client.post(
+        f"{PREFIX}/projects/{pid}/members", json={"user_id": "@second-admin", "role": "owner"}
+    )
+    deactivate = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/members/@second-admin", json={"status": "inactive"}
+    )
+    assert deactivate.status_code == 200, deactivate.text
+
+    # The member's platform scopes lapse while deactivated.
+    proj_client.app.state.config = proj_client.app.state.config.model_copy(
+        update={"operator_users": "", "approver_users": ""}
+    )
+
+    # A status-only reactivation (no `role` field) must re-check eligibility
+    # against the member's *stored* role ("owner") and reject it.
+    reactivate = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/members/@second-admin", json={"status": "active"}
+    )
+    assert reactivate.status_code == 409, reactivate.text
+
+    # The member is still inactive -- the rejected request changed nothing.
+    members = proj_client.get(f"{PREFIX}/projects/{pid}/members").json()["data"]["members"]
+    assert not any(m["user_id"] == "@second-admin" for m in members)
+
+    # Once eligible again, the same status-only reactivation succeeds.
+    _make_eligible(proj_client, "@second-admin")
+    reactivate_ok = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/members/@second-admin", json={"status": "active"}
+    )
+    assert reactivate_ok.status_code == 200, reactivate_ok.text
+    assert reactivate_ok.json()["data"]["role"] == "owner"
+
+
+def test_member_deactivation_provenance_is_set_and_cleared(proj_client: TestClient) -> None:
+    """`P1-C`: `deactivated_at`/`deactivated_by` (migration `0093`, unwired
+    until `P1-C`) are set when a member is removed/deactivated and cleared
+    on reactivation -- exercised through both reactivation paths
+    (`add_project_member`'s re-add branch and `update_project_member`'s
+    status flip)."""
+    pid = _create(proj_client, "Deactivation Provenance")
+    proj_client.post(
+        f"{PREFIX}/projects/{pid}/members", json={"user_id": "@member-1", "role": "editor"}
+    )
+    proj_client.post(
+        f"{PREFIX}/projects/{pid}/members", json={"user_id": "@member-2", "role": "editor"}
+    )
+
+    removed = proj_client.delete(f"{PREFIX}/projects/{pid}/members/@member-1")
+    assert removed.status_code == 200, removed.text
+
+    deactivated = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/members/@member-2", json={"status": "inactive"}
+    )
+    assert deactivated.status_code == 200, deactivated.text
+    assert deactivated.json()["data"]["deactivated_at"] is not None
+    assert deactivated.json()["data"]["deactivated_by"] == "@test"
+
+    # Reactivating via `add_project_member` clears the provenance.
+    readded = proj_client.post(
+        f"{PREFIX}/projects/{pid}/members", json={"user_id": "@member-1", "role": "editor"}
+    )
+    assert readded.status_code == 201, readded.text
+    assert readded.json()["data"]["deactivated_at"] is None
+    assert readded.json()["data"]["deactivated_by"] is None
+
+    # Reactivating via `update_project_member` clears the provenance too.
+    reactivated = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/members/@member-2", json={"status": "active"}
+    )
+    assert reactivated.status_code == 200, reactivated.text
+    assert reactivated.json()["data"]["deactivated_at"] is None
+    assert reactivated.json()["data"]["deactivated_by"] is None
+
+
 def test_primary_owner_row_protected_but_secondary_admin_is_not(proj_client: TestClient) -> None:
     """`P1-C`: the primary-owner invariant now lives on `CaliberProject.owner`,
     not on holding the `owner` role -- a secondary Admin's membership row can
