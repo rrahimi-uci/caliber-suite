@@ -1954,21 +1954,29 @@ Create a new record on the projects surface and return the server-normalized res
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `update(project_id: str, *, name: str | None = None, description: str | None = None) -> Project`
+###### `update(project_id: str, *, name: str | None = None, description: str | None = None, status: str | None = None) -> Project`
 
-Rename or redescribe a project.
+Rename/redescribe a project, and (deprecated) flip its lifecycle status.
 
-No longer accepts ``status`` (`P1-C`): the server now rejects a
-``status`` field on this route with a ``400`` -- use :meth:`archive`
-/ :meth:`restore` instead, which also record who made the change
-and when (``archived_at``/``archived_by`` on the returned
-:class:`Project`).
+Section 13.3's compatibility contract: ``status`` stays accepted
+during a deprecation window rather than becoming a hard `TypeError`
+(the server itself now rejects a ``status`` field on the underlying
+``PATCH`` route with a ``400`` -- name/description only). Passing it
+here still works, emits a ``DeprecationWarning``, and delegates to
+``archive()``/``restore()`` -- the new Admin-only lifecycle routes,
+which also record who made the change and when (``archived_at``/
+``archived_by`` on the returned ``Project``). Passing both ``status``
+and ``name``/``description`` together sends two requests and returns
+the second (name/description) response, which reflects both.
+
+Prefer calling ``archive()``/``restore()`` directly in new code.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `project_id` | positional-or-keyword | `str` | `—` |
 | `name` | keyword-only | `str | None` | `None` |
 | `description` | keyword-only | `str | None` | `None` |
+| `status` | keyword-only | `str | None` | `None` |
 
 **Returns:** [`Project`](#project)
 
@@ -1976,6 +1984,7 @@ and when (``archived_at``/``archived_by`` on the returned
 
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
+- `ValueError`
 
 ###### `archive(project_id: str) -> Project`
 
@@ -2013,8 +2022,8 @@ Atomically move the primary-owner pointer to another active,
 eligible ``owner``-role (Admin) member.
 
 Only the current primary owner may call this; the target must
-already hold the ``owner`` role (see :meth:`add_member`/
-:meth:`update_member`) and pass a live scope-eligibility check.
+already hold the ``owner`` role (see ``add_member``/
+``update_member``) and pass a live scope-eligibility check.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -9625,9 +9634,9 @@ means "not reported here", which is why it is not defaulted to 0.
 | `file_count` | `int | None` | `None` |
 | `access_role` | `str | None` | `None` |
 | `permissions` | `list[str]` | `field(default_factory=list)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 | `archived_at` | `str | None` | `None` |
 | `archived_by` | `str | None` | `None` |
-| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `ProjectMember`
 
@@ -9647,9 +9656,9 @@ A user's active or inactive membership in a project.
 | `created_by` | `str` | `''` |
 | `created_at` | `str | None` | `None` |
 | `updated_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 | `deactivated_at` | `str | None` | `None` |
 | `deactivated_by` | `str | None` | `None` |
-| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `ProjectFile`
 
