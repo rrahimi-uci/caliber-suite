@@ -287,4 +287,6 @@ def member_payload(member: CaliberProjectMember) -> dict[str, object]:
         "created_by": member.created_by,
         "created_at": member.created_at.isoformat() if member.created_at else None,
         "updated_at": member.updated_at.isoformat() if member.updated_at else None,
+        "deactivated_at": member.deactivated_at.isoformat() if member.deactivated_at else None,
+        "deactivated_by": member.deactivated_by,
     }

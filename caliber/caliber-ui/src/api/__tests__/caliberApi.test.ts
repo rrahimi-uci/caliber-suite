@@ -637,8 +637,10 @@ describe("caliberApi", () => {
     await api.caliberApi.getProject("PRJ/1");
     await api.caliberApi.updateProject("PRJ/1", {
       name: "Support workspace v2",
-      status: "active",
     });
+    await api.caliberApi.archiveProject("PRJ/1");
+    await api.caliberApi.restoreProject("PRJ/1");
+    await api.caliberApi.transferProjectOwnership("PRJ/1", "@new-owner");
     await api.caliberApi.listProjectFiles("PRJ/1");
     await api.caliberApi.createProjectFolder("PRJ/1", "service/2026");
     await api.caliberApi.deleteProjectFile("PRJ/1", "FILE/1");
@@ -748,6 +750,41 @@ describe("caliberApi", () => {
           `${API_BASE}/knowledge-base-versions/KBV%2F2/graph?source=age&q=Guide&entity_type=document&minimum_relationship_weight=2&traversal_hops=2&age_seed_mode=query_text_only&strict_age_retrieval=true&node_limit=16`,
       ),
     ).toBe(true);
+  });
+
+  it("sends exact requests for project archive/restore/transfer-ownership", async () => {
+    // GitHub Copilot review: the giant all-endpoints smoke test above only
+    // proves these three calls resolve at all -- its catch-all mock
+    // response doesn't check the URL, HTTP verb, or (for transfer) the
+    // body, so a typo'd route or a malformed request would still pass
+    // there. This pins the exact request each one sends (the Python SDK's
+    // own test already does the equivalent).
+    const requests: Array<{ method: string; url: string; body: unknown }> =
+      [];
+    const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      requests.push({
+        method: String(init?.method ?? "GET"),
+        url: String(input),
+        body: init?.body ? JSON.parse(String(init.body)) : null,
+      });
+      return ok({ project_id: "PRJ/1" });
+    });
+    vi.stubGlobal("fetch", fetchMock);
+
+    const api = await loadApi();
+    await api.caliberApi.archiveProject("PRJ/1");
+    await api.caliberApi.restoreProject("PRJ/1");
+    await api.caliberApi.transferProjectOwnership("PRJ/1", "@new-owner");
+
+    expect(requests).toEqual([
+      { method: "POST", url: `${API_BASE}/projects/PRJ%2F1/archive`, body: null },
+      { method: "POST", url: `${API_BASE}/projects/PRJ%2F1/restore`, body: null },
+      {
+        method: "POST",
+        url: `${API_BASE}/projects/PRJ%2F1/transfer-ownership`,
+        body: { new_owner_user_id: "@new-owner" },
+      },
+    ]);
   });
 
   it("uploads multipart files with CSRF refresh and trims project path", async () => {

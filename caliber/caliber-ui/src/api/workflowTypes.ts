@@ -1686,6 +1686,10 @@ export interface Project {
   file_count?: number;
   access_role?: ProjectRole | null;
   permissions?: string[];
+  // Provenance for the current archive transition, if any -- `null`/`null`
+  // for a project never archived, or one archived and then restored.
+  archived_at?: string | null;
+  archived_by?: string | null;
 }
 
 export type ProjectRole = "owner" | "editor" | "reviewer" | "viewer";
@@ -1699,6 +1703,8 @@ export interface ProjectMember {
   created_by: string;
   created_at: string | null;
   updated_at: string | null;
+  deactivated_at?: string | null;
+  deactivated_by?: string | null;
 }
 
 export interface ProjectMemberList {

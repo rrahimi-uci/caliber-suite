@@ -183,6 +183,108 @@ def test_projects_list_and_get_decode() -> None:
     assert detail.file_count is None
 
 
+def test_update_name_only_sends_no_status() -> None:
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        sent.update(_json.loads(request.content))
+        return envelope({"project_id": "PRJ-1", "name": "renamed"})
+
+    with client_with(handler) as caliber:
+        updated = caliber.projects.update("PRJ-1", name="renamed")
+
+    assert sent == {"name": "renamed"}
+    assert updated.name == "renamed"
+
+
+def test_update_status_is_deprecated_but_still_works_via_archive_restore() -> None:
+    """GitHub Copilot review of this PR's first version: removing `status`
+    from `update()` outright is a breaking change for existing callers, and
+    conflicts with the compatibility contract section 13.3 documents --
+    keep the argument through a deprecation window, delegating to
+    `archive()`/`restore()` rather than sending a `status` field the server
+    now rejects.
+    """
+    calls: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path.rsplit("/caliber", 1)[-1]
+        calls.append((request.method, path))
+        if path.endswith("/archive"):
+            return envelope({"project_id": "PRJ-1", "status": "archived"})
+        if path.endswith("/restore"):
+            return envelope({"project_id": "PRJ-1", "status": "active"})
+        return envelope({"project_id": "PRJ-1", "status": "archived", "name": "renamed"})
+
+    with client_with(handler) as caliber:
+        with pytest.warns(DeprecationWarning):
+            archived = caliber.projects.update("PRJ-1", status="archived")
+        assert archived.status == "archived"
+        assert calls == [("POST", "/projects/PRJ-1/archive")]
+
+        calls.clear()
+        with pytest.warns(DeprecationWarning):
+            restored = caliber.projects.update("PRJ-1", status="active")
+        assert restored.status == "active"
+        assert calls == [("POST", "/projects/PRJ-1/restore")]
+
+        # Combined with name/description: both requests fire, and the
+        # returned project reflects the (second) name/description response.
+        calls.clear()
+        with pytest.warns(DeprecationWarning):
+            combined = caliber.projects.update("PRJ-1", name="renamed", status="archived")
+        assert calls == [
+            ("POST", "/projects/PRJ-1/archive"),
+            ("PATCH", "/projects/PRJ-1"),
+        ]
+        assert combined.name == "renamed"
+
+        with pytest.raises(ValueError, match="unsupported status"):
+            caliber.projects.update("PRJ-1", status="deleted")
+
+
+def test_archive_restore_and_transfer_ownership() -> None:
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        path = request.url.path.rsplit("/caliber", 1)[-1]
+        body = _json.loads(request.content) if request.content else None
+        seen.append((request.method, path, body))
+        data: dict[str, Any]
+        if path.endswith("/archive"):
+            data = {
+                "project_id": "PRJ-1",
+                "status": "archived",
+                "archived_at": "2026-01-01T00:00:00+00:00",
+                "archived_by": "@alice",
+            }
+        elif path.endswith("/restore"):
+            data = {"project_id": "PRJ-1", "status": "active", "archived_at": None}
+        else:
+            data = {"project_id": "PRJ-1", "owner": "@bob"}
+        return envelope(data)
+
+    with client_with(handler) as caliber:
+        archived = caliber.projects.archive("PRJ-1")
+        restored = caliber.projects.restore("PRJ-1")
+        transferred = caliber.projects.transfer_ownership("PRJ-1", "@bob")
+
+    assert archived.status == "archived"
+    assert archived.archived_by == "@alice"
+    assert restored.status == "active"
+    assert restored.archived_at is None
+    assert transferred.owner == "@bob"
+    assert seen == [
+        ("POST", "/projects/PRJ-1/archive", None),
+        ("POST", "/projects/PRJ-1/restore", None),
+        ("POST", "/projects/PRJ-1/transfer-ownership", {"new_owner_user_id": "@bob"}),
+    ]
+
+
 def test_project_access_members_decode_and_mutate() -> None:
     seen: list[tuple[str, str, dict[str, Any] | None]] = []
 
@@ -199,6 +301,8 @@ def test_project_access_members_decode_and_mutate() -> None:
             "role": "editor",
             "status": "active",
             "created_by": "@alice",
+            "deactivated_at": "2026-01-01T00:00:00+00:00",
+            "deactivated_by": "@alice",
         }
         if request.method == "GET":
             return envelope({"members": [member]})
@@ -213,6 +317,8 @@ def test_project_access_members_decode_and_mutate() -> None:
         removed = caliber.projects.remove_member("PRJ-1", "@bob")
 
     assert members[0].user_id == "@bob"
+    assert members[0].deactivated_at == "2026-01-01T00:00:00+00:00"
+    assert members[0].deactivated_by == "@alice"
     assert added.role == "editor"
     assert updated.status == "active"
     assert removed is True

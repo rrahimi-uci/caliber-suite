@@ -26,7 +26,11 @@ import { KeyRound, ShieldCheck, UserPlus, Users } from "lucide-react";
 import { caliberApi } from "@/api/caliberApi";
 import type { AuthAccountList, SecretList } from "@/api/types";
 import type { Project, ProjectMember, ProjectRole } from "@/api/workflowTypes";
-import { clearLocalAuthSession, getStoredAuthSession } from "@/auth/localAuth";
+import {
+  clearLocalAuthSession,
+  getCaliberUserHeader,
+  getStoredAuthSession,
+} from "@/auth/localAuth";
 import { PageHeader } from "@/components/PageHeader";
 import { useApiQuery } from "@/hooks/useApiQuery";
 import { getActiveProjectId } from "@/workspace/activeWorkspace";
@@ -346,7 +350,12 @@ export function Administration(): JSX.Element {
         ) : null}
       </section>
 
-      <ProjectAccessSection projects={projects.data ?? []} />
+      <ProjectAccessSection
+        projects={projects.data ?? []}
+        onProjectsChanged={async () => {
+          await projects.refetch();
+        }}
+      />
 
       {/* ----------------------------------------------------------------- Secrets */}
       <section aria-labelledby="secrets-heading" className="space-y-3">
@@ -464,7 +473,13 @@ export function Administration(): JSX.Element {
   );
 }
 
-function ProjectAccessSection({ projects }: { projects: Project[] }): JSX.Element {
+function ProjectAccessSection({
+  projects,
+  onProjectsChanged,
+}: {
+  projects: Project[];
+  onProjectsChanged: () => Promise<void>;
+}): JSX.Element {
   const [selectedProjectId, setSelectedProjectId] = useState<string>(
     () => getActiveProjectId() ?? projects[0]?.project_id ?? "",
   );
@@ -480,6 +495,19 @@ function ProjectAccessSection({ projects }: { projects: Project[] }): JSX.Elemen
     { enabled: Boolean(projectId) },
   );
   const canManage = project?.permissions?.includes("project.manage_members") ?? false;
+  // `P1-C`: multiple active `owner`-role (Admin) memberships are allowed
+  // alongside `project.owner`'s one primary-owner pointer -- only the
+  // primary owner's own row is protected from ordinary role/removal edits
+  // (a secondary Admin's row is not). Gating on `member.role === "owner"`
+  // here would incorrectly lock out every Admin but the first one.
+  const isPrimaryOwner = (member: ProjectMember): boolean =>
+    project?.owner === member.user_id;
+  const currentUserId = getCaliberUserHeader();
+  // Only the *current* primary owner may transfer ownership (the server
+  // enforces this too) -- a secondary Admin does not get this action.
+  const viewerIsPrimaryOwner = Boolean(
+    project && currentUserId && project.owner === currentUserId,
+  );
 
   const addMember = async (): Promise<void> => {
     setError(null);
@@ -515,6 +543,19 @@ function ProjectAccessSection({ projects }: { projects: Project[] }): JSX.Elemen
       await members.refetch();
     } catch (value) {
       setError(value instanceof Error ? value.message : "Could not remove project member.");
+    }
+  };
+
+  const transferOwnership = async (member: ProjectMember): Promise<void> => {
+    setError(null);
+    setNotice(null);
+    try {
+      await caliberApi.transferProjectOwnership(projectId, member.user_id);
+      setNotice(`Transferred primary ownership to ${member.user_id}.`);
+      await onProjectsChanged();
+      await members.refetch();
+    } catch (value) {
+      setError(value instanceof Error ? value.message : "Could not transfer ownership.");
     }
   };
 
@@ -581,6 +622,7 @@ function ProjectAccessSection({ projects }: { projects: Project[] }): JSX.Elemen
                   <option value="viewer">Viewer</option>
                   <option value="editor">Editor</option>
                   <option value="reviewer">Reviewer</option>
+                  <option value="owner">Owner (Admin)</option>
                 </select>
               </label>
               <button type="submit" className="rounded bg-cyan-700 px-3 py-1.5 text-sm">
@@ -588,7 +630,7 @@ function ProjectAccessSection({ projects }: { projects: Project[] }): JSX.Elemen
               </button>
             </form>
           ) : (
-            <p className="text-sm text-slate-400">Only the project owner can manage members.</p>
+            <p className="text-sm text-slate-400">Only a project Admin can manage members.</p>
           )}
           <div className="overflow-x-auto rounded border border-slate-800">
             <table className="w-full text-left text-sm">
@@ -603,9 +645,14 @@ function ProjectAccessSection({ projects }: { projects: Project[] }): JSX.Elemen
               <tbody>
                 {(members.data?.members ?? []).map((member) => (
                   <tr key={member.member_id} className="border-t border-slate-800">
-                    <td className="px-3 py-2 font-mono">{member.user_id}</td>
+                    <td className="px-3 py-2 font-mono">
+                      {member.user_id}
+                      {isPrimaryOwner(member) ? (
+                        <span className="ml-1 text-xs text-slate-400">(primary owner)</span>
+                      ) : null}
+                    </td>
                     <td className="px-3 py-2">
-                      {canManage && member.role !== "owner" ? (
+                      {canManage && !isPrimaryOwner(member) ? (
                         <select
                           aria-label={`Role for ${member.user_id}`}
                           className="rounded border border-slate-700 bg-slate-900 px-2 py-1"
@@ -615,6 +662,7 @@ function ProjectAccessSection({ projects }: { projects: Project[] }): JSX.Elemen
                           <option value="viewer">Viewer</option>
                           <option value="editor">Editor</option>
                           <option value="reviewer">Reviewer</option>
+                          <option value="owner">Owner (Admin)</option>
                         </select>
                       ) : (
                         member.role
@@ -622,15 +670,32 @@ function ProjectAccessSection({ projects }: { projects: Project[] }): JSX.Elemen
                     </td>
                     {canManage ? (
                       <td className="px-3 py-2">
-                        {member.role !== "owner" ? (
-                          <button
-                            type="button"
-                            className="rounded border border-slate-600 px-2 py-0.5"
-                            onClick={() => void removeMember(member)}
-                          >
-                            Remove
-                          </button>
-                        ) : null}
+                        <div className="flex flex-wrap items-center gap-2">
+                          {!isPrimaryOwner(member) ? (
+                            <button
+                              type="button"
+                              className="rounded border border-slate-600 px-2 py-0.5"
+                              onClick={() => void removeMember(member)}
+                            >
+                              Remove
+                            </button>
+                          ) : null}
+                          {/* Only the current primary owner may transfer ownership
+                              (the server enforces this too), and only to another
+                              active `owner`-role (Admin) member -- promote them via
+                              the role select above first if they are not one yet. */}
+                          {viewerIsPrimaryOwner &&
+                          member.role === "owner" &&
+                          !isPrimaryOwner(member) ? (
+                            <button
+                              type="button"
+                              className="rounded border border-slate-600 px-2 py-0.5"
+                              onClick={() => void transferOwnership(member)}
+                            >
+                              Make primary owner
+                            </button>
+                          ) : null}
+                        </div>
                       </td>
                     ) : null}
                   </tr>

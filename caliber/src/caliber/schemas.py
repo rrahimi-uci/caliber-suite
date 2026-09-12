@@ -2240,6 +2240,12 @@ class ProjectMemberSchema(BaseModel):
     created_by: str
     created_at: str | None = None
     updated_at: str | None = None
+    # `P1-C` review fix: `member_payload()` sets these (deactivation
+    # provenance) but the schema never surfaced them -- an omission a
+    # review caught. Present alongside `ProjectSchema.archived_at`/
+    # `archived_by`, the project-level equivalent.
+    deactivated_at: str | None = None
+    deactivated_by: str | None = None
 
 
 class ProjectMemberListSchema(BaseModel):
