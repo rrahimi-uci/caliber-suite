@@ -17,11 +17,34 @@
 #   * a [[gap]] entry the SDK now covers, or one naming a path the server no
 #     longer serves -- stale bookkeeping that must be deleted, not left behind.
 #
-# Current state: every gap that existed has been closed. Addressable coverage
-# is 380/380 (100%). Only the permanent [[exclusion]] entries below remain --
-# a future PR that adds a brand-new server operation without SDK coverage will
-# fail this gate and must either add the method, add a [[gap]] entry naming
-# the work that will close it, or justify a new exclusion here.
+# Current state: three tracked [[gap]] entries below (P1-C's new project
+# archive/restore/transfer-ownership routes -- SDK coverage is Phase 6's job,
+# docs/workspace-plan.md section 16, not this backend-only slice). Otherwise
+# only the permanent [[exclusion]] entries remain -- a future PR that adds a
+# brand-new server operation without SDK coverage will fail this gate and
+# must either add the method, add a [[gap]] entry naming the work that will
+# close it, or justify a new exclusion here.
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/archive"
+tag = "projects"
+stability = "ga"
+wave = "P6 (SDK completeness, docs/workspace-plan.md section 16) -- P1-C added the route without an SDK method"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/restore"
+tag = "projects"
+stability = "ga"
+wave = "P6 (SDK completeness, docs/workspace-plan.md section 16) -- P1-C added the route without an SDK method"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/transfer-ownership"
+tag = "projects"
+stability = "ga"
+wave = "P6 (SDK completeness, docs/workspace-plan.md section 16) -- P1-C added the route without an SDK method"
 
 [[exclusion]]
 method = "GET"

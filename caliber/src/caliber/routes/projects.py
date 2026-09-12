@@ -50,6 +50,7 @@ from caliber.ids import new_project_id, new_project_member_id, new_workspace_env
 from caliber.resource_access import (
     PROJECT_ROLES,
     ROLE_OWNER,
+    is_eligible_for_owner_role,
     member_payload,
     permissions_for_role,
     require_project_access,
@@ -72,6 +73,7 @@ from caliber.schemas import (
     ProjectMemberUpdateRequest,
     ProjectSchema,
     ProjectStorageSchema,
+    ProjectTransferOwnershipRequest,
 )
 from caliber.storage import (
     VISIBLE_STATUSES,
@@ -194,6 +196,8 @@ def _project_to_schema(
         file_count=file_count,
         access_role=access_role,
         permissions=sorted(permissions or ()),
+        archived_at=row.archived_at.isoformat() if row.archived_at else None,
+        archived_by=row.archived_by,
     )
 
 
@@ -612,14 +616,32 @@ async def add_project_member(request: Request) -> JSONResponse:
     user_id = payload.user_id.strip()
     if not user_id:
         raise HTTPException(status_code=400, detail="'user_id' is required")
-    if payload.role not in PROJECT_ROLES - {ROLE_OWNER}:
-        raise HTTPException(status_code=400, detail="role must be editor, reviewer, or viewer")
+    if payload.role not in PROJECT_ROLES:
+        raise HTTPException(
+            status_code=400, detail="role must be owner, editor, reviewer, or viewer"
+        )
     factory = get_session_factory(request)
     with factory() as session:
         require_project_access(session, identity, project_id, "project.manage_members")
         project = session.get(CaliberProject, project_id)
         if project is None:  # defensive; the access helper already checked it
             raise HTTPException(status_code=404, detail=f"project {project_id!r} not found")
+        # `P1-C`: granting the `owner` (Admin) role -- multiple active
+        # `owner`-role memberships are allowed alongside `project.owner`'s
+        # one primary-owner pointer -- requires the target to already carry
+        # both platform scopes section 2.4 names (`caliber.operator` +
+        # `caliber.approver`). A scope-ineligible target is rejected, not
+        # silently downgraded, so the caller sees exactly why.
+        if payload.role == ROLE_OWNER and not is_eligible_for_owner_role(
+            getattr(request.app.state, "config", None), user_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{user_id!r} lacks the caliber.operator + caliber.approver scopes "
+                    "required for the owner role"
+                ),
+            )
         existing = session.execute(
             select(CaliberProjectMember).where(
                 CaliberProjectMember.project_id == project_id,
@@ -631,6 +653,12 @@ async def add_project_member(request: Request) -> JSONResponse:
                 existing.status = "active"
                 existing.role = payload.role
                 existing.created_by = identity.user_id
+                # `P1-C`: reactivating a member clears its prior
+                # deactivation provenance -- those columns describe the
+                # *current* inactive state, not a permanent history (the
+                # audit log already carries that).
+                existing.deactivated_at = None
+                existing.deactivated_by = None
                 member = existing
             else:
                 raise HTTPException(status_code=409, detail="user is already a project member")
@@ -666,13 +694,17 @@ async def update_project_member(request: Request) -> JSONResponse:
     identity = resolve_identity(request)
     project_id = request.path_params["project_id"]
     user_id = request.path_params["user_id"]
-    if payload.role is not None and payload.role not in PROJECT_ROLES - {ROLE_OWNER}:
-        raise HTTPException(status_code=400, detail="role must be editor, reviewer, or viewer")
+    if payload.role is not None and payload.role not in PROJECT_ROLES:
+        raise HTTPException(
+            status_code=400, detail="role must be owner, editor, reviewer, or viewer"
+        )
     if payload.status is not None and payload.status not in {"active", "inactive"}:
         raise HTTPException(status_code=400, detail="status must be active or inactive")
     factory = get_session_factory(request)
     with factory() as session:
-        require_project_access(session, identity, project_id, "project.manage_members")
+        project, _decision = require_project_access(
+            session, identity, project_id, "project.manage_members"
+        )
         member = session.execute(
             select(CaliberProjectMember).where(
                 CaliberProjectMember.project_id == project_id,
@@ -681,12 +713,37 @@ async def update_project_member(request: Request) -> JSONResponse:
         ).scalar_one_or_none()
         if member is None:
             raise HTTPException(status_code=404, detail="project member not found")
-        if member.role == ROLE_OWNER:
-            raise HTTPException(status_code=409, detail="the project owner cannot be changed here")
+        # `P1-C`: the primary-owner invariant now lives on `project.owner`,
+        # not on holding the `owner` role -- multiple `owner`-role (Admin)
+        # memberships are allowed, and every one of them *except* the
+        # primary owner's own row can be freely demoted/deactivated here.
+        # Changing the primary owner's row is only ever done through
+        # `transfer-ownership`, which moves `project.owner` itself.
+        if project.owner == user_id:
+            raise HTTPException(
+                status_code=409,
+                detail="the primary owner cannot be changed here; use transfer-ownership",
+            )
+        if payload.role == ROLE_OWNER and not is_eligible_for_owner_role(
+            getattr(request.app.state, "config", None), user_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{user_id!r} lacks the caliber.operator + caliber.approver scopes "
+                    "required for the owner role"
+                ),
+            )
         if payload.role is not None:
             member.role = payload.role
         if payload.status is not None:
             member.status = payload.status
+            if payload.status == "inactive":
+                member.deactivated_at = datetime.now(timezone.utc)
+                member.deactivated_by = identity.user_id
+            else:
+                member.deactivated_at = None
+                member.deactivated_by = None
         audit_record(
             session,
             actor=identity.user_id,
@@ -709,7 +766,9 @@ async def remove_project_member(request: Request) -> JSONResponse:
     user_id = request.path_params["user_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        require_project_access(session, identity, project_id, "project.manage_members")
+        project, _decision = require_project_access(
+            session, identity, project_id, "project.manage_members"
+        )
         member = session.execute(
             select(CaliberProjectMember).where(
                 CaliberProjectMember.project_id == project_id,
@@ -718,9 +777,14 @@ async def remove_project_member(request: Request) -> JSONResponse:
         ).scalar_one_or_none()
         if member is None:
             raise HTTPException(status_code=404, detail="project member not found")
-        if member.role == ROLE_OWNER:
-            raise HTTPException(status_code=409, detail="the project owner cannot be removed")
+        # `P1-C`: only the primary owner's own row is protected -- see
+        # `update_project_member`. A secondary Admin (`owner`-role, not the
+        # primary owner) can be removed like any other member.
+        if project.owner == user_id:
+            raise HTTPException(status_code=409, detail="the primary owner cannot be removed")
         member.status = "inactive"
+        member.deactivated_at = datetime.now(timezone.utc)
+        member.deactivated_by = identity.user_id
         audit_record(
             session,
             actor=identity.user_id,
@@ -742,6 +806,17 @@ async def update_project(request: Request) -> JSONResponse:
     # but not the global-scope ceiling.
     require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
+    # `P1-C`: section 12.2's target contract narrows `PATCH` to name/
+    # description only -- lifecycle transitions move to the dedicated,
+    # audited `:archive`/`:restore` routes below, which also set
+    # `archived_at`/`archived_by` (this route never did). Rejecting `status`
+    # explicitly here, rather than silently ignoring it, tells a caller
+    # still targeting the old contract exactly where the transition moved.
+    if "status" in body:
+        raise HTTPException(
+            status_code=400,
+            detail="'status' is not settable via PATCH; use :archive or :restore",
+        )
     factory = get_session_factory(request)
     with factory() as session:
         project = _require_project_action(
@@ -752,10 +827,6 @@ async def update_project(request: Request) -> JSONResponse:
             project.name = body["name"].strip()
         if isinstance(body.get("description"), str):
             project.description = body["description"].strip()
-        if isinstance(body.get("status"), str):
-            if body["status"] not in _VALID_STATUSES:
-                raise HTTPException(status_code=400, detail=f"invalid status {body['status']!r}")
-            project.status = body["status"]
         try:
             session.flush()
         except IntegrityError as exc:
@@ -766,11 +837,150 @@ async def update_project(request: Request) -> JSONResponse:
             action="update_project",
             entity_type="project",
             entity_id=project_id,
+            details={"name": project.name, "description": project.description},
+        )
+        session.commit()
+        payload = _project_to_schema(project)
+    return envelope_response(payload)
+
+
+async def archive_project(request: Request) -> JSONResponse:
+    """`P1-C`, section 12.2: explicit archive transition with provenance.
+
+    Distinct from the old `PATCH .../projects/{id}` status flip: this route
+    records who archived the project and when (`archived_at`/`archived_by`,
+    schema-prepped by migration `0093`, unwired until now) and gives it its
+    own audited action name rather than the generic ``update_project``.
+    """
+    project_id = request.path_params["project_id"]
+    require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    factory = get_session_factory(request)
+    with factory() as session:
+        project = _require_project_action(
+            session, project_id, identity=identity, action="project.archive"
+        )
+        if project.status == "archived":
+            raise HTTPException(status_code=409, detail="project is already archived")
+        project.status = "archived"
+        project.archived_at = datetime.now(timezone.utc)
+        project.archived_by = identity.user_id
+        audit_record(
+            session,
+            actor=identity.user_id,
+            action="archive_project",
+            entity_type="project",
+            entity_id=project_id,
             details={"status": project.status},
         )
         session.commit()
         payload = _project_to_schema(project)
     return envelope_response(payload)
+
+
+async def restore_project(request: Request) -> JSONResponse:
+    """`P1-C`, section 12.2: the inverse of `archive_project`.
+
+    Clears `archived_at`/`archived_by` rather than leaving them set --
+    those columns describe the *current* archive transition, not a
+    permanent history (the audit log already carries that; see
+    `archive_project`/`restore_project`'s own audit records).
+    """
+    project_id = request.path_params["project_id"]
+    require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    factory = get_session_factory(request)
+    with factory() as session:
+        project = _require_project_action(
+            session, project_id, identity=identity, action="project.restore"
+        )
+        if project.status != "archived":
+            raise HTTPException(status_code=409, detail="project is not archived")
+        project.status = "active"
+        project.archived_at = None
+        project.archived_by = None
+        audit_record(
+            session,
+            actor=identity.user_id,
+            action="restore_project",
+            entity_type="project",
+            entity_id=project_id,
+            details={"status": project.status},
+        )
+        session.commit()
+        payload = _project_to_schema(project)
+    return envelope_response(payload)
+
+
+async def transfer_project_ownership(request: Request) -> JSONResponse:
+    """`P1-C`, section 12.2 + 19.1 item 3: atomic primary-owner transfer.
+
+    Only the *current* primary owner (``project.owner``, not merely any
+    ``owner``-role Admin membership) may initiate a transfer -- a secondary
+    Admin holding the ``owner`` role does not change primary ownership by
+    calling this route, matching the exit criterion "secondary Admin does
+    not change primary owner". The target must already be an active
+    ``owner``-role member (promoted through `add_project_member`/
+    `update_project_member`, which already re-check scope eligibility at
+    grant time) *and* still carry both required scopes right now -- a grant
+    made while eligible does not stay valid forever if the target is later
+    demoted at the platform-identity level.
+    """
+    body = await parse_json_object(request)
+    payload = ProjectTransferOwnershipRequest.model_validate(body)
+    new_owner_user_id = payload.new_owner_user_id.strip()
+    if not new_owner_user_id:
+        raise HTTPException(status_code=400, detail="'new_owner_user_id' is required")
+    require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    project_id = request.path_params["project_id"]
+    factory = get_session_factory(request)
+    with factory() as session:
+        project = _require_project_action(
+            session, project_id, identity=identity, action="project.transfer_owner"
+        )
+        if project.owner != identity.user_id:
+            raise HTTPException(
+                status_code=403,
+                detail="only the current primary owner may transfer ownership",
+            )
+        if new_owner_user_id == project.owner:
+            raise HTTPException(status_code=409, detail="user is already the primary owner")
+        target = session.execute(
+            select(CaliberProjectMember).where(
+                CaliberProjectMember.project_id == project_id,
+                CaliberProjectMember.user_id == new_owner_user_id,
+                CaliberProjectMember.status == "active",
+            )
+        ).scalar_one_or_none()
+        if target is None or target.role != ROLE_OWNER:
+            raise HTTPException(
+                status_code=409,
+                detail="new_owner_user_id must be an active owner-role (Admin) member",
+            )
+        if not is_eligible_for_owner_role(
+            getattr(request.app.state, "config", None), new_owner_user_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"{new_owner_user_id!r} lacks the caliber.operator + caliber.approver "
+                    "scopes required for the owner role"
+                ),
+            )
+        previous_owner = project.owner
+        project.owner = new_owner_user_id
+        audit_record(
+            session,
+            actor=identity.user_id,
+            action="transfer_project_owner",
+            entity_type="project",
+            entity_id=project_id,
+            details={"previous_owner": previous_owner, "new_owner": new_owner_user_id},
+        )
+        session.commit()
+        payload_out = _project_to_schema(project)
+    return envelope_response(payload_out)
 
 
 async def list_project_files(request: Request) -> JSONResponse:
@@ -953,3 +1163,8 @@ def register(app: Starlette) -> None:
     )
     app.routes.append(Route(DETAIL_PATH, get_project, methods=["GET"]))
     app.routes.append(Route(DETAIL_PATH, update_project, methods=["PATCH"]))
+    app.routes.append(Route(DETAIL_PATH + "/archive", archive_project, methods=["POST"]))
+    app.routes.append(Route(DETAIL_PATH + "/restore", restore_project, methods=["POST"]))
+    app.routes.append(
+        Route(DETAIL_PATH + "/transfer-ownership", transfer_project_ownership, methods=["POST"])
+    )

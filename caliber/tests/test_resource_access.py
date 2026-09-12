@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 import pytest
 
 from caliber.auth import SCOPE_ADMIN, SCOPE_APPROVER, SCOPE_OPERATOR, SCOPE_VIEWER, CaliberIdentity
@@ -15,6 +17,7 @@ from caliber.resource_access import (
     ROLE_VIEWER,
     authorize,
     decide_project_access,
+    is_eligible_for_owner_role,
     permissions_for_role,
 )
 
@@ -216,3 +219,41 @@ class TestAuthorize:
         `NotImplementedError`, not a decision that silently ignored it."""
         with pytest.raises(NotImplementedError, match=expected_substring):
             authorize(db_session, _identity("@owner"), "read", "P1", **{kwarg: object()})
+
+
+def _fake_config(*, operator_users: str = "", approver_users: str = "") -> SimpleNamespace:
+    """The minimal `scopes_for_user` reads: `admin_users`/`approver_users`/
+    `operator_users` as comma-separated strings."""
+    return SimpleNamespace(
+        admin_users="", approver_users=approver_users, operator_users=operator_users
+    )
+
+
+class TestIsEligibleForOwnerRole:
+    """`P1-C`: granting the `owner` role, or transferring primary ownership
+    to a target, requires both `caliber.operator` and `caliber.approver` on
+    the target's *live* scopes (section 2.4/19.1 item 4)."""
+
+    def test_missing_config_fails_closed(self) -> None:
+        assert is_eligible_for_owner_role(None, "@anyone") is False
+
+    def test_neither_scope_is_not_eligible(self) -> None:
+        assert is_eligible_for_owner_role(_fake_config(), "@nobody") is False
+
+    def test_only_operator_is_not_eligible(self) -> None:
+        config = _fake_config(operator_users="@op-only")
+        assert is_eligible_for_owner_role(config, "@op-only") is False
+
+    def test_only_approver_is_not_eligible(self) -> None:
+        config = _fake_config(approver_users="@appr-only")
+        assert is_eligible_for_owner_role(config, "@appr-only") is False
+
+    def test_both_scopes_is_eligible(self) -> None:
+        config = _fake_config(operator_users="@both", approver_users="@both")
+        assert is_eligible_for_owner_role(config, "@both") is True
+
+    def test_a_different_user_holding_both_scopes_does_not_make_the_target_eligible(
+        self,
+    ) -> None:
+        config = _fake_config(operator_users="@both", approver_users="@both")
+        assert is_eligible_for_owner_role(config, "@someone-else") is False
