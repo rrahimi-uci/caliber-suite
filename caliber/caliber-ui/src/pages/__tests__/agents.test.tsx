@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
@@ -307,5 +307,132 @@ describe("Agents lifecycle UI", () => {
     await userEvent.click(await screen.findByTestId("agent-preflight"));
     expect(await screen.findByText(/could not reach MLflow/)).toBeInTheDocument();
     expect(screen.getAllByText("unverified").length).toBeGreaterThan(0);
+  });
+});
+
+describe("Agents list page", () => {
+  it("shows a distinct empty state before and after a search narrows the list to nothing", async () => {
+    handlers([]);
+    const user = userEvent.setup();
+    const { unmount } = renderAt("/agents");
+
+    expect(await screen.findByText("No agent configurations yet")).toBeInTheDocument();
+    unmount();
+
+    handlers([agentFixture()]);
+    renderAt("/agents");
+    await screen.findByText("Support Agent");
+    await user.type(screen.getByRole("searchbox", { name: "Search agents" }), "nonexistent");
+
+    expect(await screen.findByText("No agents match your search")).toBeInTheDocument();
+    expect(screen.queryByText("Support Agent")).not.toBeInTheDocument();
+  });
+
+  it("filters agents by name, id, experiment, and owner, and clears via the × button", async () => {
+    handlers([
+      agentFixture({ agent_id: "support-agent", name: "Support Agent", owner: "@ops" }),
+      agentFixture({
+        agent_id: "billing-agent",
+        name: "Billing Agent",
+        experiment_id: "exp-billing",
+        owner: "@finance",
+      }),
+    ]);
+    const user = userEvent.setup();
+    renderAt("/agents");
+    await screen.findByText("Support Agent");
+    expect(screen.getByText("Billing Agent")).toBeInTheDocument();
+
+    const search = screen.getByRole("searchbox", { name: "Search agents" });
+    await user.type(search, "@finance");
+    expect(screen.queryByText("Support Agent")).not.toBeInTheDocument();
+    expect(screen.getByText("Billing Agent")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Clear search" }));
+    expect(await screen.findByText("Support Agent")).toBeInTheDocument();
+  });
+
+  it("navigates to an agent's detail page when its card is clicked", async () => {
+    handlers();
+    const user = userEvent.setup();
+    renderAt("/agents");
+
+    await user.click(await screen.findByTestId("agent-card-support-agent"));
+    expect(await screen.findByRole("heading", { name: "Support Agent" })).toBeInTheDocument();
+  });
+
+  it("surfaces a load error for the agent list", async () => {
+    server.use(
+      http.get(`${API_BASE}/me`, () =>
+        HttpResponse.json(envelope({ user_id: "@test", scopes: [], is_admin: true })),
+      ),
+      http.get(`${API_BASE}/agents`, () =>
+        HttpResponse.json({ detail: "agent registry unavailable" }, { status: 500 }),
+      ),
+    );
+    renderAt("/agents");
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("agent registry unavailable");
+    expect(screen.queryByText(/No agent configurations/)).not.toBeInTheDocument();
+  });
+
+  it("shows a registration-failed toast without navigating when creation is rejected", async () => {
+    handlers();
+    server.use(
+      http.post(`${API_BASE}/agents`, () =>
+        HttpResponse.json({ detail: "agent_id already exists" }, { status: 409 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderAt("/agents");
+    await screen.findByText("Support Agent");
+
+    await user.click(screen.getByTestId("new-agent"));
+    await user.type(screen.getByLabelText("Agent ID"), "dup-agent");
+    await user.type(screen.getByLabelText("MLflow experiment ID"), "exp-dup");
+    await user.type(screen.getByLabelText("Display name"), "Duplicate Agent");
+    await user.click(screen.getByRole("button", { name: "Register agent" }));
+
+    // Stays on the list (no navigation to a detail page for a failed create).
+    await waitFor(() =>
+      expect(screen.getByTestId("agent-create-form")).toBeInTheDocument(),
+    );
+    expect(screen.getByText("Support Agent")).toBeInTheDocument();
+  });
+
+  it("edits artifact types, skills, and required approvals in the create form, and cancels without submitting", async () => {
+    const state = handlers();
+    const user = userEvent.setup();
+    renderAt("/agents");
+    await screen.findByText("Support Agent");
+
+    await user.click(screen.getByTestId("new-agent"));
+    const form = await screen.findByTestId("agent-create-form");
+    await user.clear(within(form).getByLabelText(/Artifact types/));
+    await user.type(within(form).getByLabelText(/Artifact types/), "prompt, dataset");
+    await user.type(within(form).getByLabelText(/Skills/), "reasoning, tool-use");
+    await user.clear(within(form).getByLabelText("Required approvals"));
+    await user.type(within(form).getByLabelText("Required approvals"), "2");
+
+    // Cancel discards the draft instead of submitting it.
+    await user.click(within(form).getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByTestId("agent-create-form")).not.toBeInTheDocument();
+    expect(state.creates).toBe(0);
+  });
+
+  it("does not submit the create form while required fields are blank", async () => {
+    const state = handlers();
+    const user = userEvent.setup();
+    renderAt("/agents");
+    await screen.findByText("Support Agent");
+
+    await user.click(screen.getByTestId("new-agent"));
+    const form = await screen.findByTestId("agent-create-form");
+    // Only the display name is filled in — agent id / experiment id are still blank.
+    await user.type(within(form).getByLabelText("Display name"), "Incomplete Agent");
+    fireEvent.submit(form);
+
+    expect(state.creates).toBe(0);
+    expect(screen.getByTestId("agent-create-form")).toBeInTheDocument();
   });
 });

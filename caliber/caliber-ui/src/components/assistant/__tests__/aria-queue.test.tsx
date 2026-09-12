@@ -5,7 +5,7 @@
 import { render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { MemoryRouter } from "react-router-dom";
 
@@ -96,6 +96,34 @@ describe("QueuedMessages", () => {
     );
     expect(screen.getByTestId("assistant-queue")).toHaveTextContent("change course");
     expect(screen.getByText("Steer")).toBeInTheDocument();
+  });
+
+  it("shows a plain (non-steer) row without a Steer badge, pluralizes the count, and invokes onCancel with that row's queue_id on remove", async () => {
+    const onCancel = vi.fn();
+    withProviders(
+      <QueuedMessages
+        items={[
+          queuedItem({ queue_id: "QMSG-1", content: "first follow-up" }) as never,
+          queuedItem({ queue_id: "QMSG-2", content: "second follow-up" }) as never,
+        ]}
+        onCancel={onCancel}
+      />,
+    );
+
+    // Two queued (non-steer) items: header count pluralizes, no Steer badge.
+    expect(screen.getByText("Queued (2)")).toBeInTheDocument();
+    expect(screen.queryByText("Steer")).not.toBeInTheDocument();
+    expect(screen.getByText("first follow-up")).toBeInTheDocument();
+    expect(screen.getByText("second follow-up")).toBeInTheDocument();
+
+    // Removing the second row's message reports *that* row's queue_id, not
+    // the first — proves the per-item onClick closure is wired correctly.
+    const removeButtons = screen.getAllByRole("button", { name: "Remove queued message" });
+    expect(removeButtons).toHaveLength(2);
+    await userEvent.click(removeButtons[1]!);
+
+    expect(onCancel).toHaveBeenCalledTimes(1);
+    expect(onCancel).toHaveBeenCalledWith("QMSG-2");
   });
 });
 

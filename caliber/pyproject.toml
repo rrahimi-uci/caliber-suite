@@ -479,4 +479,11 @@ exclude_lines = [
     "if TYPE_CHECKING:",
     "if __name__ == .__main__.:",
 ]
-fail_under = 80
+# Bumped from 80: the backend suite has carried 92%+ actual coverage for a
+# while (measured 92.57% on a clean run of the full suite) with the gate
+# still set to the old, much lower floor -- raised to actually enforce what
+# the suite already achieves, ratchet-style, rather than leaving 12+ points
+# of undetectable regression room. Not set to today's exact number so a
+# single incidental line's worth of drift doesn't fail CI; still a real
+# floor above the repo's own ">90%" target.
+fail_under = 90

@@ -1394,6 +1394,42 @@ describe("App shell end-to-end journeys", () => {
     });
   });
 
+  it("resolves every remaining lazy-loaded route to its own page, not a 404", async () => {
+    // Each of these routes is its own React.lazy() chunk in App.tsx. Sidebar
+    // navigation and the other e2e journeys above only ever visit a subset of
+    // routes, leaving the rest of the lazy-loader wiring untested. None of
+    // these list pages gate their heading behind a successful fetch, so they
+    // render immediately even against the unmocked endpoints MSW reports (and
+    // the app's own fetch layer turns into a recoverable inline error).
+    const routes: Array<[string, RegExp | string]> = [
+      ["/audit-log", "Audit Log"],
+      ["/eval-datasets", "Test Sets"],
+      ["/judges", "Judges"],
+      ["/review-queues", "Review Queues"],
+      ["/aria/plans", "Aria Plans"],
+      ["/evaluations", "Evaluations"],
+      ["/gateway", "LLM Gateway"],
+      ["/openapi-integrations", "OpenAPI Integrations"],
+      ["/observability", "Observability"],
+      ["/releases", /Releases/],
+      ["/skills", "Skills"],
+      ["/cookbooks", "Cookbooks"],
+    ];
+
+    for (const [path, name] of routes) {
+      const view = renderApp(path);
+      expect(
+        await screen.findByRole("heading", { name }, { timeout: 5000 }),
+      ).toBeInTheDocument();
+      expect(
+        screen.queryByTestId("route-not-found"),
+      ).not.toBeInTheDocument();
+      view.unmount();
+      cleanup();
+      clearLocalAuthSession();
+    }
+  }, 20000);
+
   it("renders an unrecognised URL as a 404, not an unbuilt-page stub", async () => {
     // Regression for ui-complete-report.md §10: the wildcard route rendered
     // "This page lands in a follow-up milestone", so a mistyped link read as a
