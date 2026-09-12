@@ -451,8 +451,14 @@ const HTML_ENTITY_MAP = {
 
 function plainTextFromHtml(html) {
   return String(html || "")
-    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, " ")
-    .replace(/<style\b[\s\S]*?<\/style\s*>/gi, " ")
+    // `[^>]*` (not `\s*`) between the tag name and `>` -- CodeQL (js/bad-tag-
+    // filter) correctly flagged the whitespace-only version: a real HTML
+    // parser closes `<script>`/`<style>` on `</script anything-here>` too
+    // (any content up to the `>`, not just whitespace), so a stripping
+    // regex that only tolerates whitespace still lets `</script data-x="y">`
+    // (or the CodeQL-cited `</script\t\n bar>`) through unstripped.
+    .replace(/<script\b[\s\S]*?<\/script[^>]*>/gi, " ")
+    .replace(/<style\b[\s\S]*?<\/style[^>]*>/gi, " ")
     .replace(/<[^>]+>/g, " ")
     // Single pass so a decoded entity (e.g. "&amp;" -> "&") is never re-scanned
     // and reinterpreted by a later replacement ("&lt;" -> "<").
