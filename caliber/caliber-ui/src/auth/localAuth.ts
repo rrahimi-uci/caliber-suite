@@ -159,11 +159,26 @@ export function getAuthEpoch(): string {
   return window.localStorage.getItem(AUTH_EPOCH_KEY) ?? "";
 }
 
+let fallbackTokenCounter = 0;
+
+/** CSPRNG token, falling back to `crypto.getRandomValues` when `randomUUID` is unavailable. */
+function randomToken(): string {
+  if (typeof globalThis.crypto?.randomUUID === "function") {
+    return globalThis.crypto.randomUUID();
+  }
+  if (typeof globalThis.crypto?.getRandomValues === "function") {
+    const bytes = globalThis.crypto.getRandomValues(new Uint8Array(16));
+    return Array.from(bytes, (b) => b.toString(16).padStart(2, "0")).join("");
+  }
+  // No CSPRNG available (non-browser test environment). This value is a display-only
+  // tie-breaker, never an authorization input, so a non-random monotonic fallback is
+  // acceptable — it still guarantees uniqueness without relying on Math.random().
+  fallbackTokenCounter += 1;
+  return `${Date.now()}:${fallbackTokenCounter}`;
+}
+
 function advanceAuthEpoch(): void {
-  const epoch =
-    typeof globalThis.crypto?.randomUUID === "function"
-      ? globalThis.crypto.randomUUID()
-      : `${Date.now()}:${Math.random().toString(36).slice(2)}`;
+  const epoch = randomToken();
   // Write this before the session value. A startup validation that races a cross-tab
   // login/logout then sees the changed epoch before it could apply its stale response.
   window.localStorage.setItem(AUTH_EPOCH_KEY, epoch);
@@ -182,10 +197,7 @@ export function getCaliberUserHeader(): string | null {
 
 export function createLocalAuthSession(username: string): LocalAuthSession {
   const createdAt = new Date().toISOString();
-  const generation =
-    typeof globalThis.crypto?.randomUUID === "function"
-      ? globalThis.crypto.randomUUID()
-      : `${username}:${createdAt}:${Math.random().toString(36).slice(2)}`;
+  const generation = randomToken();
   return {
     username,
     identity: identityForUsername(username),

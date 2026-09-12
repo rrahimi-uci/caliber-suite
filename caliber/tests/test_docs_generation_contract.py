@@ -844,6 +844,27 @@ def test_rest_api_reference_publishes_generated_route_inventory() -> None:
     )
 
 
+def test_search_index_body_preserves_literal_angle_bracket_placeholders() -> None:
+    """A doubly-HTML-escaped placeholder must not decode to a raw HTML-like token.
+
+    ``plainTextFromHtml`` in ``build-docs.mjs`` strips markup, then decodes HTML
+    entities. Decoding ``&amp;`` before ``&lt;``/``&gt;`` used to double-unescape a
+    source string like ``&amp;lt;skill_id&amp;gt;`` (literal text meaning
+    ``&lt;skill_id&gt;``) all the way down to a bare ``<skill_id>`` — silently
+    turning escaped placeholder text into something that reads as an HTML tag.
+    A separately, correctly single-escaped ``&lt;skill_id&gt;`` elsewhere on the
+    same page must still decode to the literal ``<skill_id>`` it represents, so
+    this only pins the specific double-escaped occurrence.
+    """
+    payload = json.loads((DOCS_SITE / "search-index.json").read_text(encoding="utf-8"))
+    cookbook = next(
+        page for page in payload["pages"] if page["href"] == "m-cookbook-02-precision-skills.html"
+    )
+    body = cookbook["body"]
+    assert "Skill detail page (/skills/&lt;skill_id&gt;)" in body
+    assert "Skill detail page (/skills/<skill_id>)" not in body
+
+
 def test_search_prefers_reference_pages_for_symbol_and_route_queries() -> None:
     symbol_results = _search_results("CaliberClient", limit=5)
     assert symbol_results, "CaliberClient returned no search results"
