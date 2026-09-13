@@ -35,7 +35,6 @@ from caliber.db.models import (
     CaliberRollbackCheckpoint,
     CaliberRuntimeApprovalRequest,
     CaliberSkill,
-    CaliberToolRegistry,
     CaliberVerificationItem,
     CaliberWorkflow,
     CaliberWorkflowBenchmarkReport,
@@ -87,9 +86,9 @@ from caliber.workflows.manifest import (
     compute_manifest_hash,
     parse_manifest,
 )
-from caliber.workflows.promoter import LIVE_ALIASES
+from caliber.workflows.promoter import LIVE_ALIASES, resolver_from_session
 from caliber.workflows.template_catalog import build_workflow_template_catalog
-from caliber.workflows.tools import InMemoryToolResolver, ToolRegistryEntry, ToolResolutionError
+from caliber.workflows.tools import InMemoryToolResolver, ToolResolutionError
 from caliber.workflows.validation import ValidationReport, find_inline_secrets, validate_manifest
 
 LIST_PATH = "/ajax-api/2.0/mlflow/caliber/workflows"
@@ -689,37 +688,6 @@ async def update_workflow(request: Request) -> JSONResponse:
     return envelope_response(data)
 
 
-def _scoped_tool_resolver(session: Any, identity: Any) -> InMemoryToolResolver:
-    stmt = apply_visibility_filter(
-        select(CaliberToolRegistry),
-        CaliberToolRegistry,
-        identity,
-        identity.active_project_id,
-    )
-    rows = session.execute(stmt).scalars().all()
-    return InMemoryToolResolver(
-        [
-            ToolRegistryEntry(
-                name=row.name,
-                version=row.version,
-                module_path=row.module_path,
-                callable_name=row.callable_name,
-                execution_backend=row.execution_backend,
-                backend_config=row.backend_config,
-                side_effect_level=row.side_effect_level,
-                requires_approval=row.requires_approval,
-                allow_in_preview=row.allow_in_preview,
-                input_schema=row.input_schema,
-                output_schema=row.output_schema,
-                secret_refs=tuple(row.secret_refs or []),
-                status=row.status,
-                description=row.description,
-            )
-            for row in rows
-        ]
-    )
-
-
 def _visible_rows(session: Any, model: Any, identity: Any) -> list[Any]:
     stmt = apply_visibility_filter(select(model), model, identity, identity.active_project_id)
     return list(session.execute(stmt).scalars().all())
@@ -1205,7 +1173,7 @@ def _import_dependency_preflight(
     _preflight_artifact_dependencies(manifest, dataset_by_name, dependencies, report)
     _preflight_tool_dependencies(
         manifest,
-        _scoped_tool_resolver(session, identity),
+        resolver_from_session(session, identity),
         mcp_by_id,
         dependencies,
         report,
@@ -1270,7 +1238,7 @@ def _run_import_preflight(
     skill_names.update((embedded_skill_snapshots or {}).keys())
     report = validate_manifest(
         manifest,
-        resolver=_scoped_tool_resolver(session, identity),
+        resolver=resolver_from_session(session, identity),
         skill_names=skill_names,
     )
     dependencies = _import_dependency_preflight(

@@ -10,6 +10,7 @@ from urllib.parse import urlparse
 import pytest
 from sqlalchemy.orm import Session
 
+from caliber.auth import SCOPE_ADMIN, CaliberIdentity
 from caliber.config import CaliberConfig, WorkflowStorageConfig
 from caliber.db.models import (
     CaliberAgentConfig,
@@ -181,7 +182,11 @@ def test_resolver_from_session_records_successor_refs(db_session: Session) -> No
     db_session.add_all([successor, old, archived])
     db_session.commit()
 
-    resolver = resolver_from_session(db_session)
+    # Admin bypasses visibility scoping entirely -- this test is about the
+    # resolver's own successor/archived-status mechanics, not the `P2` scoping
+    # `resolver_from_session` now also applies.
+    admin_identity = CaliberIdentity(user_id="test-admin", scopes=frozenset({SCOPE_ADMIN}))
+    resolver = resolver_from_session(db_session, admin_identity)
     old_resolution = resolver.resolve("tool.lookup_policy.v1", "<2.0")
 
     assert old_resolution.entry.successor_ref == "tool.lookup_policy.v2"
@@ -555,7 +560,6 @@ def test_evaluate_deploy_gate_with_missing_dataset_fails_closed(
         db_session,
         manifest,
         "prod",
-        CaliberWorkflowVersion(workflow_id="wf"),
         resolver=fake_resolver(),
         executor=promoter.build_executor(None),
     )
@@ -603,7 +607,6 @@ def test_evaluate_deploy_gate_with_empty_dataset_fails_closed(
         db_session,
         manifest,
         "prod",
-        CaliberWorkflowVersion(workflow_id="wf"),
         resolver=fake_resolver(),
         executor=promoter.build_executor(None),
     )
@@ -658,7 +661,6 @@ def test_evaluate_deploy_gate_with_archived_dataset_fails_closed(
         db_session,
         manifest,
         "prod",
-        CaliberWorkflowVersion(workflow_id="wf"),
         resolver=fake_resolver(),
         executor=promoter.build_executor(None),
     )
@@ -745,7 +747,6 @@ def test_evaluate_deploy_gate_orders_bounded_sample_and_uses_preview(
         db_session,
         manifest,
         "prod",
-        CaliberWorkflowVersion(workflow_id="wf"),
         resolver=fake_resolver(),
         executor=promoter.build_executor(None),
         sample_size=2,
