@@ -365,15 +365,21 @@ prompts — a role that looks restricted while being fully privileged.
 
 ### 2.4 Canonical action registry and scope requirements
 
-The current registry has seven actions — `read`, `project.update`,
-`project.manage_members`, `resource.write`, `resource.publish`,
-`resource.approve`, `resource.execute` — with no way to express "may author
-evidence but not runtime artifacts", and no feedback verb at all.
+The target registry below is authoritative and, as of `P1-D`, is what
+`resource_access.py::PROJECT_ACTIONS` implements in full — every row is a
+closed key today, though only a subset is wired onto a live route (`read`,
+`project.update`, `project.manage_members`, `project.archive`,
+`project.restore`, `project.transfer_owner`, `resource.write.runtime`,
+`resource.publish`, `resource.execute`, `feedback.submit`); the rest are
+reserved for the Change-Request/environment/release route families Phase
+2-5 build, or (`resource.write.evidence`, `rework.update`) deliberately not
+yet wired onto routes that already exist, per this section's own isolation-
+closure warning below.
 
-The target registry below is authoritative. Route documentation must use these
-exact literals; do not introduce `workspace.read`, `workspace.admin`, or another
-alias vocabulary. Existing actions retain their names where their meaning is
-unchanged, which keeps `require_project_access` a viable compatibility wrapper.
+Route documentation must use these exact literals; do not introduce
+`workspace.read`, `workspace.admin`, or another alias vocabulary. Existing
+actions retain their names where their meaning is unchanged, which keeps
+`require_project_access` a viable compatibility wrapper.
 
 | Action | Developer | QA | Admin | Viewer | Required global scope(s) |
 | --- | :---: | :---: | :---: | :---: | --- |
@@ -3714,7 +3720,8 @@ combined with a later slice merely to reduce PR count.
 | `P0-A` | Architecture + security | **Delivered.** Machine-readable route required-scope inventory (`routes/scope_inference.py`, `x-caliber-required-scope` on the served OpenAPI document, enforced by `tests/test_route_scope_inventory.py`) — every one of 403 operations classified by reading its own authorization call, not a hand-duplicated table — plus a background-worker inventory (`observability/worker_inventory.py`, `tests/test_worker_inventory.py`) and a per-model project-scoping inventory (`db/resource_inventory.py`, `tests/test_resource_inventory.py`, all 85 models classified with zero hand-maintenance needed); the per-plane authority matrix and every question section 19.2 posed are ratified as decisions (section 19) | — | Every route, every background worker, and every model has one inventory row and none can drift from the real code; every policy question this document posed has a named, ratified decision rather than an implicit default (gate on today's live route table / lifespan / model registry, same as `P3-B`/`P3-A`/`P3-C`'s "doesn't wait" exceptions in spirit, though these have no `P1-C` dependency to begin with) |
 | `P0-B` | API + SDK | **Delivered.** OpenAPI shapes: `x-caliber-required-scope` (`P0-A`'s route-scope inventory) is now rendered as a "Required scope" column in the published REST API reference (`docs-site/generate_rest_api_docs.py::_format_required_scope`), not just visible in the raw served JSON. Error envelope: ratified as frozen — `routes/_errors.py`'s `{detail, status_code}` / `{detail, status_code, errors[]}` shapes were already implemented, tested, OpenAPI-declared, and published before this PR; no code changed. Closed actions: ratified — today's live route table requires only 5 of `PROJECT_ACTIONS`'s 7 keys, closure enforced by `tests/test_route_scope_inventory.py`; this is *not* `P1-B`'s "Closed action enum" (section 2.4's much larger future `WorkspaceAction` vocabulary), which remains unstarted and gated on `P1-A`. Reason codes: named as a real, deliberately deferred gap (Phase 0 item 6). Pagination: inventoried and ratified (`routes/pagination_inventory.py`, 6 distinct shapes across ~27 routes pinned, `list_limit()` ratified as the near-term baseline, deviations named not reconciled). ETag/CAS/idempotency: today's real `409`-based mechanisms ratified as the current precursor to section 13.6's target `412`/header contract, with a pin confirming no route emits `412` yet. Change Request/version contracts: sections 3.2/9.2's already-written design ratified as frozen, plus `workspace_change_requests.py`'s model-based transition fixtures (Phase 4 still owns all real implementation). Manifest schema and golden vectors: `workspace_manifest.py` implements and tests the `v1alpha1` schema and canonicalization (22 golden-vector tests) — the manifest-document half of the eventual `revision_sha256`; full materialization remains Phase 4. Multipart field names, maximum bundle size (a new, reasoned policy decision), and sync/async streaming (decision ratified, heartbeat-test verification pending real async upload code) round out item 6 in full. **Explicitly out of scope for this ticket** (Phase 0 items with no PR-sequence ticket, not owned by "API + SDK," left exactly as open as before): item 3's remaining nullability/uniqueness audit and bare-name-resolver inventory, item 5 (resource adapter capability contract), item 7 (deterministic fixtures), item 8 (the two typed decision contracts), item 9 (per-adapter reconstructability strategy), item 11 (`SourceControlProvider` capabilities) | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
 | `P1-A` | Data/backend | **Partially delivered.** Project slug/source-mode/archive/accepted-revision fields, the minimal `caliber_workspace_environments` table, project-member deactivation fields, and audit-log environment correlation are all added (migration `0093`), with a deterministic additive backfill for every existing project. Workspace creation now requires operator **and** approver (a new `require_all_scopes` primitive) and transactionally seeds the four fixed environments. The environment-class registry gained a genuine `qa` class without touching legacy alias behavior. Still open: the Workspace idempotency ledger (a separate table, not built — nothing needs it yet) and PostgreSQL migration CI (zero infra exists; a distinct CI/infra task, out of scope for this slice by explicit choice) | `P0-B` | Fresh/upgrade parity on SQLite and real PostgreSQL; idempotency conflict/replay is durable; new Workspace seeds dev active and qa/staging/prod disabled; migrated live aliases remain `baseline_required` |
-| `P1-B` | Security/backend | **Partially delivered (slice 1).** `authorize()` decision service (`resource_access.py`), `require_project_access` as its compatibility wrapper, `AccessDecision.policy_version` + closed reason codes, and removal of the platform-admin owner bypass (`project_role()`, plus the coupled `list_projects` fix and the "deny workspace writes with no active workspace" gap) are all delivered — bare fail-closed, no replacement recovery path (that's `P1-C`/Phase 5's job, by design). Still open: the closed `WorkspaceAction` enum and the `resource.write.runtime`/`.evidence` split (item 5 — the real work is wiring project-role checks onto `resource.execute`/`feedback.submit`/`rework.update`, today gated by global scope only, not a string rename), conjunction-safe role-grant eligibility and multiple-Admin/primary-owner invariants (item 6, split with `P1-C`) | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; policy errors never fall back to legacy allow |
+| `P1-B` | Security/backend | **Partially delivered (slice 1).** `authorize()` decision service (`resource_access.py`), `require_project_access` as its compatibility wrapper, `AccessDecision.policy_version` + closed reason codes, and removal of the platform-admin owner bypass (`project_role()`, plus the coupled `list_projects` fix and the "deny workspace writes with no active workspace" gap) are all delivered — bare fail-closed, no replacement recovery path (that's `P1-C`/Phase 5's job, by design). Item 5 (the closed action registry and the `resource.write.runtime`/`.evidence` split) is delivered separately, see `P1-D` below. Still open: conjunction-safe role-grant eligibility and multiple-Admin/primary-owner invariants (item 6, split with `P1-C`) | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; policy errors never fall back to legacy allow |
+| `P1-D` | Security/backend | **Delivered (slice 1 of Phase 1's remaining split).** `PROJECT_ACTIONS` closed over section 2.4's full 29-key target vocabulary (kept as a `dict[str, frozenset[str]]`, not a Python `Enum` — `routes/scope_inference.py`'s AST-based inventory only recognizes literal string constants as action values). `resource.write` retired in favor of `resource.write.runtime`/`.evidence`; the 5 existing generic project-file-storage call sites migrated to `.runtime`. `resource.execute` and `feedback.submit` wired onto real routes via a new `require_project_access_if_scoped()` helper (a no-op when the target resource's `project_id` is `None` — workflows/workflow runs/eval datasets/review queues are all optionally project-scoped): `routes/workflow_runs.py` (create/trigger-event/cancel/retry/resume/resume-by-event), `routes/evaluations.py::create_evaluation`, `routes/review_queues.py::submit_item`. Deliberately still reserved, not wired: `resource.write.evidence` onto Prompt/Workflow/Tool/Skill/Test-set/Judge/Scorer CRUD (section 2.3's isolation-closure warning — Phase 2's job) and `rework.update` (`caliber_rework_tasks` has no `project_id` column yet) | `P1-B` | `test_route_scope_inventory.py::test_the_live_vs_reserved_action_partition_is_pinned` names exactly which of the 29 keys are live vs. reserved; a route that starts using any reserved key is instantly covered by an already-correct role set, not an implicit allow |
 | `P1-C` | Auth/backend | **Partially delivered (slice 1).** Multiple active `owner`-role (Admin) memberships are now allowed alongside `CaliberProject.owner`'s one primary-owner pointer; granting the `owner` role (via `add_project_member`/`update_project_member`) requires the target's *live* platform scopes to include both `caliber.operator` and `caliber.approver` (`resource_access.is_eligible_for_owner_role`), re-checked at grant time, not cached. `POST /projects/{id}/transfer-ownership` atomically moves the primary-owner pointer between two existing Admins -- only the current primary owner may call it, and the target is re-checked for eligibility at transfer time too, closing the "granted while eligible, now lapsed" gap. `POST /projects/{id}/archive` / `/restore` replace the old bare `PATCH .../projects/{id}` status flip, now with real audited provenance (`archived_at`/`archived_by`, migration `0093`'s already-added but previously unwired columns); `PATCH` itself narrows to name/description only, matching section 12.2's target route table. `CaliberProjectMember.deactivated_at`/`deactivated_by` (also `0093`, also previously unwired) are now set on removal/deactivation and cleared on reactivation. `PROJECT_ACTIONS` gained the three actions section 2.4 names (`project.archive`/`.restore`/`.transfer_owner`), Admin-only. Still open (this ticket's remaining scope): project-bound PAT/credential context (item 7 -- no `project_id` column exists yet on `CaliberPersonalAccessToken`, needs its own migration), the metadata-only platform Admin inventory (item 13, `project_role()`'s still-bare admin-bypass-removal fail-closed default), and capability projection (item 11, e.g. exposing effective capabilities on environment responses once Phase 1's environment routes exist) | `P1-B` | PAT cannot cross workspace (not yet -- next slice); scope-ineligible role grants fail (delivered); primary owner transfer is atomic (delivered); secondary Admin does not change primary owner (delivered) |
 | `P2-A` | Backend | Convert root routes by resource family to centralized authorization and non-null-on-create workspace ownership | `P1-C` | Each converted family has two-workspace CRUD/child-ID tests; unconverted routes remain inventoried and flagged |
 | `P2-B` | Runtime | Project/revision-aware compiler, run queue, workers, callbacks, plan executor and Aria delegation | `P2-A` | Persisted context survives restart; worker cannot widen actor authority or fall back to global registries |
@@ -4051,6 +4058,34 @@ Primary areas: `db/models.py`, `db/migrations/versions/`, `schemas.py`,
 5. Replace free-form action strings with a closed `WorkspaceAction` registry,
    including the `resource.write.runtime` / `resource.write.evidence` split and
    `feedback.submit` from section 2.4.
+   **Delivered** (`P1-D`): `resource_access.py::PROJECT_ACTIONS` now carries
+   all 29 keys section 2.4's target table names, closing the registry
+   itself rather than only today's live subset — `decide_project_access`
+   already denies any action not present as a key at all, so a reserved key
+   still closes the gap for whichever route wires it next. Kept as a
+   `dict[str, frozenset[str]]` of string constants, not a Python `Enum`:
+   `routes/scope_inference.py`'s AST-based route inventory only recognizes
+   literal string constants as action values, and a real `Enum`'s
+   `Action.FOO.value` member access is an `ast.Attribute`, not an
+   `ast.Constant` — switching would silently break the inventory's closure
+   guarantee. `resource.write` retired in favor of `resource.write.runtime`
+   / `.evidence`; the 5 existing generic project-file-storage call sites
+   (none of which cleanly maps to "runtime" vs. "evidence") migrated to
+   `.runtime`. `resource.execute` and `feedback.submit` are now wired, not
+   just reserved: `routes/workflow_runs.py` (create/trigger-event/cancel/
+   retry/resume/resume-by-event) and `routes/evaluations.py::create_evaluation`
+   call the new `require_project_access_if_scoped()` helper with
+   `resource.execute` whenever the run/dataset's workflow actually has a
+   `project_id` (both are *optionally* project-scoped — a personal/global
+   one has no workspace to check a role against, so the check is skipped
+   rather than 404ing every unscoped run); `routes/review_queues.py::submit_item`
+   calls it with `feedback.submit`, the same optionally-scoped treatment.
+   Still reserved, not wired: `resource.write.evidence` onto the real
+   Prompt/Workflow/Tool/Skill/Test-set/Judge/Scorer CRUD routes (section
+   2.3's own warning that isolation closure is a hard prerequisite —
+   Phase 2's job) and `rework.update` (`caliber_rework_tasks` has no
+   `project_id` column yet); the full Change-Request/environment/release
+   vocabulary remains reserved for Phase 2-5's own route families.
 6. Add conjunction-safe global-scope checks, target eligibility on role grants,
    multiple Admin collaborators, and the single primary-owner invariant.
 7. Add optional PAT project binding and identity credential context; require
@@ -4071,9 +4106,11 @@ Primary areas: `db/models.py`, `db/migrations/versions/`, `schemas.py`,
    conjunct rather than silently no-op'ing. `AccessDecision` gained
    `policy_version` (a hand-bumped `POLICY_VERSION` marker) and its four
    reason strings are now named `Final` constants plus a closed
-   `ACCESS_REASONS` set, tested. Still open: the full closed
-   `WorkspaceAction` enum (item 5/6) — `action` stays a plain `str` in this
-   slice, matching today's `PROJECT_ACTIONS` registry unchanged.
+   `ACCESS_REASONS` set, tested. `action` stays a plain `str` — item 5's
+   closed registry (`P1-D`) closes `PROJECT_ACTIONS` itself over that
+   `str` vocabulary rather than switching to an enum; item 6's remaining
+   scope (conjunction-safe global-scope checks on role grants beyond
+   `P1-C`'s owner-eligibility check) is still open.
 9. Preserve `require_project_access` as a compatibility wrapper over the new
    decision service.
    **Delivered** (`P1-B`, slice 1): `require_project_access` now calls

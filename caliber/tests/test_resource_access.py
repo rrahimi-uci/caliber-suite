@@ -59,8 +59,14 @@ def test_project_roles_have_expected_action_boundaries(db_session) -> None:
     )
     db_session.commit()
 
+    # `P1-D`: `resource.write` split into `.runtime`/`.evidence` (section
+    # 6.4's resource-family taxonomy) -- an editor holds both, a reviewer
+    # only the evidence side, a viewer neither.
     assert decide_project_access(
-        db_session, _identity("@editor"), project, "resource.write"
+        db_session, _identity("@editor"), project, "resource.write.runtime"
+    ).allowed
+    assert decide_project_access(
+        db_session, _identity("@editor"), project, "resource.write.evidence"
     ).allowed
     assert decide_project_access(
         db_session, _identity("@editor"), project, "resource.publish"
@@ -71,9 +77,23 @@ def test_project_roles_have_expected_action_boundaries(db_session) -> None:
     assert decide_project_access(
         db_session, _identity("@reviewer"), project, "resource.approve"
     ).allowed
-    assert not decide_project_access(
-        db_session, _identity("@viewer"), project, "resource.write"
+    assert decide_project_access(
+        db_session, _identity("@reviewer"), project, "resource.write.evidence"
     ).allowed
+    assert not decide_project_access(
+        db_session, _identity("@reviewer"), project, "resource.write.runtime"
+    ).allowed
+    assert not decide_project_access(
+        db_session, _identity("@viewer"), project, "resource.write.runtime"
+    ).allowed
+
+    # `P1-D`: `resource.execute`/`feedback.submit` -- owner/editor/reviewer
+    # all hold both (the same role set as `resource.write.evidence`), a
+    # viewer holds neither.
+    for action in ("resource.execute", "feedback.submit"):
+        assert decide_project_access(db_session, _identity("@editor"), project, action).allowed
+        assert decide_project_access(db_session, _identity("@reviewer"), project, action).allowed
+        assert not decide_project_access(db_session, _identity("@viewer"), project, action).allowed
 
 
 def test_owner_has_management_permissions_admin_alone_does_not(db_session) -> None:

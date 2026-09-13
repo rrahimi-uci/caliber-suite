@@ -1064,7 +1064,7 @@ async def create_project_folder(request: Request) -> JSONResponse:
     try:
         with factory() as session:
             project = _require_project_action(
-                session, project_id, identity=identity, action="resource.write"
+                session, project_id, identity=identity, action="resource.write.runtime"
             )
             service = _project_storage_service(request, project)
             rec = service.create_project_folder(
@@ -1100,7 +1100,7 @@ async def upload_project_file(request: Request) -> JSONResponse:
     try:
         with factory() as session:
             project = _require_project_action(
-                session, project_id, identity=identity, action="resource.write"
+                session, project_id, identity=identity, action="resource.write.runtime"
             )
             service = _project_storage_service(request, project)
             rec = service.register_project_file(
@@ -1172,7 +1172,9 @@ async def delete_project_file(request: Request) -> JSONResponse:
     service = get_working_dir_service(request)
     factory = get_session_factory(request)
     with factory() as session:
-        _require_project_action(session, project_id, identity=identity, action="resource.write")
+        _require_project_action(
+            session, project_id, identity=identity, action="resource.write.runtime"
+        )
         row = _file_for_project_or_404(session, project_id, file_id)
         # Soft-delete in metadata (storage doc §2.6); the retention janitor
         # reclaims the physical object later.

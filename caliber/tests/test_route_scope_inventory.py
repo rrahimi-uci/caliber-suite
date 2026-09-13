@@ -343,17 +343,19 @@ def test_every_live_project_role_action_is_a_known_action(client: TestClient) ->
 
 def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
     """Ratchet, matching this session's inventory-test style (e.g.
-    `test_resource_inventory.py`'s distribution pin): `PROJECT_ACTIONS`
-    declares 10 actions today (`P1-C` added `project.archive`/`.restore`/
-    `.transfer_owner`), and 8 are wired to a live route's
-    `require_project_access()`/`_require_project_action()` call --
-    `resource.approve` and `resource.execute` are reserved, declared for a
-    future check that doesn't exist yet. A change to either side is a real
-    event (a route started/stopped enforcing an action, or the registry
-    gained/lost a reserved key) and must update this pin deliberately, not
-    drift past it silently. Section 2.4's much larger future action
-    vocabulary (`P1-B`'s "Closed action enum") is out of scope here -- this
-    pins *today's* registry only.
+    `test_resource_inventory.py`'s distribution pin): `P1-D` closed
+    `PROJECT_ACTIONS` over section 2.4's full 29-key target vocabulary, of
+    which 10 are wired to a live route's `require_project_access()`/
+    `_require_project_action()`/`require_project_access_if_scoped()` call.
+    The other 19 are reserved -- declared for a route family that doesn't
+    exist yet (Change Requests, version tags, environments, releases/
+    operations, `source.manage`), or (`resource.write.evidence`,
+    `rework.update`) deliberately not wired for reasons documented directly
+    on those `PROJECT_ACTIONS` entries (isolation closure and project-scoped
+    rework tasks are each a separate, later prerequisite). A change to
+    either side is a real event (a route started/stopped enforcing an
+    action, or the registry gained/lost a reserved key) and must update
+    this pin deliberately, not drift past it silently.
     """
     from caliber.resource_access import PROJECT_ACTIONS
     from caliber.routes.openapi import build_openapi_document
@@ -375,10 +377,32 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
         "project.archive",
         "project.restore",
         "project.transfer_owner",
-        "resource.write",
+        "resource.write.runtime",
         "resource.publish",
+        "resource.execute",
+        "feedback.submit",
     }
-    assert set(PROJECT_ACTIONS) - live_actions == {"resource.approve", "resource.execute"}
+    assert set(PROJECT_ACTIONS) - live_actions == {
+        "source.manage",
+        "resource.write.evidence",
+        "resource.approve",
+        "rework.update",
+        "revision.import",
+        "revision.create",
+        "change_request.create",
+        "change_request.update",
+        "change_request.comment",
+        "change_request.review",
+        "change_request.manage",
+        "environment.manage",
+        "release.request",
+        "release.evaluate",
+        "release.quality_signoff",
+        "release.approve",
+        "release.apply",
+        "release.rollback",
+        "release.reconcile",
+    }
 
 
 # ---------------------------------------------------------------------------

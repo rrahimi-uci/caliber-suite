@@ -25,6 +25,30 @@ PROJECT_ROLES: Final[frozenset[str]] = frozenset(
     {ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER, ROLE_VIEWER}
 )
 
+#: `P1-D` (section 16 item 5): the full closed action vocabulary from section
+#: 2.4's target table, keyed by the exact literal every route/worker/SDK must
+#: use -- not a Python `Enum` (see `ACCESS_REASONS`'s own comment: no
+#: precedent for that pattern in this codebase, and `routes/scope_inference.py`'s
+#: AST-based inventory only recognizes a bare string literal as an action;
+#: an enum member/`.value` access is an `ast.Attribute`, not `ast.Constant`,
+#: and would silently vanish from that inventory instead of failing loudly).
+#: Values are the stored role literals from section 2.1's mapping (Developer
+#: = `editor`, QA = `reviewer`, Admin = `owner`, Viewer = `viewer` -- the
+#: *product labels* Developer/QA/Admin haven't been renamed onto these
+#: strings anywhere in code yet, but the stored roles themselves already are
+#: exactly these four people, so every row below can be modeled today with
+#: no role rename blocking it.
+#:
+#: Most of these keys are reserved, not live: their routes don't exist yet
+#: (Change Request/version-tag/release/environment machinery is Phase 2-5's
+#: job) or, for `resource.write.evidence`/`rework.update`, wiring a real
+#: project-role check onto their routes is deliberately deferred (see the
+#: two comments below) rather than done here. A reserved key still closes
+#: the registry -- `decide_project_access` denies any action not present as
+#: a key at all, so adding a key now means a route that starts using this
+#: literal next is instantly covered by an already-correct role set, not an
+#: implicit allow. `test_the_live_vs_reserved_action_partition_is_pinned`
+#: pins exactly which of these are live vs. reserved today.
 PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     "read": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER, ROLE_VIEWER}),
     "project.update": frozenset({ROLE_OWNER, ROLE_EDITOR}),
@@ -36,19 +60,95 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     "project.archive": frozenset({ROLE_OWNER}),
     "project.restore": frozenset({ROLE_OWNER}),
     "project.transfer_owner": frozenset({ROLE_OWNER}),
-    "resource.write": frozenset({ROLE_OWNER, ROLE_EDITOR}),
+    # Reserved: no `PUT/POST /projects/{id}/source*` route exists yet
+    # (Phase 4's job -- git-provider import/review).
+    "source.manage": frozenset({ROLE_OWNER}),
+    # `P1-D`: `resource.write` (section 2.4's own "current registry" name)
+    # retired in favor of this split -- see section 6.4's resource-family
+    # taxonomy ("authored runtime asset" vs. "quality definition"). Live,
+    # unchanged role set: today's 5 generic project-file-storage call sites
+    # (`routes/files.py::staging_upload`, `routes/projects.py`'s
+    # folder/upload/delete routes, `routes/object_store.py`'s project
+    # import) gate CALIBER's generic file tree, not a typed Prompt/Workflow/
+    # Test-set/Judge row -- none of them cleanly maps to "runtime" vs.
+    # "evidence" under the section 6.4 taxonomy, since that tree holds
+    # inputs/outputs for both. They're migrated to `.runtime` here (the
+    # closer fit: `object_store.py`'s own docstring already calls this tree
+    # "accepted by workflow file-input nodes"), not left on a retired name.
+    "resource.write.runtime": frozenset({ROLE_OWNER, ROLE_EDITOR}),
+    # Reserved: wiring this onto the actual Prompt/Workflow/Tool/Skill/
+    # Test-set/Judge/Scorer CRUD routes is section 2.3's own explicit
+    # warning -- "isolation closure is a hard prerequisite for shipping QA"
+    # (Phase 2, not this slice). Those routes check only global scope today;
+    # adding a project-role check on top of that now, before Phase 2 makes
+    # resource-to-workspace ownership consistent, is exactly the premature
+    # tightening section 2.3 says not to do yet.
+    "resource.write.evidence": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER}),
     "resource.publish": frozenset({ROLE_OWNER, ROLE_EDITOR}),
+    # Reserved (never wired to a route in this codebase's history) --
+    # section 2.4's target table has no `resource.approve` row at all; kept
+    # only because removing a `PROJECT_ACTIONS` key outright, rather than
+    # documenting it as retired-and-unused, would be a silent behavior
+    # change for any caller that somehow still checks it.
     "resource.approve": frozenset({ROLE_OWNER, ROLE_REVIEWER}),
+    # `P1-D`: now wired -- `routes/workflow_runs.py` (create/trigger-event/
+    # cancel/retry/resume/resume-by-event) and `routes/evaluations.py`
+    # (create) call `require_project_access_if_scoped` with this action
+    # whenever the run/evaluation's workflow/dataset actually has a
+    # `project_id` (both are *optionally* project-scoped -- a personal/
+    # global one has no workspace to check a role against, so the check is
+    # skipped rather than 404ing every unscoped run).
     "resource.execute": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER}),
+    # `P1-D`: new, and now wired -- `routes/review_queues.py::submit_item`
+    # (the route section 2.4's own prose names: "there is no existing action
+    # for it to ride on ... submitting review-queue feedback today calls
+    # neither `require_project_access` nor any project action"). Same
+    # optionally-scoped treatment as `resource.execute` above: a personal
+    # review queue (`project_id is None`) skips the project-role check.
+    "feedback.submit": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER}),
+    # Reserved: `caliber_rework_tasks` is a global table today, not yet
+    # project-scoped (the project-scoped `/projects/{id}/rework-tasks` API
+    # section 3.6 describes still doesn't exist) -- there is no `project_id`
+    # to check a role against yet, so wiring this would mean building that
+    # scoping first, not just adding a call here.
+    "rework.update": frozenset({ROLE_OWNER, ROLE_EDITOR}),
+    # Everything below is reserved for a Phase 2-5 route family that does
+    # not exist in this codebase yet (Change Requests, version tags,
+    # environments, releases/operations). Closing the registry over the
+    # full target vocabulary now means whichever of those routes lands
+    # first is instantly gated correctly, not added to `PROJECT_ACTIONS` as
+    # an afterthought alongside its own PR.
+    "revision.import": frozenset({ROLE_OWNER, ROLE_EDITOR}),
+    "revision.create": frozenset({ROLE_OWNER, ROLE_EDITOR}),
+    "change_request.create": frozenset({ROLE_OWNER, ROLE_EDITOR}),
+    "change_request.update": frozenset({ROLE_OWNER, ROLE_EDITOR}),
+    "change_request.comment": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER}),
+    "change_request.review": frozenset({ROLE_OWNER, ROLE_EDITOR}),
+    "change_request.manage": frozenset({ROLE_OWNER}),
+    "environment.manage": frozenset({ROLE_OWNER}),
+    "release.request": frozenset({ROLE_OWNER, ROLE_EDITOR}),
+    "release.evaluate": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER}),
+    "release.quality_signoff": frozenset({ROLE_REVIEWER}),
+    "release.approve": frozenset({ROLE_OWNER}),
+    "release.apply": frozenset({ROLE_OWNER, ROLE_EDITOR}),
+    "release.rollback": frozenset({ROLE_OWNER}),
+    "release.reconcile": frozenset({ROLE_OWNER}),
+    # `release.break_glass_apply` is deliberately absent: section 2.4 names
+    # it "no ordinary role grant" -- it needs `caliber.admin`, an
+    # interactive credential, and an explicit recovery policy, not a project
+    # role at all. Modeling it as a normal `{role: ...}` entry here would
+    # misrepresent it as grantable through ordinary membership. Phase 5
+    # (`P5-B`) designs its real, separately-audited check.
 }
 
-#: `P1-B`/`P1-C`: a hand-bumped marker for `AccessDecision.policy_version`
+#: `P1-B`/`P1-C`/`P1-D`: a hand-bumped marker for `AccessDecision.policy_version`
 #: (section 5.4). Bump this string whenever this module's decision policy
 #: changes in a way an auditor reading old decisions would need to know
-#: about (e.g. the admin-owner-bypass removal `P1-B` made, or `P1-C` adding
-#: the archive/restore/transfer_owner actions below) -- not on every
-#: unrelated edit to this file.
-POLICY_VERSION: Final[str] = "p1c-2026-09-11"
+#: about (e.g. the admin-owner-bypass removal `P1-B` made, `P1-C` adding
+#: the archive/restore/transfer_owner actions, or `P1-D` closing the full
+#: action registry and wiring `resource.execute`/`feedback.submit`) -- not
+#: on every unrelated edit to this file.
+POLICY_VERSION: Final[str] = "p1d-2026-09-12"
 
 #: `P1-C` (section 2.4/19.1 item 4): granting the `owner` role (Admin) --
 #: whether via `add_project_member`/`update_project_member` or as the
@@ -171,10 +271,11 @@ def authorize(
     `caliber.operator`. Those call sites were fixed directly
     (`routes/projects.py`'s member-mutation and `project.update` routes;
     `routes/openapi_integrations.py`'s publish route) rather than papering
-    over the gap here: the fix belongs at each call site until the closed
-    `WorkspaceAction` registry (item 5/6, not this slice) can carry a real
-    action-to-scope mapping this function could enforce centrally instead
-    of trusting every caller to get right. The one exception is the
+    over the gap here: the fix belongs at each call site. `P1-D` closes the
+    action registry itself (`PROJECT_ACTIONS` now covers section 2.4's full
+    target vocabulary) but does not change this function to also carry a
+    central action-to-scope mapping -- that remains each call site's job,
+    same as before. The one exception is the
     `project.create` bootstrap case below (`workspace_id=None`), which this
     function *does* check directly, since no workspace/route exists yet to
     delegate that check to.
@@ -257,6 +358,31 @@ def require_project_access(
             detail=f"project role {decision.role!r} cannot perform {action}",
         )
     return project, decision
+
+
+def require_project_access_if_scoped(
+    session: Session,
+    identity: CaliberIdentity,
+    project_id: str | None,
+    action: str,
+) -> None:
+    """Enforce a project-role check only when `project_id` is actually set.
+
+    `P1-D`: several resource families this action registry now covers --
+    workflows/workflow runs (`resource.execute`), review queues
+    (`feedback.submit`) -- are *optionally* project-scoped: `project_id` is
+    nullable on the row, and a `None` value is a genuine personal/global
+    resource with no workspace to check a role against, not a data gap.
+    Calling `require_project_access` unconditionally would 404 every one of
+    those (no project to look up). This is the shared "only gate when
+    there's a workspace to gate against" check those call sites need --
+    a no-op, not a bypass, for the unscoped case; the caller's own
+    `require_scopes`/`require_all_scopes` global-scope check still applies
+    either way.
+    """
+    if project_id is None:
+        return
+    require_project_access(session, identity, project_id, action)
 
 
 def is_eligible_for_owner_role(config: Any, user_id: str) -> bool:

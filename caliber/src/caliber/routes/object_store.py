@@ -719,7 +719,9 @@ async def import_object_to_project(  # noqa: PLR0915 - guarded copy transaction
 
     factory = get_session_factory(request)
     with factory() as session:
-        project, _decision = require_project_access(session, identity, project_id, "resource.write")
+        project, _decision = require_project_access(
+            session, identity, project_id, "resource.write.runtime"
+        )
         if project.status != "active":
             raise HTTPException(status_code=409, detail="archived projects cannot receive files")
 

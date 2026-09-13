@@ -62,6 +62,7 @@ from caliber.eval.scorecard import (
     run_scorecard,
 )
 from caliber.ids import new_eval_run_id
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -424,6 +425,9 @@ async def create_evaluation(request: Request) -> JSONResponse:
             raise HTTPException(
                 status_code=404, detail=f"eval dataset {payload.dataset_id!r} not found"
             )
+        # `P1-D`: `resource.execute` -- a no-op for a global/personal dataset
+        # (`project_id is None`), a real project-role check otherwise.
+        require_project_access_if_scoped(session, identity, dataset.project_id, "resource.execute")
         # The schema only checks ``dataset_version >= 1``. Without an existence
         # check a caller could pin version 99 of a 3-version dataset: the "as of
         # N" load silently returns the *current* set while the run record claims

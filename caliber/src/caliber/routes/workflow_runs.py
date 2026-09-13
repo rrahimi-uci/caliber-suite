@@ -30,6 +30,7 @@ from caliber.db.models import (
 )
 from caliber.ids import new_workflow_run_id
 from caliber.mcp_policy import deployment_blockers
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -598,6 +599,8 @@ def _clone_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
 
 
 async def create_workflow_run(request: Request) -> JSONResponse:
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
     actor = require_scopes(request, [SCOPE_OPERATOR])
     _ensure_queue_enabled(request)
     body = await parse_json_object(request)
@@ -605,6 +608,14 @@ async def create_workflow_run(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         workflow, version, alias = _workflow_and_version_for_run(session, payload, request=request)
+        # `P1-D`: `resource.execute` -- a no-op when the workflow is unscoped
+        # (`project_id is None`, a genuine personal/global workflow), a real
+        # project-role check otherwise. `_visible_workflow_for_run` above
+        # already applies the *visibility* filter; this is the separate
+        # project-membership-role axis section 2.4 names.
+        require_project_access_if_scoped(
+            session, resolve_identity(request), workflow.project_id, "resource.execute"
+        )
         submitted_manifest = payload.manifest
         if submitted_manifest is not None and alias != "manual":
             raise HTTPException(
@@ -851,6 +862,8 @@ async def trigger_workflow_event(request: Request) -> JSONResponse:
     names an ``event_name``, a mismatching ``event_name`` in the body is
     rejected.
     """
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
     workflow_id = request.path_params["workflow_id"]
     actor = require_scopes(request, [SCOPE_OPERATOR])
     _ensure_queue_enabled(request)
@@ -864,6 +877,9 @@ async def trigger_workflow_event(request: Request) -> JSONResponse:
             request=request,
             workflow_id=workflow_id,
             requested_alias=payload.alias,
+        )
+        require_project_access_if_scoped(
+            session, resolve_identity(request), workflow.project_id, "resource.execute"
         )
         if workflow.status in {"paused", "archived"}:
             raise HTTPException(
@@ -1090,7 +1106,9 @@ async def list_workflow_run_checkpoints(request: Request) -> JSONResponse:
     return envelope_response(data)
 
 
-async def cancel_workflow_run(request: Request) -> JSONResponse:
+async def cancel_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0915
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
     actor = require_scopes(request, [SCOPE_OPERATOR])
     _ensure_queue_enabled(request)
     run_id = request.path_params["run_id"]
@@ -1101,6 +1119,9 @@ async def cancel_workflow_run(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         run = _get_run_or_404(session, run_id, request=request)
+        require_project_access_if_scoped(
+            session, resolve_identity(request), run.project_id, "resource.execute"
+        )
         terminal_non_cancelled = {RUN_STATUS_COMPLETED, RUN_STATUS_FAILED, RUN_STATUS_EXPIRED}
         if run.status in terminal_non_cancelled:
             raise HTTPException(
@@ -1194,6 +1215,8 @@ async def cancel_workflow_run(request: Request) -> JSONResponse:
 
 
 async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0915
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
     actor = require_scopes(request, [SCOPE_OPERATOR])
     _ensure_queue_enabled(request)
     run_id = request.path_params["run_id"]
@@ -1204,6 +1227,9 @@ async def retry_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0915
     factory = get_session_factory(request)
     with factory() as session:
         run = _get_run_or_404(session, run_id, request=request)
+        require_project_access_if_scoped(
+            session, resolve_identity(request), run.project_id, "resource.execute"
+        )
         if run.status not in {RUN_STATUS_FAILED, RUN_STATUS_CANCELLED, RUN_STATUS_EXPIRED}:
             raise HTTPException(
                 status_code=409,
@@ -1990,6 +2016,8 @@ def _match_waiting_event_run_for_external_resume(
 
 
 async def resume_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0912, PLR0915
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
     actor = require_scopes(request, [SCOPE_OPERATOR])
     _ensure_queue_enabled(request)
     _ensure_checkpointing_enabled(request)
@@ -1999,6 +2027,9 @@ async def resume_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR091
     factory = get_session_factory(request)
     with factory() as session:
         run = _get_run_or_404(session, run_id, request=request)
+        require_project_access_if_scoped(
+            session, resolve_identity(request), run.project_id, "resource.execute"
+        )
         if run.status not in {RUN_STATUS_WAITING_APPROVAL, RUN_STATUS_WAITING_EVENT}:
             raise HTTPException(
                 status_code=409,
@@ -2298,6 +2329,7 @@ async def resume_workflow_run_by_event(  # noqa: PLR0912, PLR0915
                 ),
             )
         run, checkpoint, match_mode = matches[0]
+        require_project_access_if_scoped(session, identity, run.project_id, "resource.execute")
         _store_resume_event_inputs(
             checkpoint,
             event_name=payload.event_name,
