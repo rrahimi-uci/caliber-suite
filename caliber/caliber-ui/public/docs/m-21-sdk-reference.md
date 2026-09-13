@@ -186,6 +186,7 @@ Every documented class and module-level function, with the module that defines i
 | --- | --- |
 | [`Page`](#page) | [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon) |
 | [`PersonalAccessToken`](#personalaccesstoken) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`PlatformAdminInventory`](#platformadmininventory) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`PlaygroundRunsAPI`](#playgroundrunsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`Project`](#project) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`ProjectFile`](#projectfile) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
@@ -274,6 +275,7 @@ Every documented class and module-level function, with the module that defines i
 | [`WorkflowServicesAPI`](#workflowservicesapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`WorkflowVersion`](#workflowversion) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`WorkflowVersionsAPI`](#workflowversionsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
+| [`WorkspaceEnvironment`](#workspaceenvironment) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 
 ## Package index
 
@@ -1682,7 +1684,7 @@ ask", not a capability.
 
 This callable takes no public parameters.
 
-**Returns:** `PlatformAdminInventory`
+**Returns:** [`PlatformAdminInventory`](#platformadmininventory)
 
 **Raises:**
 
@@ -2158,7 +2160,7 @@ The project's four fixed environments, in promotion order.
 | --- | --- | --- | --- |
 | `project_id` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `list[WorkspaceEnvironment]`
+**Returns:** [`list[WorkspaceEnvironment]`](#workspaceenvironment)
 
 **Raises:**
 
@@ -2174,7 +2176,7 @@ Operate on the projects surface with the supplied arguments and return the serve
 | `project_id` | positional-or-keyword | `str` | `—` |
 | `name` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `WorkspaceEnvironment`
+**Returns:** [`WorkspaceEnvironment`](#workspaceenvironment)
 
 **Raises:**
 
@@ -2190,7 +2192,7 @@ Explicit lifecycle transition to ``"active"``; Admin-only.
 | `project_id` | positional-or-keyword | `str` | `—` |
 | `name` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `WorkspaceEnvironment`
+**Returns:** [`WorkspaceEnvironment`](#workspaceenvironment)
 
 **Raises:**
 
@@ -2206,7 +2208,7 @@ Explicit lifecycle transition to ``"disabled"``; Admin-only.
 | `project_id` | positional-or-keyword | `str` | `—` |
 | `name` | positional-or-keyword | `str` | `—` |
 
-**Returns:** `WorkspaceEnvironment`
+**Returns:** [`WorkspaceEnvironment`](#workspaceenvironment)
 
 **Raises:**
 
@@ -9358,7 +9360,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`Account`, `Capabilities`, `Extensibility`, `Identity`, `IssuedToken`, `LlmSetupStatus`, `OptimizerPlugin`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `RegisteredOptimizer`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `WorkflowRunCapabilities`
+`Account`, `Capabilities`, `Extensibility`, `Identity`, `IssuedToken`, `LlmSetupStatus`, `OptimizerPlugin`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `RegisteredOptimizer`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `WorkflowRunCapabilities`, `WorkspaceEnvironment`
 
 #### Classes
 
@@ -9463,11 +9465,35 @@ rotate calls return — mirroring the server, where a listed token has no
 
 A freshly issued token. ``token`` is returned exactly once, ever.
 
+``token`` is keyword-only (``field(kw_only=True)``), not merely last by
+position: it is appended after every inherited `PersonalAccessToken`
+field, so a future field added to that base class would otherwise
+shift `token`'s positional slot without any signal at the call site --
+the same defect class this file's own `Project`/`PersonalAccessToken`
+field-order fixes (#297, and this PR) exist to prevent, closed here
+permanently rather than re-litigated on every future base-class field.
+
 **Dataclass fields**
 
 | Field | Type | Default |
 | --- | --- | --- |
-| `token` | `str` | `''` |
+| `token` | `str` | `field(default='', kw_only=True)` |
+
+##### `PlatformAdminInventory`
+
+`class PlatformAdminInventory()`
+
+Who currently holds each config-driven global scope. Metadata only --
+granting nothing beyond knowing who to ask or recover through.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `admin_users` | `list[str]` | `field(default_factory=list)` |
+| `approver_users` | `list[str]` | `field(default_factory=list)` |
+| `operator_users` | `list[str]` | `field(default_factory=list)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `WorkflowRunCapabilities`
 
@@ -9735,6 +9761,32 @@ means "not reported here", which is why it is not defaulted to 0.
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 | `archived_at` | `str | None` | `None` |
 | `archived_by` | `str | None` | `None` |
+
+##### `WorkspaceEnvironment`
+
+`class WorkspaceEnvironment()`
+
+One of a project's four fixed environments (`dev`/`qa`/`staging`/
+`prod`). ``access_role``/``permissions`` mirror the caller's
+project-wide role exactly -- an environment carries no separate
+per-environment role in this MVP.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `environment_id` | `str` | `''` |
+| `project_id` | `str` | `''` |
+| `name` | `str` | `''` |
+| `environment_class` | `str` | `''` |
+| `promotion_order` | `int` | `0` |
+| `status` | `str` | `''` |
+| `created_by` | `str` | `''` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `access_role` | `str | None` | `None` |
+| `permissions` | `list[str]` | `field(default_factory=list)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `ProjectMember`
 

@@ -68,7 +68,7 @@ def _config(**overrides: str) -> CaliberConfig:
     return CaliberConfig(**base)
 
 
-def testparse_user_list_handles_whitespace_and_empties() -> None:
+def test_parse_user_list_handles_whitespace_and_empties() -> None:
     assert parse_user_list("") == frozenset()
     assert parse_user_list("  ") == frozenset()
     assert parse_user_list("@a, @b ,, @c") == frozenset({"@a", "@b", "@c"})

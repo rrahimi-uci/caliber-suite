@@ -142,7 +142,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Playground Runs (`playground-runs`) | `beta` | `3` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Secrets (`secrets`) | `beta` | `4` | Typed SDK | `client.secrets` | Secret inventory and mutation surfaces. |
 | Workflow Benchmark Reports (`workflow-benchmark-reports`) | `beta` | `4` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Admin (`admin`) | `internal` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Admin (`admin`) | `internal` | `1` | Typed SDK | `client.admin` | Metadata-only platform Admin inventory -- who holds each config-driven global scope. |
 | Assistant (`assistant`) | `internal` | `29` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Dashboard (`dashboard`) | `internal` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Gate Verdicts (`gate-verdicts`) | `internal` | `2` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |

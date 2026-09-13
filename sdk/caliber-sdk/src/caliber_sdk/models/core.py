@@ -88,9 +88,18 @@ class PersonalAccessToken:
 
 @dataclass
 class IssuedToken(PersonalAccessToken):
-    """A freshly issued token. ``token`` is returned exactly once, ever."""
+    """A freshly issued token. ``token`` is returned exactly once, ever.
 
-    token: str = ""
+    ``token`` is keyword-only (``field(kw_only=True)``), not merely last by
+    position: it is appended after every inherited `PersonalAccessToken`
+    field, so a future field added to that base class would otherwise
+    shift `token`'s positional slot without any signal at the call site --
+    the same defect class this file's own `Project`/`PersonalAccessToken`
+    field-order fixes (#297, and this PR) exist to prevent, closed here
+    permanently rather than re-litigated on every future base-class field.
+    """
+
+    token: str = field(default="", kw_only=True)
 
 
 @dataclass
@@ -382,6 +391,7 @@ __all__ = [
     "LlmSetupStatus",
     "OptimizerPlugin",
     "PersonalAccessToken",
+    "PlatformAdminInventory",
     "Project",
     "ProjectFile",
     "ProjectFolder",
@@ -391,4 +401,5 @@ __all__ = [
     "RuntimeSettingsSummary",
     "SessionInfo",
     "WorkflowRunCapabilities",
+    "WorkspaceEnvironment",
 ]

@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import dataclasses
 
+import pytest
+
 from caliber_sdk import ErrorBody, Page, Stability
 from caliber_sdk.models import core as core_models
 
@@ -103,3 +105,29 @@ def test_model_dataclass_field_order_is_pinned() -> None:
             f"-- inserting it anywhere but the end would rebind an existing caller's "
             f"positional argument (see this test's own docstring/#297)."
         )
+
+
+def test_issued_token_token_field_is_keyword_only() -> None:
+    """``IssuedToken.token`` is appended after every inherited
+    `PersonalAccessToken` field, so a future base-class field would
+    otherwise silently shift its positional slot -- the exact defect class
+    `_EXPECTED_FIELD_ORDER` above guards `PersonalAccessToken`/`Project`
+    against, closed permanently for `IssuedToken` by making `token`
+    keyword-only instead of re-pinning it on every future base-class
+    change."""
+    fields_by_name = {f.name: f for f in dataclasses.fields(core_models.IssuedToken)}
+    assert fields_by_name["token"].kw_only is True
+
+    # A caller supplying every `PersonalAccessToken` field positionally,
+    # plus a trailing positional value, must be refused rather than
+    # silently binding that value to `token`.
+    positional_count = len(dataclasses.fields(core_models.PersonalAccessToken))
+    with pytest.raises(TypeError):
+        core_models.IssuedToken(
+            *(["x"] * positional_count),  # type: ignore[arg-type]
+            "should-not-bind-positionally",  # type: ignore[call-arg]
+        )
+
+    # The documented, supported way still works.
+    issued = core_models.IssuedToken(token_id="PAT-1", token="secret")
+    assert issued.token == "secret"

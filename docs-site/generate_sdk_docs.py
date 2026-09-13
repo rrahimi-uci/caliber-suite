@@ -119,6 +119,7 @@ LINKABLE_TYPES: tuple[str, ...] = (
     "OptimizerPlugin",
     "Page",
     "PersonalAccessToken",
+    "PlatformAdminInventory",
     "Project",
     "ProjectFile",
     "ProjectFolder",
@@ -145,6 +146,7 @@ LINKABLE_TYPES: tuple[str, ...] = (
     "WorkflowRunFailed",
     "WorkflowService",
     "WorkflowVersion",
+    "WorkspaceEnvironment",
 )
 
 #: Name -> in-page anchor, built once.

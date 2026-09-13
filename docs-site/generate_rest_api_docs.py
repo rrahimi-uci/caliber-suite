@@ -178,6 +178,11 @@ SDK_SURFACE_MAP = {
         "entry": "`client.audit`",
         "notes": "Audit-log listing and export.",
     },
+    "admin": {
+        "entry": "`client.admin`",
+        "notes": "Metadata-only platform Admin inventory -- who holds each "
+        "config-driven global scope.",
+    },
     "events": {
         "entry": "`client.events`",
         "notes": "Server-sent events stream access.",

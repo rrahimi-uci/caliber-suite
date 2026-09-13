@@ -1140,19 +1140,34 @@ def _transition_environment_status(
     `P1-F`, section 12.2: an explicit, audited lifecycle transition -- "no
     create/delete route in MVP" (section 2.5), and identity fields
     (``name``/``environment_class``/``promotion_order``) are never
-    writable here, only ``status``. Idempotent-call conflicts get a plain
-    `409` rather than section 2.5's target `If-Match`/ETag semantics: that
-    needs the `lock_version` column section 9.2 also describes,
-    deliberately not modelled yet (see
-    `db/models.py::CaliberWorkspaceEnvironment`'s own docstring) -- nothing
-    else in this table needs optimistic concurrency today either.
+    writable here, only ``status``. No `If-Match`/ETag concurrency control
+    yet (section 2.5's eventual target): that needs the `lock_version`
+    column section 9.2 also describes, deliberately not modelled (see
+    `db/models.py::CaliberWorkspaceEnvironment`'s own docstring). The write
+    itself is still made race-safe the same way
+    `transfer_project_ownership` already is -- a conditional `UPDATE`
+    guarded on the *current* status, not a read-then-write -- so two
+    concurrent calls cannot both observe "disabled", both flip to
+    "active", and both write a redundant audit record for a transition
+    that only actually happened once.
     """
     row = _environment_for_project_or_404(session, project_id, name)
-    if row.status == target_status:
+    result = session.execute(
+        sa_update(CaliberWorkspaceEnvironment)
+        .where(
+            CaliberWorkspaceEnvironment.environment_id == row.environment_id,
+            CaliberWorkspaceEnvironment.status != target_status,
+        )
+        .values(status=target_status)
+    )
+    if int(getattr(result, "rowcount", 0) or 0) != 1:
         raise HTTPException(
             status_code=409,
             detail=f"environment {name!r} is already {target_status!r}",
         )
+    # Keep the already-loaded ORM object in sync with the conditional
+    # update just applied above (a plain Core `update()` bypasses the
+    # ORM's own change tracking) -- `_environment_to_schema` below reads it.
     row.status = target_status
     audit_record(
         session,
