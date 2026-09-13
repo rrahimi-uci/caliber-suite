@@ -1,0 +1,9 @@
+{"t":"2026-09-13T18:01:46.896Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-13T18:01:46.911Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-13T18:01:46.912Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-13T18:01:46.914Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-13T18:01:46.939Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T18:01:46.946Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-5c3ff203 \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-13T18:01:47.024Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-5c3ff203/files \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T18:01:47.029Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-5c3ff203/files \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-13T18:01:47.038Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-5c3ff203/files/FILE-3f10e9e1/content \"HTTP/1.1 200 OK\""}
