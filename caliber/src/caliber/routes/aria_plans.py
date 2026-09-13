@@ -64,12 +64,17 @@ def _config(request: Request) -> object | None:
 
 
 async def list_plans(request: Request) -> JSONResponse:
-    actor = require_user(request)
+    require_user(request)
+    identity = resolve_identity(request)
     factory = get_session_factory(request)
     session_id = request.query_params.get("session_id") or None
     limit, offset = list_limit(request)
     plans = _service.list_plans(
-        session_factory=factory, owner=actor, session_id=session_id, limit=limit, offset=offset
+        session_factory=factory,
+        identity=identity,
+        session_id=session_id,
+        limit=limit,
+        offset=offset,
     )
     return envelope_response(plans)
 

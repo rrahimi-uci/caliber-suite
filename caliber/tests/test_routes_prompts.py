@@ -2350,3 +2350,96 @@ def test_list_prompts_includes_status_and_model(
     assert badge["model"] == "gpt-4o-mini"
     # The hidden target is NOT emitted as its own separate backlog row.
     assert sum(1 for p in prompts if p["agent_id"] == "badge-prompt") == 1
+
+
+# ---------------------------------------------------------------------------
+# Isolation closure (`P2`, item 1): a project-hidden agent config's id must
+# not unlock any of the routes below for a caller who cannot see it -- read,
+# child-row read, or mutation. All were previously bare
+# `session.get(CaliberAgentConfig, ...)` calls with no visibility check.
+# ---------------------------------------------------------------------------
+
+_STRANGER = {"X-CALIBER-User": "@stranger"}
+
+
+def _grant_stranger_operator_scope(client: TestClient) -> None:
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"operator_users": "@stranger"}
+    )
+
+
+def test_get_prompt_test_run_hides_the_run_of_a_project_scoped_agent(
+    client: TestClient, db_session: Session
+) -> None:
+    _insert_agent(
+        db_session,
+        agent_id="hidden-agent",
+        experiment_id="exp-hidden",
+        visibility="project",
+        project_id="P-hidden",
+    )
+    run = CaliberPromptTestRun(test_run_id="PTR-hidden001", agent_id="hidden-agent")
+    db_session.add(run)
+    db_session.commit()
+
+    resp = client.get(f"{PREFIX}/test-runs/{run.test_run_id}", headers=_STRANGER)
+    assert resp.status_code == 404
+
+
+def test_get_prompt_workspace_ignores_a_hidden_target(
+    client: TestClient, db_session: Session
+) -> None:
+    """A hidden target reads as "no target" (Draft, no model/bound_to
+    leaked) rather than 404ing the whole response -- the prompt name
+    itself has no project concept yet (item 4's own gap), so the other
+    facts this endpoint returns are unscoped regardless."""
+    _insert_agent(
+        db_session,
+        agent_id="hidden-ws-prompt",
+        experiment_id="exp-hidden-ws",
+        visibility="project",
+        project_id="P-hidden",
+        optimizer_config={"model": "secret-model", "bound_to": {"kind": "standalone"}},
+    )
+
+    resp = client.get(f"{PREFIX}/hidden-ws-prompt/workspace", headers=_STRANGER)
+    assert resp.status_code == 200
+    data = resp.json()["data"]
+    assert data["model"] is None
+    assert data["bound_to"] is None
+
+
+def test_test_render_prompt_refuses_a_non_member_even_with_operator_scope(
+    client: TestClient, db_session: Session
+) -> None:
+    _insert_agent(
+        db_session,
+        agent_id="hidden-render-agent",
+        experiment_id="exp-hidden-render",
+        visibility="project",
+        project_id="P-hidden",
+    )
+    _grant_stranger_operator_scope(client)
+    resp = client.post(
+        f"{PREFIX}/hidden-render-agent/test-render", json={"variables": {}}, headers=_STRANGER
+    )
+    assert resp.status_code == 404
+
+
+def test_bind_prompt_agent_kind_refuses_a_hidden_agent(
+    client: TestClient, db_session: Session
+) -> None:
+    _insert_agent(
+        db_session,
+        agent_id="hidden-bind-target",
+        experiment_id="exp-hidden-bind",
+        visibility="project",
+        project_id="P-hidden",
+    )
+    _grant_stranger_operator_scope(client)
+    resp = client.post(
+        f"{PREFIX}/some-prompt/bind",
+        json={"kind": "agent", "agent_id": "hidden-bind-target"},
+        headers=_STRANGER,
+    )
+    assert resp.status_code == 404

@@ -42,6 +42,7 @@ from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
@@ -67,7 +68,7 @@ from caliber.db.models import (
     CaliberSkillVersion,
     CaliberVerificationItem,
 )
-from caliber.db.scoping import apply_visibility_filter
+from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.ids import (
     new_item_id,
     new_job_id,
@@ -179,6 +180,47 @@ _XML_TAG_RE = re.compile(r"<[a-zA-Z/]")
 _SKILL_VAR_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
 
 
+def _visible_skill_or_404(session: Session, request: Request, skill_id: str) -> CaliberSkill:
+    """Resolve one skill through the same visibility policy as ``list_skills``.
+
+    `P2` (isolation closure, item 1): ``list_skills`` already scopes via
+    ``apply_visibility_filter``, but every route below it that takes a
+    ``skill_id`` path/body parameter used a bare ``session.get`` instead --
+    knowing a skill id unlocked read, render/selection tests, workspace
+    facts, package export, baseline/bind, calibrate, and rollback even when
+    the caller could not list the parent. A shared parent lookup keeps
+    every verb on one authorization rule and returns 404 so a forbidden id
+    is indistinguishable from a missing one, matching
+    ``routes/tools.py::_visible_tool_or_404``.
+    """
+    row: CaliberSkill | None = get_visible(
+        session, CaliberSkill, CaliberSkill.skill_id, skill_id, resolve_identity(request)
+    )
+    if row is None:
+        raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+    return row
+
+
+def _visible_skill_test_run_or_404(
+    session: Session, request: Request, test_run_id: str
+) -> CaliberSkillTestRun:
+    """Resolve a durable skill-test run through its visible parent skill.
+
+    The run table has no visibility columns of its own. A bare child
+    lookup is still useful to find its parent, but the row is not
+    returnable until that parent passes the registry visibility policy --
+    matching ``routes/tools.py::_visible_tool_test_run_or_404``.
+    """
+    run = session.get(CaliberSkillTestRun, test_run_id)
+    if run is None:
+        raise HTTPException(status_code=404, detail=f"test run {test_run_id!r} not found")
+    try:
+        _visible_skill_or_404(session, request, run.skill_id)
+    except HTTPException as exc:
+        raise HTTPException(status_code=404, detail=f"test run {test_run_id!r} not found") from exc
+    return run
+
+
 async def list_skills(request: Request) -> JSONResponse:
     """Return every skill, optionally filtered by status and tag.
 
@@ -240,9 +282,7 @@ async def get_skill(request: Request) -> JSONResponse:
     skill_id = request.path_params["skill_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        row = session.get(CaliberSkill, skill_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+        row = _visible_skill_or_404(session, request, skill_id)
     return envelope_response(SkillSchema.model_validate(row))
 
 
@@ -261,9 +301,7 @@ async def test_render_skill(request: Request) -> JSONResponse:
     variables = {str(k): "" if v is None else str(v) for k, v in variables_raw.items()}
     factory = get_session_factory(request)
     with factory() as session:
-        row = session.get(CaliberSkill, skill_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+        row = _visible_skill_or_404(session, request, skill_id)
 
     content = row.content or ""
     detected: list[str] = []
@@ -313,9 +351,7 @@ async def test_skill_selection(request: Request) -> JSONResponse:
     session_goal = body.get("session_goal") or ""
     factory = get_session_factory(request)
     with factory() as session:
-        row = session.get(CaliberSkill, skill_id)
-    if row is None:
-        raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+        row = _visible_skill_or_404(session, request, skill_id)
 
     score, reason = score_skill_for_query(
         row,
@@ -613,8 +649,7 @@ async def list_skill_versions(request: Request) -> JSONResponse:
     skill_id = request.path_params["skill_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        if session.get(CaliberSkill, skill_id) is None:
-            raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+        _visible_skill_or_404(session, request, skill_id)
         rows = (
             session.execute(
                 select(CaliberSkillVersion)
@@ -652,9 +687,7 @@ async def get_skill_package(request: Request) -> JSONResponse:
     skill_id = request.path_params["skill_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        skill = session.get(CaliberSkill, skill_id)
-        if skill is None:
-            raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+        skill = _visible_skill_or_404(session, request, skill_id)
         package = build_skill_package(skill)
     return envelope_response(package)
 
@@ -665,9 +698,7 @@ async def get_skill_package_zip(request: Request) -> Response:
     skill_id = request.path_params["skill_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        skill = session.get(CaliberSkill, skill_id)
-        if skill is None:
-            raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+        skill = _visible_skill_or_404(session, request, skill_id)
         archive = build_skill_package_zip(skill)
         filename = f"{skill.name}.zip"
     return Response(
@@ -936,9 +967,7 @@ async def create_skill_test_run(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        skill = session.get(CaliberSkill, payload.skill_id)
-        if skill is None:
-            raise HTTPException(status_code=404, detail=f"skill {payload.skill_id!r} not found")
+        _visible_skill_or_404(session, request, payload.skill_id)
 
         run = CaliberSkillTestRun(
             test_run_id=new_skill_test_run_id(),
@@ -1028,9 +1057,7 @@ async def get_skill_test_run(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        run = session.get(CaliberSkillTestRun, test_run_id)
-        if run is None:
-            raise HTTPException(status_code=404, detail=f"test run {test_run_id!r} not found")
+        run = _visible_skill_test_run_or_404(session, request, test_run_id)
         detail = SkillTestRunDetail.model_validate(run)
 
     return JSONResponse({"data": detail.model_dump(mode="json")})
@@ -1056,9 +1083,7 @@ async def get_skill_workspace(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        skill = session.get(CaliberSkill, skill_id)
-        if skill is None:
-            raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+        skill = _visible_skill_or_404(session, request, skill_id)
 
         target_agent_id = skill_target_agent_id(skill.name)
         target = session.get(CaliberAgentConfig, target_agent_id)
@@ -1156,9 +1181,7 @@ async def set_skill_baseline(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        skill = session.get(CaliberSkill, skill_id)
-        if skill is None:
-            raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+        skill = _visible_skill_or_404(session, request, skill_id)
 
         run = session.get(CaliberSkillTestRun, payload.test_run_id)
         if run is None:
@@ -1232,9 +1255,7 @@ async def bind_skill(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        skill = session.get(CaliberSkill, skill_id)
-        if skill is None:
-            raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+        skill = _visible_skill_or_404(session, request, skill_id)
 
         target = ensure_skill_target(
             session,
@@ -1293,9 +1314,7 @@ async def calibrate_skill(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        skill = session.get(CaliberSkill, skill_id)
-        if skill is None:
-            raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+        skill = _visible_skill_or_404(session, request, skill_id)
 
         # Auto-provision the hidden runtime identity for the skill so the
         # verification-item + refinement-job FKs (both reference

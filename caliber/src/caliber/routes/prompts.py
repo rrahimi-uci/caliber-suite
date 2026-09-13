@@ -50,7 +50,7 @@ from caliber.db.models import (
     CaliberWorkflow,
     CaliberWorkflowVersion,
 )
-from caliber.db.scoping import apply_visibility_filter
+from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.eval.gate import DEFAULT_MAX_REGRESSION_DELTA, DEFAULT_MIN_AGGREGATE_SCORE
 from caliber.extensibility import optimizer_registry
 from caliber.gate_verdicts import GATE_STATES, record_gate_verdict
@@ -1960,7 +1960,13 @@ async def test_render_prompt(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        agent = session.get(CaliberAgentConfig, agent_id)
+        agent = get_visible(
+            session,
+            CaliberAgentConfig,
+            CaliberAgentConfig.agent_id,
+            agent_id,
+            resolve_identity(request),
+        )
         if agent is None:
             raise HTTPException(status_code=404, detail=f"agent {agent_id!r} not found")
         agent_name = agent.name
@@ -2248,7 +2254,16 @@ async def list_prompt_test_runs(request: Request) -> JSONResponse:
 
 
 async def get_prompt_test_run(request: Request) -> JSONResponse:
-    """``GET /caliber/prompts/test-runs/{test_run_id}`` — full run incl. results."""
+    """``GET /caliber/prompts/test-runs/{test_run_id}`` — full run incl. results.
+
+    `P2` (isolation closure, item 1): the run table has no visibility
+    columns of its own -- its access rules live on the parent
+    ``CaliberAgentConfig`` (``agent_id``), the same "child of a visible
+    parent" pattern ``routes/skills.py::_visible_skill_test_run_or_404``
+    already applies. A missing run and a run whose parent is hidden both
+    404 identically, so a forbidden id is indistinguishable from a
+    missing one.
+    """
     require_user(request)
     test_run_id = request.path_params["test_run_id"]
 
@@ -2256,6 +2271,15 @@ async def get_prompt_test_run(request: Request) -> JSONResponse:
     with factory() as session:
         run = session.get(CaliberPromptTestRun, test_run_id)
         if run is None:
+            raise HTTPException(status_code=404, detail=f"test run {test_run_id!r} not found")
+        parent = get_visible(
+            session,
+            CaliberAgentConfig,
+            CaliberAgentConfig.agent_id,
+            run.agent_id,
+            resolve_identity(request),
+        )
+        if parent is None:
             raise HTTPException(status_code=404, detail=f"test run {test_run_id!r} not found")
         detail = PromptTestRunDetail.model_validate(run)
 
@@ -2285,7 +2309,23 @@ async def get_prompt_workspace(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        target = session.get(CaliberAgentConfig, name)
+        # `P2` (isolation closure, item 1): the hidden runtime target this
+        # workspace summary reads `optimizer_config` off of *is*
+        # project-scoped, even though the prompt name itself (an MLflow
+        # registry entity) has no project concept at all yet -- item 4's
+        # still-open gap. A target the caller cannot see is treated the
+        # same as no target existing, not a 404: this endpoint's other
+        # facts (test-run/job history keyed by ``name``) have no
+        # visibility notion to check against either, so refusing the
+        # whole response over one hidden binding would be inconsistent
+        # with everything else it already returns unscoped.
+        target = get_visible(
+            session,
+            CaliberAgentConfig,
+            CaliberAgentConfig.agent_id,
+            name,
+            resolve_identity(request),
+        )
         cfg = target.optimizer_config if target is not None else None
         cfg = cfg if isinstance(cfg, dict) else {}
 
@@ -2400,7 +2440,9 @@ async def bind_prompt(request: Request) -> JSONResponse:
             target.optimizer_config = {**target.optimizer_config, "bound_to": bound_to}
 
         if payload.kind == "agent":
-            agent = session.get(CaliberAgentConfig, payload.agent_id)
+            agent = get_visible(
+                session, CaliberAgentConfig, CaliberAgentConfig.agent_id, payload.agent_id, identity
+            )
             if agent is None:
                 raise HTTPException(status_code=404, detail=f"agent {payload.agent_id!r} not found")
             # Point the real agent at this prompt: record the prompt link on the

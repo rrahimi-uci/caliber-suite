@@ -28,7 +28,7 @@ from caliber.assistant.capabilities import (
 from caliber.audit import record as audit_record
 from caliber.auth import CaliberIdentity
 from caliber.db.models import CaliberAriaPlan, CaliberAriaPlanStep
-from caliber.db.scoping import get_visible
+from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.ids import new_aria_plan_id, new_aria_plan_step_id
 from caliber.schemas import AriaPlanSchema, AriaPlanStepSchema
 
@@ -197,17 +197,33 @@ class PlanService:
         self,
         *,
         session_factory: Any,
-        owner: str | None = None,
+        identity: CaliberIdentity,
         session_id: str | None = None,
         limit: int | None = None,
         offset: int = 0,
     ) -> list[AriaPlanSchema]:
+        """List plans visible to ``identity``.
+
+        `P2` (isolation closure, item 6): previously filtered by
+        ``owner == actor`` only, regardless of ``visibility`` -- a
+        project-shared plan (``visibility="project"``) was invisible to a
+        teammate's list even though :meth:`get_plan` would serve it by id.
+        Uses the same 3-tier ``apply_visibility_filter`` :meth:`get_plan`
+        already applies, so list and detail agree on what "visible" means.
+        Most existing plans default to ``visibility="user"``, which this
+        filter still resolves to exactly "owned by ``identity``" -- so
+        this is additive for project/public plans, not a behavior change
+        for the common personal-plan case.
+        """
         from sqlalchemy import func, select  # noqa: PLC0415
 
         with session_factory() as session:
-            stmt = select(CaliberAriaPlan).order_by(CaliberAriaPlan.created_at.desc())
-            if owner is not None:
-                stmt = stmt.where(CaliberAriaPlan.owner == owner)
+            stmt = apply_visibility_filter(
+                select(CaliberAriaPlan).order_by(CaliberAriaPlan.created_at.desc()),
+                CaliberAriaPlan,
+                identity,
+                identity.active_project_id,
+            )
             if session_id is not None:
                 stmt = stmt.where(CaliberAriaPlan.session_id == session_id)
             if limit is not None:
