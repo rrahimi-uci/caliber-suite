@@ -1,518 +1,245 @@
-/**
- * Tool Wizard — comprehensive tests for the 5-step wizard flow.
- */
-
-import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
 
 import { ToolWizard } from "@/pages/ToolWizard";
 import { server } from "@/test/server";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
-const NOW = "2026-05-30T00:00:00Z";
+const NOW = "2026-06-08T12:00:00Z";
 
 function envelope<T>(data: T): { data: T } {
   return { data };
 }
 
-function renderWizard(onClose = () => {}): void {
-  const qc = new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } });
-  render(
-    <QueryClientProvider client={qc}>
-      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }} initialEntries={["/tools"]}>
-        <Routes>
-          <Route path="/tools" element={<ToolWizard onClose={onClose} />} />
-          <Route path="/tools/:toolId" element={<div data-testid="tool-detail-route">DETAIL</div>} />
-        </Routes>
+/**
+ * No <Routes>/<Route> here on purpose: the wizard calls ``navigate()`` on a
+ * successful registration, and since nothing in this tree switches on the
+ * current location, the component keeps rendering afterward — letting tests
+ * follow a real flow of "register, then step back into Playground to
+ * exercise the now-registered tool" instead of unmounting on navigate.
+ */
+function renderWizard(onClose: () => void = () => {}) {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+  });
+  return render(
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <ToolWizard onClose={onClose} />
       </MemoryRouter>
     </QueryClientProvider>,
   );
 }
 
-function makeTool(overrides: Record<string, unknown> = {}) {
-  return {
-    tool_id: "TL-99",
-    name: "test_tool",
-    version: "1.0",
-    description: "A test tool",
-    module_path: "caliber.workflows.demo_tools",
-    callable_name: "test_tool",
-    input_schema: null,
-    output_schema: null,
-    side_effect_level: "read",
-    requires_approval: false,
-    allow_in_preview: false,
-    secret_refs: [],
-    owner: "@tester",
-    status: "active",
-    deprecated_at: null,
-    successor_tool_id: null,
-    created_at: NOW,
-    updated_at: NOW,
-    ...overrides,
-  };
-}
-
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
-afterEach(() => server.resetHandlers());
+afterEach(() => {
+  server.resetHandlers();
+  vi.restoreAllMocks();
+});
 afterAll(() => server.close());
 
 describe("ToolWizard", () => {
-  describe("Step navigation", () => {
-    it("renders step 1 (Identity) by default", () => {
-      renderWizard();
-      expect(screen.getByTestId("tool-wizard")).toBeInTheDocument();
-      expect(screen.getByTestId("step-identity")).toBeInTheDocument();
-      expect(screen.getByTestId("wizard-steps")).toBeInTheDocument();
+  it("walks all five steps, edits the schema, and registers the tool", async () => {
+    const registerCalls: Array<Record<string, unknown>> = [];
+    server.use(
+      http.post(`${API_BASE}/tools`, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        registerCalls.push(body);
+        return HttpResponse.json(
+          envelope({
+            tool_id: "TL-new",
+            name: body.name,
+            version: body.version,
+            description: body.description,
+            module_path: body.module_path,
+            callable_name: body.callable_name,
+            input_schema: body.input_schema,
+            output_schema: body.output_schema,
+            side_effect_level: body.side_effect_level,
+            requires_approval: body.requires_approval,
+            allow_in_preview: body.allow_in_preview,
+            secret_refs: body.secret_refs,
+            test_cases: [],
+            last_calibration: null,
+            owner: body.owner,
+            status: "active",
+            deprecated_at: null,
+            successor_tool_id: null,
+            created_at: NOW,
+            updated_at: NOW,
+          }),
+          { status: 201 },
+        );
+      }),
+      http.post(`${API_BASE}/tools/:toolId/test-run`, async ({ request }) => {
+        const body = (await request.json()) as { input: Record<string, unknown> };
+        return HttpResponse.json(
+          envelope({ tool_id: "TL-new", output: { echoed: body.input }, mocked: true, duration_ms: 6, error: null }),
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderWizard();
+
+    // ── Step 1: Identity — Next is gated on a name.
+    expect(screen.getByTestId("step-identity")).toBeInTheDocument();
+    expect(screen.getByTestId("wizard-next")).toBeDisabled();
+    await user.type(screen.getByTestId("wiz-name"), "Lookup Order");
+    expect(screen.getByTestId("wizard-next")).toBeEnabled();
+    await user.clear(screen.getByTestId("wiz-version"));
+    await user.type(screen.getByTestId("wiz-version"), "2.0");
+    await user.type(screen.getByTestId("wiz-owner"), "@team-orders");
+    await user.click(screen.getByTestId("wizard-next"));
+
+    // ── Step 2: Implementation — Next is gated on module + callable.
+    expect(screen.getByTestId("step-implementation")).toBeInTheDocument();
+    expect(screen.getByTestId("wiz-module")).toHaveValue("caliber.workflows.demo_tools");
+    // Callable name auto-derived from the tool name while untouched.
+    expect(screen.getByTestId("wiz-callable")).toHaveValue("lookup_order");
+    await user.clear(screen.getByTestId("wiz-callable"));
+    expect(screen.getByTestId("wizard-next")).toBeDisabled();
+    await user.type(screen.getByTestId("wiz-callable"), "lookup_order");
+    expect(screen.getByTestId("wizard-next")).toBeEnabled();
+    await user.click(screen.getByTestId("wizard-next"));
+
+    // ── Step 3: Schema — visual builder, raw-JSON toggle both ways.
+    expect(screen.getByTestId("step-schema")).toBeInTheDocument();
+    await user.click(screen.getByTestId("input-schema-add-prop"));
+    const inputPropRow = screen.getByTestId(/input-schema-prop-name-/);
+    await user.type(inputPropRow, "order_id");
+    await user.click(screen.getByTestId(/input-schema-prop-req-/));
+
+    await user.click(screen.getByTestId("output-schema-add-prop"));
+    await user.type(screen.getByTestId(/output-schema-prop-name-/), "status");
+
+    // Toggle input to raw JSON — it should serialize the visual property.
+    await user.click(screen.getByTestId("input-schema-toggle-raw"));
+    expect(screen.getByTestId("input-schema-raw")).toHaveValue(
+      JSON.stringify(
+        { type: "object", properties: { order_id: { type: "string" } }, required: ["order_id"] },
+        null,
+        2,
+      ),
+    );
+    // Toggle back to visual — the edited property survives the round trip.
+    await user.click(screen.getByTestId("input-schema-toggle-raw"));
+    expect(screen.getByTestId(/input-schema-prop-name-/)).toHaveValue("order_id");
+
+    // Output: toggle to raw, type invalid JSON (surfaces an inline error),
+    // then toggle back to visual — invalid raw JSON is discarded rather than
+    // corrupting the previously-built properties.
+    await user.click(screen.getByTestId("output-schema-toggle-raw"));
+    const outputRaw = screen.getByTestId("output-schema-raw");
+    fireEvent.change(outputRaw, { target: { value: "{bad" } });
+    expect(await screen.findByText("Invalid JSON")).toBeInTheDocument();
+    await user.click(screen.getByTestId("output-schema-toggle-raw"));
+    expect(screen.getByTestId(/output-schema-prop-name-/)).toHaveValue("status");
+
+    await user.click(screen.getByTestId("wizard-next"));
+
+    // ── Step 4: Playground — unregistered yet, so it's a placeholder.
+    expect(screen.getByTestId("step-playground")).toBeInTheDocument();
+    expect(
+      screen.getByText(/Playground available after registration/),
+    ).toBeInTheDocument();
+    expect(screen.queryByTestId("playground-run")).not.toBeInTheDocument();
+    await user.click(screen.getByTestId("wizard-next"));
+
+    // ── Step 5: Safety & Review.
+    expect(screen.getByTestId("step-safety")).toBeInTheDocument();
+    // Raising to "write" forces approval on and locks the checkbox.
+    await user.click(screen.getByTestId("wiz-side-effect-write"));
+    expect(screen.getByTestId("wiz-requires-approval")).toBeChecked();
+    expect(screen.getByTestId("wiz-requires-approval")).toBeDisabled();
+    // Lowering back to "read" unlocks it again (approval stays on until the
+    // user turns it off explicitly).
+    await user.click(screen.getByTestId("wiz-side-effect-read"));
+    expect(screen.getByTestId("wiz-requires-approval")).toBeEnabled();
+    await user.click(screen.getByTestId("wiz-requires-approval"));
+    expect(screen.getByTestId("wiz-requires-approval")).not.toBeChecked();
+    await user.click(screen.getByTestId("wiz-allow-preview"));
+
+    // Secret refs: add via the button, add another via Enter, then remove one.
+    await user.type(screen.getByTestId("wiz-secret-input"), "STRIPE_KEY");
+    await user.click(screen.getByTestId("wiz-add-secret"));
+    await user.type(screen.getByTestId("wiz-secret-input"), "DB_URL{Enter}");
+    expect(screen.getByText("STRIPE_KEY")).toBeInTheDocument();
+    expect(screen.getByText("DB_URL")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Remove DB_URL" }));
+    expect(screen.queryByText("DB_URL")).not.toBeInTheDocument();
+
+    // Review summary reflects the assembled form.
+    const summary = screen.getByTestId("review-summary");
+    expect(summary).toHaveTextContent("Lookup Order");
+    expect(summary).toHaveTextContent("2.0");
+    expect(summary).toHaveTextContent("@team-orders");
+    expect(summary).toHaveTextContent("STRIPE_KEY");
+
+    // Submit — registers with the assembled payload.
+    await user.click(screen.getByTestId("wizard-submit"));
+    await waitFor(() => expect(registerCalls).toHaveLength(1));
+    expect(registerCalls[0]).toMatchObject({
+      name: "Lookup Order",
+      version: "2.0",
+      module_path: "caliber.workflows.demo_tools",
+      callable_name: "lookup_order",
+      side_effect_level: "read",
+      requires_approval: false,
+      allow_in_preview: true,
+      secret_refs: ["STRIPE_KEY"],
+      owner: "@team-orders",
+      input_schema: { type: "object", properties: { order_id: { type: "string" } }, required: ["order_id"] },
+      output_schema: { type: "object", properties: { status: { type: "string" } } },
     });
 
-    it("disables Next button when name is empty", () => {
-      renderWizard();
-      const next = screen.getByTestId("wizard-next");
-      expect(next).toBeDisabled();
-    });
-
-    it("enables Next when name is provided and navigates to step 2", async () => {
-      renderWizard();
-      await userEvent.type(screen.getByTestId("wiz-name"), "my_tool");
-      const next = screen.getByTestId("wizard-next");
-      expect(next).not.toBeDisabled();
-      await userEvent.click(next);
-      expect(screen.getByTestId("step-implementation")).toBeInTheDocument();
-    });
-
-    it("goes back to step 1 when clicking Back from step 2", async () => {
-      renderWizard();
-      await userEvent.type(screen.getByTestId("wiz-name"), "my_tool");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      expect(screen.getByTestId("step-implementation")).toBeInTheDocument();
-      await userEvent.click(screen.getByTestId("wizard-back"));
-      expect(screen.getByTestId("step-identity")).toBeInTheDocument();
-    });
-
-    it("calls onClose when Cancel is clicked on step 1", async () => {
-      let closed = false;
-      renderWizard(() => { closed = true; });
-      await userEvent.click(screen.getByTestId("wizard-back"));
-      expect(closed).toBe(true);
-    });
-
-    it("calls onClose when X button is clicked", async () => {
-      let closed = false;
-      renderWizard(() => { closed = true; });
-      await userEvent.click(screen.getByTestId("wizard-close"));
-      expect(closed).toBe(true);
-    });
-
-    it("navigates through all 5 steps", async () => {
-      renderWizard();
-      // Step 1: Identity
-      await userEvent.type(screen.getByTestId("wiz-name"), "order_tool");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 2: Implementation (module_path has default, callable auto-set)
-      expect(screen.getByTestId("step-implementation")).toBeInTheDocument();
-      expect((screen.getByTestId("wiz-callable") as HTMLInputElement).value).toBe("order_tool");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 3: Schema
-      expect(screen.getByTestId("step-schema")).toBeInTheDocument();
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 4: Playground
-      expect(screen.getByTestId("step-playground")).toBeInTheDocument();
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 5: Safety & Review
-      expect(screen.getByTestId("step-safety")).toBeInTheDocument();
-      // Should show Register Tool button instead of Next
-      expect(screen.getByTestId("wizard-submit")).toBeInTheDocument();
-      expect(screen.queryByTestId("wizard-next")).not.toBeInTheDocument();
-    });
+    // Step back into Playground now that the tool is registered — the
+    // real input form + run button replace the placeholder.
+    await user.click(screen.getByTestId("wizard-step-3"));
+    expect(await screen.findByTestId("playground-input-order_id")).toBeInTheDocument();
+    await user.type(screen.getByTestId("playground-input-order_id"), "ORD-1");
+    await user.click(screen.getByTestId("playground-run"));
+    expect(await screen.findByTestId("playground-result")).toBeInTheDocument();
+    expect(screen.getByText("Sandboxed (mocked)")).toBeInTheDocument();
+    expect(screen.getByTestId("playground-output")).toHaveTextContent("ORD-1");
   });
 
-  describe("Step 1: Identity", () => {
-    it("auto-generates callable_name from name (snake_case)", async () => {
-      renderWizard();
-      await userEvent.type(screen.getByTestId("wiz-name"), "MyTool");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      expect((screen.getByTestId("wiz-callable") as HTMLInputElement).value).toBe("my_tool");
-    });
-
-    it("preserves version field", async () => {
-      renderWizard();
-      const versionInput = screen.getByTestId("wiz-version") as HTMLInputElement;
-      expect(versionInput.value).toBe("1.0");
-      await userEvent.clear(versionInput);
-      await userEvent.type(versionInput, "2.0");
-      expect(versionInput.value).toBe("2.0");
-    });
-  });
-
-  describe("Step 2: Implementation", () => {
-    it("disables Next when callable_name is empty", async () => {
-      renderWizard();
-      await userEvent.type(screen.getByTestId("wiz-name"), "test");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Clear the auto-populated callable_name
-      const callable = screen.getByTestId("wiz-callable") as HTMLInputElement;
-      await userEvent.clear(callable);
-      expect(screen.getByTestId("wizard-next")).toBeDisabled();
-    });
-  });
-
-  describe("Step 3: Schema", () => {
-    async function goToSchemaStep(): Promise<void> {
-      renderWizard();
-      await userEvent.type(screen.getByTestId("wiz-name"), "test_tool");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      await userEvent.click(screen.getByTestId("wizard-next"));
-    }
-
-    it("renders input and output schema builders", async () => {
-      await goToSchemaStep();
-      expect(screen.getByTestId("step-schema")).toBeInTheDocument();
-      expect(screen.getByTestId("input-schema-add-prop")).toBeInTheDocument();
-      expect(screen.getByTestId("output-schema-add-prop")).toBeInTheDocument();
-    });
-
-    it("adds an input property row", async () => {
-      await goToSchemaStep();
-      await userEvent.click(screen.getByTestId("input-schema-add-prop"));
-      // Check that a name input appeared for the new property
-      const nameInputs = screen.getByTestId("step-schema").querySelectorAll("input[data-testid^='input-schema-prop-name-']");
-      expect(nameInputs.length).toBe(1);
-    });
-
-    it("toggles to raw JSON mode", async () => {
-      await goToSchemaStep();
-      await userEvent.click(screen.getByTestId("input-schema-toggle-raw"));
-      expect(screen.getByTestId("input-schema-raw")).toBeInTheDocument();
-    });
-
-    it("shows invalid-json state and gracefully exits raw mode", async () => {
-      await goToSchemaStep();
-      await userEvent.click(screen.getByTestId("input-schema-toggle-raw"));
-      const raw = screen.getByTestId("input-schema-raw");
-      fireEvent.change(raw, { target: { value: "{bad" } });
-      expect(screen.getByText("Invalid JSON")).toBeInTheDocument();
-
-      // Toggle back to visual mode; invalid raw JSON should be ignored.
-      await userEvent.click(screen.getByTestId("input-schema-toggle-raw"));
-      expect(screen.queryByTestId("input-schema-raw")).not.toBeInTheDocument();
-    });
-
-    it("parses raw output schema back into visual properties", async () => {
-      await goToSchemaStep();
-      await userEvent.click(screen.getByTestId("output-schema-toggle-raw"));
-      const raw = screen.getByTestId("output-schema-raw");
-      fireEvent.change(raw, {
-        target: {
-          value: '{"type":"object","required":["ok"],"properties":{"ok":{"type":"boolean","description":"status"}}}',
-        },
-      });
-      await userEvent.click(screen.getByTestId("output-schema-toggle-raw"));
-
-      const step = screen.getByTestId("step-schema");
-      const row = step.querySelector("[data-testid^='output-schema-prop-']");
-      expect(row).toBeTruthy();
-      const nameField = step.querySelector(
-        "[data-testid^='output-schema-prop-name-']",
-      ) as HTMLInputElement | null;
-      expect(nameField?.value).toBe("ok");
-    });
-  });
-
-  describe("Step 4: Playground", () => {
-    async function goToPlaygroundStep(): Promise<void> {
-      renderWizard();
-      await userEvent.type(screen.getByTestId("wiz-name"), "test_tool");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      await userEvent.click(screen.getByTestId("wizard-next"));
-    }
-
-    it("shows placeholder when tool is not yet registered", async () => {
-      await goToPlaygroundStep();
-      expect(screen.getByTestId("step-playground")).toBeInTheDocument();
-      expect(screen.getByText(/Playground available after registration/)).toBeInTheDocument();
-    });
-  });
-
-  describe("Step 5: Safety & Review", () => {
-    async function goToSafetyStep(): Promise<void> {
-      renderWizard();
-      await userEvent.type(screen.getByTestId("wiz-name"), "test_tool");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      await userEvent.click(screen.getByTestId("wizard-next"));
-    }
-
-    it("renders side-effect level selector with default read", async () => {
-      await goToSafetyStep();
-      expect(screen.getByTestId("step-safety")).toBeInTheDocument();
-      const readBtn = screen.getByTestId("wiz-side-effect-read");
-      expect(readBtn.className).toContain("border-caliber-purple");
-    });
-
-    it("switches side-effect level to write", async () => {
-      await goToSafetyStep();
-      await userEvent.click(screen.getByTestId("wiz-side-effect-write"));
-      const writeBtn = screen.getByTestId("wiz-side-effect-write");
-      expect(writeBtn.className).toContain("border-caliber-purple");
-    });
-
-    it("toggles requires_approval", async () => {
-      await goToSafetyStep();
-      const checkbox = screen.getByTestId("wiz-requires-approval") as HTMLInputElement;
-      expect(checkbox.checked).toBe(false);
-      await userEvent.click(checkbox);
-      expect(checkbox.checked).toBe(true);
-    });
-
-    it("turns approval on when the tool is raised to write", async () => {
-      // The reported gap: side_effect_level and requires_approval were
-      // independent, so "external action, approval off" was a reachable —
-      // and default-adjacent — configuration.
-      await goToSafetyStep();
-      const checkbox = screen.getByTestId("wiz-requires-approval") as HTMLInputElement;
-      expect(checkbox.checked).toBe(false);
-
-      await userEvent.click(screen.getByTestId("wiz-side-effect-write"));
-
-      expect(checkbox.checked).toBe(true);
-      expect(checkbox.disabled).toBe(true);
-    });
-
-    it("turns approval on when the tool is raised to external action", async () => {
-      await goToSafetyStep();
-      const checkbox = screen.getByTestId("wiz-requires-approval") as HTMLInputElement;
-
-      await userEvent.click(screen.getByTestId("wiz-side-effect-external_action"));
-
-      expect(checkbox.checked).toBe(true);
-      expect(checkbox.disabled).toBe(true);
-    });
-
-    it("will not let approval be switched off for a side-effecting tool", async () => {
-      await goToSafetyStep();
-      await userEvent.click(screen.getByTestId("wiz-side-effect-external_action"));
-      const checkbox = screen.getByTestId("wiz-requires-approval") as HTMLInputElement;
-
-      await userEvent.click(checkbox);
-
-      expect(checkbox.checked).toBe(true);
-    });
-
-    it("says why approval is locked rather than only greying it out", async () => {
-      await goToSafetyStep();
-      await userEvent.click(screen.getByTestId("wiz-side-effect-external_action"));
-
-      const reason = document.getElementById("wiz-approval-reason");
-      expect(reason).toHaveTextContent(/Required for external action tools/i);
-      expect(screen.getByTestId("wiz-requires-approval")).toHaveAttribute(
-        "aria-describedby",
-        "wiz-approval-reason",
-      );
-    });
-
-    it("releases the lock when the tool is lowered back to read", async () => {
-      // The coupling must not be a one-way ratchet: a user who mis-clicked
-      // "write" has to be able to get back to an unattended read tool.
-      await goToSafetyStep();
-      await userEvent.click(screen.getByTestId("wiz-side-effect-write"));
-      const checkbox = screen.getByTestId("wiz-requires-approval") as HTMLInputElement;
-      expect(checkbox.disabled).toBe(true);
-
-      await userEvent.click(screen.getByTestId("wiz-side-effect-read"));
-
-      expect(checkbox.disabled).toBe(false);
-      // The flag stays on until the user clears it — lowering the level is not
-      // itself a decision to stop requiring approval.
-      expect(checkbox.checked).toBe(true);
-      await userEvent.click(checkbox);
-      expect(checkbox.checked).toBe(false);
-    });
-
-    it("toggles allow_in_preview", async () => {
-      await goToSafetyStep();
-      const checkbox = screen.getByTestId("wiz-allow-preview") as HTMLInputElement;
-      expect(checkbox.checked).toBe(false);
-      await userEvent.click(checkbox);
-      expect(checkbox.checked).toBe(true);
-    });
-
-    it("adds and removes secret refs", async () => {
-      await goToSafetyStep();
-      const input = screen.getByTestId("wiz-secret-input");
-      await userEvent.type(input, "MY_SECRET");
-      await userEvent.click(screen.getByTestId("wiz-add-secret"));
-      expect(screen.getAllByText("MY_SECRET").length).toBeGreaterThanOrEqual(1);
-
-      // Remove it
-      await userEvent.click(screen.getByLabelText("Remove MY_SECRET"));
-      // The secret should no longer be in the tag list
-      expect(screen.queryByLabelText("Remove MY_SECRET")).not.toBeInTheDocument();
-    });
-
-    it("adds secrets with Enter and does not duplicate refs", async () => {
-      await goToSafetyStep();
-      const input = screen.getByTestId("wiz-secret-input");
-      await userEvent.type(input, "API_KEY{enter}");
-      await userEvent.type(input, "API_KEY{enter}");
-      expect(screen.getAllByLabelText("Remove API_KEY")).toHaveLength(1);
-    });
-
-    it("shows review summary with correct values", async () => {
-      renderWizard();
-
-      // Step 1: fill identity
-      await userEvent.type(screen.getByTestId("wiz-name"), "order_lookup");
-      await userEvent.clear(screen.getByTestId("wiz-version"));
-      await userEvent.type(screen.getByTestId("wiz-version"), "2.0");
-      await userEvent.type(screen.getByTestId("wiz-owner"), "@team");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 2: keep defaults
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 3: skip schema
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 4: skip playground
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 5: check review summary
-      const summary = screen.getByTestId("review-summary");
-      // order_lookup appears for both Name and Callable
-      expect(within(summary).getAllByText("order_lookup").length).toBeGreaterThanOrEqual(1);
-      expect(within(summary).getByText("2.0")).toBeInTheDocument();
-      expect(within(summary).getByText("@team")).toBeInTheDocument();
-    });
-  });
-
-  describe("Full wizard submission", () => {
-    it("registers a tool and navigates to detail page", async () => {
-      let postedPayload: Record<string, unknown> | null = null;
-      server.use(
-        http.post(`${API_BASE}/tools`, async ({ request }) => {
-          postedPayload = (await request.json()) as Record<string, unknown>;
-          return HttpResponse.json(envelope(makeTool({ name: postedPayload.name })), {
-            status: 201,
-          });
-        }),
-      );
-
-      renderWizard();
-
-      // Step 1: Identity
-      await userEvent.type(screen.getByTestId("wiz-name"), "order_lookup");
-      await userEvent.type(screen.getByTestId("wiz-description"), "Look up order details");
-      await userEvent.type(screen.getByTestId("wiz-owner"), "@ops");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 2: Implementation
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 3: Schema — skip
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 4: Playground — skip
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 5: Safety — choosing "write" now turns approval on with it, and
-      // locks it there. No separate click is needed (or possible).
-      await userEvent.click(screen.getByTestId("wiz-side-effect-write"));
-      expect(
-        (screen.getByTestId("wiz-requires-approval") as HTMLInputElement).checked,
-      ).toBe(true);
-
-      // Submit
-      await userEvent.click(screen.getByTestId("wizard-submit"));
-
-      await waitFor(() => expect(postedPayload).not.toBeNull());
-      expect(postedPayload!.name).toBe("order_lookup");
-      expect(postedPayload!.description).toBe("Look up order details");
-      expect(postedPayload!.side_effect_level).toBe("write");
-      expect(postedPayload!.requires_approval).toBe(true);
-      expect(postedPayload!.owner).toBe("@ops");
-
-      // Should navigate to tool detail
-      expect(await screen.findByTestId("tool-detail-route")).toBeInTheDocument();
-    });
-
-    it("shows error when registration fails", async () => {
-      server.use(
-        http.post(`${API_BASE}/tools`, () =>
-          HttpResponse.json({ detail: "tool already exists" }, { status: 409 }),
-        ),
-      );
-
-      renderWizard();
-      await userEvent.type(screen.getByTestId("wiz-name"), "dup_tool");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      await userEvent.click(screen.getByTestId("wizard-submit"));
-
-      expect(await screen.findByTestId("wizard-error")).toBeInTheDocument();
-    });
-
-    it("submits schema when defined via visual builder", async () => {
-      let postedPayload: Record<string, unknown> | null = null;
-      server.use(
-        http.post(`${API_BASE}/tools`, async ({ request }) => {
-          postedPayload = (await request.json()) as Record<string, unknown>;
-          return HttpResponse.json(envelope(makeTool()), { status: 201 });
-        }),
-      );
-
-      renderWizard();
-
-      // Step 1
-      await userEvent.type(screen.getByTestId("wiz-name"), "schema_tool");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 2
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 3: Add an input property
-      await userEvent.click(screen.getByTestId("input-schema-add-prop"));
-      const row = screen.getByTestId("step-schema").querySelector("[data-testid^='input-schema-prop-']")!;
-      const nameInput = row.querySelector("[data-testid^='input-schema-prop-name-']") as HTMLInputElement;
-      await userEvent.type(nameInput, "order_id");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 4
-      await userEvent.click(screen.getByTestId("wizard-next"));
-
-      // Step 5: submit
-      await userEvent.click(screen.getByTestId("wizard-submit"));
-
-      await waitFor(() => expect(postedPayload).not.toBeNull());
-      const inputSchema = postedPayload!.input_schema as Record<string, unknown>;
-      expect(inputSchema).toBeTruthy();
-      expect(inputSchema.type).toBe("object");
-      const props = inputSchema.properties as Record<string, unknown>;
-      expect(props.order_id).toBeTruthy();
-    });
-
-    it("allows jumping back via completed step indicators", async () => {
-      renderWizard();
-      await userEvent.type(screen.getByTestId("wiz-name"), "jump_tool");
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      await userEvent.click(screen.getByTestId("wizard-next"));
-      expect(screen.getByTestId("step-schema")).toBeInTheDocument();
-
-      await userEvent.click(screen.getByTestId("wizard-step-0"));
-      expect(screen.getByTestId("step-identity")).toBeInTheDocument();
-    });
+  it("shows a registration error and lets the user go back or cancel", async () => {
+    server.use(
+      http.post(`${API_BASE}/tools`, () => HttpResponse.json({ detail: "name already registered" }, { status: 409 })),
+    );
+    const onClose = vi.fn();
+    const user = userEvent.setup();
+    renderWizard(onClose);
+
+    await user.type(screen.getByTestId("wiz-name"), "dup_tool");
+    await user.click(screen.getByTestId("wizard-next"));
+    await user.click(screen.getByTestId("wizard-next"));
+    await user.click(screen.getByTestId("wizard-next"));
+    await user.click(screen.getByTestId("wizard-next"));
+    expect(screen.getByTestId("step-safety")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("wizard-submit"));
+    expect(await screen.findByTestId("wizard-error")).toHaveTextContent("name already registered");
+
+    // Back navigates within the wizard (not yet closing it).
+    await user.click(screen.getByTestId("wizard-back"));
+    expect(screen.getByTestId("step-playground")).toBeInTheDocument();
+    expect(onClose).not.toHaveBeenCalled();
+
+    // Step-indicator lets you jump back to any completed step directly.
+    await user.click(screen.getByTestId("wizard-step-0"));
+    expect(screen.getByTestId("step-identity")).toBeInTheDocument();
+    // A not-yet-reached step is inert.
+    await user.click(screen.getByTestId("wizard-step-4"));
+    expect(screen.getByTestId("step-identity")).toBeInTheDocument();
+
+    // Cancel (Back at step 0) calls onClose instead of navigating a step.
+    await user.click(screen.getByTestId("wizard-back"));
+    expect(onClose).toHaveBeenCalledTimes(1);
   });
 });

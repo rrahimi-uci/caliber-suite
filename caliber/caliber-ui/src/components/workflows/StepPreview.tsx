@@ -463,7 +463,7 @@ function stringList(value: unknown): string[] {
 
 function compactJson(value: unknown): string | null {
   if (value === null || value === undefined) return null;
-  if (typeof value === "string" && value.trim()) return value.trim();
+  if (typeof value === "string") return value.trim() ? value.trim() : null;
   try {
     const text = JSON.stringify(value);
     return typeof text === "string" && text !== "null" ? text : null;

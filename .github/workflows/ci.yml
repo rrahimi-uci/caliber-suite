@@ -138,7 +138,7 @@ jobs:
         # Pinned (not ">=0.5") so the format check is deterministic — ruff's
         # formatter output shifts between releases, which is what let the repo
         # drift out of "formatted" while CI was dormant.
-        run: uv pip install --system "ruff==0.16.5"
+        run: uv pip install --system "ruff==0.16.6"
       - name: ruff check
         run: ruff check .
       - name: ruff format --check
@@ -527,11 +527,15 @@ jobs:
         run: npm run typecheck
       - name: Lint
         run: npx eslint .
-      # ``npm test`` (vitest) emits Allure results to allure-results/ via the
-      # configured allure-vitest reporter. vitest is pinned to a single worker
-      # in vitest.config.ts, so this is sequential by design.
-      - name: Run unit tests (emits Allure results)
-        run: npm test
+      # ``test:coverage`` (vitest run --coverage) emits Allure results to
+      # allure-results/ via the configured allure-vitest reporter, same as
+      # plain ``npm test`` -- the reporter config doesn't change with
+      # --coverage. vitest is pinned to a single worker in vitest.config.ts,
+      # so this is sequential by design. Coverage is enabled here (not just
+      # available locally) so vitest.config.ts's `coverage.thresholds` is an
+      # actually-enforced CI gate, not a number nothing ever checks.
+      - name: Run unit tests with coverage (emits Allure results)
+        run: npm run test:coverage
       - name: Build
         run: npm run build
       # Convenience hand-off only. The package job rebuilds the SPA when this is

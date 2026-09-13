@@ -55,6 +55,22 @@ export default defineConfig({
         "src/**/__tests__/**",
         "src/**/*.{test,spec}.{ts,tsx}",
       ],
+      // Ratchet, matching the backend's `[tool.coverage.report] fail_under`
+      // in caliber/pyproject.toml: pinned a few points below the actual
+      // measured run (lines 90.61%, statements 88.92%, functions 89.19%,
+      // branches 80.89%) rather than at it, so normal day-to-day
+      // fluctuation doesn't fail CI on an unrelated change -- a real
+      // regression still fails the build, and closing more of the gap
+      // (the four largest remaining files -- WorkflowEditor.tsx, Prompts.tsx,
+      // Inspector.tsx, KnowledgeBases.tsx -- account for most of what's left)
+      // is the preferred way to raise these thresholds further, not loosening
+      // them.
+      thresholds: {
+        lines: 89,
+        statements: 87,
+        functions: 87,
+        branches: 78,
+      },
     },
   },
 });

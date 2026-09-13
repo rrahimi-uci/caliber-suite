@@ -478,6 +478,556 @@ describe("Administration", () => {
     );
   });
 
+  it("shows empty states for both accounts and secrets when the deployment has neither", async () => {
+    stubStores({ accounts: [], secrets: [] });
+    renderPage();
+
+    expect(await screen.findByText("No accounts yet.")).toBeInTheDocument();
+    expect(screen.getByText("No secrets stored yet.")).toBeInTheDocument();
+  });
+
+  it("shows an account-mutation error when creating an account is rejected", async () => {
+    stubStores();
+    server.use(
+      http.post(`${API_BASE}/auth/accounts`, () =>
+        HttpResponse.json({ detail: "user_id already exists" }, { status: 409 }),
+      ),
+    );
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText("User ID"), {
+      target: { value: "@dup" },
+    });
+    fireEvent.change(screen.getByLabelText("Password"), {
+      target: { value: "correct-horse-battery" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: /Create account/ }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("user_id already exists");
+    // The credential-clearing behavior is only for success — a failed create keeps
+    // what the operator typed so they can fix it and resubmit.
+    expect((screen.getByLabelText("User ID") as HTMLInputElement).value).toBe("@dup");
+  });
+
+  it("rejects a short reset password before making a request", async () => {
+    const account = {
+      user_id: "@alice",
+      disabled: false,
+      created_at: "2026-01-01T00:00:00",
+      password_updated_at: null,
+      last_login_at: null,
+    };
+    stubStores({ accounts: [account] });
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText("New password for @alice"), {
+      target: { value: "short" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reset password for @alice" }));
+
+    // No PATCH handler is registered, so reaching the network would fail the test.
+    expect(await screen.findByRole("alert")).toHaveTextContent("at least 12 characters");
+  });
+
+  it("shows an error when resetting a password is rejected by the API", async () => {
+    const account = {
+      user_id: "@alice",
+      disabled: false,
+      created_at: "2026-01-01T00:00:00",
+      password_updated_at: null,
+      last_login_at: null,
+    };
+    stubStores({ accounts: [account] });
+    server.use(
+      http.patch(`${API_BASE}/auth/accounts/${encodeURIComponent("@alice")}`, () =>
+        HttpResponse.json({ detail: "password reuse is not allowed" }, { status: 422 }),
+      ),
+    );
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText("New password for @alice"), {
+      target: { value: "correct-horse-battery" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Reset password for @alice" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("password reuse is not allowed");
+  });
+
+  it("enables and disables an account, and surfaces an error when the toggle is rejected", async () => {
+    const account = {
+      user_id: "@alice",
+      disabled: false,
+      created_at: "2026-01-01T00:00:00",
+      password_updated_at: null,
+      last_login_at: null,
+    };
+    stubStores({ accounts: [account] });
+    let lastBody: unknown;
+    server.use(
+      http.patch(`${API_BASE}/auth/accounts/${encodeURIComponent("@alice")}`, async ({ request }) => {
+        lastBody = await request.json();
+        return HttpResponse.json(envelope({ user_id: "@alice", changed: ["disabled"] }));
+      }),
+    );
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Disable" }));
+    await waitFor(() => expect(lastBody).toEqual({ disabled: true }));
+
+    // The toggle failing surfaces the account error banner.
+    server.use(
+      http.patch(`${API_BASE}/auth/accounts/${encodeURIComponent("@alice")}`, () =>
+        HttpResponse.json({ detail: "cannot disable the last admin" }, { status: 409 }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Disable" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "cannot disable the last admin",
+    );
+  });
+
+  it("revokes an account's sessions and surfaces an error when revocation is rejected", async () => {
+    const account = {
+      user_id: "@alice",
+      disabled: false,
+      created_at: "2026-01-01T00:00:00",
+      password_updated_at: null,
+      last_login_at: null,
+    };
+    stubStores({ accounts: [account] });
+    server.use(
+      http.delete(`${API_BASE}/auth/accounts/${encodeURIComponent("@alice")}/sessions`, () =>
+        HttpResponse.json(envelope({ revoked: 3 })),
+      ),
+    );
+    renderPage();
+
+    fireEvent.click(await screen.findByRole("button", { name: "Revoke sessions" }));
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Revoked 3 session(s) for @alice.",
+    );
+
+    server.use(
+      http.delete(`${API_BASE}/auth/accounts/${encodeURIComponent("@alice")}/sessions`, () =>
+        HttpResponse.json({ detail: "account not found" }, { status: 404 }),
+      ),
+    );
+    fireEvent.click(screen.getByRole("button", { name: "Revoke sessions" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("account not found");
+  });
+
+  it("stores a secret through the write-only form and surfaces the reference scheme", async () => {
+    stubStores();
+    server.use(
+      http.post(`${API_BASE}/secrets`, () =>
+        HttpResponse.json(envelope({ name: "stripe-key", version: 1 })),
+      ),
+    );
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText("Name"), {
+      target: { value: "stripe-key" },
+    });
+    fireEvent.change(screen.getByLabelText("Value"), {
+      target: { value: "sk_live_abc" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Store / rotate" }));
+
+    expect(await screen.findByRole("status")).toHaveTextContent(
+      "Stored stripe-key as version 1. Reference it as secret://stripe-key.",
+    );
+    // The value never lingers in the form after a successful store.
+    expect((screen.getByLabelText("Value") as HTMLInputElement).value).toBe("");
+    expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("");
+  });
+
+  it("shows an error when storing a secret is rejected", async () => {
+    stubStores();
+    server.use(
+      http.post(`${API_BASE}/secrets`, () =>
+        HttpResponse.json({ detail: "encryption key source is not configured" }, { status: 503 }),
+      ),
+    );
+    renderPage();
+
+    fireEvent.change(await screen.findByLabelText("Name"), {
+      target: { value: "stripe-key" },
+    });
+    fireEvent.change(screen.getByLabelText("Value"), {
+      target: { value: "sk_live_abc" },
+    });
+    fireEvent.click(screen.getByRole("button", { name: "Store / rotate" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "encryption key source is not configured",
+    );
+  });
+
+  it("revokes a secret and surfaces an error when revocation is rejected", async () => {
+    // A mutable row, not a fresh literal per `stubStores` call: `revokeSecret`
+    // refetches `GET /secrets` after the POST succeeds, so the mock must
+    // reflect the mutation for that refetch to show "Revoked" — a static
+    // per-call array would refetch the exact same unrevoked row forever.
+    const stripeKeyRow = {
+      name: "stripe-key",
+      current_version: 2,
+      versions: 2,
+      revoked: false,
+      updated_at: "2026-07-01T09:00:00",
+    };
+    stubStores({ secrets: [stripeKeyRow] });
+    server.use(
+      http.post(`${API_BASE}/secrets/stripe-key/revoke`, () => {
+        stripeKeyRow.revoked = true;
+        return HttpResponse.json(envelope({ name: "stripe-key", revoked: true }));
+      }),
+    );
+    renderPage();
+
+    const row = (await screen.findByText("stripe-key")).closest("tr") as HTMLElement;
+    fireEvent.click(within(row).getByRole("button", { name: "Revoke" }));
+    await waitFor(() => expect(within(row).getByText("Revoked")).toBeInTheDocument());
+    // A revoked secret has no further Revoke action.
+    expect(within(row).queryByRole("button", { name: "Revoke" })).not.toBeInTheDocument();
+
+    stubStores({
+      secrets: [
+        {
+          name: "other-key",
+          current_version: 1,
+          versions: 1,
+          revoked: false,
+          updated_at: "2026-07-01T09:00:00",
+        },
+      ],
+    });
+    server.use(
+      http.post(`${API_BASE}/secrets/other-key/revoke`, () =>
+        HttpResponse.json({ detail: "secret already revoked" }, { status: 409 }),
+      ),
+    );
+    renderPage();
+    const otherRow = (await screen.findAllByText("other-key"))[0]!.closest(
+      "tr",
+    ) as HTMLElement;
+    fireEvent.click(within(otherRow).getByRole("button", { name: "Revoke" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("secret already revoked");
+  });
+
+  it("shows a load error for secrets", async () => {
+    server.use(
+      http.get(`${API_BASE}/auth/accounts`, () =>
+        HttpResponse.json(envelope({ accounts: [], total: 0 })),
+      ),
+      http.get(`${API_BASE}/secrets`, () =>
+        HttpResponse.json({ detail: "secret store unreachable" }, { status: 500 }),
+      ),
+      http.get(`${API_BASE}/projects`, () => HttpResponse.json(envelope([]))),
+    );
+    renderPage();
+
+    expect(await screen.findByText("secret store unreachable")).toBeInTheDocument();
+  });
+
+  it("says there are no active projects rather than showing an empty member table", async () => {
+    stubStores({ projects: [] });
+    renderPage();
+
+    expect(
+      await screen.findByText("No active projects are available."),
+    ).toBeInTheDocument();
+  });
+
+  it("hides member management for a viewer without project.manage_members", async () => {
+    stubStores({
+      projects: [
+        {
+          project_id: "PRJ-1",
+          name: "Support",
+          description: "",
+          owner: "@admin",
+          status: "active",
+          permissions: ["read"],
+          access_role: "viewer",
+        },
+      ],
+    });
+    server.use(
+      http.get(`${API_BASE}/projects/PRJ-1/members`, () =>
+        HttpResponse.json(
+          envelope({
+            members: [
+              {
+                member_id: "PRJM-1",
+                project_id: "PRJ-1",
+                user_id: "@admin",
+                role: "owner",
+                status: "active",
+                created_by: "@admin",
+                created_at: null,
+                updated_at: null,
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+    renderPage();
+
+    expect(
+      await screen.findByText("Only a project Admin can manage members."),
+    ).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Add member" })).not.toBeInTheDocument();
+    // The member row itself loads via a separate query from the "Only a
+    // project Admin..." text above (which only depends on the already-loaded
+    // project permissions) -- wait for it explicitly rather than assuming
+    // it resolved by now.
+    expect(await screen.findByText("owner")).toBeInTheDocument();
+    // The role column renders as plain text, not an editable select, for a
+    // non-managing viewer.
+    expect(screen.queryByRole("combobox", { name: /Role for/ })).not.toBeInTheDocument();
+  });
+
+  it("surfaces a load error for project members", async () => {
+    stubStores({
+      projects: [
+        {
+          project_id: "PRJ-1",
+          name: "Support",
+          description: "",
+          owner: "@admin",
+          status: "active",
+          permissions: ["read", "project.manage_members"],
+          access_role: "owner",
+        },
+      ],
+    });
+    server.use(
+      http.get(`${API_BASE}/projects/PRJ-1/members`, () =>
+        HttpResponse.json({ detail: "member store unreachable" }, { status: 500 }),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByText("member store unreachable")).toBeInTheDocument();
+  });
+
+  it("adds, edits, and removes a project member, surfacing errors from each action", async () => {
+    const project = {
+      project_id: "PRJ-1",
+      name: "Support",
+      description: "",
+      owner: "@admin",
+      status: "active",
+      permissions: ["read", "project.manage_members"],
+      access_role: "owner",
+    };
+    stubStores({ projects: [project] });
+    let membersState = [
+      {
+        member_id: "PRJM-1",
+        project_id: "PRJ-1",
+        user_id: "@admin",
+        role: "owner",
+        status: "active",
+        created_by: "@admin",
+        created_at: null,
+        updated_at: null,
+      },
+    ];
+    server.use(
+      http.get(`${API_BASE}/projects/PRJ-1/members`, () =>
+        HttpResponse.json(envelope({ members: membersState })),
+      ),
+      http.post(`${API_BASE}/projects/PRJ-1/members`, async ({ request }) => {
+        const body = (await request.json()) as { user_id: string; role: string };
+        const created = {
+          member_id: "PRJM-2",
+          project_id: "PRJ-1",
+          user_id: body.user_id,
+          role: body.role,
+          status: "active",
+          created_by: "@admin",
+          created_at: null,
+          updated_at: null,
+        };
+        membersState = [...membersState, created];
+        return HttpResponse.json(envelope(created));
+      }),
+      http.patch(`${API_BASE}/projects/PRJ-1/members/${encodeURIComponent("@dev")}`, async ({ request }) => {
+        const body = (await request.json()) as { role: string };
+        membersState = membersState.map((m) =>
+          m.user_id === "@dev" ? { ...m, role: body.role } : m,
+        );
+        return HttpResponse.json(envelope(membersState.find((m) => m.user_id === "@dev")));
+      }),
+      http.delete(`${API_BASE}/projects/PRJ-1/members/${encodeURIComponent("@dev")}`, () => {
+        membersState = membersState.filter((m) => m.user_id !== "@dev");
+        return new HttpResponse(null, { status: 204 });
+      }),
+    );
+    renderPage();
+
+    await screen.findByText("@admin");
+    const accessSection = screen.getByRole("region", { name: "Project access" });
+    fireEvent.change(within(accessSection).getByLabelText("User ID"), {
+      target: { value: "@dev" },
+    });
+    fireEvent.click(within(accessSection).getByRole("button", { name: "Add member" }));
+
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Added @dev to Support."),
+    );
+    const devRow = (await screen.findByText("@dev")).closest("tr") as HTMLElement;
+    fireEvent.change(within(devRow).getByRole("combobox"), {
+      target: { value: "editor" },
+    });
+    await waitFor(() =>
+      expect(within(devRow).getByRole("combobox")).toHaveValue("editor"),
+    );
+
+    fireEvent.click(within(devRow).getByRole("button", { name: "Remove" }));
+    await waitFor(() =>
+      expect(screen.getByRole("status")).toHaveTextContent("Removed @dev from the project."),
+    );
+    // The status message and the member-list refetch are two independent
+    // async updates -- wait for the row to actually disappear rather than
+    // assuming it already has by the time the status text appears.
+    await waitFor(() => expect(screen.queryByText("@dev")).not.toBeInTheDocument());
+  });
+
+  it("surfaces errors from add-member, change-role, and remove-member", async () => {
+    const project = {
+      project_id: "PRJ-1",
+      name: "Support",
+      description: "",
+      owner: "@admin",
+      status: "active",
+      permissions: ["read", "project.manage_members"],
+      access_role: "owner",
+    };
+    stubStores({ projects: [project] });
+    server.use(
+      http.get(`${API_BASE}/projects/PRJ-1/members`, () =>
+        HttpResponse.json(
+          envelope({
+            members: [
+              {
+                member_id: "PRJM-1",
+                project_id: "PRJ-1",
+                user_id: "@admin",
+                role: "owner",
+                status: "active",
+                created_by: "@admin",
+                created_at: null,
+                updated_at: null,
+              },
+              {
+                member_id: "PRJM-2",
+                project_id: "PRJ-1",
+                user_id: "@dev",
+                role: "viewer",
+                status: "active",
+                created_by: "@admin",
+                created_at: null,
+                updated_at: null,
+              },
+            ],
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/projects/PRJ-1/members`, () =>
+        HttpResponse.json({ detail: "user is already a member" }, { status: 409 }),
+      ),
+      http.patch(`${API_BASE}/projects/PRJ-1/members/${encodeURIComponent("@dev")}`, () =>
+        HttpResponse.json({ detail: "cannot promote to owner here" }, { status: 422 }),
+      ),
+      http.delete(`${API_BASE}/projects/PRJ-1/members/${encodeURIComponent("@dev")}`, () =>
+        HttpResponse.json({ detail: "cannot remove the last editor" }, { status: 409 }),
+      ),
+    );
+    renderPage();
+
+    await screen.findByText("@dev");
+    const accessSection = screen.getByRole("region", { name: "Project access" });
+    fireEvent.change(within(accessSection).getByLabelText("User ID"), {
+      target: { value: "@dev" },
+    });
+    fireEvent.click(within(accessSection).getByRole("button", { name: "Add member" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("user is already a member");
+
+    const devRow = screen.getByText("@dev").closest("tr") as HTMLElement;
+    fireEvent.change(within(devRow).getByRole("combobox"), {
+      target: { value: "owner" },
+    });
+    expect(await screen.findByRole("alert")).toHaveTextContent("cannot promote to owner here");
+
+    fireEvent.click(within(devRow).getByRole("button", { name: "Remove" }));
+    expect(await screen.findByRole("alert")).toHaveTextContent("cannot remove the last editor");
+  });
+
+  it("surfaces an error when transferring ownership is rejected", async () => {
+    saveLocalAuthSession(createLocalAuthSession("admin"));
+    stubStores({
+      projects: [
+        {
+          project_id: "PRJ-1",
+          name: "Support",
+          description: "",
+          owner: "@admin",
+          status: "active",
+          permissions: ["read", "project.manage_members"],
+          access_role: "owner",
+        },
+      ],
+    });
+    server.use(
+      http.get(`${API_BASE}/projects/PRJ-1/members`, () =>
+        HttpResponse.json(
+          envelope({
+            members: [
+              {
+                member_id: "PRJM-1",
+                project_id: "PRJ-1",
+                user_id: "@admin",
+                role: "owner",
+                status: "active",
+                created_by: "@admin",
+                created_at: null,
+                updated_at: null,
+              },
+              {
+                member_id: "PRJM-2",
+                project_id: "PRJ-1",
+                user_id: "@second-admin",
+                role: "owner",
+                status: "active",
+                created_by: "@admin",
+                created_at: null,
+                updated_at: null,
+              },
+            ],
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/projects/PRJ-1/transfer-ownership`, () =>
+        HttpResponse.json({ detail: "target is not an active owner" }, { status: 422 }),
+      ),
+    );
+    renderPage();
+
+    const secondaryRow = (await screen.findByText("@second-admin")).closest(
+      "tr",
+    ) as HTMLElement;
+    fireEvent.click(
+      within(secondaryRow).getByRole("button", { name: "Make primary owner" }),
+    );
+
+    expect(await screen.findByRole("alert")).toHaveTextContent(
+      "target is not an active owner",
+    );
+  });
+
   it("surfaces a forbidden account list instead of rendering it as empty", async () => {
     server.use(
       http.get(`${API_BASE}/auth/accounts`, () =>

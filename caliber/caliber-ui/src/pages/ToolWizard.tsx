@@ -569,7 +569,12 @@ function PlaygroundStep({
             ) : (
               <div className="space-y-3">
                 {fields.map((f) => (
-                  <div key={f.id} className="space-y-1">
+                  // Key on the (schema-unique) name, not the generated id:
+                  // `fields` is rebuilt from the schema on every render (not
+                  // memoized), and `schemaToProperties` mints a fresh random
+                  // id each call — keying on `f.id` remounted every input on
+                  // each keystroke and dropped focus after one character.
+                  <div key={f.name} className="space-y-1">
                     <Label className="text-xs">
                       {f.name}
                       {f.required && <span className="ml-1 text-red-400">*</span>}

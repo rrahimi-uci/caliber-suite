@@ -1,5 +1,5 @@
 import { http, HttpResponse } from "msw";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { GatewayUsage } from "@/api/types";
 import { GatewayUsageTab } from "@/components/gateway/GatewayUsageTab";
@@ -182,6 +182,56 @@ describe("GatewayUsageTab", () => {
     expect(stats.getByText("Requests")).toBeInTheDocument();
     expect(stats.getAllByText("—").length).toBeGreaterThanOrEqual(2); // p50 + p95 null → "—"
     expect(stats.getByText("0.0%")).toBeInTheDocument(); // error rate
+  });
+
+  it("renders real chart geometry so the tick/tooltip formatters actually run", async () => {
+    // jsdom gives every element a 0×0 layout box, so recharts' ResponsiveContainer
+    // — which sizes itself from `getBoundingClientRect()` — never lays out real
+    // ticks/tooltips and the inline `tickFormatter`/`labelFormatter`/`formatter`
+    // callbacks (including the module-level `fmtTick` helper) never fire. Giving
+    // the container a real size lets recharts render its axes for real, which is
+    // the only way to exercise that formatting code with an actual behavioral
+    // assertion rather than reaching into the module to call it directly.
+    const rectSpy = vi
+      .spyOn(HTMLElement.prototype, "getBoundingClientRect")
+      .mockReturnValue({
+        x: 0,
+        y: 0,
+        top: 0,
+        left: 0,
+        right: 600,
+        bottom: 300,
+        width: 600,
+        height: 300,
+        toJSON: () => ({}),
+      } as DOMRect);
+
+    server.use(
+      http.get(`${API_BASE}/gateway/usage`, () => HttpResponse.json(envelope(POPULATED))),
+    );
+
+    render(<GatewayUsageTab />);
+    await screen.findByTestId("gateway-usage-by-model");
+
+    // The X axis of every real-sized time-series chart renders tick labels
+    // through the module-level `fmtTick` helper, which formats a bucket
+    // timestamp as `HH:MM` (never invoked when the container collapses to
+    // 0×0, since recharts skips laying out ticks entirely in that case).
+    // Recharts — not this test — decides which of the two bucket timestamps
+    // becomes the rendered tick, so assert on the format `fmtTick` produces
+    // rather than a specific value.
+    const ticks = document.querySelectorAll(".recharts-cartesian-axis-tick-value");
+    expect(ticks.length).toBeGreaterThan(0);
+    const timeTicks = Array.from(ticks).filter((el) => /^\d{2}:\d{2}$/.test(el.textContent ?? ""));
+    expect(timeTicks.length).toBeGreaterThan(0);
+
+    // The "Error rate" chart's Y axis runs its own inline tickFormatter
+    // (`${Math.round(Number(v) * 100)}%`), rendering a percent tick.
+    expect(
+      Array.from(ticks).some((el) => /^\d+%$/.test(el.textContent ?? "")),
+    ).toBe(true);
+
+    rectSpy.mockRestore();
   });
 
   it("surfaces an API error in a red banner", async () => {

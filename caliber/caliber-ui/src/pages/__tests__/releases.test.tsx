@@ -328,6 +328,17 @@ describe("Releases", () => {
               entity_id: "WF-1",
               details: { to_version: "WFV-7" },
             },
+            {
+              // Neither a from- nor a to-version is present -- `transition()`
+              // falls back to an empty string rather than "v... -> v...".
+              log_id: 3,
+              timestamp: "2026-06-28T00:00:00Z",
+              actor: "@sam",
+              action: "activate_knowledge_base_version",
+              entity_type: "knowledge_base",
+              entity_id: "KB-1",
+              details: {},
+            },
           ]),
         ),
       ),
@@ -347,6 +358,126 @@ describe("Releases", () => {
     // Overridden-gate badge surfaces.
     expect(screen.getByTestId("releases-overridden-2")).toBeInTheDocument();
     expect(screen.getByTestId("releases-event-1")).toHaveTextContent("Promote");
+    const noVersionEvent = await screen.findByTestId("releases-event-3");
+    expect(noVersionEvent).toHaveTextContent("Activate");
+    expect(noVersionEvent).not.toHaveTextContent("→");
+  });
+
+  it("validates JSON criteria/evidence before submitting a new candidate", async () => {
+    server.use(
+      http.get(`${API_BASE}/releases/live`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/releases/timeline`, () => HttpResponse.json(envelope([]))),
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "New candidate" }));
+    fireEvent.change(screen.getByTestId("release-candidate-name"), {
+      target: { value: "Support v8" },
+    });
+    fireEvent.change(screen.getByTestId("release-candidate-artifact"), {
+      target: { value: "WF-support" },
+    });
+    fireEvent.change(screen.getByTestId("release-candidate-version"), {
+      target: { value: "WFV-8" },
+    });
+    fireEvent.change(screen.getByTestId("release-candidate-rollback"), {
+      target: { value: "WFV-7" },
+    });
+    // Exercise the artifact-type select and the required-score input too --
+    // both otherwise never fire their onChange handlers in any other test.
+    fireEvent.change(screen.getByTestId("release-candidate-type"), {
+      target: { value: "prompt" },
+    });
+    fireEvent.change(screen.getByTestId("release-candidate-required-score"), {
+      target: { value: "0.9" },
+    });
+
+    // Malformed JSON -> the JSON.parse SyntaxError is caught and rendered.
+    fireEvent.change(screen.getByTestId("release-candidate-criteria"), {
+      target: { value: "{not json" },
+    });
+    fireEvent.click(screen.getByTestId("release-candidate-create"));
+    expect(
+      await screen.findByText(/Unexpected token|Expected property name/i),
+    ).toBeInTheDocument();
+
+    // Syntactically valid JSON that isn't an array -> the explicit
+    // "must be JSON arrays" validation error, not a parse error.
+    fireEvent.change(screen.getByTestId("release-candidate-criteria"), {
+      target: { value: '{"key": "quality"}' },
+    });
+    fireEvent.click(screen.getByTestId("release-candidate-create"));
+    expect(
+      await screen.findByText("Criteria and evidence must be JSON arrays."),
+    ).toBeInTheDocument();
+
+    // Fixing both fields to real arrays lets the candidate submit.
+    let created: Record<string, unknown> | null = null;
+    server.use(
+      http.get(`${API_BASE}/releases/candidates`, () =>
+        HttpResponse.json(envelope(created ? [created] : [])),
+      ),
+      http.post(`${API_BASE}/releases/candidates`, async ({ request }) => {
+        created = {
+          ...((await request.json()) as Record<string, unknown>),
+          candidate_id: "RC-8",
+          project_id: null,
+          visibility: "user",
+          waivers: [],
+          weighted_score: 0.9,
+          blockers: [],
+          status: "ready",
+          owner: "@test",
+          created_at: "2026-08-04T00:00:00Z",
+          updated_at: "2026-08-04T00:00:00Z",
+        };
+        return HttpResponse.json(envelope(created), { status: 201 });
+      }),
+    );
+    fireEvent.change(screen.getByTestId("release-candidate-criteria"), {
+      target: { value: '[{"key": "quality", "title": "Quality", "weight": 1}]' },
+    });
+    fireEvent.change(screen.getByTestId("release-candidate-evidence"), {
+      target: { value: '[{"evidence_type": "evaluation_run", "evidence_ref": "EVR-1"}]' },
+    });
+    fireEvent.click(screen.getByTestId("release-candidate-create"));
+    const card = await screen.findByTestId("release-candidate-RC-8");
+    expect(card).toHaveTextContent("Support v8");
+    // The form closes and clears on success.
+    expect(screen.queryByTestId("release-candidate-name")).not.toBeInTheDocument();
+  });
+
+  it("surfaces a rejected candidate creation as a form error without closing the panel", async () => {
+    server.use(
+      http.get(`${API_BASE}/releases/live`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/releases/timeline`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/releases/candidates`, () =>
+        HttpResponse.json({ detail: "an artifact with that version already exists" }, {
+          status: 409,
+        }),
+      ),
+    );
+    renderPage();
+    fireEvent.click(await screen.findByRole("button", { name: "New candidate" }));
+    fireEvent.change(screen.getByTestId("release-candidate-name"), {
+      target: { value: "Support v9" },
+    });
+    fireEvent.change(screen.getByTestId("release-candidate-artifact"), {
+      target: { value: "WF-support" },
+    });
+    fireEvent.change(screen.getByTestId("release-candidate-version"), {
+      target: { value: "WFV-9" },
+    });
+    fireEvent.change(screen.getByTestId("release-candidate-rollback"), {
+      target: { value: "WFV-8" },
+    });
+    fireEvent.click(screen.getByTestId("release-candidate-create"));
+
+    expect(
+      await screen.findByText("an artifact with that version already exists"),
+    ).toBeInTheDocument();
+    // A rejected submit keeps the form open with what was typed, so the
+    // operator can fix and resubmit rather than starting over.
+    expect(screen.getByTestId("release-candidate-name")).toHaveValue("Support v9");
   });
 
   it("shows empty states when nothing is live or recorded", async () => {

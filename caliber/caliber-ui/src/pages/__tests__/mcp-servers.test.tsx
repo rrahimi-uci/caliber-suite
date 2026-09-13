@@ -170,6 +170,11 @@ describe("McpServers", () => {
     expect(
       screen.getByText("No MCP servers match the current filters."),
     ).toBeInTheDocument();
+
+    // Clearing filters restores both rows.
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(screen.getByTestId("mcp-row-MCP-1")).toBeInTheDocument();
+    expect(screen.getByTestId("mcp-row-MCP-2")).toBeInTheDocument();
   });
 
   it("opens quick-connect templates and registers a prefilled server", async () => {
@@ -225,13 +230,14 @@ describe("McpServers", () => {
     });
     // Catalog templates seed the server with their known tools on connect, so
     // tools are visible without needing a live test-connection first.
-    const tools = (createBody as { discovered_tools?: Array<{ name: string }> })
-      .discovered_tools;
+    const tools = (
+      createBody as unknown as { discovered_tools?: Array<{ name: string }> }
+    ).discovered_tools;
     expect(tools?.length).toBeGreaterThan(0);
     expect(tools?.map((t) => t.name)).toContain("issue_write");
     expect(
       (
-        createBody as {
+        createBody as unknown as {
           tool_policies?: Record<string, { requires_approval: boolean }>;
         }
       ).tool_policies?.["issue_write"]?.requires_approval,
@@ -276,8 +282,9 @@ describe("McpServers", () => {
       }),
     );
 
-    const tools = (createBody as { discovered_tools?: Array<{ name: string }> })
-      .discovered_tools;
+    const tools = (
+      createBody as unknown as { discovered_tools?: Array<{ name: string }> }
+    ).discovered_tools;
     expect(tools?.map((t) => t.name)).toContain("browser_navigate");
     expect(tools?.map((t) => t.name)).toContain("browser_take_screenshot");
     expect(tools?.map((t) => t.name)).toContain("browser_tabs");
@@ -1055,7 +1062,7 @@ describe("McpServers", () => {
         NEW_TOKEN: "${NEW_TOKEN}",
       },
     });
-    const env = (patchBody as { env: Record<string, string> }).env;
+    const env = (patchBody as unknown as { env: Record<string, string> }).env;
     expect(env).not.toHaveProperty("TOKEN");
     expect(patchBody && "headers" in patchBody).toBe(false);
   });
@@ -1098,7 +1105,7 @@ describe("McpServers", () => {
       env: { KEEP_SECRET: WRITE_ONLY },
     });
     expect(
-      (patchBody as { env: Record<string, string> }).env,
+      (patchBody as unknown as { env: Record<string, string> }).env,
     ).not.toHaveProperty("TOKEN");
   });
 
@@ -1133,6 +1140,72 @@ describe("McpServers", () => {
     );
   });
 
+  it("cancels an inline delete confirmation and surfaces a delete failure", async () => {
+    let deleteAttempts = 0;
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([baseServer()])),
+      ),
+      http.delete(`${API_BASE}/mcp-servers/MCP-1`, () => {
+        deleteAttempts += 1;
+        return HttpResponse.json(
+          { detail: "server has active runs" },
+          { status: 409 },
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("mcp-row-MCP-1");
+
+    // Cancelling the inline confirm never calls delete.
+    await user.click(await screen.findByTestId("delete-btn-MCP-1"));
+    await user.click(await screen.findByTestId("cancel-delete-btn-MCP-1"));
+    expect(deleteAttempts).toBe(0);
+    expect(
+      screen.queryByTestId("confirm-delete-btn-MCP-1"),
+    ).not.toBeInTheDocument();
+
+    // Confirming surfaces the server's rejection inline and keeps the row.
+    await user.click(screen.getByTestId("delete-btn-MCP-1"));
+    await user.click(screen.getByTestId("confirm-delete-btn-MCP-1"));
+
+    expect(await screen.findByText("server has active runs")).toBeInTheDocument();
+    expect(deleteAttempts).toBe(1);
+    expect(screen.getByTestId("mcp-row-MCP-1")).toBeInTheDocument();
+  });
+
+  it("shows a successful row-level connection test and refreshes the list", async () => {
+    let listCalls = 0;
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () => {
+        listCalls += 1;
+        return HttpResponse.json(envelope([baseServer()]));
+      }),
+      http.post(`${API_BASE}/mcp-servers/MCP-1/test-connection`, () =>
+        HttpResponse.json(
+          envelope({
+            server_id: "MCP-1",
+            success: true,
+            error: null,
+            tools: baseServer().discovered_tools,
+          }),
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("mcp-row-MCP-1");
+    const callsBeforeTest = listCalls;
+
+    await user.click(screen.getByTestId("test-btn-MCP-1"));
+
+    expect(await screen.findByText("Connected · 1 tools")).toBeInTheDocument();
+    await waitFor(() => expect(listCalls).toBeGreaterThan(callsBeforeTest));
+  });
+
   it("hides edit and delete controls from non-admins", async () => {
     server.use(
       http.get(`${API_BASE}/mcp-servers`, () =>
@@ -1157,5 +1230,256 @@ describe("McpServers", () => {
       expect(screen.queryByTestId("edit-btn-MCP-1")).not.toBeInTheDocument(),
     );
     expect(screen.queryByTestId("delete-btn-MCP-1")).not.toBeInTheDocument();
+  });
+
+  function classifiedAllowedTools() {
+    return baseServer().discovered_tools.map((tool) => ({
+      ...tool,
+      classified: true,
+      policy: {
+        allowed: true,
+        side_effect_level: "read" as const,
+        requires_approval: false,
+        rate_limit_per_minute: null,
+      },
+    }));
+  }
+
+  function assistantConfigEnvelope() {
+    return envelope({
+      engine: "aria",
+      model: "openai:/gpt-5.6-luna",
+      provider: "openai" as const,
+      reasoning: "medium",
+      enabled: true,
+      disabled_intents: [],
+      disabled_domains: [],
+      available_models: [
+        { id: "openai:/gpt-5.6-luna", name: "GPT-5.6 Luna", provider: "openai" as const },
+      ],
+    });
+  }
+
+  function assistantTurnEnvelope(content: string) {
+    return envelope({
+      assistant_message: {
+        message_id: "MSG-1",
+        session_id: "SESS-1",
+        role: "assistant" as const,
+        content,
+        metadata_: {},
+        sequence_number: 1,
+        created_at: NOW,
+      },
+      questions: [],
+      draft_updates: [],
+      run: null,
+    });
+  }
+
+  it("generates and runs MCP tool tests, judging a pass verdict", async () => {
+    let sessionCounter = 0;
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([baseServer()])),
+      ),
+      http.get(`${API_BASE}/mcp-servers/MCP-1/tools`, () =>
+        HttpResponse.json(
+          envelope({ server_id: "MCP-1", tools: classifiedAllowedTools() }),
+        ),
+      ),
+      http.get(`${API_BASE}/assistant/config`, () =>
+        HttpResponse.json(assistantConfigEnvelope()),
+      ),
+      http.post(`${API_BASE}/assistant/sessions`, () => {
+        sessionCounter += 1;
+        return HttpResponse.json(
+          envelope({
+            session_id: `SESS-${sessionCounter}`,
+            title: "t",
+            owner: "@qa",
+            status: "active",
+            goal: "",
+            metadata_: {},
+            active_draft_id: null,
+            created_at: NOW,
+            updated_at: NOW,
+          }),
+        );
+      }),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/messages`,
+        async ({ request }) => {
+          const body = (await request.json()) as { content: string };
+          const content =
+            body.content === "Judge this MCP test now."
+              ? '{"verdict":"pass","score":0.9,"reasoning":"matches expectations"}'
+              : '[{"input": {"query": "hello"}, "expectedOutput": {"total": 1}, "expectedBehavior": "returns a match", "tags": ["smoke"]}]';
+          return HttpResponse.json(assistantTurnEnvelope(content));
+        },
+      ),
+      http.post(`${API_BASE}/mcp-servers/MCP-1/invoke-tool`, () =>
+        HttpResponse.json(
+          envelope({
+            server_id: "MCP-1",
+            tool_name: "search_docs",
+            success: true,
+            error: null,
+            result: { total: 1 },
+            duration_ms: 12,
+          }),
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "MCP Servers" });
+    await user.click(screen.getByRole("button", { name: "Playground" }));
+    const toolLabel = await screen.findByText("search_docs");
+    await user.click(toolLabel.closest("button") as HTMLButtonElement);
+
+    const toolTests = await screen.findByTestId("mcp-tool-tests");
+    await user.click(within(toolTests).getByTestId("mcp-tests-generate"));
+
+    expect(await within(toolTests).findByText("Test 1")).toBeInTheDocument();
+    expect(within(toolTests).getByText("returns a match")).toBeInTheDocument();
+
+    await user.click(within(toolTests).getByTestId("mcp-tests-run"));
+
+    expect(await within(toolTests).findByText("pass 90%")).toBeInTheDocument();
+    expect(within(toolTests).getByText("90% avg")).toBeInTheDocument();
+  });
+
+  it("shows an error when the assistant does not return a parseable test array", async () => {
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([baseServer()])),
+      ),
+      http.get(`${API_BASE}/mcp-servers/MCP-1/tools`, () =>
+        HttpResponse.json(
+          envelope({ server_id: "MCP-1", tools: classifiedAllowedTools() }),
+        ),
+      ),
+      http.get(`${API_BASE}/assistant/config`, () =>
+        HttpResponse.json(assistantConfigEnvelope()),
+      ),
+      http.post(`${API_BASE}/assistant/sessions`, () =>
+        HttpResponse.json(
+          envelope({
+            session_id: "SESS-1",
+            title: "t",
+            owner: "@qa",
+            status: "active",
+            goal: "",
+            metadata_: {},
+            active_draft_id: null,
+            created_at: NOW,
+            updated_at: NOW,
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/assistant/sessions/:sessionId/messages`, () =>
+        HttpResponse.json(assistantTurnEnvelope("I cannot help with that.")),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "MCP Servers" });
+    await user.click(screen.getByRole("button", { name: "Playground" }));
+    const toolLabel = await screen.findByText("search_docs");
+    await user.click(toolLabel.closest("button") as HTMLButtonElement);
+
+    const toolTests = await screen.findByTestId("mcp-tool-tests");
+    await user.click(within(toolTests).getByTestId("mcp-tests-generate"));
+
+    expect(
+      await within(toolTests).findByText(/LLM did not return a JSON array/),
+    ).toBeInTheDocument();
+    expect(within(toolTests).getByText("No generated MCP tests yet.")).toBeInTheDocument();
+    expect(within(toolTests).getByTestId("mcp-tests-run")).toBeDisabled();
+  });
+
+  it("marks a case failed on invocation error and falls back to a partial verdict when judging is unavailable", async () => {
+    let invokeCalls = 0;
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([baseServer()])),
+      ),
+      http.get(`${API_BASE}/mcp-servers/MCP-1/tools`, () =>
+        HttpResponse.json(
+          envelope({ server_id: "MCP-1", tools: classifiedAllowedTools() }),
+        ),
+      ),
+      http.get(`${API_BASE}/assistant/config`, () =>
+        HttpResponse.json(assistantConfigEnvelope()),
+      ),
+      http.post(`${API_BASE}/assistant/sessions`, () =>
+        HttpResponse.json(
+          envelope({
+            session_id: "SESS-1",
+            title: "t",
+            owner: "@qa",
+            status: "active",
+            goal: "",
+            metadata_: {},
+            active_draft_id: null,
+            created_at: NOW,
+            updated_at: NOW,
+          }),
+        ),
+      ),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/messages`,
+        async ({ request }) => {
+          const body = (await request.json()) as { content: string };
+          if (body.content === "Judge this MCP test now.") {
+            // Not a parseable JSON object — judging falls back to defaults.
+            return HttpResponse.json(assistantTurnEnvelope("no strong opinion here"));
+          }
+          return HttpResponse.json(
+            assistantTurnEnvelope(
+              '[{"input": {"query": "a"}, "expectedOutput": {}, "expectedBehavior": "first", "tags": []},' +
+                '{"input": {"query": "b"}, "expectedOutput": {}, "expectedBehavior": "second", "tags": []}]',
+            ),
+          );
+        },
+      ),
+      http.post(`${API_BASE}/mcp-servers/MCP-1/invoke-tool`, () => {
+        invokeCalls += 1;
+        if (invokeCalls === 1) {
+          return HttpResponse.json({ detail: "boom" }, { status: 500 });
+        }
+        return HttpResponse.json(
+          envelope({
+            server_id: "MCP-1",
+            tool_name: "search_docs",
+            success: true,
+            error: null,
+            result: { total: 0 },
+            duration_ms: 5,
+          }),
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "MCP Servers" });
+    await user.click(screen.getByRole("button", { name: "Playground" }));
+    const toolLabel = await screen.findByText("search_docs");
+    await user.click(toolLabel.closest("button") as HTMLButtonElement);
+
+    const toolTests = await screen.findByTestId("mcp-tool-tests");
+    await user.click(within(toolTests).getByTestId("mcp-tests-generate"));
+    await within(toolTests).findByText("Test 2");
+
+    await user.click(within(toolTests).getByTestId("mcp-tests-run"));
+
+    expect(await within(toolTests).findByText("fail 0%")).toBeInTheDocument();
+    expect(within(toolTests).getByText(/boom/)).toBeInTheDocument();
+    expect(await within(toolTests).findByText("partial 50%")).toBeInTheDocument();
+    expect(within(toolTests).getByText("25% avg")).toBeInTheDocument();
   });
 });
