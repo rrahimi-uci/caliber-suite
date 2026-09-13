@@ -28,12 +28,21 @@ from caliber.db.scoping import owner_column
 #: test_async_offload_ratchet.py's baseline.
 _EXPECTED_COUNTS = {
     SCOPING_UNSCOPED: 40,
-    SCOPING_OWNED_CATALOG: 24,
+    # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
+    # PAT project binding) and moves from owned_catalog to project_only --
+    # see below.
+    SCOPING_OWNED_CATALOG: 23,
     SCOPING_VISIBILITY: 14,
     # +1 (`P1-A`): CaliberWorkspaceEnvironment has project_id, no
     # visibility/owner column -- correctly project_only, confirmed by
     # direct look, not a drive-by bump.
-    SCOPING_PROJECT_ONLY: 8,
+    # +1 (`P1-E`): CaliberPersonalAccessToken now has project_id too, still
+    # with no visibility column -- also project_only, confirmed by direct
+    # look. Its `created_by` owner column still resolves fine (this tier
+    # doesn't require the absence of one, only of `visibility`); the actual
+    # binding is enforced by direct project_id equality in
+    # `auth.py::resolve_identity`, not the 3-tier visibility scheme.
+    SCOPING_PROJECT_ONLY: 9,
 }
 
 

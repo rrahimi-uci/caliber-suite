@@ -78,6 +78,15 @@ _SCOPE_CACHE_KEY = "caliber_resolved_user"
 #: resolution. Absent for every other credential, which is what makes the
 #: intersection in :func:`current_scopes` a no-op for sessions and headers.
 _PAT_SCOPES_KEY = "caliber_pat_requested_scopes"
+#: `P1-E`: which kind of credential resolved this request
+#: (``"session"`` | ``"pat"`` | ``"trusted_header"``), and -- for a PAT --
+#: which token and, when bound, which project. Stashed during
+#: :func:`_resolve_user`/:func:`_session_user` the same way
+#: ``_PAT_SCOPES_KEY`` is, so a cached :func:`current_user` result still
+#: leaves these readable by :func:`resolve_identity` later in the request.
+_CREDENTIAL_KIND_KEY = "caliber_credential_kind"
+_CREDENTIAL_ID_KEY = "caliber_credential_id"
+_CREDENTIAL_PROJECT_KEY = "caliber_credential_project_id"
 
 # Scope vocabulary. Names match the implementation-parity checklist §11. Kept as module constants so a
 # typo in a route handler fails at import time rather than at request
@@ -148,11 +157,15 @@ def _resolve_user(request: Request) -> str:
         return ANONYMOUS
     actor = _identity_or_anonymous(raw_header)
     if actor != ANONYMOUS:
+        request.scope[_CREDENTIAL_KIND_KEY] = "trusted_header"
         return actor
     # The fallback applies only when no header was sent at all, so an explicitly
     # blank header cannot be used to pick up an ambient privileged identity.
     if raw_header is None and bool(getattr(config, "auth_dev_fallback_enabled", False)):
-        return _identity_or_anonymous(getattr(config, "dev_user", ""))
+        actor = _identity_or_anonymous(getattr(config, "dev_user", ""))
+        if actor != ANONYMOUS:
+            request.scope[_CREDENTIAL_KIND_KEY] = "trusted_header"
+        return actor
     return ANONYMOUS
 
 
@@ -185,7 +198,10 @@ def _session_user(request: Request, config: Any) -> str | None:
 
     When a PAT authenticates the request, the scopes it *requested* are stashed
     on the request scope for :func:`current_scopes` to intersect with what the
-    owner actually holds. The token is a ceiling, never a grant.
+    owner actually holds. The token is a ceiling, never a grant. `P1-E`: the
+    token's id and (optional) project binding are stashed alongside them, for
+    :func:`resolve_identity` to surface as ``CaliberIdentity.credential_id``/
+    ``.credential_project_id`` and to enforce.
     """
     del config
     token = session_token_from_request(request)
@@ -206,10 +222,15 @@ def _session_user(request: Request, config: Any) -> str | None:
                 resolved = resolve_personal_access_token(db, token)
                 if resolved is None:
                     return None
-                user_id, requested_scopes = resolved
-                request.scope[_PAT_SCOPES_KEY] = requested_scopes
-                return user_id
-            return resolve_session(db, token)
+                request.scope[_PAT_SCOPES_KEY] = resolved.requested_scopes
+                request.scope[_CREDENTIAL_KIND_KEY] = "pat"
+                request.scope[_CREDENTIAL_ID_KEY] = resolved.token_id
+                request.scope[_CREDENTIAL_PROJECT_KEY] = resolved.project_id
+                return resolved.user_id
+            session_user = resolve_session(db, token)
+            if session_user is not None:
+                request.scope[_CREDENTIAL_KIND_KEY] = "session"
+            return session_user
     except Exception:  # a broken session store must not 500 every route
         return None
 
@@ -305,30 +326,96 @@ class CaliberIdentity:
     ``X-CALIBER-Project`` header) into one value an endpoint can pass to the
     scoping helper. ``user_id`` matches the ``owner`` column stored on
     resources.
+
+    `P1-E` (docs/workspace-plan.md section 9.2) adds ``credential_kind``/
+    ``credential_id``/``credential_project_id``: which credential resolved
+    this request (``"session"`` | ``"pat"`` | ``"trusted_header"``), and --
+    for a personal access token -- which one and, when bound, which
+    project. Only a PAT ever sets ``credential_project_id``; that is the
+    value :func:`resolve_identity` enforces the project-binding refusal
+    against.
     """
 
     user_id: str
     scopes: frozenset[str]
     active_project_id: str | None = None
+    credential_kind: str | None = None
+    credential_id: str | None = None
+    credential_project_id: str | None = None
 
     def has_scope(self, scope: str) -> bool:
         return scope in self.scopes
 
 
 def resolve_identity(request: Request) -> CaliberIdentity:
-    """Resolve user, scopes, and active project from the request.
+    """Resolve user, scopes, active project, and credential context from the request.
 
     Reuses :func:`current_user` and :func:`current_scopes` so identity
     resolution stays in one place, and reads the active project from the
     ``X-CALIBER-Project`` header (``None`` when absent or blank).
+
+    `P1-E`: when the resolved credential is a project-bound personal access
+    token, this also enforces the binding -- refusing (403) any request
+    that names a *different* project via the ``X-CALIBER-Project`` header
+    or a ``{project_id}`` path segment (section 9.2: "refused whenever the
+    URL/header ... names a different workspace"). A request that names no
+    project at all is not itself a violation -- nothing conflicts with the
+    binding. The "resource owner" and "persisted worker context" conjuncts
+    section 9.2 also names are not enforced here: neither has a modeled
+    check yet (no per-resource pinning, no worker-identity context --
+    Phase 2/4's job), so extending this guard to them now would be an
+    unbuilt no-op dressed up as a real check.
     """
+    user = current_user(request)  # a side effect: stashes credential context below, if not cached
+    scopes = current_scopes(request)
     raw_project = request.headers.get(_PROJECT_HEADER)
-    project = raw_project.strip() if raw_project else ""
-    return CaliberIdentity(
-        user_id=current_user(request),
-        scopes=current_scopes(request),
-        active_project_id=project or None,
+    stripped_project = raw_project.strip() if raw_project else ""
+    header_project: str | None = stripped_project or None
+
+    credential_kind = request.scope.get(_CREDENTIAL_KIND_KEY)
+    credential_id = request.scope.get(_CREDENTIAL_ID_KEY)
+    credential_project_id = request.scope.get(_CREDENTIAL_PROJECT_KEY)
+    if not isinstance(credential_project_id, str):
+        credential_project_id = None
+    path_project = request.path_params.get("project_id")
+
+    _enforce_pat_project_binding(
+        credential_project_id,
+        header_project,
+        path_project if isinstance(path_project, str) else None,
     )
+
+    return CaliberIdentity(
+        user_id=user,
+        scopes=scopes,
+        active_project_id=header_project,
+        credential_kind=credential_kind if isinstance(credential_kind, str) else None,
+        credential_id=credential_id if isinstance(credential_id, str) else None,
+        credential_project_id=credential_project_id,
+    )
+
+
+def _enforce_pat_project_binding(
+    credential_project_id: str | None,
+    header_project_id: str | None,
+    path_project_id: str | None,
+) -> None:
+    """Refuse a project-bound PAT acting on a different, explicitly named
+    project (`P1-E`, section 9.2). A no-op for an unbound credential
+    (``credential_project_id is None``) or when the request names no
+    project at all via either channel.
+    """
+    if credential_project_id is None:
+        return
+    for named in (header_project_id, path_project_id):
+        if named is not None and named != credential_project_id:
+            raise HTTPException(
+                status_code=403,
+                detail=(
+                    f"this personal access token is bound to project "
+                    f"{credential_project_id!r} and cannot act on project {named!r}"
+                ),
+            )
 
 
 def require_scopes(request: Request, scopes: Iterable[str]) -> str:

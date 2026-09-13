@@ -33,6 +33,7 @@ class TokensAPI(Resource):
         # method rather than the builtin.
         scopes: Sequence[str] | None = None,
         expires_at: str | None = None,
+        project_id: str | None = None,
     ) -> IssuedToken:
         """Issue a token. The plaintext is returned **once** — store it now.
 
@@ -40,12 +41,19 @@ class TokensAPI(Resource):
         intersection with what the owner holds at request time. Omit it to
         inherit the owner's scopes. Requesting a scope the caller does not hold
         is refused rather than silently narrowed.
+
+        ``project_id`` optionally binds the token to one project you already
+        hold a role in -- the server refuses to issue a token bound to a
+        project you have no relationship with. A bound token is then refused
+        for any request that names a *different* project.
         """
         body: dict[str, Any] = {"name": name}
         if scopes is not None:
             body["scopes"] = list(scopes)
         if expires_at is not None:
             body["expires_at"] = expires_at
+        if project_id is not None:
+            body["project_id"] = project_id
         return decode(IssuedToken, self._post("/auth/tokens", json=body))
 
     def revoke(self, token_id: str) -> bool:

@@ -271,3 +271,128 @@ def test_a_session_token_is_not_treated_as_a_pat(client: TestClient) -> None:
     """The prefix branch must not misroute an ordinary session token."""
     response = client.get(CAPABILITIES, headers=_as_token("not-prefixed-at-all"))
     assert response.status_code in (401, 403)
+
+
+# --------------------------------------------------------------------------
+# Project binding (`P1-E`, docs/workspace-plan.md Phase 1 item 7)
+# --------------------------------------------------------------------------
+
+
+def _create_project(client: TestClient, name: str = "PAT project") -> str:
+    resp = client.post(f"{PREFIX}/projects", json={"name": name, "description": "demo"})
+    assert resp.status_code == 201, resp.text
+    return resp.json()["data"]["project_id"]
+
+
+def test_omitting_project_id_issues_an_unbound_token(client: TestClient) -> None:
+    issued = _issue(client)
+    assert issued["project_id"] is None
+
+
+def test_null_project_id_issues_an_unbound_token(client: TestClient) -> None:
+    issued = _issue(client, project_id=None)
+    assert issued["project_id"] is None
+
+
+def test_project_id_must_be_a_string(client: TestClient) -> None:
+    resp = client.post(TOKENS_PATH, json={"name": "bad", "project_id": 123})
+    assert resp.status_code == 400
+
+
+def test_issuing_a_bound_token_requires_a_real_project(client: TestClient) -> None:
+    resp = client.post(
+        TOKENS_PATH, json={"name": "no-such-project", "project_id": "PRJ-does-not-exist"}
+    )
+    assert resp.status_code == 404, resp.text
+
+
+def test_issuing_a_bound_token_requires_the_caller_to_hold_a_role_on_it(
+    client: TestClient,
+) -> None:
+    """A token cannot be bound to a project its owner has no relationship
+    to -- that would silently mint a permanently-inert credential rather
+    than refusing the confusing request up front. Same 404 as a project
+    that doesn't exist at all, for the same reason `require_project_access`
+    always hides "exists but you're not in it" behind "not found"."""
+    project_id = _create_project(client)
+    resp = client.post(
+        TOKENS_PATH,
+        json={"name": "not-my-project", "project_id": project_id},
+        headers={"X-CALIBER-User": "@stranger"},
+    )
+    assert resp.status_code == 404, resp.text
+
+
+def test_issuing_a_bound_token_succeeds_for_a_real_member(client: TestClient) -> None:
+    project_id = _create_project(client)
+    issued = _issue(client, project_id=project_id)
+    assert issued["project_id"] == project_id
+
+    listed = client.get(TOKENS_PATH).json()["data"]["tokens"]
+    assert listed[0]["project_id"] == project_id
+
+
+def test_rotation_preserves_the_project_binding(client: TestClient) -> None:
+    project_id = _create_project(client)
+    issued = _issue(client, project_id=project_id)
+    rotated = client.post(f"{TOKENS_PATH}/{issued['token_id']}/rotate")
+    assert rotated.status_code == 201, rotated.text
+    assert rotated.json()["data"]["project_id"] == project_id
+
+
+def test_a_project_bound_token_is_refused_for_a_different_project_via_path(
+    client: TestClient,
+) -> None:
+    bound_project = _create_project(client, "Bound project")
+    other_project = _create_project(client, "Other project")
+    token = _issue(client, project_id=bound_project)["token"]
+
+    resp = client.get(f"{PREFIX}/projects/{other_project}", headers=_as_token(token))
+    assert resp.status_code == 403, resp.text
+    assert bound_project in resp.json()["detail"]
+
+
+def test_a_project_bound_token_is_refused_for_a_different_project_via_header(
+    client: TestClient,
+) -> None:
+    bound_project = _create_project(client, "Bound project")
+    other_project = _create_project(client, "Other project")
+    token = _issue(client, project_id=bound_project)["token"]
+
+    headers = _as_token(token)
+    headers["X-CALIBER-Project"] = other_project
+    resp = client.post(
+        f"{PREFIX}/workflows", json={"name": "should be refused", "owner": "@test"}, headers=headers
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_a_project_bound_token_works_for_its_own_project(client: TestClient) -> None:
+    project_id = _create_project(client)
+    token = _issue(client, project_id=project_id)["token"]
+
+    resp = client.get(f"{PREFIX}/projects/{project_id}", headers=_as_token(token))
+    assert resp.status_code == 200, resp.text
+
+
+def test_a_project_bound_token_still_works_when_no_project_is_named(client: TestClient) -> None:
+    """The no-op path: nothing conflicts with the binding when the request
+    names no project at all via either channel."""
+    project_id = _create_project(client)
+    token = _issue(client, project_id=project_id)["token"]
+
+    resp = client.get(CAPABILITIES, headers=_as_token(token))
+    assert resp.status_code == 200, resp.text
+
+
+def test_an_unbound_token_is_unaffected_by_a_mismatched_project_header(
+    client: TestClient,
+) -> None:
+    project_a = _create_project(client, "A")
+    project_b = _create_project(client, "B")
+    token = _issue(client)["token"]  # no project_id: nothing to enforce
+
+    headers = _as_token(token)
+    headers["X-CALIBER-Project"] = project_b
+    resp = client.get(f"{PREFIX}/projects/{project_a}", headers=headers)
+    assert resp.status_code == 200, resp.text

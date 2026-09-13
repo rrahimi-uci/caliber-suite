@@ -1487,7 +1487,7 @@ This callable takes no public parameters.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `create(name: str, *, scopes: Sequence[str] | None = None, expires_at: str | None = None) -> IssuedToken`
+###### `create(name: str, *, scopes: Sequence[str] | None = None, expires_at: str | None = None, project_id: str | None = None) -> IssuedToken`
 
 Issue a token. The plaintext is returned **once** — store it now.
 
@@ -1496,11 +1496,17 @@ intersection with what the owner holds at request time. Omit it to
 inherit the owner's scopes. Requesting a scope the caller does not hold
 is refused rather than silently narrowed.
 
+``project_id`` optionally binds the token to one project you already
+hold a role in -- the server refuses to issue a token bound to a
+project you have no relationship with. A bound token is then refused
+for any request that names a *different* project.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `name` | positional-or-keyword | `str` | `—` |
 | `scopes` | keyword-only | `Sequence[str] | None` | `None` |
 | `expires_at` | keyword-only | `str | None` | `None` |
+| `project_id` | keyword-only | `str | None` | `None` |
 
 **Returns:** [`IssuedToken`](#issuedtoken)
 
@@ -9355,6 +9361,7 @@ rotate calls return — mirroring the server, where a listed token has no
 | `revoked_reason` | `str | None` | `None` |
 | `rotated_from` | `str | None` | `None` |
 | `active` | `bool` | `True` |
+| `project_id` | `str | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `IssuedToken`

@@ -406,6 +406,7 @@ def _token_view(row: Any) -> dict[str, Any]:
         "revoked_reason": row.revoked_reason,
         "rotated_from": row.rotated_from,
         "active": row.revoked_at is None,
+        "project_id": row.project_id,
     }
 
 
@@ -448,6 +449,41 @@ def _validated_scopes(payload: dict[str, Any], request: Request) -> list[str]:
     return sorted(scopes)
 
 
+def _requested_project_binding(payload: dict[str, Any]) -> str | None:
+    """`P1-E`: the optional project to bind a new token to.
+
+    Only shape-validates the request body -- whether the caller actually
+    holds a role on that project is a database question, checked inside
+    :func:`_create_token`'s already-open session rather than here.
+    """
+    raw = payload.get("project_id")
+    if raw in (None, ""):
+        return None
+    if not isinstance(raw, str):
+        raise HTTPException(status_code=400, detail="project_id must be a string")
+    return raw
+
+
+def _validate_pat_project_binding(session: Any, *, actor: str, project_id: str) -> None:
+    """A token can only be bound to a project its owner can actually act in
+    -- otherwise issuing one would silently mint a permanently-inert
+    credential rather than refusing the confusing request up front.
+
+    Reuses :func:`resource_access.require_project_access`'s own 404-for-
+    hidden-or-nonexistent / membership check with the ``"read"`` action --
+    granted to every project role, so this denies only "no membership at
+    all", not a role-specific ceiling (issuance is not itself the
+    project-scoped action; the token's *use* is, enforced per request by
+    ``auth.py::resolve_identity``).
+    """
+    from caliber.auth import CaliberIdentity  # noqa: PLC0415
+    from caliber.resource_access import require_project_access  # noqa: PLC0415
+
+    require_project_access(
+        session, CaliberIdentity(user_id=actor, scopes=frozenset()), project_id, "read"
+    )
+
+
 # The four token operations below run their database work in module-level
 # synchronous helpers dispatched through ``run_in_threadpool``. Two reasons:
 # the route layer is async while SQLAlchemy here is not, so an inline session
@@ -468,8 +504,11 @@ def _create_token(
     name: str,
     scopes: list[str],
     expires_at: datetime | None,
+    project_id: str | None,
 ) -> tuple[dict[str, Any], str]:
     with factory() as session:
+        if project_id is not None:
+            _validate_pat_project_binding(session, actor=actor, project_id=project_id)
         try:
             issued = create_personal_access_token(
                 session,
@@ -478,6 +517,7 @@ def _create_token(
                 scopes=scopes,
                 expires_at=expires_at,
                 created_by=actor,
+                project_id=project_id,
             )
         except AccountError as exc:
             raise HTTPException(status_code=400, detail=str(exc)) from exc
@@ -492,6 +532,7 @@ def _create_token(
             details={
                 "scopes": scopes,
                 "expires_at": expires_at.isoformat() if expires_at else None,
+                "project_id": project_id,
             },
         )
         session.commit()
@@ -533,6 +574,7 @@ def _rotate_token(factory: Any, *, actor: str, token_id: str) -> tuple[dict[str,
             expires_at=row.expires_at,
             created_by=actor,
             rotated_from=token_id,
+            project_id=row.project_id,
         )
         revoke_personal_access_token(session, token_id=token_id, reason="rotated")
         audit_record(
@@ -564,6 +606,7 @@ async def create_token(request: Request) -> JSONResponse:
     payload = await parse_json_object(request)
     scopes = _validated_scopes(payload, request)
     expires_at = _requested_expiry(payload)
+    project_id = _requested_project_binding(payload)
     view, secret = await run_in_threadpool(
         _create_token,
         get_session_factory(request),
@@ -571,6 +614,7 @@ async def create_token(request: Request) -> JSONResponse:
         name=str(payload.get("name") or ""),
         scopes=scopes,
         expires_at=expires_at,
+        project_id=project_id,
     )
     view["token"] = secret
     return envelope_response(IssuedPersonalAccessTokenSchema.model_validate(view), status_code=201)
@@ -587,7 +631,7 @@ async def revoke_token(request: Request) -> JSONResponse:
 
 
 async def rotate_token(request: Request) -> JSONResponse:
-    """Replace a token with a new secret, preserving name and scopes.
+    """Replace a token with a new secret, preserving name, scopes, and project binding.
 
     Rotation is one transaction: the old token is revoked and the replacement
     issued together, so a failure cannot leave an account with two live tokens
