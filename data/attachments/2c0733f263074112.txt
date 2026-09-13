@@ -1,0 +1,9 @@
+{"t":"2026-09-13T05:07:39.380Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-13T05:07:39.397Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-13T05:07:39.399Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-13T05:07:39.400Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-13T05:07:39.436Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/verification-queue \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T05:07:39.444Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/verification-queue \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T05:07:39.451Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/verification-queue/FB-585f1233/verify \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-13T05:07:39.462Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/verification-queue/batch \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-13T05:07:39.466Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/verification-queue/FB-172771e7 \"HTTP/1.1 200 OK\""}
