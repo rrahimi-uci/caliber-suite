@@ -35,7 +35,14 @@ _ROUTES = Path(__file__).resolve().parents[1] / "src" / "caliber" / "routes"
 #: following the same synchronous-session pattern every other handler in that
 #: file already uses -- converting the whole file is the same out-of-scope,
 #: separate refactor this module's docstring already describes.
-_BASELINE = 248
+#:
+#: Bumped from 248 to 252: `P1-F` added four new `routes/projects.py` handlers
+#: (`list_project_environments`/`get_project_environment`/
+#: `enable_project_environment`/`disable_project_environment`), same reasoning
+#: as the `P1-C` bump directly above -- this file's own established, uniform
+#: convention (every one of its ~20+ other handlers) is inline
+#: `with factory() as session`, never `run_in_threadpool`.
+_BASELINE = 252
 
 _SESSION_MARKERS = ("with factory() as session", "with session_factory() as session")
 

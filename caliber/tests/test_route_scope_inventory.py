@@ -345,13 +345,15 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
     """Ratchet, matching this session's inventory-test style (e.g.
     `test_resource_inventory.py`'s distribution pin): `P1-D` closed
     `PROJECT_ACTIONS` over section 2.4's full 29-key target vocabulary, of
-    which 10 are wired to a live route's `require_project_access()`/
-    `_require_project_action()`/`require_project_access_if_scoped()` call.
-    The other 19 are reserved -- declared for a route family that doesn't
-    exist yet (Change Requests, version tags, environments, releases/
-    operations, `source.manage`), or (`resource.write.evidence`,
-    `rework.update`) deliberately not wired for reasons documented directly
-    on those `PROJECT_ACTIONS` entries (isolation closure and project-scoped
+    which 11 are wired to a live route's `require_project_access()`/
+    `_require_project_action()`/`require_project_access_if_scoped()` call
+    (10 as of `P1-D`; `P1-F` adds `environment.manage` via
+    `routes/projects.py`'s new environment enable/disable routes). The
+    other 18 are reserved -- declared for a route family that doesn't
+    exist yet (Change Requests, version tags, releases/operations,
+    `source.manage`), or (`resource.write.evidence`, `rework.update`)
+    deliberately not wired for reasons documented directly on those
+    `PROJECT_ACTIONS` entries (isolation closure and project-scoped
     rework tasks are each a separate, later prerequisite). A change to
     either side is a real event (a route started/stopped enforcing an
     action, or the registry gained/lost a reserved key) and must update
@@ -381,6 +383,8 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
         "resource.publish",
         "resource.execute",
         "feedback.submit",
+        # `P1-F`: `routes/projects.py`'s environment enable/disable routes.
+        "environment.manage",
     }
     assert set(PROJECT_ACTIONS) - live_actions == {
         "source.manage",
@@ -394,7 +398,6 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
         "change_request.comment",
         "change_request.review",
         "change_request.manage",
-        "environment.manage",
         "release.request",
         "release.evaluate",
         "release.quality_signoff",

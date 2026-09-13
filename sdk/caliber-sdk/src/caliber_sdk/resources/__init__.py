@@ -2,7 +2,7 @@
 
 from ._base import Resource
 from .assets import AgentsAPI, PromptsAPI, SkillsAPI, ToolsAPI
-from .auth import AccountsAPI, AuthAPI, TokensAPI
+from .auth import AccountsAPI, AdminAPI, AuthAPI, TokensAPI
 from .integrations import (
     GatewayAPI,
     KnowledgeBasesAPI,
@@ -45,6 +45,7 @@ from .workflows import (
 
 __all__ = [
     "AccountsAPI",
+    "AdminAPI",
     "AgentsAPI",
     "AriaAPI",
     "AriaDraftsAPI",

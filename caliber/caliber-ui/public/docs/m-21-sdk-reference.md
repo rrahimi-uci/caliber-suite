@@ -47,6 +47,7 @@ Every documented class and module-level function, with the module that defines i
 | --- | --- |
 | [`Account`](#account) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`AccountsAPI`](#accountsapi) | [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth) |
+| [`AdminAPI`](#adminapi) | [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth) |
 | [`AgentsAPI`](#agentsapi) | [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets) |
 | [`AriaAPI`](#ariaapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
 | [`AriaDraftsAPI`](#ariadraftsapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
@@ -185,6 +186,7 @@ Every documented class and module-level function, with the module that defines i
 | --- | --- |
 | [`Page`](#page) | [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon) |
 | [`PersonalAccessToken`](#personalaccesstoken) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`PlatformAdminInventory`](#platformadmininventory) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`PlaygroundRunsAPI`](#playgroundrunsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`Project`](#project) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`ProjectFile`](#projectfile) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
@@ -273,6 +275,7 @@ Every documented class and module-level function, with the module that defines i
 | [`WorkflowServicesAPI`](#workflowservicesapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`WorkflowVersion`](#workflowversion) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`WorkflowVersionsAPI`](#workflowversionsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
+| [`WorkspaceEnvironment`](#workspaceenvironment) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 
 ## Package index
 
@@ -389,6 +392,7 @@ Operate on the caliber client surface with the supplied arguments and return the
 | `releases` | `ReleasesAPI` | Release candidates, waivers, signoff, and reports. |
 | `observability` | `ObservabilityAPI` | Traces, experiments, and metrics. |
 | `audit` | `AuditAPI` | The audit log. |
+| `admin` | `AdminAPI` | — |
 | `events` | `EventsAPI` | Server-sent event stream. |
 | `cookbooks` | `CookbooksAPI` | The built-in cookbook catalog and installer. |
 | `secrets` | `SecretsAPI` | Write-only secret references. |
@@ -1448,7 +1452,7 @@ Resource modules — typed façades over route groups.
 
 **Public exports**
 
-`AccountsAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `LlmPricingAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `PlaygroundRunsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `QualityReviewsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `ReworkTasksAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `VerificationQueueAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+`AccountsAPI`, `AdminAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `LlmPricingAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `PlaygroundRunsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `QualityReviewsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `ReworkTasksAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `VerificationQueueAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
 
 ### Module `caliber_sdk.resources.auth`
 
@@ -1462,7 +1466,7 @@ sdk/caliber-sdk/examples/tokens.py#issue_scoped_token
 
 **Public exports**
 
-`AccountsAPI`, `AuthAPI`, `TokensAPI`
+`AccountsAPI`, `AdminAPI`, `AuthAPI`, `TokensAPI`
 
 #### Classes
 
@@ -1655,6 +1659,32 @@ How this client's identity was established.
 This callable takes no public parameters.
 
 **Returns:** [`SessionInfo`](#sessioninfo)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `AdminAPI`
+
+`class AdminAPI()`
+
+Platform-wide, admin-only operational surfaces.
+
+**Methods**
+
+###### `platform_admin_inventory() -> PlatformAdminInventory`
+
+Who currently holds each config-driven global scope.
+
+Metadata only -- ``caliber.admin``-gated, and grants no project or
+resource access itself. See ``docs/workspace-plan.md`` Phase 1 item
+13 for why this exists: a recovery/support aid for "who do I even
+ask", not a capability.
+
+This callable takes no public parameters.
+
+**Returns:** [`PlatformAdminInventory`](#platformadmininventory)
 
 **Raises:**
 
@@ -2116,6 +2146,69 @@ Where project files live, and what else the deployment supports.
 This callable takes no public parameters.
 
 **Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_environments(project_id: str) -> list[WorkspaceEnvironment]`
+
+The project's four fixed environments, in promotion order.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`list[WorkspaceEnvironment]`](#workspaceenvironment)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get_environment(project_id: str, name: str) -> WorkspaceEnvironment`
+
+Operate on the projects surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`WorkspaceEnvironment`](#workspaceenvironment)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `enable_environment(project_id: str, name: str) -> WorkspaceEnvironment`
+
+Explicit lifecycle transition to ``"active"``; Admin-only.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`WorkspaceEnvironment`](#workspaceenvironment)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `disable_environment(project_id: str, name: str) -> WorkspaceEnvironment`
+
+Explicit lifecycle transition to ``"disabled"``; Admin-only.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`WorkspaceEnvironment`](#workspaceenvironment)
 
 **Raises:**
 
@@ -9154,7 +9247,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceEnvironment`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -9267,7 +9360,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`Account`, `Capabilities`, `Extensibility`, `Identity`, `IssuedToken`, `LlmSetupStatus`, `OptimizerPlugin`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `RegisteredOptimizer`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `WorkflowRunCapabilities`
+`Account`, `Capabilities`, `Extensibility`, `Identity`, `IssuedToken`, `LlmSetupStatus`, `OptimizerPlugin`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `RegisteredOptimizer`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `WorkflowRunCapabilities`, `WorkspaceEnvironment`
 
 #### Classes
 
@@ -9361,8 +9454,8 @@ rotate calls return — mirroring the server, where a listed token has no
 | `revoked_reason` | `str | None` | `None` |
 | `rotated_from` | `str | None` | `None` |
 | `active` | `bool` | `True` |
-| `project_id` | `str | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `project_id` | `str | None` | `None` |
 
 ##### `IssuedToken`
 
@@ -9372,11 +9465,35 @@ rotate calls return — mirroring the server, where a listed token has no
 
 A freshly issued token. ``token`` is returned exactly once, ever.
 
+``token`` is keyword-only (``field(kw_only=True)``), not merely last by
+position: it is appended after every inherited `PersonalAccessToken`
+field, so a future field added to that base class would otherwise
+shift `token`'s positional slot without any signal at the call site --
+the same defect class this file's own `Project`/`PersonalAccessToken`
+field-order fixes (#297, and this PR) exist to prevent, closed here
+permanently rather than re-litigated on every future base-class field.
+
 **Dataclass fields**
 
 | Field | Type | Default |
 | --- | --- | --- |
-| `token` | `str` | `''` |
+| `token` | `str` | `field(default='', kw_only=True)` |
+
+##### `PlatformAdminInventory`
+
+`class PlatformAdminInventory()`
+
+Who currently holds each config-driven global scope. Metadata only --
+granting nothing beyond knowing who to ask or recover through.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `admin_users` | `list[str]` | `field(default_factory=list)` |
+| `approver_users` | `list[str]` | `field(default_factory=list)` |
+| `operator_users` | `list[str]` | `field(default_factory=list)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `WorkflowRunCapabilities`
 
@@ -9644,6 +9761,32 @@ means "not reported here", which is why it is not defaulted to 0.
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 | `archived_at` | `str | None` | `None` |
 | `archived_by` | `str | None` | `None` |
+
+##### `WorkspaceEnvironment`
+
+`class WorkspaceEnvironment()`
+
+One of a project's four fixed environments (`dev`/`qa`/`staging`/
+`prod`). ``access_role``/``permissions`` mirror the caller's
+project-wide role exactly -- an environment carries no separate
+per-environment role in this MVP.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `environment_id` | `str` | `''` |
+| `project_id` | `str` | `''` |
+| `name` | `str` | `''` |
+| `environment_class` | `str` | `''` |
+| `promotion_order` | `int` | `0` |
+| `status` | `str` | `''` |
+| `created_by` | `str` | `''` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `access_role` | `str | None` | `None` |
+| `permissions` | `list[str]` | `field(default_factory=list)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `ProjectMember`
 

@@ -11,7 +11,7 @@ import warnings
 from typing import Any, BinaryIO
 
 from ..models._decode import decode, decode_list
-from ..models.core import Project, ProjectFile, ProjectFolder, ProjectMember
+from ..models.core import Project, ProjectFile, ProjectFolder, ProjectMember, WorkspaceEnvironment
 from ._base import Resource
 
 _List = list
@@ -201,6 +201,32 @@ class ProjectsAPI(Resource):
     def storage(self) -> Any:
         """Where project files live, and what else the deployment supports."""
         return self._get("/projects/storage")
+
+    def list_environments(self, project_id: str) -> _List[WorkspaceEnvironment]:
+        """The project's four fixed environments, in promotion order."""
+        payload = self._get(f"/projects/{project_id}/environments")
+        if not isinstance(payload, dict):
+            return []
+        return decode_list(WorkspaceEnvironment, payload.get("environments"))
+
+    def get_environment(self, project_id: str, name: str) -> WorkspaceEnvironment:
+        return decode(
+            WorkspaceEnvironment, self._get(f"/projects/{project_id}/environments/{name}")
+        )
+
+    def enable_environment(self, project_id: str, name: str) -> WorkspaceEnvironment:
+        """Explicit lifecycle transition to ``"active"``; Admin-only."""
+        return decode(
+            WorkspaceEnvironment,
+            self._post(f"/projects/{project_id}/environments/{name}/enable"),
+        )
+
+    def disable_environment(self, project_id: str, name: str) -> WorkspaceEnvironment:
+        """Explicit lifecycle transition to ``"disabled"``; Admin-only."""
+        return decode(
+            WorkspaceEnvironment,
+            self._post(f"/projects/{project_id}/environments/{name}/disable"),
+        )
 
 
 __all__ = ["ProjectFilesAPI", "ProjectsAPI"]

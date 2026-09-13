@@ -152,6 +152,25 @@ def test_revoking_an_accounts_sessions_hits_the_real_route() -> None:
     assert seen == ["DELETE /auth/accounts/U-1/sessions"]
 
 
+def test_platform_admin_inventory_decodes_the_three_lists() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/admin/platform-admins")
+        return envelope(
+            {
+                "admin_users": ["@alice"],
+                "approver_users": ["@bob"],
+                "operator_users": ["@carol", "@dave"],
+            }
+        )
+
+    with client_with(handler) as caliber:
+        inventory = caliber.admin.platform_admin_inventory()
+
+    assert inventory.admin_users == ["@alice"]
+    assert inventory.approver_users == ["@bob"]
+    assert inventory.operator_users == ["@carol", "@dave"]
+
+
 # --- identity -------------------------------------------------------------
 
 
@@ -324,6 +343,46 @@ def test_archive_restore_and_transfer_ownership() -> None:
         ("POST", "/projects/PRJ-1/archive", None),
         ("POST", "/projects/PRJ-1/restore", None),
         ("POST", "/projects/PRJ-1/transfer-ownership", {"new_owner_user_id": "@bob"}),
+    ]
+
+
+def test_project_environments_list_get_enable_disable() -> None:
+    seen: list[tuple[str, str]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = request.url.path.rsplit("/caliber", 1)[-1]
+        seen.append((request.method, path))
+        env = {
+            "environment_id": "WSE-1",
+            "project_id": "PRJ-1",
+            "name": "qa",
+            "environment_class": "qa",
+            "promotion_order": 20,
+            "status": "active" if path.endswith("/enable") else "disabled",
+            "created_by": "@alice",
+            "access_role": "owner",
+            "permissions": ["read", "environment.manage"],
+        }
+        if path.endswith("/environments"):
+            return envelope({"environments": [env]})
+        return envelope(env)
+
+    with client_with(handler) as caliber:
+        environments = caliber.projects.list_environments("PRJ-1")
+        detail = caliber.projects.get_environment("PRJ-1", "qa")
+        enabled = caliber.projects.enable_environment("PRJ-1", "qa")
+        disabled = caliber.projects.disable_environment("PRJ-1", "qa")
+
+    assert [e.name for e in environments] == ["qa"]
+    assert environments[0].access_role == "owner"
+    assert detail.environment_class == "qa"
+    assert enabled.status == "active"
+    assert disabled.status == "disabled"
+    assert seen == [
+        ("GET", "/projects/PRJ-1/environments"),
+        ("GET", "/projects/PRJ-1/environments/qa"),
+        ("POST", "/projects/PRJ-1/environments/qa/enable"),
+        ("POST", "/projects/PRJ-1/environments/qa/disable"),
     ]
 
 

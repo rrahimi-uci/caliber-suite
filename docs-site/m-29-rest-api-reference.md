@@ -104,7 +104,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Me (`me`) | `ga` | `1` | Typed SDK | `CaliberClient.whoami()`, `client.me.get()` | Identity and effective scopes for the current credential. |
 | Capabilities (`capabilities`) | `ga` | `1` | Typed SDK | `CaliberClient.capabilities()`, `client.capabilities_info.get()` | Feature flags and SDK stability tiers for the current deployment. |
 | Settings (`settings`) | `ga` | `3` | Typed SDK | `client.settings.runtime()`, `client.settings.llm()` | Runtime configuration summary and LLM credential status. |
-| Projects (`projects`) | `ga` | `17` | Typed SDK | `client.projects`, `client.projects.files` | Project records, project storage visibility, uploads, folders, and downloads. |
+| Projects (`projects`) | `ga` | `21` | Typed SDK | `client.projects`, `client.projects.files` | Project records, project storage visibility, uploads, folders, and downloads. |
 | Prompts (`prompts`) | `ga` | `22` | Typed SDK | `client.prompts` | Prompt registry, versions, and alias promotion. |
 | Skills (`skills`) | `ga` | `19` | Typed SDK | `client.skills` | Skill registry, render checks, selection tests, and versions. |
 | Tools (`tools`) | `ga` | `20` | Typed SDK | `client.tools` | Tool registry plus calibration job submission and polling. |
@@ -142,6 +142,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Playground Runs (`playground-runs`) | `beta` | `3` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Secrets (`secrets`) | `beta` | `4` | Typed SDK | `client.secrets` | Secret inventory and mutation surfaces. |
 | Workflow Benchmark Reports (`workflow-benchmark-reports`) | `beta` | `4` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Admin (`admin`) | `internal` | `1` | Typed SDK | `client.admin` | Metadata-only platform Admin inventory -- who holds each config-driven global scope. |
 | Assistant (`assistant`) | `internal` | `29` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Dashboard (`dashboard`) | `internal` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | Gate Verdicts (`gate-verdicts`) | `internal` | `2` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
@@ -161,13 +162,13 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `330` |
-| Operations | `406` |
+| Route paths | `335` |
+| Operations | `411` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
 | Beta families | `21` |
-| Internal families | `9` |
+| Internal families | `10` |
 
 ### Auth and scoping contract
 
@@ -190,7 +191,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Me (`me`)](#me-me) | `1` | `1` |
 | [Capabilities (`capabilities`)](#capabilities-capabilities) | `1` | `1` |
 | [Settings (`settings`)](#settings-settings) | `3` | `2` |
-| [Projects (`projects`)](#projects-projects) | `17` | `12` |
+| [Projects (`projects`)](#projects-projects) | `21` | `16` |
 | [Prompts (`prompts`)](#prompts-prompts) | `22` | `18` |
 | [Skills (`skills`)](#skills-skills) | `19` | `16` |
 | [Tools (`tools`)](#tools-tools) | `20` | `16` |
@@ -238,6 +239,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 
 | Family | Ops | Paths |
 | --- | --- | --- |
+| [Admin (`admin`)](#admin-admin) | `1` | `1` |
 | [Assistant (`assistant`)](#assistant-assistant) | `29` | `22` |
 | [Dashboard (`dashboard`)](#dashboard-dashboard) | `1` | `1` |
 | [Gate Verdicts (`gate-verdicts`)](#gate-verdicts-gate-verdicts) | `2` | `1` |
@@ -314,7 +316,7 @@ Supported management routes that belong to the stable public automation surface.
 
 #### Projects (`projects`)
 
-17 operation(s) across 12 route path(s).
+21 operation(s) across 16 route path(s).
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
@@ -324,6 +326,10 @@ Supported management routes that belong to the stable public automation surface.
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id` |
 | `PATCH` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}` | project role (`project.update`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_projects_project_id`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/archive` | project role (`project.archive`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_archive` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/environments` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_environments` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/environments/{name}` | project role (`read`) | `name`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_environments_name` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/environments/{name}/disable` | project role (`environment.manage`) | `name`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_environments_name_disable` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/environments/{name}/enable` | project role (`environment.manage`) | `name`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_environments_name_enable` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files` | any authenticated user | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_files` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files` | project role (`resource.write.runtime`) | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_files` |
 | `DELETE` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files/{file_id}` | project role (`resource.write.runtime`) | `file_id`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_projects_project_id_files_file_id` |
@@ -919,6 +925,14 @@ Supported but still moving route groups. Expect capability growth and narrower c
 ### Internal routes
 
 Published for route-table completeness, but not part of the supported SDK contract.
+
+#### Admin (`admin`)
+
+1 operation(s) across 1 route path(s).
+
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/admin/platform-admins` | `caliber.admin` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_admin_platform_admins` |
 
 #### Assistant (`assistant`)
 

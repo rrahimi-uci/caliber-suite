@@ -22,11 +22,24 @@ from caliber.resource_access import (
 )
 
 
-def _identity(user_id: str, *, admin: bool = False) -> CaliberIdentity:
+def _identity(
+    user_id: str, *, admin: bool = False, extra_scopes: set[str] | None = None
+) -> CaliberIdentity:
     scopes = {SCOPE_VIEWER}
     if admin:
         scopes.add(SCOPE_ADMIN)
+    if extra_scopes:
+        scopes.update(extra_scopes)
     return CaliberIdentity(user_id=user_id, scopes=frozenset(scopes), active_project_id="P1")
+
+
+#: `P1-F`: `project_role()` now narrows an `owner`-role holder to `editor`
+#: unless their own *live* scopes still include both of these -- the same
+#: conjunction `is_eligible_for_owner_role` already checks at grant time,
+#: now also re-checked at every use. Tests below that specifically want a
+#: fully-eligible owner (not this narrowing itself) pass this as
+#: `extra_scopes`.
+_OWNER_ELIGIBLE_SCOPES = {SCOPE_OPERATOR, SCOPE_APPROVER}
 
 
 def test_project_roles_have_expected_action_boundaries(db_session) -> None:
@@ -107,7 +120,10 @@ def test_owner_has_management_permissions_admin_alone_does_not(db_session) -> No
     db_session.commit()
 
     assert decide_project_access(
-        db_session, _identity("@owner"), project, "project.manage_members"
+        db_session,
+        _identity("@owner", extra_scopes=_OWNER_ELIGIBLE_SCOPES),
+        project,
+        "project.manage_members",
     ).allowed
     admin_decision = decide_project_access(
         db_session, _identity("@admin", admin=True), project, "project.manage_members"
@@ -116,6 +132,41 @@ def test_owner_has_management_permissions_admin_alone_does_not(db_session) -> No
     assert admin_decision.role is None
     assert admin_decision.reason == "project_access_denied"
     assert "project.manage_members" not in permissions_for_role(ROLE_VIEWER)
+
+
+def test_an_ineligible_owner_is_narrowed_to_editor_not_locked_out(db_session) -> None:
+    """`P1-F` (item 6's residual scope): `is_eligible_for_owner_role` is
+    checked at grant/transfer time (`P1-C`); this proves the *same*
+    conjunction is also re-checked at every use. An owner (via
+    `CaliberProject.owner`, the primary-owner pointer -- not just an
+    `owner`-role membership row) whose live scopes have since dropped
+    below the required `{operator, approver}` pair keeps ordinary
+    read/write access (narrowed to `editor`) but loses every Admin-only
+    action, exactly the same shape `P1-B`'s admin-bypass removal already
+    established for a platform admin with no real membership -- narrowed,
+    not silently still-Owner, and not locked out of content either."""
+    project = CaliberProject(project_id="P-lapsed", name="lapsed", owner="@owner")
+    db_session.add(project)
+    db_session.commit()
+
+    # Only `caliber.operator`, missing `caliber.approver` -- one scope
+    # short of `OWNER_ROLE_REQUIRED_SCOPES`.
+    lapsed = _identity("@owner", extra_scopes={SCOPE_OPERATOR})
+    decision = decide_project_access(db_session, lapsed, project, "project.manage_members")
+    assert not decision.allowed
+    assert decision.role == ROLE_EDITOR
+    assert decision.reason == "permission_denied"
+
+    # Still has ordinary editor-level access to content.
+    write_decision = decide_project_access(db_session, lapsed, project, "resource.write.runtime")
+    assert write_decision.allowed
+    assert write_decision.role == ROLE_EDITOR
+
+    # Fully re-eligible (both scopes) resolves back to the real `owner` role.
+    eligible = _identity("@owner", extra_scopes=_OWNER_ELIGIBLE_SCOPES)
+    reinstated = decide_project_access(db_session, eligible, project, "project.manage_members")
+    assert reinstated.allowed
+    assert reinstated.role == ROLE_OWNER
 
 
 def test_every_decision_carries_a_closed_reason_and_the_current_policy_version(
@@ -159,7 +210,9 @@ class TestAuthorize:
         db_session.add(project)
         db_session.commit()
 
-        decision = authorize(db_session, _identity("@owner"), "read", "P4")
+        decision = authorize(
+            db_session, _identity("@owner", extra_scopes=_OWNER_ELIGIBLE_SCOPES), "read", "P4"
+        )
         assert decision.allowed
         assert decision.role == ROLE_OWNER
 
