@@ -45,7 +45,7 @@ Six possible classifications (:class:`ScopeRequirement.kind`):
   local `_require_project_action(...)` wrapper `routes/projects.py` builds
   on top of it), not a global scope at all: a separate, project-membership-role
   axis (owner/editor/reviewer/viewer against an action string like
-  ``"read"``/``"resource.write"``/``"project.manage_members"`` -- the same
+  ``"read"``/``"resource.write.runtime"``/``"project.manage_members"`` -- the same
   action vocabulary `docs/workspace-plan.md` section 2.4 names). Confirmed
   across `files.py`, `projects.py`, `object_store.py`, and
   `openapi_integrations.py` -- the four modules using this pattern today.
@@ -89,8 +89,17 @@ from typing import Any
 #: scope. `_require_project_action` is `routes/projects.py`'s own local
 #: wrapper -- it calls `require_project_access` internally, but since this
 #: module deliberately doesn't chase into helpers, its name is allowlisted
-#: here directly instead.
-_PROJECT_ACCESS_CALL_NAMES = frozenset({"require_project_access", "_require_project_action"})
+#: here directly instead. `require_project_access_if_scoped` (`P1-D`) is
+#: `resource_access.py`'s own wrapper for optionally-project-scoped
+#: resources (workflow runs, review queues) -- same 4-positional-arg shape
+#: (`session, identity, project_id, action`) as `require_project_access`
+#: itself, so `_literal_project_action` below extracts its action the same
+#: way. Skipping the check when `project_id is None` is a runtime decision
+#: this static AST walk can't see either way; what matters for the
+#: inventory is that the call site names a real, closed action.
+_PROJECT_ACCESS_CALL_NAMES = frozenset(
+    {"require_project_access", "_require_project_action", "require_project_access_if_scoped"}
+)
 
 _SCOPE_CONSTANT_NAMES = frozenset(
     {"SCOPE_VIEWER", "SCOPE_OPERATOR", "SCOPE_APPROVER", "SCOPE_ADMIN"}
@@ -250,10 +259,14 @@ def _literal_project_action(call: ast.Call) -> str | None:
     `action` as its 4th positional argument (default ``"read"`` when
     omitted); `_require_project_action(session, project_id, identity=...,
     action=...)` (`routes/projects.py`'s wrapper) always passes it as the
-    keyword `action=`, with no default of its own. Returns ``None`` (not
-    "dynamic" -- this is metadata on an already-real authorization call, not
-    the whole classification) only when a non-default action is passed
-    non-literally.
+    keyword `action=`, with no default of its own.
+    `require_project_access_if_scoped(session, identity, project_id, action)`
+    (`P1-D`) shares `require_project_access`'s 4-positional-arg shape but has
+    no default of its own -- `action` is a required parameter, so the
+    "fewer than 4 args" branch below only applies to `require_project_access`
+    itself. Returns ``None`` (not "dynamic" -- this is metadata on an
+    already-real authorization call, not the whole classification) only when
+    a non-default action is passed non-literally.
     """
     for keyword in call.keywords:
         if keyword.arg == "action":
@@ -261,13 +274,24 @@ def _literal_project_action(call: ast.Call) -> str | None:
                 return keyword.value.value
             return None
     callee = _call_name(call)
-    if callee == "require_project_access":
-        if len(call.args) < 4:
+    if callee in {"require_project_access", "require_project_access_if_scoped"}:
+        return _literal_positional_action(call, callee)
+    return None
+
+
+def _literal_positional_action(call: ast.Call, callee: str) -> str | None:
+    """The action resolved from the 4th positional argument, or
+    `require_project_access`'s own default when the call omits it entirely
+    (`require_project_access_if_scoped` has no default of its own -- `action`
+    is a required parameter there).
+    """
+    if len(call.args) < 4:
+        if callee == "require_project_access":
             return _REQUIRE_PROJECT_ACCESS_DEFAULT_ACTION
-        candidate = call.args[3]
-        if isinstance(candidate, ast.Constant) and isinstance(candidate.value, str):
-            return candidate.value
         return None
+    candidate = call.args[3]
+    if isinstance(candidate, ast.Constant) and isinstance(candidate.value, str):
+        return candidate.value
     return None
 
 

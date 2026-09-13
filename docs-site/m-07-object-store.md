@@ -308,7 +308,7 @@ held to a higher bar than scoped file writes. The access rules are:
 - Workflow and project file reads require an authenticated user *and* visibility
   of the resource the files hang off.
 - Workflow and project file writes require `SCOPE_OPERATOR` plus project
-  `resource.write` access (`owner` or `editor`) for the selected project.
+  `resource.write.runtime` access (`owner` or `editor`) for the selected project.
 
 On top of authorization, the module enforces a set of core protections at the
 boundary between CALIBER and untrusted storage:

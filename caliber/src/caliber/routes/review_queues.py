@@ -40,6 +40,7 @@ from caliber.auth import (
 from caliber.db.models import CaliberReviewItem, CaliberReviewQueue
 from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.ids import new_review_item_id, new_review_queue_id
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.review.writeback import (
     AnswerWriteBack,
     MLflowReviewWriteBackClient,
@@ -535,6 +536,9 @@ async def submit_item(request: Request) -> JSONResponse:
         )
         if queue is None:
             raise HTTPException(status_code=404, detail=f"review queue {queue_id!r} not found")
+        # `P1-D`: `feedback.submit` -- a no-op for a personal queue
+        # (`project_id is None`), a real project-role check otherwise.
+        require_project_access_if_scoped(session, identity, queue.project_id, "feedback.submit")
         if queue.status != "active":
             raise HTTPException(status_code=409, detail=f"review queue {queue_id!r} is not active")
         item = session.get(CaliberReviewItem, item_id)

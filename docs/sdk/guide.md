@@ -116,7 +116,7 @@ authorization-aware feature check before showing a write or publish action:
 
 ```python
 project = client.projects.get("PRJ-1")
-if "resource.write" not in project.permissions:
+if "resource.write.runtime" not in project.permissions:
     raise RuntimeError(f"project role {project.access_role!r} cannot write")
 
 members = client.projects.list_members(project.project_id)

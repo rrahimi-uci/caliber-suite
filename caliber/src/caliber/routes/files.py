@@ -189,7 +189,7 @@ async def staging_upload(request: Request) -> JSONResponse:
     try:
         with factory() as session:
             project, _decision = require_project_access(
-                session, identity, identity.active_project_id, "resource.write"
+                session, identity, identity.active_project_id, "resource.write.runtime"
             )
             if project.status != "active":
                 raise HTTPException(

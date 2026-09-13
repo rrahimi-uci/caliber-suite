@@ -325,10 +325,10 @@ Supported management routes that belong to the stable public automation surface.
 | `PATCH` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}` | project role (`project.update`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_projects_project_id`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/archive` | project role (`project.archive`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_archive` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files` | any authenticated user | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_files` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files` | project role (`resource.write`) | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_files` |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files/{file_id}` | project role (`resource.write`) | `file_id`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_projects_project_id_files_file_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files` | project role (`resource.write.runtime`) | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_files` |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files/{file_id}` | project role (`resource.write.runtime`) | `file_id`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_projects_project_id_files_file_id` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/files/{file_id}/content` | project role (`read`) | `file_id`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_files_file_id_content` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/folders` | project role (`resource.write`) | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_folders`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/folders` | project role (`resource.write.runtime`) | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_folders`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_members` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members` | project role (`project.manage_members`) | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_members`; request body documented in OpenAPI |
 | `DELETE` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members/{user_id}` | project role (`project.manage_members`) | `project_id`, `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_projects_project_id_members_user_id` |
@@ -465,7 +465,7 @@ Supported management routes that belong to the stable public automation surface.
 | `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service/tokens/{token_id}` | `caliber.operator` | `token_id`, `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflows_workflow_id_service_tokens_token_id` |
 | `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/session-memory` | `caliber.operator` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflows_workflow_id_session_memory` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/session-memory` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_session_memory` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/trigger` | `caliber.operator` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_trigger`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/trigger` | project role (`resource.execute`) | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_trigger`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/versions` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_versions` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/versions` | `caliber.operator` | `workflow_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_versions`; request body documented in OpenAPI |
 
@@ -498,15 +498,15 @@ Supported management routes that belong to the stable public automation surface.
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs` | `caliber.operator` | — | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs` | project role (`resource.execute`) | — | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/by-trace/{trace_id}` | any authenticated user | `trace_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_by_trace_trace_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/resume-by-event` | `caliber.operator` | — | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_resume_by_event`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/resume-by-event` | project role (`resource.execute`) | — | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_resume_by_event`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_approval_approve`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/reject` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_approval_reject`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approvals` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_approvals` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/artifacts` | `caliber.operator` | `run_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_artifacts`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/cancel` | `caliber.operator` | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_cancel`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/cancel` | project role (`resource.execute`) | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_cancel`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/checkpoints` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_checkpoints` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/events` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_events` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_files` |
@@ -515,8 +515,8 @@ Supported management routes that belong to the stable public automation surface.
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/files/{file_id}/content` | any authenticated user | `file_id`, `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_files_file_id_content` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/lineage` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_lineage` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/manifest` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_manifest` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/resume` | `caliber.operator` | `run_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_resume`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/retry` | `caliber.operator` | `run_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_retry`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/resume` | project role (`resource.execute`) | `run_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_resume`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/retry` | project role (`resource.execute`) | `run_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_retry`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/trace` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_trace` |
 
 #### Workflow Components (`workflow-components`)
@@ -541,7 +541,7 @@ Supported management routes that belong to the stable public automation surface.
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-files` | project role (`resource.write`) | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_files` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-files` | project role (`resource.write.runtime`) | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_files` |
 
 #### Services (`services`)
 
@@ -578,7 +578,7 @@ Supported management routes that belong to the stable public automation surface.
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/evaluations` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_evaluations` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/evaluations` | `caliber.operator` | — | `400`, `401`, `403`, `404` | `operationId`: `post_evaluations`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/evaluations` | project role (`resource.execute`) | — | `400`, `401`, `403`, `404` | `operationId`: `post_evaluations`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/evaluations/{run_id}` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_evaluations_run_id` |
 
 #### Judges (`judges`)
@@ -727,7 +727,7 @@ Supported but still moving route groups. Expect capability growth and narrower c
 | `PATCH` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}` | `caliber.admin` | `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_review_queues_queue_id`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/alignment-examples` | any authenticated user | `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_review_queues_queue_id_alignment_examples` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items` | `caliber.operator` | `queue_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_review_queues_queue_id_items`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items/{item_id}/submit` | `caliber.operator` | `item_id`, `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_review_queues_queue_id_items_item_id_submit`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/review-queues/{queue_id}/items/{item_id}/submit` | project role (`feedback.submit`) | `item_id`, `queue_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_review_queues_queue_id_items_item_id_submit`; request body documented in OpenAPI |
 
 #### Verification Queue (`verification-queue`)
 
@@ -877,7 +877,7 @@ Supported but still moving route groups. Expect capability growth and narrower c
 | `DELETE` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object` | `caliber.admin` | `bucket` | `204`, `400`, `401`, `403`, `404` | `operationId`: `delete_object_store_buckets_bucket_object` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object` | any authenticated user | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets_bucket_object` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object/extract` | any authenticated user | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets_bucket_object_extract` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object/import` | project role (`resource.write`) | `bucket` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets_bucket_object_import`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object/import` | project role (`resource.write.runtime`) | `bucket` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets_bucket_object_import`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/object/preview` | any authenticated user | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets_bucket_object_preview` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/objects` | any authenticated user | `bucket` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_object_store_buckets_bucket_objects` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/object-store/buckets/{bucket}/objects` | `caliber.admin` | `bucket` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_object_store_buckets_bucket_objects`; request body documented in OpenAPI |
