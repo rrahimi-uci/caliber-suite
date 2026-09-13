@@ -12,12 +12,18 @@ from starlette.testclient import TestClient
 from caliber.db.models import (
     CaliberEvalDataset,
     CaliberEvalDatasetExample,
+    CaliberKnowledgeBase,
     CaliberSkill,
     CaliberWorkflow,
     CaliberWorkflowVersion,
 )
 from caliber.workflows import deployment_bundle as deployment_bundle_module
-from caliber.workflows.deployment_bundle import seal_bundle, verify_bundle
+from caliber.workflows.deployment_bundle import (
+    build_deployment_bundle,
+    seal_bundle,
+    verify_bundle,
+)
+from caliber.workflows.manifest import parse_manifest
 from caliber.workflows.promoter import (
     AliasPreflightError,
     compile_version,
@@ -161,6 +167,12 @@ def test_bundle_pins_tool_version_and_embeds_skill_without_secret_values(
         content="Compute mean, median, and percentiles.",
         owner="@test",
         version=7,
+        # A personal (no active project) resource is created with
+        # `visibility="user"` by the real route -- see
+        # `routes/skills.py::create_skill`. The bare column default
+        # (`"project"`) with no `project_id` is a state the real API never
+        # produces and `apply_visibility_filter` never resolves.
+        visibility="user",
     )
     db_session.add_all([workflow, version, skill])
     db_session.commit()
@@ -323,6 +335,11 @@ def test_bundle_preserves_an_explicit_historical_dataset_version(
         name="monthly-quality",
         owner="@test",
         version=3,
+        # A personal (no active project) resource is created with
+        # `visibility="user"` by the real route. The bare column default
+        # (`"project"`) with no `project_id` is a state the real API never
+        # produces and `apply_visibility_filter` never resolves.
+        visibility="user",
     )
     db_session.add_all(
         [
@@ -380,3 +397,87 @@ def test_alias_rotation_rejects_a_tampered_stored_bundle(
 
     with pytest.raises(AliasPreflightError, match="integrity check failed"):
         require_alias_target_ready(db_session, "dev", version.version_id)
+
+
+# ---------------------------------------------------------------------------
+# Isolation closure (`P2`, item 5): skill/dataset/knowledge-base resolution
+# during compile/promote must respect the *workflow's own* project
+# visibility, not resolve any same-named/same-id row globally.
+# ---------------------------------------------------------------------------
+
+
+def _kb_manifest(workflow_id: str, knowledge_base_id: str) -> dict:
+    data = make_manifest(workflow_id)
+    data["nodes"]["kb_build"] = {
+        "id": "kb_build",
+        "type": "knowledge_build",
+        "knowledge_base_id": knowledge_base_id,
+        "chunking_strategy": "recursive",
+        "embedding_model": "BAAI/bge-m3",
+    }
+    return data
+
+
+def test_bundle_resolves_a_personal_knowledge_base_the_workflow_owner_can_see(
+    db_session: Session,
+) -> None:
+    workflow = CaliberWorkflow(workflow_id="wf-kb-visible", name="KB visible", owner="@test")
+    manifest_data = _kb_manifest(workflow.workflow_id, "KB-visible")
+    version = CaliberWorkflowVersion(
+        version_id="wfv-kb-visible",
+        workflow_id=workflow.workflow_id,
+        version_number=1,
+        status="draft",
+        manifest=manifest_data,
+        manifest_hash="",
+        created_by="@test",
+    )
+    kb = CaliberKnowledgeBase(
+        knowledge_base_id="KB-visible",
+        name="visible-kb",
+        owner="@test",
+        source_bucket="bucket",
+        visibility="user",
+    )
+    db_session.add_all([workflow, version, kb])
+    db_session.commit()
+
+    manifest = parse_manifest(manifest_data)
+    bundle = build_deployment_bundle(db_session, version, manifest, fake_resolver())
+    dependency = next(d for d in bundle["dependencies"] if d["kind"] == "knowledge_base")
+    assert dependency["status"] == "resolved"
+
+
+def test_bundle_hides_a_knowledge_base_in_a_different_project(db_session: Session) -> None:
+    """The fix: previously a bare `session.get(CaliberKnowledgeBase, id)` --
+    a workflow could reference (by id) a KB belonging to a project it has
+    no relationship with, and the bundle would resolve it anyway."""
+    workflow = CaliberWorkflow(
+        workflow_id="wf-kb-hidden", name="KB hidden", owner="@test", project_id=None
+    )
+    manifest_data = _kb_manifest(workflow.workflow_id, "KB-hidden")
+    version = CaliberWorkflowVersion(
+        version_id="wfv-kb-hidden",
+        workflow_id=workflow.workflow_id,
+        version_number=1,
+        status="draft",
+        manifest=manifest_data,
+        manifest_hash="",
+        created_by="@test",
+    )
+    kb = CaliberKnowledgeBase(
+        knowledge_base_id="KB-hidden",
+        name="hidden-kb",
+        owner="@sarah",
+        source_bucket="bucket",
+        visibility="project",
+        project_id="P-hidden",
+    )
+    db_session.add_all([workflow, version, kb])
+    db_session.commit()
+
+    manifest = parse_manifest(manifest_data)
+    bundle = build_deployment_bundle(db_session, version, manifest, fake_resolver())
+    dependency = next(d for d in bundle["dependencies"] if d["kind"] == "knowledge_base")
+    assert dependency["status"] == "unresolved"
+    assert "snapshot" not in dependency

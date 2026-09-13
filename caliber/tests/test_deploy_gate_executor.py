@@ -133,6 +133,7 @@ def _seed_gated_version(session: Session, *, alias: str = "prod") -> CaliberWork
         owner="@test",
         status="active",
         version=1,
+        visibility="user",
     )
     session.add(dataset)
     session.add(

@@ -507,6 +507,7 @@ def test_build_plan_resolves_agent_skills_from_stored_skill_rows(
                 tags=[],
                 status="active",
                 version=1,
+                visibility="user",
             ),
             CaliberSkill(
                 skill_id="SK-safety",
@@ -517,6 +518,7 @@ def test_build_plan_resolves_agent_skills_from_stored_skill_rows(
                 tags=[],
                 status="active",
                 version=1,
+                visibility="user",
             ),
         ]
     )
@@ -553,6 +555,7 @@ def test_evaluate_deploy_gate_with_missing_dataset_fails_closed(
         db_session,
         manifest,
         "prod",
+        CaliberWorkflowVersion(workflow_id="wf"),
         resolver=fake_resolver(),
         executor=promoter.build_executor(None),
     )
@@ -579,6 +582,7 @@ def test_evaluate_deploy_gate_with_empty_dataset_fails_closed(
             owner="@test",
             status="active",
             version=1,
+            visibility="public",
         )
     )
     db_session.commit()
@@ -599,6 +603,7 @@ def test_evaluate_deploy_gate_with_empty_dataset_fails_closed(
         db_session,
         manifest,
         "prod",
+        CaliberWorkflowVersion(workflow_id="wf"),
         resolver=fake_resolver(),
         executor=promoter.build_executor(None),
     )
@@ -623,6 +628,7 @@ def test_evaluate_deploy_gate_with_archived_dataset_fails_closed(
         owner="@test",
         status="archived",
         version=1,
+        visibility="public",
     )
     db_session.add(dataset)
     db_session.add(
@@ -652,6 +658,7 @@ def test_evaluate_deploy_gate_with_archived_dataset_fails_closed(
         db_session,
         manifest,
         "prod",
+        CaliberWorkflowVersion(workflow_id="wf"),
         resolver=fake_resolver(),
         executor=promoter.build_executor(None),
     )
@@ -676,6 +683,7 @@ def test_evaluate_deploy_gate_orders_bounded_sample_and_uses_preview(
         owner="@test",
         status="active",
         version=1,
+        visibility="public",
     )
     db_session.add(dataset)
     db_session.add_all(
@@ -737,6 +745,7 @@ def test_evaluate_deploy_gate_orders_bounded_sample_and_uses_preview(
         db_session,
         manifest,
         "prod",
+        CaliberWorkflowVersion(workflow_id="wf"),
         resolver=fake_resolver(),
         executor=promoter.build_executor(None),
         sample_size=2,

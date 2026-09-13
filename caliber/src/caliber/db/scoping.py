@@ -51,6 +51,29 @@ def owner_column(model: Any) -> Any:
     )
 
 
+def synthetic_identity(owner: str, project_id: str | None) -> CaliberIdentity:
+    """A non-request identity standing in for "whatever this resource's own
+    owner/project can see" -- for scoping name/id resolution
+    (:func:`apply_visibility_filter`/:func:`get_visible`) in a background,
+    compile-time, or promotion context where there is no live requester
+    identity, only a persisted resource (a workflow, a job, ...) with its
+    own ``owner``/``project_id``.
+
+    `P2` (docs/workspace-plan.md Phase 2 item 5): resolving a referenced
+    skill/dataset/knowledge-base by name or id during compile/promote
+    previously used a bare, unscoped query -- two projects using the same
+    logical name could resolve to whichever row a global query happened
+    to find first. This closes that by reusing the exact same visibility
+    check a live request would go through, keyed off the resource's own
+    recorded owner/project rather than an active request's identity.
+    Never grants more than that owner could genuinely see through the
+    ordinary route path: the owner's own live project membership (if any)
+    still gates the project tier, and ``scopes=frozenset()`` never
+    triggers the admin bypass.
+    """
+    return CaliberIdentity(user_id=owner, scopes=frozenset(), active_project_id=project_id)
+
+
 def get_visible(
     session: Any,
     model: Any,
