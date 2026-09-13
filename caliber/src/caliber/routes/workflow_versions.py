@@ -670,7 +670,7 @@ async def validate_version(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         version = _get_version_or_404(session, version_id, request=request)
-        resolver = resolver_from_session(session)
+        resolver = resolver_from_session(session, resolve_identity(request))
         try:
             manifest = parse_manifest(version.manifest)
         except (WorkflowManifestError, ValueError) as exc:
@@ -1198,7 +1198,7 @@ async def propose_patch_route(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         version = _get_version_or_404(session, version_id, request=request)
-        resolver = resolver_from_session(session)
+        resolver = resolver_from_session(session, resolve_identity(request))
         try:
             base = parse_manifest(version.manifest)
         except (WorkflowManifestError, ValueError) as exc:
@@ -1358,7 +1358,7 @@ async def copilot_edit_route(request: Request) -> JSONResponse:
     config = request.app.state.config
     with factory() as session:
         version = _get_version_or_404(session, version_id, request=request)
-        resolver = resolver_from_session(session)
+        resolver = resolver_from_session(session, resolve_identity(request))
         base_raw = payload.manifest if payload.manifest is not None else version.manifest
         try:
             base = parse_manifest(base_raw)
@@ -1408,7 +1408,7 @@ async def plan_build_route(request: Request) -> JSONResponse:
     config = request.app.state.config
     with factory() as session:
         version = _get_version_or_404(session, version_id, request=request)
-        resolver = resolver_from_session(session)
+        resolver = resolver_from_session(session, resolve_identity(request))
         base_raw = payload.manifest if payload.manifest is not None else version.manifest
         try:
             base = parse_manifest(base_raw)
@@ -1821,7 +1821,7 @@ async def export_python_route(request: Request) -> PlainTextResponse:
         bundle = version.compiled_bundle
         if isinstance(bundle, dict) and isinstance(bundle.get("generated_python"), str):
             return PlainTextResponse(bundle["generated_python"], media_type="text/x-python")
-        resolver = resolver_from_session(session)
+        resolver = resolver_from_session(session, resolve_identity(request))
         try:
             result = compile_workflow(
                 parse_manifest(version.manifest),

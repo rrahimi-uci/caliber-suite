@@ -73,7 +73,6 @@ from caliber.storage.base import StorageError
 from caliber.workflows.compiler import CompileError, CompileResult, compile_workflow
 from caliber.workflows.deploy_gate import GateMetrics, evaluate_thresholds
 from caliber.workflows.deployment_bundle import (
-    _resolution_identity,
     build_deployment_bundle,
     verify_bundle,
 )
@@ -221,13 +220,24 @@ class AliasPreflightError(Exception):
 # ---------------------------------------------------------------------------
 
 
-def resolver_from_session(session: Session) -> InMemoryToolResolver:
-    """Build a tool resolver from the live tool-registry rows (non-archived)."""
-    rows = (
-        session.execute(select(CaliberToolRegistry).where(CaliberToolRegistry.status != "archived"))
-        .scalars()
-        .all()
+def resolver_from_session(session: Session, identity: CaliberIdentity) -> InMemoryToolResolver:
+    """Build a tool resolver from the live tool-registry rows (non-archived),
+    scoped to ``identity``'s visibility (`P2`, isolation closure item 5).
+
+    This is now the one canonical tool-registry-to-resolver builder: it used
+    to be duplicated, less completely, as ``routes/workflows.py``'s
+    ``_scoped_tool_resolver`` -- which applied the visibility filter but
+    dropped the non-archived filter and successor-tool resolution below.
+    Retired in favor of this one so the two behaviors cannot drift apart
+    again.
+    """
+    stmt = apply_visibility_filter(
+        select(CaliberToolRegistry).where(CaliberToolRegistry.status != "archived"),
+        CaliberToolRegistry,
+        identity,
+        identity.active_project_id,
     )
+    rows = session.execute(stmt).scalars().all()
     by_id = {r.tool_id: r for r in rows}
     entries: list[ToolRegistryEntry] = []
     for row in rows:
@@ -691,7 +701,9 @@ def compile_version(
 ) -> CompileResult:
     """Compile a version's manifest, optionally persisting compile metadata."""
     manifest = parse_manifest(version.manifest)
-    resolver = resolver or resolver_from_session(session)
+    resolver = resolver or resolver_from_session(
+        session, build_workflow_identity(session, version.workflow_id)
+    )
     result = compile_workflow(
         manifest,
         resolver=resolver,
@@ -771,10 +783,10 @@ def _skill_contents_for(
     if not missing_names:
         return embedded
     # `P2` (isolation closure, item 5): scoped to this workflow's own
-    # owner/project (`_resolution_identity`), not resolved globally by
+    # owner/project (`build_workflow_identity`), not resolved globally by
     # name -- two projects using the same skill name must not silently
     # embed each other's content.
-    identity = _resolution_identity(session, version)
+    identity = build_workflow_identity(session, version.workflow_id)
     rows = session.execute(
         apply_visibility_filter(
             select(CaliberSkill.name, CaliberSkill.content).where(
@@ -834,7 +846,9 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
     (the copilot iterate loop) without first persisting it. Compile-only: the
     stored version is never mutated.
     """
-    resolver = resolver or resolver_from_session(session)
+    resolver = resolver or resolver_from_session(
+        session, build_workflow_identity(session, version.workflow_id)
+    )
     compiled_bundle = getattr(version, "compiled_bundle", None)
     bundle = compiled_bundle if isinstance(compiled_bundle, dict) else {}
     deployment_bundle = bundle.get("deployment_bundle")
@@ -1631,13 +1645,11 @@ def _example_input(example: CaliberEvalDatasetExample) -> str:
 
 
 def _resolve_eval_dataset(
-    session: Session, version: CaliberWorkflowVersion, dataset_name: str
+    session: Session, identity: CaliberIdentity, dataset_name: str
 ) -> CaliberEvalDataset | None:
-    """Resolve a deploy gate's dataset by name, scoped to the workflow's own
-    owner/project (`P2`, isolation closure item 5) -- two projects using the
-    same dataset name must not gate a release on each other's data. See
-    :func:`_resolution_identity`."""
-    identity = _resolution_identity(session, version)
+    """Resolve a deploy gate's dataset by name, scoped to ``identity`` (`P2`,
+    isolation closure item 5) -- two projects using the same dataset name
+    must not gate a release on each other's data."""
     stmt = apply_visibility_filter(
         select(CaliberEvalDataset).where(CaliberEvalDataset.name == dataset_name),
         CaliberEvalDataset,
@@ -1651,7 +1663,6 @@ def evaluate_deploy_gates(
     session: Session,
     manifest: WorkflowManifest,
     alias: str,
-    version: CaliberWorkflowVersion,
     *,
     resolver: InMemoryToolResolver,
     executor: WorkflowExecutor,
@@ -1733,7 +1744,7 @@ def evaluate_deploy_gates(
         artifact = manifest.artifacts.eval_datasets.get(gate.dataset_ref)
         dataset_name = artifact.dataset_name if artifact else gate.dataset_ref
         pinned_dataset_version = artifact.version if artifact is not None else None
-        dataset = _resolve_eval_dataset(session, version, dataset_name)
+        dataset = _resolve_eval_dataset(session, workflow_identity, dataset_name)
         examples: list[CaliberEvalDatasetExample] = []
         available = 0
         if dataset is not None and dataset.status == "active":
@@ -2509,7 +2520,9 @@ def promote(
     if version.status != "published":
         raise DeployError("only published versions can be promoted")
 
-    resolver = resolver or resolver_from_session(session)
+    resolver = resolver or resolver_from_session(
+        session, build_workflow_identity(session, version.workflow_id)
+    )
     compiled_bundle = version.compiled_bundle if isinstance(version.compiled_bundle, dict) else {}
     deployment_bundle = compiled_bundle.get("deployment_bundle")
     manifest_payload = (
@@ -2541,7 +2554,6 @@ def promote(
         session,
         manifest,
         alias,
-        version,
         resolver=resolver,
         executor=executor,
         config=config,

@@ -281,7 +281,11 @@ def run_workflow_candidate(
         return _run_workflow_calibration_candidate(session, job, actor=actor, config=config)
     item = session.get(CaliberVerificationItem, job.primary_item_id)
     baseline_version = _resolve_baseline_version(session, job, item)
-    resolver = resolver_from_session(session)
+    # `P2` (isolation closure, item 5): scoped to the baseline's own
+    # owner/project -- a background stage has no live requester identity.
+    resolver = resolver_from_session(
+        session, build_workflow_identity(session, baseline_version.workflow_id)
+    )
     base_manifest = parse_manifest(baseline_version.manifest)
 
     diag = WorkflowDiagnosis(
@@ -361,7 +365,10 @@ def _run_workflow_calibration_candidate(
     """Run bounded workflow calibration search and select one winner."""
     item = session.get(CaliberVerificationItem, job.primary_item_id)
     baseline_version = _resolve_baseline_version(session, job, item)
-    resolver = resolver_from_session(session)
+    # `P2` (isolation closure, item 5): see `run_workflow_candidate` above.
+    resolver = resolver_from_session(
+        session, build_workflow_identity(session, baseline_version.workflow_id)
+    )
     base_manifest = parse_manifest(baseline_version.manifest)
     target_alias = _target_alias(session, job.workflow_id or "")
     diagnosis = job.diagnosis or {}
@@ -562,7 +569,10 @@ def run_workflow_eval(
         return _run_workflow_calibration_eval(session, job, actor=actor)
 
     item = session.get(CaliberVerificationItem, job.primary_item_id)
-    resolver = resolver_from_session(session)
+    # `P2` (isolation closure, item 5): see `run_workflow_candidate` above.
+    resolver = resolver_from_session(
+        session, build_workflow_identity(session, job.workflow_id or "")
+    )
     manifest = parse_manifest(baseline_manifest)
     inputs = _dataset_inputs(session, manifest, item)
 
