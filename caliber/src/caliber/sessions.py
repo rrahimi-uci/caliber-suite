@@ -479,6 +479,21 @@ class PersonalAccessToken(NamedTuple):
     token: str
 
 
+class ResolvedPersonalAccessToken(NamedTuple):
+    """What a valid, live token resolves to for the current request.
+
+    ``requested_scopes`` is the ceiling the token *asked* for at issuance,
+    not a grant -- the caller intersects it with the owner's current
+    authority. ``project_id`` is the token's `P1-E` project binding (``None``
+    for an unbound token, unchanged from before that slice).
+    """
+
+    user_id: str
+    requested_scopes: frozenset[str]
+    token_id: str
+    project_id: str | None
+
+
 def _normalize_scopes(scopes: Iterable[str] | None) -> str:
     """Store scopes as a sorted, de-duplicated, space-separated string."""
     if not scopes:
@@ -499,8 +514,17 @@ def create_personal_access_token(
     expires_at: datetime | None = None,
     created_by: str | None = None,
     rotated_from: str | None = None,
+    project_id: str | None = None,
 ) -> PersonalAccessToken:
-    """Issue a token, returning the plaintext once and storing only its digest."""
+    """Issue a token, returning the plaintext once and storing only its digest.
+
+    `P1-E`: ``project_id`` binds the token to one project (``None``, the
+    default, is unchanged behavior). This function trusts its caller to have
+    already validated the binding -- it stores whatever ``project_id`` it is
+    given -- since checking "does ``user_id`` actually hold a role on that
+    project" needs a project lookup the caller already has open
+    (`routes/auth.py::_create_token`).
+    """
     from caliber.db.models import CaliberPersonalAccessToken  # noqa: PLC0415
     from caliber.ids import new_personal_access_token_id  # noqa: PLC0415
 
@@ -520,6 +544,7 @@ def create_personal_access_token(
             created_by=created_by or user_id,
             expires_at=expires_at,
             rotated_from=rotated_from,
+            project_id=project_id,
         )
     )
     return PersonalAccessToken(token_id=token_id, token=token)
@@ -527,8 +552,8 @@ def create_personal_access_token(
 
 def resolve_personal_access_token(
     session: Any, token: str, *, now: datetime | None = None
-) -> tuple[str, frozenset[str]] | None:
-    """Return ``(user_id, requested_scopes)`` for a usable token, else ``None``.
+) -> ResolvedPersonalAccessToken | None:
+    """Return the resolved token for a usable credential, else ``None``.
 
     The scopes returned are what the token *asked* for, not what it gets. The
     caller intersects them with the owner's current authority, so a token can
@@ -568,7 +593,12 @@ def resolve_personal_access_token(
     account = session.get(CaliberUserAccount, row.user_id)
     if account is not None and account.disabled:
         return None
-    return str(row.user_id), parse_scopes(row.scopes)
+    return ResolvedPersonalAccessToken(
+        user_id=str(row.user_id),
+        requested_scopes=parse_scopes(row.scopes),
+        token_id=str(row.token_id),
+        project_id=row.project_id,
+    )
 
 
 def touch_personal_access_token(session: Any, token: str, *, now: datetime | None = None) -> None:
@@ -628,6 +658,7 @@ __all__ = [
     "AccountError",
     "AuthenticationError",
     "PersonalAccessToken",
+    "ResolvedPersonalAccessToken",
     "SessionToken",
     "account_count",
     "authenticate",

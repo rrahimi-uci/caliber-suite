@@ -55,6 +55,48 @@ def test_creating_a_token_sends_the_ceiling_and_returns_the_secret_once() -> Non
     assert issued.token == "calpat_secret"
 
 
+def test_creating_a_bound_token_sends_project_id_and_decodes_it_back() -> None:
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        sent.update(_json.loads(request.content))
+        return httpx.Response(
+            201,
+            json={
+                "data": {
+                    "token_id": "PAT-1",
+                    "name": "ci",
+                    "token": "calpat_secret",
+                    "project_id": "PRJ-1",
+                }
+            },
+        )
+
+    with client_with(handler) as caliber:
+        issued = caliber.auth.tokens.create("ci", project_id="PRJ-1")
+
+    assert sent == {"name": "ci", "project_id": "PRJ-1"}
+    assert issued.project_id == "PRJ-1"
+
+
+def test_omitting_project_id_sends_no_project_id_key() -> None:
+    sent: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        sent.update(_json.loads(request.content))
+        return httpx.Response(201, json={"data": {"token_id": "PAT-1", "token": "x"}})
+
+    with client_with(handler) as caliber:
+        issued = caliber.auth.tokens.create("ci")
+
+    assert "project_id" not in sent
+    assert issued.project_id is None
+
+
 def test_omitting_scopes_sends_no_scopes_key() -> None:
     """Empty means "inherit the owner's scopes"; an empty list would not.
 

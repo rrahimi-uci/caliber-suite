@@ -2188,6 +2188,11 @@ class PersonalAccessTokenSchema(BaseModel):
     revoked_reason: str | None = None
     rotated_from: str | None = None
     active: bool = True
+    #: `P1-E` (docs/workspace-plan.md Phase 1 item 7): the project this
+    #: token is bound to, or ``None`` for an unbound token (unchanged
+    #: behavior -- bounded only by the owner's live global scopes and
+    #: workspace memberships).
+    project_id: str | None = None
 
 
 class IssuedPersonalAccessTokenSchema(PersonalAccessTokenSchema):

@@ -76,6 +76,11 @@ class PersonalAccessToken:
     revoked_reason: str | None = None
     rotated_from: str | None = None
     active: bool = True
+    #: The project this token is bound to, or ``None`` for an unbound token
+    #: (unchanged behavior -- bounded only by the owner's live global
+    #: scopes and workspace memberships). A bound token is refused for any
+    #: request that names a *different* project.
+    project_id: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 

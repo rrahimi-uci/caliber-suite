@@ -1347,6 +1347,7 @@ class CaliberPersonalAccessToken(Base):
     __table_args__ = (
         Index("ix_pat_token_hash", "token_hash", unique=True),
         Index("ix_pat_user", "user_id"),
+        Index("ix_pat_project", "project_id"),
     )
 
     token_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -1367,6 +1368,18 @@ class CaliberPersonalAccessToken(Base):
     #: Set when this token replaced another during rotation, so an audit can
     #: follow the chain rather than seeing an unexplained revoke plus create.
     rotated_from: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: `P1-E` (docs/workspace-plan.md Phase 1 item 7): optional project
+    #: binding. ``None`` means "not project-bound" -- unchanged behavior,
+    #: bounded only by the owner's live global scopes and workspace
+    #: memberships. A bound token additionally narrows to that one project:
+    #: it is refused for any request that names a *different* project via
+    #: the ``X-CALIBER-Project`` header or a ``{project_id}`` path segment
+    #: (``auth.py::resolve_identity``). Bare string, no FK constraint --
+    #: matching the same "optionally project-scoped" tables this PR
+    #: sequence already established (``CaliberWorkflow``,
+    #: ``CaliberEvalDataset``, ``CaliberReviewQueue``), not
+    #: ``CaliberProjectMember``'s hard-FK'd required membership.
+    project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
 
 
 class CaliberEffectLedger(Base):
