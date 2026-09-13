@@ -477,12 +477,15 @@ async def delete_workflow_benchmark_report(request: Request) -> JSONResponse:
 
 async def list_workflow_session_memory(request: Request) -> JSONResponse:
     require_user(request)
+    identity = resolve_identity(request)
     workflow_id = request.path_params["workflow_id"]
     session_id = _require_session_id(request)
     node_id = _optional_node_id(request)
     factory = get_session_factory(request)
     with factory() as session:
-        workflow = session.get(CaliberWorkflow, workflow_id)
+        workflow = get_visible(
+            session, CaliberWorkflow, CaliberWorkflow.workflow_id, workflow_id, identity
+        )
         if workflow is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         stmt = select(CaliberWorkflowSessionMemory).where(
@@ -505,10 +508,13 @@ async def clear_workflow_session_memory(request: Request) -> JSONResponse:
     session_id = _require_session_id(request)
     node_id = _optional_node_id(request)
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
 
     factory = get_session_factory(request)
     with factory() as session:
-        workflow = session.get(CaliberWorkflow, workflow_id)
+        workflow = get_visible(
+            session, CaliberWorkflow, CaliberWorkflow.workflow_id, workflow_id, identity
+        )
         if workflow is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         stmt = select(CaliberWorkflowSessionMemory).where(

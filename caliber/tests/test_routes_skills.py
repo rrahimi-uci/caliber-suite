@@ -927,3 +927,122 @@ def test_test_selection_and_test_render_still_reachable(client: TestClient) -> N
     render = client.post(f"{PREFIX}/{sid}/test-render", json={"variables": {"topic": "X"}})
     assert render.status_code == 200
     assert "rendered_content" in render.json()["data"]
+
+
+# ---------------------------------------------------------------------------
+# Isolation closure (`P2`, item 1): a project-hidden skill's id must not
+# unlock any of the routes below for a caller who cannot see the skill --
+# whether the route reads the skill directly, reads a durable child row
+# (a test run), or mutates a hidden skill's own runtime target. All were
+# previously bare `session.get(...)` calls with no visibility check.
+# ---------------------------------------------------------------------------
+
+
+def _hidden_skill(db_session: Session, skill_id: str = "SK-hidden0001") -> CaliberSkill:
+    return _insert_skill(
+        db_session,
+        skill_id=skill_id,
+        name=f"hidden-{skill_id.lower()}",
+        owner="@sarah",
+        visibility="project",
+        project_id="P-hidden",
+    )
+
+
+_STRANGER = {"X-CALIBER-User": "@stranger"}
+
+
+def _grant_stranger_operator_scope(client: TestClient) -> None:
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"operator_users": "@stranger"}
+    )
+
+
+def test_get_skill_hides_a_project_scoped_skill_from_a_non_member(
+    client: TestClient, db_session: Session
+) -> None:
+    skill = _hidden_skill(db_session)
+    resp = client.get(f"{PREFIX}/{skill.skill_id}", headers=_STRANGER)
+    assert resp.status_code == 404
+
+
+def test_test_render_and_test_selection_hide_a_project_scoped_skill(
+    client: TestClient, db_session: Session
+) -> None:
+    skill = _hidden_skill(db_session)
+    render = client.post(
+        f"{PREFIX}/{skill.skill_id}/test-render", json={"variables": {}}, headers=_STRANGER
+    )
+    assert render.status_code == 404
+    selection = client.post(
+        f"{PREFIX}/{skill.skill_id}/test-selection",
+        json={"user_message": "hi"},
+        headers=_STRANGER,
+    )
+    assert selection.status_code == 404
+
+
+def test_list_skill_versions_and_package_routes_hide_a_project_scoped_skill(
+    client: TestClient, db_session: Session
+) -> None:
+    skill = _hidden_skill(db_session)
+    assert client.get(f"{PREFIX}/{skill.skill_id}/versions", headers=_STRANGER).status_code == 404
+    assert client.get(f"{PREFIX}/{skill.skill_id}/package", headers=_STRANGER).status_code == 404
+    assert (
+        client.get(f"{PREFIX}/{skill.skill_id}/package.zip", headers=_STRANGER).status_code == 404
+    )
+    assert client.get(f"{PREFIX}/{skill.skill_id}/workspace", headers=_STRANGER).status_code == 404
+
+
+def test_get_skill_test_run_hides_the_run_of_a_project_scoped_skill(
+    client: TestClient, db_session: Session
+) -> None:
+    skill = _hidden_skill(db_session)
+    run = CaliberSkillTestRun(test_run_id="STR-hidden001", skill_id=skill.skill_id)
+    db_session.add(run)
+    db_session.commit()
+
+    resp = client.get(f"{PREFIX}/test-runs/{run.test_run_id}", headers=_STRANGER)
+    assert resp.status_code == 404
+
+
+def test_create_skill_test_run_refuses_a_non_member_even_with_operator_scope(
+    client: TestClient, db_session: Session
+) -> None:
+    """The mutation path: `@stranger` holds `caliber.operator` (the route's
+    own global-scope gate) but no membership in the skill's project -- the
+    visibility check must still refuse it, proving this isn't just a
+    read-path fix."""
+    skill = _hidden_skill(db_session)
+    _grant_stranger_operator_scope(client)
+    resp = client.post(
+        f"{PREFIX}/test-runs", json=_skill_run_body(skill.skill_id), headers=_STRANGER
+    )
+    assert resp.status_code == 404
+
+
+def test_set_skill_baseline_bind_and_calibrate_refuse_a_non_member(
+    client: TestClient, db_session: Session
+) -> None:
+    skill = _hidden_skill(db_session)
+    run = CaliberSkillTestRun(test_run_id="STR-hidden002", skill_id=skill.skill_id)
+    db_session.add(run)
+    db_session.commit()
+    _grant_stranger_operator_scope(client)
+
+    baseline = client.post(
+        f"{PREFIX}/{skill.skill_id}/baseline",
+        json={"test_run_id": run.test_run_id},
+        headers=_STRANGER,
+    )
+    assert baseline.status_code == 404
+
+    bind = client.post(
+        f"{PREFIX}/{skill.skill_id}/bind",
+        json={"kind": "standalone"},
+        headers=_STRANGER,
+    )
+    assert bind.status_code == 404
+
+    calibrate = client.post(f"{PREFIX}/{skill.skill_id}/calibrate", headers=_STRANGER)
+    assert calibrate.status_code == 404

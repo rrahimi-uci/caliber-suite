@@ -11,6 +11,7 @@ import caliber.routes.workflows as workflows_routes
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberRuntimeApprovalRequest,
+    CaliberWorkflow,
     CaliberWorkflowBenchmarkReport,
     CaliberWorkflowRun,
     CaliberWorkflowRunCheckpoint,
@@ -1056,6 +1057,40 @@ def test_workflow_session_memory_requires_session_id(client: TestClient) -> None
     response = client.get(f"{PREFIX}/workflows/{wid}/session-memory")
     assert response.status_code == 400
     assert "session_id" in response.json()["detail"]
+
+
+def test_session_memory_hides_a_project_scoped_workflow_from_a_non_member(
+    client: TestClient, db_session: Session
+) -> None:
+    """`P2` (isolation closure, item 1): both routes previously did a bare
+    existence check on the workflow row, with no visibility check."""
+    db_session.add(
+        CaliberWorkflow(
+            workflow_id="WF-hidden0001",
+            name="hidden-session-memory-workflow",
+            owner="@sarah",
+            visibility="project",
+            project_id="P-hidden",
+            status="active",
+        )
+    )
+    db_session.commit()
+    stranger = {"X-CALIBER-User": "@stranger"}
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"operator_users": "@stranger"}
+    )
+
+    listed = client.get(
+        f"{PREFIX}/workflows/WF-hidden0001/session-memory?session_id=thread-1",
+        headers=stranger,
+    )
+    assert listed.status_code == 404
+
+    cleared = client.delete(
+        f"{PREFIX}/workflows/WF-hidden0001/session-memory?session_id=thread-1",
+        headers=stranger,
+    )
+    assert cleared.status_code == 404
 
 
 def test_delete_workflow_cascades_run_children(
