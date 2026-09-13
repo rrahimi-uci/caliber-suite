@@ -20,6 +20,7 @@ from typing import Any, cast
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from caliber.auth import CaliberIdentity
 from caliber.db.models import (
     CaliberEvalDataset,
     CaliberEvalDatasetExample,
@@ -27,10 +28,12 @@ from caliber.db.models import (
     CaliberKnowledgeBaseVersion,
     CaliberMcpServer,
     CaliberSkill,
+    CaliberWorkflow,
     CaliberWorkflowDeployment,
     CaliberWorkflowFile,
     CaliberWorkflowVersion,
 )
+from caliber.db.scoping import apply_visibility_filter, get_visible, synthetic_identity
 from caliber.workflows.compiler import compile_workflow
 from caliber.workflows.manifest import (
     AgentNode,
@@ -255,6 +258,16 @@ def _dataset_snapshot(
     }
 
 
+def _resolution_identity(session: Session, version: CaliberWorkflowVersion) -> CaliberIdentity:
+    """`db.scoping.synthetic_identity`, keyed off the workflow a version
+    belongs to -- there is no live requester identity at compile/promote
+    time, only the persisted workflow (`P2`, item 5)."""
+    workflow = session.get(CaliberWorkflow, version.workflow_id)
+    owner = workflow.owner if workflow is not None else ""
+    project_id = workflow.project_id if workflow is not None else None
+    return synthetic_identity(owner, project_id)
+
+
 def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
     session: Session,
     version: CaliberWorkflowVersion,
@@ -267,6 +280,7 @@ def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
     resolved_manifest = deepcopy(source_manifest)
     dependencies: list[dict[str, Any]] = []
     skill_snapshots: dict[str, dict[str, Any]] = {}
+    identity = _resolution_identity(session, version)
 
     referenced_prompts = {
         node.instructions.ref
@@ -312,8 +326,13 @@ def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
     for alias, dataset_artifact in sorted(manifest.artifacts.eval_datasets.items()):
         dataset = (
             session.execute(
-                select(CaliberEvalDataset).where(
-                    CaliberEvalDataset.name == dataset_artifact.dataset_name
+                apply_visibility_filter(
+                    select(CaliberEvalDataset).where(
+                        CaliberEvalDataset.name == dataset_artifact.dataset_name
+                    ),
+                    CaliberEvalDataset,
+                    identity,
+                    identity.active_project_id,
                 )
             )
             .scalars()
@@ -450,7 +469,14 @@ def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
         skill = None
         if snapshot is None:
             skill = (
-                session.execute(select(CaliberSkill).where(CaliberSkill.name == name))
+                session.execute(
+                    apply_visibility_filter(
+                        select(CaliberSkill).where(CaliberSkill.name == name),
+                        CaliberSkill,
+                        identity,
+                        identity.active_project_id,
+                    )
+                )
                 .scalars()
                 .first()
             )
@@ -484,7 +510,13 @@ def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
     for node_id, node in sorted(manifest.nodes.items()):
         path = f"nodes.{node_id}"
         if isinstance(node, (KnowledgeQueryNode, KnowledgeBuildNode)) and node.knowledge_base_id:
-            kb = session.get(CaliberKnowledgeBase, node.knowledge_base_id)
+            kb = get_visible(
+                session,
+                CaliberKnowledgeBase,
+                CaliberKnowledgeBase.knowledge_base_id,
+                node.knowledge_base_id,
+                identity,
+            )
             version_ids = list(getattr(node, "version_ids", []) or [])
             if isinstance(node, KnowledgeQueryNode) and not version_ids and kb is not None:
                 version_ids = [kb.active_version_id] if kb.active_version_id else []

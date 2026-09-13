@@ -192,6 +192,7 @@ def _graded_dataset(session: Session, *, answers: list[str]) -> None:
         owner="@test",
         status="active",
         version=1,
+        visibility="public",
     )
     session.add(dataset)
     for index, answer in enumerate(answers):
@@ -254,6 +255,7 @@ def test_a_completed_run_with_the_wrong_answer_fails_the_gate(
         db_session,
         _graded_manifest(min_pass_rate=1.0),
         "prod",
+        CaliberWorkflowVersion(workflow_id="wf"),
         resolver=fake_resolver(),
         executor=promoter.build_executor(None),
     )
@@ -276,6 +278,7 @@ def test_a_correct_run_passes_and_records_full_evidence(
         db_session,
         _graded_manifest(min_pass_rate=1.0, min_exact_match=1.0, max_total_tokens=8.0),
         "prod",
+        CaliberWorkflowVersion(workflow_id="wf"),
         resolver=fake_resolver(),
         executor=promoter.build_executor(None),
     )
@@ -310,6 +313,7 @@ def test_the_sample_digest_changes_when_the_graded_data_changes(
         db_session,
         manifest,
         "prod",
+        CaliberWorkflowVersion(workflow_id="wf"),
         resolver=fake_resolver(),
         executor=promoter.build_executor(None),
     ).runs[0]
@@ -323,6 +327,7 @@ def test_the_sample_digest_changes_when_the_graded_data_changes(
         db_session,
         manifest,
         "prod",
+        CaliberWorkflowVersion(workflow_id="wf"),
         resolver=fake_resolver(),
         executor=promoter.build_executor(None),
     ).runs[0]
@@ -422,6 +427,7 @@ def test_min_overall_delta_compares_against_the_deployed_version(
         db_session,
         _graded_manifest(min_overall_delta=0.4),
         "prod",
+        CaliberWorkflowVersion(workflow_id="wf"),
         resolver=fake_resolver(),
         executor=promoter.build_executor(None),
     )

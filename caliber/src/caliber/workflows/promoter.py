@@ -52,6 +52,7 @@ from caliber.db.models import (
     CaliberWorkflowRun,
     CaliberWorkflowVersion,
 )
+from caliber.db.scoping import apply_visibility_filter
 from caliber.deployment_environments import (
     allows_host_path_nodes,
     environment_class,
@@ -72,6 +73,7 @@ from caliber.storage.base import StorageError
 from caliber.workflows.compiler import CompileError, CompileResult, compile_workflow
 from caliber.workflows.deploy_gate import GateMetrics, evaluate_thresholds
 from caliber.workflows.deployment_bundle import (
+    _resolution_identity,
     build_deployment_bundle,
     verify_bundle,
 )
@@ -695,7 +697,7 @@ def compile_version(
         resolver=resolver,
         version=str(version.version_number),
         skill_contents=_skill_contents_for(
-            session, manifest, compiled_bundle=version.compiled_bundle
+            session, manifest, version, compiled_bundle=version.compiled_bundle
         ),
     )
     if persist:
@@ -737,6 +739,7 @@ def compile_version(
 def _skill_contents_for(
     session: Session,
     manifest: WorkflowManifest,
+    version: CaliberWorkflowVersion,
     *,
     compiled_bundle: dict[str, Any] | None = None,
 ) -> dict[str, str]:
@@ -767,8 +770,20 @@ def _skill_contents_for(
     missing_names = names - set(embedded)
     if not missing_names:
         return embedded
+    # `P2` (isolation closure, item 5): scoped to this workflow's own
+    # owner/project (`_resolution_identity`), not resolved globally by
+    # name -- two projects using the same skill name must not silently
+    # embed each other's content.
+    identity = _resolution_identity(session, version)
     rows = session.execute(
-        select(CaliberSkill.name, CaliberSkill.content).where(CaliberSkill.name.in_(missing_names))
+        apply_visibility_filter(
+            select(CaliberSkill.name, CaliberSkill.content).where(
+                CaliberSkill.name.in_(missing_names)
+            ),
+            CaliberSkill,
+            identity,
+            identity.active_project_id,
+        )
     ).all()
     return {**embedded, **{name: content for name, content in rows if content}}
 
@@ -845,7 +860,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
             if isinstance(snapshot, dict) and isinstance(snapshot.get("content"), str)
         }
         if use_sealed_bundle
-        else _skill_contents_for(session, manifest, compiled_bundle=bundle)
+        else _skill_contents_for(session, manifest, version, compiled_bundle=bundle)
     )
     result = compile_workflow(
         manifest,
@@ -1615,10 +1630,28 @@ def _example_input(example: CaliberEvalDatasetExample) -> str:
     return json.dumps(data)
 
 
+def _resolve_eval_dataset(
+    session: Session, version: CaliberWorkflowVersion, dataset_name: str
+) -> CaliberEvalDataset | None:
+    """Resolve a deploy gate's dataset by name, scoped to the workflow's own
+    owner/project (`P2`, isolation closure item 5) -- two projects using the
+    same dataset name must not gate a release on each other's data. See
+    :func:`_resolution_identity`."""
+    identity = _resolution_identity(session, version)
+    stmt = apply_visibility_filter(
+        select(CaliberEvalDataset).where(CaliberEvalDataset.name == dataset_name),
+        CaliberEvalDataset,
+        identity,
+        identity.active_project_id,
+    )
+    return session.execute(stmt).scalars().first()
+
+
 def evaluate_deploy_gates(
     session: Session,
     manifest: WorkflowManifest,
     alias: str,
+    version: CaliberWorkflowVersion,
     *,
     resolver: InMemoryToolResolver,
     executor: WorkflowExecutor,
@@ -1700,13 +1733,7 @@ def evaluate_deploy_gates(
         artifact = manifest.artifacts.eval_datasets.get(gate.dataset_ref)
         dataset_name = artifact.dataset_name if artifact else gate.dataset_ref
         pinned_dataset_version = artifact.version if artifact is not None else None
-        dataset = (
-            session.execute(
-                select(CaliberEvalDataset).where(CaliberEvalDataset.name == dataset_name)
-            )
-            .scalars()
-            .first()
-        )
+        dataset = _resolve_eval_dataset(session, version, dataset_name)
         examples: list[CaliberEvalDatasetExample] = []
         available = 0
         if dataset is not None and dataset.status == "active":
@@ -2514,6 +2541,7 @@ def promote(
         session,
         manifest,
         alias,
+        version,
         resolver=resolver,
         executor=executor,
         config=config,

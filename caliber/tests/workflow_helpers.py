@@ -229,7 +229,12 @@ def seed_eval_dataset(
     """
     inputs = inputs or ["What is your refund policy?", "Can I return my laptop?"]
     dataset = CaliberEvalDataset(
-        dataset_id=new_eval_dataset_id(), name=name, owner="@test", version=1, status="active"
+        dataset_id=new_eval_dataset_id(),
+        name=name,
+        owner="@test",
+        version=1,
+        status="active",
+        visibility="public",
     )
     session.add(dataset)
     session.flush()
