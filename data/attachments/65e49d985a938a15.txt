@@ -1,0 +1,16 @@
+{"t":"2026-09-13T20:34:20.255Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-13T20:34:20.273Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-13T20:34:20.274Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-13T20:34:20.276Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-13T20:34:20.525Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@owner' from testclient","trace_id":"c9810d93793a810a"}
+{"t":"2026-09-13T20:34:20.527Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-09-13T20:34:20.633Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@owner' from testclient","trace_id":"29184735c2f2b172"}
+{"t":"2026-09-13T20:34:20.635Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-09-13T20:34:20.737Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@owner' from testclient","trace_id":"6a2fc413164e735b"}
+{"t":"2026-09-13T20:34:20.739Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-09-13T20:34:20.842Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@owner' from testclient","trace_id":"28b14c0867564595"}
+{"t":"2026-09-13T20:34:20.843Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-09-13T20:34:20.954Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for '@owner' from testclient","trace_id":"c9b3bb08f620ef62"}
+{"t":"2026-09-13T20:34:20.956Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-09-13T20:34:20.959Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 429 Too Many Requests\""}
+{"t":"2026-09-13T20:34:20.962Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 429 Too Many Requests\""}
