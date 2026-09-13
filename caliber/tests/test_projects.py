@@ -854,3 +854,211 @@ def test_upload_requires_operator(proj_client: TestClient) -> None:
 def test_missing_project_404(proj_client: TestClient) -> None:
     assert proj_client.get(f"{PREFIX}/projects/PRJ-nope").status_code == 404
     assert proj_client.get(f"{PREFIX}/projects/PRJ-nope/files").status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Workspace environments (`P1-F`, Phase 1 items 10/11): explicit enable/
+# disable lifecycle, plus effective-capability projection on the response.
+# ---------------------------------------------------------------------------
+
+
+def test_list_project_environments_returns_all_four_in_promotion_order(
+    proj_client: TestClient,
+) -> None:
+    pid = _create(proj_client, "Environments project")
+    resp = proj_client.get(f"{PREFIX}/projects/{pid}/environments")
+    assert resp.status_code == 200, resp.text
+    environments = resp.json()["data"]["environments"]
+    assert [(e["name"], e["environment_class"], e["status"]) for e in environments] == [
+        ("dev", "development", "active"),
+        ("qa", "qa", "disabled"),
+        ("staging", "staging", "disabled"),
+        ("prod", "production", "disabled"),
+    ]
+    # Capability projection (item 11): the same `access_role`/`permissions`
+    # `GET /projects/{id}` itself returns for this identity, since an
+    # environment carries no separate per-environment role in this MVP.
+    project_detail = proj_client.get(f"{PREFIX}/projects/{pid}").json()["data"]
+    for env in environments:
+        assert env["access_role"] == project_detail["access_role"] == "owner"
+        assert env["permissions"] == project_detail["permissions"]
+        assert "environment.manage" in env["permissions"]
+
+
+def test_get_project_environment_detail(proj_client: TestClient) -> None:
+    pid = _create(proj_client, "Env detail project")
+    resp = proj_client.get(f"{PREFIX}/projects/{pid}/environments/qa")
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["name"] == "qa"
+    assert data["environment_class"] == "qa"
+    assert data["promotion_order"] == 20
+    assert data["status"] == "disabled"
+    assert data["project_id"] == pid
+
+
+def test_get_project_environment_404_for_unknown_name(proj_client: TestClient) -> None:
+    pid = _create(proj_client, "Env 404 project")
+    assert proj_client.get(f"{PREFIX}/projects/{pid}/environments/nope").status_code == 404
+
+
+def test_enable_and_disable_project_environment(
+    proj_client: TestClient, db_session: Session
+) -> None:
+    pid = _create(proj_client, "Env lifecycle project")
+
+    enabled = proj_client.post(f"{PREFIX}/projects/{pid}/environments/qa/enable")
+    assert enabled.status_code == 200, enabled.text
+    assert enabled.json()["data"]["status"] == "active"
+
+    disabled = proj_client.post(f"{PREFIX}/projects/{pid}/environments/qa/disable")
+    assert disabled.status_code == 200, disabled.text
+    assert disabled.json()["data"]["status"] == "disabled"
+
+    from caliber.db.models import CaliberAuditLog
+
+    actions = {
+        row.action
+        for row in db_session.query(CaliberAuditLog)
+        .filter(CaliberAuditLog.entity_type == "workspace_environment")
+        .all()
+    }
+    assert actions == {"enable_workspace_environment", "disable_workspace_environment"}
+
+
+def test_enabling_an_already_active_environment_conflicts(proj_client: TestClient) -> None:
+    pid = _create(proj_client, "Already active project")
+    # dev starts active by default (P1-A's seeding).
+    resp = proj_client.post(f"{PREFIX}/projects/{pid}/environments/dev/enable")
+    assert resp.status_code == 409
+
+
+def test_disabling_an_already_disabled_environment_conflicts(proj_client: TestClient) -> None:
+    pid = _create(proj_client, "Already disabled project")
+    # qa starts disabled by default (P1-A's seeding).
+    resp = proj_client.post(f"{PREFIX}/projects/{pid}/environments/qa/disable")
+    assert resp.status_code == 409
+
+
+def test_environment_enable_requires_operator_scope(proj_client: TestClient) -> None:
+    pid = _create(proj_client, "Scope guarded env project")
+    resp = proj_client.post(
+        f"{PREFIX}/projects/{pid}/environments/qa/enable",
+        headers={"X-CALIBER-User": "@viewer-only"},
+    )
+    assert resp.status_code == 403
+
+
+def test_environment_enable_requires_owner_role_not_just_operator_scope(
+    proj_client: TestClient,
+) -> None:
+    """`environment.manage` is Admin-only (section 2.4) -- an Editor with
+    real operator scope is still denied, proving this is a genuine
+    project-role gate and not just the global-scope check above."""
+    pid = _create(proj_client, "Editor guarded env project")
+    added = proj_client.post(
+        f"{PREFIX}/projects/{pid}/members",
+        json={"user_id": "@editor-user", "role": "editor"},
+    )
+    assert added.status_code == 201, added.text
+    proj_client.app.state.config = proj_client.app.state.config.model_copy(
+        update={"operator_users": "@editor-user"}
+    )
+
+    resp = proj_client.post(
+        f"{PREFIX}/projects/{pid}/environments/qa/enable",
+        headers={"X-CALIBER-User": "@editor-user"},
+    )
+    assert resp.status_code == 403
+
+
+def test_environment_identity_fields_have_no_edit_route(proj_client: TestClient) -> None:
+    """Section 12.2's acceptance criterion: "environment identity fields
+    cannot be edited or deleted" -- there is no PATCH/PUT/DELETE route for
+    an environment at all in this slice, only the enable/disable lifecycle
+    transition."""
+    pid = _create(proj_client, "No edit route project")
+    for method in ("patch", "put", "delete"):
+        resp = getattr(proj_client, method)(f"{PREFIX}/projects/{pid}/environments/qa")
+        assert resp.status_code == 405, (method, resp.text)
+
+
+def test_environments_are_hidden_for_a_project_the_caller_cannot_see(
+    proj_client: TestClient,
+) -> None:
+    pid = _create(proj_client, "Hidden env project")
+    resp = proj_client.get(
+        f"{PREFIX}/projects/{pid}/environments", headers={"X-CALIBER-User": "@stranger"}
+    )
+    assert resp.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Owner-eligibility re-checked at use time, not just at grant time (`P1-F`,
+# Phase 1 item 6's residual "conjunction-safe global-scope checks" scope).
+# ---------------------------------------------------------------------------
+
+
+def test_a_primary_owner_who_loses_a_required_scope_is_narrowed_not_locked_out(
+    proj_client: TestClient,
+) -> None:
+    """`is_eligible_for_owner_role` gates *granting* the `owner` role
+    (`P1-C`); this proves the same `{operator, approver}` conjunction is
+    also re-checked on every request against the caller's own *live*
+    scopes. `@lapsing-owner` creates the project with both scopes (the
+    project's real primary owner, via `CaliberProject.owner`, not merely
+    an `owner`-role membership row) -- then loses `approver` at the
+    platform-identity level, same as any other config change an operator
+    might make for an unrelated reason."""
+    proj_client.app.state.config = proj_client.app.state.config.model_copy(
+        update={"operator_users": "@lapsing-owner", "approver_users": "@lapsing-owner"}
+    )
+    created = proj_client.post(
+        f"{PREFIX}/projects",
+        json={"name": "Lapsing owner project"},
+        headers={"X-CALIBER-User": "@lapsing-owner"},
+    )
+    assert created.status_code == 201, created.text
+    pid = created.json()["data"]["project_id"]
+
+    # Still fully eligible right after creation.
+    detail = proj_client.get(
+        f"{PREFIX}/projects/{pid}", headers={"X-CALIBER-User": "@lapsing-owner"}
+    ).json()["data"]
+    assert detail["access_role"] == "owner"
+    assert "project.manage_members" in detail["permissions"]
+
+    # Loses `approver` -- one scope short of eligibility now.
+    proj_client.app.state.config = proj_client.app.state.config.model_copy(
+        update={"approver_users": ""}
+    )
+
+    narrowed = proj_client.get(
+        f"{PREFIX}/projects/{pid}", headers={"X-CALIBER-User": "@lapsing-owner"}
+    ).json()["data"]
+    assert narrowed["access_role"] == "editor"
+    assert "project.manage_members" not in narrowed["permissions"]
+
+    # Admin-only actions are refused...
+    archive = proj_client.post(
+        f"{PREFIX}/projects/{pid}/archive", headers={"X-CALIBER-User": "@lapsing-owner"}
+    )
+    assert archive.status_code == 403
+
+    # ...but ordinary content access is not: this is a narrowing, not the
+    # bare admin-bypass-removal lockout `P1-B` already established.
+    renamed = proj_client.patch(
+        f"{PREFIX}/projects/{pid}",
+        json={"name": "still editable"},
+        headers={"X-CALIBER-User": "@lapsing-owner"},
+    )
+    assert renamed.status_code == 200, renamed.text
+
+    # Restoring the scope reinstates the real owner role.
+    proj_client.app.state.config = proj_client.app.state.config.model_copy(
+        update={"approver_users": "@lapsing-owner"}
+    )
+    reinstated = proj_client.get(
+        f"{PREFIX}/projects/{pid}", headers={"X-CALIBER-User": "@lapsing-owner"}
+    ).json()["data"]
+    assert reinstated["access_role"] == "owner"

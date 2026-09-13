@@ -3720,10 +3720,11 @@ combined with a later slice merely to reduce PR count.
 | `P0-A` | Architecture + security | **Delivered.** Machine-readable route required-scope inventory (`routes/scope_inference.py`, `x-caliber-required-scope` on the served OpenAPI document, enforced by `tests/test_route_scope_inventory.py`) — every one of 403 operations classified by reading its own authorization call, not a hand-duplicated table — plus a background-worker inventory (`observability/worker_inventory.py`, `tests/test_worker_inventory.py`) and a per-model project-scoping inventory (`db/resource_inventory.py`, `tests/test_resource_inventory.py`, all 85 models classified with zero hand-maintenance needed); the per-plane authority matrix and every question section 19.2 posed are ratified as decisions (section 19) | — | Every route, every background worker, and every model has one inventory row and none can drift from the real code; every policy question this document posed has a named, ratified decision rather than an implicit default (gate on today's live route table / lifespan / model registry, same as `P3-B`/`P3-A`/`P3-C`'s "doesn't wait" exceptions in spirit, though these have no `P1-C` dependency to begin with) |
 | `P0-B` | API + SDK | **Delivered.** OpenAPI shapes: `x-caliber-required-scope` (`P0-A`'s route-scope inventory) is now rendered as a "Required scope" column in the published REST API reference (`docs-site/generate_rest_api_docs.py::_format_required_scope`), not just visible in the raw served JSON. Error envelope: ratified as frozen — `routes/_errors.py`'s `{detail, status_code}` / `{detail, status_code, errors[]}` shapes were already implemented, tested, OpenAPI-declared, and published before this PR; no code changed. Closed actions: ratified — today's live route table requires only 5 of `PROJECT_ACTIONS`'s 7 keys, closure enforced by `tests/test_route_scope_inventory.py`; this is *not* `P1-B`'s "Closed action enum" (section 2.4's much larger future `WorkspaceAction` vocabulary), which remains unstarted and gated on `P1-A`. Reason codes: named as a real, deliberately deferred gap (Phase 0 item 6). Pagination: inventoried and ratified (`routes/pagination_inventory.py`, 6 distinct shapes across ~27 routes pinned, `list_limit()` ratified as the near-term baseline, deviations named not reconciled). ETag/CAS/idempotency: today's real `409`-based mechanisms ratified as the current precursor to section 13.6's target `412`/header contract, with a pin confirming no route emits `412` yet. Change Request/version contracts: sections 3.2/9.2's already-written design ratified as frozen, plus `workspace_change_requests.py`'s model-based transition fixtures (Phase 4 still owns all real implementation). Manifest schema and golden vectors: `workspace_manifest.py` implements and tests the `v1alpha1` schema and canonicalization (22 golden-vector tests) — the manifest-document half of the eventual `revision_sha256`; full materialization remains Phase 4. Multipart field names, maximum bundle size (a new, reasoned policy decision), and sync/async streaming (decision ratified, heartbeat-test verification pending real async upload code) round out item 6 in full. **Explicitly out of scope for this ticket** (Phase 0 items with no PR-sequence ticket, not owned by "API + SDK," left exactly as open as before): item 3's remaining nullability/uniqueness audit and bare-name-resolver inventory, item 5 (resource adapter capability contract), item 7 (deterministic fixtures), item 8 (the two typed decision contracts), item 9 (per-adapter reconstructability strategy), item 11 (`SourceControlProvider` capabilities) | `P0-A` | Contract fixtures execute offline; no unresolved name or state appears in implementation tickets |
 | `P1-A` | Data/backend | **Partially delivered.** Project slug/source-mode/archive/accepted-revision fields, the minimal `caliber_workspace_environments` table, project-member deactivation fields, and audit-log environment correlation are all added (migration `0093`), with a deterministic additive backfill for every existing project. Workspace creation now requires operator **and** approver (a new `require_all_scopes` primitive) and transactionally seeds the four fixed environments. The environment-class registry gained a genuine `qa` class without touching legacy alias behavior. Still open: the Workspace idempotency ledger (a separate table, not built — nothing needs it yet) and PostgreSQL migration CI (zero infra exists; a distinct CI/infra task, out of scope for this slice by explicit choice) | `P0-B` | Fresh/upgrade parity on SQLite and real PostgreSQL; idempotency conflict/replay is durable; new Workspace seeds dev active and qa/staging/prod disabled; migrated live aliases remain `baseline_required` |
-| `P1-B` | Security/backend | **Partially delivered (slice 1).** `authorize()` decision service (`resource_access.py`), `require_project_access` as its compatibility wrapper, `AccessDecision.policy_version` + closed reason codes, and removal of the platform-admin owner bypass (`project_role()`, plus the coupled `list_projects` fix and the "deny workspace writes with no active workspace" gap) are all delivered — bare fail-closed, no replacement recovery path (that's `P1-C`/Phase 5's job, by design). Item 5 (the closed action registry and the `resource.write.runtime`/`.evidence` split) is delivered separately, see `P1-D` below. Still open: conjunction-safe role-grant eligibility and multiple-Admin/primary-owner invariants (item 6, split with `P1-C`) | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; policy errors never fall back to legacy allow |
+| `P1-B` | Security/backend | **Partially delivered (slice 1).** `authorize()` decision service (`resource_access.py`), `require_project_access` as its compatibility wrapper, `AccessDecision.policy_version` + closed reason codes, and removal of the platform-admin owner bypass (`project_role()`, plus the coupled `list_projects` fix and the "deny workspace writes with no active workspace" gap) are all delivered — bare fail-closed, no replacement recovery path (that's `P1-C`/Phase 5's job, by design). Item 5 (the closed action registry and the `resource.write.runtime`/`.evidence` split) is delivered separately, see `P1-D` below. Item 6 (conjunction-safe role-grant eligibility and multiple-Admin/primary-owner invariants) is split across `P1-C` (grant/transfer-time eligibility, multi-Admin, primary-owner invariant) and `P1-F` (the residual use-time re-check) | `P1-A` | Existing wrapper tests pass; negative matrix proves 401/403/404 and fail-closed behavior; policy errors never fall back to legacy allow |
 | `P1-D` | Security/backend | **Delivered (slice 1 of Phase 1's remaining split).** `PROJECT_ACTIONS` closed over section 2.4's full 29-key target vocabulary (kept as a `dict[str, frozenset[str]]`, not a Python `Enum` — `routes/scope_inference.py`'s AST-based inventory only recognizes literal string constants as action values). `resource.write` retired in favor of `resource.write.runtime`/`.evidence`; the 5 existing generic project-file-storage call sites migrated to `.runtime`. `resource.execute` and `feedback.submit` wired onto real routes via a new `require_project_access_if_scoped()` helper (a no-op when the target resource's `project_id` is `None` — workflows/workflow runs/eval datasets/review queues are all optionally project-scoped): `routes/workflow_runs.py` (create/trigger-event/cancel/retry/resume/resume-by-event), `routes/evaluations.py::create_evaluation`, `routes/review_queues.py::submit_item`. Deliberately still reserved, not wired: `resource.write.evidence` onto Prompt/Workflow/Tool/Skill/Test-set/Judge/Scorer CRUD (section 2.3's isolation-closure warning — Phase 2's job) and `rework.update` (`caliber_rework_tasks` has no `project_id` column yet) | `P1-B` | `test_route_scope_inventory.py::test_the_live_vs_reserved_action_partition_is_pinned` names exactly which of the 29 keys are live vs. reserved; a route that starts using any reserved key is instantly covered by an already-correct role set, not an implicit allow |
-| `P1-C` | Auth/backend | **Partially delivered (slice 1).** Multiple active `owner`-role (Admin) memberships are now allowed alongside `CaliberProject.owner`'s one primary-owner pointer; granting the `owner` role (via `add_project_member`/`update_project_member`) requires the target's *live* platform scopes to include both `caliber.operator` and `caliber.approver` (`resource_access.is_eligible_for_owner_role`), re-checked at grant time, not cached. `POST /projects/{id}/transfer-ownership` atomically moves the primary-owner pointer between two existing Admins -- only the current primary owner may call it, and the target is re-checked for eligibility at transfer time too, closing the "granted while eligible, now lapsed" gap. `POST /projects/{id}/archive` / `/restore` replace the old bare `PATCH .../projects/{id}` status flip, now with real audited provenance (`archived_at`/`archived_by`, migration `0093`'s already-added but previously unwired columns); `PATCH` itself narrows to name/description only, matching section 12.2's target route table. `CaliberProjectMember.deactivated_at`/`deactivated_by` (also `0093`, also previously unwired) are now set on removal/deactivation and cleared on reactivation. `PROJECT_ACTIONS` gained the three actions section 2.4 names (`project.archive`/`.restore`/`.transfer_owner`), Admin-only. Item 7 (project-bound PAT/credential context) is delivered separately, see `P1-E` below. Still open (this ticket's remaining scope): the metadata-only platform Admin inventory (item 13, `project_role()`'s still-bare admin-bypass-removal fail-closed default), and capability projection (item 11, e.g. exposing effective capabilities on environment responses once Phase 1's environment routes exist) | `P1-B` | PAT cannot cross workspace (delivered, `P1-E`); scope-ineligible role grants fail (delivered); primary owner transfer is atomic (delivered); secondary Admin does not change primary owner (delivered) |
+| `P1-C` | Auth/backend | **Partially delivered (slice 1).** Multiple active `owner`-role (Admin) memberships are now allowed alongside `CaliberProject.owner`'s one primary-owner pointer; granting the `owner` role (via `add_project_member`/`update_project_member`) requires the target's *live* platform scopes to include both `caliber.operator` and `caliber.approver` (`resource_access.is_eligible_for_owner_role`), re-checked at grant time, not cached. `POST /projects/{id}/transfer-ownership` atomically moves the primary-owner pointer between two existing Admins -- only the current primary owner may call it, and the target is re-checked for eligibility at transfer time too, closing the "granted while eligible, now lapsed" gap. `POST /projects/{id}/archive` / `/restore` replace the old bare `PATCH .../projects/{id}` status flip, now with real audited provenance (`archived_at`/`archived_by`, migration `0093`'s already-added but previously unwired columns); `PATCH` itself narrows to name/description only, matching section 12.2's target route table. `CaliberProjectMember.deactivated_at`/`deactivated_by` (also `0093`, also previously unwired) are now set on removal/deactivation and cleared on reactivation. `PROJECT_ACTIONS` gained the three actions section 2.4 names (`project.archive`/`.restore`/`.transfer_owner`), Admin-only. Item 7 (project-bound PAT/credential context) is delivered separately, see `P1-E` below; items 11 (capability projection) and 13 (metadata-only platform Admin inventory) likewise, see `P1-F` below | `P1-B` | PAT cannot cross workspace (delivered, `P1-E`); scope-ineligible role grants fail (delivered); primary owner transfer is atomic (delivered); secondary Admin does not change primary owner (delivered) |
 | `P1-E` | Auth/backend | **Delivered (slice 2 of Phase 1's remaining split).** `caliber_personal_access_tokens` gained a nullable `project_id` (migration `0094`). `CaliberIdentity` gained `credential_kind`/`credential_id`/`credential_project_id`, populated during identity resolution. `POST /auth/tokens` accepts an optional `project_id`, validated against a real project role at issuance (denies binding to a project the caller has no relationship with) and preserved across rotation. `auth.py::resolve_identity` centrally refuses (403) any request where a project-bound PAT's bound project differs from the project named by the `X-CALIBER-Project` header or a `{project_id}` path segment; a request naming no project at all is unaffected. Not delivered: the "resource owner"/"persisted worker context" conjuncts and "require project-bound PATs for CI import" -- neither has a modeled check yet, and no CI-import route exists (Phase 2/4's job) | `P1-C` | A project-bound PAT is refused for a different project via path (delivered); via header (delivered); an unbound PAT and a request naming no project are both unaffected (delivered); issuance requires a real project role, not just project existence (delivered) |
+| `P1-F` | Auth/backend | **Delivered (slice 3 of Phase 1's remaining split -- Phase 1 complete).** Item 6's residual scope: `resource_access.py::project_role()` now re-checks the `{operator, approver}` conjunction against the caller's own *live* scopes on every use, not only at grant/transfer time (`P1-C`) -- an owner (including the primary-owner pointer) who has since lost either scope is narrowed to `editor` (ordinary content access kept, every Admin-only action refused) rather than staying a silent, stale Owner; `POLICY_VERSION` bumped to `p1f-2026-09-13`. Item 10's remaining piece: `POST /projects/{id}/environments/{name}/enable`/`/disable` (`routes/projects.py`), Admin-only (`environment.manage`, now wired instead of merely reserved), flips `status` with an `audit_record()` entry and a `409` for a no-op transition; no create/delete route, identity fields stay immutable. Item 11: `GET /projects/{id}/environments`/`{name}` return the same `access_role`/`permissions` projection project responses already carry. Item 13: `GET /admin/platform-admins` (`routes/platform_admin_inventory.py`, `caliber.admin`-only) -- a metadata-only read of the live `admin_users`/`approver_users`/`operator_users` config lists (`auth.py::parse_user_list`, made public for this reuse), granting no project/resource access itself. Item 14: `caliber/actor_provenance.py` -- `ActorProvenance`/`require_distinct_actors`, a reusable originator-versus-decision-maker primitive comparing `user_id` only (immune to switching credentials between the two recorded actions), not yet wired to anything (Phase 5's job, per this item's own text) | `P1-C`, `P1-E` | An owner who loses a required scope is narrowed to `editor`, not locked out of content, and is reinstated when the scope is restored; enabling an already-active (or disabling an already-disabled) environment conflicts; an Editor with real operator scope is still denied `environment.manage`; environment identity fields have no edit route; the platform-admin inventory requires `caliber.admin` and never returns project content; `require_distinct_actors` raises exactly when the same `user_id` appears on both sides, regardless of credential kind |
 | `P2-A` | Backend | Convert root routes by resource family to centralized authorization and non-null-on-create workspace ownership | `P1-C` | Each converted family has two-workspace CRUD/child-ID tests; unconverted routes remain inventoried and flagged |
 | `P2-B` | Runtime | Project/revision-aware compiler, run queue, workers, callbacks, plan executor and Aria delegation | `P2-A` | Persisted context survives restart; worker cannot widen actor authority or fall back to global registries |
 | `P2-C` | Integrations/storage | Prompt/provider binding, storage and file isolation, public/personal immutable pin semantics | `P2-A` | Colliding logical names resolve correctly; guessed provider/file refs do not disclose another workspace |
@@ -4089,6 +4090,22 @@ Primary areas: `db/models.py`, `db/migrations/versions/`, `schemas.py`,
    vocabulary remains reserved for Phase 2-5's own route families.
 6. Add conjunction-safe global-scope checks, target eligibility on role grants,
    multiple Admin collaborators, and the single primary-owner invariant.
+   **Delivered.** Target eligibility on role grants, multiple Admin
+   collaborators, and the primary-owner invariant all shipped in `P1-C`
+   (`is_eligible_for_owner_role`, re-checked at grant/transfer time). The
+   residual "conjunction-safe global-scope checks" piece -- re-checking
+   that same `{operator, approver}` conjunction at *use* time, not only at
+   grant time -- ships in `P1-F`: `resource_access.py::project_role()` now
+   narrows an `owner`-role holder (including the primary-owner pointer
+   itself, `CaliberProject.owner`) to `editor` whenever their own live
+   scopes (`identity.scopes`, already resolved this request) no longer
+   include both -- the same "authority narrows the instant it's no longer
+   held" principle already applied to PAT scope ceilings. Narrowed, not
+   denied outright: ordinary read/write access to project content is kept,
+   only Admin-only actions (`project.manage_members`, `.archive`,
+   `.transfer_owner`, `environment.manage`, ...) are refused, matching
+   `P1-B`'s own bare-fail-closed, no-automatic-recovery design for the
+   admin-bypass removal. `POLICY_VERSION` bumped to `p1f-2026-09-13`.
 7. Add optional PAT project binding and identity credential context; require
    project-bound PATs for CI import.
    **Delivered** (`P1-E`): `caliber_personal_access_tokens` gained a nullable
@@ -4132,7 +4149,8 @@ Primary areas: `db/models.py`, `db/migrations/versions/`, `schemas.py`,
    closed registry (`P1-D`) closes `PROJECT_ACTIONS` itself over that
    `str` vocabulary rather than switching to an enum; item 6's remaining
    scope (conjunction-safe global-scope checks on role grants beyond
-   `P1-C`'s owner-eligibility check) is still open.
+   `P1-C`'s owner-eligibility check) is delivered separately, see `P1-F`
+   below.
 9. Preserve `require_project_access` as a compatibility wrapper over the new
    decision service.
    **Delivered** (`P1-B`, slice 1): `require_project_access` now calls
@@ -4142,7 +4160,29 @@ Primary areas: `db/models.py`, `db/migrations/versions/`, `schemas.py`,
 10. Add primary-owner transfer, additional-Admin membership, explicit
    environment enable/disable, and archive/restore transitions with audit
    records.
+   **Delivered.** Primary-owner transfer, additional-Admin membership, and
+   archive/restore all shipped in `P1-C`. The remaining piece -- explicit
+   environment enable/disable -- ships in `P1-F`:
+   `POST /projects/{id}/environments/{name}/enable` / `/disable`
+   (`routes/projects.py`), Admin-only (`environment.manage`, now wired
+   rather than merely reserved), flipping the row's `status` between
+   `"active"`/`"disabled"` with an `audit_record()` entry and a `409` for
+   a no-op transition (already-active/already-disabled). No `If-Match`/
+   ETag concurrency control yet -- that needs the `lock_version` column
+   section 9.2 also describes, deliberately not modelled (see
+   `db/models.py::CaliberWorkspaceEnvironment`'s own docstring); nothing
+   else on this row needs optimistic concurrency today either. No
+   create/delete route, matching "no create/delete route in MVP" --
+   `name`/`environment_class`/`promotion_order` stay server-seeded and
+   immutable.
 11. Return effective capabilities from workspace and environment responses.
+   **Delivered** (`P1-F`) for the environment half -- workspace (project)
+   responses already returned `access_role`/`permissions` since `P1-C`.
+   `GET /projects/{id}/environments` and `GET /projects/{id}/environments/
+   {name}` (new in this same slice) return the identical projection: an
+   environment carries no separate per-environment role in this MVP
+   (section 2.1), so these mirror the caller's project-wide role exactly
+   rather than computing anything new.
 12. Remove the platform-admin-to-owner shortcut from ordinary decisions and
     deny workspace writes when no active workspace is supplied.
     **Delivered** (`P1-B`, slice 1): `resource_access.py::project_role()`'s
@@ -4157,7 +4197,7 @@ Primary areas: `db/models.py`, `db/migrations/versions/`, `schemas.py`,
     (silently wrote into a `"default"` namespace with zero authorization
     check) is closed — `400` when no `X-CALIBER-Project` header is set.
     **Bare fail-closed deny, by this ticket's own explicit design**: no
-    replacement recovery path exists yet — that's `P1-C`'s job (item 13,
+    replacement recovery path exists yet — that's `P1-F`'s job (item 13,
     metadata-only inventory) and Phase 5's (`P5-B`, real interactive
     break-glass). An admin with no real project membership is now locked
     out of that project's content, exactly as intended, until those land.
@@ -4168,8 +4208,31 @@ Primary areas: `db/models.py`, `db/migrations/versions/`, `schemas.py`,
     `project_role()`'s workspace/project-ownership bypass specifically.
 13. Add a metadata-only platform Admin inventory and keep resource content
     behind ordinary membership or explicit audited recovery.
+    **Delivered** (`P1-F`): `GET /admin/platform-admins`
+    (`routes/platform_admin_inventory.py`), `caliber.admin`-only, returns
+    the live `admin_users`/`approver_users`/`operator_users` lists read
+    directly from `CaliberConfig` (via `auth.py::parse_user_list`, made
+    public for this reuse -- no separate database table to drift from
+    what actually grants scope). Metadata only: reading it grants nothing
+    beyond knowing who to ask or recover through -- ordinary project
+    membership still gates actual project content exactly as before, and
+    the real interactive break-glass mechanism remains Phase 5's (`P5-B`).
 14. Add reusable actor-provenance and distinct-actor policy primitives; release
     enforcement lands with the release records in Phase 5.
+    **Delivered** (`P1-F`): `caliber/actor_provenance.py`, new --
+    `ActorProvenance` (`user_id` plus `P1-E`'s `credential_kind`/
+    `credential_id`, built via `.from_identity(CaliberIdentity)`) and
+    `require_distinct_actors(originator, decision_maker, *, context)`,
+    raising `DistinctActorError` when the same platform identity appears
+    on both sides of an originator-versus-decision-maker check --
+    comparing `user_id` only, so switching credentials between the two
+    recorded actions cannot defeat the check. Not wired onto anything yet
+    (release enforcement is Phase 5's job, per this item's own text; the
+    one existing distinct-actor check in this codebase,
+    `workflows/approval_policy.py::record_approval`'s self-approval rule,
+    is deliberately left as its own already-shipped, already-tested
+    implementation rather than refactored to share this primitive for no
+    behavioral gain).
 
 **Acceptance:** existing `/projects`, membership, SDK and header wire shapes
 remain compatible, while create and lifecycle-mutation authorization tests are

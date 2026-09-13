@@ -21,6 +21,7 @@ from .core import (
     LlmSetupStatus,
     OptimizerPlugin,
     PersonalAccessToken,
+    PlatformAdminInventory,
     Project,
     ProjectFile,
     ProjectFolder,
@@ -30,6 +31,7 @@ from .core import (
     RuntimeSettingsSummary,
     SessionInfo,
     WorkflowRunCapabilities,
+    WorkspaceEnvironment,
 )
 from .errors import ErrorBody, FieldError
 from .integrations import (
@@ -114,6 +116,7 @@ __all__ = [
     "OptimizerPlugin",
     "Page",
     "PersonalAccessToken",
+    "PlatformAdminInventory",
     "Project",
     "ProjectFile",
     "ProjectFolder",
@@ -142,6 +145,7 @@ __all__ = [
     "WorkflowRunCapabilities",
     "WorkflowService",
     "WorkflowVersion",
+    "WorkspaceEnvironment",
     "decode",
     "decode_list",
 ]

@@ -25,9 +25,9 @@ from caliber.auth import (
     SCOPE_APPROVER,
     SCOPE_OPERATOR,
     SCOPE_VIEWER,
-    _parse_user_list,
     current_scopes,
     current_user,
+    parse_user_list,
     require_all_scopes,
     require_scopes,
 )
@@ -68,12 +68,12 @@ def _config(**overrides: str) -> CaliberConfig:
     return CaliberConfig(**base)
 
 
-def test_parse_user_list_handles_whitespace_and_empties() -> None:
-    assert _parse_user_list("") == frozenset()
-    assert _parse_user_list("  ") == frozenset()
-    assert _parse_user_list("@a, @b ,, @c") == frozenset({"@a", "@b", "@c"})
+def testparse_user_list_handles_whitespace_and_empties() -> None:
+    assert parse_user_list("") == frozenset()
+    assert parse_user_list("  ") == frozenset()
+    assert parse_user_list("@a, @b ,, @c") == frozenset({"@a", "@b", "@c"})
     # Trailing comma is fine — operator convenience.
-    assert _parse_user_list("@a,") == frozenset({"@a"})
+    assert parse_user_list("@a,") == frozenset({"@a"})
 
 
 def test_current_scopes_anonymous_returns_empty() -> None:

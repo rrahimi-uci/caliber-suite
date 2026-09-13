@@ -112,12 +112,12 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     # to check a role against yet, so wiring this would mean building that
     # scoping first, not just adding a call here.
     "rework.update": frozenset({ROLE_OWNER, ROLE_EDITOR}),
-    # Everything below is reserved for a Phase 2-5 route family that does
-    # not exist in this codebase yet (Change Requests, version tags,
-    # environments, releases/operations). Closing the registry over the
-    # full target vocabulary now means whichever of those routes lands
-    # first is instantly gated correctly, not added to `PROJECT_ACTIONS` as
-    # an afterthought alongside its own PR.
+    # Everything below except `environment.manage` is reserved for a Phase
+    # 2-5 route family that does not exist in this codebase yet (Change
+    # Requests, version tags, releases/operations). Closing the registry
+    # over the full target vocabulary now means whichever of those routes
+    # lands first is instantly gated correctly, not added to
+    # `PROJECT_ACTIONS` as an afterthought alongside its own PR.
     "revision.import": frozenset({ROLE_OWNER, ROLE_EDITOR}),
     "revision.create": frozenset({ROLE_OWNER, ROLE_EDITOR}),
     "change_request.create": frozenset({ROLE_OWNER, ROLE_EDITOR}),
@@ -125,6 +125,10 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     "change_request.comment": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER}),
     "change_request.review": frozenset({ROLE_OWNER, ROLE_EDITOR}),
     "change_request.manage": frozenset({ROLE_OWNER}),
+    # `P1-F`: now wired -- `routes/projects.py`'s
+    # `enable_project_environment`/`disable_project_environment` (the
+    # explicit environment lifecycle transition Phase 1 item 10 names).
+    # Admin-only, matching section 2.4's table.
     "environment.manage": frozenset({ROLE_OWNER}),
     "release.request": frozenset({ROLE_OWNER, ROLE_EDITOR}),
     "release.evaluate": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER}),
@@ -141,14 +145,16 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     # (`P5-B`) designs its real, separately-audited check.
 }
 
-#: `P1-B`/`P1-C`/`P1-D`: a hand-bumped marker for `AccessDecision.policy_version`
-#: (section 5.4). Bump this string whenever this module's decision policy
-#: changes in a way an auditor reading old decisions would need to know
-#: about (e.g. the admin-owner-bypass removal `P1-B` made, `P1-C` adding
-#: the archive/restore/transfer_owner actions, or `P1-D` closing the full
-#: action registry and wiring `resource.execute`/`feedback.submit`) -- not
-#: on every unrelated edit to this file.
-POLICY_VERSION: Final[str] = "p1d-2026-09-12"
+#: `P1-B`/`P1-C`/`P1-D`/`P1-F`: a hand-bumped marker for
+#: `AccessDecision.policy_version` (section 5.4). Bump this string whenever
+#: this module's decision policy changes in a way an auditor reading old
+#: decisions would need to know about (e.g. the admin-owner-bypass removal
+#: `P1-B` made, `P1-C` adding the archive/restore/transfer_owner actions,
+#: `P1-D` closing the full action registry and wiring
+#: `resource.execute`/`feedback.submit`, or `P1-F` narrowing an
+#: eligibility-lapsed owner to `editor`) -- not on every unrelated edit to
+#: this file.
+POLICY_VERSION: Final[str] = "p1f-2026-09-13"
 
 #: `P1-C` (section 2.4/19.1 item 4): granting the `owner` role (Admin) --
 #: whether via `add_project_member`/`update_project_member` or as the
@@ -200,22 +206,49 @@ def project_role(
 
     `caliber.admin` is deliberately **not** an implicit workspace role
     (section 5.4, `P1-B`) -- ordinary platform maintenance cannot read or
-    mutate workspace content through this path. A future audited-recovery
-    path is `P1-C`'s job (a metadata-only platform Admin inventory); the
-    real interactive break-glass mechanism is Phase 5's (`P5-B`). Neither
-    exists yet -- an admin with no real membership is denied here, with no
-    replacement access path, by this ticket's own explicit design.
+    mutate workspace content through this path. A metadata-only
+    audited-recovery aid is `P1-F`'s job (a platform Admin inventory,
+    `routes/platform_admin_inventory.py`); the real interactive break-glass
+    mechanism is Phase 5's (`P5-B`). Neither grants resource access -- an
+    admin with no real membership is denied here, with no replacement
+    access path, by this ticket's own explicit design.
+
+    `P1-F` (item 6's residual "conjunction-safe global-scope checks on role
+    grants" scope, beyond `P1-C`'s grant-time-only eligibility check):
+    ``owner`` also requires the *caller's own* live scopes to still include
+    both `caliber.operator` and `caliber.approver` right now, not just at
+    the moment they were granted the role -- a demotion at the platform-
+    identity level narrows an owner's effective project role immediately,
+    the same "authority narrows the instant it's no longer held" principle
+    already applied to PAT scope ceilings (`current_scopes`) and to
+    `is_eligible_for_owner_role`'s own re-check at grant/transfer time.
+    Narrowed to `editor`, not denied outright: an ineligible owner keeps
+    ordinary read/write access to project content (unlike the platform-
+    admin bypass this module already removed), but every Admin-only action
+    (`project.manage_members`, `.archive`, `.transfer_owner`,
+    `environment.manage`, ...) is refused until eligibility is restored or
+    another eligible Admin intervenes -- deliberately, by the same
+    bare-fail-closed, no-automatic-recovery design `P1-B` already applied
+    to the admin-bypass removal. `identity.scopes` is this exact request's
+    already-resolved live scopes (`current_scopes()`), so this needs no
+    separate config lookup the way checking a *different* user's
+    eligibility (`is_eligible_for_owner_role`) does.
     """
+    role: str | None
     if project.owner == identity.user_id:
-        return ROLE_OWNER
-    member = session.execute(
-        select(CaliberProjectMember).where(
-            CaliberProjectMember.project_id == project.project_id,
-            CaliberProjectMember.user_id == identity.user_id,
-            CaliberProjectMember.status == "active",
-        )
-    ).scalar_one_or_none()
-    return member.role if member is not None else None
+        role = ROLE_OWNER
+    else:
+        member = session.execute(
+            select(CaliberProjectMember).where(
+                CaliberProjectMember.project_id == project.project_id,
+                CaliberProjectMember.user_id == identity.user_id,
+                CaliberProjectMember.status == "active",
+            )
+        ).scalar_one_or_none()
+        role = member.role if member is not None else None
+    if role == ROLE_OWNER and not (identity.scopes >= OWNER_ROLE_REQUIRED_SCOPES):
+        return ROLE_EDITOR
+    return role
 
 
 def decide_project_access(

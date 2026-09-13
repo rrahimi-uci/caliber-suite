@@ -76,12 +76,14 @@ class PersonalAccessToken:
     revoked_reason: str | None = None
     rotated_from: str | None = None
     active: bool = True
-    #: The project this token is bound to, or ``None`` for an unbound token
-    #: (unchanged behavior -- bounded only by the owner's live global
-    #: scopes and workspace memberships). A bound token is refused for any
-    #: request that names a *different* project.
-    project_id: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
+    # Appended *after* `extra` (not inserted before it) -- see
+    # `Project.archived_at`'s own comment just below in this file for why:
+    # a `@dataclass` field's position is also its positional-constructor
+    # position, and inserting a new field before `extra` silently rebinds
+    # an existing caller's positional `extra` argument instead (the exact
+    # defect a GitHub Copilot review caught and fixed for `Project`, #297).
+    project_id: str | None = None
 
 
 @dataclass
@@ -89,6 +91,17 @@ class IssuedToken(PersonalAccessToken):
     """A freshly issued token. ``token`` is returned exactly once, ever."""
 
     token: str = ""
+
+
+@dataclass
+class PlatformAdminInventory:
+    """Who currently holds each config-driven global scope. Metadata only --
+    granting nothing beyond knowing who to ask or recover through."""
+
+    admin_users: list[str] = field(default_factory=list)
+    approver_users: list[str] = field(default_factory=list)
+    operator_users: list[str] = field(default_factory=list)
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass
@@ -280,6 +293,28 @@ class Project:
     # caller's positional `extra` argument to `archived_at` instead.
     archived_at: str | None = None
     archived_by: str | None = None
+
+
+@dataclass
+class WorkspaceEnvironment:
+    """One of a project's four fixed environments (`dev`/`qa`/`staging`/
+    `prod`). ``access_role``/``permissions`` mirror the caller's
+    project-wide role exactly -- an environment carries no separate
+    per-environment role in this MVP.
+    """
+
+    environment_id: str = ""
+    project_id: str = ""
+    name: str = ""
+    environment_class: str = ""
+    promotion_order: int = 0
+    status: str = ""
+    created_by: str = ""
+    created_at: str | None = None
+    updated_at: str | None = None
+    access_role: str | None = None
+    permissions: list[str] = field(default_factory=list)
+    extra: dict[str, Any] = field(default_factory=dict)
 
 
 @dataclass

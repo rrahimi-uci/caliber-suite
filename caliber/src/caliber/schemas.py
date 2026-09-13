@@ -2067,6 +2067,21 @@ class IdentitySchema(BaseModel):
     is_admin: bool = False
 
 
+class PlatformAdminInventorySchema(BaseModel):
+    """`P1-F`, Phase 1 item 13: a metadata-only inventory of who currently
+    holds each config-driven global scope -- not a project/resource
+    inventory. Reading this grants nothing beyond knowing who to ask or
+    recover through: ordinary project membership (or Phase 5's real
+    audited break-glass) still gates actual project content, exactly as
+    `project_role()`'s bare fail-closed admin-bypass-removal default
+    already enforces (`P1-B`).
+    """
+
+    admin_users: list[str] = Field(default_factory=list)
+    approver_users: list[str] = Field(default_factory=list)
+    operator_users: list[str] = Field(default_factory=list)
+
+
 class LlmSetupStatusSchema(BaseModel):
     """Which LLM credentials are configured -- presence, never values.
 
@@ -2271,6 +2286,38 @@ class ProjectTransferOwnershipRequest(BaseModel):
     """`P1-C`: the body for ``POST /projects/{id}/transfer-ownership``."""
 
     new_owner_user_id: str
+
+
+class WorkspaceEnvironmentSchema(BaseModel):
+    """One of a project's four fixed environments (`P1-A`/`P1-F`).
+
+    Section 9.2's release/operation-tracking columns
+    (``current_release_id``, ``pending_operation_id``, ``policy``/
+    ``policy_sha256``, ``lock_version``) are not modelled yet -- nothing
+    consumes them until Phase 5's release machinery exists (see
+    ``db/models.py::CaliberWorkspaceEnvironment``'s own docstring), so
+    they are not on this schema either. ``access_role``/``permissions``
+    are the same effective-capability projection ``ProjectSchema``
+    already returns (Phase 1 item 11) -- an environment has no separate,
+    per-environment role in this MVP (section 2.1), so these mirror the
+    caller's project-wide role exactly.
+    """
+
+    environment_id: str
+    project_id: str
+    name: str
+    environment_class: str
+    promotion_order: int
+    status: str
+    created_by: str
+    created_at: str | None = None
+    updated_at: str | None = None
+    access_role: str | None = None
+    permissions: list[str] = Field(default_factory=list)
+
+
+class WorkspaceEnvironmentListSchema(BaseModel):
+    environments: list[WorkspaceEnvironmentSchema] = Field(default_factory=list)
 
 
 class ProjectStorageSchema(BaseModel):

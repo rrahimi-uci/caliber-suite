@@ -47,6 +47,7 @@ Every documented class and module-level function, with the module that defines i
 | --- | --- |
 | [`Account`](#account) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`AccountsAPI`](#accountsapi) | [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth) |
+| [`AdminAPI`](#adminapi) | [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth) |
 | [`AgentsAPI`](#agentsapi) | [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets) |
 | [`AriaAPI`](#ariaapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
 | [`AriaDraftsAPI`](#ariadraftsapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
@@ -389,6 +390,7 @@ Operate on the caliber client surface with the supplied arguments and return the
 | `releases` | `ReleasesAPI` | Release candidates, waivers, signoff, and reports. |
 | `observability` | `ObservabilityAPI` | Traces, experiments, and metrics. |
 | `audit` | `AuditAPI` | The audit log. |
+| `admin` | `AdminAPI` | — |
 | `events` | `EventsAPI` | Server-sent event stream. |
 | `cookbooks` | `CookbooksAPI` | The built-in cookbook catalog and installer. |
 | `secrets` | `SecretsAPI` | Write-only secret references. |
@@ -1448,7 +1450,7 @@ Resource modules — typed façades over route groups.
 
 **Public exports**
 
-`AccountsAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `LlmPricingAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `PlaygroundRunsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `QualityReviewsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `ReworkTasksAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `VerificationQueueAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+`AccountsAPI`, `AdminAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `LlmPricingAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `PlaygroundRunsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `QualityReviewsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `ReworkTasksAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `VerificationQueueAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
 
 ### Module `caliber_sdk.resources.auth`
 
@@ -1462,7 +1464,7 @@ sdk/caliber-sdk/examples/tokens.py#issue_scoped_token
 
 **Public exports**
 
-`AccountsAPI`, `AuthAPI`, `TokensAPI`
+`AccountsAPI`, `AdminAPI`, `AuthAPI`, `TokensAPI`
 
 #### Classes
 
@@ -1655,6 +1657,32 @@ How this client's identity was established.
 This callable takes no public parameters.
 
 **Returns:** [`SessionInfo`](#sessioninfo)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `AdminAPI`
+
+`class AdminAPI()`
+
+Platform-wide, admin-only operational surfaces.
+
+**Methods**
+
+###### `platform_admin_inventory() -> PlatformAdminInventory`
+
+Who currently holds each config-driven global scope.
+
+Metadata only -- ``caliber.admin``-gated, and grants no project or
+resource access itself. See ``docs/workspace-plan.md`` Phase 1 item
+13 for why this exists: a recovery/support aid for "who do I even
+ask", not a capability.
+
+This callable takes no public parameters.
+
+**Returns:** `PlatformAdminInventory`
 
 **Raises:**
 
@@ -2116,6 +2144,69 @@ Where project files live, and what else the deployment supports.
 This callable takes no public parameters.
 
 **Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_environments(project_id: str) -> list[WorkspaceEnvironment]`
+
+The project's four fixed environments, in promotion order.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `list[WorkspaceEnvironment]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get_environment(project_id: str, name: str) -> WorkspaceEnvironment`
+
+Operate on the projects surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceEnvironment`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `enable_environment(project_id: str, name: str) -> WorkspaceEnvironment`
+
+Explicit lifecycle transition to ``"active"``; Admin-only.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceEnvironment`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `disable_environment(project_id: str, name: str) -> WorkspaceEnvironment`
+
+Explicit lifecycle transition to ``"disabled"``; Admin-only.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceEnvironment`
 
 **Raises:**
 
@@ -9154,7 +9245,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceEnvironment`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -9361,8 +9452,8 @@ rotate calls return — mirroring the server, where a listed token has no
 | `revoked_reason` | `str | None` | `None` |
 | `rotated_from` | `str | None` | `None` |
 | `active` | `bool` | `True` |
-| `project_id` | `str | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `project_id` | `str | None` | `None` |
 
 ##### `IssuedToken`
 

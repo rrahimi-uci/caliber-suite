@@ -279,11 +279,11 @@ def scopes_for_user(config: Any, user: str) -> frozenset[str]:
     if not user or user == ANONYMOUS:
         return frozenset()
     granted: set[str] = set()
-    if user in _parse_user_list(config.admin_users):
+    if user in parse_user_list(config.admin_users):
         granted.update(_SCOPE_IMPLIES[SCOPE_ADMIN])
-    if user in _parse_user_list(config.approver_users):
+    if user in parse_user_list(config.approver_users):
         granted.update(_SCOPE_IMPLIES[SCOPE_APPROVER])
-    if user in _parse_user_list(config.operator_users):
+    if user in parse_user_list(config.operator_users):
         granted.update(_SCOPE_IMPLIES[SCOPE_OPERATOR])
     granted.add(SCOPE_VIEWER)
     return frozenset(granted)
@@ -491,12 +491,14 @@ def require_all_scopes(request: Request, scopes: Iterable[str]) -> str:
     return actor
 
 
-def _parse_user_list(raw: str) -> frozenset[str]:
+def parse_user_list(raw: str) -> frozenset[str]:
     """Split a comma-separated user list, ignoring empty entries.
 
     ``"@sarah, @alex,"`` → ``{"@sarah", "@alex"}``. Trims whitespace so
     operators don't have to be precious about how the env var is
-    formatted.
+    formatted. Public (no leading underscore): `P1-F`'s platform Admin
+    inventory (`routes/platform_admin_inventory.py`) reuses this directly
+    rather than re-deriving the same parse a second way.
     """
     return frozenset(entry.strip() for entry in raw.split(",") if entry.strip())
 

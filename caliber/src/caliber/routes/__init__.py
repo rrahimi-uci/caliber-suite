@@ -40,6 +40,7 @@ from caliber.routes import (
     observability,
     openapi,
     openapi_integrations,
+    platform_admin_inventory,
     projects,
     prompts,
     quality_reviews,
@@ -66,7 +67,7 @@ from caliber.routes import (
 )
 
 
-def register_routes(app: Starlette) -> None:
+def register_routes(app: Starlette) -> None:  # noqa: PLR0915 - one call per route module, by design
     """Register every CALIBER HTTP route onto the given Starlette app.
 
     All CALIBER API endpoints live under ``/ajax-api/2.0/mlflow/caliber/``
@@ -105,6 +106,7 @@ def register_routes(app: Starlette) -> None:
     metrics.register(app)
     observability.register(app)
     audit.register(app)
+    platform_admin_inventory.register(app)
     gateway.register(app)
     system_effects.register(app)
     system_services.register(app)

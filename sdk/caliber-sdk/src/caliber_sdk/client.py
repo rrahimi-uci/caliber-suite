@@ -23,6 +23,7 @@ import httpx
 from .auth import AuthProvider, NoAuth, TokenAuth, TrustedHeaderAuth
 from .errors import CaliberConfigError
 from .resources import (
+    AdminAPI,
     AgentsAPI,
     AriaAPI,
     AuditAPI,
@@ -132,6 +133,7 @@ class CaliberClient:
         self.releases = ReleasesAPI(self._transport)
         self.observability = ObservabilityAPI(self._transport)
         self.audit = AuditAPI(self._transport)
+        self.admin = AdminAPI(self._transport)
         self.events = EventsAPI(self._transport)
         self.cookbooks = CookbooksAPI(self._transport)
         self.secrets = SecretsAPI(self._transport)

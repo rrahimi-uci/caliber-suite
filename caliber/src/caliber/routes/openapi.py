@@ -130,6 +130,10 @@ _STABILITY: dict[str, str] = {
     "gate-verdicts": STABILITY_INTERNAL,
     "llm-pricing": STABILITY_INTERNAL,
     "system": STABILITY_INTERNAL,
+    # `P1-F`: `GET /admin/platform-admins` -- a metadata-only, `caliber.admin`-
+    # only operational/support inventory, not a resource a typical SDK
+    # consumer builds against.
+    "admin": STABILITY_INTERNAL,
 }
 
 #: A tag with no declared tier is treated as internal rather than assumed GA.

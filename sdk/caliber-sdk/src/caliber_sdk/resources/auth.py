@@ -11,7 +11,13 @@ from collections.abc import Sequence
 from typing import Any
 
 from ..models._decode import decode, decode_list
-from ..models.core import Account, IssuedToken, PersonalAccessToken, SessionInfo
+from ..models.core import (
+    Account,
+    IssuedToken,
+    PersonalAccessToken,
+    PlatformAdminInventory,
+    SessionInfo,
+)
 from ._base import Resource
 
 
@@ -116,4 +122,18 @@ class AuthAPI(Resource):
         return decode(SessionInfo, self._get("/auth/session"))
 
 
-__all__ = ["AccountsAPI", "AuthAPI", "TokensAPI"]
+class AdminAPI(Resource):
+    """Platform-wide, admin-only operational surfaces."""
+
+    def platform_admin_inventory(self) -> PlatformAdminInventory:
+        """Who currently holds each config-driven global scope.
+
+        Metadata only -- ``caliber.admin``-gated, and grants no project or
+        resource access itself. See ``docs/workspace-plan.md`` Phase 1 item
+        13 for why this exists: a recovery/support aid for "who do I even
+        ask", not a capability.
+        """
+        return decode(PlatformAdminInventory, self._get("/admin/platform-admins"))
+
+
+__all__ = ["AccountsAPI", "AdminAPI", "AuthAPI", "TokensAPI"]

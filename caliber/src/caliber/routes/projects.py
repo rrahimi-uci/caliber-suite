@@ -51,6 +51,7 @@ from caliber.ids import new_project_id, new_project_member_id, new_workspace_env
 from caliber.resource_access import (
     PROJECT_ROLES,
     ROLE_OWNER,
+    AccessDecision,
     is_eligible_for_owner_role,
     member_payload,
     permissions_for_role,
@@ -75,6 +76,8 @@ from caliber.schemas import (
     ProjectSchema,
     ProjectStorageSchema,
     ProjectTransferOwnershipRequest,
+    WorkspaceEnvironmentListSchema,
+    WorkspaceEnvironmentSchema,
 )
 from caliber.storage import (
     VISIBLE_STATUSES,
@@ -93,6 +96,10 @@ FILES_PATH = PREFIX + "/projects/{project_id}/files"
 FOLDERS_PATH = PREFIX + "/projects/{project_id}/folders"
 FILE_PATH = PREFIX + "/projects/{project_id}/files/{file_id}"
 FILE_CONTENT_PATH = PREFIX + "/projects/{project_id}/files/{file_id}/content"
+ENVIRONMENTS_PATH = PREFIX + "/projects/{project_id}/environments"
+ENVIRONMENT_DETAIL_PATH = PREFIX + "/projects/{project_id}/environments/{name}"
+ENVIRONMENT_ENABLE_PATH = ENVIRONMENT_DETAIL_PATH + "/enable"
+ENVIRONMENT_DISABLE_PATH = ENVIRONMENT_DETAIL_PATH + "/disable"
 
 _VALID_STATUSES = frozenset({"active", "archived"})
 
@@ -1029,6 +1036,180 @@ async def transfer_project_ownership(request: Request) -> JSONResponse:
     return envelope_response(payload_out)
 
 
+def _environment_to_schema(
+    row: CaliberWorkspaceEnvironment,
+    *,
+    access_role: str | None = None,
+    permissions: frozenset[str] | set[str] | None = None,
+) -> WorkspaceEnvironmentSchema:
+    return WorkspaceEnvironmentSchema(
+        environment_id=row.environment_id,
+        project_id=row.project_id,
+        name=row.name,
+        environment_class=row.environment_class,
+        promotion_order=row.promotion_order,
+        status=row.status,
+        created_by=row.created_by,
+        created_at=row.created_at.isoformat() if row.created_at else None,
+        updated_at=row.updated_at.isoformat() if row.updated_at else None,
+        access_role=access_role,
+        permissions=sorted(permissions or ()),
+    )
+
+
+def _environment_for_project_or_404(
+    session: Session, project_id: str, name: str
+) -> CaliberWorkspaceEnvironment:
+    row = session.execute(
+        select(CaliberWorkspaceEnvironment).where(
+            CaliberWorkspaceEnvironment.project_id == project_id,
+            CaliberWorkspaceEnvironment.name == name,
+        )
+    ).scalar_one_or_none()
+    if row is None:
+        raise HTTPException(
+            status_code=404,
+            detail=f"environment {name!r} not found in project {project_id!r}",
+        )
+    return row
+
+
+async def list_project_environments(request: Request) -> JSONResponse:
+    """`P1-F`, section 9.2/12.2: the four fixed environments, in promotion
+    order, with the caller's effective capabilities (item 11) -- the same
+    ``access_role``/``permissions`` projection `get_project` already
+    returns, since an environment carries no separate per-environment role
+    in this MVP."""
+    project_id = request.path_params["project_id"]
+    identity = resolve_identity(request)
+    factory = get_session_factory(request)
+    with factory() as session:
+        _project, decision = require_project_access(session, identity, project_id, "read")
+        rows = (
+            session.execute(
+                select(CaliberWorkspaceEnvironment)
+                .where(CaliberWorkspaceEnvironment.project_id == project_id)
+                .order_by(CaliberWorkspaceEnvironment.promotion_order)
+            )
+            .scalars()
+            .all()
+        )
+        payload = WorkspaceEnvironmentListSchema(
+            environments=[
+                _environment_to_schema(
+                    row, access_role=decision.role, permissions=decision.permissions
+                )
+                for row in rows
+            ]
+        )
+    return envelope_response(payload)
+
+
+async def get_project_environment(request: Request) -> JSONResponse:
+    """`P1-F`: one environment -- section 2.5's "required for recoverability"
+    single-item GET alongside the list route."""
+    project_id = request.path_params["project_id"]
+    name = request.path_params["name"]
+    identity = resolve_identity(request)
+    factory = get_session_factory(request)
+    with factory() as session:
+        _project, decision = require_project_access(session, identity, project_id, "read")
+        row = _environment_for_project_or_404(session, project_id, name)
+        payload = _environment_to_schema(
+            row, access_role=decision.role, permissions=decision.permissions
+        )
+    return envelope_response(payload)
+
+
+def _transition_environment_status(
+    session: Session,
+    *,
+    project_id: str,
+    name: str,
+    target_status: str,
+    audit_action: str,
+    identity: CaliberIdentity,
+    decision: AccessDecision,
+) -> WorkspaceEnvironmentSchema:
+    """Shared body for `enable_project_environment`/`disable_project_environment`,
+    called only after each has already done its own scope/project-role
+    check (`routes/scope_inference.py`'s AST-based route inventory reads
+    only a handler's own body, not functions it calls -- factoring the
+    check itself out here would misclassify both routes "public").
+
+    `P1-F`, section 12.2: an explicit, audited lifecycle transition -- "no
+    create/delete route in MVP" (section 2.5), and identity fields
+    (``name``/``environment_class``/``promotion_order``) are never
+    writable here, only ``status``. Idempotent-call conflicts get a plain
+    `409` rather than section 2.5's target `If-Match`/ETag semantics: that
+    needs the `lock_version` column section 9.2 also describes,
+    deliberately not modelled yet (see
+    `db/models.py::CaliberWorkspaceEnvironment`'s own docstring) -- nothing
+    else in this table needs optimistic concurrency today either.
+    """
+    row = _environment_for_project_or_404(session, project_id, name)
+    if row.status == target_status:
+        raise HTTPException(
+            status_code=409,
+            detail=f"environment {name!r} is already {target_status!r}",
+        )
+    row.status = target_status
+    audit_record(
+        session,
+        actor=identity.user_id,
+        action=audit_action,
+        entity_type="workspace_environment",
+        entity_id=row.environment_id,
+        details={"project_id": project_id, "name": name, "status": target_status},
+    )
+    session.commit()
+    return _environment_to_schema(row, access_role=decision.role, permissions=decision.permissions)
+
+
+async def enable_project_environment(request: Request) -> JSONResponse:
+    project_id = request.path_params["project_id"]
+    name = request.path_params["name"]
+    require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    factory = get_session_factory(request)
+    with factory() as session:
+        _project, decision = require_project_access(
+            session, identity, project_id, "environment.manage"
+        )
+        payload = _transition_environment_status(
+            session,
+            project_id=project_id,
+            name=name,
+            target_status="active",
+            audit_action="enable_workspace_environment",
+            identity=identity,
+            decision=decision,
+        )
+    return envelope_response(payload)
+
+
+async def disable_project_environment(request: Request) -> JSONResponse:
+    project_id = request.path_params["project_id"]
+    name = request.path_params["name"]
+    require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    factory = get_session_factory(request)
+    with factory() as session:
+        _project, decision = require_project_access(
+            session, identity, project_id, "environment.manage"
+        )
+        payload = _transition_environment_status(
+            session,
+            project_id=project_id,
+            name=name,
+            target_status="disabled",
+            audit_action="disable_workspace_environment",
+            identity=identity,
+            decision=decision,
+        )
+    return envelope_response(payload)
+
+
 async def list_project_files(request: Request) -> JSONResponse:
     require_user(request)
     project_id = request.path_params["project_id"]
@@ -1215,4 +1396,10 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(DETAIL_PATH + "/restore", restore_project, methods=["POST"]))
     app.routes.append(
         Route(DETAIL_PATH + "/transfer-ownership", transfer_project_ownership, methods=["POST"])
+    )
+    app.routes.append(Route(ENVIRONMENTS_PATH, list_project_environments, methods=["GET"]))
+    app.routes.append(Route(ENVIRONMENT_DETAIL_PATH, get_project_environment, methods=["GET"]))
+    app.routes.append(Route(ENVIRONMENT_ENABLE_PATH, enable_project_environment, methods=["POST"]))
+    app.routes.append(
+        Route(ENVIRONMENT_DISABLE_PATH, disable_project_environment, methods=["POST"])
     )
