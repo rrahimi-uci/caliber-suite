@@ -1,0 +1,19 @@
+{"t":"2026-09-13T00:45:34.690Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-13T00:45:34.713Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-13T00:45:34.715Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-13T00:45:34.717Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-13T00:45:34.757Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T00:45:34.767Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T00:45:34.775Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T00:45:34.789Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T00:45:34.803Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-555cb6ae/versions \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T00:45:34.858Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-d9943d9c/publish \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-13T00:45:34.896Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-555cb6ae/deployments/prod/promote \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-13T00:45:34.917Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-555cb6ae/service \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-13T00:45:34.924Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/services/WF-555cb6ae/invoke \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-09-13T00:45:34.941Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-555cb6ae/service/tokens \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T00:45:34.977Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/services/WF-555cb6ae/invoke \"HTTP/1.1 202 Accepted\""}
+{"t":"2026-09-13T00:45:34.994Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-555cb6ae/service/tokens \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T00:45:35.005Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-555cb6ae/service/tokens/svt203e5ae2 \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-13T00:45:35.012Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/services/WF-555cb6ae/invoke \"HTTP/1.1 401 Unauthorized\""}
+{"t":"2026-09-13T00:45:35.020Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/services/WF-555cb6ae/runs/whatever \"HTTP/1.1 401 Unauthorized\""}

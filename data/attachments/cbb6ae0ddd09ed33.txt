@@ -1,1 +1,0 @@
-{"t":"2026-09-12T17:31:35.553Z","severity":"WARNING","logger":"caliber.trace_client","message":"trace span fetch failed for trace-err (mlflow exploded); returning empty tree"}

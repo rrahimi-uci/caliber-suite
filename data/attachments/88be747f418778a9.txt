@@ -1,0 +1,13 @@
+{"t":"2026-09-13T00:44:29.748Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-13T00:44:29.773Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-13T00:44:29.776Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-13T00:44:29.778Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-13T00:44:29.820Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T00:44:29.881Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-3c262b37/import \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T00:44:29.894Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-3c262b37/operations \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-13T00:44:29.909Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-3c262b37/tool-drafts/generate \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T00:44:29.941Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-3c262b37/tool-drafts/OATD-f7783670/publish \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T00:44:29.955Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T00:44:29.970Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-1d93fe3c/versions \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-13T00:44:30.105Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET https://tickets.example.com/tickets/T-2 \"HTTP/1.1 200 OK\"","trace_id":"1e3ace616fe1d0c4"}
+{"t":"2026-09-13T00:44:30.229Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-7f82d04c/preview-run \"HTTP/1.1 200 OK\""}

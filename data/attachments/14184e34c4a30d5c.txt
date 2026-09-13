@@ -1,0 +1,1 @@
+{"t":"2026-09-13T00:39:15.873Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET https://internal.example/ticket \"HTTP/1.1 200 OK\""}
