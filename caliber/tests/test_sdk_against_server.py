@@ -613,11 +613,44 @@ def test_the_cli_drives_the_governance_verbs_against_the_real_server(
     assert cli_main(["workflow", "rollback", workflow_id, "dev", "--yes"]) == exits.OK
     assert _deployed_version(sdk, workflow_id, "dev") == v1
 
-    assert cli_main(["gate-verdict", "record", "workflow", v1, "--state", "pass"]) == exits.OK
+    # `gate-verdict record` writes into a project's scope (`P2-D`) and now
+    # refuses without one; `--project` is a global flag, placed before the
+    # subcommand. The gate-verdicts route itself has no project concept at
+    # all (it keys purely off `version_key`), so the header this adds is
+    # inert server-side -- this is exactly the same fix already applied to
+    # `sdk/caliber-cli/tests/test_cli.py`'s own call sites for `P2-D`, just
+    # in this separate real-server integration file `P2-D` didn't touch.
+    assert (
+        cli_main(
+            [
+                "--project",
+                "PRJ-e2e-cli",
+                "gate-verdict",
+                "record",
+                "workflow",
+                v1,
+                "--state",
+                "pass",
+            ]
+        )
+        == exits.OK
+    )
     assert cli_main(["gate-verdict", "show", "workflow", v1]) == exits.OK
 
     assert (
-        cli_main(["gate-verdict", "record", "workflow", v2, "--state", "fail"]) == exits.GATE_FAILED
+        cli_main(
+            [
+                "--project",
+                "PRJ-e2e-cli",
+                "gate-verdict",
+                "record",
+                "workflow",
+                v2,
+                "--state",
+                "fail",
+            ]
+        )
+        == exits.GATE_FAILED
     )
 
 
