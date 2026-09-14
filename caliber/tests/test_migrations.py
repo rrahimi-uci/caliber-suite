@@ -438,3 +438,60 @@ def test_0093_backfills_slug_source_mode_and_four_environments_per_project(
     finally:
         engine.dispose()
         os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+#: `0095` (Phase 2 item 3): every index that migration adds, keyed by the
+#: table it lands on -- the same pairs the migration module itself declares,
+#: duplicated here (not imported) so this test still catches a mismatch if
+#: the migration's own lists ever drift from what actually got created.
+_0095_VISIBILITY_INDEXES = {
+    "caliber_agent_config": "ix_agent_config_project_visibility",
+    "caliber_aria_plans": "ix_aria_plans_project_visibility",
+    "caliber_eval_datasets": "ix_eval_datasets_project_visibility",
+    "caliber_eval_runs": "ix_eval_runs_project_visibility",
+    "caliber_judges": "ix_judges_project_visibility",
+    "caliber_llm_model_pricing": "ix_llm_model_pricing_project_visibility",
+    "caliber_openapi_integrations": "ix_openapi_integrations_project_visibility",
+    "caliber_review_queues": "ix_review_queues_project_visibility",
+    "caliber_skills": "ix_skills_project_visibility",
+    "caliber_tool_registry": "ix_tool_registry_project_visibility",
+    "caliber_workflows": "ix_workflows_project_visibility",
+}
+_0095_PROJECT_ONLY_INDEXES = {
+    "caliber_workflow_runs": "ix_workflow_runs_project",
+    "caliber_workflow_run_events": "ix_workflow_run_events_project",
+    "caliber_workflow_run_checkpoints": "ix_workflow_run_checkpoints_project",
+    "caliber_workflow_files": "ix_workflow_files_project",
+}
+
+
+@pytest.mark.slow
+def test_0095_adds_project_scoping_indexes_on_every_target_table(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A real `alembic upgrade head` run, not just `Base.metadata` --
+    proves the migration itself creates every declared index, on every
+    declared table, with a `project_id`-leading column list (so the
+    project-scoped lookup it exists for can actually use it)."""
+    db_path = tmp_path / "alembic_0095_test.db"
+    db_url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+
+    cfg = Config(str(ALEMBIC_INI))
+    monkeypatch.chdir(PROJECT_ROOT)
+    command.upgrade(cfg, "head")
+
+    engine = create_engine(db_url)
+    try:
+        inspector = inspect(engine)
+        for table, index_name in _0095_VISIBILITY_INDEXES.items():
+            indexes = {ix["name"]: ix for ix in inspector.get_indexes(table)}
+            assert index_name in indexes, f"{table} is missing {index_name}"
+            assert indexes[index_name]["column_names"] == ["project_id", "visibility"]
+        for table, index_name in _0095_PROJECT_ONLY_INDEXES.items():
+            indexes = {ix["name"]: ix for ix in inspector.get_indexes(table)}
+            assert index_name in indexes, f"{table} is missing {index_name}"
+            assert indexes[index_name]["column_names"] == ["project_id"]
+    finally:
+        engine.dispose()
+        os.environ.pop("CALIBER_DATABASE_URL", None)
