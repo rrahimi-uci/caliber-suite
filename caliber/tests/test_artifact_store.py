@@ -9,6 +9,9 @@ from types import SimpleNamespace
 import pytest
 
 from caliber.artifact_store import FakeArtifactStore, MLflowArtifactStore, build_store
+from caliber.auth import CaliberIdentity
+
+_IDENTITY = CaliberIdentity(user_id="@test", scopes=frozenset())
 
 
 def test_fake_returns_none_for_unknown_agent() -> None:
@@ -101,18 +104,19 @@ def test_mlflow_store_handles_missing_exception_and_bad_content(
 
 
 def test_mlflow_store_returns_none_for_skill_without_session_factory() -> None:
-    assert MLflowArtifactStore().get_active_skill("triage") is None
+    assert MLflowArtifactStore().get_active_skill("triage", identity=_IDENTITY) is None
 
 
 def test_mlflow_store_reads_active_skill_from_session_factory() -> None:
     skill = SimpleNamespace(name="triage", status="active", content="skill body")
 
-    class _Query:
-        def filter(self, *args: object) -> _Query:
-            return self
-
+    class _Scalars:
         def first(self) -> object:
             return skill
+
+    class _Result:
+        def scalars(self) -> _Scalars:
+            return _Scalars()
 
     class _Session:
         def __enter__(self) -> _Session:
@@ -121,11 +125,13 @@ def test_mlflow_store_reads_active_skill_from_session_factory() -> None:
         def __exit__(self, *args: object) -> None:
             return None
 
-        def query(self, *args: object) -> _Query:
-            return _Query()
+        def execute(self, *args: object) -> _Result:
+            return _Result()
 
     assert (
-        MLflowArtifactStore(session_factory=lambda: _Session()).get_active_skill("triage")
+        MLflowArtifactStore(session_factory=lambda: _Session()).get_active_skill(
+            "triage", identity=_IDENTITY
+        )
         == "skill body"
     )
 
@@ -139,6 +145,8 @@ def test_mlflow_store_returns_none_when_skill_session_fails() -> None:
             return None
 
     assert (
-        MLflowArtifactStore(session_factory=lambda: _BadSession()).get_active_skill("triage")
+        MLflowArtifactStore(session_factory=lambda: _BadSession()).get_active_skill(
+            "triage", identity=_IDENTITY
+        )
         is None
     )

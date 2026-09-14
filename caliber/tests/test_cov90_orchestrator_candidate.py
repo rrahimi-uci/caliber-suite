@@ -249,7 +249,11 @@ def test_prompt_optimization_dataset_pin_ignores_invalid_version(db_session: Ses
 
 def test_run_candidate_honors_pinned_baseline_and_dataset_for_dspy(db_session: Session) -> None:
     _seed_agent(db_session)
-    db_session.add(CaliberEvalDataset(dataset_id="DS-PIN", name="pinned-set", owner="@sarah"))
+    db_session.add(
+        CaliberEvalDataset(
+            dataset_id="DS-PIN", name="pinned-set", owner="@sarah", visibility="user"
+        )
+    )
     db_session.flush()
     db_session.add_all(
         [
@@ -313,7 +317,9 @@ def test_run_candidate_honors_pinned_baseline_and_dataset_for_dspy(db_session: S
 
 def test_load_trainset_pinned_dataset_id_takes_precedence(db_session: Session) -> None:
     """A pinned dataset id short-circuits the agent-level dataset resolution."""
-    db_session.add(CaliberEvalDataset(dataset_id="DS-A", name="dataset-a", owner="@sarah"))
+    db_session.add(
+        CaliberEvalDataset(dataset_id="DS-A", name="dataset-a", owner="@sarah", visibility="public")
+    )
     db_session.flush()
     db_session.add(
         CaliberEvalDatasetExample(
@@ -337,7 +343,9 @@ def test_load_trainset_pinned_dataset_id_takes_precedence(db_session: Session) -
 
 def test_load_trainset_pinned_version_filters_examples(db_session: Session) -> None:
     """``pinned_version`` reconstructs the active example set as of version N."""
-    db_session.add(CaliberEvalDataset(dataset_id="DS-B", name="dataset-b", owner="@sarah"))
+    db_session.add(
+        CaliberEvalDataset(dataset_id="DS-B", name="dataset-b", owner="@sarah", visibility="public")
+    )
     db_session.flush()
     db_session.add_all(
         [

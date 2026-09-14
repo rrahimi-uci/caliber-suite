@@ -131,7 +131,11 @@ def _seed_agent_and_job(
 
 
 def _seed_dataset(session: Session, *, dataset_id: str, name: str, n: int = 2) -> None:
-    session.add(CaliberEvalDataset(dataset_id=dataset_id, name=name, owner="@sarah", version=1))
+    session.add(
+        CaliberEvalDataset(
+            dataset_id=dataset_id, name=name, owner="@sarah", version=1, visibility="user"
+        )
+    )
     session.flush()
     for i in range(n):
         session.add(
