@@ -284,6 +284,7 @@ class TestReadHandlers:
                     content="c",
                     owner=USER,
                     category="custom",
+                    visibility="user",
                 )
             )
             db.commit()
@@ -300,6 +301,11 @@ class TestReadHandlers:
 
     def test_get_workflow_run_trace_empty(self, svc, session_factory) -> None:
         with session_factory() as db:
+            db.add(
+                CaliberWorkflow(
+                    workflow_id="WF-1", name="One", owner=USER, status="active", visibility="user"
+                )
+            )
             db.add(
                 CaliberWorkflowRun(
                     workflow_run_id="WR-1", workflow_id="WF-1", status="completed", trace_id=None
@@ -371,7 +377,11 @@ class TestExecuteHandlers:
 
     def test_run_workflow_enqueues(self, svc, session_factory) -> None:
         with session_factory() as db:
-            db.add(CaliberWorkflow(workflow_id="WF-r", name="R", owner=USER, status="active"))
+            db.add(
+                CaliberWorkflow(
+                    workflow_id="WF-r", name="R", owner=USER, status="active", visibility="user"
+                )
+            )
             db.add(
                 CaliberWorkflowVersion(
                     version_id="WFV-r",
