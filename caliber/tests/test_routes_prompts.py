@@ -2443,3 +2443,121 @@ def test_bind_prompt_agent_kind_refuses_a_hidden_agent(
         headers=_STRANGER,
     )
     assert resp.status_code == 404
+
+
+# --- `P2` (isolation closure, item 4): a prompt name's own hidden runtime
+# target (not a *different* row an action names, like the `bind` case above)
+# previously had no visibility check at all -- whichever project registered/
+# tested/bound the name first silently owned that target forever, and any
+# later caller (any project) could reuse or mutate it. ------------------
+
+
+def test_bind_prompt_refuses_to_take_over_another_projects_own_target(
+    client: TestClient, db_session: Session
+) -> None:
+    """Unlike the ``hidden-bind-target`` case above (a *different* agent the
+    ``kind="agent"`` payload names), this is the prompt's *own* hidden target
+    -- the row ``ensure_prompt_target`` get-or-creates for ``shared-prompt``
+    itself."""
+    _insert_agent(
+        db_session,
+        agent_id="shared-prompt",
+        experiment_id="exp-shared-prompt",
+        visibility="project",
+        project_id="P-hidden",
+        optimizer_config={"source_type": "prompt_target", "model": None, "bound_to": None},
+    )
+    _grant_stranger_operator_scope(client)
+    resp = client.post(
+        f"{PREFIX}/shared-prompt/bind", json={"kind": "standalone"}, headers=_STRANGER
+    )
+    assert resp.status_code == 404
+
+
+def test_create_prompt_refuses_a_name_whose_target_belongs_to_another_project(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    """Checked *before* the MLflow write (`register_calls` stays empty) --
+    checking only after would leave a real MLflow prompt version registered
+    while the request itself reports 404."""
+    _insert_agent(
+        db_session,
+        agent_id="shared-prompt",
+        experiment_id="exp-shared-prompt",
+        visibility="project",
+        project_id="P-hidden",
+        optimizer_config={"source_type": "prompt_target", "model": None, "bound_to": None},
+    )
+    calls = _install_mlflow(monkeypatch)
+    _grant_stranger_operator_scope(client)
+
+    resp = client.post(PREFIX, json={"name": "shared-prompt", "template": "x"}, headers=_STRANGER)
+    assert resp.status_code == 404
+    assert calls["register_calls"] == []
+
+
+def test_get_prompt_hides_a_prompt_whose_target_belongs_to_another_project(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    _insert_agent(
+        db_session,
+        agent_id="shared-prompt",
+        experiment_id="exp-shared-prompt",
+        visibility="project",
+        project_id="P-hidden",
+        optimizer_config={"source_type": "prompt_target", "model": None, "bound_to": None},
+    )
+    _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/shared-prompt@prod": SimpleNamespace(
+                name="shared-prompt", version=1, template="secret template"
+            ),
+            "prompts:/bare-prompt@prod": SimpleNamespace(
+                name="bare-prompt", version=1, template="public template"
+            ),
+        },
+    )
+
+    hidden = client.get(f"{PREFIX}/shared-prompt", headers=_STRANGER)
+    assert hidden.status_code == 404
+
+    # A prompt with no CALIBER row at all (a bare provider-only/legacy
+    # prompt) has no target to hide behind -- stays visible to everyone.
+    bare = client.get(f"{PREFIX}/bare-prompt", headers=_STRANGER)
+    assert bare.status_code == 200
+    assert bare.json()["data"]["template"] == "public template"
+
+
+def test_list_prompts_hides_a_prompt_whose_target_belongs_to_another_project(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    _insert_agent(
+        db_session,
+        agent_id="shared-prompt",
+        experiment_id="exp-shared-prompt",
+        visibility="project",
+        project_id="P-hidden",
+        optimizer_config={"source_type": "prompt_target", "model": None, "bound_to": None},
+    )
+    _install_mlflow(
+        monkeypatch,
+        search_items=[
+            SimpleNamespace(name="shared-prompt", description="d", creation_timestamp=1, tags={}),
+            SimpleNamespace(name="bare-prompt", description="d", creation_timestamp=2, tags={}),
+        ],
+        load_refs={
+            "prompts:/shared-prompt@prod": SimpleNamespace(
+                name="shared-prompt", version=1, template="secret template"
+            ),
+            "prompts:/bare-prompt@prod": SimpleNamespace(
+                name="bare-prompt", version=1, template="public template"
+            ),
+        },
+    )
+
+    resp = client.get(PREFIX, headers=_STRANGER)
+    assert resp.status_code == 200
+    names = {row["agent_id"] for row in resp.json()["data"]}
+    assert "shared-prompt" not in names
+    assert "bare-prompt" in names

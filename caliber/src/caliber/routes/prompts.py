@@ -35,6 +35,7 @@ from caliber.audit import record as audit_record
 from caliber.auth import (
     SCOPE_ADMIN,
     SCOPE_OPERATOR,
+    CaliberIdentity,
     require_scopes,
     require_user,
     resolve_identity,
@@ -347,6 +348,7 @@ def enqueue_prompt_optimization_run(  # noqa: PLR0912, PLR0915 - sequential vali
     session: Session,
     payload: PromptOptimizationRunRequest,
     actor: str,
+    identity: CaliberIdentity | None = None,
     project_id: str | None = None,
 ) -> PromptOptimizationRunResponse:
     """Create verification item + refinement job for manual prompt optimization."""
@@ -426,6 +428,7 @@ def enqueue_prompt_optimization_run(  # noqa: PLR0912, PLR0915 - sequential vali
         session,
         payload.agent_id,
         owner=actor,
+        identity=identity,
         project_id=project_id,
     )
 
@@ -1216,6 +1219,29 @@ async def list_prompts(request: Request) -> JSONResponse:  # noqa: PLR0912, PLR0
             await asyncio.to_thread(_load_prompt_infos_for_names, unresolved_names)
         )
 
+    # `P2` (isolation closure, item 4): `_search_mlflow_prompts` returns every
+    # prompt registered by *any* project, unfiltered -- unlike `agent_map`
+    # (already scoped to `identity` above), merging it in unconditionally
+    # disclosed another project's prompt name/description/template preview
+    # to every caller. Distinguish "has no hidden target at all" (a bare
+    # provider-only/legacy prompt, correctly global) from "has one, but it's
+    # someone else's" (only the latter is now dropped from the merge) with
+    # one extra query, restricted to names not already known-visible.
+    mlflow_pnames = {str(mp["name"]) for mp in mlflow_prompts if mp.get("name")}
+    unknown_pnames = mlflow_pnames - target_by_name.keys()
+    hidden_elsewhere: set[str] = set()
+    if unknown_pnames:
+        with factory() as session:
+            hidden_elsewhere = set(
+                session.execute(
+                    select(CaliberAgentConfig.agent_id).where(
+                        CaliberAgentConfig.agent_id.in_(unknown_pnames)
+                    )
+                )
+                .scalars()
+                .all()
+            )
+
     # 3. Merge: iterate over MLflow prompts first (they have content),
     #    then add Caliber agents that have no MLflow prompt yet.
     items: list[dict[str, Any]] = []
@@ -1224,6 +1250,9 @@ async def list_prompts(request: Request) -> JSONResponse:  # noqa: PLR0912, PLR0
     for mp in mlflow_prompts:
         pname = mp["name"]
         if not pname or pname in seen:
+            continue
+        if pname in hidden_elsewhere:
+            seen.add(pname)
             continue
         seen.add(pname)
 
@@ -1397,6 +1426,23 @@ async def create_prompt(request: Request) -> JSONResponse:
     else:
         raise HTTPException(status_code=400, detail="'tags' must be a dict")
 
+    # `P2` (isolation closure, item 4): checked *before* the MLflow write below
+    # so a name whose hidden target belongs to another project fails cleanly
+    # -- checking only in `ensure_prompt_target` after `register_prompt_version`
+    # already ran would leave a real MLflow prompt version registered while
+    # the request itself reports 404.
+    factory = get_session_factory(request)
+    with factory() as session:
+        existing_target = session.get(CaliberAgentConfig, name)
+        if (
+            existing_target is not None
+            and get_visible(
+                session, CaliberAgentConfig, CaliberAgentConfig.agent_id, name, identity
+            )
+            is None
+        ):
+            raise HTTPException(status_code=404, detail=f"prompt {name!r} not found")
+
     result = register_prompt_version(
         name=name,
         template=template,
@@ -1409,12 +1455,12 @@ async def create_prompt(request: Request) -> JSONResponse:
     # Auto-provision the hidden runtime identity so the prompt is immediately
     # testable/calibratable without a separate agent registration. ``name`` is
     # validated by ``register_prompt_version`` above (alnum/-/_ only).
-    factory = get_session_factory(request)
     with factory() as session:
         ensure_prompt_target(
             session,
             name,
             owner=actor,
+            identity=identity,
             model=model,
             project_id=identity.active_project_id,
         )
@@ -1431,8 +1477,30 @@ async def get_prompt(request: Request) -> JSONResponse:
     table previews.
     """
     require_user(request)
+    identity = resolve_identity(request)
     name = request.path_params["name"]
     alias = (request.query_params.get("alias") or "prod").strip() or "prod"
+
+    # `P2` (isolation closure, item 4): unlike `get_prompt_workspace` (which
+    # treats an invisible target as "no target" for its own metadata-only
+    # facts), this route returns the prompt's *full template body* -- a
+    # genuine disclosure, not just a status omission, so a hidden target
+    # that exists but isn't visible to this caller refuses the whole
+    # request rather than degrading gracefully. A name with no hidden
+    # target at all (a bare provider-only/legacy prompt) is unaffected.
+    factory = get_session_factory(request)
+    with factory() as session:
+        existing_target = session.get(CaliberAgentConfig, name)
+        if (
+            existing_target is not None
+            and get_visible(
+                session, CaliberAgentConfig, CaliberAgentConfig.agent_id, name, identity
+            )
+            is None
+        ):
+            raise HTTPException(
+                status_code=404, detail=f"prompt {name!r} not found for alias {alias!r}"
+            )
 
     mlflow = _get_mlflow_module()
     if mlflow is None:
@@ -2117,6 +2185,7 @@ async def create_prompt_optimization_run(request: Request) -> JSONResponse:
             session=session,
             payload=payload,
             actor=actor,
+            identity=identity,
             project_id=identity.active_project_id,
         )
 
@@ -2170,6 +2239,7 @@ async def create_prompt_test_run(request: Request) -> JSONResponse:
             session,
             payload.agent_id,
             owner=actor,
+            identity=identity,
             model=payload.model,
             project_id=identity.active_project_id,
         )
@@ -2434,6 +2504,7 @@ async def bind_prompt(request: Request) -> JSONResponse:
             session,
             name,
             owner=actor,
+            identity=identity,
             project_id=identity.active_project_id,
         )
         if isinstance(target.optimizer_config, dict):
@@ -2505,6 +2576,7 @@ async def set_prompt_baseline(request: Request) -> JSONResponse:
             session,
             name,
             owner=actor,
+            identity=identity,
             project_id=identity.active_project_id,
         )
         if isinstance(target.optimizer_config, dict):
