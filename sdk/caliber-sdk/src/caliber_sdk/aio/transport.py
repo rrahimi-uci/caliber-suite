@@ -29,9 +29,11 @@ from ..transport import (
     _RETRYABLE_METHODS,
     _RETRYABLE_STATUS,
     API_PREFIX,
+    UNSET_PROJECT,
     USER_AGENT,
     Response,
     Transport,
+    UnsetProjectType,
     _decode,
     _unwrap,
 )
@@ -94,15 +96,21 @@ class AsyncTransport:
             cleaned = f"{API_PREFIX}{cleaned}"
         return f"{self.base_url}{cleaned}"
 
-    def _headers(self, method: str, extra: Mapping[str, str] | None) -> dict[str, str]:
+    def _headers(
+        self,
+        method: str,
+        extra: Mapping[str, str] | None,
+        project: str | UnsetProjectType | None = UNSET_PROJECT,
+    ) -> dict[str, str]:
         headers: dict[str, str] = {
             "Accept": "application/json",
             "User-Agent": self._user_agent,
             "X-Request-Id": uuid.uuid4().hex,
         }
         headers.update(self.auth.headers())
-        if self.project:
-            headers["X-CALIBER-Project"] = self.project
+        resolved_project = self.project if isinstance(project, UnsetProjectType) else project
+        if resolved_project:
+            headers["X-CALIBER-Project"] = resolved_project
         if method.upper() not in _RETRYABLE_METHODS and self._csrf_token:
             headers["X-CALIBER-CSRF"] = self._csrf_token
         if extra:
@@ -137,16 +145,29 @@ class AsyncTransport:
         files: Any = None,
         data: Mapping[str, Any] | None = None,
         timeout: float | None = None,
+        project: str | UnsetProjectType | None = UNSET_PROJECT,
         _csrf_retry: bool = True,
     ) -> Response:
-        """Perform one API call, returning the unwrapped payload."""
+        """Perform one API call, returning the unwrapped payload.
+
+        ``project`` pins the request's ``X-CALIBER-Project`` header the same
+        way it does on the synchronous :class:`~caliber_sdk.transport.Transport`
+        -- see its ``request()`` docstring.
+        """
         verb = method.upper()
         url = self.url_for(path)
+        if not isinstance(project, UnsetProjectType) and headers and "X-CALIBER-Project" in headers:
+            manual = headers["X-CALIBER-Project"]
+            if manual != project:
+                raise CaliberConfigError(
+                    f"conflicting project scope: headers['X-CALIBER-Project']={manual!r} "
+                    f"but project={project!r} was also passed to the same call"
+                )
         attempts = self.max_retries + 1
         last_transport_error: Exception | None = None
 
         for attempt in range(attempts):
-            request_headers = self._headers(verb, headers)
+            request_headers = self._headers(verb, headers, project)
             options: dict[str, Any] = {}
             if timeout is not None:
                 options["timeout"] = timeout
@@ -196,6 +217,7 @@ class AsyncTransport:
                     json=json,
                     headers=headers,
                     timeout=timeout,
+                    project=project,
                     _csrf_retry=False,
                 )
 
@@ -234,11 +256,13 @@ class AsyncTransport:
     async def delete(self, path: str, **kwargs: Any) -> Response:
         return await self.request("DELETE", path, **kwargs)
 
-    async def download(self, path: str, **kwargs: Any) -> bytes:
+    async def download(
+        self, path: str, *, project: str | UnsetProjectType | None = UNSET_PROJECT, **kwargs: Any
+    ) -> bytes:
         """Fetch raw bytes: no envelope, no decoding."""
         url = self.url_for(path)
         try:
-            raw = await self._client.get(url, headers=self._headers("GET", None), **kwargs)
+            raw = await self._client.get(url, headers=self._headers("GET", None, project), **kwargs)
         except httpx.HTTPError as exc:
             raise CaliberTransportError(f"GET {url} failed: {exc}") from exc
         if raw.status_code >= 400:

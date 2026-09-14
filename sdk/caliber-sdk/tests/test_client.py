@@ -131,3 +131,36 @@ def test_project_scope_rejects_an_empty_project_id() -> None:
             pass
     finally:
         caliber.close()
+
+
+def test_projects_resource_pins_the_header_to_the_path_project_id() -> None:
+    """§13.4: a `/projects/{project_id}/...` request must send *that* id, not
+    whatever the client happens to be ambiently scoped to -- a client
+    configured for one project asking about a different one by id must not
+    silently claim to be the first project."""
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("x-caliber-project"))
+        return httpx.Response(200, json={"data": {"project_id": "PRJ-B", "name": "B"}})
+
+    with client_with(handler, project="PRJ-A") as caliber:
+        caliber.projects.get("PRJ-B")
+
+    assert seen == ["PRJ-B"]
+
+
+def test_projects_resource_pin_does_not_leak_into_the_next_call() -> None:
+    """The per-call pin in :meth:`ProjectsAPI.get` must not mutate the
+    client's ambient scope for calls that follow it."""
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("x-caliber-project"))
+        return httpx.Response(200, json={"data": {"project_id": "x", "name": "n"}})
+
+    with client_with(handler, project="PRJ-A") as caliber:
+        caliber.projects.get("PRJ-B")
+        caliber.whoami()
+
+    assert seen == ["PRJ-B", "PRJ-A"]
