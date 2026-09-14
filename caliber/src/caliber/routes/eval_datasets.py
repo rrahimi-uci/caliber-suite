@@ -356,10 +356,17 @@ async def create_example(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = EvalExampleCreateRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
 
     factory = get_session_factory(request)
     with factory() as session:
-        dataset = session.get(CaliberEvalDataset, dataset_id)
+        # `P2` (isolation closure, item 1, slice 3): a bare `session.get`
+        # here let any operator append an example to (and bump the version
+        # of) any project's dataset by id -- `get_dataset`/`list_examples`
+        # above already gate the same model through `get_visible`.
+        dataset = get_visible(
+            session, CaliberEvalDataset, CaliberEvalDataset.dataset_id, dataset_id, identity
+        )
         if dataset is None:
             raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
         dataset.version = dataset.version + 1
@@ -420,6 +427,7 @@ async def create_example_from_trace(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = EvalExampleFromTraceRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
 
     detail = fetch_trace_detail(payload.trace_id)
     derived_input: dict[str, object] = (
@@ -454,7 +462,10 @@ async def create_example_from_trace(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        dataset = session.get(CaliberEvalDataset, dataset_id)
+        # `P2` (isolation closure, item 1, slice 3): see `create_example`.
+        dataset = get_visible(
+            session, CaliberEvalDataset, CaliberEvalDataset.dataset_id, dataset_id, identity
+        )
         if dataset is None:
             raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
         dataset.version = dataset.version + 1
@@ -542,10 +553,14 @@ async def revise_example(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = EvalExampleReviseRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
 
     factory = get_session_factory(request)
     with factory() as session:
-        dataset = session.get(CaliberEvalDataset, dataset_id)
+        # `P2` (isolation closure, item 1, slice 3): see `create_example`.
+        dataset = get_visible(
+            session, CaliberEvalDataset, CaliberEvalDataset.dataset_id, dataset_id, identity
+        )
         if dataset is None:
             raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
         old = session.get(CaliberEvalDatasetExample, example_id)
@@ -636,10 +651,17 @@ async def sync_dataset_to_mlflow(request: Request) -> JSONResponse:
     """
     dataset_id = request.path_params["dataset_id"]
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
 
     factory = get_session_factory(request)
     with factory() as session:
-        dataset = session.get(CaliberEvalDataset, dataset_id)
+        # `P2` (isolation closure, item 1, slice 3): checked before the
+        # MLflow write below, same reasoning as `routes/prompts.py::
+        # create_prompt` -- a refusal here must never let another
+        # project's dataset content already reach MLflow first.
+        dataset = get_visible(
+            session, CaliberEvalDataset, CaliberEvalDataset.dataset_id, dataset_id, identity
+        )
         if dataset is None:
             raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
 
@@ -715,6 +737,7 @@ async def restore_dataset_version(request: Request) -> JSONResponse:
     dataset_id = request.path_params["dataset_id"]
     body = await parse_json_object(request)
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
 
     raw_version = body.get("version")
     if not isinstance(raw_version, int) or isinstance(raw_version, bool) or raw_version < 1:
@@ -722,7 +745,10 @@ async def restore_dataset_version(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        dataset = session.get(CaliberEvalDataset, dataset_id)
+        # `P2` (isolation closure, item 1, slice 3): see `create_example`.
+        dataset = get_visible(
+            session, CaliberEvalDataset, CaliberEvalDataset.dataset_id, dataset_id, identity
+        )
         if dataset is None:
             raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
         if raw_version >= dataset.version:
