@@ -217,9 +217,12 @@ def _fake_completion(_config):
 
 
 def test_create_evaluation_denies_a_non_member(client: TestClient, db_session: Session) -> None:
-    """`create_evaluation` looks its dataset up with a bare `session.get` --
-    no visibility filter at all -- so an ordinary non-member (not an admin)
-    reaches `require_project_access_if_scoped` directly here."""
+    """`create_evaluation`'s dataset lookup now goes through `get_visible`
+    (`P2`, isolation closure item 1) -- a non-member is invisible outright
+    (404 from the visibility check itself), so this no longer reaches
+    `require_project_access_if_scoped`'s own "project not found" 404 at all;
+    the observable property (denied, not merely under-privileged) is
+    unchanged, only which layer's 404 fires first."""
     _seed_project(db_session)
     dataset_id = _seed_project_scoped_dataset(db_session)
     _grant_operator(client, "@stranger")
@@ -230,7 +233,6 @@ def test_create_evaluation_denies_a_non_member(client: TestClient, db_session: S
         headers={"X-CALIBER-User": "@stranger"},
     )
     assert resp.status_code == 404, resp.text
-    assert PROJECT_ID in resp.json()["detail"]
 
 
 def test_create_evaluation_denies_a_project_viewer(client: TestClient, db_session: Session) -> None:
@@ -239,10 +241,14 @@ def test_create_evaluation_denies_a_project_viewer(client: TestClient, db_sessio
     _add_member(db_session, "@viewer-user", ROLE_VIEWER)
     _grant_operator(client, "@viewer-user")
 
+    # `X-CALIBER-Project` makes the project active for this caller so
+    # `get_visible`'s project tier admits the row via real membership --
+    # without it, `get_visible` alone would already 404 a viewer (and
+    # everyone else) before ever reaching the role check this test targets.
     resp = client.post(
         f"{PREFIX}/evaluations",
         json={"dataset_id": dataset_id, "scorers": ["exact_match"]},
-        headers={"X-CALIBER-User": "@viewer-user"},
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
     )
     assert resp.status_code == 403, resp.text
 
@@ -261,7 +267,7 @@ def test_create_evaluation_allows_a_project_editor(
     resp = client.post(
         f"{PREFIX}/evaluations",
         json={"dataset_id": dataset_id, "scorers": ["exact_match"]},
-        headers={"X-CALIBER-User": "@editor-user"},
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
     )
     assert resp.status_code == 201, resp.text
 

@@ -38,7 +38,16 @@ from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 import caliber.routes.evaluations as evaluations_route
-from caliber.db.models import CaliberEvalDataset, CaliberEvalDatasetExample, CaliberEvalRun
+from caliber.db.models import (
+    CaliberEvalDataset,
+    CaliberEvalDatasetExample,
+    CaliberEvalRun,
+    CaliberJudge,
+    CaliberProject,
+    CaliberProjectMember,
+    CaliberSkill,
+)
+from caliber.resource_access import ROLE_EDITOR
 from caliber.routes.evaluations import DETAIL_PATH, LIST_PATH
 
 # Deliberately not in ``_PERMISSIVE_TEST_USERS`` — this user holds viewer scope
@@ -250,6 +259,15 @@ def _seed_dataset(session: Session) -> None:
             tags=[],
             status="active",
             version=1,
+            # The model's bare default is visibility="project" with no
+            # project_id -- a combination the real create route never
+            # produces (it sets "project"/project_id together, or "user"/
+            # None together) and that get_visible's project tier can never
+            # match (NULL = NULL is not true in SQL), so it would 404 for
+            # its own creator once create_evaluation's dataset lookup
+            # started checking visibility (`P2`, item 1). "user" is what a
+            # project-less dataset the creator made actually looks like.
+            visibility="user",
         )
     )
     session.add(
@@ -325,3 +343,135 @@ def test_created_run_in_a_project_is_listable_and_readable_by_its_creator(
     other = {"X-CALIBER-User": OTHER_USER, "X-CALIBER-Project": "PROJ-a"}
     assert client.get(DETAIL_PATH.format(run_id=run_id), headers=other).status_code == 404
     assert run_id not in {i["run_id"] for i in client.get(LIST_PATH, headers=other).json()["data"]}
+
+
+# --- `P2` (isolation closure, item 1): create_evaluation's subject/dataset
+# resolution (`_resolve_subject`'s skill branch, `_hydrate_judge_runners`, and
+# the dataset lookup itself) used bare `session.get` calls with no visibility
+# check at all -- unlike the `workflow` branch (`_build_workflow_predict`),
+# which already went through `get_visible`. These prove the same primitive
+# now closes the skill/judge/dataset gaps too. -------------------------------
+
+
+def test_create_evaluation_hides_a_hidden_skill_subject(
+    client: TestClient, session_factory: object
+) -> None:
+    """A project-scoped skill invisible to the caller must not be evaluated
+    against -- previously the bare lookup let any operator both evaluate
+    against, and (via ``resolved.content_digest``) fingerprint, another
+    project's private skill content."""
+    with session_factory() as session:  # type: ignore[operator]
+        _seed_dataset(session)
+        session.add(
+            CaliberSkill(
+                skill_id="SK-hidden",
+                name="hidden-skill",
+                description="",
+                summary="",
+                content="secret instructions",
+                owner=OTHER_USER,
+                status="active",
+                visibility="project",
+                project_id="PROJ-hidden",
+            )
+        )
+        session.commit()
+    _grant_operator(client, NON_ADMIN)
+
+    resp = client.post(
+        LIST_PATH,
+        json={
+            "dataset_id": "ED-rt",
+            "scorers": ["exact_match"],
+            "predict_target": "skill",
+            "subject_ref": "SK-hidden",
+        },
+        headers={"X-CALIBER-User": NON_ADMIN},
+    )
+    assert resp.status_code == 404, resp.text
+
+
+def test_create_evaluation_hides_a_hidden_judge_scorer(
+    client: TestClient, session_factory: object
+) -> None:
+    """A project-scoped judge invisible to the caller must not be hydrated
+    (built) into a scorer -- previously the bare lookup disclosed the
+    judge's name/model/instructions to anyone who guessed its id."""
+    with session_factory() as session:  # type: ignore[operator]
+        _seed_dataset(session)
+        session.add(
+            CaliberJudge(
+                judge_id="JG-hidden",
+                name="hidden-judge",
+                description="",
+                instructions="Rate {{ outputs }}",
+                owner=OTHER_USER,
+                status="active",
+                visibility="project",
+                project_id="PROJ-hidden",
+            )
+        )
+        session.commit()
+    _grant_operator(client, NON_ADMIN)
+
+    resp = client.post(
+        LIST_PATH,
+        json={"dataset_id": "ED-rt", "scorers": ["Judge.JG-hidden"]},
+        headers={"X-CALIBER-User": NON_ADMIN},
+    )
+    assert resp.status_code == 404, resp.text
+
+
+def test_create_evaluation_hides_a_user_scoped_dataset_owned_by_a_project_mate(
+    client: TestClient, session_factory: object, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``require_project_access_if_scoped`` is a project-*role* check, not the
+    visibility check -- a ``visibility="user"`` dataset owned by someone else
+    inside the *same* active project must still be refused. Before this fix
+    a bare ``session.get`` admitted the row, and the role check alone (a real
+    editor of ``PROJ-a``) would have let the request through regardless."""
+    with session_factory() as session:  # type: ignore[operator]
+        session.add(CaliberProject(project_id="PROJ-a", name="a", owner=OTHER_USER))
+        session.add(
+            CaliberProjectMember(
+                member_id="M-nonadmin-a",
+                project_id="PROJ-a",
+                user_id=NON_ADMIN,
+                role=ROLE_EDITOR,
+                created_by=OTHER_USER,
+            )
+        )
+        session.add(
+            CaliberEvalDataset(
+                dataset_id="ED-hidden-user",
+                name="hidden-user-dataset",
+                description="",
+                owner=OTHER_USER,
+                tags=[],
+                status="active",
+                version=1,
+                visibility="user",
+                project_id="PROJ-a",
+            )
+        )
+        session.add(
+            CaliberEvalDatasetExample(
+                example_id="EX-hidden-user",
+                dataset_id="ED-hidden-user",
+                dataset_version=1,
+                input={"question": "capital of France"},
+                expected={"expected": "Paris"},
+                weight=1.0,
+                tags=[],
+            )
+        )
+        session.commit()
+    monkeypatch.setattr(evaluations_route, "build_completion_fn", _fake_completion)
+    _grant_operator(client, NON_ADMIN)
+
+    resp = client.post(
+        LIST_PATH,
+        json={"dataset_id": "ED-hidden-user", "scorers": ["exact_match"]},
+        headers={"X-CALIBER-User": NON_ADMIN, "X-CALIBER-Project": "PROJ-a"},
+    )
+    assert resp.status_code == 404, resp.text
