@@ -1,9 +1,0 @@
-ERROR    caliber.artifact_store:artifact_store.py:86 failed to load prompt prompts:/support-agent@prod
-Traceback (most recent call last):
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/artifact_store.py", line 84, in get_active_prompt
-    prompt = load_prompt(ref, allow_missing=True)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_artifact_store.py", line 91, in _raises
-    raise RuntimeError("registry down")
-RuntimeError: registry down
-WARNING  caliber.artifact_store:artifact_store.py:97 prompt prompts:/support-agent@prod has no string template; got <class 'dict'>

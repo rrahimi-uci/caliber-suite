@@ -1,0 +1,1 @@
+{"t":"2026-09-14T14:31:06.074Z","severity":"WARNING","logger":"caliber.extensibility.registry","message":"optimizer plugin broken-plugin failed to load: RuntimeError: nope"}
