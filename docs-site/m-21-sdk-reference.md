@@ -247,6 +247,12 @@ Every documented class and module-level function, with the module that defines i
 | [`Transport`](#transport) | [`caliber_sdk.transport`](#module-caliber_sdktransport) |
 | [`TrustedHeaderAuth`](#trustedheaderauth) | [`caliber_sdk.auth`](#module-caliber_sdkauth) |
 
+**U**
+
+| Symbol | Defined in |
+| --- | --- |
+| [`UnsetProjectType`](#unsetprojecttype) | [`caliber_sdk.transport`](#module-caliber_sdktransport) |
+
 **V**
 
 | Symbol | Defined in |
@@ -291,7 +297,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`API_PREFIX`, `ENV_BASE_URL`, `ENV_PROJECT`, `ENV_TOKEN`, `ENV_USER`, `FAILURE_STATES`, `TERMINAL_STATES`, `AuthProvider`, `CaliberAPIError`, `CaliberAuthenticationError`, `CaliberClient`, `CaliberConfigError`, `CaliberConflictError`, `CaliberDecodeError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `ErrorBody`, `FieldError`, `NoAuth`, `Page`, `RawAPI`, `Response`, `Stability`, `TokenAuth`, `Transport`, `TrustedHeaderAuth`, `WaitFailed`, `WaitTimeout`, `WorkflowRunFailed`, `__version__`, `wait_for`, `wait_for_terminal_state`
+`API_PREFIX`, `ENV_BASE_URL`, `ENV_PROJECT`, `ENV_TOKEN`, `ENV_USER`, `FAILURE_STATES`, `TERMINAL_STATES`, `UNSET_PROJECT`, `AuthProvider`, `CaliberAPIError`, `CaliberAuthenticationError`, `CaliberClient`, `CaliberConfigError`, `CaliberConflictError`, `CaliberDecodeError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `ErrorBody`, `FieldError`, `NoAuth`, `Page`, `RawAPI`, `Response`, `Stability`, `TokenAuth`, `Transport`, `TrustedHeaderAuth`, `UnsetProjectType`, `WaitFailed`, `WaitTimeout`, `WorkflowRunFailed`, `__version__`, `wait_for`, `wait_for_terminal_state`
 
 **Module constants**
 
@@ -795,7 +801,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`API_PREFIX`, `USER_AGENT`, `Response`, `Transport`
+`API_PREFIX`, `UNSET_PROJECT`, `USER_AGENT`, `Response`, `Transport`, `UnsetProjectType`
 
 **Module constants**
 
@@ -805,6 +811,24 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 | `API_PREFIX` | `'/ajax-api/2.0/mlflow/caliber'` |
 
 #### Classes
+
+##### `UnsetProjectType`
+
+`class UnsetProjectType()`
+
+Sentinel distinguishing "use the ambient project" from an explicit
+``project=None`` (deliberately unscoped). A bare default of ``None``
+could not tell those apart.
+
+**Methods**
+
+###### `__repr__() -> str`
+
+Operate on the unset project type surface with the supplied arguments and return the server response.
+
+This callable takes no public parameters.
+
+**Returns:** `str`
 
 ##### `Response`
 
@@ -924,9 +948,17 @@ This callable takes no public parameters.
 
 **Returns:** `str | None`
 
-###### `request(method: str, path: str, *, params: Mapping[str, Any] | None = None, json = None, headers: Mapping[str, str] | None = None, files = None, data: Mapping[str, Any] | None = None, timeout: float | None = None, _csrf_retry: bool = True) -> Response`
+###### `request(method: str, path: str, *, params: Mapping[str, Any] | None = None, json = None, headers: Mapping[str, str] | None = None, files = None, data: Mapping[str, Any] | None = None, timeout: float | None = None, project: str | UnsetProjectType | None = UNSET_PROJECT, _csrf_retry: bool = True) -> Response`
 
 Perform one API call, returning the unwrapped payload.
+
+``project``, when passed, pins the request's ``X-CALIBER-Project``
+header regardless of the ambient (constructor/``project_scope``)
+scope -- resource modules that build a ``/projects/{project_id}/...``
+path use this to send that same id, never whatever the client
+happens to be scoped to. Left at its default (``UNSET_PROJECT``),
+the ambient scope applies unchanged; ``None`` deliberately omits the
+header even if an ambient scope is set.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -938,6 +970,7 @@ Perform one API call, returning the unwrapped payload.
 | `files` | keyword-only | `Any` | `None` |
 | `data` | keyword-only | `Mapping[str, Any] | None` | `None` |
 | `timeout` | keyword-only | `float | None` | `None` |
+| `project` | keyword-only | `str | UnsetProjectType | None` | `UNSET_PROJECT` |
 | `_csrf_retry` | keyword-only | `bool` | `True` |
 
 **Returns:** `Response`
@@ -945,6 +978,7 @@ Perform one API call, returning the unwrapped payload.
 **Raises:**
 
 - [`CaliberAPIError`](#caliberapierror)
+- [`CaliberConfigError`](#caliberconfigerror)
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get(path: str, **kwargs) -> Response`
@@ -1027,16 +1061,19 @@ Delete a record on the transport surface and return the server acknowledgement.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `download(path: str, **kwargs) -> bytes`
+###### `download(path: str, *, project: str | UnsetProjectType | None = UNSET_PROJECT, **kwargs) -> bytes`
 
 Fetch raw bytes.
 
 Separate from :meth:`request` because file content is not JSON: it has
 no envelope to unwrap and decoding it would corrupt binary data.
 
+``project`` pins the request the same way it does for :meth:`request`.
+
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
+| `project` | keyword-only | `str | UnsetProjectType | None` | `UNSET_PROJECT` |
 | `kwargs` | var-keyword | `Any` | `—` |
 
 **Returns:** `bytes`
@@ -11509,9 +11546,13 @@ This callable takes no public parameters.
 
 **Returns:** `str | None`
 
-###### `request(method: str, path: str, *, params: Mapping[str, Any] | None = None, json = None, headers: Mapping[str, str] | None = None, files = None, data: Mapping[str, Any] | None = None, timeout: float | None = None, _csrf_retry: bool = True) -> Response`
+###### `request(method: str, path: str, *, params: Mapping[str, Any] | None = None, json = None, headers: Mapping[str, str] | None = None, files = None, data: Mapping[str, Any] | None = None, timeout: float | None = None, project: str | UnsetProjectType | None = UNSET_PROJECT, _csrf_retry: bool = True) -> Response`
 
 Perform one API call, returning the unwrapped payload.
+
+``project`` pins the request's ``X-CALIBER-Project`` header the same
+way it does on the synchronous :class:`~caliber_sdk.transport.Transport`
+-- see its ``request()`` docstring.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -11523,6 +11564,7 @@ Perform one API call, returning the unwrapped payload.
 | `files` | keyword-only | `Any` | `None` |
 | `data` | keyword-only | `Mapping[str, Any] | None` | `None` |
 | `timeout` | keyword-only | `float | None` | `None` |
+| `project` | keyword-only | `str | UnsetProjectType | None` | `UNSET_PROJECT` |
 | `_csrf_retry` | keyword-only | `bool` | `True` |
 
 **Returns:** `Response`
@@ -11530,6 +11572,7 @@ Perform one API call, returning the unwrapped payload.
 **Raises:**
 
 - [`CaliberAPIError`](#caliberapierror)
+- [`CaliberConfigError`](#caliberconfigerror)
 - [`CaliberTransportError`](#calibertransporterror)
 
 ###### `get(path: str, **kwargs) -> Response`
@@ -11612,13 +11655,14 @@ Delete a record on the transport surface and return the server acknowledgement.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `download(path: str, **kwargs) -> bytes`
+###### `download(path: str, *, project: str | UnsetProjectType | None = UNSET_PROJECT, **kwargs) -> bytes`
 
 Fetch raw bytes: no envelope, no decoding.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `path` | positional-or-keyword | `str` | `—` |
+| `project` | keyword-only | `str | UnsetProjectType | None` | `UNSET_PROJECT` |
 | `kwargs` | var-keyword | `Any` | `—` |
 
 **Returns:** `bytes`

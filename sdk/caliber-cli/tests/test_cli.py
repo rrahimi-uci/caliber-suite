@@ -211,7 +211,7 @@ def test_progress_notes_go_to_stderr_even_in_table_mode(
             "GET /workflow-runs/RUN-1": {"workflow_run_id": "RUN-1", "status": "succeeded"},
         }
     )
-    assert run(["workflow", "run", "--workflow-id", "WF-1"]) == exits.OK
+    assert run(["--project", "PRJ-1", "workflow", "run", "--workflow-id", "WF-1"]) == exits.OK
     out, err = out_err(capsys)
     assert "submitted run RUN-1" in err
     assert "submitted" not in out
@@ -262,7 +262,18 @@ def test_the_run_command_passes_the_idempotency_key_through_unchanged(stub: Any)
             "GET /workflow-runs/RUN-1": {"workflow_run_id": "RUN-1", "status": "succeeded"},
         }
     )
-    run(["workflow", "run", "--version-id", "WFV-1", "--idempotency-key", "deploy-42"])
+    run(
+        [
+            "--project",
+            "PRJ-1",
+            "workflow",
+            "run",
+            "--version-id",
+            "WFV-1",
+            "--idempotency-key",
+            "deploy-42",
+        ]
+    )
     assert sent["idempotency_key"] == "deploy-42"
 
 
@@ -279,7 +290,7 @@ def test_omitting_the_idempotency_key_sends_no_key(stub: Any) -> None:
             "GET /workflow-runs/RUN-1": {"workflow_run_id": "RUN-1", "status": "succeeded"},
         }
     )
-    run(["workflow", "run", "--version-id", "WFV-1"])
+    run(["--project", "PRJ-1", "workflow", "run", "--version-id", "WFV-1"])
     assert "idempotency_key" not in sent
 
 
@@ -298,8 +309,19 @@ def test_a_json_input_is_parsed_and_a_bare_string_is_passed_through(stub: Any) -
             "GET /workflow-runs/RUN-1": {"workflow_run_id": "RUN-1", "status": "succeeded"},
         }
     )
-    run(["workflow", "run", "--version-id", "WFV-1", "--input", '{"claim_id": "C-1"}'])
-    run(["workflow", "run", "--version-id", "WFV-1", "--input", "just text"])
+    run(
+        [
+            "--project",
+            "PRJ-1",
+            "workflow",
+            "run",
+            "--version-id",
+            "WFV-1",
+            "--input",
+            '{"claim_id": "C-1"}',
+        ]
+    )
+    run(["--project", "PRJ-1", "workflow", "run", "--version-id", "WFV-1", "--input", "just text"])
     assert sent == [{"claim_id": "C-1"}, "just text"]
 
 
@@ -323,7 +345,10 @@ def test_no_wait_returns_the_queued_run_without_polling(stub: Any) -> None:
             "GET /workflow-runs/RUN-1": record,
         }
     )
-    assert run(["workflow", "run", "--version-id", "WFV-1", "--no-wait"]) == exits.OK
+    assert (
+        run(["--project", "PRJ-1", "workflow", "run", "--version-id", "WFV-1", "--no-wait"])
+        == exits.OK
+    )
     assert calls == []
 
 
@@ -355,7 +380,7 @@ def test_installing_an_unready_cookbook_names_every_unmet_check(
             "POST /cookbooks/03/install": _record_install(installed),
         }
     )
-    assert run(["cookbook", "install", "03"]) == exits.FAILURE
+    assert run(["--project", "PRJ-1", "cookbook", "install", "03"]) == exits.FAILURE
     assert installed == []
     _, err = out_err(capsys)
     assert "Runtime approvals" in err
@@ -372,14 +397,14 @@ def test_force_installs_despite_unmet_checks(stub: Any) -> None:
             "POST /cookbooks/03/install": {"workflow": {"status": "paused"}},
         }
     )
-    assert run(["cookbook", "install", "03", "--force"]) == exits.OK
+    assert run(["--project", "PRJ-1", "cookbook", "install", "03", "--force"]) == exits.OK
 
 
 def test_an_unknown_recipe_is_a_usage_error_naming_the_real_ones(
     stub: Any, capsys: pytest.CaptureFixture[str]
 ) -> None:
     run = stub({"GET /cookbooks": {"recipes": [{"id": "01"}, {"id": "02"}]}})
-    assert run(["cookbook", "install", "99"]) == exits.USAGE
+    assert run(["--project", "PRJ-1", "cookbook", "install", "99"]) == exits.USAGE
     _, err = out_err(capsys)
     assert "'01', '02'" in err
 
@@ -495,7 +520,7 @@ def test_publishing_a_service_without_confirmation_does_nothing(
         return {}
 
     run = stub({"POST /workflows/WF-1/service": record})
-    assert run(["service", "publish", "WF-1"]) == exits.USAGE
+    assert run(["--project", "PRJ-1", "service", "publish", "WF-1"]) == exits.USAGE
     assert published == []
     _, err = out_err(capsys)
     assert "external HTTP service" in err
@@ -503,7 +528,7 @@ def test_publishing_a_service_without_confirmation_does_nothing(
 
 def test_publishing_with_confirmation_publishes(stub: Any) -> None:
     run = stub({"POST /workflows/WF-1/service": {"workflow_id": "WF-1", "status": "published"}})
-    assert run(["service", "publish", "WF-1", "--yes"]) == exits.OK
+    assert run(["--project", "PRJ-1", "service", "publish", "WF-1", "--yes"]) == exits.OK
 
 
 def test_unpublishing_requires_confirmation_because_it_breaks_callers(
@@ -621,7 +646,18 @@ def test_showing_a_verdict_always_exits_ok_regardless_of_state(
 def test_recording_a_failing_verdict_exits_gate_failed(stub: Any) -> None:
     run = stub({"POST /gate-verdicts/prompt/triage@4": {"state": "fail"}})
     assert (
-        run(["gate-verdict", "record", "prompt", "triage@4", "--state", "fail"])
+        run(
+            [
+                "--project",
+                "PRJ-1",
+                "gate-verdict",
+                "record",
+                "prompt",
+                "triage@4",
+                "--state",
+                "fail",
+            ]
+        )
         == exits.GATE_FAILED
     )
 
@@ -634,7 +670,12 @@ def test_recording_a_passing_verdict_exits_ok_and_sends_the_state(stub: Any) -> 
         return {"state": "pass"}
 
     run = stub({"POST /gate-verdicts/workflow/WFV-9": record})
-    assert run(["gate-verdict", "record", "workflow", "WFV-9", "--state", "pass"]) == exits.OK
+    assert (
+        run(
+            ["--project", "PRJ-1", "gate-verdict", "record", "workflow", "WFV-9", "--state", "pass"]
+        )
+        == exits.OK
+    )
     assert sent == {"state": "pass"}
 
 

@@ -133,6 +133,13 @@ column); this is release evidence, not an enforced gate.
 Prefer the environment variables over `--token`: an argument is visible in the
 process list.
 
+`--project`/`$CALIBER_PROJECT` is **required** for commands that write into a
+project's scope but have no other way to name one (`workflow run`,
+`cookbook install`, `service publish`, `gate-verdict record`): omitting it
+refuses with a usage error rather than silently writing an unscoped ("My
+Library") row. Read-only commands and ones that take an explicit resource id
+are unaffected.
+
 ## Development
 
 ```bash

@@ -103,7 +103,13 @@ def build_parser() -> argparse.ArgumentParser:
     listing = _add(workflow, "list", commands.workflow_list, "list workflows")
     listing.add_argument("--status")
 
-    run = _add(workflow, "run", commands.workflow_run, "submit a run and wait for it")
+    run = _add(
+        workflow,
+        "run",
+        commands.workflow_run,
+        "submit a run and wait for it",
+        requires_project=True,
+    )
     target = run.add_mutually_exclusive_group(required=True)
     target.add_argument("--workflow-id", help="run the deployment alias of this workflow")
     target.add_argument("--version-id", help="run this exact version")
@@ -181,7 +187,13 @@ def build_parser() -> argparse.ArgumentParser:
     verdict_show.add_argument("artifact_type", choices=["prompt", "workflow", "skill"])
     verdict_show.add_argument("version_key")
 
-    verdict_record = _add(gate_verdict, "record", commands.gate_verdict_record, "record a verdict")
+    verdict_record = _add(
+        gate_verdict,
+        "record",
+        commands.gate_verdict_record,
+        "record a verdict",
+        requires_project=True,
+    )
     verdict_record.add_argument("artifact_type", choices=["prompt", "workflow", "skill"])
     verdict_record.add_argument("version_key")
     verdict_record.add_argument("--state", choices=["pass", "fail", "none"], required=True)
@@ -212,7 +224,13 @@ def build_parser() -> argparse.ArgumentParser:
     cookbook = _group(subparsers, "cookbook", "browse and install example workflows")
     _add(cookbook, "list", commands.cookbook_list, "list recipes and their readiness")
 
-    install = _add(cookbook, "install", commands.cookbook_install, "install a recipe")
+    install = _add(
+        cookbook,
+        "install",
+        commands.cookbook_install,
+        "install a recipe",
+        requires_project=True,
+    )
     install.add_argument("recipe_id")
     install.add_argument("--name", help="name for the installed workflow")
     install.add_argument(
@@ -230,7 +248,13 @@ def build_parser() -> argparse.ArgumentParser:
     service_show = _add(service, "show", commands.service_show, "show a workflow's service")
     service_show.add_argument("workflow_id")
 
-    publish = _add(service, "publish", commands.service_publish, "publish a workflow's service")
+    publish = _add(
+        service,
+        "publish",
+        commands.service_publish,
+        "publish a workflow's service",
+        requires_project=True,
+    )
     publish.add_argument("workflow_id")
     publish.add_argument("--yes", action="store_true", help="confirm exposing an external endpoint")
 
@@ -259,9 +283,25 @@ def _group(subparsers: Any, name: str, help_text: str) -> Any:
     return nested
 
 
-def _add(subparsers: Any, name: str, handler: Handler, help_text: str) -> Any:
+def _add(
+    subparsers: Any,
+    name: str,
+    handler: Handler,
+    help_text: str,
+    *,
+    requires_project: bool = False,
+) -> Any:
+    """Register one leaf command.
+
+    ``requires_project=True`` marks a command whose write lands in a project's
+    scope purely via the ambient ``X-CALIBER-Project`` ``--project``/
+    ``$CALIBER_PROJECT``) rather than a path segment the server can check
+    directly -- so an operator who forgot ``--project`` would otherwise get a
+    silently unscoped ("My Library") write instead of a clear refusal (`P2`,
+    isolation closure item 8).
+    """
     parser = subparsers.add_parser(name, help=help_text, description=help_text)
-    parser.set_defaults(handler=handler, parser=parser)
+    parser.set_defaults(handler=handler, parser=parser, requires_project=requires_project)
     return parser
 
 
@@ -296,6 +336,13 @@ def _dispatch(handler: Handler, args: argparse.Namespace, out: Printer) -> int:
     was never able to try — no base URL, no credential — and the message should
     not look like the deployment refused something.
     """
+    if getattr(args, "requires_project", False) and not args.project:
+        out.error(
+            "this command writes into a project's scope and needs one: "
+            "pass --project or set $CALIBER_PROJECT"
+        )
+        return exits.USAGE
+
     try:
         client = CaliberClient(
             base_url=args.base_url,

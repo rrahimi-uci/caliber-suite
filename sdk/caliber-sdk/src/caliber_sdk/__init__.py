@@ -40,7 +40,7 @@ from .errors import (
 )
 from .models import ErrorBody, FieldError, Page, Stability
 from .resources import RawAPI, WorkflowRunFailed
-from .transport import API_PREFIX, Response, Transport
+from .transport import API_PREFIX, UNSET_PROJECT, Response, Transport, UnsetProjectType
 from .waiters import (
     FAILURE_STATES,
     TERMINAL_STATES,
@@ -60,6 +60,7 @@ __all__ = [
     "ENV_USER",
     "FAILURE_STATES",
     "TERMINAL_STATES",
+    "UNSET_PROJECT",
     "AuthProvider",
     "CaliberAPIError",
     "CaliberAuthenticationError",
@@ -84,6 +85,7 @@ __all__ = [
     "TokenAuth",
     "Transport",
     "TrustedHeaderAuth",
+    "UnsetProjectType",
     "WaitFailed",
     "WaitTimeout",
     "WorkflowRunFailed",

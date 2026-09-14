@@ -16,7 +16,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Iterator, Mapping
-from typing import Any
+from typing import Any, Final
 
 import httpx
 
@@ -26,6 +26,26 @@ from .errors import CaliberConfigError, CaliberTransportError, error_for_respons
 #: Appended to the caller's User-Agent so CALIBER operators can tell SDK
 #: traffic from browser traffic in their logs.
 USER_AGENT = "caliber-sdk-python"
+
+
+class UnsetProjectType:
+    """Sentinel distinguishing "use the ambient project" from an explicit
+    ``project=None`` (deliberately unscoped). A bare default of ``None``
+    could not tell those apart."""
+
+    __slots__ = ()
+
+    def __repr__(self) -> str:
+        return "UNSET_PROJECT"
+
+
+#: Default for ``request()``'s ``project`` parameter -- resolves to
+#: ``Transport.project`` (the ambient/constructor scope). Pass an explicit
+#: project id string to pin a request to it regardless of the ambient scope
+#: (§13.4: a request naming ``/projects/{project_id}/...`` in its path must
+#: send that same id, not whatever the client happens to be scoped to), or
+#: ``None`` to deliberately send no project header at all (a platform call).
+UNSET_PROJECT: Final = UnsetProjectType()
 
 #: The management API root. Same-origin with MLflow by design.
 API_PREFIX = "/ajax-api/2.0/mlflow/caliber"
@@ -109,7 +129,12 @@ class Transport:
             cleaned = f"{API_PREFIX}{cleaned}"
         return f"{self.base_url}{cleaned}"
 
-    def _headers(self, method: str, extra: Mapping[str, str] | None) -> dict[str, str]:
+    def _headers(
+        self,
+        method: str,
+        extra: Mapping[str, str] | None,
+        project: str | UnsetProjectType | None = UNSET_PROJECT,
+    ) -> dict[str, str]:
         headers: dict[str, str] = {
             "Accept": "application/json",
             "User-Agent": self._user_agent,
@@ -118,8 +143,9 @@ class Transport:
             "X-Request-Id": uuid.uuid4().hex,
         }
         headers.update(self.auth.headers())
-        if self.project:
-            headers["X-CALIBER-Project"] = self.project
+        resolved_project = self.project if isinstance(project, UnsetProjectType) else project
+        if resolved_project:
+            headers["X-CALIBER-Project"] = resolved_project
         if method.upper() not in _RETRYABLE_METHODS and self._csrf_token:
             headers["X-CALIBER-CSRF"] = self._csrf_token
         if extra:
@@ -157,16 +183,33 @@ class Transport:
         files: Any = None,
         data: Mapping[str, Any] | None = None,
         timeout: float | None = None,
+        project: str | UnsetProjectType | None = UNSET_PROJECT,
         _csrf_retry: bool = True,
     ) -> Response:
-        """Perform one API call, returning the unwrapped payload."""
+        """Perform one API call, returning the unwrapped payload.
+
+        ``project``, when passed, pins the request's ``X-CALIBER-Project``
+        header regardless of the ambient (constructor/``project_scope``)
+        scope -- resource modules that build a ``/projects/{project_id}/...``
+        path use this to send that same id, never whatever the client
+        happens to be scoped to. Left at its default (``UNSET_PROJECT``),
+        the ambient scope applies unchanged; ``None`` deliberately omits the
+        header even if an ambient scope is set.
+        """
         verb = method.upper()
         url = self.url_for(path)
+        if not isinstance(project, UnsetProjectType) and headers and "X-CALIBER-Project" in headers:
+            manual = headers["X-CALIBER-Project"]
+            if manual != project:
+                raise CaliberConfigError(
+                    f"conflicting project scope: headers['X-CALIBER-Project']={manual!r} "
+                    f"but project={project!r} was also passed to the same call"
+                )
         attempts = self.max_retries + 1
         last_transport_error: Exception | None = None
 
         for attempt in range(attempts):
-            request_headers = self._headers(verb, headers)
+            request_headers = self._headers(verb, headers, project)
             # ``timeout`` is omitted entirely unless the caller set one, rather
             # than passed as USE_CLIENT_DEFAULT. Same behaviour, and it keeps
             # the SDK drivable by any httpx.Client subclass that restricts
@@ -224,6 +267,7 @@ class Transport:
                     json=json,
                     headers=headers,
                     timeout=timeout,
+                    project=project,
                     _csrf_retry=False,
                 )
 
@@ -291,15 +335,19 @@ class Transport:
     def delete(self, path: str, **kwargs: Any) -> Response:
         return self.request("DELETE", path, **kwargs)
 
-    def download(self, path: str, **kwargs: Any) -> bytes:
+    def download(
+        self, path: str, *, project: str | UnsetProjectType | None = UNSET_PROJECT, **kwargs: Any
+    ) -> bytes:
         """Fetch raw bytes.
 
         Separate from :meth:`request` because file content is not JSON: it has
         no envelope to unwrap and decoding it would corrupt binary data.
+
+        ``project`` pins the request the same way it does for :meth:`request`.
         """
         url = self.url_for(path)
         try:
-            raw = self._client.get(url, headers=self._headers("GET", None), **kwargs)
+            raw = self._client.get(url, headers=self._headers("GET", None, project), **kwargs)
         except httpx.HTTPError as exc:
             raise CaliberTransportError(f"GET {url} failed: {exc}") from exc
         if raw.status_code >= 400:
@@ -397,4 +445,11 @@ def _unwrap(payload: Any) -> Any:
     return payload
 
 
-__all__ = ["API_PREFIX", "USER_AGENT", "Response", "Transport"]
+__all__ = [
+    "API_PREFIX",
+    "UNSET_PROJECT",
+    "USER_AGENT",
+    "Response",
+    "Transport",
+    "UnsetProjectType",
+]

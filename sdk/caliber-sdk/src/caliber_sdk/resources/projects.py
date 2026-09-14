@@ -27,7 +27,7 @@ class ProjectFilesAPI(Resource):
         file, and collapsing them would make an empty folder indistinguishable
         from a missing one.
         """
-        payload = self._get(f"/projects/{project_id}/files")
+        payload = self._get(f"/projects/{project_id}/files", project=project_id)
         if not isinstance(payload, dict):
             return [], []
         return (
@@ -51,22 +51,29 @@ class ProjectFilesAPI(Resource):
         if path is not None:
             data["path"] = path
         response = self._transport.request(
-            "POST", f"/projects/{project_id}/files", files=files, data=data
+            "POST",
+            f"/projects/{project_id}/files",
+            files=files,
+            data=data,
+            project=project_id,
         )
         return decode(ProjectFile, response.data)
 
     def create_folder(self, project_id: str, path: str) -> ProjectFolder:
         return decode(
-            ProjectFolder, self._post(f"/projects/{project_id}/folders", json={"path": path})
+            ProjectFolder,
+            self._post(f"/projects/{project_id}/folders", json={"path": path}, project=project_id),
         )
 
     def delete(self, project_id: str, file_id: str) -> bool:
-        payload = self._delete(f"/projects/{project_id}/files/{file_id}")
+        payload = self._delete(f"/projects/{project_id}/files/{file_id}", project=project_id)
         return isinstance(payload, dict) and payload.get("status") == "deleted"
 
     def download(self, project_id: str, file_id: str) -> bytes:
         """Raw bytes. Not JSON, so it bypasses the envelope entirely."""
-        return self._transport.download(f"/projects/{project_id}/files/{file_id}/content")
+        return self._transport.download(
+            f"/projects/{project_id}/files/{file_id}/content", project=project_id
+        )
 
 
 class ProjectsAPI(Resource):
@@ -82,7 +89,7 @@ class ProjectsAPI(Resource):
         return decode_list(Project, self._get("/projects", params=params))
 
     def get(self, project_id: str) -> Project:
-        return decode(Project, self._get(f"/projects/{project_id}"))
+        return decode(Project, self._get(f"/projects/{project_id}", project=project_id))
 
     def create(self, name: str, *, description: str | None = None) -> Project:
         body: dict[str, Any] = {"name": name}
@@ -130,16 +137,18 @@ class ProjectsAPI(Resource):
             if value is not None:
                 body[key] = value
         if body or result is None:
-            result = decode(Project, self._patch(f"/projects/{project_id}", json=body))
+            result = decode(
+                Project, self._patch(f"/projects/{project_id}", json=body, project=project_id)
+            )
         return result
 
     def archive(self, project_id: str) -> Project:
         """Move a project to the ``archived`` status, recording who/when."""
-        return decode(Project, self._post(f"/projects/{project_id}/archive"))
+        return decode(Project, self._post(f"/projects/{project_id}/archive", project=project_id))
 
     def restore(self, project_id: str) -> Project:
         """Move an archived project back to ``active``, clearing provenance."""
-        return decode(Project, self._post(f"/projects/{project_id}/restore"))
+        return decode(Project, self._post(f"/projects/{project_id}/restore", project=project_id))
 
     def transfer_ownership(self, project_id: str, new_owner_user_id: str) -> Project:
         """Atomically move the primary-owner pointer to another active,
@@ -154,12 +163,13 @@ class ProjectsAPI(Resource):
             self._post(
                 f"/projects/{project_id}/transfer-ownership",
                 json={"new_owner_user_id": new_owner_user_id},
+                project=project_id,
             ),
         )
 
     def list_members(self, project_id: str) -> _List[ProjectMember]:
         """List active members and their effective project roles."""
-        payload = self._get(f"/projects/{project_id}/members")
+        payload = self._get(f"/projects/{project_id}/members", project=project_id)
         if not isinstance(payload, dict):
             return []
         return decode_list(ProjectMember, payload.get("members"))
@@ -171,6 +181,7 @@ class ProjectsAPI(Resource):
             self._post(
                 f"/projects/{project_id}/members",
                 json={"user_id": user_id, "role": role},
+                project=project_id,
             ),
         )
 
@@ -190,12 +201,12 @@ class ProjectsAPI(Resource):
             body["status"] = status
         return decode(
             ProjectMember,
-            self._patch(f"/projects/{project_id}/members/{user_id}", json=body),
+            self._patch(f"/projects/{project_id}/members/{user_id}", json=body, project=project_id),
         )
 
     def remove_member(self, project_id: str, user_id: str) -> bool:
         """Deactivate a member; the project owner cannot be removed."""
-        payload = self._delete(f"/projects/{project_id}/members/{user_id}")
+        payload = self._delete(f"/projects/{project_id}/members/{user_id}", project=project_id)
         return isinstance(payload, dict) and payload.get("removed") is True
 
     def storage(self) -> Any:
@@ -204,28 +215,29 @@ class ProjectsAPI(Resource):
 
     def list_environments(self, project_id: str) -> _List[WorkspaceEnvironment]:
         """The project's four fixed environments, in promotion order."""
-        payload = self._get(f"/projects/{project_id}/environments")
+        payload = self._get(f"/projects/{project_id}/environments", project=project_id)
         if not isinstance(payload, dict):
             return []
         return decode_list(WorkspaceEnvironment, payload.get("environments"))
 
     def get_environment(self, project_id: str, name: str) -> WorkspaceEnvironment:
         return decode(
-            WorkspaceEnvironment, self._get(f"/projects/{project_id}/environments/{name}")
+            WorkspaceEnvironment,
+            self._get(f"/projects/{project_id}/environments/{name}", project=project_id),
         )
 
     def enable_environment(self, project_id: str, name: str) -> WorkspaceEnvironment:
         """Explicit lifecycle transition to ``"active"``; Admin-only."""
         return decode(
             WorkspaceEnvironment,
-            self._post(f"/projects/{project_id}/environments/{name}/enable"),
+            self._post(f"/projects/{project_id}/environments/{name}/enable", project=project_id),
         )
 
     def disable_environment(self, project_id: str, name: str) -> WorkspaceEnvironment:
         """Explicit lifecycle transition to ``"disabled"``; Admin-only."""
         return decode(
             WorkspaceEnvironment,
-            self._post(f"/projects/{project_id}/environments/{name}/disable"),
+            self._post(f"/projects/{project_id}/environments/{name}/disable", project=project_id),
         )
 
 

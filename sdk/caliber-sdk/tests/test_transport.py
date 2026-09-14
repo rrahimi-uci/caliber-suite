@@ -170,6 +170,63 @@ def test_auth_project_and_correlation_headers_are_sent() -> None:
     assert "caliber-sdk-python" in seen["user-agent"]
 
 
+def test_an_explicit_project_overrides_the_ambient_scope() -> None:
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("x-caliber-project"))
+        return httpx.Response(200, json={"data": {}})
+
+    with transport_with(handler, project="PRJ-ambient") as transport:
+        transport.get("/me")
+        transport.get("/me", project="PRJ-explicit")
+        transport.get("/me")
+
+    assert seen == ["PRJ-ambient", "PRJ-explicit", "PRJ-ambient"]
+
+
+def test_an_explicit_none_project_omits_the_header_even_when_ambient_is_set() -> None:
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("x-caliber-project"))
+        return httpx.Response(200, json={"data": {}})
+
+    with transport_with(handler, project="PRJ-ambient") as transport:
+        transport.get("/me", project=None)
+
+    assert seen == [None]
+
+
+def test_a_project_override_conflicting_with_a_manual_header_fails_before_io() -> None:
+    calls: list[str] = []
+
+    def handler(_request: httpx.Request) -> httpx.Response:
+        calls.append("called")
+        return httpx.Response(200, json={"data": {}})
+
+    with (
+        transport_with(handler, project="PRJ-ambient") as transport,
+        pytest.raises(CaliberConfigError, match="conflicting project scope"),
+    ):
+        transport.get("/me", project="PRJ-explicit", headers={"X-CALIBER-Project": "PRJ-other"})
+
+    assert calls == []
+
+
+def test_a_project_override_matching_a_manual_header_is_not_a_conflict() -> None:
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("x-caliber-project"))
+        return httpx.Response(200, json={"data": {}})
+
+    with transport_with(handler, project="PRJ-ambient") as transport:
+        transport.get("/me", project="PRJ-same", headers={"X-CALIBER-Project": "PRJ-same"})
+
+    assert seen == ["PRJ-same"]
+
+
 def test_a_write_refused_for_csrf_bootstraps_and_replays_once() -> None:
     """Recoverable and invisible, but bounded: exactly one replay."""
     calls: list[str] = []
