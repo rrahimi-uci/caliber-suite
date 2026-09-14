@@ -54,7 +54,17 @@ _ROUTES = Path(__file__).resolve().parents[1] / "src" / "caliber" / "routes"
 #: it calls) still detects the check and the published OpenAPI/REST-API-
 #: reference docs correctly show `project role (resource.execute)` instead
 #: of silently regressing to `any authenticated user`.
-_BASELINE = 254
+#:
+#: Bumped from 254 to 255: `P2` (isolation closure, item 4) added a
+#: `get_visible` check to `routes/prompts.py::get_prompt`, inline via
+#: `with factory() as session` -- this file's own dominant convention
+#: (`create_prompt`/`bind_prompt`/`set_prompt_baseline`/the prompt-test-run
+#: routes all already use it). Unlike the `aria_plans.py` bump directly
+#: above, `get_visible` isn't one of `scope_inference.py`'s recognized
+#: authorization-call names, so offloading this one to `run_in_threadpool`
+#: would have carried no doc-generation benefit -- inline is simply this
+#: file's established shape, not a scope-inference workaround.
+_BASELINE = 255
 
 _SESSION_MARKERS = ("with factory() as session", "with session_factory() as session")
 
