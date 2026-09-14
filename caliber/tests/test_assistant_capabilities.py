@@ -38,7 +38,15 @@ USER = "@test"
 
 @pytest.fixture
 def svc() -> AssistantService:
-    return AssistantService(engine=FakeAssistantEngine(), runtime_config=CaliberConfig())
+    # `P2` (isolation closure, item 7): `_dispatch_capability` now enforces a
+    # capability's declared `required_scopes` against the caller (previously
+    # only the async plan executor did) -- every mutate capability this file
+    # dispatches (judge/eval-dataset/review-queue create, add_items) declares
+    # `operator`, so `USER` needs it here, same as `test_aria_executor.py`'s
+    # `_CFG` grants it to its own plan-owner user.
+    return AssistantService(
+        engine=FakeAssistantEngine(), runtime_config=CaliberConfig(operator_users=USER)
+    )
 
 
 def _session(svc: AssistantService, factory: sessionmaker[Session]) -> str:

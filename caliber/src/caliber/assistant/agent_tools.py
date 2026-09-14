@@ -456,6 +456,22 @@ class AssistantAgentToolset:
                 f"tool {cap.tool_name!r} is not permitted in mode={self._mode!r} "
                 f"approval={self._approval_mode!r}"
             )
+        # `P2` (isolation closure, item 7): a capability's declared
+        # ``required_scopes`` were never actually consulted on this
+        # synchronous turn path -- only the executor's async/plan path
+        # enforced them (see ``PlanExecutor._run_step``'s matching RBAC-floor
+        # check). Masked today because every registered mutate capability
+        # happens to require ``caliber.operator``, which `send_message`
+        # already requires for the whole turn -- but the declared contract
+        # itself was unenforced, so a future ``approver``/``admin``-scoped
+        # capability would have silently run for anyone.
+        if cap.required_scopes and self._deps.config is not None:
+            from caliber.auth import scopes_for_user  # noqa: PLC0415
+
+            have = scopes_for_user(self._deps.config, self._user)
+            missing = [s for s in cap.required_scopes if f"caliber.{s}" not in have]
+            if missing:
+                return _err(f"missing required scope(s): {', '.join(sorted(missing))}")
         try:
             return _ok(cap.handler(self._capability_context(), arguments))
         except Exception as exc:  # never let a tool error break the loop

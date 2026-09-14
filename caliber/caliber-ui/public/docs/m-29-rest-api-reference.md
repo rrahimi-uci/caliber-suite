@@ -835,9 +835,9 @@ Supported but still moving route groups. Expect capability growth and narrower c
 | `GET` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_aria_plans_plan_id` |
 | `PATCH` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_aria_plans_plan_id`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/approve` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_approve` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/execute` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_execute` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/execute` | project role (`resource.execute`) | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_execute` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/interactions` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_aria_plans_plan_id_interactions` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/poll` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_poll` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/poll` | project role (`resource.execute`) | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_poll` |
 
 #### Audit Log (`audit-log`)
 

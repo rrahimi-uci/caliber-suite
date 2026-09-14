@@ -42,7 +42,19 @@ _ROUTES = Path(__file__).resolve().parents[1] / "src" / "caliber" / "routes"
 #: as the `P1-C` bump directly above -- this file's own established, uniform
 #: convention (every one of its ~20+ other handlers) is inline
 #: `with factory() as session`, never `run_in_threadpool`.
-_BASELINE = 252
+#:
+#: Bumped from 252 to 254: `P2` (isolation closure, item 7) added a
+#: `require_project_access_if_scoped` check to `routes/aria_plans.py`'s
+#: `execute_plan`/`poll_plan`, inline via `with factory() as session`, the
+#: exact shape `routes/workflow_runs.py::create_workflow_run`'s equivalent
+#: `resource.execute` check already uses (already counted in the baseline
+#: above) -- kept inline rather than `run_in_threadpool`-offloaded so
+#: `routes/scope_inference.py`'s AST-based required-scope inference (which
+#: reads only the route handler's own function body, not helper functions
+#: it calls) still detects the check and the published OpenAPI/REST-API-
+#: reference docs correctly show `project role (resource.execute)` instead
+#: of silently regressing to `any authenticated user`.
+_BASELINE = 254
 
 _SESSION_MARKERS = ("with factory() as session", "with session_factory() as session")
 
