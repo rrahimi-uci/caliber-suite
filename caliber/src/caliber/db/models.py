@@ -45,6 +45,7 @@ class CaliberAgentConfig(Base):
     """
 
     __tablename__ = "caliber_agent_config"
+    __table_args__ = (Index("ix_agent_config_project_visibility", "project_id", "visibility"),)
 
     # Multi-user project scoping: optional project_id scopes a row to a tenant (null = global).
     # Existing rows are backfilled to visibility='public' by migration 0026.
@@ -674,13 +675,16 @@ class CaliberEvalDataset(Base):
     """
 
     __tablename__ = "caliber_eval_datasets"
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_eval_dataset_name"),
+        Index("ix_eval_datasets_project_visibility", "project_id", "visibility"),
+    )
 
     # Multi-user project scoping: optional project_id scopes a row to a tenant (null = global).
     project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
     visibility: Mapped[str] = mapped_column(
         String(16), nullable=False, default="project", server_default="project"
     )
-    __table_args__ = (UniqueConstraint("name", name="uq_eval_dataset_name"),)
 
     dataset_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(128))
@@ -762,7 +766,10 @@ class CaliberJudge(Base):
     visibility: Mapped[str] = mapped_column(
         String(16), nullable=False, default="project", server_default="project"
     )
-    __table_args__ = (UniqueConstraint("name", name="uq_judge_name"),)
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_judge_name"),
+        Index("ix_judges_project_visibility", "project_id", "visibility"),
+    )
 
     judge_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(128))
@@ -808,6 +815,7 @@ class CaliberLlmModelPricing(Base):
     # One pricing row per (provider, model) — the natural key operators reason about.
     __table_args__ = (
         UniqueConstraint("provider", "model_id", name="uq_llm_pricing_provider_model"),
+        Index("ix_llm_model_pricing_project_visibility", "project_id", "visibility"),
     )
 
     pricing_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -850,7 +858,10 @@ class CaliberReviewQueue(Base):
     visibility: Mapped[str] = mapped_column(
         String(16), nullable=False, default="project", server_default="project"
     )
-    __table_args__ = (UniqueConstraint("name", name="uq_review_queue_name"),)
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_review_queue_name"),
+        Index("ix_review_queues_project_visibility", "project_id", "visibility"),
+    )
 
     queue_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(128))
@@ -907,6 +918,7 @@ class CaliberAriaPlan(Base):
     """
 
     __tablename__ = "caliber_aria_plans"
+    __table_args__ = (Index("ix_aria_plans_project_visibility", "project_id", "visibility"),)
 
     project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
     visibility: Mapped[str] = mapped_column(
@@ -1017,6 +1029,7 @@ class CaliberEvalRun(Base):
     __table_args__ = (
         Index("ix_eval_runs_dataset_created", "dataset_id", "created_at"),
         Index("ix_eval_runs_created", "created_at"),
+        Index("ix_eval_runs_project_visibility", "project_id", "visibility"),
     )
 
     # Multi-user project scoping (mirrors CaliberEvalDataset).
@@ -1115,7 +1128,10 @@ class CaliberSkill(Base):
     visibility: Mapped[str] = mapped_column(
         String(16), nullable=False, default="project", server_default="project"
     )
-    __table_args__ = (UniqueConstraint("name", name="uq_skill_name"),)
+    __table_args__ = (
+        UniqueConstraint("name", name="uq_skill_name"),
+        Index("ix_skills_project_visibility", "project_id", "visibility"),
+    )
 
     skill_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(128))
@@ -1142,6 +1158,7 @@ class CaliberWorkflow(Base):
     """Workflow Studio workflow root."""
 
     __tablename__ = "caliber_workflows"
+    __table_args__ = (Index("ix_workflows_project_visibility", "project_id", "visibility"),)
 
     # Multi-user project scoping: optional project_id scopes a row to a tenant (null = global).
     project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
@@ -1616,6 +1633,7 @@ class CaliberToolRegistry(Base):
     __table_args__ = (
         UniqueConstraint("name", "version", name="uq_tool_name_version"),
         Index("ix_tool_registry_name", "name"),
+        Index("ix_tool_registry_project_visibility", "project_id", "visibility"),
     )
 
     tool_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -1674,6 +1692,7 @@ class CaliberOpenApiIntegration(Base):
     __table_args__ = (
         Index("ix_openapi_integrations_status", "status"),
         Index("ix_openapi_integrations_name", "name"),
+        Index("ix_openapi_integrations_project_visibility", "project_id", "visibility"),
     )
 
     project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
@@ -1885,6 +1904,7 @@ class CaliberWorkflowRun(Base):
         Index("ix_workflow_runs_trace", "trace_id"),
         Index("ix_workflow_runs_queue_claim", "status", "priority", "queued_at"),
         Index("ix_workflow_runs_lease", "status", "lease_expires_at"),
+        Index("ix_workflow_runs_project", "project_id"),
         Index(
             "ix_workflow_runs_idempotency",
             "workflow_id",
@@ -1948,6 +1968,7 @@ class CaliberWorkflowRunEvent(Base):
         Index("ix_workflow_run_events_run_sequence", "workflow_run_id", "sequence"),
         Index("ix_workflow_run_events_run_created", "workflow_run_id", "created_at"),
         Index("ix_workflow_run_events_type_created", "event_type", "created_at"),
+        Index("ix_workflow_run_events_project", "project_id"),
     )
 
     event_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -1970,6 +1991,7 @@ class CaliberWorkflowRunCheckpoint(Base):
         UniqueConstraint("workflow_run_id", "sequence", name="uq_workflow_run_checkpoint_sequence"),
         Index("ix_workflow_run_checkpoints_run_sequence", "workflow_run_id", "sequence"),
         Index("ix_workflow_run_checkpoints_run_created", "workflow_run_id", "created_at"),
+        Index("ix_workflow_run_checkpoints_project", "project_id"),
     )
 
     checkpoint_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -2116,6 +2138,7 @@ class CaliberWorkflowFile(Base):
         Index("ix_workflow_files_run", "workflow_run_id", "kind", "relative_path"),
         Index("ix_workflow_files_dataset", "dataset_id", "example_id"),
         Index("ix_workflow_files_playground", "playground_run_id"),
+        Index("ix_workflow_files_project", "project_id"),
     )
 
     file_id: Mapped[str] = mapped_column(String(64), primary_key=True)
