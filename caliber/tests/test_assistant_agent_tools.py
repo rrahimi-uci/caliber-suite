@@ -224,6 +224,43 @@ class TestGating:
         out = json.loads(ts.dispatch("validate_draft", {"draft_id": "x"}))
         assert "error" in out and "not permitted" in out["error"]
 
+    def test_capability_dispatch_denies_when_required_scope_is_missing(
+        self, svc, session_factory
+    ) -> None:
+        """`P2` (isolation closure, item 7): a capability's declared
+        ``required_scopes`` were never actually consulted on this synchronous
+        turn path -- only the async plan executor enforced them. ``judge.create``
+        declares ``operator``, which ``USER`` (``@test``) does not hold under
+        this fixture's scope-less ``CaliberConfig`` -- tier-gating alone (mode
+        ``build`` + ``auto_all``) would otherwise let the call through."""
+        sid = _session(svc, session_factory)
+        ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
+        out = json.loads(
+            ts.dispatch("judge_create", {"name": "j", "instructions": "rate {{ outputs }}"})
+        )
+        assert "error" in out
+        assert "missing required scope" in out["error"]
+        assert "operator" in out["error"]
+
+    def test_capability_dispatch_allows_when_the_required_scope_is_held(
+        self, session_factory
+    ) -> None:
+        """The counterpart to the denial above: a caller who genuinely holds
+        the declared scope reaches the real handler, proving the new check is
+        a gate and not an accidental blanket refusal."""
+        svc_with_operator = AssistantService(
+            engine=FakeAssistantEngine(), runtime_config=CaliberConfig(operator_users=USER)
+        )
+        sid = _session(svc_with_operator, session_factory)
+        ts = _toolset(svc_with_operator, session_factory, sid, mode="build", approval="auto_all")
+        out = json.loads(
+            ts.dispatch(
+                "judge_create", {"name": "scope-ok-judge", "instructions": "rate {{ outputs }}"}
+            )
+        )
+        assert out.get("ok") is True, out
+        assert out["data"]["name"] == "scope-ok-judge"
+
     def test_dynamic_openapi_write_tool_requires_mutating_build_policy(
         self, svc, session_factory
     ) -> None:

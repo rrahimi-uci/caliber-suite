@@ -8,7 +8,14 @@ from starlette.testclient import TestClient
 
 from caliber.assistant.capabilities import Capability, registered_capabilities
 from caliber.assistant.plans import HeuristicPlanner, PlannedStep, PlanService
-from caliber.db.models import CaliberAriaPlan, CaliberAriaPlanStep, CaliberAuditLog
+from caliber.db.models import (
+    CaliberAriaPlan,
+    CaliberAriaPlanStep,
+    CaliberAuditLog,
+    CaliberProject,
+    CaliberProjectMember,
+)
+from caliber.resource_access import ROLE_EDITOR, ROLE_VIEWER
 from caliber.routes.aria_plans import (
     APPROVE_PATH,
     DETAIL_PATH,
@@ -224,6 +231,69 @@ def test_route_cross_user_plan_access_is_404(client: TestClient) -> None:
     )
     # Admin (default @test) bypasses scoping.
     assert client.get(detail).status_code == 200
+
+
+def test_route_execute_and_poll_deny_a_project_viewer_but_allow_an_editor(
+    client: TestClient, db_session: Session
+) -> None:
+    """`P2` (isolation closure, item 7): visibility alone (project membership)
+    let any active member -- including a plain ``viewer`` -- execute or poll a
+    teammate's plan. ``resource.execute``'s role floor (owner/editor/reviewer)
+    now independently gates both actions, matching what
+    ``create_workflow_run`` already enforces for the equivalent REST action.
+    """
+    project_id = "P-aria-authz"
+    db_session.add(CaliberProject(project_id=project_id, name="aria authz", owner="@test"))
+    db_session.add_all(
+        [
+            CaliberProjectMember(
+                member_id="M-aria-viewer",
+                project_id=project_id,
+                user_id="@aria-viewer",
+                role=ROLE_VIEWER,
+                created_by="@test",
+            ),
+            CaliberProjectMember(
+                member_id="M-aria-editor",
+                project_id=project_id,
+                user_id="@aria-editor",
+                role=ROLE_EDITOR,
+                created_by="@test",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    created = client.post(
+        LIST_PATH,
+        json={"goal": "create a judge"},
+        headers={"X-CALIBER-Project": project_id},
+    )
+    assert created.status_code == 201, created.text
+    plan_id = created.json()["data"]["plan"]["plan_id"]
+    assert client.post(APPROVE_PATH.replace("{plan_id}", plan_id)).status_code == 200
+
+    execute = EXECUTE_PATH.replace("{plan_id}", plan_id)
+    poll = POLL_PATH.replace("{plan_id}", plan_id)
+    viewer_headers = {"X-CALIBER-User": "@aria-viewer", "X-CALIBER-Project": project_id}
+    editor_headers = {"X-CALIBER-User": "@aria-editor", "X-CALIBER-Project": project_id}
+
+    # A plain viewer is visible (project membership grants visibility) but not
+    # permitted to execute or poll -- the role floor, not the visibility
+    # filter, is what denies here.
+    denied_execute = client.post(execute, headers=viewer_headers)
+    assert denied_execute.status_code == 403, denied_execute.text
+    denied_poll = client.post(poll, headers=viewer_headers)
+    assert denied_poll.status_code == 403, denied_poll.text
+
+    # An editor -- one of `resource.execute`'s permitted roles -- succeeds:
+    # the authorization gate passes and the executor actually runs (whether
+    # the step then completes or pauses for missing-input clarification is
+    # the executor's own concern, covered elsewhere -- what matters here is
+    # that it is not refused).
+    executed = client.post(execute, headers=editor_headers)
+    assert executed.status_code == 200, executed.text
+    assert executed.json()["data"]["plan"]["status"] in ("completed", "paused", "running")
 
 
 def test_route_patch_autonomy_then_list(client: TestClient, db_session: Session) -> None:

@@ -31,6 +31,7 @@ from caliber.assistant.executor import (
 )
 from caliber.assistant.plans import PlanService
 from caliber.auth import require_user, resolve_identity
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     envelope_response_dict,
@@ -174,6 +175,15 @@ async def execute_plan(request: Request) -> JSONResponse:
     detail = _service.get_plan(session_factory=factory, plan_id=plan_id, identity=identity)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"aria plan {plan_id!r} not found")
+    # `P2` (isolation closure, item 7): visibility alone let any active
+    # project member -- including a plain `viewer` -- execute a teammate's
+    # plan. `resource.execute`'s role floor (owner/editor/reviewer) is the
+    # same one `create_workflow_run` already enforces for the equivalent
+    # REST action; a personal (`project_id is None`) plan is unaffected.
+    with factory() as session:
+        require_project_access_if_scoped(
+            session, identity, detail["plan"].get("project_id"), "resource.execute"
+        )
     if detail["plan"]["status"] not in ("approved", "paused", "running"):
         raise HTTPException(
             status_code=409,
@@ -194,8 +204,14 @@ async def poll_plan(request: Request) -> JSONResponse:
     plan_id = request.path_params["plan_id"]
     identity = resolve_identity(request)
     factory = get_session_factory(request)
-    if _service.get_plan(session_factory=factory, plan_id=plan_id, identity=identity) is None:
+    detail = _service.get_plan(session_factory=factory, plan_id=plan_id, identity=identity)
+    if detail is None:
         raise HTTPException(status_code=404, detail=f"aria plan {plan_id!r} not found")
+    # `P2` (isolation closure, item 7): see `execute_plan` above.
+    with factory() as session:
+        require_project_access_if_scoped(
+            session, identity, detail["plan"].get("project_id"), "resource.execute"
+        )
     result = _executor.poll(
         session_factory=factory,
         config=_config(request),
