@@ -313,7 +313,10 @@ def _make_judge_runner(judge_obj: Any) -> JudgeRunner:
 
 
 def _hydrate_judge_runners(
-    session: Any, scorer_names: list[str], identities: dict[str, Any] | None = None
+    session: Any,
+    scorer_names: list[str],
+    identities: dict[str, Any] | None = None,
+    identity: Any = None,
 ) -> dict[str, JudgeRunner]:
     """Build a ``JudgeRunner`` for every ``Judge.<judge_id>`` token in ``scorer_names``.
 
@@ -327,13 +330,23 @@ def _hydrate_judge_runners(
     digest of its instructions — for the run's evidence bundle. Judges are mutable
     and unversioned, so a stored ``Judge.<id>`` token alone cannot prove which
     definition actually graded a historical run.
+
+    `P2` (isolation closure, item 1): ``identity`` is the caller's -- a bare
+    lookup here let any operator run (and see the model/instructions of) any
+    project's judge by id. Optional so a caller with no request context
+    (there are none today, but matching this file's other optional-identity
+    helpers) gets the unscoped lookup rather than a hard failure.
     """
     runners: dict[str, JudgeRunner] = {}
     for name in scorer_names:
         if not name.startswith(JUDGE_SCORER_PREFIX) or name in runners:
             continue
         judge_id = name.partition(".")[2]
-        judge = session.get(CaliberJudge, judge_id)
+        judge = (
+            get_visible(session, CaliberJudge, CaliberJudge.judge_id, judge_id, identity)
+            if identity is not None
+            else session.get(CaliberJudge, judge_id)
+        )
         if judge is None or judge.status != "active":
             raise HTTPException(
                 status_code=404,
@@ -420,7 +433,18 @@ async def create_evaluation(request: Request) -> JSONResponse:
     # artifact but does not pin its *content*, and all of these are mutable.
     judge_identities: dict[str, Any] = {}
     with factory() as session:
-        dataset = session.get(CaliberEvalDataset, payload.dataset_id)
+        # `P2` (isolation closure, item 1): a bare `session.get` here admitted
+        # any dataset by id regardless of visibility -- a `visibility="user"`
+        # dataset owned by someone else in the *same* active project, or a
+        # personal (`project_id is None`) dataset owned by someone else,
+        # neither of which `require_project_access_if_scoped` below (a
+        # project-*role* check, not the visibility check) would catch on its
+        # own. `get_visible` is the same primitive `get_evaluation`
+        # (immediately above) and every other detail route in this codebase
+        # already use.
+        dataset = get_visible(
+            session, CaliberEvalDataset, CaliberEvalDataset.dataset_id, payload.dataset_id, identity
+        )
         if dataset is None:
             raise HTTPException(
                 status_code=404, detail=f"eval dataset {payload.dataset_id!r} not found"
@@ -448,7 +472,7 @@ async def create_evaluation(request: Request) -> JSONResponse:
         # Hydrate any ``Judge.<id>`` scorers from the judge registry while the
         # session is open (404/400 here, before we touch the model).
         judge_runners = _hydrate_judge_runners(
-            session, list(payload.scorers or []), judge_identities
+            session, list(payload.scorers or []), judge_identities, identity=identity
         )
         skill_content, workflow_predict, resolved_subject = _resolve_subject(
             session, payload=payload, config=config, identity=identity
@@ -555,7 +579,18 @@ def _resolve_subject(
     is what makes a historical run interpretable.
     """
     if payload.predict_target == "skill":
-        skill = session.get(CaliberSkill, (payload.subject_ref or "").strip())
+        # `P2` (isolation closure, item 1): a bare `session.get` here let a
+        # caller evaluate against, and read the full `content` of, any
+        # project's skill by id -- the same class of gap the `workflow`
+        # branch above already closed via `_build_workflow_predict`'s
+        # `get_visible` check.
+        skill = get_visible(
+            session,
+            CaliberSkill,
+            CaliberSkill.skill_id,
+            (payload.subject_ref or "").strip(),
+            identity,
+        )
         if skill is None or skill.status != "active":
             raise HTTPException(
                 status_code=404,
