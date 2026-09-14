@@ -7822,6 +7822,65 @@ def test_worker_executes_subworkflow_path_to_completion(client) -> None:
         assert {item[0] for item in run_ids} == {run_id}
 
 
+def test_worker_refuses_a_subworkflow_in_a_different_project_at_run_time(client) -> None:
+    """`P2` (isolation closure, item 5), slice 3: the run-time sibling of
+    `build_deployment_bundle`'s subworkflow fix -- `build_plan`'s
+    `_resolve_version` used to resolve a `SubworkflowNode.workflow_id` with no
+    visibility check at all, so a manifest naming another project's workflow
+    id would execute that project's graph. Direct ORM inserts (not the
+    client) give the child a foreign owner/project the parent's identity
+    cannot see."""
+    _enable_queue(client)
+    child_workflow_id = "wf-sub-run-hidden-child"
+    with client.app.state.session_factory() as session:
+        session.add(
+            CaliberWorkflow(
+                workflow_id=child_workflow_id,
+                name="Hidden child",
+                owner="@sarah",
+                visibility="project",
+                project_id="P-hidden",
+            )
+        )
+        session.add(
+            CaliberWorkflowVersion(
+                version_id="wfv-sub-run-hidden-child-1",
+                workflow_id=child_workflow_id,
+                version_number=1,
+                status="published",
+                manifest=make_manifest(child_workflow_id),
+                manifest_hash="",
+                created_by="@sarah",
+            )
+        )
+        session.commit()
+
+    workflow_id = "subworkflow-run-hidden-worker-wf"
+    manifest = _subworkflow_success_manifest(workflow_id, child_workflow_id=child_workflow_id)
+    _wid, vid = create_and_publish(
+        client,
+        workflow_name="Subworkflow Run Hidden Worker",
+        manifest=manifest,
+    )
+    created = client.post(
+        f"{PREFIX}/workflow-runs",
+        json={"workflow_version_id": vid, "input": "Escalate the refund exception."},
+    )
+    assert created.status_code == 202
+    run_id = created.json()["data"]["workflow_run_id"]
+
+    worker = _build_worker(client)
+    worker._tick()
+
+    with client.app.state.session_factory() as session:
+        run = session.get(CaliberWorkflowRun, run_id)
+        assert run is not None
+        assert run.status == "failed"
+        assert run.error_code == "runtime_error"
+        assert run.error_summary is not None
+        assert f"subworkflow {child_workflow_id!r} is not available" in run.error_summary
+
+
 def test_worker_marks_external_app_import_failures_as_runtime_errors(client) -> None:
     _enable_queue(client)
     workflow_id = "external-app-invalid-worker-wf"
@@ -8411,6 +8470,21 @@ def test_worker_marks_subworkflow_missing_deployment_failures_as_runtime_errors(
         workflow_name="Subworkflow Missing Deployment Worker",
         manifest=manifest,
     )
+    # The referenced child workflow must itself exist (and be visible) for this
+    # test to reach the "no active deployment" path rather than the `P2`
+    # isolation-closure "subworkflow is not available" refusal a genuinely
+    # missing/invisible workflow now gets first.
+    with client.app.state.session_factory() as session:
+        session.add(
+            CaliberWorkflow(
+                workflow_id="WF-missing-child",
+                name="Missing-deployment child",
+                owner="@test",
+                visibility="public",
+            )
+        )
+        session.commit()
+
     created = client.post(
         f"{PREFIX}/workflow-runs",
         json={"workflow_version_id": vid, "input": "escalate refund exception"},

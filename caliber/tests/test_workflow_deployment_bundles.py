@@ -481,3 +481,104 @@ def test_bundle_hides_a_knowledge_base_in_a_different_project(db_session: Sessio
     dependency = next(d for d in bundle["dependencies"] if d["kind"] == "knowledge_base")
     assert dependency["status"] == "unresolved"
     assert "snapshot" not in dependency
+
+
+# ---------------------------------------------------------------------------
+# `P2` (isolation closure, item 5), slice 3 -- the subworkflow branch of
+# `build_deployment_bundle` had the exact same bare-lookup gap the knowledge-
+# base branch above already had fixed: a `SubworkflowNode.workflow_id` was
+# resolved with no visibility check at all, so a manifest could pin (and a
+# run worker would later execute) another project's child workflow.
+# ---------------------------------------------------------------------------
+
+
+def _subworkflow_manifest(workflow_id: str, child_workflow_id: str) -> dict:
+    data = make_manifest(workflow_id)
+    data["nodes"]["child"] = {
+        "id": "child",
+        "type": "subworkflow",
+        "workflow_id": child_workflow_id,
+        "alias": "manual",
+    }
+    return data
+
+
+def test_bundle_resolves_a_personal_child_workflow_the_owner_can_see(
+    db_session: Session,
+) -> None:
+    workflow = CaliberWorkflow(workflow_id="wf-sub-visible", name="Sub visible", owner="@test")
+    child = CaliberWorkflow(
+        workflow_id="wf-sub-child-visible",
+        name="Child visible",
+        owner="@test",
+        visibility="user",
+    )
+    manifest_data = _subworkflow_manifest(workflow.workflow_id, child.workflow_id)
+    version = CaliberWorkflowVersion(
+        version_id="wfv-sub-visible",
+        workflow_id=workflow.workflow_id,
+        version_number=1,
+        status="draft",
+        manifest=manifest_data,
+        manifest_hash="",
+        created_by="@test",
+    )
+    child_version = CaliberWorkflowVersion(
+        version_id="wfv-sub-child-visible-1",
+        workflow_id=child.workflow_id,
+        version_number=1,
+        status="published",
+        manifest=make_manifest(child.workflow_id),
+        manifest_hash="",
+        created_by="@test",
+    )
+    db_session.add_all([workflow, child, version, child_version])
+    db_session.commit()
+
+    manifest = parse_manifest(manifest_data)
+    bundle = build_deployment_bundle(db_session, version, manifest, fake_resolver())
+    dependency = next(d for d in bundle["dependencies"] if d["kind"] == "subworkflow")
+    assert dependency["status"] == "resolved"
+
+
+def test_bundle_hides_a_child_workflow_in_a_different_project(db_session: Session) -> None:
+    """The fix: previously a bare `session.get`/`select` resolved the child
+    workflow's version -- a workflow could reference (by id) another
+    project's workflow, and the bundle would pin it anyway."""
+    workflow = CaliberWorkflow(
+        workflow_id="wf-sub-hidden", name="Sub hidden", owner="@test", project_id=None
+    )
+    child = CaliberWorkflow(
+        workflow_id="wf-sub-child-hidden",
+        name="Child hidden",
+        owner="@sarah",
+        visibility="project",
+        project_id="P-hidden",
+    )
+    manifest_data = _subworkflow_manifest(workflow.workflow_id, child.workflow_id)
+    version = CaliberWorkflowVersion(
+        version_id="wfv-sub-hidden",
+        workflow_id=workflow.workflow_id,
+        version_number=1,
+        status="draft",
+        manifest=manifest_data,
+        manifest_hash="",
+        created_by="@test",
+    )
+    child_version = CaliberWorkflowVersion(
+        version_id="wfv-sub-child-hidden-1",
+        workflow_id=child.workflow_id,
+        version_number=1,
+        status="published",
+        manifest=make_manifest(child.workflow_id),
+        manifest_hash="",
+        created_by="@sarah",
+    )
+    db_session.add_all([workflow, child, version, child_version])
+    db_session.commit()
+
+    manifest = parse_manifest(manifest_data)
+    bundle = build_deployment_bundle(db_session, version, manifest, fake_resolver())
+    dependency = next(d for d in bundle["dependencies"] if d["kind"] == "subworkflow")
+    assert dependency["status"] == "unresolved"
+    assert "snapshot" not in dependency

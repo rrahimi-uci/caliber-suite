@@ -478,21 +478,38 @@ class PlanExecutor:
         Bounded to ``_POLL_BATCH`` plans per tick: each ``poll`` re-walks a plan's
         steps, so an unbounded fan-out could run a single tick well past the poll
         interval and starve the loop. Remaining plans drain on the next tick.
+
+        `P2` (isolation closure, item 5): resumes each plan as its own
+        recorded ``owner``/``project_id`` -- ``poll`` previously left
+        ``actor="@system"``/``project_id=None``, so every capability a
+        background-resumed step touched ran with no project tier at all,
+        silently falling back to the user/public visibility tiers.
         """
         from sqlalchemy import select  # noqa: PLC0415
 
         with session_factory() as session:
-            plan_ids = list(
+            plans = list(
                 session.execute(
-                    select(CaliberAriaPlanStep.plan_id)
+                    select(
+                        CaliberAriaPlan.plan_id, CaliberAriaPlan.owner, CaliberAriaPlan.project_id
+                    )
+                    .join(
+                        CaliberAriaPlanStep, CaliberAriaPlanStep.plan_id == CaliberAriaPlan.plan_id
+                    )
                     .where(CaliberAriaPlanStep.status == "waiting_job")
                     .distinct()
                     .limit(_POLL_BATCH)
-                ).scalars()
+                ).all()
             )
-        for plan_id in plan_ids:
+        plan_ids = [plan_id for plan_id, _owner, _project_id in plans]
+        for plan_id, owner, project_id in plans:
             self.poll(
-                session_factory=session_factory, config=config, plan_id=plan_id, resolver=resolver
+                session_factory=session_factory,
+                config=config,
+                plan_id=plan_id,
+                resolver=resolver,
+                actor=owner or "@system",
+                project_id=project_id,
             )
         return plan_ids
 

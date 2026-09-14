@@ -8,6 +8,7 @@ import pytest
 from sqlalchemy.orm import Session
 
 import caliber.orchestrator.workflow_stages as stages
+from caliber.auth import CaliberIdentity
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
@@ -247,6 +248,7 @@ def test_evidence_and_dataset_helpers(db_session: Session) -> None:
         owner="@test",
         version=1,
         status="active",
+        visibility="user",
     )
     db_session.add(dataset)
     db_session.add_all(
@@ -283,12 +285,15 @@ def test_evidence_and_dataset_helpers(db_session: Session) -> None:
             },
         )
     )
-    assert stages._dataset_inputs(db_session, manifest, item) == ["from dataset"]
+    identity = CaliberIdentity(user_id="@test", scopes=frozenset())
+    assert stages._dataset_inputs(db_session, manifest, item, identity) == ["from dataset"]
 
     item.free_text = "flagged text"
     manifest_without_dataset = stages.parse_manifest(make_manifest("wf"))
-    assert stages._dataset_inputs(db_session, manifest_without_dataset, item) == ["flagged text"]
-    assert stages._dataset_inputs(db_session, manifest_without_dataset, None) == [
+    assert stages._dataset_inputs(db_session, manifest_without_dataset, item, identity) == [
+        "flagged text"
+    ]
+    assert stages._dataset_inputs(db_session, manifest_without_dataset, None, identity) == [
         "Replay the flagged scenario."
     ]
     assert stages._example_text({"query": "search"}) == "search"

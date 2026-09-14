@@ -33,6 +33,7 @@ from caliber.audit import record as audit_record
 from caliber.auth import (
     SCOPE_ADMIN,
     SCOPE_OPERATOR,
+    CaliberIdentity,
     require_scopes,
     require_user,
     resolve_identity,
@@ -293,13 +294,23 @@ def add_review_items_records(
     experiment_id: str | None,
     assigned_to: str | None,
     actor: str,
+    identity: CaliberIdentity,
 ) -> list[CaliberReviewItem]:
-    """Enqueue traces into a review queue (single definition; route + Aria reuse).
+    """Enqueue traces into a review queue (single definition; route + Aria +
+    runtime reuse).
 
     Idempotent — a trace is queued at most once per queue. Raises
     :class:`ValueError` if the queue is missing; flushes but does not commit.
+
+    `P2` (isolation closure, item 5): resolves the queue through
+    ``identity``'s visibility itself now, rather than trusting each caller to
+    have already checked -- the runtime's ``review_queue_enqueue`` node used
+    to skip that check entirely, letting a manifest enqueue items into
+    another project's queue by a guessed or copied id.
     """
-    queue = session.get(CaliberReviewQueue, queue_id)
+    queue = get_visible(
+        session, CaliberReviewQueue, CaliberReviewQueue.queue_id, queue_id, identity
+    )
     if queue is None:
         raise ValueError(f"review queue {queue_id!r} not found")
     if queue.status != "active":
@@ -350,11 +361,6 @@ async def add_items(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        queue = get_visible(
-            session, CaliberReviewQueue, CaliberReviewQueue.queue_id, queue_id, identity
-        )
-        if queue is None:
-            raise HTTPException(status_code=404, detail=f"review queue {queue_id!r} not found")
         try:
             created = add_review_items_records(
                 session,
@@ -363,6 +369,7 @@ async def add_items(request: Request) -> JSONResponse:
                 experiment_id=payload.experiment_id,
                 assigned_to=payload.assigned_to,
                 actor=actor,
+                identity=identity,
             )
         except ValueError as exc:
             status_code = 409 if "is not active" in str(exc) else 404

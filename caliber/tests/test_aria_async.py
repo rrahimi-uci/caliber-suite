@@ -121,6 +121,71 @@ def test_poll_waiting_plans_finds_in_flight_plan(async_cap, session_factory) -> 
     assert plan_id in polled
 
 
+class _TwoStepAsyncPlanner:
+    def plan(self, goal, *, capabilities):
+        return [
+            PlannedStep(capability_key="test.async_job", title="Async job"),
+            PlannedStep(
+                capability_key="test.record_identity", title="Record identity", depends_on=[0]
+            ),
+        ]
+
+
+def test_poll_waiting_plans_resumes_as_the_plans_own_owner_and_project(
+    async_cap, session_factory
+) -> None:
+    """`P2` (isolation closure, item 5), slice 3: `poll_waiting_plans` used to
+    resume every parked plan as ``actor="@system"``, ``project_id=None`` --
+    silently dropping the plan's own project tier for every capability the
+    background worker's resumed step touched. It now reads the plan's
+    recorded owner/project and resumes as that identity instead."""
+    seen: list[tuple[str, str | None]] = []
+
+    def _record(ctx, _args):
+        seen.append((ctx.actor, ctx.project_id))
+        return {"ok": True}
+
+    caps.register(
+        Capability(
+            key="test.record_identity",
+            title="Record identity",
+            description="records the resuming actor/project",
+            tier="read",
+            handler=_record,
+        )
+    )
+    try:
+        cfg = CaliberConfig(operator_users="@carol")
+        svc = PlanService(planner=_TwoStepAsyncPlanner())
+        detail = svc.create_plan(
+            session_factory=session_factory,
+            goal="run async then record",
+            owner="@carol",
+            project_id="P-aria",
+            autonomy="approve_plan",
+        )
+        plan_id = detail["plan"]["plan_id"]
+        svc.set_status(
+            session_factory=session_factory, plan_id=plan_id, status="approved", actor="@carol"
+        )
+        ex = PlanExecutor()
+        ex.execute(
+            session_factory=session_factory,
+            config=cfg,
+            actor="@carol",
+            plan_id=plan_id,
+            project_id="P-aria",
+        )
+        resolver = FakeJobStatusResolver({_JOB_ID: JobStatus(state="done")})
+        polled = ex.poll_waiting_plans(
+            session_factory=session_factory, config=cfg, resolver=resolver
+        )
+        assert plan_id in polled
+        assert ("@carol", "P-aria") in seen
+    finally:
+        caps.unregister("test.record_identity")
+
+
 # --- MLflowJobStatusResolver (no-seed paths) --------------------------------
 
 

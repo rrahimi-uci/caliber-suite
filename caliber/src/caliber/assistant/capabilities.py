@@ -240,8 +240,6 @@ def _eval_dataset_create(ctx: CapabilityContext, args: dict[str, Any]) -> Any:
 
 
 def _review_queue_add_items(ctx: CapabilityContext, args: dict[str, Any]) -> Any:
-    from caliber.db.models import CaliberReviewQueue  # noqa: PLC0415
-    from caliber.db.scoping import get_visible  # noqa: PLC0415
     from caliber.routes.review_queues import add_review_items_records  # noqa: PLC0415
 
     queue_id = str(args.get("queue_id") or "")
@@ -250,16 +248,9 @@ def _review_queue_add_items(ctx: CapabilityContext, args: dict[str, Any]) -> Any
         raise ValueError("queue_id and a non-empty trace_ids list are required")
     identity = ctx.identity()
     with ctx.session_factory() as session:
-        # Resolve the queue through the caller's visibility before writing to it: the
-        # handler accepted an unscoped queue id, so Aria could add items to another
-        # project's review queue.
-        if (
-            get_visible(
-                session, CaliberReviewQueue, CaliberReviewQueue.queue_id, queue_id, identity
-            )
-            is None
-        ):
-            raise ValueError(f"review queue {queue_id!r} not found")
+        # `add_review_items_records` resolves the queue through `identity`'s
+        # visibility itself, so a handler that accepted an unscoped queue id
+        # cannot add items to another project's queue.
         created = add_review_items_records(
             session,
             queue_id=queue_id,
@@ -267,6 +258,7 @@ def _review_queue_add_items(ctx: CapabilityContext, args: dict[str, Any]) -> Any
             experiment_id=args.get("experiment_id"),
             assigned_to=args.get("assigned_to"),
             actor=ctx.actor,
+            identity=identity,
         )
         session.commit()
         return {"queue_id": queue_id, "added": len(created)}
