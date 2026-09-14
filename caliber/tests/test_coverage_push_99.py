@@ -544,12 +544,14 @@ def test_workflow_stages_dataset_inputs_missing_dataset(
 
     # Check if _dataset_inputs exists and can be imported
     try:
+        from caliber.auth import CaliberIdentity
         from caliber.orchestrator.workflow_stages import _dataset_inputs
 
         # Mock verification item
         mock_item = MagicMock()
         mock_item.submitted_context = {}
-        result = _dataset_inputs(db_session, m, mock_item)
+        identity = CaliberIdentity(user_id="@test", scopes=frozenset())
+        result = _dataset_inputs(db_session, m, mock_item, identity)
         assert isinstance(result, (dict, list, type(None)))
     except (ImportError, TypeError):
         # If _dataset_inputs has different signature, skip

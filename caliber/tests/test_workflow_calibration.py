@@ -7,6 +7,7 @@ from datetime import datetime
 import pytest
 from sqlalchemy.orm import Session
 
+from caliber.auth import CaliberIdentity
 from caliber.db.models import CaliberEvalDataset, CaliberEvalDatasetExample, CaliberVerificationItem
 from caliber.workflows.calibration import (
     WorkflowCalibrationCandidate,
@@ -41,6 +42,10 @@ def _manifest():
             },
         )
     )
+
+
+def _identity() -> CaliberIdentity:
+    return CaliberIdentity(user_id="@test", scopes=frozenset())
 
 
 def _example(
@@ -92,6 +97,7 @@ def _seed_dataset(
         owner="@test",
         version=1,
         status=status,
+        visibility="user",
     )
     session.add(dataset)
     session.flush()
@@ -196,7 +202,7 @@ def test_active_dataset_required(db_session: Session) -> None:
     _seed_dataset(db_session, status="archived", examples=[{"input": {"input": "hi"}}])
 
     with pytest.raises(WorkflowCalibrationError, match="active deploy-gate eval dataset"):
-        resolve_workflow_calibration_examples(db_session, _manifest(), None, None)
+        resolve_workflow_calibration_examples(db_session, _manifest(), None, None, _identity())
 
 
 def test_resolver_preserves_non_superseded_examples_only(db_session: Session) -> None:
@@ -217,7 +223,9 @@ def test_resolver_preserves_non_superseded_examples_only(db_session: Session) ->
         ],
     )
 
-    examples = resolve_workflow_calibration_examples(db_session, _manifest(), None, None)
+    examples = resolve_workflow_calibration_examples(
+        db_session, _manifest(), None, None, _identity()
+    )
 
     assert [example.input_text for example in examples] == ["active"]
     assert examples[0].expected == {"contains": "active"}
@@ -229,14 +237,16 @@ def test_empty_deploy_gate_dataset_rejects(db_session: Session) -> None:
     _seed_dataset(db_session, examples=[])
 
     with pytest.raises(WorkflowCalibrationError, match="no non-superseded examples"):
-        resolve_workflow_calibration_examples(db_session, _manifest(), None, None)
+        resolve_workflow_calibration_examples(db_session, _manifest(), None, None, _identity())
 
 
 def test_single_example_dataset_marks_low_confidence(db_session: Session) -> None:
     _seed_dataset(db_session, examples=[{"input": {"input": "one"}}])
     spec = WorkflowCalibrationSpec(budget={"max_eval_examples": 20, "min_examples": 2})
 
-    examples = resolve_workflow_calibration_examples(db_session, _manifest(), None, spec)
+    examples = resolve_workflow_calibration_examples(
+        db_session, _manifest(), None, spec, _identity()
+    )
 
     assert is_low_confidence_calibration(examples, spec) is True
 
@@ -256,7 +266,9 @@ def test_flagged_feedback_never_replaces_dataset_when_budget_is_one(db_session: 
     db_session.commit()
     spec = WorkflowCalibrationSpec(budget={"max_eval_examples": 1, "min_examples": 1})
 
-    examples = resolve_workflow_calibration_examples(db_session, _manifest(), item, spec)
+    examples = resolve_workflow_calibration_examples(
+        db_session, _manifest(), item, spec, _identity()
+    )
 
     assert [example.input_text for example in examples] == ["dataset case"]
     assert all("calibration:flagged" not in example.tags for example in examples)

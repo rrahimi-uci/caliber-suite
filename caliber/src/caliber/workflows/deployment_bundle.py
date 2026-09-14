@@ -588,10 +588,23 @@ def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
                 )
             )
         elif isinstance(node, SubworkflowNode):
-            target = (
-                session.get(CaliberWorkflowVersion, node.version_id) if node.version_id else None
+            # `P2` (isolation closure, item 5): the referenced child workflow
+            # must be visible to this bundle's own owner/project, or a
+            # manifest naming another project's workflow_id would silently
+            # pin (and later execute) that project's graph.
+            child_workflow = get_visible(
+                session,
+                CaliberWorkflow,
+                CaliberWorkflow.workflow_id,
+                node.workflow_id,
+                identity,
             )
-            if target is None:
+            target = (
+                session.get(CaliberWorkflowVersion, node.version_id)
+                if node.version_id and child_workflow is not None
+                else None
+            )
+            if target is None and child_workflow is not None:
                 if node.alias == "manual":
                     target = (
                         session.execute(

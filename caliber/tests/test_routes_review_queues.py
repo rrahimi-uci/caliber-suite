@@ -373,3 +373,42 @@ def test_submit_writes_audit_row(client: TestClient, db_session: Session) -> Non
     # The item carries the recorded answer + completion.
     item = db_session.get(CaliberReviewItem, item_id)
     assert item is not None and item.status == "completed"
+
+
+def test_add_review_items_records_refuses_a_queue_in_a_different_project(
+    db_session: Session,
+) -> None:
+    """`P2` (isolation closure, item 5), slice 3: `add_review_items_records`
+    used to trust the caller to have already checked visibility -- the
+    runtime's `review_queue_enqueue` node skipped that check entirely, so a
+    workflow could enqueue items into another project's queue by a guessed or
+    copied id. The function now enforces it itself, closing the gap for every
+    caller (route, Aria, and the runtime) at once."""
+    from caliber.auth import CaliberIdentity
+    from caliber.db.models import CaliberReviewQueue
+    from caliber.routes.review_queues import add_review_items_records
+
+    queue = CaliberReviewQueue(
+        queue_id="RQ-hidden",
+        name="hidden-queue",
+        questions=[{"key": "correct", "title": "Correct?", "type": "pass_fail"}],
+        reviewers=[],
+        owner="@sarah",
+        status="active",
+        visibility="project",
+        project_id="P-hidden",
+    )
+    db_session.add(queue)
+    db_session.commit()
+
+    identity = CaliberIdentity(user_id="@test", scopes=frozenset())
+    with pytest.raises(ValueError, match="not found"):
+        add_review_items_records(
+            db_session,
+            queue_id="RQ-hidden",
+            trace_ids=["tr-1"],
+            experiment_id=None,
+            assigned_to=None,
+            actor="@test",
+            identity=identity,
+        )

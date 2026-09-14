@@ -52,7 +52,7 @@ from caliber.db.models import (
     CaliberWorkflowRun,
     CaliberWorkflowVersion,
 )
-from caliber.db.scoping import apply_visibility_filter
+from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.deployment_environments import (
     allows_host_path_nodes,
     environment_class,
@@ -942,6 +942,21 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
         run_alias: str,
         pinned_version_id: str | None = None,
     ) -> CaliberWorkflowVersion:
+        # `P2` (isolation closure, item 5): the subworkflow must be visible to
+        # the calling workflow's own owner/project -- otherwise a manifest
+        # naming another project's workflow_id would execute that project's
+        # graph (and bill its providers) via a guessed or copied id.
+        if (
+            get_visible(
+                session,
+                CaliberWorkflow,
+                CaliberWorkflow.workflow_id,
+                workflow_id,
+                workflow_identity,
+            )
+            is None
+        ):
+            raise PublishError(f"subworkflow {workflow_id!r} is not available")
         if pinned_version_id:
             pinned = session.get(CaliberWorkflowVersion, pinned_version_id)
             if pinned is None or pinned.workflow_id != workflow_id:
@@ -1213,6 +1228,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
                 ),
                 assigned_to=(str(payload["assigned_to"]) if payload.get("assigned_to") else None),
                 actor=workflow_owner or f"workflow:{version.workflow_id}",
+                identity=workflow_identity,
             )
             result_payload = {
                 "queue_id": str(payload["queue_id"]),

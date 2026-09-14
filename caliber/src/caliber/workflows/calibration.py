@@ -11,11 +11,13 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from caliber.auth import CaliberIdentity
 from caliber.db.models import (
     CaliberEvalDataset,
     CaliberEvalDatasetExample,
     CaliberVerificationItem,
 )
+from caliber.db.scoping import apply_visibility_filter
 from caliber.workflows.compiler import CompileError, compile_workflow
 from caliber.workflows.diff import compute_graph_diff
 from caliber.workflows.manifest import (
@@ -213,9 +215,13 @@ def resolve_workflow_calibration_examples(
     manifest: WorkflowManifest,
     item: CaliberVerificationItem | None,
     spec: WorkflowCalibrationSpec | dict[str, Any] | None,
+    identity: CaliberIdentity,
 ) -> list[WorkflowCalibrationExample]:
+    """`P2` (isolation closure, item 5): ``identity`` scopes the deploy-gate
+    dataset lookup below -- two projects using the same dataset name must not
+    calibrate against each other's data."""
     resolved_spec = WorkflowCalibrationSpec.from_raw(spec)
-    dataset_ref, dataset = _resolve_active_dataset(session, manifest, resolved_spec)
+    dataset_ref, dataset = _resolve_active_dataset(session, manifest, resolved_spec, identity)
     rows = (
         session.execute(
             select(CaliberEvalDatasetExample)
@@ -670,6 +676,7 @@ def _resolve_active_dataset(
     session: Session,
     manifest: WorkflowManifest,
     spec: WorkflowCalibrationSpec,
+    identity: CaliberIdentity,
 ) -> tuple[str, CaliberEvalDataset]:
     refs = [gate.dataset_ref for gate in manifest.deploy_gates.values()]
     if spec.dataset_ref:
@@ -679,9 +686,14 @@ def _resolve_active_dataset(
         dataset_name = artifact.dataset_name if artifact else dataset_ref
         dataset = (
             session.execute(
-                select(CaliberEvalDataset).where(
-                    CaliberEvalDataset.name == dataset_name,
-                    CaliberEvalDataset.status == "active",
+                apply_visibility_filter(
+                    select(CaliberEvalDataset).where(
+                        CaliberEvalDataset.name == dataset_name,
+                        CaliberEvalDataset.status == "active",
+                    ),
+                    CaliberEvalDataset,
+                    identity,
+                    identity.active_project_id,
                 )
             )
             .scalars()

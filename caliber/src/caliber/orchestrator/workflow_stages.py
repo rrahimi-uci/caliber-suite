@@ -30,6 +30,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from caliber.audit import record as audit_record
+from caliber.auth import CaliberIdentity
 from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberEvalDataset,
@@ -40,6 +41,7 @@ from caliber.db.models import (
     CaliberWorkflowPatch,
     CaliberWorkflowVersion,
 )
+from caliber.db.scoping import apply_visibility_filter
 from caliber.ids import new_workflow_patch_id
 from caliber.workflows.calibration import (
     WorkflowCalibrationError,
@@ -183,13 +185,25 @@ def _dataset_inputs(
     session: Session,
     manifest: WorkflowManifest,
     item: CaliberVerificationItem | None,
+    identity: CaliberIdentity,
 ) -> list[str]:
-    """Resolve replay inputs from a deploy-gate dataset, else the flagged text."""
+    """Resolve replay inputs from a deploy-gate dataset, else the flagged text.
+
+    `P2` (isolation closure, item 5): scoped to ``identity`` -- two projects
+    using the same dataset name must not replay each other's data.
+    """
     for gate in manifest.deploy_gates.values():
         artifact = manifest.artifacts.eval_datasets.get(gate.dataset_ref)
         name = artifact.dataset_name if artifact else gate.dataset_ref
         dataset = (
-            session.execute(select(CaliberEvalDataset).where(CaliberEvalDataset.name == name))
+            session.execute(
+                apply_visibility_filter(
+                    select(CaliberEvalDataset).where(CaliberEvalDataset.name == name),
+                    CaliberEvalDataset,
+                    identity,
+                    identity.active_project_id,
+                )
+            )
             .scalars()
             .first()
         )
@@ -366,9 +380,8 @@ def _run_workflow_calibration_candidate(
     item = session.get(CaliberVerificationItem, job.primary_item_id)
     baseline_version = _resolve_baseline_version(session, job, item)
     # `P2` (isolation closure, item 5): see `run_workflow_candidate` above.
-    resolver = resolver_from_session(
-        session, build_workflow_identity(session, baseline_version.workflow_id)
-    )
+    identity = build_workflow_identity(session, baseline_version.workflow_id)
+    resolver = resolver_from_session(session, identity)
     base_manifest = parse_manifest(baseline_version.manifest)
     target_alias = _target_alias(session, job.workflow_id or "")
     diagnosis = job.diagnosis or {}
@@ -383,7 +396,7 @@ def _run_workflow_calibration_candidate(
 
     try:
         examples = resolve_workflow_calibration_examples(
-            session, base_manifest, item, calibration_spec
+            session, base_manifest, item, calibration_spec, identity
         )
         candidates = generate_workflow_calibration_candidates(
             base_manifest,
@@ -570,11 +583,10 @@ def run_workflow_eval(
 
     item = session.get(CaliberVerificationItem, job.primary_item_id)
     # `P2` (isolation closure, item 5): see `run_workflow_candidate` above.
-    resolver = resolver_from_session(
-        session, build_workflow_identity(session, job.workflow_id or "")
-    )
+    identity = build_workflow_identity(session, job.workflow_id or "")
+    resolver = resolver_from_session(session, identity)
     manifest = parse_manifest(baseline_manifest)
-    inputs = _dataset_inputs(session, manifest, item)
+    inputs = _dataset_inputs(session, manifest, item, identity)
 
     # Gate thresholds from the workflow's deploy gates (if any), else permissive.
     thresholds: dict[str, float] = {}
