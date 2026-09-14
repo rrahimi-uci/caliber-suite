@@ -1,0 +1,13 @@
+{"t":"2026-09-14T15:43:08.575Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-14T15:43:08.599Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-14T15:43:08.602Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-14T15:43:08.604Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-14T15:43:08.647Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-14T15:43:08.658Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-ec463af7 \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-14T15:43:08.664Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-ec463af7 \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-09-14T15:43:08.669Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-ec463af7 \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-09-14T15:43:08.676Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-ec463af7/approve \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-09-14T15:43:08.681Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-ec463af7/execute \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-09-14T15:43:08.686Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-ec463af7/poll \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-09-14T15:43:08.692Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-ec463af7/interactions \"HTTP/1.1 404 Not Found\""}
+{"t":"2026-09-14T15:43:08.699Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/aria/plans/PLAN-ec463af7 \"HTTP/1.1 200 OK\""}
