@@ -1,1 +1,0 @@
-{"t":"2026-09-14T00:06:27.926Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:32777/openapi.yaml \"HTTP/1.0 404 Not Found\""}
