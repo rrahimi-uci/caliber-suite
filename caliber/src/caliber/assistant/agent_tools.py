@@ -591,27 +591,42 @@ class AssistantAgentToolset:
     # -- read handlers ---------------------------------------------------
 
     def _t_list_skills(self, _a: dict[str, Any]) -> str:
-        from caliber.db.models import CaliberSkill  # noqa: PLC0415
+        from sqlalchemy import select  # noqa: PLC0415
 
+        from caliber.db.models import CaliberSkill  # noqa: PLC0415
+        from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
+
+        identity = self._capability_context().identity()
         with self._deps.session_factory() as db:
-            rows = (
-                db.query(CaliberSkill)
-                .filter(CaliberSkill.status == "active")
-                .limit(_MAX_ROWS)
-                .all()
-            )
+            stmt = apply_visibility_filter(
+                select(CaliberSkill).where(CaliberSkill.status == "active"),
+                CaliberSkill,
+                identity,
+                identity.active_project_id,
+            ).limit(_MAX_ROWS)
+            rows = db.execute(stmt).scalars().all()
             return _ok(
                 [{"name": r.name, "summary": r.summary or "", "category": r.category} for r in rows]
             )
 
     def _t_get_skill(self, a: dict[str, Any]) -> str:
+        from sqlalchemy import select  # noqa: PLC0415
+
         from caliber.db.models import CaliberSkill  # noqa: PLC0415
+        from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
 
         name = str(a.get("name", ""))
         if not name:
             return _err("name is required")
+        identity = self._capability_context().identity()
         with self._deps.session_factory() as db:
-            r = db.query(CaliberSkill).filter(CaliberSkill.name == name).first()
+            stmt = apply_visibility_filter(
+                select(CaliberSkill).where(CaliberSkill.name == name),
+                CaliberSkill,
+                identity,
+                identity.active_project_id,
+            )
+            r = db.execute(stmt).scalars().first()
             if r is None:
                 return _err(f"skill {name!r} not found")
             return _ok(
@@ -627,22 +642,37 @@ class AssistantAgentToolset:
             )
 
     def _t_list_tools(self, _a: dict[str, Any]) -> str:
-        from caliber.db.models import CaliberToolRegistry  # noqa: PLC0415
+        from sqlalchemy import select  # noqa: PLC0415
 
+        from caliber.db.models import CaliberToolRegistry  # noqa: PLC0415
+        from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
+
+        identity = self._capability_context().identity()
         with self._deps.session_factory() as db:
-            rows = db.query(CaliberToolRegistry).limit(_MAX_ROWS).all()
+            stmt = apply_visibility_filter(
+                select(CaliberToolRegistry),
+                CaliberToolRegistry,
+                identity,
+                identity.active_project_id,
+            ).limit(_MAX_ROWS)
+            rows = db.execute(stmt).scalars().all()
             return _ok([{"name": r.name, "description": r.description} for r in rows])
 
     def _t_list_workflows(self, _a: dict[str, Any]) -> str:
-        from caliber.db.models import CaliberWorkflow  # noqa: PLC0415
+        from sqlalchemy import select  # noqa: PLC0415
 
+        from caliber.db.models import CaliberWorkflow  # noqa: PLC0415
+        from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
+
+        identity = self._capability_context().identity()
         with self._deps.session_factory() as db:
-            rows = (
-                db.query(CaliberWorkflow)
-                .filter(CaliberWorkflow.status == "active")
-                .limit(_MAX_ROWS)
-                .all()
-            )
+            stmt = apply_visibility_filter(
+                select(CaliberWorkflow).where(CaliberWorkflow.status == "active"),
+                CaliberWorkflow,
+                identity,
+                identity.active_project_id,
+            ).limit(_MAX_ROWS)
+            rows = db.execute(stmt).scalars().all()
             return _ok(
                 [
                     {
@@ -656,19 +686,32 @@ class AssistantAgentToolset:
             )
 
     def _t_get_workflow_manifest(self, a: dict[str, Any]) -> str:
-        from caliber.db.models import CaliberWorkflowVersion  # noqa: PLC0415
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from caliber.db.models import CaliberWorkflow, CaliberWorkflowVersion  # noqa: PLC0415
+        from caliber.db.scoping import get_visible  # noqa: PLC0415
 
         workflow_id = str(a.get("workflow_id", ""))
         if not workflow_id:
             return _err("workflow_id is required")
         version_number = a.get("version_number")
+        identity = self._capability_context().identity()
         with self._deps.session_factory() as db:
-            q = db.query(CaliberWorkflowVersion).filter(
+            # The version carries no visibility columns of its own -- resolve
+            # through the parent workflow (C3 pattern), or a foreign
+            # workflow_id would read another project's manifest verbatim.
+            workflow = get_visible(
+                db, CaliberWorkflow, CaliberWorkflow.workflow_id, workflow_id, identity
+            )
+            if workflow is None:
+                return _err(f"workflow {workflow_id!r} not found")
+            stmt = select(CaliberWorkflowVersion).where(
                 CaliberWorkflowVersion.workflow_id == workflow_id
             )
             if version_number is not None:
-                q = q.filter(CaliberWorkflowVersion.version_number == int(version_number))
-            row = q.order_by(CaliberWorkflowVersion.version_number.desc()).first()
+                stmt = stmt.where(CaliberWorkflowVersion.version_number == int(version_number))
+            stmt = stmt.order_by(CaliberWorkflowVersion.version_number.desc())
+            row = db.execute(stmt).scalars().first()
             if row is None:
                 return _err(f"no version found for workflow {workflow_id!r}")
             return _ok(
@@ -681,15 +724,41 @@ class AssistantAgentToolset:
             )
 
     def _t_list_workflow_runs(self, a: dict[str, Any]) -> str:
-        from caliber.db.models import CaliberWorkflowRun  # noqa: PLC0415
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from caliber.db.models import CaliberWorkflow, CaliberWorkflowRun  # noqa: PLC0415
+        from caliber.db.scoping import apply_visibility_filter, get_visible  # noqa: PLC0415
 
         limit = min(int(a.get("limit", 10) or 10), _MAX_ROWS)
         workflow_id = a.get("workflow_id")
+        identity = self._capability_context().identity()
         with self._deps.session_factory() as db:
-            q = db.query(CaliberWorkflowRun)
+            # `CaliberWorkflowRun` carries no visibility columns of its own --
+            # resolve through the parent workflow (C3 pattern).
             if workflow_id:
-                q = q.filter(CaliberWorkflowRun.workflow_id == str(workflow_id))
-            rows = q.order_by(CaliberWorkflowRun.queued_at.desc()).limit(limit).all()
+                workflow = get_visible(
+                    db, CaliberWorkflow, CaliberWorkflow.workflow_id, str(workflow_id), identity
+                )
+                if workflow is None:
+                    return _err(f"workflow {workflow_id!r} not found")
+                stmt = select(CaliberWorkflowRun).where(
+                    CaliberWorkflowRun.workflow_id == str(workflow_id)
+                )
+            else:
+                visible_workflow_ids = apply_visibility_filter(
+                    select(CaliberWorkflow.workflow_id),
+                    CaliberWorkflow,
+                    identity,
+                    identity.active_project_id,
+                )
+                stmt = select(CaliberWorkflowRun).where(
+                    CaliberWorkflowRun.workflow_id.in_(visible_workflow_ids)
+                )
+            rows = (
+                db.execute(stmt.order_by(CaliberWorkflowRun.queued_at.desc()).limit(limit))
+                .scalars()
+                .all()
+            )
             return _ok(
                 [
                     {
@@ -705,12 +774,22 @@ class AssistantAgentToolset:
             )
 
     def _t_get_workflow_run(self, a: dict[str, Any]) -> str:
-        from caliber.db.models import CaliberWorkflowRun  # noqa: PLC0415
+        from caliber.db.models import CaliberWorkflow, CaliberWorkflowRun  # noqa: PLC0415
+        from caliber.db.scoping import get_visible  # noqa: PLC0415
 
         run_id = str(a.get("run_id", ""))
+        identity = self._capability_context().identity()
         with self._deps.session_factory() as db:
             r = db.get(CaliberWorkflowRun, run_id)
-            if r is None:
+            # C3 pattern: the run has no visibility columns of its own, so a
+            # hidden parent workflow must read as "not found", not "forbidden".
+            if (
+                r is None
+                or get_visible(
+                    db, CaliberWorkflow, CaliberWorkflow.workflow_id, r.workflow_id, identity
+                )
+                is None
+            ):
                 return _err(f"run {run_id!r} not found")
             return _ok(
                 {
@@ -726,13 +805,21 @@ class AssistantAgentToolset:
             )
 
     def _t_get_workflow_run_trace(self, a: dict[str, Any]) -> str:
-        from caliber.db.models import CaliberWorkflowRun  # noqa: PLC0415
+        from caliber.db.models import CaliberWorkflow, CaliberWorkflowRun  # noqa: PLC0415
+        from caliber.db.scoping import get_visible  # noqa: PLC0415
         from caliber.trace_client import fetch_trace_spans  # noqa: PLC0415
 
         run_id = str(a.get("run_id", ""))
+        identity = self._capability_context().identity()
         with self._deps.session_factory() as db:
             r = db.get(CaliberWorkflowRun, run_id)
-            if r is None:
+            if (
+                r is None
+                or get_visible(
+                    db, CaliberWorkflow, CaliberWorkflow.workflow_id, r.workflow_id, identity
+                )
+                is None
+            ):
                 return _err(f"run {run_id!r} not found")
             trace_id = r.trace_id
         tree = fetch_trace_spans(trace_id)
@@ -773,14 +860,16 @@ class AssistantAgentToolset:
     # -- knowledge-base handlers (read) ---------------------------------
 
     def _kb_identity(self) -> Any:
-        """Synthesize the acting identity for KB visibility (operator-scoped turn)."""
-        from caliber.auth import (  # noqa: PLC0415
-            SCOPE_OPERATOR,
-            SCOPE_VIEWER,
-            CaliberIdentity,
-        )
+        """The acting identity for KB visibility.
 
-        return CaliberIdentity(user_id=self._user, scopes=frozenset({SCOPE_OPERATOR, SCOPE_VIEWER}))
+        `P2` (isolation closure, item 5): this used to build its own
+        ``CaliberIdentity`` with no ``active_project_id`` at all, so a
+        project-scoped KB was invisible to Aria even within that same
+        project -- every KB tool silently saw only the user/public tiers.
+        Reuses ``_capability_context().identity()`` (already threads
+        ``self._project_id``) instead of a second, incomplete builder.
+        """
+        return self._capability_context().identity()
 
     def _kb_service(self) -> Any:
         from caliber.knowledge.service import KnowledgeBaseService  # noqa: PLC0415
@@ -954,6 +1043,7 @@ class AssistantAgentToolset:
 
     def _t_run_quick_eval(self, a: dict[str, Any]) -> str:
         from caliber.db.models import CaliberEvalDataset, CaliberEvalDatasetExample  # noqa: PLC0415
+        from caliber.db.scoping import get_visible  # noqa: PLC0415
         from caliber.eval.predict import build_completion_fn, user_message  # noqa: PLC0415
         from caliber.eval.scorecard import ScorecardInputError, run_scorecard  # noqa: PLC0415
 
@@ -969,8 +1059,11 @@ class AssistantAgentToolset:
             _MAX_QUICK_EVAL_EXAMPLES,
         )
         scorers = a.get("scorers") or None
+        identity = self._capability_context().identity()
         with self._deps.session_factory() as db:
-            ds = db.get(CaliberEvalDataset, dataset_id)
+            ds = get_visible(
+                db, CaliberEvalDataset, CaliberEvalDataset.dataset_id, dataset_id, identity
+            )
             if ds is None:
                 return _err(f"dataset {dataset_id!r} not found")
             rows = (
@@ -1140,6 +1233,8 @@ class AssistantAgentToolset:
         ]
 
     def _t_create_eval_dataset(self, a: dict[str, Any]) -> str:
+        from sqlalchemy import select  # noqa: PLC0415
+
         from caliber.db.models import (  # noqa: PLC0415
             CaliberEvalDataset,
             CaliberEvalDatasetExample,
@@ -1154,7 +1249,16 @@ class AssistantAgentToolset:
             return _err("examples must be a non-empty list of {input, expected}")
         description = str(a.get("description") or "")
         with self._deps.session_factory() as db:
-            if db.query(CaliberEvalDataset).filter(CaliberEvalDataset.name == name).first():
+            # NOT a `P2` scoping fix: `CaliberEvalDataset.name` carries a
+            # genuine database-level `UniqueConstraint` (like
+            # `CaliberAgentConfig.agent_id`, a globally unique handle, not a
+            # per-project namespace) -- this probe stays unscoped on purpose,
+            # matching the real constraint it is a friendlier error in front of.
+            if (
+                db.execute(select(CaliberEvalDataset).where(CaliberEvalDataset.name == name))
+                .scalars()
+                .first()
+            ):
                 return _err(f"dataset name {name!r} already exists")
             dataset = CaliberEvalDataset(
                 dataset_id=new_eval_dataset_id(),
@@ -1163,6 +1267,12 @@ class AssistantAgentToolset:
                 owner=self._user,
                 status="active",
                 version=1,
+                # `P2` (isolation closure, item 5): the bare default
+                # (`visibility="project"` + no `project_id`) would be
+                # permanently unresolvable by any scoped lookup -- match what
+                # a real creation route sets instead.
+                project_id=self._project_id,
+                visibility="project" if self._project_id else "user",
             )
             db.add(dataset)
             count = 0
@@ -1356,15 +1466,22 @@ class AssistantAgentToolset:
 
     def _t_run_workflow(self, a: dict[str, Any]) -> str:
         from caliber.db.models import CaliberWorkflow, CaliberWorkflowVersion  # noqa: PLC0415
+        from caliber.db.scoping import get_visible  # noqa: PLC0415
         from caliber.workflows.run_launch import enqueue_workflow_run  # noqa: PLC0415
 
         version_id = str(a.get("version_id", ""))
         input_text = str(a.get("input_text", ""))
+        identity = self._capability_context().identity()
         with self._deps.session_factory() as db:
             version = db.get(CaliberWorkflowVersion, version_id)
             if version is None:
                 return _err(f"version {version_id!r} not found")
-            workflow = db.get(CaliberWorkflow, version.workflow_id)
+            # `P2` (isolation closure, item 5): the parent workflow must be
+            # visible to this turn's identity, or Aria could trigger a real
+            # run of another project's workflow by a guessed version id.
+            workflow = get_visible(
+                db, CaliberWorkflow, CaliberWorkflow.workflow_id, version.workflow_id, identity
+            )
             if workflow is None:
                 return _err("parent workflow not found")
             run, created = enqueue_workflow_run(

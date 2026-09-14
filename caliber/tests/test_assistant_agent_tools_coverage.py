@@ -14,6 +14,7 @@ from __future__ import annotations
 import json
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.assistant.fake import FakeAssistantEngine
@@ -61,9 +62,15 @@ def _toolset(
     *,
     mode: str,
     approval: str,
+    project_id: str | None = None,
 ):
     return svc._build_agent_toolset(
-        session_factory=factory, user=USER, session_id=sid, mode=mode, approval_mode=approval
+        session_factory=factory,
+        user=USER,
+        session_id=sid,
+        mode=mode,
+        approval_mode=approval,
+        project_id=project_id,
     )
 
 
@@ -103,12 +110,21 @@ class TestDispatchFallbacks:
 
     def test_handler_exception_is_caught(self, svc, session_factory) -> None:
         """A handler that raises is wrapped in an ``_err`` (loop never breaks)."""
+        with session_factory() as db:
+            db.add(
+                CaliberWorkflow(
+                    workflow_id="WF-x", name="X", owner=USER, status="active", visibility="user"
+                )
+            )
+            db.commit()
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
         # get_workflow_run_trace will call db.get with a non-string run_id that
         # makes the underlying handler raise — but more reliably we force an
         # exception by passing arguments the handler chokes on. Here we make the
-        # manifest tool blow up by passing a non-int version_number.
+        # manifest tool blow up by passing a non-int version_number (the parent
+        # workflow must exist and be visible, or the new visibility check short
+        # -circuits before ever reaching the int() conversion).
         out = json.loads(
             ts.dispatch("get_workflow_manifest", {"workflow_id": "WF-x", "version_number": "abc"})
         )
@@ -146,6 +162,7 @@ class TestReadHandlerBranches:
                     category="custom",
                     allowed_tools="lookup_policy",
                     depends_on=[],
+                    visibility="user",
                 )
             )
             db.commit()
@@ -156,6 +173,32 @@ class TestReadHandlerBranches:
         assert out["data"]["name"] == "coverage"
         assert out["data"]["content"] == "body"
         assert out["data"]["allowed_tools"] == "lookup_policy"
+
+    def test_get_skill_hidden_in_a_different_project(self, svc, session_factory) -> None:
+        """`P2` (isolation closure, item 5): `get_skill`/`list_skills` used to
+        query globally with no visibility check -- a same-named skill in a
+        different project would be resolved (or listed) regardless of this
+        turn's own project."""
+        with session_factory() as db:
+            db.add(
+                CaliberSkill(
+                    skill_id="SK-other",
+                    name="coverage",
+                    summary="sum",
+                    content="other project's body",
+                    owner="@sarah",
+                    category="custom",
+                    visibility="project",
+                    project_id="P-hidden",
+                )
+            )
+            db.commit()
+        sid = _session(svc, session_factory)
+        ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
+        out = json.loads(ts.dispatch("get_skill", {"name": "coverage"}))
+        assert "error" in out and "not found" in out["error"]
+        listed = json.loads(ts.dispatch("list_skills", {}))
+        assert listed["ok"] and listed["data"] == []
 
     def test_list_tools(self, svc, session_factory) -> None:
         with session_factory() as db:
@@ -168,6 +211,7 @@ class TestReadHandlerBranches:
                     module_path="m",
                     callable_name="f",
                     owner=USER,
+                    visibility="user",
                 )
             )
             db.commit()
@@ -186,6 +230,7 @@ class TestReadHandlerBranches:
                     owner=USER,
                     status="active",
                     description="d",
+                    visibility="user",
                 )
             )
             db.commit()
@@ -205,11 +250,36 @@ class TestReadHandlerBranches:
         sid = _session(svc, session_factory)
         ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
         out = json.loads(ts.dispatch("get_workflow_manifest", {"workflow_id": "WF-none"}))
+        # The parent workflow itself doesn't exist -- the visibility check
+        # (C3 pattern) now reports that before ever querying for a version.
+        assert "error" in out and "not found" in out["error"]
+
+    def test_get_workflow_manifest_no_version_for_visible_workflow(
+        self, svc, session_factory
+    ) -> None:
+        with session_factory() as db:
+            db.add(
+                CaliberWorkflow(
+                    workflow_id="WF-no-version",
+                    name="No version",
+                    owner=USER,
+                    status="active",
+                    visibility="user",
+                )
+            )
+            db.commit()
+        sid = _session(svc, session_factory)
+        ts = _toolset(svc, session_factory, sid, mode="chat", approval="manual")
+        out = json.loads(ts.dispatch("get_workflow_manifest", {"workflow_id": "WF-no-version"}))
         assert "error" in out and "no version found" in out["error"]
 
     def test_get_workflow_manifest_success_specific_version(self, svc, session_factory) -> None:
         with session_factory() as db:
-            db.add(CaliberWorkflow(workflow_id="WF-m", name="M", owner=USER, status="active"))
+            db.add(
+                CaliberWorkflow(
+                    workflow_id="WF-m", name="M", owner=USER, status="active", visibility="user"
+                )
+            )
             for n in (1, 2):
                 db.add(
                     CaliberWorkflowVersion(
@@ -236,6 +306,24 @@ class TestReadHandlerBranches:
 
     def test_list_workflow_runs_filtered(self, svc, session_factory) -> None:
         with session_factory() as db:
+            db.add_all(
+                [
+                    CaliberWorkflow(
+                        workflow_id="WF-keep",
+                        name="Keep",
+                        owner=USER,
+                        status="active",
+                        visibility="user",
+                    ),
+                    CaliberWorkflow(
+                        workflow_id="WF-other",
+                        name="Other",
+                        owner=USER,
+                        status="active",
+                        visibility="user",
+                    ),
+                ]
+            )
             db.add(
                 CaliberWorkflowRun(
                     workflow_run_id="WR-a",
@@ -264,6 +352,11 @@ class TestReadHandlerBranches:
 
     def test_get_workflow_run_success(self, svc, session_factory) -> None:
         with session_factory() as db:
+            db.add(
+                CaliberWorkflow(
+                    workflow_id="WF-ok", name="Ok", owner=USER, status="active", visibility="user"
+                )
+            )
             db.add(
                 CaliberWorkflowRun(
                     workflow_run_id="WR-ok",
@@ -416,6 +509,69 @@ class TestCreateEvalDatasetBranches:
             ts.dispatch("create_eval_dataset", {"name": "ds-novalid", "examples": ["a", "b"]})
         )
         assert "error" in out and "no valid examples" in out["error"]
+
+    def test_created_dataset_is_scoped_and_stays_readable(self, svc, session_factory) -> None:
+        """`P2` (isolation closure, item 5): a bare-default row (the
+        SQLAlchemy column default `visibility="project"` with no
+        `project_id`) is permanently unresolvable by any scoped lookup --
+        matches what a real creation route sets instead, and the created
+        dataset must therefore still resolve through the same visibility
+        check `get_active_dataset`-style lookups use."""
+        from caliber.auth import CaliberIdentity
+        from caliber.db.models import CaliberEvalDataset
+        from caliber.db.scoping import apply_visibility_filter
+
+        sid = _session(svc, session_factory)
+        ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
+        out = json.loads(
+            ts.dispatch(
+                "create_eval_dataset",
+                {"name": "scoped-ds", "examples": [{"input": "a", "expected": "b"}]},
+            )
+        )
+        assert out["ok"]
+
+        identity = CaliberIdentity(user_id=USER, scopes=frozenset())
+        with session_factory() as db:
+            stmt = apply_visibility_filter(
+                select(CaliberEvalDataset).where(CaliberEvalDataset.name == "scoped-ds"),
+                CaliberEvalDataset,
+                identity,
+                identity.active_project_id,
+            )
+            assert db.execute(stmt).scalars().first() is not None
+
+    def test_duplicate_name_check_is_intentionally_global(self, svc, session_factory) -> None:
+        """`CaliberEvalDataset.name` carries a real database-level
+        `UniqueConstraint` -- unlike skills/tools/workflows, a dataset name is
+        a globally unique handle (like `CaliberAgentConfig.agent_id`), not a
+        per-project namespace. A same-named dataset in a *different* project
+        must still block creation with a clean error, not an unhandled
+        `IntegrityError` from the database."""
+        from caliber.db.models import CaliberEvalDataset
+
+        with session_factory() as db:
+            db.add(
+                CaliberEvalDataset(
+                    dataset_id="DS-other-project",
+                    name="shared-name",
+                    owner="@sarah",
+                    status="active",
+                    version=1,
+                    visibility="project",
+                    project_id="P-hidden",
+                )
+            )
+            db.commit()
+        sid = _session(svc, session_factory)
+        ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
+        out = json.loads(
+            ts.dispatch(
+                "create_eval_dataset",
+                {"name": "shared-name", "examples": [{"input": "a", "expected": "b"}]},
+            )
+        )
+        assert "error" in out and "already exists" in out["error"]
 
 
 # ---------------------------------------------------------------------------
@@ -601,6 +757,40 @@ class TestMutateEdges:
         ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
         out = json.loads(
             ts.dispatch("run_workflow", {"version_id": "WFV-orphan", "input_text": "go"})
+        )
+        assert "error" in out and "parent workflow not found" in out["error"]
+
+    def test_run_workflow_refuses_a_different_project(self, svc, session_factory) -> None:
+        """`P2` (isolation closure, item 5): the parent workflow used to be
+        resolved with a bare `db.get` -- Aria could trigger a real run of
+        another project's workflow by a guessed version id."""
+        with session_factory() as db:
+            db.add(
+                CaliberWorkflow(
+                    workflow_id="WF-hidden",
+                    name="Hidden",
+                    owner="@sarah",
+                    status="active",
+                    visibility="project",
+                    project_id="P-hidden",
+                )
+            )
+            db.add(
+                CaliberWorkflowVersion(
+                    version_id="WFV-hidden",
+                    workflow_id="WF-hidden",
+                    version_number=1,
+                    status="published",
+                    manifest=make_manifest("WF-hidden"),
+                    manifest_hash="h",
+                    created_by="@sarah",
+                )
+            )
+            db.commit()
+        sid = _session(svc, session_factory)
+        ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_all")
+        out = json.loads(
+            ts.dispatch("run_workflow", {"version_id": "WFV-hidden", "input_text": "go"})
         )
         assert "error" in out and "parent workflow not found" in out["error"]
 
