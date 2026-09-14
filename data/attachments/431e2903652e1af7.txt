@@ -1,2 +1,0 @@
-WARNING  caliber.llm.openai_agents:openai_agents.py:885 diagnosis agent call failed for id=FB-1 (attempt 1/3); retrying in 0.0s: http 429
-WARNING  caliber.llm.openai_agents:openai_agents.py:885 diagnosis agent call failed for id=FB-1 (attempt 2/3); retrying in 0.0s: http 503
