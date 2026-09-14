@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from caliber.audit import record as audit_record
@@ -26,6 +27,7 @@ from caliber.db.models import (
     CaliberSkill,
     CaliberVerificationItem,
 )
+from caliber.db.scoping import apply_visibility_filter, build_agent_identity
 
 if TYPE_CHECKING:
     from caliber.trace_client import TraceClient
@@ -180,21 +182,38 @@ def _collect(
         }
 
     if job.artifact_type == "skill" and job.skill_name:
+        # `P2` (isolation closure, item 5): scoped to the job's own agent's
+        # owner/project -- two projects using the same skill name must not
+        # feed each other's content, or each other's affected-agent ids,
+        # into the diagnosis stage.
+        identity = build_agent_identity(session, job.agent_id)
         skill = (
-            session.query(CaliberSkill)
-            .filter(
-                CaliberSkill.name == job.skill_name,
-                CaliberSkill.status == "active",
+            session.execute(
+                apply_visibility_filter(
+                    select(CaliberSkill).where(
+                        CaliberSkill.name == job.skill_name,
+                        CaliberSkill.status == "active",
+                    ),
+                    CaliberSkill,
+                    identity,
+                    identity.active_project_id,
+                )
             )
+            .scalars()
             .first()
         )
         if skill is not None:
             # Find all agents that reference this skill.
             agents = (
-                session.query(CaliberAgentConfig)
-                .filter(
-                    CaliberAgentConfig.enabled.is_(True),
+                session.execute(
+                    apply_visibility_filter(
+                        select(CaliberAgentConfig).where(CaliberAgentConfig.enabled.is_(True)),
+                        CaliberAgentConfig,
+                        identity,
+                        identity.active_project_id,
+                    )
                 )
+                .scalars()
                 .all()
             )
             affected_agent_ids = [

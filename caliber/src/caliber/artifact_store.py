@@ -17,6 +17,8 @@ from __future__ import annotations
 import logging
 from typing import Any, Protocol
 
+from caliber.auth import CaliberIdentity
+
 logger = logging.getLogger("caliber.artifact_store")
 
 
@@ -26,15 +28,20 @@ class ArtifactStore(Protocol):
     ``get_active_prompt`` returns the content currently deployed for the
     named agent — typically the prompt aliased to ``@prod`` in the MLflow
     Prompt Registry. Returns ``None`` when nothing is registered yet
-    (cold-start path; the LLM provider handles this gracefully).
+    (cold-start path; the LLM provider handles this gracefully). Agent ids
+    are globally unique primary keys, so there is no same-name collision
+    across projects to scope against here.
 
-    ``get_active_skill`` returns the content of an active skill by name.
-    Returns ``None`` when the skill doesn't exist or is archived.
+    ``get_active_skill`` returns the content of an active skill by name,
+    scoped to ``identity`` (`P2`, isolation closure item 5) -- two projects
+    using the same skill name must not read each other's content into an
+    optimizer's candidate context. Returns ``None`` when the skill doesn't
+    exist, is archived, or isn't visible to ``identity``.
     """
 
     def get_active_prompt(self, agent_id: str) -> str | None: ...
 
-    def get_active_skill(self, skill_name: str) -> str | None: ...
+    def get_active_skill(self, skill_name: str, *, identity: CaliberIdentity) -> str | None: ...
 
 
 # ---------------------------------------------------------------------------
@@ -98,29 +105,35 @@ class MLflowArtifactStore:
             return None
         return content
 
-    def get_active_skill(self, skill_name: str) -> str | None:
+    def get_active_skill(self, skill_name: str, *, identity: CaliberIdentity) -> str | None:
         """Read skill content from the CALIBER database.
 
         Skills live in the local DB (not MLflow), so this queries the
-        ``caliber_skills`` table directly. Returns ``None`` when the skill
-        is missing or archived.
+        ``caliber_skills`` table directly, scoped to ``identity``'s
+        visibility. Returns ``None`` when the skill is missing, archived, or
+        not visible to ``identity``.
         """
         if self._session_factory is None:
             return None
 
         # Lazy import to avoid circular dependency at module load time.
+        from sqlalchemy import select  # noqa: PLC0415
+
         from caliber.db.models import CaliberSkill  # noqa: PLC0415
+        from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
 
         try:
             with self._session_factory() as session:
-                skill = (
-                    session.query(CaliberSkill)
-                    .filter(
+                stmt = apply_visibility_filter(
+                    select(CaliberSkill).where(
                         CaliberSkill.name == skill_name,
                         CaliberSkill.status == "active",
-                    )
-                    .first()
+                    ),
+                    CaliberSkill,
+                    identity,
+                    identity.active_project_id,
                 )
+                skill = session.execute(stmt).scalars().first()
                 return skill.content if skill is not None else None
         except Exception:
             logger.exception("failed to load skill %s from DB", skill_name)
@@ -157,7 +170,7 @@ class FakeArtifactStore:
     def get_active_prompt(self, agent_id: str) -> str | None:
         return self._prompts.get(agent_id)
 
-    def get_active_skill(self, skill_name: str) -> str | None:
+    def get_active_skill(self, skill_name: str, *, identity: CaliberIdentity) -> str | None:  # noqa: ARG002 - the fake has no rows to scope
         return self._skills.get(skill_name)
 
 

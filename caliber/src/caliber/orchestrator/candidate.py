@@ -32,6 +32,7 @@ from caliber.db.models import (
     CaliberSkill,
     CaliberVerificationItem,
 )
+from caliber.db.scoping import apply_visibility_filter, get_visible, synthetic_identity
 from caliber.llm.provider import (
     CandidateContext,
     Diagnosis,
@@ -131,25 +132,41 @@ def run_candidate(  # noqa: PLR0915 - sequential candidate-stage orchestration i
     diagnosis = _diagnosis_from_json(job.diagnosis)
 
     # Resolve the current artifact content and any skill-specific context.
+    # `P2` (isolation closure, item 5): scoped to the agent's own
+    # owner/project -- two projects using the same skill name must not
+    # refine against, or leak affected-agent context from, each other's rows.
+    identity = synthetic_identity(agent.owner, agent.project_id)
     skill_kwargs: dict[str, Any] = {}
     if job.artifact_type == "skill" and job.skill_name:
-        current_content = artifact_store.get_active_skill(job.skill_name)
+        current_content = artifact_store.get_active_skill(job.skill_name, identity=identity)
         # Load skill metadata for the LLM provider.
         skill = (
-            session.query(CaliberSkill)
-            .filter(
-                CaliberSkill.name == job.skill_name,
-                CaliberSkill.status == "active",
+            session.execute(
+                apply_visibility_filter(
+                    select(CaliberSkill).where(
+                        CaliberSkill.name == job.skill_name,
+                        CaliberSkill.status == "active",
+                    ),
+                    CaliberSkill,
+                    identity,
+                    identity.active_project_id,
+                )
             )
+            .scalars()
             .first()
         )
         if skill is not None:
             # Find affected agents for multi-agent context.
             agents = (
-                session.query(CaliberAgentConfig)
-                .filter(
-                    CaliberAgentConfig.enabled.is_(True),
+                session.execute(
+                    apply_visibility_filter(
+                        select(CaliberAgentConfig).where(CaliberAgentConfig.enabled.is_(True)),
+                        CaliberAgentConfig,
+                        identity,
+                        identity.active_project_id,
+                    )
                 )
+                .scalars()
                 .all()
             )
             affected_agent_ids = [
@@ -436,11 +453,23 @@ def _load_trainset(
         raw = agent.eval_thresholds.get("eval_dataset_id") if agent.eval_thresholds else None
         dataset_ref = raw if isinstance(raw, str) and raw else _DEFAULT_EVAL_DATASET
 
-    dataset = session.get(CaliberEvalDataset, dataset_ref)
+    # `P2` (isolation closure, item 5): scoped to the agent's own
+    # owner/project -- `_DEFAULT_EVAL_DATASET` in particular is the name
+    # most likely to collide across projects, and a bare lookup would
+    # bootstrap this agent's optimizer from another project's examples.
+    identity = synthetic_identity(agent.owner, agent.project_id)
+    dataset = get_visible(
+        session, CaliberEvalDataset, CaliberEvalDataset.dataset_id, dataset_ref, identity
+    )
     if dataset is None:
         dataset = (
             session.execute(
-                select(CaliberEvalDataset).where(CaliberEvalDataset.name == dataset_ref)
+                apply_visibility_filter(
+                    select(CaliberEvalDataset).where(CaliberEvalDataset.name == dataset_ref),
+                    CaliberEvalDataset,
+                    identity,
+                    identity.active_project_id,
+                )
             )
             .scalars()
             .first()

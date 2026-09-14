@@ -55,6 +55,7 @@ def _make_agent(
         eval_thresholds={},
         optimizer_config=optimizer_config or {"skills": skills or []},
         approval_policy={},
+        visibility="user",
     )
     session.add(agent)
     session.flush()
@@ -114,6 +115,7 @@ def _make_skill(
         status="active",
         allowed_tools="Bash(python:*) WebFetch",
         owner="@test",
+        visibility="user",
     )
     session.add(skill)
     session.flush()

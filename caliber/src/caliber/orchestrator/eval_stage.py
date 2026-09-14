@@ -33,6 +33,7 @@ from caliber.db.models import (
     CaliberReworkTask,
     CaliberVerificationItem,
 )
+from caliber.db.scoping import synthetic_identity
 from caliber.eval.gate import apply_gate
 from caliber.eval.provider import EvalComparison, EvalProvider, EvalProviderError, EvalRequest
 from caliber.ids import new_rework_task_id
@@ -129,6 +130,7 @@ def run_eval(  # noqa: PLR0915 — sequential stage: pass→candidate_ready, fai
     baseline_content = _resolve_baseline_content(
         job,
         artifact_store,
+        agent=agent,
         prompt_optimization=prompt_optimization,
     )
     scorer_names, scorer_configs, scorer_weights = _resolve_scorer_overrides(prompt_optimization)
@@ -452,6 +454,7 @@ def _resolve_baseline_content(
     job: CaliberRefinementJob,
     artifact_store: ArtifactStore | None,
     *,
+    agent: CaliberAgentConfig,
     prompt_optimization: dict[str, Any] | None = None,
 ) -> str | None:
     """Return the current production artifact content for replay comparison.
@@ -466,7 +469,12 @@ def _resolve_baseline_content(
 
     if artifact_store is not None:
         if job.artifact_type == "skill" and job.skill_name:
-            current = artifact_store.get_active_skill(job.skill_name)
+            # `P2` (isolation closure, item 5): scoped to the agent's own
+            # owner/project -- two projects using the same skill name must
+            # not compare an eval replay against each other's content.
+            current = artifact_store.get_active_skill(
+                job.skill_name, identity=synthetic_identity(agent.owner, agent.project_id)
+            )
         else:
             current = artifact_store.get_active_prompt(job.agent_id)
         if current is not None:

@@ -29,6 +29,7 @@ from __future__ import annotations
 import logging
 from typing import TYPE_CHECKING, Any
 
+from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from caliber.audit import record as audit_record
@@ -38,6 +39,7 @@ from caliber.db.models import (
     CaliberSkill,
     CaliberVerificationItem,
 )
+from caliber.db.scoping import apply_visibility_filter, build_agent_identity, synthetic_identity
 from caliber.llm.provider import TriageContext
 
 if TYPE_CHECKING:
@@ -166,13 +168,24 @@ def _classify(  # noqa: PLR0911 — one return per failure-mode bucket + LLM/exp
     (confidence, cluster ID, etc.).
     """
     # Explicit skill hint from the verifier / operator.
+    # `P2` (isolation closure, item 5): scoped to the agent's own
+    # owner/project -- two projects using the same skill name must not
+    # attribute a failure to each other's skill.
     if item.artifact_type_hint == "skill" and item.artifact_ref:
+        identity = build_agent_identity(session, agent_id)
         skill = (
-            session.query(CaliberSkill)
-            .filter(
-                CaliberSkill.name == item.artifact_ref,
-                CaliberSkill.status == "active",
+            session.execute(
+                apply_visibility_filter(
+                    select(CaliberSkill).where(
+                        CaliberSkill.name == item.artifact_ref,
+                        CaliberSkill.status == "active",
+                    ),
+                    CaliberSkill,
+                    identity,
+                    identity.active_project_id,
+                )
             )
+            .scalars()
             .first()
         )
         if skill is not None:
@@ -277,14 +290,25 @@ def _find_tool_skill(session: Session, agent_id: str) -> str | None:
     skill_names: list[str] = (agent.optimizer_config or {}).get("skills", [])
     if not skill_names:
         return None
+    # `P2` (isolation closure, item 5): scoped to this agent's own
+    # owner/project -- two projects using the same skill name must not
+    # cross-attribute a tool-use failure.
+    identity = synthetic_identity(agent.owner, agent.project_id)
     for name in skill_names:
-        skill = (
-            session.query(CaliberSkill)
-            .filter(
-                CaliberSkill.name == name,
-                CaliberSkill.status == "active",
-                CaliberSkill.allowed_tools.isnot(None),
+        skill: CaliberSkill | None = (
+            session.execute(
+                apply_visibility_filter(
+                    select(CaliberSkill).where(
+                        CaliberSkill.name == name,
+                        CaliberSkill.status == "active",
+                        CaliberSkill.allowed_tools.isnot(None),
+                    ),
+                    CaliberSkill,
+                    identity,
+                    identity.active_project_id,
+                )
             )
+            .scalars()
             .first()
         )
         if skill is not None:

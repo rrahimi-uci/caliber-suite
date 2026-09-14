@@ -12,6 +12,7 @@ import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.artifact_store import FakeArtifactStore
+from caliber.auth import CaliberIdentity
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberRefinementJob,
@@ -65,6 +66,7 @@ def _make_agent(
         eval_thresholds={"overall_min": 0.5},
         optimizer_config=optimizer_config,
         approval_policy={},
+        visibility="user",
     )
     session.add(agent)
     session.flush()
@@ -93,6 +95,7 @@ def _make_skill(
         depends_on=depends_on or [],
         status="active",
         version=1,
+        visibility="user",
     )
     session.add(skill)
     session.flush()
@@ -453,6 +456,64 @@ class TestCandidateSkillAware:
         assert ctx.allowed_tools == "Bash(python:*) WebFetch"
         assert ctx.affected_agent_ids == ["support-agent"]
 
+    def test_skill_metadata_lookup_is_scoped_to_the_agents_project(
+        self, db_session: Session
+    ) -> None:
+        """`P2` (isolation closure, item 5): the skill-metadata lookup
+        (name, allowed_tools, depends_on, affected_agent_ids) used to be a
+        bare, unscoped query -- a same-named skill in a different project
+        would be resolved and its metadata fed into the candidate context."""
+        _make_agent(db_session, skills=["tool-use"])
+        # Same name, a different, unrelated project -- not visible to the
+        # agent's own owner/project synthetic identity.
+        db_session.add(
+            CaliberSkill(
+                skill_id="SK-hidden",
+                name="tool-use",
+                description="hidden",
+                summary="hidden",
+                content="Another project's content.",
+                owner="@sarah",
+                category="mcp_enhancement",
+                status="active",
+                version=1,
+                visibility="project",
+                project_id="P-hidden",
+            )
+        )
+        _make_item(db_session, category="tool_use")
+
+        diagnosis_json = {
+            "root_cause": "Tool invocation format wrong",
+            "affected_components": ["skill"],
+            "confidence": 0.8,
+            "alternatives": [],
+        }
+        job = _make_job(
+            db_session,
+            artifact_type="skill",
+            status="running",
+            stage="candidate",
+            skill_name="tool-use",
+        )
+        job.diagnosis = diagnosis_json
+        db_session.commit()
+
+        # The artifact store's content fetch (a separate, identity-scoped
+        # read of its own) still finds *some* content -- what's isolated
+        # here is the DB metadata lookup this test targets.
+        store = FakeArtifactStore(skills={"tool-use": "fallback content"})
+        llm = FakeLLMProvider()
+
+        job = run_candidate(db_session, "RFN-SKILL", llm, store)
+
+        assert len(llm.candidate_calls) == 1
+        ctx = llm.candidate_calls[0]
+        # No visible skill row -> metadata kwargs never populated.
+        assert ctx.skill_name is None
+        assert ctx.allowed_tools is None
+        assert ctx.affected_agent_ids is None
+
     def test_prompt_candidate_no_skill_fields(self, db_session: Session) -> None:
         """Candidate stage for prompt jobs has None skill fields."""
         _make_agent(db_session)
@@ -530,21 +591,24 @@ class TestEvalSkillBaseline:
 # ───────────────────── ArtifactStore: skill support ─────────────────────
 
 
+_FAKE_IDENTITY = CaliberIdentity(user_id="@test", scopes=frozenset())
+
+
 class TestFakeArtifactStoreSkills:
     """FakeArtifactStore supports skill reads."""
 
     def test_get_active_skill_returns_content(self) -> None:
         store = FakeArtifactStore(skills={"tool-use": "Use tools carefully."})
-        assert store.get_active_skill("tool-use") == "Use tools carefully."
+        assert store.get_active_skill("tool-use", identity=_FAKE_IDENTITY) == "Use tools carefully."
 
     def test_get_active_skill_returns_none_for_missing(self) -> None:
         store = FakeArtifactStore()
-        assert store.get_active_skill("nonexistent") is None
+        assert store.get_active_skill("nonexistent", identity=_FAKE_IDENTITY) is None
 
     def test_set_skill(self) -> None:
         store = FakeArtifactStore()
         store.set_skill("reasoning", "Think step by step.")
-        assert store.get_active_skill("reasoning") == "Think step by step."
+        assert store.get_active_skill("reasoning", identity=_FAKE_IDENTITY) == "Think step by step."
 
     def test_skills_and_prompts_independent(self) -> None:
         store = FakeArtifactStore(
@@ -552,9 +616,9 @@ class TestFakeArtifactStoreSkills:
             skills={"tool-use": "Skill content"},
         )
         assert store.get_active_prompt("agent-a") == "Prompt content"
-        assert store.get_active_skill("tool-use") == "Skill content"
+        assert store.get_active_skill("tool-use", identity=_FAKE_IDENTITY) == "Skill content"
         assert store.get_active_prompt("tool-use") is None
-        assert store.get_active_skill("agent-a") is None
+        assert store.get_active_skill("agent-a", identity=_FAKE_IDENTITY) is None
 
 
 # ───────────────────── CandidateContext: skill fields ─────────────────────

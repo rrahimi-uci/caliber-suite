@@ -23,7 +23,7 @@ from sqlalchemy import and_, exists, false, or_, select
 from sqlalchemy.sql import Select
 
 from caliber.auth import SCOPE_ADMIN, CaliberIdentity
-from caliber.db.models import CaliberProjectMember
+from caliber.db.models import CaliberAgentConfig, CaliberProjectMember
 
 VisibilityTier = Literal["project", "user", "public"]
 
@@ -72,6 +72,20 @@ def synthetic_identity(owner: str, project_id: str | None) -> CaliberIdentity:
     triggers the admin bypass.
     """
     return CaliberIdentity(user_id=owner, scopes=frozenset(), active_project_id=project_id)
+
+
+def build_agent_identity(session: Any, agent_id: str | None) -> CaliberIdentity:
+    """:func:`synthetic_identity`, keyed off the given agent -- the
+    refinement-worker pipeline (evidence/diagnosis/candidate/eval stages)
+    only ever has an ``agent_id`` string in hand, not a live requester
+    identity. ``agent_id`` may be ``None`` or refer to a since-deleted row;
+    either way this resolves to the same "sees only public rows" identity a
+    missing agent does, rather than raising.
+    """
+    agent = session.get(CaliberAgentConfig, agent_id) if agent_id else None
+    owner = agent.owner if agent is not None else ""
+    project_id = agent.project_id if agent is not None else None
+    return synthetic_identity(owner, project_id)
 
 
 def get_visible(
