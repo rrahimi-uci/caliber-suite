@@ -30,6 +30,7 @@ def _make_request(
     headers: dict[str, str] | None = None,
     *,
     config: CaliberConfig | None = None,
+    path_params: dict[str, str] | None = None,
 ) -> Request:
     """Build a minimal Starlette Request directly from an ASGI scope.
 
@@ -43,6 +44,7 @@ def _make_request(
         "method": "GET",
         "path": "/",
         "headers": raw_headers,
+        "path_params": path_params or {},
     }
     # Header-driven tests need a config that says the header is trusted. Defaulting
     # it here keeps each test about the resolver rather than about the mode; the
@@ -179,6 +181,30 @@ def test_resolve_identity_blank_project_header_is_none() -> None:
         config=CaliberConfig.load(environ={}),
     )
     assert resolve_identity(request).active_project_id is None
+
+
+def test_resolve_identity_rejects_mismatched_header_and_path_project() -> None:
+    request = _make_request(
+        {"X-CALIBER-User": "@viewer", "X-CALIBER-Project": "PRJ-header"},
+        path_params={"project_id": "PRJ-path"},
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        resolve_identity(request)
+
+    assert exc_info.value.status_code == 400
+    assert exc_info.value.detail == (
+        "workspace_context_mismatch: X-CALIBER-Project must match the project_id path segment"
+    )
+
+
+def test_resolve_identity_accepts_matching_header_and_path_project() -> None:
+    request = _make_request(
+        {"X-CALIBER-User": "@viewer", "X-CALIBER-Project": "PRJ-same"},
+        path_params={"project_id": "PRJ-same"},
+    )
+
+    assert resolve_identity(request).active_project_id == "PRJ-same"
 
 
 def test_resolve_identity_anonymous_has_no_scopes() -> None:
