@@ -4039,7 +4039,7 @@ class AssistantService:
         than exposing a globally-addressable job id.
         """
         if identity is None:
-            return db.get(CaliberRefinementJob, job_id)
+            return cast(CaliberRefinementJob | None, db.get(CaliberRefinementJob, job_id))
 
         from sqlalchemy import select  # noqa: PLC0415
 
@@ -4059,7 +4059,7 @@ class AssistantService:
             identity,
             identity.active_project_id,
         )
-        return db.execute(stmt).scalars().first()
+        return cast(CaliberRefinementJob | None, db.execute(stmt).scalars().first())
 
     def _execute_propose_promotion(
         self,
