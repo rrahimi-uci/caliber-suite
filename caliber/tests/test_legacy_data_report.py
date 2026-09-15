@@ -12,10 +12,12 @@ from sqlalchemy.orm import Session
 from caliber.db.legacy_data_report import (
     DuplicateNameFinding,
     LegacyNullFinding,
+    OrphanProjectIdFinding,
     duplicate_name_report,
     legacy_null_report,
+    orphan_project_id_report,
 )
-from caliber.db.models import CaliberSkill, CaliberWorkflow
+from caliber.db.models import CaliberProject, CaliberSkill, CaliberWorkflow
 
 
 def _skill(session: Session, **overrides: object) -> CaliberSkill:
@@ -104,3 +106,63 @@ def test_duplicate_name_report_skips_a_model_with_a_global_unique_name(
     _skill(db_session, skill_id="SK-r10", name="only-skill", project_id="P-1")
     findings = [f for f in duplicate_name_report(db_session) if f.model == "CaliberSkill"]
     assert findings == []
+
+
+def test_orphan_project_id_report_groups_unresolvable_project_references(
+    db_session: Session,
+) -> None:
+    db_session.add(
+        CaliberProject(
+            project_id="P-known",
+            name="Known project",
+            owner="@sarah",
+        )
+    )
+    db_session.commit()
+
+    _skill(db_session, skill_id="SK-known", name="known", project_id="P-known")
+    _skill(db_session, skill_id="SK-orphan-a", name="orphan-a", project_id="P-missing")
+    _skill(db_session, skill_id="SK-orphan-b", name="orphan-b", project_id="P-missing")
+    _workflow(
+        db_session,
+        workflow_id="WF-orphan",
+        name="orphan-workflow",
+        project_id="P-missing",
+    )
+
+    assert orphan_project_id_report(db_session) == [
+        OrphanProjectIdFinding(
+            model="CaliberSkill",
+            table="caliber_skills",
+            project_id="P-missing",
+            row_count=2,
+        ),
+        OrphanProjectIdFinding(
+            model="CaliberWorkflow",
+            table="caliber_workflows",
+            project_id="P-missing",
+            row_count=1,
+        ),
+    ]
+
+
+def test_orphan_project_id_report_omits_null_and_resolvable_references(
+    db_session: Session,
+) -> None:
+    db_session.add(
+        CaliberProject(
+            project_id="P-resolvable",
+            name="Resolvable project",
+            owner="@sarah",
+        )
+    )
+    db_session.commit()
+    _skill(db_session, skill_id="SK-null", name="null-project", project_id=None)
+    _skill(
+        db_session,
+        skill_id="SK-resolvable",
+        name="resolvable-project",
+        project_id="P-resolvable",
+    )
+
+    assert orphan_project_id_report(db_session) == []

@@ -1,9 +1,9 @@
 """Legacy-null and duplicate-name migration report.
 
-`P2` (docs/workspace-plan.md Phase 2 item 9): "Produce the legacy-null and
-duplicate-name migration report without enforcing destructive constraints
-yet." Read-only evidence, not a schema or behavior change -- it feeds two
-later, separate decisions this same phase names:
+`P2` (docs/workspace-plan.md Phase 2 item 9): "Produce the legacy-null,
+duplicate-name, and orphan-project-id migration report without enforcing
+destructive constraints yet." Read-only evidence, not a schema or behavior
+change -- it feeds two later, separate decisions this same phase names:
 
 * item 2 ("require project IDs for new project-owned root records"): a
   model with a nonzero legacy-null count cannot get a `project_id NOT NULL`
@@ -13,7 +13,8 @@ later, separate decisions this same phase names:
   narrowing a model's uniqueness from global to per-project (the "two
   workspaces can use the same logical manifest names" acceptance criterion)
   is only safe once any existing same-name-different-project collisions are
-  known and reconciled.
+  known and reconciled. Adding a foreign key to a project-scoped column is
+  only safe after every non-null value resolves to a real project.
 
 Built on :func:`caliber.db.resource_inventory.resource_inventory`'s own
 classification rather than a second, hand-maintained model list -- the two
@@ -35,6 +36,7 @@ from typing import Any
 from sqlalchemy import func, select
 from sqlalchemy.orm import Session
 
+from caliber.db.models import CaliberProject
 from caliber.db.resource_inventory import (
     SCOPING_PROJECT_ONLY,
     SCOPING_VISIBILITY,
@@ -65,6 +67,16 @@ class DuplicateNameFinding:
     table: str
     name: str
     project_ids: tuple[str | None, ...]
+
+
+@dataclass(frozen=True)
+class OrphanProjectIdFinding:
+    """A project-scoped row whose non-null project id has no project row."""
+
+    model: str
+    table: str
+    project_id: str
+    row_count: int
 
 
 def _project_scoped_models() -> list[Any]:
@@ -139,9 +151,43 @@ def duplicate_name_report(session: Session) -> list[DuplicateNameFinding]:
     return findings
 
 
+def orphan_project_id_report(session: Session) -> list[OrphanProjectIdFinding]:
+    """Find non-null project ids that do not resolve to ``CaliberProject``.
+
+    The report covers the same inventory-derived project-scoped models as the
+    null and duplicate reports. Deleted rows are intentionally included: a
+    foreign-key migration must account for every stored reference, not only
+    rows currently returned by a visibility-aware list endpoint. Findings are
+    grouped by model and orphan id, and returned in stable order for audit
+    diffs and migration review.
+    """
+    known_projects = select(CaliberProject.project_id)
+    findings: list[OrphanProjectIdFinding] = []
+    for model in _project_scoped_models():
+        rows = session.execute(
+            select(model.project_id, func.count())
+            .where(model.project_id.is_not(None))
+            .where(~model.project_id.in_(known_projects))
+            .group_by(model.project_id)
+        ).all()
+        findings.extend(
+            OrphanProjectIdFinding(
+                model=model.__name__,
+                table=str(model.__tablename__),
+                project_id=str(project_id),
+                row_count=int(row_count),
+            )
+            for project_id, row_count in rows
+            if project_id is not None
+        )
+    return sorted(findings, key=lambda finding: (finding.model, finding.project_id))
+
+
 __all__ = [
     "DuplicateNameFinding",
     "LegacyNullFinding",
+    "OrphanProjectIdFinding",
     "duplicate_name_report",
     "legacy_null_report",
+    "orphan_project_id_report",
 ]
