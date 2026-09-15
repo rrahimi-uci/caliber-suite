@@ -15,7 +15,13 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user
+from caliber.auth import (
+    SCOPE_OPERATOR,
+    CaliberIdentity,
+    require_scopes,
+    require_user,
+    resolve_identity,
+)
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberEvalDataset,
@@ -26,6 +32,7 @@ from caliber.db.models import (
     CaliberWorkflowDeployment,
     CaliberWorkflowVersion,
 )
+from caliber.db.scoping import get_visible
 from caliber.ids import new_item_id, new_job_id
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
 from caliber.schemas import (
@@ -207,13 +214,36 @@ def enqueue_workflow_calibration_run(
     payload: WorkflowCalibrationRunRequest,
     actor: str,
     config: Any,
+    identity: CaliberIdentity | None = None,
 ) -> WorkflowCalibrationRunResponse:
-    """Create the verified item + queued job for a workflow calibration run."""
+    """Create the verified item + queued job for a workflow calibration run.
+
+    `P2` (isolation closure, item 1, slice 5): both the workflow and the
+    agent were bare `session.get` lookups with no visibility check at all
+    -- any operator could queue a calibration run against (and read facts
+    about) another project's workflow or agent by id. `identity` is
+    optional: the REST route (`create_run`) and the Aria capability
+    (`assistant/capabilities.py::_workflow_calibrate`) both resolve a real
+    one; `assistant/service.py`'s older intent-plan dispatch path has no
+    identity/project-id concept at all yet (a larger, separately-deferred
+    gap -- item 5's remaining `assistant/service.py` plumbing), so it
+    still passes ``None`` and gets today's unscoped lookup, unchanged.
+    """
     _validate_run_payload(payload, config=config)
-    workflow = session.get(CaliberWorkflow, workflow_id)
+    workflow = (
+        get_visible(session, CaliberWorkflow, CaliberWorkflow.workflow_id, workflow_id, identity)
+        if identity is not None
+        else session.get(CaliberWorkflow, workflow_id)
+    )
     if workflow is None:
         raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
-    agent = session.get(CaliberAgentConfig, payload.agent_id)
+    agent = (
+        get_visible(
+            session, CaliberAgentConfig, CaliberAgentConfig.agent_id, payload.agent_id, identity
+        )
+        if identity is not None
+        else session.get(CaliberAgentConfig, payload.agent_id)
+    )
     if agent is None:
         raise HTTPException(status_code=400, detail=f"agent {payload.agent_id!r} is not registered")
     if not agent.enabled:
@@ -290,11 +320,20 @@ def enqueue_workflow_calibration_run(
 
 async def get_options(request: Request) -> JSONResponse:
     require_user(request)
+    identity = resolve_identity(request)
     workflow_id = request.path_params["workflow_id"]
     factory = get_session_factory(request)
     judge = _judge_summary(request.app.state.config)
     with factory() as session:
-        if session.get(CaliberWorkflow, workflow_id) is None:
+        # `P2` (isolation closure, item 1, slice 5): a bare `session.get`
+        # here disclosed the baseline version id + eval-dataset summary
+        # for any workflow_id, regardless of visibility.
+        if (
+            get_visible(
+                session, CaliberWorkflow, CaliberWorkflow.workflow_id, workflow_id, identity
+            )
+            is None
+        ):
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         version = _baseline_version(session, workflow_id)
         data: dict[str, Any]
@@ -320,6 +359,7 @@ async def get_options(request: Request) -> JSONResponse:
 
 async def create_run(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     workflow_id = request.path_params["workflow_id"]
     body = await parse_json_object(request)
     try:
@@ -335,6 +375,7 @@ async def create_run(request: Request) -> JSONResponse:
             payload=payload,
             actor=actor,
             config=request.app.state.config,
+            identity=identity,
         )
     return envelope_response(response, status_code=201)
 

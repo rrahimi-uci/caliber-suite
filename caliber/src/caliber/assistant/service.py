@@ -3562,6 +3562,13 @@ class AssistantService:
             workflow_calibration as workflow_calibration_routes,
         )
 
+        # `P2` (isolation closure, item 1, slice 5): `identity` is
+        # deliberately omitted (defaults to None -> unscoped lookup,
+        # today's existing behavior) -- this class has no per-turn
+        # identity/project-id concept at all yet, unlike `agent_tools.py`'s
+        # `CapabilityContext`. Threading a real one through requires the
+        # same larger plumbing already named and deferred as item 5's
+        # remaining `assistant/service.py`/`assistant/tools.py` work.
         with session_factory() as db:
             response = workflow_calibration_routes.enqueue_workflow_calibration_run(
                 session=db,

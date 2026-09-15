@@ -286,6 +286,7 @@ def _workflow_calibrate(ctx: CapabilityContext, args: dict[str, Any]) -> Any:
             payload=payload,
             actor=ctx.actor,
             config=ctx.config,
+            identity=ctx.identity(),
         )
         session.commit()
         return AsyncJobHandle(
