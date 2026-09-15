@@ -415,7 +415,13 @@ def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
                     )
                 )
         elif isinstance(binding, McpToolBinding):
-            server = session.get(CaliberMcpServer, binding.server_id)
+            server = get_visible(
+                session,
+                CaliberMcpServer,
+                CaliberMcpServer.server_id,
+                binding.server_id,
+                identity,
+            )
             tool = next(
                 (
                     item
@@ -561,7 +567,13 @@ def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
                 )
             )
         elif isinstance(node, McpResourceNode):
-            server = session.get(CaliberMcpServer, node.server_id)
+            server = get_visible(
+                session,
+                CaliberMcpServer,
+                CaliberMcpServer.server_id,
+                node.server_id,
+                identity,
+            )
             tool = next(
                 (
                     item

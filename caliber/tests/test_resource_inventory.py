@@ -31,8 +31,10 @@ _EXPECTED_COUNTS = {
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.
-    SCOPING_OWNED_CATALOG: 23,
-    SCOPING_VISIBILITY: 14,
+    # +1 (`P2-O`): CaliberMcpServer gained project_id/visibility and now
+    # participates in the shared three-tier resource boundary.
+    SCOPING_OWNED_CATALOG: 22,
+    SCOPING_VISIBILITY: 15,
     # +1 (`P1-A`): CaliberWorkspaceEnvironment has project_id, no
     # visibility/owner column -- correctly project_only, confirmed by
     # direct look, not a drive-by bump.

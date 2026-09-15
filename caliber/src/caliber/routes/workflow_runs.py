@@ -603,6 +603,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:
 
     actor = require_scopes(request, [SCOPE_OPERATOR])
     _ensure_queue_enabled(request)
+    identity = resolve_identity(request)
     body = await parse_json_object(request)
     payload = WorkflowRunCreateRequest.model_validate(body)
     factory = get_session_factory(request)
@@ -613,9 +614,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:
         # project-role check otherwise. `_visible_workflow_for_run` above
         # already applies the *visibility* filter; this is the separate
         # project-membership-role axis section 2.4 names.
-        require_project_access_if_scoped(
-            session, resolve_identity(request), workflow.project_id, "resource.execute"
-        )
+        require_project_access_if_scoped(session, identity, workflow.project_id, "resource.execute")
         submitted_manifest = payload.manifest
         if submitted_manifest is not None and alias != "manual":
             raise HTTPException(
@@ -633,7 +632,12 @@ async def create_workflow_run(request: Request) -> JSONResponse:
         )
         if submitted_manifest is not None:
             _parse_manifest_or_400(manifest_snapshot)
-        mcp_blockers = deployment_blockers(session, manifest_snapshot, alias=alias)
+        mcp_blockers = deployment_blockers(
+            session,
+            manifest_snapshot,
+            alias=alias,
+            identity=identity,
+        )
         if mcp_blockers:
             raise HTTPException(
                 status_code=400,

@@ -43,6 +43,7 @@ from pathlib import Path
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from caliber.auth import CaliberIdentity
 from caliber.config import provider_request_timeout
 from caliber.integrations.openapi.executor import bind_openapi_http_tool
 from caliber.llm.models import (
@@ -2164,6 +2165,7 @@ class RuntimePlan:
 
     ir: IRWorkflow
     resolver: ToolResolver
+    mcp_identity: CaliberIdentity | None = None
     workflow_version_id: str | None = None
     workflow_alias: str | None = None
     compiler_version: str | None = None
@@ -2432,6 +2434,7 @@ def _resolve_tool_callables(
     *,
     preview: bool,
     egress_policy: Any | None = None,
+    mcp_identity: CaliberIdentity | None = None,
 ) -> dict[str, Callable[..., Any]]:
     callables: dict[str, Callable[..., Any]] = {}
     for binding in agent.tools:
@@ -2441,6 +2444,7 @@ def _resolve_tool_callables(
             preview=preview,
             required=False,
             egress_policy=egress_policy,
+            mcp_identity=mcp_identity,
         )
         if chosen is not None:
             callables[binding.local_name] = chosen
@@ -2454,8 +2458,9 @@ def _resolve_bound_tool_callable(
     preview: bool,
     required: bool,
     egress_policy: Any | None = None,
+    mcp_identity: CaliberIdentity | None = None,
 ) -> Callable[..., Any] | None:
-    real = _bind(binding, resolver, egress_policy=egress_policy)
+    real = _bind(binding, resolver, egress_policy=egress_policy, mcp_identity=mcp_identity)
     chosen = make_preview_callable(binding, real) if preview else real
     if chosen is None:
         if required:
@@ -2485,9 +2490,10 @@ def _bind(
     resolver: ToolResolver,
     *,
     egress_policy: Any | None = None,
+    mcp_identity: CaliberIdentity | None = None,
 ) -> Callable[..., Any] | None:
     if binding.binding_type == "mcp_tool":
-        return _bind_mcp_tool(binding)
+        return _bind_mcp_tool(binding, identity=mcp_identity)
     if binding.execution_backend == "openapi_http":
         # ``egress_policy=None`` is not "unrestricted": the executor falls back to the
         # process-wide policy bound at startup, and to a safe default before that.
@@ -2760,7 +2766,11 @@ def _sandboxed_registered_tool(
     return _invoke
 
 
-def _bind_mcp_tool(binding: IRToolBinding) -> Callable[..., Any]:
+def _bind_mcp_tool(
+    binding: IRToolBinding,
+    *,
+    identity: CaliberIdentity | None = None,
+) -> Callable[..., Any]:
     """Bind an MCP tool as a runtime-managed callable.
 
     The workflow runtime resolves the target MCP server by ``server_id`` and
@@ -2772,11 +2782,14 @@ def _bind_mcp_tool(binding: IRToolBinding) -> Callable[..., Any]:
     def _invoke(arg: Any = "") -> dict[str, Any]:
         arguments = _mcp_arguments_from_input(arg)
         try:
-            result = invoke_tool_by_server_id_sync(
-                server_id=server_id,
-                tool_name=tool_name,
-                arguments=arguments,
-            )
+            invoke_kwargs: dict[str, Any] = {
+                "server_id": server_id,
+                "tool_name": tool_name,
+                "arguments": arguments,
+            }
+            if identity is not None:
+                invoke_kwargs["identity"] = identity
+            result = invoke_tool_by_server_id_sync(**invoke_kwargs)
         except McpGatewayError as exc:
             raise ToolExecutionError(
                 f"MCP tool {tool_name!r} invocation failed on server {server_id!r}: {exc}"
@@ -4112,7 +4125,11 @@ def _collect_agent_handoff_specs(
         if agent_def.node_id == agent.node_id:
             return dict(root_tool_callables)
         callables = _resolve_tool_callables(
-            agent_def, plan.resolver, preview=preview, egress_policy=plan.egress_policy
+            agent_def,
+            plan.resolver,
+            preview=preview,
+            egress_policy=plan.egress_policy,
+            mcp_identity=plan.mcp_identity,
         )
         if extra_tools:
             callables = {**callables, **extra_tools}
@@ -5790,6 +5807,7 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 preview=preview,
                 required=True,
                 egress_policy=plan.egress_policy,
+                mcp_identity=plan.mcp_identity,
             )
         )
         assert fn is not None
@@ -5869,12 +5887,15 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
             node_input = run_input
         arguments = _mcp_arguments_from_input(node_input)
         try:
-            result = invoke_tool_by_server_id_sync(
-                server_id=node.server_id,
-                tool_name=node.tool_name,
-                arguments=arguments,
-                timeout_seconds=node.timeout_seconds,
-            )
+            invoke_kwargs: dict[str, Any] = {
+                "server_id": node.server_id,
+                "tool_name": node.tool_name,
+                "arguments": arguments,
+                "timeout_seconds": node.timeout_seconds,
+            }
+            if plan.mcp_identity is not None:
+                invoke_kwargs["identity"] = plan.mcp_identity
+            result = invoke_tool_by_server_id_sync(**invoke_kwargs)
         except McpGatewayError as exc:
             raise ToolExecutionError(
                 f"MCP node {nid!r} failed for {node.server_id!r}/{node.tool_name!r}: {exc}"
@@ -6459,7 +6480,11 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
         agent_input = _select_input(inputs, run_input)
         explicit_history = _normalize_message_history(inputs.get("history"))
         callables = _resolve_tool_callables(
-            node, plan.resolver, preview=preview, egress_policy=plan.egress_policy
+            node,
+            plan.resolver,
+            preview=preview,
+            egress_policy=plan.egress_policy,
+            mcp_identity=plan.mcp_identity,
         )
         if extra_tools:
             callables = {**callables, **extra_tools}
@@ -6534,7 +6559,11 @@ def _run_node(  # noqa: PLR0911, PLR0912, PLR0915 - per-node-type dispatch
                 t_callables = dict(current_handoff_agents[target.node_id][1])
             else:
                 t_callables = _resolve_tool_callables(
-                    target, plan.resolver, preview=preview, egress_policy=plan.egress_policy
+                    target,
+                    plan.resolver,
+                    preview=preview,
+                    egress_policy=plan.egress_policy,
+                    mcp_identity=plan.mcp_identity,
                 )
                 if extra_tools:
                     t_callables = {**t_callables, **extra_tools}

@@ -25,6 +25,7 @@ from caliber.db.models import (
     CaliberWorkflowRunCheckpoint,
     CaliberWorkflowVersion,
 )
+from caliber.db.scoping import synthetic_identity
 from caliber.events.bus import EventBus
 from caliber.ids import new_runtime_approval_id, new_workflow_run_checkpoint_id
 from caliber.mcp_policy import deployment_blockers
@@ -1514,6 +1515,7 @@ class WorkflowRunWorker:
                 session,
                 exact_manifest,
                 alias=run.deployment_alias or "manual",
+                identity=synthetic_identity(workflow.owner or "", workflow.project_id),
             )
             if mcp_blockers:
                 self._mark_failed(

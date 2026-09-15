@@ -124,6 +124,7 @@ def _seed_ready_mcp_docs_server(client) -> None:
             CaliberMcpServer(
                 server_id="MCP-DOCS",
                 name="Worker MCP docs",
+                owner="@test",
                 transport="stdio",
                 command="${PYTHON}",
                 args=["-m", "caliber.mcp_servers.db", "--mode", "relational"],
@@ -2561,7 +2562,7 @@ def test_worker_rechecks_mcp_policy_on_exact_snapshot_before_execution(
     monkeypatch.setattr(
         workflow_run_worker_module,
         "deployment_blockers",
-        lambda _session, _manifest, *, alias: [f"{alias}: MCP server became disabled"],
+        lambda _session, _manifest, *, alias, **_kwargs: [f"{alias}: MCP server became disabled"],
     )
 
     _build_worker(client)._tick()
@@ -7947,6 +7948,7 @@ def test_worker_marks_mcp_resource_gateway_failures_as_runtime_errors(
         tool_name: str,
         arguments: dict[str, object],
         timeout_seconds: float = 45.0,
+        **_kwargs: object,
     ) -> dict[str, object]:
         del arguments, timeout_seconds
         raise McpGatewayError(f"{server_id}/{tool_name} unavailable")
@@ -8004,6 +8006,7 @@ def test_worker_executes_mcp_resource_path_to_completion(
         tool_name: str,
         arguments: dict[str, object],
         timeout_seconds: float = 45.0,
+        **_kwargs: object,
     ) -> dict[str, object]:
         captured["server_id"] = server_id
         captured["tool_name"] = tool_name
@@ -8829,6 +8832,7 @@ def test_worker_completes_error_boundary_recovery_for_mcp_resource_failures(
         tool_name: str,
         arguments: dict[str, object],
         timeout_seconds: float = 45.0,
+        **_kwargs: object,
     ) -> dict[str, object]:
         del arguments, timeout_seconds
         raise McpGatewayError(f"{server_id}/{tool_name} unavailable")

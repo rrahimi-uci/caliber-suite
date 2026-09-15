@@ -848,6 +848,7 @@ def _run_workflow_version_sync(  # noqa: PLR0912, PLR0915 - run orchestration + 
             session,
             manifest_snapshot,
             alias=alias,
+            identity=resolve_identity(request),
         )
         if mcp_blockers:
             raise ValueError("MCP runtime preflight failed: " + "; ".join(mcp_blockers))

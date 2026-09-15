@@ -21,14 +21,23 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes, require_user
+from caliber.auth import (
+    SCOPE_ADMIN,
+    SCOPE_OPERATOR,
+    CaliberIdentity,
+    require_scopes,
+    require_user,
+    resolve_identity,
+)
 from caliber.calibration import aggregate, evaluate_assertion
 from caliber.db.models import (
     CaliberAuditLog,
     CaliberMcpServer,
+    CaliberProjectMember,
     CaliberWorkflowDeployment,
     CaliberWorkflowVersion,
 )
+from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.ids import new_mcp_server_id
 from caliber.mcp_gateway import (
     McpGatewayError,
@@ -158,8 +167,61 @@ def _tool_policy_is_classified(server: CaliberMcpServer, tool_name: str) -> bool
     }.issubset(policy)
 
 
+def _visible_server(
+    session: Session, server_id: str, identity: CaliberIdentity
+) -> CaliberMcpServer | None:
+    """Resolve an MCP server through the same project visibility boundary as its list."""
+
+    return get_visible(
+        session,
+        CaliberMcpServer,
+        CaliberMcpServer.server_id,
+        server_id,
+        identity,
+    )
+
+
+def _snapshot_is_visible(  # noqa: PLR0911 - explicit fail-closed visibility tiers
+    session: Session, snapshot: object, identity: CaliberIdentity
+) -> bool:
+    """Apply visibility to a deleted server's audit snapshot.
+
+    Audit rows outlive the registry row, so a deleted resource cannot use
+    ``get_visible``. Missing context on a legacy snapshot fails closed for
+    non-admins rather than turning history into an ID oracle.
+    """
+
+    if identity.has_scope(SCOPE_ADMIN) or not isinstance(snapshot, dict):
+        return identity.has_scope(SCOPE_ADMIN)
+    visibility = snapshot.get("visibility")
+    owner = snapshot.get("owner")
+    project_id = snapshot.get("project_id")
+    if not isinstance(visibility, str) or not isinstance(owner, str):
+        return False
+    if visibility == "public":
+        return True
+    if visibility == "user":
+        return owner == identity.user_id
+    if visibility != "project" or not isinstance(project_id, str):
+        return False
+    if identity.active_project_id != project_id:
+        return False
+    if owner == identity.user_id:
+        return True
+    return (
+        session.execute(
+            select(CaliberProjectMember.member_id)
+            .where(CaliberProjectMember.project_id == project_id)
+            .where(CaliberProjectMember.user_id == identity.user_id)
+            .where(CaliberProjectMember.status == "active")
+        ).first()
+        is not None
+    )
+
+
 async def list_mcp_servers(request: Request) -> JSONResponse:
     require_user(request)
+    identity = resolve_identity(request)
     requested_status = request.query_params.get("status", "all")
     if requested_status not in _LIST_STATUS_VALUES:
         raise HTTPException(
@@ -172,7 +234,12 @@ async def list_mcp_servers(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     limit, offset = list_limit(request)
     with factory() as session:
-        stmt = select(CaliberMcpServer).order_by(CaliberMcpServer.name)
+        stmt = apply_visibility_filter(
+            select(CaliberMcpServer),
+            CaliberMcpServer,
+            identity,
+            identity.active_project_id,
+        ).order_by(CaliberMcpServer.name)
         if requested_status != "all":
             stmt = stmt.where(CaliberMcpServer.status == requested_status)
         rows = session.execute(stmt.limit(limit).offset(offset)).scalars().all()
@@ -182,10 +249,11 @@ async def list_mcp_servers(request: Request) -> JSONResponse:
 
 async def get_mcp_server(request: Request) -> JSONResponse:
     require_user(request)
+    identity = resolve_identity(request)
     server_id = request.path_params["server_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        row = session.get(CaliberMcpServer, server_id)
+        row = _visible_server(session, server_id, identity)
         if row is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
         data = _public_server_schema(row)
@@ -203,9 +271,11 @@ async def mcp_server_history(request: Request) -> JSONResponse:
     — so the non-secret history isn't lost on delete.
     """
     require_user(request)
+    identity = resolve_identity(request)
     server_id = request.path_params["server_id"]
     factory = get_session_factory(request)
     with factory() as session:
+        server = _visible_server(session, server_id, identity)
         rows = (
             session.execute(
                 select(CaliberAuditLog)
@@ -217,6 +287,19 @@ async def mcp_server_history(request: Request) -> JSONResponse:
             .scalars()
             .all()
         )
+        if server is None:
+            delete_snapshot = next(
+                (
+                    (row.details or {}).get("snapshot")
+                    for row in rows
+                    if row.action == "delete_mcp_server"
+                    and isinstance(row.details, dict)
+                    and isinstance((row.details or {}).get("snapshot"), dict)
+                ),
+                None,
+            )
+            if not _snapshot_is_visible(session, delete_snapshot, identity):
+                raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
         data = [
             {
                 "log_id": row.log_id,
@@ -236,6 +319,7 @@ async def create_mcp_server(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = McpServerCreateRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
     factory = get_session_factory(request)
     with factory() as session:
         existing = (
@@ -305,7 +389,9 @@ async def create_mcp_server(request: Request) -> JSONResponse:
                 for name, policy in payload.tool_policies.items()
             },
             icon=payload.icon,
-            owner=payload.owner,
+            owner=identity.user_id,
+            project_id=identity.active_project_id,
+            visibility="project" if identity.active_project_id else "user",
             discovered_tools=list(payload.discovered_tools),
             status="active",
         )
@@ -329,13 +415,14 @@ async def update_mcp_server(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = McpServerUpdateRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         raise HTTPException(status_code=400, detail="request body must include at least one field")
 
     factory = get_session_factory(request)
     with factory() as session:
-        server = session.get(CaliberMcpServer, server_id)
+        server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
         diff: dict[str, dict[str, object]] = {}
@@ -431,9 +518,10 @@ def _deployments_referencing_server(session: Session, server_id: str) -> list[st
 async def delete_mcp_server(request: Request) -> JSONResponse:
     server_id = request.path_params["server_id"]
     actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
     factory = get_session_factory(request)
     with factory() as session:
-        server = session.get(CaliberMcpServer, server_id)
+        server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
         # Block deletion that would orphan a live workflow's MCP binding, rather
@@ -472,10 +560,11 @@ async def test_connection(request: Request) -> JSONResponse:
     """
     server_id = request.path_params["server_id"]
     require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
 
     factory = get_session_factory(request)
     with factory() as session:
-        server = session.get(CaliberMcpServer, server_id)
+        server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
 
@@ -543,10 +632,11 @@ async def discover_tools(request: Request) -> JSONResponse:
     """
     server_id = request.path_params["server_id"]
     require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
 
     factory = get_session_factory(request)
     with factory() as session:
-        server = session.get(CaliberMcpServer, server_id)
+        server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
 
@@ -579,10 +669,11 @@ async def list_tools(request: Request) -> JSONResponse:
     Returns discovered tools plus effective policy for each tool.
     """
     require_user(request)
+    identity = resolve_identity(request)
     server_id = request.path_params["server_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        server = session.get(CaliberMcpServer, server_id)
+        server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
         tools: list[McpDiscoveredToolWithPolicySchema] = []
@@ -609,6 +700,7 @@ async def update_tool_policy(request: Request) -> JSONResponse:
     server_id = request.path_params["server_id"]
     tool_name = request.path_params["tool_name"]
     actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
     body = await parse_json_object(request)
     payload = McpToolPolicyUpdateRequest.model_validate(body)
     patch = payload.model_dump(exclude_unset=True)
@@ -617,7 +709,7 @@ async def update_tool_policy(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        server = session.get(CaliberMcpServer, server_id)
+        server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
         known_names = {
@@ -735,6 +827,7 @@ async def invoke_tool(request: Request) -> JSONResponse:
     """
     server_id = request.path_params["server_id"]
     require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
     body = await parse_json_object(request)
     tool_name = body.get("tool_name", "")
     arguments = body.get("arguments", {})
@@ -744,7 +837,7 @@ async def invoke_tool(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        server = session.get(CaliberMcpServer, server_id)
+        server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
         data = await _invoke_mcp_tool(server, tool_name, arguments)
@@ -766,11 +859,12 @@ async def save_mcp_tool_test_cases(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = McpToolTestCasesUpdateRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
 
     cases = [case.model_dump() for case in payload.test_cases]
     factory = get_session_factory(request)
     with factory() as session:
-        server = session.get(CaliberMcpServer, server_id)
+        server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
         if tool_name not in _known_tool_names(server):
@@ -807,10 +901,11 @@ async def calibrate_mcp_tool(request: Request) -> JSONResponse:
     server_id = request.path_params["server_id"]
     tool_name = request.path_params["tool_name"]
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
 
     factory = get_session_factory(request)
     with factory() as session:
-        server = session.get(CaliberMcpServer, server_id)
+        server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
         if tool_name not in _known_tool_names(server):

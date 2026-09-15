@@ -76,9 +76,14 @@ def _require_mcp_dependencies_ready(
     version: CaliberWorkflowVersion,
     *,
     alias: str,
+    identity: Any,
 ) -> None:
     blockers = deployment_blockers(
-        session, version.manifest or {}, alias=alias, require_resolvable_subworkflows=True
+        session,
+        version.manifest or {},
+        alias=alias,
+        require_resolvable_subworkflows=True,
+        identity=identity,
     )
     if blockers:
         raise HTTPException(
@@ -164,7 +169,9 @@ async def promote_deployment(request: Request) -> JSONResponse:
                 status_code=404,
                 detail=f"version {payload.version_id!r} not found for workflow {workflow_id!r}",
             )
-        _require_mcp_dependencies_ready(session, version, alias=alias)
+        _require_mcp_dependencies_ready(
+            session, version, alias=alias, identity=resolve_identity(request)
+        )
         # Optimistic-concurrency guard: refuse if the alias has moved since the
         # caller last saw it (avoids clobbering a concurrent promotion).
         # ``expected_version_id=null`` asserts the alias is not yet deployed.
@@ -308,7 +315,12 @@ async def approve_promotion_route(request: Request) -> JSONResponse:
                 detail=f"promotion version {promotion.version_id!r} no longer exists",
             )
         try:
-            _require_mcp_dependencies_ready(session, version, alias=promotion.alias)
+            _require_mcp_dependencies_ready(
+                session,
+                version,
+                alias=promotion.alias,
+                identity=resolve_identity(request),
+            )
         except HTTPException as exc:
             raise HTTPException(status_code=409, detail=exc.detail) from exc
         try:

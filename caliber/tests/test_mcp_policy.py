@@ -7,9 +7,12 @@ from types import SimpleNamespace
 from typing import Any
 
 import pytest
+from sqlalchemy.orm import Session
 
 from caliber import mcp_policy
+from caliber.auth import CaliberIdentity
 from caliber.config import CaliberConfig
+from caliber.db.models import CaliberMcpServer
 from caliber.mcp_policy import (
     McpPolicyError,
     deployment_blockers,
@@ -287,6 +290,51 @@ def test_deployment_preflight_requires_live_discovery_policy_and_prod_boundary()
     server.last_connected_at = None
     dev = deployment_blockers(_Session(), manifest, alias="dev", config=_config())
     assert any("never completed a live discovery" in item for item in dev)
+
+
+def test_visibility_aware_deployment_preflight_hides_another_project_server(
+    db_session: Session,
+) -> None:
+    db_session.add(
+        CaliberMcpServer(
+            server_id="MCP-hidden",
+            name="Hidden",
+            owner="@other",
+            project_id="P-other",
+            visibility="project",
+            transport="stdio",
+            command="${PYTHON}",
+            args=("-m", "caliber.mcp_servers.db", "--mode", "relational"),
+            status="active",
+            discovered_tools=[{"name": "run_query"}],
+            tool_policies={
+                "run_query": {
+                    "allowed": True,
+                    "side_effect_level": "read",
+                    "requires_approval": False,
+                }
+            },
+            last_connected_at=datetime.now(timezone.utc),
+        )
+    )
+    db_session.commit()
+    identity = CaliberIdentity(user_id="@viewer", scopes=frozenset(), active_project_id="P-visible")
+    blockers = deployment_blockers(
+        db_session,
+        {
+            "tools": {
+                "query": {
+                    "type": "mcp_tool",
+                    "server_id": "MCP-hidden",
+                    "tool_name": "run_query",
+                }
+            }
+        },
+        alias="dev",
+        config=_config(),
+        identity=identity,
+    )
+    assert blockers == ["tool binding 'query': MCP server 'MCP-hidden' does not exist"]
 
 
 def test_deployment_preflight_rejects_unclassified_mcp_tools() -> None:

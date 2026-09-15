@@ -25,6 +25,7 @@ from urllib.parse import urlsplit
 
 from sqlalchemy import select
 
+from caliber.auth import CaliberIdentity
 from caliber.config import CaliberConfig
 from caliber.deployment_environments import requires_external_isolation
 
@@ -461,6 +462,7 @@ def deployment_blockers(
     alias: str,
     config: CaliberConfig | None = None,
     require_resolvable_subworkflows: bool = False,
+    identity: CaliberIdentity | None = None,
 ) -> list[str]:
     """Return deterministic MCP dependency blockers for a deployment.
 
@@ -473,6 +475,7 @@ def deployment_blockers(
     """
 
     from caliber.db.models import CaliberMcpServer  # noqa: PLC0415
+    from caliber.db.scoping import get_visible  # noqa: PLC0415
 
     config = config or CaliberConfig.load()
     # Keyed on the alias's *environment class*, not on the literal alias string:
@@ -500,7 +503,17 @@ def deployment_blockers(
                 "verified; deploy the subworkflow target first"
             )
             continue
-        server = session.get(CaliberMcpServer, dependency.server_id)
+        server = (
+            get_visible(
+                session,
+                CaliberMcpServer,
+                CaliberMcpServer.server_id,
+                dependency.server_id,
+                identity,
+            )
+            if identity is not None
+            else session.get(CaliberMcpServer, dependency.server_id)
+        )
         if server is None:
             blockers.append(f"{prefix}: MCP server {dependency.server_id!r} does not exist")
             continue
