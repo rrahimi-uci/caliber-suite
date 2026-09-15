@@ -19,7 +19,14 @@ from caliber.assistant.models import (
     SessionCreateRequest,
     SessionUpdateRequest,
 )
-from caliber.assistant.service import AssistantRuntimeSettings, AssistantService, ConflictError
+from caliber.assistant.service import (
+    AssistantRuntimeSettings,
+    AssistantService,
+    AssistantSessionCredentialMismatchError,
+    AssistantSessionProjectMismatchError,
+    ConflictError,
+)
+from caliber.auth import SCOPE_VIEWER, CaliberIdentity
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
@@ -118,6 +125,28 @@ class TestSessionCRUD:
         assert fetched is not None
         assert fetched.session_id == resp.session_id
         assert fetched.metadata_["prompt_ref"] == "prompts:/support-agent@prod"
+
+    def test_create_persists_project_context(
+        self,
+        svc: AssistantService,
+        session_factory: sessionmaker[Session],
+    ) -> None:
+        resp = svc.create_session(
+            SessionCreateRequest(title="Workspace chat"),
+            session_factory=session_factory,
+            user=USER,
+            identity=CaliberIdentity(
+                user_id=USER,
+                scopes=frozenset({SCOPE_VIEWER}),
+                active_project_id="PRJ-session",
+            ),
+        )
+
+        assert resp.project_id == "PRJ-session"
+        with session_factory() as db:
+            row = db.get(CaliberAssistantSession, resp.session_id)
+            assert row is not None
+            assert row.project_id == "PRJ-session"
 
     def test_create_persists_artifact_type(
         self,
@@ -440,6 +469,97 @@ class TestMessages:
             assert stored["resume_from_plan_id"] == "PLAN-42"
             assert "scopes" not in stored
             assert "task_kind" not in stored
+
+    def test_send_message_inherits_bound_session_project_without_identity(
+        self,
+        session_factory: sessionmaker[Session],
+    ) -> None:
+        engine = CapturingAssistantEngine()
+        svc = AssistantService(engine=engine)
+        sid = svc.create_session(
+            SessionCreateRequest(title="bound workspace"),
+            session_factory=session_factory,
+            user=USER,
+            identity=CaliberIdentity(
+                user_id=USER,
+                scopes=frozenset({SCOPE_VIEWER}),
+                active_project_id="PRJ-bound",
+            ),
+        ).session_id
+
+        svc.send_message(
+            sid,
+            MessageSendRequest(content="Use this workspace"),
+            session_factory=session_factory,
+            user=USER,
+        )
+
+        assert engine.requests[0].task_context.project_id == "PRJ-bound"
+        with session_factory() as db:
+            row = db.get(CaliberAssistantSession, sid)
+            assert row is not None
+            assert row.metadata_["assistant_task_context"]["project_id"] == "PRJ-bound"
+
+    def test_send_message_rejects_conflicting_session_project(
+        self,
+        svc: AssistantService,
+        session_factory: sessionmaker[Session],
+    ) -> None:
+        sid = svc.create_session(
+            SessionCreateRequest(title="bound workspace"),
+            session_factory=session_factory,
+            user=USER,
+            identity=CaliberIdentity(
+                user_id=USER,
+                scopes=frozenset({SCOPE_VIEWER}),
+                active_project_id="PRJ-bound",
+            ),
+        ).session_id
+
+        with pytest.raises(
+            AssistantSessionProjectMismatchError, match="workspace_context_mismatch"
+        ):
+            svc.send_message(
+                sid,
+                MessageSendRequest(content="Wrong workspace"),
+                session_factory=session_factory,
+                user=USER,
+                identity=CaliberIdentity(
+                    user_id=USER,
+                    scopes=frozenset({SCOPE_VIEWER}),
+                    active_project_id="PRJ-other",
+                ),
+            )
+
+    def test_bound_pat_cannot_use_a_different_session_project(
+        self,
+        svc: AssistantService,
+        session_factory: sessionmaker[Session],
+    ) -> None:
+        sid = svc.create_session(
+            SessionCreateRequest(title="bound workspace"),
+            session_factory=session_factory,
+            user=USER,
+            identity=CaliberIdentity(
+                user_id=USER,
+                scopes=frozenset({SCOPE_VIEWER}),
+                active_project_id="PRJ-bound",
+            ),
+        ).session_id
+
+        with pytest.raises(AssistantSessionCredentialMismatchError, match="personal access token"):
+            svc.send_message(
+                sid,
+                MessageSendRequest(content="Wrong credential context"),
+                session_factory=session_factory,
+                user=USER,
+                identity=CaliberIdentity(
+                    user_id=USER,
+                    scopes=frozenset({SCOPE_VIEWER}),
+                    credential_kind="pat",
+                    credential_project_id="PRJ-other",
+                ),
+            )
 
     def test_send_message_persists_selected_skill_provenance(
         self,

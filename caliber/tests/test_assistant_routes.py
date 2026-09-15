@@ -181,6 +181,48 @@ class TestMessageRoutes:
         assert "scopes" not in stored
         assert "task_kind" not in stored
 
+    def test_send_message_inherits_session_project_without_header(
+        self,
+        client: TestClient,
+        db_session,
+    ) -> None:
+        create = client.post(
+            f"{PREFIX}/sessions",
+            headers={"X-CALIBER-Project": "PRJ-bound"},
+            json={"title": "bound session"},
+        )
+        assert create.status_code == 201, create.text
+        sid = create.json()["data"]["session_id"]
+        assert create.json()["data"]["project_id"] == "PRJ-bound"
+
+        send = client.post(f"{PREFIX}/sessions/{sid}/messages", json={"content": "Continue"})
+        assert send.status_code == 201, send.text
+
+        row = db_session.get(CaliberAssistantSession, sid)
+        assert row is not None
+        assert row.project_id == "PRJ-bound"
+        assert row.metadata_["assistant_task_context"]["project_id"] == "PRJ-bound"
+
+    def test_send_message_rejects_conflicting_session_project(
+        self,
+        client: TestClient,
+    ) -> None:
+        create = client.post(
+            f"{PREFIX}/sessions",
+            headers={"X-CALIBER-Project": "PRJ-bound"},
+            json={"title": "bound session"},
+        )
+        assert create.status_code == 201, create.text
+        sid = create.json()["data"]["session_id"]
+
+        send = client.post(
+            f"{PREFIX}/sessions/{sid}/messages",
+            headers={"X-CALIBER-Project": "PRJ-other"},
+            json={"content": "Wrong workspace"},
+        )
+        assert send.status_code == 400
+        assert send.json()["detail"].startswith("workspace_context_mismatch:")
+
 
 # ---------------------------------------------------------------------------
 # Drafts

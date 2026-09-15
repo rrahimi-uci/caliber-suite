@@ -2858,6 +2858,10 @@ class CaliberAssistantSession(Base):
     session_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     title: Mapped[str] = mapped_column(String(256), default="")
     owner: Mapped[str] = mapped_column(String(256), default="")
+    # A session may carry an ambient workspace across turns. Nullable keeps
+    # existing personal/legacy sessions unbound until a request associates
+    # them with a project.
+    project_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     status: Mapped[str] = mapped_column(String(32), default="active")
     goal: Mapped[str] = mapped_column(Text, default="")
     active_draft_id: Mapped[str | None] = mapped_column(String(64), nullable=True)

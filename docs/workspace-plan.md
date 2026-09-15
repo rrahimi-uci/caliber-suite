@@ -3838,7 +3838,7 @@ not as complete Workspace support.
    subclasses by its `project_id`/`visibility`/owner columns — reusing
    `db/scoping.py::owner_column` directly rather than re-deriving the same
    owner-vs-`created_by` fact a second way — into a clean 4-way partition
-   (40 `unscoped`, 24 `owned_catalog`, 14 `visibility`, 7 `project_only`;
+   (40 `unscoped`, 21 `owned_catalog`, 15 `visibility`, 10 `project_only`;
    see section 16 for the exact per-category meaning). Unlike the route and
    worker slices, nothing here needed a hand-maintained note: every fact is
    safely, mechanically derivable. `tests/test_resource_inventory.py`
@@ -4532,9 +4532,11 @@ execution path. **This is the hard prerequisite for the QA role.**
    compatibility behavior. The MCP slice (`P2-O`) adds `project_id`/
    `visibility` to `CaliberMcpServer` with migration `0096`, scopes registry
    and tool routes plus workflow preflight/bundle/runtime resolution, and
-   preserves legacy rows as owner-only resources. Still open:
-   `assistant/skill_runtime.py`'s session schema has no project context and
-   prompt-provider lookup has no CALIBER-side prompt resource to scope.
+   preserves legacy rows as owner-only resources. Assistant sessions now
+   persist their active project context, inherit it on later turns when no
+   ambient project header is supplied, and reject conflicting project
+   context. Still open: prompt-provider lookup has no CALIBER-side prompt
+   resource to scope.
 6. Scope files, evaluations, review queues, release candidates, plans, and all
    run/event/checkpoint reads through the parent workspace.
    **Delivered (partial, `P2-A`).** Files/evaluations/review-queue/release-
