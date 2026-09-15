@@ -922,6 +922,7 @@ async def create_attachment(request: Request) -> JSONResponse:
     require_scopes(request, [SCOPE_OPERATOR])
     svc = _get_service(request)
     factory = get_session_factory(request)
+    identity = resolve_identity(request)
     session_id = request.path_params["session_id"]
     data = await parse_json_object(request)
     body = AttachmentCreateRequest(**data)
@@ -945,6 +946,7 @@ async def create_attachment(request: Request) -> JSONResponse:
                 resource_id=body.resource_id,
                 session_factory=factory,
                 user=user,
+                identity=identity,
             )
         else:  # object_file
             if not body.bucket or not body.key:
