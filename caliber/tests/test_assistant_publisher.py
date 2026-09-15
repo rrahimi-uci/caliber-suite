@@ -6,8 +6,18 @@ import pytest
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.assistant.publisher import AssistantPublisher
+from caliber.auth import CaliberIdentity
 
 USER = "@test"
+PROJECT_ID = "PRJ-assistant-publisher"
+
+
+def _project_identity() -> CaliberIdentity:
+    return CaliberIdentity(
+        user_id=USER,
+        scopes=frozenset({"caliber.operator"}),
+        active_project_id=PROJECT_ID,
+    )
 
 
 @pytest.fixture
@@ -199,6 +209,114 @@ class TestPublishMcpServer:
         assert result["success"]
         assert result["registry_id"].startswith("MCP-")
         assert result["type"] == "mcp_server"
+
+
+def test_project_identity_is_persisted_for_published_registries(
+    publisher: AssistantPublisher,
+    session_factory: sessionmaker[Session],
+) -> None:
+    """Route-backed publisher calls must not create invisible orphan rows."""
+    identity = _project_identity()
+    cases = (
+        ("tool", {"name": "project-tool"}),
+        ("skill", {"name": "project-skill", "prompt": "Use carefully."}),
+        ("workflow", {"name": "project-workflow", "manifest": {"steps": []}}),
+        (
+            "mcp_server",
+            {"name": "project-mcp", "transport": "stdio", "command": "project-mcp"},
+        ),
+    )
+
+    results = {
+        artifact_type: publisher.publish(
+            artifact_type=artifact_type,
+            artifact=artifact,
+            draft_id=f"ADRF-{artifact_type}-project",
+            session_factory=session_factory,
+            user=USER,
+            identity=identity,
+        )
+        for artifact_type, artifact in cases
+    }
+
+    assert all(result["success"] for result in results.values())
+    with session_factory() as db:
+        from caliber.db.models import (
+            CaliberMcpServer,
+            CaliberSkill,
+            CaliberToolRegistry,
+            CaliberWorkflow,
+        )
+
+        rows = (
+            db.get(CaliberToolRegistry, results["tool"]["registry_id"]),
+            db.get(CaliberSkill, results["skill"]["registry_id"]),
+            db.get(CaliberWorkflow, results["workflow"]["registry_id"]),
+            db.get(CaliberMcpServer, results["mcp_server"]["registry_id"]),
+        )
+
+    assert all(row is not None for row in rows)
+    assert all(row.project_id == PROJECT_ID for row in rows if row is not None)
+    assert all(row.visibility == "project" for row in rows if row is not None)
+    assert all(row.owner == USER for row in rows if row is not None)
+
+
+def test_project_prompt_publish_provisions_a_scoped_target_and_preflights_hidden_name(
+    publisher: AssistantPublisher,
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    calls: list[str] = []
+
+    def fake_register_prompt_version(**kwargs: object) -> dict[str, object]:
+        calls.append(str(kwargs["name"]))
+        return {"name": kwargs["name"], "version": 1, "uri": "prompts:/scoped-prompt/1"}
+
+    monkeypatch.setattr(
+        "caliber.routes.prompts.register_prompt_version",
+        fake_register_prompt_version,
+    )
+    identity = _project_identity()
+    result = publisher.publish(
+        artifact_type="prompt",
+        artifact={"name": "scoped-prompt", "template": "Answer {{question}}"},
+        draft_id="ADRF-prompt-project",
+        session_factory=session_factory,
+        user=USER,
+        identity=identity,
+    )
+
+    assert result["success"] is True
+    with session_factory() as db:
+        from caliber.db.models import CaliberAgentConfig
+
+        target = db.get(CaliberAgentConfig, "scoped-prompt")
+        assert target is not None
+        assert target.owner == USER
+        assert target.project_id == PROJECT_ID
+        assert target.visibility == "project"
+        target = CaliberAgentConfig(
+            agent_id="hidden-prompt",
+            experiment_id="exp-hidden-prompt",
+            name="hidden-prompt",
+            owner="@other",
+            project_id="PRJ-hidden",
+            visibility="project",
+        )
+        db.add(target)
+        db.commit()
+
+    refused = publisher.publish(
+        artifact_type="prompt",
+        artifact={"name": "hidden-prompt", "template": "must not write"},
+        draft_id="ADRF-prompt-hidden",
+        session_factory=session_factory,
+        user=USER,
+        identity=identity,
+    )
+    assert refused["success"] is False
+    assert "not found" in refused["error"]
+    assert calls == ["scoped-prompt"]
 
 
 class TestPublishUnknownType:

@@ -5954,12 +5954,14 @@ class AssistantService:
         *,
         session_factory: Any,
         user: str,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         return self._publish_draft_as(
             draft_id,
             session_factory=session_factory,
             actor=user,
             owner_user=user,
+            identity=identity,
         )
 
     def _publish_draft_as(  # noqa: PLR0911
@@ -5969,6 +5971,7 @@ class AssistantService:
         session_factory: Any,
         actor: str,
         owner_user: str,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         trace_id = self._current_or_new_trace_id()
         correlation_id = ""
@@ -6070,6 +6073,7 @@ class AssistantService:
             draft_id=draft_id,
             session_factory=session_factory,
             user=actor,
+            **_optional_identity_kwargs(identity),
         )
         report = dict(report)
         report.setdefault("trace_id", trace_id)
