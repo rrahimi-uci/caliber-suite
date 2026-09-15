@@ -16,6 +16,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from caliber.auth import CaliberIdentity
 from caliber.db.models import CaliberSkill
 
 VALID_SKILL_RUNTIME_MODES = {"auto", "manual", "off"}
@@ -83,6 +84,10 @@ class AssistantSkillResolutionRequest:
     explicit_skill_names: tuple[str, ...]
     pinned_skill_names: tuple[str, ...]
     disabled_skill_names: tuple[str, ...]
+    # The request identity is optional for compatibility with direct service
+    # callers.  Route-backed turns pass it so skill selection obeys the same
+    # project visibility predicate as the rest of the assistant tool surface.
+    identity: CaliberIdentity | None = None
     max_skills: int = DEFAULT_MAX_SKILLS
     max_content_chars: int = DEFAULT_MAX_CONTENT_CHARS
 
@@ -171,15 +176,17 @@ def resolve_assistant_skills(
     if mode == "off" or request.max_skills <= 0:
         return AssistantSkillResolutionResult(skills=(), warnings=())
 
-    rows = list(
-        session.execute(
-            select(CaliberSkill)
-            .where(CaliberSkill.status == "active")
-            .order_by(CaliberSkill.name.asc()),
+    stmt = select(CaliberSkill).where(CaliberSkill.status == "active")
+    if request.identity is not None:
+        from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
+
+        stmt = apply_visibility_filter(
+            stmt,
+            CaliberSkill,
+            request.identity,
+            request.identity.active_project_id,
         )
-        .scalars()
-        .all()
-    )
+    rows = list(session.execute(stmt.order_by(CaliberSkill.name.asc())).scalars().all())
     by_name = {row.name.lower(): row for row in rows}
     disabled = {name.lower() for name in request.disabled_skill_names}
     selected: list[tuple[CaliberSkill, str]] = []

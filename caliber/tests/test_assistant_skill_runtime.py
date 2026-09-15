@@ -9,6 +9,7 @@ from caliber.assistant.skill_runtime import (
     build_skill_prompt_block,
     resolve_assistant_skills,
 )
+from caliber.auth import SCOPE_VIEWER, CaliberIdentity
 from caliber.db.models import CaliberSkill
 
 
@@ -24,6 +25,9 @@ def _skill(
     status: str = "active",
     depends_on: list[str] | None = None,
     allowed_tools: str | None = None,
+    owner: str = "@test",
+    project_id: str | None = None,
+    visibility: str = "user",
 ) -> CaliberSkill:
     row = CaliberSkill(
         skill_id=f"SK-{name}",
@@ -31,7 +35,9 @@ def _skill(
         description=description,
         summary=summary,
         content=content,
-        owner="@test",
+        owner=owner,
+        project_id=project_id,
+        visibility=visibility,
         category=category,
         tags=tags or [],
         status=status,
@@ -80,6 +86,32 @@ def test_archived_skill_is_not_selected(db_session: Session) -> None:
 
     assert result.skills == ()
     assert "not found or is not active" in result.warnings[0]
+
+
+def test_hidden_project_skill_is_not_selected_for_intent(db_session: Session) -> None:
+    _skill(
+        db_session,
+        "hidden-guidance",
+        owner="@other",
+        project_id="P-hidden",
+        visibility="project",
+    )
+
+    result = resolve_assistant_skills(
+        db_session,
+        _request(
+            mode="manual",
+            explicit_skill_names=("hidden-guidance",),
+            identity=CaliberIdentity(
+                user_id="@test",
+                scopes=frozenset({SCOPE_VIEWER}),
+                active_project_id="P-visible",
+            ),
+        ),
+    )
+
+    assert result.skills == ()
+    assert "hidden-guidance" in result.warnings[0]
 
 
 def test_disabled_skill_excluded(db_session: Session) -> None:
