@@ -912,6 +912,47 @@ def test_skill_bind_unknown_agent_404(client: TestClient) -> None:
     assert resp.status_code == 404
 
 
+def test_skill_bind_hides_a_project_scoped_agent_from_a_non_member(
+    client: TestClient, db_session: Session
+) -> None:
+    skill = _insert_skill(
+        db_session,
+        skill_id="SK-bind-hidden-agent",
+        name="bind-hidden-agent-skill",
+        owner="@stranger",
+        visibility="user",
+        project_id=None,
+    )
+    db_session.add(
+        CaliberAgentConfig(
+            agent_id="hidden-bind-agent",
+            experiment_id="exp-hidden-bind-agent",
+            name="Hidden Agent",
+            owner="@owner",
+            visibility="project",
+            project_id="P-hidden",
+            artifact_types=["prompt"],
+            eval_thresholds={},
+            optimizer_config={},
+            approval_policy={},
+        )
+    )
+    db_session.commit()
+    _grant_stranger_operator_scope(client)
+
+    response = client.post(
+        f"{PREFIX}/{skill.skill_id}/bind",
+        json={"kind": "agent", "agent_id": "hidden-bind-agent"},
+        headers=_STRANGER,
+    )
+    assert response.status_code == 404
+
+    db_session.expire_all()
+    agent = db_session.get(CaliberAgentConfig, "hidden-bind-agent")
+    assert agent is not None
+    assert agent.optimizer_config == {}
+
+
 def test_skill_bind_unknown_skill_404(client: TestClient) -> None:
     assert client.post(f"{PREFIX}/SK-nope/bind", json={"kind": "standalone"}).status_code == 404
 

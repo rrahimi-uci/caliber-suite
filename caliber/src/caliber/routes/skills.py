@@ -1257,6 +1257,18 @@ async def bind_skill(request: Request) -> JSONResponse:
     with factory() as session:
         skill = _visible_skill_or_404(session, request, skill_id)
 
+        agent = None
+        if payload.kind == "agent":
+            agent = get_visible(
+                session,
+                CaliberAgentConfig,
+                CaliberAgentConfig.agent_id,
+                payload.agent_id,
+                identity,
+            )
+            if agent is None:
+                raise HTTPException(status_code=404, detail=f"agent {payload.agent_id!r} not found")
+
         target = ensure_skill_target(
             session,
             skill.name,
@@ -1267,9 +1279,7 @@ async def bind_skill(request: Request) -> JSONResponse:
             target.optimizer_config = {**target.optimizer_config, "bound_to": bound_to}
 
         if payload.kind == "agent":
-            agent = session.get(CaliberAgentConfig, payload.agent_id)
-            if agent is None:
-                raise HTTPException(status_code=404, detail=f"agent {payload.agent_id!r} not found")
+            assert agent is not None
             # Agents reference skills by name under optimizer_config.skills. Add
             # this skill's name (idempotent) so the runtime composes it.
             cfg = agent.optimizer_config if isinstance(agent.optimizer_config, dict) else {}
