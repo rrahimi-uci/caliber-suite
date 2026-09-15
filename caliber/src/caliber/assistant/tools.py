@@ -12,7 +12,11 @@ from __future__ import annotations
 import json
 from typing import TYPE_CHECKING, Any, Protocol
 
+from sqlalchemy import select
+
+from caliber.auth import CaliberIdentity
 from caliber.db.models import CaliberSkill, CaliberToolRegistry
+from caliber.db.scoping import apply_visibility_filter
 
 if TYPE_CHECKING:
     from sqlalchemy.orm import Session, sessionmaker
@@ -55,8 +59,18 @@ def _fn(
 class RegistryToolDispatcher:
     """Grounds assistant replies in the skills/tools registry (read-only)."""
 
-    def __init__(self, session_factory: sessionmaker[Session]) -> None:
+    def __init__(
+        self,
+        session_factory: sessionmaker[Session],
+        *,
+        identity: CaliberIdentity | None = None,
+    ) -> None:
         self._session_factory = session_factory
+        self._identity = identity
+
+    def for_identity(self, identity: CaliberIdentity) -> RegistryToolDispatcher:
+        """Return a request-bound dispatcher without mutating shared state."""
+        return type(self)(self._session_factory, identity=identity)
 
     def specs(self) -> list[dict[str, Any]]:
         return [
@@ -81,10 +95,14 @@ class RegistryToolDispatcher:
 
     def _list_skills(self) -> str:
         with self._session_factory() as session:
+            stmt = select(CaliberSkill).where(CaliberSkill.status == "active")
+            if self._identity is not None:
+                stmt = apply_visibility_filter(
+                    stmt, CaliberSkill, self._identity, self._identity.active_project_id
+                )
             rows = (
-                session.query(CaliberSkill)
-                .filter(CaliberSkill.status == "active")
-                .limit(_MAX_ROWS)
+                session.execute(stmt.order_by(CaliberSkill.name.asc()).limit(_MAX_ROWS))
+                .scalars()
                 .all()
             )
             return json.dumps(
@@ -95,7 +113,12 @@ class RegistryToolDispatcher:
         if not name:
             return json.dumps({"error": "name is required"})
         with self._session_factory() as session:
-            skill = session.query(CaliberSkill).filter(CaliberSkill.name == name).first()
+            stmt = select(CaliberSkill).where(CaliberSkill.name == name)
+            if self._identity is not None:
+                stmt = apply_visibility_filter(
+                    stmt, CaliberSkill, self._identity, self._identity.active_project_id
+                )
+            skill = session.execute(stmt).scalars().first()
             if skill is None:
                 return json.dumps({"error": f"skill {name!r} not found"})
             return json.dumps(
@@ -112,5 +135,17 @@ class RegistryToolDispatcher:
 
     def _list_tools(self) -> str:
         with self._session_factory() as session:
-            rows = session.query(CaliberToolRegistry).limit(_MAX_ROWS).all()
+            stmt = select(CaliberToolRegistry)
+            if self._identity is not None:
+                stmt = apply_visibility_filter(
+                    stmt,
+                    CaliberToolRegistry,
+                    self._identity,
+                    self._identity.active_project_id,
+                )
+            rows = (
+                session.execute(stmt.order_by(CaliberToolRegistry.name.asc()).limit(_MAX_ROWS))
+                .scalars()
+                .all()
+            )
             return json.dumps([{"name": r.name, "description": r.description} for r in rows])

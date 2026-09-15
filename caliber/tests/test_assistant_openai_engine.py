@@ -9,6 +9,7 @@ import pytest
 
 from caliber.assistant.models import AssistantTurnRequest
 from caliber.assistant.openai_engine import OpenAIAssistantEngine
+from caliber.assistant.task_context import AssistantTaskContext
 
 
 def _request() -> AssistantTurnRequest:
@@ -242,6 +243,44 @@ def test_run_turn_drives_tool_calling_loop(monkeypatch: pytest.MonkeyPatch) -> N
     assert dispatcher.dispatched == [("list_skills", {})]
     assert result.reply == "You have 2 skills: alpha, beta."
     assert all(state["saw_tools"])  # tools advertised on every call in the loop
+
+
+def test_run_turn_binds_constructor_dispatcher_to_task_identity(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _patch_openai(monkeypatch, content="ok")
+
+    class _BindingDispatcher(_FakeDispatcher):
+        def __init__(self) -> None:
+            super().__init__()
+            self.bound_identity: Any | None = None
+
+        def for_identity(self, identity: Any) -> _BindingDispatcher:
+            self.bound_identity = identity
+            return self
+
+    dispatcher = _BindingDispatcher()
+    request = AssistantTurnRequest(
+        session_id="s1",
+        user_message="help me",
+        user="@alice",
+        task_context=AssistantTaskContext(
+            project_id="P-visible",
+            scopes=["caliber.viewer"],
+        ),
+    )
+
+    result = OpenAIAssistantEngine(
+        api_key="sk-x",
+        model="gpt-4o",
+        tool_dispatcher=dispatcher,
+    ).run_turn(request)
+
+    assert result.reply == "ok"
+    assert dispatcher.bound_identity is not None
+    assert dispatcher.bound_identity.user_id == "@alice"
+    assert dispatcher.bound_identity.active_project_id == "P-visible"
+    assert dispatcher.bound_identity.scopes == frozenset({"caliber.viewer"})
 
 
 def test_luna_high_tool_loop_uses_responses_api(monkeypatch: pytest.MonkeyPatch) -> None:

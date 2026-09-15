@@ -3737,7 +3737,8 @@ combined with a later slice merely to reduce PR count.
 | `P2-K` | Backend | **Partially delivered (slice 5 of item 1's repo-wide sweep).** `routes/workflow_calibration.py` imported neither visibility primitive at all. `get_options` and `enqueue_workflow_calibration_run` (the `create_run` helper) both looked their workflow up with a bare `session.get`, and the helper did the same for the target agent. `identity` is optional on the helper: `create_run` and the Aria capability (`_workflow_calibrate`, via `ctx.identity()`) both pass a real one; `assistant/service.py`'s older intent-plan dispatch path has no per-turn identity concept yet (the same already-named item-5 plumbing gap) and still passes `None`, named explicitly at that call site rather than silently left as-is. **Not yet delivered:** the other 2 gaps `P2-H`'s sweep named (`rollback.py`, `skills.py::bind_skill`) | `P2-A` | A non-member is refused (404) reading calibration options for, or queuing a run against, a hidden workflow; a caller with a visible workflow but a hidden target agent is refused (400, "not registered") before any job is queued |
 | `P2-J` | Backend | **Partially delivered (slice 4 of item 1's repo-wide sweep).** The second of `P2-H`'s named follow-ups: `routes/prompts.py::enqueue_prompt_optimization_run`'s own eval-dataset lookup -- the identical shape `create_evaluation`'s (`P2-H`) had, in a different file. Closed the same way (`get_visible`), reusing the `identity` parameter this function already gained in `P2-G`. **Not yet delivered:** the other 3 gaps `P2-H` named (`workflow_calibration.py`, `rollback.py`, `skills.py::bind_skill`) | `P2-A` | A non-member operator is refused (404) pinning a manual prompt-optimization run to another project's eval dataset by id |
 | `P2-L` | Backend | **Partially delivered (slice 6 of item 1's repo-wide sweep).** `routes/rollback.py` now resolves the agent target through `get_visible` for checkpoint listing and destructive rollback, and scopes its legacy skill-name existence fallback through `apply_visibility_filter`. `routes/skills.py::bind_skill` now resolves a requested agent through `get_visible` before mutating its `optimizer_config`. The legacy `assistant/service.py` intent-plan dispatch identity gap remains a separate, larger plumbing task. | `P2-A` | A non-member cannot list or consume rollback checkpoints for a hidden agent, and cannot bind a visible skill to a hidden agent; each is returned as an indistinguishable 404 |
-| `P2-M` | Backend/assistant | **Partially delivered (slice 7 of item 1's repo-wide sweep).** Route-backed assistant turns now retain the resolved `CaliberIdentity` through skill selection, capability dispatch, and intent-plan execution. Workflow calibration and prompt optimization adapters pass it to their existing visibility-aware route helpers; default workflow-calibration agent selection is scoped; assistant-created eval datasets retain the active project and visibility tier; and PAT-limited turn scopes are honored by capability dispatch. **Not yet delivered:** visibility plumbing for the remaining assistant intent review/read adapters and MCP bindings, which need their own resource-context decisions or schema work. | `P2-A`, `P2-K`, `P2-L` | A hidden project skill is not selected; a scope-limited turn cannot dispatch an operator capability; intent-plan calibration refuses a hidden workflow; project-created assistant datasets remain visible through the normal project predicate |
+| `P2-M` | Backend/assistant | **Partially delivered (slice 7 of item 1's repo-wide sweep).** Route-backed assistant turns now retain the resolved `CaliberIdentity` through skill selection, capability dispatch, and intent-plan execution. Workflow calibration and prompt optimization adapters pass it to their existing visibility-aware route helpers; default workflow-calibration agent selection is scoped; assistant-created eval datasets retain the active project and visibility tier; and PAT-limited turn scopes are honored by capability dispatch. The remaining assistant registry/library/review reads are tracked in `P2-N`; MCP bindings remain a schema/resource-context task. | `P2-A`, `P2-K`, `P2-L` | A hidden project skill is not selected; a scope-limited turn cannot dispatch an operator capability; intent-plan calibration refuses a hidden workflow; project-created assistant datasets remain visible through the normal project predicate |
+| `P2-N` | Backend/assistant | **Partially delivered (slice 8 of item 1's repo-wide sweep).** The legacy `assistant/tools.py` registry dispatcher now scopes skill/tool list and detail reads through a request-bound identity, and `OpenAIAssistantEngine` derives that binding from the per-turn task context without sharing caller state across requests. Assistant library attachments scope skill/tool/workflow/knowledge-base snapshots; optimization/workflow result readers scope legacy refinement jobs through their visibility-aware agent parent; and promotion proposals refuse invisible agent targets. Direct callers without identity retain compatibility behavior. Prompt-provider lookup and MCP bindings remain explicitly deferred because they lack a CALIBER-side prompt resource and MCP visibility schema respectively. | `P2-M` | A non-member cannot enumerate or attach another project's skill/tool/workflow/knowledge base, cannot inspect its refinement result through an assistant plan, and cannot propose promotion against its hidden agent; same-project and legacy direct callers remain functional |
 | `P3-A` | Workflow/quality | **Delivered** (global slice). `caliber_rework_tasks` (global, not yet project-scoped) auto-created in the same transaction that terminally rejects a `CaliberRefinementJob`; list/get/claim/resolve/reassign routes and CALIBER SDK methods (`client.rework_tasks`); `POST /jobs/{id}/request-changes` writer for the already-existing `review_notes` consumer. Exhaustion escalation is satisfied by (1) without changing the shipped `refinement_max_iterations=0` default — see section 3.6. The QA review record this row originally deferred was delivered separately as `P3-C`. Still open: the project-scoped `/projects/{id}/rework-tasks` API, which needs `P1-C`'s Workspace authorization | `P0-B`, `P1-C` | A rejected refinement job produces an owned, claimable, resolvable task instead of a terminal row nobody sees; the resolved slice needs no `P1-C` (gates on today's existing global scopes, see section 16 delivery-dependency notes); Phase 5 adds the release FK and aggregate path |
 | `P3-B` | Workflow/quality | **Delivered.** List/get/create/verify/dismiss/duplicate/batch verification-queue routes and CALIBER SDK methods against the existing `CaliberVerificationItem` model and schemas; no new table | `P0-B` | A human can verify or dismiss a pending item they did not create; none of today's four job-creation paths was required to change (and none did); ingestion (a poller creating `pending` items from real signals) remains explicitly out of scope per the Phase 0 decision |
 | `P3-C` | Workflow/quality | **Delivered.** New standalone `caliber_quality_reviews` table (not a narrower slice of a later target schema, unlike `caliber_rework_tasks`); `POST`/`GET /jobs/{id}/quality-reviews` and CALIBER SDK methods (`client.quality_reviews`). `"go"` is advisory only; `"no_go"` terminally rejects the job and creates a `caliber_rework_tasks` row with `failure_kind="quality_no_go"` in the same transaction | `P0-B` | A human can record a go/no-go on a `candidate_ready` job's candidate, distinct from the machine gate; a `no_go` produces the same owned rework task a machine-gate rejection does, closing the last gap section 3.6 named; the aggregate Workspace-release quality decision (Phase 5, `caliber_workspace_release_decisions`) is a separate table at a different granularity, not an extension of this one |
@@ -4363,9 +4364,19 @@ execution path. **This is the hard prerequisite for the QA role.**
    route helpers; default workflow-calibration agent selection is scoped;
    assistant-created eval datasets retain the active project and visibility
    tier; and PAT-limited turn scopes are honored by capability dispatch.
-   **Not yet delivered:** visibility plumbing for the remaining assistant
-   intent review/read adapters and MCP bindings, which need their own
-   resource-context decisions or schema work.
+   **Delivered (partial, slice 8, `P2-N`).** The legacy registry dispatcher
+   (`assistant/tools.py`) now accepts a request-bound identity and scopes skill
+   and tool enumeration/detail reads through the shared visibility predicate;
+   `OpenAIAssistantEngine` binds its long-lived fallback dispatcher from the
+   per-turn task context without sharing identity across requests. Assistant
+   library attachments now scope skill/tool/workflow/knowledge-base snapshots,
+   and intent-plan optimization/workflow result readers resolve refinement jobs
+   through their visibility-aware agent parent. Promotion proposals likewise
+   refuse an invisible agent target. Direct service/dispatcher callers without
+   an identity retain their compatibility behavior. **Not yet delivered:** the
+   prompt-provider lookup still has no CALIBER-side prompt resource to scope,
+   and MCP bindings still need their own schema migration/resource-context
+   decision.
 2. Require project IDs for new project-owned root records; retain explicit
    personal/public catalog paths.
 3. Add missing indexes and FKs where migration evidence permits.
@@ -4508,14 +4519,16 @@ execution path. **This is the hard prerequisite for the QA role.**
    unresolvable by any later lookup); its duplicate-name probe was
    deliberately left global, since `CaliberEvalDataset.name` carries a real
    database `UniqueConstraint` -- a globally unique handle like
-   `CaliberAgentConfig.agent_id`, not a per-project namespace. Still open,
-   explicitly sized as a separate future slice: `assistant/tools.py`,
-   `assistant/service.py`, `assistant/skill_runtime.py` -- unlike
-   `agent_tools.py`, these need *new* per-turn project-id plumbing rather
-   than reusing an existing pattern (`assistant/tools.py`'s class carries no
-   project-id concept at all; `assistant/skill_runtime.py`'s
-   `CaliberAssistantSession` has no `project_id` column -- a real design
-   question, not just a missing parameter).
+   `CaliberAgentConfig.agent_id`, not a per-project namespace. Slice 6
+   (`P2-N`, assistant slice 8): `assistant/tools.py` now accepts a
+   request-bound identity for scoped skill/tool enumeration and detail reads;
+   `OpenAIAssistantEngine` derives that binding from per-turn task context;
+   and `assistant/service.py` scopes library snapshots, refinement-result
+   readers, and promotion targets. Direct callers without an identity retain
+   compatibility behavior. Still open: `assistant/skill_runtime.py`'s session
+   schema has no project context, prompt-provider lookup has no CALIBER-side
+   prompt resource to scope, and MCP bindings need their own visibility
+   schema/resource-context decision.
 6. Scope files, evaluations, review queues, release candidates, plans, and all
    run/event/checkpoint reads through the parent workspace.
    **Delivered (partial, `P2-A`).** Files/evaluations/review-queue/release-

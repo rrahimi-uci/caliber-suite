@@ -1408,6 +1408,65 @@ def test_execute_review_workflow_no_candidates(
     assert result["score_table"] == []
 
 
+def test_execute_review_adapters_hide_jobs_for_another_project(
+    svc: AssistantService, session_factory: sessionmaker[Session]
+) -> None:
+    with session_factory() as db:
+        db.add(
+            CaliberAgentConfig(
+                agent_id="hidden-review-agent",
+                experiment_id="exp-hidden-review",
+                name="Hidden review agent",
+                owner="@other",
+                project_id="P-hidden",
+                visibility="project",
+                enabled=True,
+            )
+        )
+        db.add_all(
+            [
+                CaliberRefinementJob(
+                    job_id="RFN-hidden-opt",
+                    agent_id="hidden-review-agent",
+                    primary_item_id="FB-hidden-opt",
+                    artifact_type="prompt",
+                    status="completed",
+                    current_stage="done",
+                ),
+                CaliberRefinementJob(
+                    job_id="RFN-hidden-wf",
+                    agent_id="hidden-review-agent",
+                    primary_item_id="FB-hidden-wf",
+                    artifact_type="workflow_manifest",
+                    status="completed",
+                    current_stage="done",
+                ),
+            ]
+        )
+        db.commit()
+
+    identity = CaliberIdentity(
+        user_id=USER,
+        scopes=frozenset({SCOPE_OPERATOR, SCOPE_VIEWER}),
+        active_project_id="P-visible",
+    )
+    with pytest.raises(ValueError, match="not found"):
+        svc._execute_review_optimization_result(
+            _plan("review_optimization_result", {"job_id": "RFN-hidden-opt"}),
+            session_factory=session_factory,
+            identity=identity,
+        )
+    with pytest.raises(ValueError, match="not found"):
+        svc._execute_review_workflow_calibration_result(
+            _plan(
+                "review_workflow_calibration_result",
+                {"job_id": "RFN-hidden-wf"},
+            ),
+            session_factory=session_factory,
+            identity=identity,
+        )
+
+
 # ---------------------------------------------------------------------------
 # propose_promotion adapter
 # ---------------------------------------------------------------------------
@@ -1483,6 +1542,45 @@ def test_propose_promotion_agent_missing(
     )
     assert result["status"] == "blocked"
     assert "was not found" in result["warnings"][0]
+
+
+def test_propose_promotion_hides_another_project_agent(
+    svc: AssistantService, session_factory: sessionmaker[Session]
+) -> None:
+    with session_factory() as db:
+        db.add(
+            CaliberAgentConfig(
+                agent_id="hidden-promo-agent",
+                experiment_id="exp-hidden-promo",
+                name="Hidden promotion agent",
+                owner="@other",
+                project_id="P-hidden",
+                visibility="project",
+            )
+        )
+        db.commit()
+
+    result = svc._execute_propose_promotion(
+        _plan(
+            "propose_promotion",
+            {
+                "prompt_name": "hidden-promo-agent",
+                "target_alias": "prod",
+                "source_version": 2,
+            },
+        ),
+        **_promotion_kwargs(session_factory, "S"),
+        identity=CaliberIdentity(
+            user_id=USER,
+            scopes=frozenset({SCOPE_OPERATOR, SCOPE_VIEWER}),
+            active_project_id="P-visible",
+        ),
+    )
+
+    assert result["status"] == "blocked"
+    assert "was not found" in result["warnings"][0]
+    with session_factory() as db:
+        assert db.query(CaliberApprovalRequest).count() == 0
 
 
 def test_propose_promotion_creates_and_reuses(
@@ -1769,6 +1867,78 @@ def test_resolve_library_all_types(
             user=USER,
         ).content_text
     )
+
+
+def test_library_attachment_hides_other_project_resources(
+    svc: AssistantService, session_factory: sessionmaker[Session]
+) -> None:
+    sid = _new_session(svc, session_factory)
+    with session_factory() as db:
+        db.add(
+            CaliberSkill(
+                skill_id="SK-hidden-library",
+                name="hidden-library-skill",
+                content="secret skill",
+                owner="@other",
+                category="custom",
+                project_id="P-hidden",
+                visibility="project",
+            )
+        )
+        db.add(
+            CaliberToolRegistry(
+                tool_id="TL-hidden-library",
+                name="hidden-library-tool",
+                version="1.0.0",
+                description="secret tool",
+                module_path="m",
+                callable_name="f",
+                owner="@other",
+                project_id="P-hidden",
+                visibility="project",
+            )
+        )
+        db.add(
+            CaliberWorkflow(
+                workflow_id="WF-hidden-library",
+                name="hidden-library-workflow",
+                owner="@other",
+                project_id="P-hidden",
+                visibility="project",
+            )
+        )
+        db.add(
+            CaliberKnowledgeBase(
+                knowledge_base_id="KB-hidden-library",
+                name="hidden-library-kb",
+                owner="@other",
+                source_bucket="secret-bucket",
+                project_id="P-hidden",
+                visibility="project",
+            )
+        )
+        db.commit()
+
+    identity = CaliberIdentity(
+        user_id=USER,
+        scopes=frozenset({SCOPE_OPERATOR, SCOPE_VIEWER}),
+        active_project_id="P-visible",
+    )
+    for resource_type, resource_id in (
+        ("skill", "SK-hidden-library"),
+        ("tool", "TL-hidden-library"),
+        ("workflow", "WF-hidden-library"),
+        ("knowledge_base", "KB-hidden-library"),
+    ):
+        with pytest.raises(ValueError, match="not found"):
+            svc.add_library_attachment(
+                sid,
+                resource_type=resource_type,
+                resource_id=resource_id,
+                session_factory=session_factory,
+                user=USER,
+                identity=identity,
+            )
 
 
 def test_resolve_library_not_found_and_unsupported(

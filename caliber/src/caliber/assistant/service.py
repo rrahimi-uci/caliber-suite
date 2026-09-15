@@ -1213,6 +1213,7 @@ class AssistantService:
                             result_payload = self._execute_review_optimization_result(
                                 plan,
                                 session_factory=session_factory,
+                                **_optional_identity_kwargs(identity),
                             )
                         elif plan.intent.name == "run_workflow_calibration":
                             executed_action = "enqueue_workflow_calibration"
@@ -1227,6 +1228,7 @@ class AssistantService:
                             result_payload = self._execute_review_workflow_calibration_result(
                                 plan,
                                 session_factory=session_factory,
+                                **_optional_identity_kwargs(identity),
                             )
                         elif plan.intent.name == "propose_promotion":
                             executed_action = "propose_promotion"
@@ -1238,6 +1240,7 @@ class AssistantService:
                                 correlation_id=correlation_id,
                                 session_factory=session_factory,
                                 user=user,
+                                **_optional_identity_kwargs(identity),
                             )
                         else:
                             raise ValueError(
@@ -3902,13 +3905,14 @@ class AssistantService:
         plan: IntentPlanResponse,
         *,
         session_factory: Any,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         job_id = self._slot_value(plan, "job_id")
         if not isinstance(job_id, str) or not job_id.strip():
             raise ValueError("job_id must be a non-empty string")
 
         with session_factory() as db:
-            job = db.get(CaliberRefinementJob, job_id.strip())
+            job = self._get_refinement_job_for_identity(db, job_id.strip(), identity)
             if job is None:
                 raise ValueError(f"refinement job {job_id!r} not found")
             eval_results = getattr(job, "eval_results", None) or {}
@@ -3951,13 +3955,14 @@ class AssistantService:
         plan: IntentPlanResponse,
         *,
         session_factory: Any,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         job_id = self._slot_value(plan, "job_id")
         if not isinstance(job_id, str) or not job_id.strip():
             raise ValueError("job_id must be a non-empty string")
 
         with session_factory() as db:
-            job = db.get(CaliberRefinementJob, job_id.strip())
+            job = self._get_refinement_job_for_identity(db, job_id.strip(), identity)
             if job is None:
                 raise ValueError(f"refinement job {job_id!r} not found")
             eval_results = getattr(job, "eval_results", None) or {}
@@ -4019,6 +4024,43 @@ class AssistantService:
                 },
             )
 
+    @staticmethod
+    def _get_refinement_job_for_identity(
+        db: Any,
+        job_id: str,
+        identity: CaliberIdentity | None,
+    ) -> CaliberRefinementJob | None:
+        """Resolve a job through its visibility-aware agent parent.
+
+        Refinement jobs predate project scoping and intentionally have no
+        ``project_id``/``visibility`` columns. Their required ``agent_id``
+        foreign key is the persisted resource context, so assistant result
+        readers use the agent's existing three-tier visibility predicate rather
+        than exposing a globally-addressable job id.
+        """
+        if identity is None:
+            return db.get(CaliberRefinementJob, job_id)
+
+        from sqlalchemy import select  # noqa: PLC0415
+
+        from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
+
+        stmt = (
+            select(CaliberRefinementJob)
+            .join(
+                CaliberAgentConfig,
+                CaliberAgentConfig.agent_id == CaliberRefinementJob.agent_id,
+            )
+            .where(CaliberRefinementJob.job_id == job_id)
+        )
+        stmt = apply_visibility_filter(
+            stmt,
+            CaliberAgentConfig,
+            identity,
+            identity.active_project_id,
+        )
+        return db.execute(stmt).scalars().first()
+
     def _execute_propose_promotion(
         self,
         plan: IntentPlanResponse,
@@ -4029,6 +4071,7 @@ class AssistantService:
         correlation_id: str,
         session_factory: Any,
         user: str,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         prompt_name = self._slot_value(plan, "prompt_name")
         target_alias = self._slot_value(plan, "target_alias")
@@ -4069,7 +4112,18 @@ class AssistantService:
 
         artifact_ref = f"prompts:/{clean_prompt_name}/{version_number}"
         with session_factory() as db:
-            agent = db.get(CaliberAgentConfig, clean_prompt_name)
+            if identity is None:
+                agent = db.get(CaliberAgentConfig, clean_prompt_name)
+            else:
+                from caliber.db.scoping import get_visible  # noqa: PLC0415
+
+                agent = get_visible(
+                    db,
+                    CaliberAgentConfig,
+                    CaliberAgentConfig.agent_id,
+                    clean_prompt_name,
+                    identity,
+                )
             if agent is None:
                 return self._result_envelope(
                     result_type="blocked",
@@ -4442,9 +4496,13 @@ class AssistantService:
         resource_id: str,
         session_factory: Any,
         user: str,
+        identity: CaliberIdentity | None = None,
     ) -> AttachmentResponse:
         name, content = self._resolve_library_resource(
-            resource_type, resource_id, session_factory=session_factory
+            resource_type,
+            resource_id,
+            session_factory=session_factory,
+            identity=identity,
         )
         return self.create_attachment_record(
             session_id,
@@ -4464,6 +4522,7 @@ class AssistantService:
         resource_id: str,
         *,
         session_factory: Any,
+        identity: CaliberIdentity | None = None,
     ) -> tuple[str, str]:
         """Resolve a CALIBER asset into a (display-name, text-snapshot) pair."""
         if resource_type == "prompt":
@@ -4474,7 +4533,9 @@ class AssistantService:
 
         with session_factory() as db:
             if resource_type == "skill":
-                row = db.get(CaliberSkill, resource_id)
+                row = self._get_visible_library_row(
+                    db, CaliberSkill, CaliberSkill.skill_id, resource_id, identity
+                )
                 if row is None:
                     raise ValueError(f"Skill {resource_id} not found")
                 content = "\n".join(
@@ -4489,7 +4550,9 @@ class AssistantService:
                 )
                 return row.name, content
             if resource_type == "tool":
-                row = db.get(CaliberToolRegistry, resource_id)
+                row = self._get_visible_library_row(
+                    db, CaliberToolRegistry, CaliberToolRegistry.tool_id, resource_id, identity
+                )
                 if row is None:
                     raise ValueError(f"Tool {resource_id} not found")
                 content = "\n".join(
@@ -4506,7 +4569,9 @@ class AssistantService:
                 )
                 return row.name, content
             if resource_type == "workflow":
-                row = db.get(CaliberWorkflow, resource_id)
+                row = self._get_visible_library_row(
+                    db, CaliberWorkflow, CaliberWorkflow.workflow_id, resource_id, identity
+                )
                 if row is None:
                     raise ValueError(f"Workflow {resource_id} not found")
                 content = "\n".join(
@@ -4520,7 +4585,13 @@ class AssistantService:
                 )
                 return row.name, content
             if resource_type == "knowledge_base":
-                row = db.get(CaliberKnowledgeBase, resource_id)
+                row = self._get_visible_library_row(
+                    db,
+                    CaliberKnowledgeBase,
+                    CaliberKnowledgeBase.knowledge_base_id,
+                    resource_id,
+                    identity,
+                )
                 if row is None:
                     raise ValueError(f"Knowledge base {resource_id} not found")
                 content = "\n".join(
@@ -4534,6 +4605,20 @@ class AssistantService:
                 )
                 return row.name, content
         raise ValueError(f"Unsupported library resource type: {resource_type}")
+
+    @staticmethod
+    def _get_visible_library_row(
+        db: Any,
+        model: Any,
+        pk_column: Any,
+        resource_id: str,
+        identity: CaliberIdentity | None,
+    ) -> Any | None:
+        if identity is None:
+            return db.get(model, resource_id)
+        from caliber.db.scoping import get_visible  # noqa: PLC0415
+
+        return get_visible(db, model, pk_column, resource_id, identity)
 
     def delete_attachment(
         self,

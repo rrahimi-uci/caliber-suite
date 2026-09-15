@@ -18,6 +18,7 @@ from caliber.assistant.models import (
     AssistantTurnResult,
 )
 from caliber.assistant.prompt_builder import build_assistant_system_prompt, parse_assistant_response
+from caliber.auth import CaliberIdentity
 from caliber.config import provider_request_timeout
 from caliber.llm.models import (
     DEFAULT_OPENAI_MODEL,
@@ -94,6 +95,19 @@ class OpenAIAssistantEngine:
         # A per-turn toolset (context-bound, permissioned) takes precedence over
         # the constructor-time read-only dispatcher.
         dispatcher = toolset or self._tool_dispatcher
+        if toolset is None and dispatcher is not None:
+            # The constructor-time registry dispatcher is shared by all
+            # requests. Bind it to this turn's authenticated task context
+            # before exposing any read tools, so a model cannot enumerate a
+            # different project's skills/tools through the fallback path.
+            bind = getattr(dispatcher, "for_identity", None)
+            if callable(bind) and request.user:
+                identity = CaliberIdentity(
+                    user_id=request.user,
+                    scopes=frozenset(request.task_context.scopes),
+                    active_project_id=request.task_context.project_id,
+                )
+                dispatcher = bind(identity)
         tools = dispatcher.specs() if dispatcher is not None else None
         executed: list[AssistantToolCall] = []
 
