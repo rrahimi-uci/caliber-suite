@@ -472,7 +472,12 @@ async def publish_draft(request: Request) -> JSONResponse:
     svc = _get_service(request)
     factory = get_session_factory(request)
     draft_id = request.path_params["draft_id"]
-    report = svc.publish_draft(draft_id, session_factory=factory, user=user)
+    report = svc.publish_draft(
+        draft_id,
+        session_factory=factory,
+        user=user,
+        identity=resolve_identity(request),
+    )
     status = 200 if report.get("success") else 400
     return JSONResponse({"data": report}, status_code=status)
 

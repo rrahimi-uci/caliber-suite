@@ -2528,6 +2528,53 @@ def test_publish_draft_publisher_success(session_factory: sessionmaker[Session])
         assert row.target_registry_id == "REG-1"
 
 
+def test_publish_draft_forwards_request_identity_to_publisher(
+    session_factory: sessionmaker[Session],
+) -> None:
+    captured: dict[str, object] = {}
+
+    class _CapturingPublisher:
+        def publish(self, **kwargs: object) -> dict[str, object]:
+            captured.update(kwargs)
+            return {"success": True, "registry_id": "REG-context"}
+
+    svc = AssistantService(
+        engine=FakeAssistantEngine(),
+        publisher=_CapturingPublisher(),  # type: ignore[arg-type]
+    )
+    sid = _new_session(svc, session_factory)
+    with session_factory() as db:
+        draft = CaliberAssistantDraft(
+            draft_id=new_assistant_draft_id(),
+            session_id=sid,
+            artifact_type="tool",
+            status="approved",
+            title="t",
+            spec={},
+            artifact={},
+            created_by=USER,
+            updated_by=USER,
+        )
+        db.add(draft)
+        db.commit()
+        did = draft.draft_id
+
+    identity = CaliberIdentity(
+        user_id=USER,
+        scopes=frozenset({SCOPE_OPERATOR}),
+        active_project_id="PRJ-assistant-context",
+    )
+    result = svc.publish_draft(
+        did,
+        session_factory=session_factory,
+        user=USER,
+        identity=identity,
+    )
+
+    assert result["success"] is True
+    assert captured["identity"] is identity
+
+
 # ---------------------------------------------------------------------------
 # Adapter happy paths (full execution bodies)
 # ---------------------------------------------------------------------------

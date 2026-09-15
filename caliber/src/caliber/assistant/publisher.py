@@ -7,7 +7,30 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, cast
 
+from caliber.auth import CaliberIdentity
+
 logger = logging.getLogger(__name__)
+
+
+def _publisher_scope(
+    identity: CaliberIdentity | None,
+    *,
+    no_project_visibility: str,
+) -> dict[str, Any]:
+    """Return the persisted visibility context for a published resource.
+
+    Direct publisher callers predate request identities and intentionally retain
+    their compatibility behavior. Route-backed publishes always pass an
+    identity, so a new resource cannot become an invisible ``project`` row with
+    no project id, and a client-supplied artifact field cannot choose its owner
+    or workspace.
+    """
+    if identity is None:
+        return {}
+    return {
+        "project_id": identity.active_project_id,
+        "visibility": ("project" if identity.active_project_id else no_project_visibility),
+    }
 
 
 class AssistantPublisher:
@@ -26,6 +49,7 @@ class AssistantPublisher:
         draft_id: str,
         session_factory: Any,
         user: str,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         """Publish ``artifact`` and return a publish report dict."""
         handler = {
@@ -40,7 +64,11 @@ class AssistantPublisher:
             return {"success": False, "error": f"Unknown artifact type: {artifact_type}"}
 
         return handler(
-            artifact=artifact, draft_id=draft_id, session_factory=session_factory, user=user
+            artifact=artifact,
+            draft_id=draft_id,
+            session_factory=session_factory,
+            user=user,
+            identity=identity,
         )
 
     # ------------------------------------------------------------------
@@ -48,7 +76,13 @@ class AssistantPublisher:
     # ------------------------------------------------------------------
 
     def _publish_tool(
-        self, *, artifact: dict[str, Any], draft_id: str, session_factory: Any, user: str
+        self,
+        *,
+        artifact: dict[str, Any],
+        draft_id: str,
+        session_factory: Any,
+        user: str,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         from caliber.db.models import CaliberToolRegistry  # noqa: PLC0415
         from caliber.ids import new_tool_id  # noqa: PLC0415
@@ -64,14 +98,23 @@ class AssistantPublisher:
                 callable_name=artifact.get("callable_name", artifact.get("name", "")),
                 input_schema=artifact.get("input_schema", {}),
                 output_schema=artifact.get("output_schema", {}),
-                owner=user,
+                owner=identity.user_id if identity is not None else user,
+                # Match the REST tool route: a tool created without an active
+                # project is an organization-wide registry entry.
+                **_publisher_scope(identity, no_project_visibility="public"),
             )
             db.add(tool)
             db.commit()
         return {"success": True, "registry_id": tool_id, "type": "tool"}
 
     def _publish_skill(
-        self, *, artifact: dict[str, Any], draft_id: str, session_factory: Any, user: str
+        self,
+        *,
+        artifact: dict[str, Any],
+        draft_id: str,
+        session_factory: Any,
+        user: str,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         del draft_id
         from caliber.db.models import CaliberSkill  # noqa: PLC0415
@@ -88,19 +131,26 @@ class AssistantPublisher:
                 description=artifact.get("description", ""),
                 summary=artifact.get("summary", ""),
                 content=artifact.get("prompt", artifact.get("content", "")),
-                owner=user,
                 category=artifact.get("category", "custom"),
                 tags=list(tags) if isinstance(tags, list) else [],
                 skill_metadata=dict(skill_metadata) if isinstance(skill_metadata, dict) else {},
                 allowed_tools=artifact.get("allowed_tools"),
                 depends_on=list(depends_on) if isinstance(depends_on, list) else [],
+                owner=identity.user_id if identity is not None else user,
+                **_publisher_scope(identity, no_project_visibility="user"),
             )
             db.add(skill)
             db.commit()
         return {"success": True, "registry_id": skill_id, "type": "skill"}
 
     def _publish_prompt(
-        self, *, artifact: dict[str, Any], draft_id: str, session_factory: Any, user: str
+        self,
+        *,
+        artifact: dict[str, Any],
+        draft_id: str,
+        session_factory: Any,
+        user: str,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         from caliber.routes import prompts as prompt_routes  # noqa: PLC0415
 
@@ -123,17 +173,38 @@ class AssistantPublisher:
         if approval_id:
             tags["caliber.approval_id"] = approval_id
 
+        # A prompt's provider name is global, but its CALIBER runtime target is
+        # the resource that carries workspace ownership and visibility. Prepare
+        # that target before the provider write so a hidden target cannot be
+        # taken over by a second project. Direct callers retain the historical
+        # provider-only behavior when no request identity is available.
         try:
-            result = prompt_routes.register_prompt_version(
-                name=name,
-                template=template,
-                commit_message=str(
-                    artifact.get("commit_message") or "published via CALIBER assistant"
-                ),
-                tags=tags,
-                source="caliber-assistant",
-                set_prod_alias=False,
-            )
+            with session_factory() as prompt_session:
+                if identity is not None:
+                    from caliber.prompt_targets import ensure_prompt_target  # noqa: PLC0415
+
+                    raw_model = artifact.get("model")
+                    model = raw_model.strip() if isinstance(raw_model, str) else None
+                    ensure_prompt_target(
+                        prompt_session,
+                        name,
+                        owner=identity.user_id,
+                        identity=identity,
+                        model=model,
+                        project_id=identity.active_project_id,
+                    )
+                result = prompt_routes.register_prompt_version(
+                    name=name,
+                    template=template,
+                    commit_message=str(
+                        artifact.get("commit_message") or "published via CALIBER assistant"
+                    ),
+                    tags=tags,
+                    source="caliber-assistant",
+                    set_prod_alias=False,
+                )
+                if identity is not None:
+                    prompt_session.commit()
         except Exception as exc:
             return {"success": False, "error": str(exc)}
 
@@ -302,7 +373,13 @@ class AssistantPublisher:
             return checkpoint.checkpoint_id
 
     def _publish_workflow(
-        self, *, artifact: dict[str, Any], draft_id: str, session_factory: Any, user: str
+        self,
+        *,
+        artifact: dict[str, Any],
+        draft_id: str,
+        session_factory: Any,
+        user: str,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         del draft_id
         from caliber.db.models import CaliberWorkflow, CaliberWorkflowVersion  # noqa: PLC0415
@@ -327,8 +404,9 @@ class AssistantPublisher:
                 workflow_id=wf_id,
                 name=artifact.get("name", ""),
                 description=artifact.get("description", ""),
-                owner=user,
+                owner=identity.user_id if identity is not None else user,
                 default_experiment_id=artifact.get("default_experiment_id"),
+                **_publisher_scope(identity, no_project_visibility="user"),
             )
             db.add(wf)
             db.flush()
@@ -341,8 +419,8 @@ class AssistantPublisher:
                 compiler_version=COMPILER_VERSION,
                 validation_report=artifact.get("validation_report"),
                 status="published",
-                created_by=user,
-                published_by=user,
+                created_by=identity.user_id if identity is not None else user,
+                published_by=identity.user_id if identity is not None else user,
                 published_at=datetime.now(timezone.utc),
             )
             db.add(ver)
@@ -350,7 +428,13 @@ class AssistantPublisher:
         return {"success": True, "registry_id": wf_id, "version_id": ver_id, "type": "workflow"}
 
     def _publish_mcp_server(
-        self, *, artifact: dict[str, Any], draft_id: str, session_factory: Any, user: str
+        self,
+        *,
+        artifact: dict[str, Any],
+        draft_id: str,
+        session_factory: Any,
+        user: str,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         del draft_id
         from sqlalchemy import select  # noqa: PLC0415
@@ -384,7 +468,8 @@ class AssistantPublisher:
                 if isinstance(artifact.get("discovered_tools"), list)
                 else [],
                 icon=artifact.get("icon", ""),
-                owner=user,
+                owner=identity.user_id if identity is not None else user,
+                **_publisher_scope(identity, no_project_visibility="user"),
             )
             db.add(server)
             db.commit()
