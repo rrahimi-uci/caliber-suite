@@ -439,7 +439,22 @@ def enqueue_prompt_optimization_run(  # noqa: PLR0912, PLR0915 - sequential vali
             detail=f"prompt_alias must be one of {sorted(_PROMPT_WRITE_ALIASES)}",
         )
 
-    dataset = session.get(CaliberEvalDataset, payload.eval_dataset_id)
+    # `P2` (isolation closure, item 1, slice 4): a bare `session.get` here
+    # let any operator pin a manual optimization run to (and read the
+    # version/status of) any project's eval dataset by id -- the same gap
+    # `routes/evaluations.py::create_evaluation`'s dataset lookup already
+    # had, closed the same way (P2-H).
+    dataset = (
+        get_visible(
+            session,
+            CaliberEvalDataset,
+            CaliberEvalDataset.dataset_id,
+            payload.eval_dataset_id,
+            identity,
+        )
+        if identity is not None
+        else session.get(CaliberEvalDataset, payload.eval_dataset_id)
+    )
     if dataset is None:
         raise HTTPException(
             status_code=404,

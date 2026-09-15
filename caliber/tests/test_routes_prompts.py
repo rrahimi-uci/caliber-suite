@@ -2561,3 +2561,40 @@ def test_list_prompts_hides_a_prompt_whose_target_belongs_to_another_project(
     names = {row["agent_id"] for row in resp.json()["data"]}
     assert "shared-prompt" not in names
     assert "bare-prompt" in names
+
+
+def test_create_prompt_optimization_run_hides_a_hidden_eval_dataset(
+    client: TestClient, db_session: Session
+) -> None:
+    """`P2` (isolation closure, item 1, slice 4): `enqueue_prompt_optimization_
+    run`'s dataset lookup was a bare `session.get` -- the same gap
+    `routes/evaluations.py::create_evaluation`'s dataset lookup already had,
+    closed the same way (P2-H). A non-member operator must not be able to
+    pin a manual optimization run to another project's dataset by id."""
+    db_session.add(
+        CaliberEvalDataset(
+            dataset_id="EDS-hidden",
+            name="hidden-dataset",
+            description="",
+            owner="@owner",
+            tags=[],
+            status="active",
+            version=1,
+            visibility="project",
+            project_id="P-hidden",
+        )
+    )
+    db_session.commit()
+    _grant_stranger_operator_scope(client)
+
+    resp = client.post(
+        f"{PREFIX}/optimization/runs",
+        json={
+            "agent_id": "stranger-agent",
+            "eval_dataset_id": "EDS-hidden",
+            "optimizer_type": "GEPA",
+            "scorers": [{"name": "Correctness", "weight": 1.0, "config": {}}],
+        },
+        headers=_STRANGER,
+    )
+    assert resp.status_code == 404, resp.text
