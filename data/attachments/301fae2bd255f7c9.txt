@@ -1,0 +1,11 @@
+{"t":"2026-09-15T01:52:38.375Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-15T01:52:38.393Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-15T01:52:38.395Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-15T01:52:38.397Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-15T01:52:38.437Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-15T01:52:38.452Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-6237dbc2/members \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-15T01:52:38.458Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-6237dbc2/members/@test \"HTTP/1.1 409 Conflict\""}
+{"t":"2026-09-15T01:52:38.464Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-6237dbc2/members/@test \"HTTP/1.1 409 Conflict\""}
+{"t":"2026-09-15T01:52:38.476Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-6237dbc2/members/@second-admin \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-15T01:52:38.489Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-6237dbc2/members \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-15T01:52:38.500Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-6237dbc2/members/@third-admin \"HTTP/1.1 200 OK\""}
