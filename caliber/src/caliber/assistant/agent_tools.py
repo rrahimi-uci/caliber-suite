@@ -400,6 +400,7 @@ class AssistantAgentToolset:
         mode: str,
         approval_mode: str,
         project_id: str | None = None,
+        identity: Any | None = None,
     ) -> None:
         self._deps = deps
         self._user = user
@@ -407,6 +408,7 @@ class AssistantAgentToolset:
         self._mode = mode
         self._approval_mode = approval_mode
         self._project_id = project_id
+        self._identity = identity
         self._dynamic_openapi_specs: list[dict[str, Any]] | None = None
         self._dynamic_openapi_dispatch: dict[str, dict[str, Any]] | None = None
 
@@ -439,6 +441,7 @@ class AssistantAgentToolset:
             config=self._deps.config,
             actor=self._user,
             project_id=self._project_id,
+            resolved_identity=self._identity,
         )
 
     def specs(self) -> list[dict[str, Any]]:
@@ -466,9 +469,7 @@ class AssistantAgentToolset:
         # itself was unenforced, so a future ``approver``/``admin``-scoped
         # capability would have silently run for anyone.
         if cap.required_scopes and self._deps.config is not None:
-            from caliber.auth import scopes_for_user  # noqa: PLC0415
-
-            have = scopes_for_user(self._deps.config, self._user)
+            have = self._capability_context().identity().scopes
             missing = [s for s in cap.required_scopes if f"caliber.{s}" not in have]
             if missing:
                 return _err(f"missing required scope(s): {', '.join(sorted(missing))}")

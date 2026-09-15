@@ -72,7 +72,7 @@ from caliber.assistant.task_manager import TaskManager
 from caliber.assistant.tracing import AssistantTracer, AssistantTraceSpan
 from caliber.assistant.validators import validate_draft
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_APPROVER, SCOPE_OPERATOR, scopes_for_user
+from caliber.auth import SCOPE_APPROVER, SCOPE_OPERATOR, CaliberIdentity, scopes_for_user
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
@@ -133,6 +133,11 @@ logger = logging.getLogger(__name__)
 _PLAN_ID_PREFIX = "APLN-"
 _MAX_PLANS_PER_SESSION = 25
 _MAX_OPERATIONS_PER_SESSION = 50
+
+
+def _optional_identity_kwargs(identity: CaliberIdentity | None) -> dict[str, CaliberIdentity]:
+    """Keep legacy direct service adapters callable without a new keyword."""
+    return {"identity": identity} if identity is not None else {}
 
 
 @dataclass(frozen=True)
@@ -1002,6 +1007,7 @@ class AssistantService:
         *,
         session_factory: Any,
         user: str,
+        identity: CaliberIdentity | None = None,
     ) -> IntentExecuteResponse:
         with session_factory() as db:
             session_row = self._get_owned_session(db, session_id, user)
@@ -1189,6 +1195,7 @@ class AssistantService:
                                 plan,
                                 session_factory=session_factory,
                                 user=user,
+                                **_optional_identity_kwargs(identity),
                             )
                         elif plan.intent.name == "generate_test_cases":
                             executed_action = "generate_test_cases"
@@ -1199,6 +1206,7 @@ class AssistantService:
                                 plan,
                                 session_factory=session_factory,
                                 user=user,
+                                **_optional_identity_kwargs(identity),
                             )
                         elif plan.intent.name == "review_optimization_result":
                             executed_action = "review_optimization_result"
@@ -1212,6 +1220,7 @@ class AssistantService:
                                 plan,
                                 session_factory=session_factory,
                                 user=user,
+                                **_optional_identity_kwargs(identity),
                             )
                         elif plan.intent.name == "review_workflow_calibration_result":
                             executed_action = "review_workflow_calibration_result"
@@ -3421,6 +3430,7 @@ class AssistantService:
         *,
         session_factory: Any,
         user: str,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         agent_id = self._slot_value(plan, "agent_id")
         eval_dataset_id = self._slot_value(plan, "eval_dataset_id")
@@ -3476,6 +3486,8 @@ class AssistantService:
                 session=db,
                 payload=payload,
                 actor=user,
+                identity=identity,
+                project_id=identity.active_project_id if identity is not None else None,
             )
             raw = response.model_dump(mode="json")
             _job = raw.get("job")
@@ -3511,6 +3523,7 @@ class AssistantService:
         *,
         session_factory: Any,
         user: str,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         workflow_id = self._slot_value(plan, "workflow_id")
         agent_id = self._slot_value(plan, "agent_id")
@@ -3524,12 +3537,32 @@ class AssistantService:
         warnings: list[str] = []
         if not isinstance(agent_id, str) or not agent_id.strip():
             with session_factory() as db:
-                agent = (
-                    db.query(CaliberAgentConfig)
-                    .filter(CaliberAgentConfig.enabled.is_(True))
-                    .order_by(CaliberAgentConfig.created_at.asc())
-                    .first()
-                )
+                if identity is None:
+                    agent = (
+                        db.query(CaliberAgentConfig)
+                        .filter(CaliberAgentConfig.enabled.is_(True))
+                        .order_by(CaliberAgentConfig.created_at.asc())
+                        .first()
+                    )
+                else:
+                    from sqlalchemy import select  # noqa: PLC0415
+
+                    from caliber.db.scoping import apply_visibility_filter  # noqa: PLC0415
+
+                    agent = (
+                        db.execute(
+                            apply_visibility_filter(
+                                select(CaliberAgentConfig).where(
+                                    CaliberAgentConfig.enabled.is_(True)
+                                ),
+                                CaliberAgentConfig,
+                                identity,
+                                identity.active_project_id,
+                            ).order_by(CaliberAgentConfig.created_at.asc())
+                        )
+                        .scalars()
+                        .first()
+                    )
                 if agent is None:
                     raise ValueError("No enabled agent is available for workflow calibration")
                 agent_id = agent.agent_id
@@ -3562,13 +3595,6 @@ class AssistantService:
             workflow_calibration as workflow_calibration_routes,
         )
 
-        # `P2` (isolation closure, item 1, slice 5): `identity` is
-        # deliberately omitted (defaults to None -> unscoped lookup,
-        # today's existing behavior) -- this class has no per-turn
-        # identity/project-id concept at all yet, unlike `agent_tools.py`'s
-        # `CapabilityContext`. Threading a real one through requires the
-        # same larger plumbing already named and deferred as item 5's
-        # remaining `assistant/service.py`/`assistant/tools.py` work.
         with session_factory() as db:
             response = workflow_calibration_routes.enqueue_workflow_calibration_run(
                 session=db,
@@ -3576,6 +3602,7 @@ class AssistantService:
                 payload=payload,
                 actor=user,
                 config=self._runtime_config,
+                identity=identity,
             )
             raw = response.model_dump(mode="json")
             _job = raw.get("job")
@@ -3793,6 +3820,7 @@ class AssistantService:
         *,
         session_factory: Any,
         user: str,
+        identity: CaliberIdentity | None = None,
     ) -> dict[str, Any]:
         dataset_name = self._slot_value(plan, "dataset_name")
         raw_examples = self._slot_value(plan, "examples")
@@ -3821,6 +3849,10 @@ class AssistantService:
                 name=dataset_name.strip(),
                 description=f"Created by CALIBER assistant plan {plan.plan_id}",
                 owner=user,
+                project_id=identity.active_project_id if identity is not None else None,
+                visibility=(
+                    "project" if identity is not None and identity.active_project_id else "user"
+                ),
                 tags=["assistant-generated"],
                 status="active",
                 version=1,
@@ -4751,6 +4783,7 @@ class AssistantService:
         mode: str,
         approval_mode: str,
         project_id: str | None = None,
+        identity: CaliberIdentity | None = None,
     ) -> AssistantAgentToolset:
         """Per-turn, context-bound tool surface for the engine's agentic loop.
 
@@ -4775,6 +4808,7 @@ class AssistantService:
             mode=mode,
             approval_mode=approval_mode,
             project_id=project_id,
+            identity=identity,
         )
 
     def send_message(  # noqa: PLR0912, PLR0915
@@ -4786,8 +4820,24 @@ class AssistantService:
         user: str,
         project_id: str | None = None,
         scopes: Sequence[str] | None = None,
+        identity: CaliberIdentity | None = None,
         current_surface: str = "assistant_drawer",
     ) -> TurnResponse:
+        turn_identity = identity
+        if turn_identity is None and (project_id is not None or scopes is not None):
+            turn_identity = CaliberIdentity(
+                user_id=user,
+                scopes=(
+                    frozenset(scopes)
+                    if scopes is not None
+                    else (
+                        scopes_for_user(self._runtime_config, user)
+                        if self._runtime_config is not None
+                        else frozenset()
+                    )
+                ),
+                active_project_id=project_id,
+            )
         # 1. Persist user message.
         trace_id = self._current_or_new_trace_id()
         task_context = None
@@ -4900,6 +4950,7 @@ class AssistantService:
                     disabled_skill_names=normalize_skill_names(
                         runtime_metadata["disabled_skill_names"]
                     ),
+                    identity=turn_identity,
                 ),
             )
         selected_skill_payloads = [asdict(skill) for skill in skill_result.skills]
@@ -4978,7 +5029,10 @@ class AssistantService:
                     session_id=session_id,
                     mode=mode,
                     approval_mode=approval_mode,
-                    project_id=task_context.project_id,
+                    project_id=(
+                        turn_identity.active_project_id if turn_identity is not None else project_id
+                    ),
+                    identity=turn_identity,
                 )
                 executor = ThreadPoolExecutor(max_workers=1)
                 future = executor.submit(lambda: self._engine.run_turn(request, toolset=toolset))

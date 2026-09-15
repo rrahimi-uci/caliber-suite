@@ -51,6 +51,7 @@ class CapabilityContext:
     config: Any
     actor: str
     project_id: str | None = None
+    resolved_identity: Any | None = None
 
     def identity(self) -> Any:
         """The acting identity, resolved for visibility filtering.
@@ -61,6 +62,9 @@ class CapabilityContext:
         do — the review found these handlers listing judges and review queues
         globally, so Aria could enumerate another project's artifacts.
         """
+        if self.resolved_identity is not None:
+            return self.resolved_identity
+
         from caliber.auth import CaliberIdentity, scopes_for_user  # noqa: PLC0415
 
         return CaliberIdentity(

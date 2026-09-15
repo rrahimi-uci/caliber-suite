@@ -15,6 +15,7 @@ from types import SimpleNamespace
 
 import pytest
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.exceptions import HTTPException
 
 from caliber.assistant.fake import FakeAssistantEngine
 from caliber.assistant.models import (
@@ -44,10 +45,12 @@ from caliber.assistant.service import (
     normalize_disabled_domains,
     normalize_disabled_intents,
 )
+from caliber.auth import SCOPE_OPERATOR, SCOPE_VIEWER, CaliberIdentity
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
     CaliberAssistantDraft,
+    CaliberEvalDataset,
     CaliberKnowledgeBase,
     CaliberRefinementJob,
     CaliberSkill,
@@ -1598,6 +1601,75 @@ def test_execute_workflow_calibration_defaults(
         job = db.get(CaliberRefinementJob, result["ids"]["job_id"])
         assert job is not None
         assert job.calibration_spec["objective"]["maximize"] == "quality"
+
+
+def test_execute_workflow_calibration_hides_other_project_target(
+    svc: AssistantService, session_factory: sessionmaker[Session]
+) -> None:
+    with session_factory() as db:
+        db.add(
+            CaliberAgentConfig(
+                agent_id="hidden-agent",
+                experiment_id="exp-hidden",
+                name="Hidden Agent",
+                owner="@other",
+                project_id="P-hidden",
+                visibility="project",
+                enabled=True,
+            )
+        )
+        db.add(
+            CaliberWorkflow(
+                workflow_id="WF-HIDDEN",
+                name="Hidden Workflow",
+                owner="@other",
+                project_id="P-hidden",
+                visibility="project",
+            )
+        )
+        db.commit()
+
+    with pytest.raises(HTTPException, match="not found"):
+        svc._execute_workflow_calibration(
+            _plan(
+                "run_workflow_calibration",
+                {"workflow_id": "WF-HIDDEN", "agent_id": "hidden-agent"},
+            ),
+            session_factory=session_factory,
+            user=USER,
+            identity=CaliberIdentity(
+                user_id=USER,
+                scopes=frozenset({SCOPE_OPERATOR, SCOPE_VIEWER}),
+                active_project_id="P-visible",
+            ),
+        )
+
+
+def test_execute_save_eval_dataset_records_turn_project(
+    svc: AssistantService, session_factory: sessionmaker[Session]
+) -> None:
+    result = svc._execute_save_eval_dataset(
+        _plan(
+            "save_eval_dataset",
+            {
+                "dataset_name": "assistant-project-dataset",
+                "examples": [{"input": {"q": "hi"}, "expected": {"a": "hello"}}],
+            },
+        ),
+        session_factory=session_factory,
+        user=USER,
+        identity=CaliberIdentity(
+            user_id=USER,
+            scopes=frozenset({SCOPE_OPERATOR, SCOPE_VIEWER}),
+            active_project_id="P-visible",
+        ),
+    )
+
+    with session_factory() as db:
+        dataset = db.get(CaliberEvalDataset, result["ids"]["dataset_id"])
+        assert dataset is not None
+        assert dataset.project_id == "P-visible"
+        assert dataset.visibility == "project"
 
 
 # ---------------------------------------------------------------------------

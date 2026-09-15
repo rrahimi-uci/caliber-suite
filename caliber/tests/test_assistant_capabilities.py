@@ -24,6 +24,7 @@ from caliber.assistant.capabilities import (
 from caliber.assistant.fake import FakeAssistantEngine
 from caliber.assistant.models import SessionCreateRequest
 from caliber.assistant.service import AssistantService
+from caliber.auth import SCOPE_VIEWER, CaliberIdentity
 from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberAuditLog,
@@ -205,6 +206,35 @@ def test_dispatch_denied_in_manual_mode(svc, session_factory) -> None:
     with session_factory() as db:
         assert (
             db.execute(select(CaliberJudge).where(CaliberJudge.name == "nope")).scalars().first()
+            is None
+        )
+
+
+def test_dispatch_uses_the_resolved_turn_scopes(svc, session_factory) -> None:
+    sid = _session(svc, session_factory)
+    ts = svc._build_agent_toolset(
+        session_factory=session_factory,
+        user=USER,
+        session_id=sid,
+        mode="build",
+        approval_mode="auto_all",
+        identity=CaliberIdentity(user_id=USER, scopes=frozenset({SCOPE_VIEWER})),
+    )
+
+    out = json.loads(
+        ts.dispatch(
+            "judge_create",
+            {"name": "scope-limited", "instructions": "Rate {{ outputs }}"},
+        )
+    )
+
+    assert "error" in out
+    assert "operator" in out["error"]
+    with session_factory() as db:
+        assert (
+            db.execute(
+                select(CaliberJudge).where(CaliberJudge.name == "scope-limited")
+            ).scalar_one_or_none()
             is None
         )
 

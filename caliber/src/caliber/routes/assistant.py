@@ -255,6 +255,7 @@ async def send_message(request: Request) -> JSONResponse:
         body,
         session_factory=factory,
         user=user,
+        identity=identity,
         project_id=identity.active_project_id,
         scopes=sorted(identity.scopes),
         current_surface="assistant_drawer",
@@ -345,6 +346,7 @@ async def execute_plan(request: Request) -> JSONResponse:
     require_scopes(request, [SCOPE_OPERATOR])
     svc = _get_service(request)
     factory = get_session_factory(request)
+    identity = resolve_identity(request)
     session_id = request.path_params["session_id"]
     data = await parse_json_object(request)
     body = IntentExecuteRequest(**data)
@@ -354,6 +356,7 @@ async def execute_plan(request: Request) -> JSONResponse:
             body,
             session_factory=factory,
             user=user,
+            identity=identity,
         )
     except ValueError as exc:
         detail = str(exc)
