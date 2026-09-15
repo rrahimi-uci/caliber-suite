@@ -1,0 +1,7 @@
+{"t":"2026-09-15T18:31:54.409Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-15T18:31:54.436Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-15T18:31:54.439Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-15T18:31:54.441Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-15T18:31:54.477Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-15T18:31:54.515Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET http://127.0.0.1:42009/openapi.yaml \"HTTP/1.0 200 OK\"","trace_id":"31bdaa2d2d4f4180"}
+{"t":"2026-09-15T18:31:54.563Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-998b3779/import \"HTTP/1.1 201 Created\""}

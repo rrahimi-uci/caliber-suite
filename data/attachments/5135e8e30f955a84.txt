@@ -1,0 +1,7 @@
+{"t":"2026-09-15T18:32:54.392Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-15T18:32:54.409Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-15T18:32:54.412Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-15T18:32:54.413Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-15T18:32:54.446Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-15T18:32:54.462Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/skills/SK-8446a90d \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-15T18:32:54.469Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/skills/SK-8446a90d/versions \"HTTP/1.1 200 OK\""}
