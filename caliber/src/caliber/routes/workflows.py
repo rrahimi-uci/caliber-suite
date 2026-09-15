@@ -22,7 +22,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
+from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
@@ -1147,11 +1147,12 @@ def _import_dependency_preflight(
         for row in session.execute(select(CaliberKnowledgeBaseVersion)).scalars().all()
         if row.knowledge_base_id in kb_by_id
     }
-    # MCP rows predate project/visibility columns. Until that registry is
-    # project-scoped, non-admin preflight may resolve only servers it owns.
-    mcp_stmt = select(CaliberMcpServer)
-    if not identity.has_scope(SCOPE_ADMIN):
-        mcp_stmt = mcp_stmt.where(CaliberMcpServer.owner == identity.user_id)
+    mcp_stmt = apply_visibility_filter(
+        select(CaliberMcpServer),
+        CaliberMcpServer,
+        identity,
+        identity.active_project_id,
+    )
     mcp_by_id = {row.server_id: row for row in session.execute(mcp_stmt).scalars().all()}
     managed_file_ids = {
         node.file_ref.file_id

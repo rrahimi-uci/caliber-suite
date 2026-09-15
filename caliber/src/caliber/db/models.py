@@ -3051,8 +3051,16 @@ class CaliberMcpServer(Base):
     __table_args__ = (
         UniqueConstraint("name", name="uq_mcp_server_name"),
         Index("ix_mcp_servers_status", "status"),
+        Index("ix_mcp_servers_project_visibility", "project_id", "visibility"),
     )
 
+    # Legacy rows are deliberately migrated as private, cross-project resources.
+    # A project binding is opt-in at creation time and never inferred from a
+    # caller-controlled request body.
+    project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
+    visibility: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="user", server_default="user"
+    )
     server_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     name: Mapped[str] = mapped_column(String(128))
     description: Mapped[str] = mapped_column(Text, default="")

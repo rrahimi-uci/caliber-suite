@@ -57,6 +57,88 @@ def _raise_gateway(*_a: object, **_k: object) -> object:
     raise McpGatewayTransportError("boom: cannot connect")
 
 
+def test_mcp_server_visibility_applies_to_list_detail_and_tools(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed(
+        db_session,
+        server_id="MCP-visible",
+        name="Visible",
+        owner="@viewer",
+        project_id="P-visible",
+        visibility="project",
+        discovered_tools=[{"name": "search"}],
+    )
+    _seed(
+        db_session,
+        server_id="MCP-hidden",
+        name="Hidden",
+        owner="@other",
+        project_id="P-other",
+        visibility="project",
+        discovered_tools=[{"name": "secret_search"}],
+    )
+    _seed(
+        db_session,
+        server_id="MCP-public",
+        name="Public",
+        owner="@other",
+        visibility="public",
+    )
+
+    headers = {"X-CALIBER-User": "@viewer", "X-CALIBER-Project": "P-visible"}
+    listed = client.get(BASE, headers=headers)
+    assert listed.status_code == 200
+    assert {item["name"] for item in listed.json()["data"]} == {"Visible", "Public"}
+    assert client.get(f"{BASE}/MCP-visible", headers=headers).status_code == 200
+    assert client.get(f"{BASE}/MCP-hidden", headers=headers).status_code == 404
+    assert client.get(f"{BASE}/MCP-hidden/tools", headers=headers).status_code == 404
+
+
+def test_mcp_server_create_uses_authenticated_project_context(
+    client: TestClient, db_session: Session
+) -> None:
+    response = client.post(
+        BASE,
+        headers={"X-CALIBER-Project": "P-created"},
+        json={"name": "Created", "owner": "@spoofed", "command": "npx server"},
+    )
+    assert response.status_code == 201, response.text
+    row = db_session.get(CaliberMcpServer, response.json()["data"]["server_id"])
+    assert row is not None
+    assert row.owner == "@test"
+    assert row.project_id == "P-created"
+    assert row.visibility == "project"
+
+
+def test_deleted_mcp_history_checks_snapshot_visibility(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed(
+        db_session,
+        server_id="MCP-deleted-hidden",
+        name="Deleted hidden",
+        owner="@owner",
+        project_id="P-owner",
+        visibility="project",
+    )
+    assert client.delete(f"{BASE}/MCP-deleted-hidden").status_code == 204
+    assert (
+        client.get(
+            f"{BASE}/MCP-deleted-hidden/history",
+            headers={"X-CALIBER-User": "@stranger", "X-CALIBER-Project": "P-other"},
+        ).status_code
+        == 404
+    )
+    assert (
+        client.get(
+            f"{BASE}/MCP-deleted-hidden/history",
+            headers={"X-CALIBER-User": "@owner", "X-CALIBER-Project": "P-owner"},
+        ).status_code
+        == 200
+    )
+
+
 def test_mcp_server_history_survives_deletion_and_includes_snapshot(
     client: TestClient, db_session: Session
 ) -> None:

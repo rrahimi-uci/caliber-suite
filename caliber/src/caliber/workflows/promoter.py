@@ -52,7 +52,7 @@ from caliber.db.models import (
     CaliberWorkflowRun,
     CaliberWorkflowVersion,
 )
-from caliber.db.scoping import apply_visibility_filter, get_visible
+from caliber.db.scoping import apply_visibility_filter, get_visible, synthetic_identity
 from caliber.deployment_environments import (
     allows_host_path_nodes,
     environment_class,
@@ -1242,6 +1242,7 @@ def build_plan(  # noqa: PLR0915 - central workflow plan assembler
     return RuntimePlan(
         ir=result.ir,
         resolver=resolver,
+        mcp_identity=workflow_identity,
         workflow_version_id=version.version_id,
         workflow_alias=alias,
         compiler_version=result.report["compiler_version"],
@@ -2238,6 +2239,11 @@ def require_alias_target_ready(
         # the authoring manifest. Bundle import itself rejects incompleteness.
         if verification.ready_to_deploy:
             manifest_for_deploy = deployment_bundle["resolved_manifest"]
+    workflow = session.get(CaliberWorkflow, version.workflow_id)
+    identity = synthetic_identity(
+        workflow.owner if workflow is not None else "",
+        workflow.project_id if workflow is not None else None,
+    )
     blockers = deployment_blockers(
         session,
         manifest_for_deploy,
@@ -2246,6 +2252,7 @@ def require_alias_target_ready(
         # An alias rotation must be able to prove the whole graph, children
         # included; a run submission keeps its runtime-error contract.
         require_resolvable_subworkflows=True,
+        identity=identity,
     )
     blockers.extend(_managed_file_blockers(session, version, config=config))
     blockers.extend(_host_path_blockers(version, alias=alias, config=config))

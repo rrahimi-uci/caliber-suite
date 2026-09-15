@@ -4234,6 +4234,8 @@ class McpServerSchema(BaseModel):
     connection_error: str | None = None
     execution: McpExecutionReadinessSchema = Field(default_factory=McpExecutionReadinessSchema)
     owner: str = ""
+    project_id: str | None = None
+    visibility: str = "user"
     created_at: datetime
     updated_at: datetime
 

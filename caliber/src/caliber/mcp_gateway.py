@@ -41,6 +41,7 @@ from mcp.client.stdio import StdioServerParameters, stdio_client
 from mcp.client.streamable_http import streamable_http_client
 from sqlalchemy.orm import Session, sessionmaker
 
+from caliber.auth import CaliberIdentity
 from caliber.config import CaliberConfig
 from caliber.db.models import CaliberMcpServer
 from caliber.db.session import create_engine_from_config, sessionmaker_from_engine
@@ -146,11 +147,26 @@ class McpServerConfig:
         )
 
 
-def load_server_config(server_id: str) -> McpServerConfig:
-    """Load one MCP server configuration from the configured CALIBER database."""
+def load_server_config(
+    server_id: str,
+    *,
+    identity: CaliberIdentity | None = None,
+) -> McpServerConfig:
+    """Load one MCP server configuration, optionally through visibility."""
     factory = _runtime_session_factory()
     with factory() as session:
-        row = session.get(CaliberMcpServer, server_id)
+        if identity is None:
+            row = session.get(CaliberMcpServer, server_id)
+        else:
+            from caliber.db.scoping import get_visible  # noqa: PLC0415
+
+            row = get_visible(
+                session,
+                CaliberMcpServer,
+                CaliberMcpServer.server_id,
+                server_id,
+                identity,
+            )
         if row is None:
             raise McpGatewayConfigError(f"MCP server {server_id!r} not found")
         return McpServerConfig.from_row(row)
@@ -270,9 +286,15 @@ def invoke_tool_by_server_id_sync(
     tool_name: str,
     arguments: dict[str, Any],
     timeout_seconds: float = 45.0,
+    identity: CaliberIdentity | None = None,
 ) -> Any:
-    """Resolve a server from DB and invoke a tool (sync)."""
-    server = load_server_config(server_id)
+    """Resolve a visible server from DB and invoke a tool (sync)."""
+    if identity is None:
+        # Preserve the strict legacy helper signature used by direct callers and
+        # test doubles; visibility-aware runtime callers pass the identity branch.
+        server = load_server_config(server_id)
+    else:
+        server = load_server_config(server_id, identity=identity)
     return invoke_tool_sync(
         server,
         tool_name=tool_name,

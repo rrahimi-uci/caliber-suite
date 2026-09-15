@@ -535,6 +535,7 @@ def execute_exported_workflow(
     plan = RuntimePlan(
         ir=ir,
         resolver=resolved_resolver,
+        mcp_identity=resolved_identity,
         workflow_version_id=workflow_version_id,
         workflow_alias=workflow_alias,
         compiler_version="export-runtime",

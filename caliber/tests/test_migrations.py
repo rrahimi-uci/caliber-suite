@@ -495,3 +495,47 @@ def test_0095_adds_project_scoping_indexes_on_every_target_table(
     finally:
         engine.dispose()
         os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+@pytest.mark.slow
+def test_0096_migrates_legacy_mcp_servers_to_private_visibility(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Existing MCP rows gain the safe private default without a guessed project."""
+    db_path = tmp_path / "alembic_0096_test.db"
+    db_url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+
+    cfg = Config(str(ALEMBIC_INI))
+    monkeypatch.chdir(PROJECT_ROOT)
+    command.upgrade(cfg, "0095")
+
+    engine = create_engine(db_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_mcp_servers (server_id, name, owner) "
+                    "VALUES ('MCP-legacy', 'Legacy', '@legacy')"
+                )
+            )
+
+        command.upgrade(cfg, "head")
+
+        inspector = inspect(engine)
+        indexes = {ix["name"]: ix for ix in inspector.get_indexes("caliber_mcp_servers")}
+        assert indexes["ix_mcp_servers_project_visibility"]["column_names"] == [
+            "project_id",
+            "visibility",
+        ]
+        with engine.connect() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT project_id, visibility, owner "
+                    "FROM caliber_mcp_servers WHERE server_id = 'MCP-legacy'"
+                )
+            ).one()
+            assert tuple(row) == (None, "user", "@legacy")
+    finally:
+        engine.dispose()
+        os.environ.pop("CALIBER_DATABASE_URL", None)

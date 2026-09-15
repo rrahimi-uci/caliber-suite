@@ -98,6 +98,7 @@ def test_promote_allows_ready_mcp_in_dev_but_requires_external_boundary_in_prod(
         CaliberMcpServer(
             server_id="MCP-docs",
             name="Docs",
+            owner="@test",
             transport="stdio",
             command="${PYTHON}",
             args=["-m", "caliber.mcp_servers.db", "--mode", "relational"],
