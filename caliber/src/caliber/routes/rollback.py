@@ -29,8 +29,15 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user
+from caliber.auth import (
+    SCOPE_OPERATOR,
+    CaliberIdentity,
+    require_scopes,
+    require_user,
+    resolve_identity,
+)
 from caliber.db.models import CaliberAgentConfig, CaliberRollbackCheckpoint, CaliberSkill
+from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.events.bus import EventBus
 from caliber.observability import metrics
 from caliber.promoter import Promoter, PromoterConflictError, PromoterError, RollbackRequest
@@ -49,7 +56,7 @@ def _get_promoter(request: Request) -> Promoter:
     return promoter
 
 
-def _rollback_target_exists(session: object, agent_id: str) -> bool:
+def _rollback_target_exists(session: object, agent_id: str, identity: CaliberIdentity) -> bool:
     """Whether the ``{agent_id}`` path param names a rollback-able artifact.
 
     Checkpoints remain agent-scoped because ``agent_id`` is an AgentConfig FK;
@@ -60,25 +67,48 @@ def _rollback_target_exists(session: object, agent_id: str) -> bool:
     from sqlalchemy.orm import Session  # noqa: PLC0415
 
     assert isinstance(session, Session)
-    if session.get(CaliberAgentConfig, agent_id) is not None:
+    visible_agent = get_visible(
+        session,
+        CaliberAgentConfig,
+        CaliberAgentConfig.agent_id,
+        agent_id,
+        identity,
+    )
+    if visible_agent is not None:
         return True
-    return (
+
+    # Do not let a visible legacy skill with the same name as a hidden agent
+    # make the hidden agent's checkpoint rows listable. The unscoped existence
+    # probe is only a type discriminator; no agent data is returned, and the
+    # actual agent result above already went through visibility filtering.
+    agent_exists = (
         session.execute(
-            _select(CaliberSkill.skill_id).where(CaliberSkill.name == agent_id).limit(1)
+            _select(CaliberAgentConfig.agent_id).where(CaliberAgentConfig.agent_id == agent_id)
         )
         .scalars()
         .first()
         is not None
     )
+    if agent_exists:
+        return False
+
+    skill_stmt = apply_visibility_filter(
+        _select(CaliberSkill.skill_id).where(CaliberSkill.name == agent_id),
+        CaliberSkill,
+        identity,
+        identity.active_project_id,
+    ).limit(1)
+    return session.execute(skill_stmt).scalars().first() is not None
 
 
 async def list_checkpoints(request: Request) -> JSONResponse:
     """Return rollback checkpoints for an agent, newest first."""
     require_user(request)
     agent_id = request.path_params["agent_id"]
+    identity = resolve_identity(request)
     factory = get_session_factory(request)
     with factory() as session:
-        if not _rollback_target_exists(session, agent_id):
+        if not _rollback_target_exists(session, agent_id, identity):
             raise HTTPException(status_code=404, detail=f"agent or skill {agent_id!r} not found")
         rows = (
             session.execute(
@@ -120,14 +150,28 @@ async def rollback_agent(request: Request) -> JSONResponse:
         )
     checkpoint_id = raw_checkpoint if isinstance(raw_checkpoint, str) else None
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     promoter = _get_promoter(request)
 
     factory = get_session_factory(request)
     with factory() as session:
-        # Make the first statement a write so SQLite never has to upgrade a
-        # shared read transaction while another rollback is committing. This
-        # no-op conditional update serializes rollback selection per owning
-        # agent on SQLite and PostgreSQL without changing updated_at.
+        # Resolve the target through the visibility policy before the
+        # serialization write. A bare UPDATE by agent_id would let a caller
+        # who guessed a hidden id consume its rollback checkpoint.
+        if (
+            get_visible(
+                session,
+                CaliberAgentConfig,
+                CaliberAgentConfig.agent_id,
+                agent_id,
+                identity,
+            )
+            is None
+        ):
+            raise HTTPException(status_code=404, detail=f"agent {agent_id!r} not found")
+
+        # This no-op conditional update serializes rollback selection per
+        # owning agent on SQLite and PostgreSQL without changing updated_at.
         owner_claim = session.execute(
             update(CaliberAgentConfig)
             .where(CaliberAgentConfig.agent_id == agent_id)

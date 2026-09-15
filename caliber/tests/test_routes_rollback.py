@@ -35,6 +35,10 @@ def _seed_agent(session: Session, agent_id: str = "support-agent") -> None:
     session.commit()
 
 
+def _grant_operator(client: TestClient, user: str = "@stranger") -> None:
+    client.app.state.config = client.app.state.config.model_copy(update={"operator_users": user})
+
+
 def _seed_checkpoint(
     session: Session,
     checkpoint_id: str = "CK-1",
@@ -108,6 +112,84 @@ def test_list_checkpoints_empty_for_new_agent(client: TestClient, db_session: Se
 def test_list_checkpoints_404_when_agent_missing(client: TestClient) -> None:
     response = client.get("/ajax-api/2.0/mlflow/caliber/agents/ghost/checkpoints")
     assert response.status_code == 404
+
+
+def test_list_checkpoints_hides_a_project_scoped_agent_from_a_non_member(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_agent(db_session, agent_id="hidden-rollback-agent")
+    agent = db_session.get(CaliberAgentConfig, "hidden-rollback-agent")
+    assert agent is not None
+    agent.owner = "@owner"
+    agent.visibility = "project"
+    agent.project_id = "P-hidden"
+    db_session.commit()
+
+    response = client.get(
+        "/ajax-api/2.0/mlflow/caliber/agents/hidden-rollback-agent/checkpoints",
+        headers={"X-CALIBER-User": "@stranger"},
+    )
+    assert response.status_code == 404
+
+
+def test_list_checkpoints_does_not_fall_back_to_a_visible_skill_on_agent_id_collision(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_agent(db_session, agent_id="collision-target")
+    agent = db_session.get(CaliberAgentConfig, "collision-target")
+    assert agent is not None
+    agent.owner = "@owner"
+    agent.visibility = "project"
+    agent.project_id = "P-hidden"
+    db_session.add(
+        CaliberSkill(
+            skill_id="SK-collision-target",
+            name="collision-target",
+            description="",
+            summary="",
+            content="content",
+            owner="@stranger",
+            visibility="user",
+            project_id=None,
+            tags=[],
+        )
+    )
+    db_session.commit()
+
+    response = client.get(
+        "/ajax-api/2.0/mlflow/caliber/agents/collision-target/checkpoints",
+        headers={"X-CALIBER-User": "@stranger"},
+    )
+    assert response.status_code == 404
+
+
+def test_rollback_hides_a_project_scoped_agent_before_consuming_checkpoint(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_agent(db_session, agent_id="hidden-rollback-agent")
+    agent = db_session.get(CaliberAgentConfig, "hidden-rollback-agent")
+    assert agent is not None
+    agent.owner = "@owner"
+    agent.visibility = "project"
+    agent.project_id = "P-hidden"
+    db_session.commit()
+    _seed_checkpoint(
+        db_session,
+        checkpoint_id="CK-hidden-rollback",
+        agent_id="hidden-rollback-agent",
+    )
+    _grant_operator(client)
+
+    response = client.post(
+        "/ajax-api/2.0/mlflow/caliber/agents/hidden-rollback-agent/rollback",
+        headers={"X-CALIBER-User": "@stranger"},
+    )
+    assert response.status_code == 404
+
+    db_session.expire_all()
+    checkpoint = db_session.get(CaliberRollbackCheckpoint, "CK-hidden-rollback")
+    assert checkpoint is not None
+    assert checkpoint.rolled_back_at is None
 
 
 def test_list_checkpoints_returns_newest_first(client: TestClient, db_session: Session) -> None:
