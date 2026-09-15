@@ -385,14 +385,20 @@ def test_a_project_bound_token_still_works_when_no_project_is_named(client: Test
     assert resp.status_code == 200, resp.text
 
 
-def test_an_unbound_token_is_unaffected_by_a_mismatched_project_header(
+def test_an_unbound_token_gets_context_mismatch_for_mismatched_project_header(
     client: TestClient,
 ) -> None:
+    """The generic header/path contract applies before PAT binding rules.
+
+    An unbound token is unaffected by the *binding* check, but it still cannot
+    send contradictory workspace context to a project-scoped route.
+    """
     project_a = _create_project(client, "A")
     project_b = _create_project(client, "B")
-    token = _issue(client)["token"]  # no project_id: nothing to enforce
+    token = _issue(client)["token"]  # no project binding: generic context still applies
 
     headers = _as_token(token)
     headers["X-CALIBER-Project"] = project_b
     resp = client.get(f"{PREFIX}/projects/{project_a}", headers=headers)
-    assert resp.status_code == 200, resp.text
+    assert resp.status_code == 400, resp.text
+    assert resp.json()["detail"].startswith("workspace_context_mismatch:")

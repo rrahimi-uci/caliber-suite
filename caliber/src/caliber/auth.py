@@ -378,11 +378,14 @@ def resolve_identity(request: Request) -> CaliberIdentity:
     if not isinstance(credential_project_id, str):
         credential_project_id = None
     path_project = request.path_params.get("project_id")
+    path_project_id = path_project if isinstance(path_project, str) else None
+
+    _enforce_project_context_match(header_project, path_project_id)
 
     _enforce_pat_project_binding(
         credential_project_id,
         header_project,
-        path_project if isinstance(path_project, str) else None,
+        path_project_id,
     )
 
     return CaliberIdentity(
@@ -393,6 +396,33 @@ def resolve_identity(request: Request) -> CaliberIdentity:
         credential_id=credential_id if isinstance(credential_id, str) else None,
         credential_project_id=credential_project_id,
     )
+
+
+def _enforce_project_context_match(
+    header_project_id: str | None,
+    path_project_id: str | None,
+) -> None:
+    """Reject contradictory project context supplied through two channels.
+
+    Project-scoped routes accept the path segment as their authoritative
+    resource context, while the header is the caller's ambient context. If
+    both are present, allowing them to disagree makes it possible for a
+    client or intermediary to believe it is operating in one workspace while
+    the route resolves another. Refuse the request before any endpoint logic
+    or database lookup runs.
+    """
+    if (
+        header_project_id is not None
+        and path_project_id is not None
+        and header_project_id != path_project_id
+    ):
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                "workspace_context_mismatch: "
+                "X-CALIBER-Project must match the project_id path segment"
+            ),
+        )
 
 
 def _enforce_pat_project_binding(
