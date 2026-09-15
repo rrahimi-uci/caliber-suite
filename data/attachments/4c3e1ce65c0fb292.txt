@@ -1,0 +1,6 @@
+{"t":"2026-09-15T22:18:40.798Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-15T22:18:40.819Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-15T22:18:40.821Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-15T22:18:40.822Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-15T22:18:40.880Z","severity":"INFO","logger":"caliber.orchestrator.scheduler","message":"scheduled run for workflow cron_wf alias prod (cron='* * * * *')"}
+{"t":"2026-09-15T22:18:40.897Z","severity":"INFO","logger":"caliber.orchestrator.scheduler","message":"scheduled run for workflow cron_wf alias prod (cron='* * * * *')"}

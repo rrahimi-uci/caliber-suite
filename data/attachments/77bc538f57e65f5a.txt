@@ -1,5 +1,0 @@
-ERROR    caliber.assistant.service:service.py:5448 assistant reviewer failed for draft ADRF-9e94d08a
-Traceback (most recent call last):
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/assistant/service.py", line 5412, in _review_draft
-    raise RuntimeError(config_error)
-RuntimeError: Reviewer identity does not carry caliber.approver.
