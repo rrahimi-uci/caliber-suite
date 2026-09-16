@@ -7,8 +7,13 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from caliber.auth import SCOPE_ADMIN, SCOPE_VIEWER, CaliberIdentity
-from caliber.db.models import CaliberEvalRun, CaliberProjectMember, CaliberSkill
-from caliber.db.scoping import apply_visibility_filter, owner_column
+from caliber.db.models import CaliberAgentConfig, CaliberEvalRun, CaliberProjectMember, CaliberSkill
+from caliber.db.scoping import (
+    apply_visibility_filter,
+    build_agent_identity,
+    owner_column,
+    synthetic_identity,
+)
 
 
 def _skill(
@@ -99,6 +104,63 @@ def test_admin_with_only_filter_returns_tier_across_all_owners(db_session: Sessi
         "a_p1",
         "b_p1",
     }
+
+
+def test_admin_with_only_public_filter_returns_public_rows_across_all_owners(
+    db_session: Session,
+) -> None:
+    _seed(db_session)
+    assert _names(db_session, _ident("@root", project="P1", admin=True), "P1", only="public") == {
+        "pub"
+    }
+
+
+def test_admin_project_filter_without_project_context_matches_nothing(db_session: Session) -> None:
+    _seed(db_session)
+    assert (
+        _names(db_session, _ident("@root", project=None, admin=True), None, only="project") == set()
+    )
+
+
+def test_synthetic_identity_is_unprivileged_and_preserves_resource_context() -> None:
+    identity = synthetic_identity("@owner", "P1")
+
+    assert identity.user_id == "@owner"
+    assert identity.active_project_id == "P1"
+    assert identity.scopes == frozenset()
+    assert not identity.has_scope(SCOPE_ADMIN)
+
+
+def test_build_agent_identity_uses_the_persisted_agent_owner_and_project(
+    db_session: Session,
+) -> None:
+    db_session.add(
+        CaliberAgentConfig(
+            agent_id="agent-p1",
+            experiment_id="exp-p1",
+            name="Project agent",
+            owner="@alice",
+            project_id="P1",
+        )
+    )
+    db_session.commit()
+
+    identity = build_agent_identity(db_session, "agent-p1")
+
+    assert identity.user_id == "@alice"
+    assert identity.active_project_id == "P1"
+    assert identity.scopes == frozenset()
+
+
+@pytest.mark.parametrize("agent_id", [None, "deleted-agent"])
+def test_build_agent_identity_for_missing_agent_is_public_only(
+    db_session: Session, agent_id: str | None
+) -> None:
+    identity = build_agent_identity(db_session, agent_id)
+
+    assert identity.user_id == ""
+    assert identity.active_project_id is None
+    assert identity.scopes == frozenset()
 
 
 def test_active_project_member_sees_project_resources(db_session: Session) -> None:

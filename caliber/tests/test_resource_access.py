@@ -19,6 +19,7 @@ from caliber.resource_access import (
     decide_project_access,
     is_eligible_for_owner_role,
     permissions_for_role,
+    require_project_access_if_scoped,
 )
 
 
@@ -199,6 +200,16 @@ def test_every_decision_carries_a_closed_reason_and_the_current_policy_version(
     for decision in decisions:
         assert decision.reason in ACCESS_REASONS
         assert decision.policy_version == POLICY_VERSION
+
+
+def test_optional_project_access_is_a_noop_for_an_unscoped_resource(db_session) -> None:
+    """Optional project resources do not have a workspace role to check."""
+    require_project_access_if_scoped(
+        db_session,
+        _identity("@operator", extra_scopes={SCOPE_OPERATOR}),
+        None,
+        "resource.execute",
+    )
 
 
 class TestAuthorize:
