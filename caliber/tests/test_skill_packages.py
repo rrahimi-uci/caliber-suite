@@ -237,6 +237,7 @@ def test_import_skill_package_creates_registry_row(
                 },
             ],
         },
+        headers={"X-CALIBER-Project": "PRJ-import"},
     )
 
     assert response.status_code == 201
@@ -248,6 +249,9 @@ def test_import_skill_package_creates_registry_row(
 
     skill = db_session.execute(select(CaliberSkill)).scalar_one()
     assert skill.name == "folder-reader"
+    assert skill.owner == "@test"
+    assert skill.project_id == "PRJ-import"
+    assert skill.visibility == "project"
     assert skill.skill_metadata["openai_package"]["resources"] == [
         {
             "path": "references/limits.md",
@@ -279,6 +283,9 @@ def test_import_skill_package_accepts_rootless_payload(
     assert response.status_code == 201
     skill = db_session.execute(select(CaliberSkill)).scalar_one()
     assert skill.name == "rootless-skill"
+    assert skill.owner == "@test"
+    assert skill.project_id is None
+    assert skill.visibility == "user"
 
 
 def test_import_skill_package_rejects_path_traversal(client: TestClient) -> None:

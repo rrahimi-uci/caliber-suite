@@ -723,6 +723,7 @@ async def import_skill_package(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = SkillPackageImportRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
 
     imported = parse_skill_package(payload.files)
 
@@ -754,7 +755,11 @@ async def import_skill_package(request: Request) -> JSONResponse:
             description=imported.description,
             summary=imported.summary,
             content=imported.content,
-            owner=payload.owner,
+            # Match ``create_skill``: ownership and workspace context come
+            # from the authenticated request, never from package metadata.
+            owner=actor,
+            project_id=identity.active_project_id,
+            visibility="project" if identity.active_project_id else "user",
             category=payload.category,
             tags=list(payload.tags),
             skill_metadata=merged_metadata,
@@ -840,6 +845,7 @@ def _persist_skill_package_zip(
                 content=imported.content,
                 owner=actor,
                 project_id=identity.active_project_id,
+                visibility="project" if identity.active_project_id else "user",
                 category="custom",
                 tags=[],
                 skill_metadata=imported.skill_metadata,
