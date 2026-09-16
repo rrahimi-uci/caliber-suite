@@ -1,0 +1,12 @@
+{"t":"2026-09-16T22:13:18.064Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-16T22:13:18.088Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-16T22:13:18.091Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-16T22:13:18.093Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-16T22:13:18.131Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-16T22:13:18.156Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-16T22:13:18.158Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-16T22:13:18.160Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-16T22:13:18.178Z","severity":"INFO","logger":"caliber.events.redis_bus","message":"Redis event bus connected (channel=caliber.events)"}
+{"t":"2026-09-16T22:13:18.179Z","severity":"INFO","logger":"caliber.events.redis_bus","message":"Redis event bus connected (channel=caliber.events)"}
+{"t":"2026-09-16T22:13:18.182Z","severity":"INFO","logger":"caliber.events.redis_bus","message":"Redis event bus disconnected"}
+{"t":"2026-09-16T22:13:18.183Z","severity":"INFO","logger":"caliber.events.redis_bus","message":"Redis event bus disconnected"}

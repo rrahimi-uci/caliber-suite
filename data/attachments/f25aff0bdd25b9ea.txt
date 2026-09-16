@@ -1,0 +1,20 @@
+
+✨ Evaluation completed.
+
+Metrics and evaluation results are logged to the MLflow run:
+  Run name: [94mdebonair-crab-774[0m
+  Run ID: [94mf09571d60834438aa36b5b7b5ac5e159[0m
+
+To view the detailed evaluation results with sample-wise scores,
+open the [93m[1mTraces[0m tab in the Run page in the MLflow UI.
+
+
+✨ Evaluation completed.
+
+Metrics and evaluation results are logged to the MLflow run:
+  Run name: [94menchanting-horse-535[0m
+  Run ID: [94meb37e0bebdd0457b9212873731ebfe53[0m
+
+To view the detailed evaluation results with sample-wise scores,
+open the [93m[1mTraces[0m tab in the Run page in the MLflow UI.
+
