@@ -193,6 +193,7 @@ Every documented class and module-level function, with the module that defines i
 | [`ProjectFilesAPI`](#projectfilesapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectFolder`](#projectfolder) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`ProjectMember`](#projectmember) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`ProjectReworkTasksAPI`](#projectreworktasksapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectsAPI`](#projectsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`Prompt`](#prompt) | [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets) |
 | [`PromptsAPI`](#promptsapi) | [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets) |
@@ -1511,7 +1512,7 @@ Resource modules — typed façades over route groups.
 
 **Public exports**
 
-`AccountsAPI`, `AdminAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `LlmPricingAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `PlaygroundRunsAPI`, `ProjectFilesAPI`, `ProjectsAPI`, `PromptsAPI`, `QualityReviewsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `ReworkTasksAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `VerificationQueueAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+`AccountsAPI`, `AdminAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `LlmPricingAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `PlaygroundRunsAPI`, `ProjectFilesAPI`, `ProjectReworkTasksAPI`, `ProjectsAPI`, `PromptsAPI`, `QualityReviewsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `ReworkTasksAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `VerificationQueueAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
 
 ### Module `caliber_sdk.resources.auth`
 
@@ -1876,7 +1877,7 @@ sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
 
 **Public exports**
 
-`ProjectFilesAPI`, `ProjectsAPI`
+`ProjectFilesAPI`, `ProjectReworkTasksAPI`, `ProjectsAPI`
 
 #### Classes
 
@@ -1975,6 +1976,97 @@ Raw bytes. Not JSON, so it bypasses the envelope entirely.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+##### `ProjectReworkTasksAPI`
+
+`class ProjectReworkTasksAPI()`
+
+Rework tasks owned by one project-scoped agent population.
+
+**Methods**
+
+###### `list(project_id: str, *, status: str | None = None, assigned_to: str | None = None) -> list[ReworkTask]`
+
+Return the current collection of project rework tasks, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `status` | keyword-only | `str | None` | `None` |
+| `assigned_to` | keyword-only | `str | None` | `None` |
+
+**Returns:** `list[ReworkTask]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(project_id: str, task_id: str) -> ReworkTask`
+
+Fetch one record from the project rework tasks surface identified by `project_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `task_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `ReworkTask`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `claim(project_id: str, task_id: str) -> ReworkTask`
+
+Operate on the project rework tasks surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `task_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `ReworkTask`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `resolve(project_id: str, task_id: str, **options) -> ReworkTask`
+
+Operate on the project rework tasks surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `task_id` | positional-or-keyword | `str` | `—` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `ReworkTask`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `reassign(project_id: str, task_id: str, assigned_to: str) -> ReworkTask`
+
+Operate on the project rework tasks surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `task_id` | positional-or-keyword | `str` | `—` |
+| `assigned_to` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `ReworkTask`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `ProjectsAPI`
 
 `class ProjectsAPI(transport)`
@@ -2000,6 +2092,7 @@ Operate on the projects surface with the supplied arguments and return the serve
 | Attribute | Type | Notes |
 | --- | --- | --- |
 | `files` | `ProjectFilesAPI` | — |
+| `rework_tasks` | `ProjectReworkTasksAPI` | Owned, recoverable work auto-created from a rejected refinement job. |
 
 **Methods**
 

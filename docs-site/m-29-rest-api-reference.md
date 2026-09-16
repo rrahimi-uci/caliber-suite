@@ -43,7 +43,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | Workflow services | `POST /workflows/{workflow_id}/service`, `POST /services/{workflow_id}/invoke`, `GET /services/{workflow_id}/openapi.json` | Publish a workflow externally and inspect its invocation contract |
 | Datasets and evaluations | `GET/POST /eval-datasets`, `GET/POST /evaluations`, `GET/POST /judges` | Evaluation evidence and scoring |
 | Verification queue | `GET/POST /verification-queue`, `POST /verification-queue/{id}/verify`, `.../dismiss`, `.../duplicate`, `POST /verification-queue/batch` | Stage ① Verify for a manually-flagged concern; verifying does not create a refinement job |
-| Rework tasks | `GET /rework-tasks`, `POST /rework-tasks/{id}/claim`, `.../resolve`, `.../reassign`; `POST /jobs/{id}/request-changes` | Owned, recoverable work auto-created when a refinement job is terminally rejected |
+| Rework tasks | `GET /rework-tasks`, `POST /rework-tasks/{id}/claim`, `.../resolve`, `.../reassign`; project-scoped `/projects/{id}/rework-tasks` lifecycle routes; `POST /jobs/{id}/request-changes` | Owned, recoverable work auto-created when a refinement job is terminally rejected; project routes hide tasks outside the source agent's workspace |
 | Quality reviews | `POST /jobs/{id}/quality-reviews`, `GET /jobs/{id}/quality-reviews` | A human go/no-go on a job's candidate, distinct from the machine eval gate; `no_go` creates a rework task |
 | Knowledge | `GET/POST /knowledge-bases`, `POST /knowledge/query` | Corpus lifecycle plus retrieval |
 | MCP | `GET/POST /mcp-servers`, tool inventory and invoke routes | Governed external tool connectivity |
@@ -104,7 +104,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Me (`me`) | `ga` | `1` | Typed SDK | `CaliberClient.whoami()`, `client.me.get()` | Identity and effective scopes for the current credential. |
 | Capabilities (`capabilities`) | `ga` | `1` | Typed SDK | `CaliberClient.capabilities()`, `client.capabilities_info.get()` | Feature flags and SDK stability tiers for the current deployment. |
 | Settings (`settings`) | `ga` | `3` | Typed SDK | `client.settings.runtime()`, `client.settings.llm()` | Runtime configuration summary and LLM credential status. |
-| Projects (`projects`) | `ga` | `21` | Typed SDK | `client.projects`, `client.projects.files` | Project records, project storage visibility, uploads, folders, and downloads. |
+| Projects (`projects`) | `ga` | `26` | Typed SDK | `client.projects`, `client.projects.files`, `client.projects.rework_tasks` | Project records, project storage visibility, uploads, folders, downloads, and scoped rework-task recovery. |
 | Prompts (`prompts`) | `ga` | `22` | Typed SDK | `client.prompts` | Prompt registry, versions, and alias promotion. |
 | Skills (`skills`) | `ga` | `19` | Typed SDK | `client.skills` | Skill registry, render checks, selection tests, and versions. |
 | Tools (`tools`) | `ga` | `20` | Typed SDK | `client.tools` | Tool registry plus calibration job submission and polling. |
@@ -162,8 +162,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `335` |
-| Operations | `411` |
+| Route paths | `340` |
+| Operations | `416` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -191,7 +191,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Me (`me`)](#me-me) | `1` | `1` |
 | [Capabilities (`capabilities`)](#capabilities-capabilities) | `1` | `1` |
 | [Settings (`settings`)](#settings-settings) | `3` | `2` |
-| [Projects (`projects`)](#projects-projects) | `21` | `16` |
+| [Projects (`projects`)](#projects-projects) | `26` | `21` |
 | [Prompts (`prompts`)](#prompts-prompts) | `22` | `18` |
 | [Skills (`skills`)](#skills-skills) | `19` | `16` |
 | [Tools (`tools`)](#tools-tools) | `20` | `16` |
@@ -316,7 +316,7 @@ Supported management routes that belong to the stable public automation surface.
 
 #### Projects (`projects`)
 
-21 operation(s) across 16 route path(s).
+26 operation(s) across 21 route path(s).
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
@@ -340,6 +340,11 @@ Supported management routes that belong to the stable public automation surface.
 | `DELETE` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members/{user_id}` | project role (`project.manage_members`) | `project_id`, `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_projects_project_id_members_user_id` |
 | `PATCH` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members/{user_id}` | project role (`project.manage_members`) | `project_id`, `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_projects_project_id_members_user_id`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/restore` | project role (`project.restore`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_restore` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_rework_tasks` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks/{task_id}` | project role (`read`) | `project_id`, `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_rework_tasks_task_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks/{task_id}:claim` | project role (`rework.update`) | `project_id`, `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_rework_tasks_task_id_claim` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks/{task_id}:reassign` | project role (`rework.update`) | `project_id`, `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_rework_tasks_task_id_reassign`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks/{task_id}:resolve` | project role (`rework.update`) | `project_id`, `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_rework_tasks_task_id_resolve`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/transfer-ownership` | project role (`project.transfer_owner`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_transfer_ownership`; request body documented in OpenAPI |
 
 #### Prompts (`prompts`)
