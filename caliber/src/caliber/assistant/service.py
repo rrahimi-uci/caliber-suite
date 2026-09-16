@@ -11,7 +11,7 @@ import re
 from collections.abc import Callable, Iterator, Sequence
 from concurrent.futures import ThreadPoolExecutor
 from concurrent.futures import TimeoutError as FuturesTimeoutError
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, replace
 from datetime import datetime, timedelta, timezone
 from typing import Any, Literal, cast
 
@@ -531,6 +531,14 @@ def normalize_disabled_domains(raw: Any, *, strict: bool = False) -> tuple[str, 
     return tuple(normalized)
 
 
+class AssistantSessionProjectMismatchError(ValueError):
+    """Raised when a turn names a project different from its session."""
+
+
+class AssistantSessionCredentialMismatchError(ValueError):
+    """Raised when a bound credential cannot use the session's project."""
+
+
 def default_prompt_fetcher(name: str) -> str | None:
     """Best-effort fetch of a prompt's template text from the MLflow registry.
 
@@ -623,6 +631,78 @@ class AssistantService:
         if domain is not None and domain in self._disabled_domains():
             return ("domain", domain)
         return None
+
+    def _resolve_session_turn_context(
+        self,
+        session_row: CaliberAssistantSession,
+        *,
+        user: str,
+        project_id: str | None,
+        scopes: Sequence[str] | None,
+        identity: CaliberIdentity | None,
+    ) -> tuple[CaliberIdentity | None, str | None]:
+        """Bind a turn to the session's durable project context.
+
+        New sessions persist the project selected at creation time. Existing
+        sessions remain unbound, while a conflicting explicit request remains
+        fail-closed.
+        """
+        requested_project_id = project_id
+        if identity is not None and identity.active_project_id is not None:
+            requested_project_id = identity.active_project_id
+
+        session_project_id = session_row.project_id
+
+        if (
+            session_project_id is not None
+            and requested_project_id is not None
+            and session_project_id != requested_project_id
+        ):
+            raise AssistantSessionProjectMismatchError(
+                "workspace_context_mismatch: assistant session is bound to "
+                f"project {session_project_id!r}, not {requested_project_id!r}"
+            )
+
+        effective_project_id = requested_project_id or session_project_id
+        if session_project_id is None and effective_project_id is not None:
+            # A legacy session becomes bound on its first explicitly scoped
+            # turn; later turns can then inherit the same context safely.
+            session_row.project_id = effective_project_id
+        if (
+            identity is not None
+            and identity.credential_project_id is not None
+            and effective_project_id is not None
+            and identity.credential_project_id != effective_project_id
+        ):
+            raise AssistantSessionCredentialMismatchError(
+                "this personal access token is bound to project "
+                f"{identity.credential_project_id!r} and cannot use assistant "
+                f"session project {effective_project_id!r}"
+            )
+
+        if identity is not None:
+            if identity.active_project_id != effective_project_id:
+                identity = replace(identity, active_project_id=effective_project_id)
+            return identity, effective_project_id
+
+        if effective_project_id is None:
+            return None, None
+        return (
+            CaliberIdentity(
+                user_id=user,
+                scopes=(
+                    frozenset(scopes)
+                    if scopes is not None
+                    else (
+                        scopes_for_user(self._runtime_config, user)
+                        if self._runtime_config is not None
+                        else frozenset()
+                    )
+                ),
+                active_project_id=effective_project_id,
+            ),
+            effective_project_id,
+        )
 
     def _get_owned_session(
         self,
@@ -734,6 +814,7 @@ class AssistantService:
         *,
         session_factory: Any,
         user: str,
+        identity: CaliberIdentity | None = None,
     ) -> SessionResponse:
         sid = new_assistant_session_id()
         metadata = copy.deepcopy(body.metadata_)
@@ -754,6 +835,7 @@ class AssistantService:
                 session_id=sid,
                 title=body.title or "New session",
                 owner=user,
+                project_id=identity.active_project_id if identity is not None else None,
                 goal=body.goal,
                 metadata_=metadata,
             )
@@ -4930,6 +5012,13 @@ class AssistantService:
             session_row = self._get_owned_session(db, session_id, user)
             if session_row is None:
                 raise ValueError(f"Session {session_id} not found")
+            turn_identity, project_id = self._resolve_session_turn_context(
+                session_row,
+                user=user,
+                project_id=project_id,
+                scopes=scopes,
+                identity=turn_identity,
+            )
             metadata, _workbench = self._metadata_and_workbench(session_row.metadata_)
             metadata = update_session_skill_runtime_metadata(metadata)
             correlation_id = self._ensure_correlation_id(metadata)
