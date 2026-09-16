@@ -22,6 +22,7 @@ from caliber.db.models import (
     CaliberWorkflow,
     CaliberWorkflowDeployment,
     CaliberWorkflowPromotion,
+    CaliberWorkflowRun,
     CaliberWorkflowVersion,
 )
 from caliber.storage import LocalStorageBackend, WorkingDirectoryService
@@ -149,6 +150,9 @@ def test_run_preview_reads_hash_verified_managed_project_file(
     )
 
     assert result["status"] == "completed"
+    run = db_session.get(CaliberWorkflowRun, result["workflow_run_id"])
+    assert run is not None
+    assert run.project_id == project.project_id
     source_step = next(step for step in result["steps"] if step["node_id"] == "managed_source")
     assert source_step["output"] == "verified preview content"
 

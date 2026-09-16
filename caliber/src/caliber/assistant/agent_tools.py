@@ -1032,14 +1032,26 @@ class AssistantAgentToolset:
         return _ok(self._preview_result(result))
 
     def _t_preview_workflow_version(self, a: dict[str, Any]) -> str:
-        from caliber.db.models import CaliberWorkflowVersion  # noqa: PLC0415
+        from caliber.db.models import CaliberWorkflow, CaliberWorkflowVersion  # noqa: PLC0415
+        from caliber.db.scoping import get_visible  # noqa: PLC0415
         from caliber.workflows.promoter import run_preview  # noqa: PLC0415
 
         version_id = str(a.get("version_id", ""))
         input_text = str(a.get("input_text", ""))
+        identity = self._capability_context().identity()
         with self._deps.session_factory() as db:
             version = db.get(CaliberWorkflowVersion, version_id)
-            if version is None:
+            # Workflow versions carry no visibility columns of their own. Resolve
+            # their parent before executing so a guessed version id cannot preview
+            # another project's graph (the same C3 pattern used by the manifest
+            # and run readers above).
+            if (
+                version is None
+                or get_visible(
+                    db, CaliberWorkflow, CaliberWorkflow.workflow_id, version.workflow_id, identity
+                )
+                is None
+            ):
                 return _err(f"version {version_id!r} not found")
             result = run_preview(
                 db, version, input_text, session_id=self._session_id, config=self._deps.config
