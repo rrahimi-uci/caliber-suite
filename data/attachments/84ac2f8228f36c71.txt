@@ -1,0 +1,3 @@
+{"t":"2026-09-16T00:25:05.338Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher started (urls=1, events=*, pending_capacity=4096)"}
+{"t":"2026-09-16T00:25:05.350Z","severity":"WARNING","logger":"caliber.events.webhooks","message":"webhook POST failed, retrying: url=https://flaky.example/hook event='approval.promoted' attempt=1/3 err=receiver returned HTTP 503","trace_id":"c27c53d62f329367"}
+{"t":"2026-09-16T00:25:05.361Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher stopped"}
