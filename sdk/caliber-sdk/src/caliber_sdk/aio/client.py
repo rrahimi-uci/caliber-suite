@@ -29,6 +29,7 @@ from __future__ import annotations
 import os
 import warnings
 from collections.abc import AsyncIterator, Mapping
+from contextlib import asynccontextmanager
 from typing import Any
 
 import httpx
@@ -100,6 +101,23 @@ class AsyncCaliberClient:
 
     async def __aexit__(self, *_: object) -> None:
         await self.aclose()
+
+    @asynccontextmanager
+    async def project_scope(self, project_id: str) -> AsyncIterator[AsyncCaliberClient]:
+        """Temporarily select a context-local project for async requests.
+
+        The selection follows the current task across ``await`` points and is
+        restored even when the scoped operation raises. Other tasks sharing the
+        client keep their own project selection.
+        """
+        selected = (project_id or "").strip()
+        if not selected:
+            raise CaliberConfigError("project_id must not be empty")
+        token = self._transport._push_project(selected)
+        try:
+            yield self
+        finally:
+            self._transport._pop_project(token)
 
     # -- deprecated aliases -------------------------------------------------
     #

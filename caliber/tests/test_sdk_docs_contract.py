@@ -166,8 +166,9 @@ def test_every_method_that_performs_a_request_documents_its_exceptions() -> None
             name = member.split("(")[0]
             if name.startswith("__") or "**Raises" in member:
                 continue
-            # Genuinely cannot raise: local accessors, a factory that *returns*
-            # an exception, and ``bootstrap_csrf``, which catches and returns
+            # Genuinely cannot raise: local accessors, including the
+            # context-local ``project`` property, a factory that *returns* an
+            # exception, and ``bootstrap_csrf``, which catches and returns
             # None because a deployment with CSRF disabled serves no token.
             # ``capabilities_api``/``datasets`` are deprecated aliases (AD-6):
             # pure attribute access plus a warning, delegating to an
@@ -176,6 +177,7 @@ def test_every_method_that_performs_a_request_documents_its_exceptions() -> None
             if name in {
                 "close",
                 "aclose",
+                "project",
                 "url_for",
                 "error_for_response",
                 "bootstrap_csrf",

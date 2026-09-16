@@ -181,19 +181,18 @@ class CaliberClient:
         raises, so a reusable client does not silently leak project context into
         the caller's next task.
 
-        A client must not be shared across threads while this context is active:
-        project selection is request state on that client, not a process-wide
-        context variable.
+        Project selection is stored in the current thread/task context, so a
+        concurrent caller gets its own selection. Per-request project pins are
+        still preferred for resource methods whose path names the project.
         """
         selected = (project_id or "").strip()
         if not selected:
             raise CaliberConfigError("project_id must not be empty")
-        previous = self._transport.project
-        self._transport.project = selected
+        token = self._transport._push_project(selected)
         try:
             yield self
         finally:
-            self._transport.project = previous
+            self._transport._pop_project(token)
 
     # -- discovery ---------------------------------------------------------
 

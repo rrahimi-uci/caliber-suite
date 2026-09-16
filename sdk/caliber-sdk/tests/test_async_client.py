@@ -88,6 +88,46 @@ def test_the_async_client_sends_the_same_credential_header_as_the_sync_one() -> 
     assert seen["auth"] == sync_seen["auth"]
 
 
+def test_async_project_scope_is_context_local_across_tasks() -> None:
+    """An await inside one scope must not expose it to another task."""
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("x-caliber-project"))
+        return envelope({})
+
+    async def request_in_scope(caliber: AsyncCaliberClient, project_id: str) -> None:
+        async with caliber.project_scope(project_id):
+            await asyncio.sleep(0)
+            await caliber.me.get()
+            await asyncio.sleep(0)
+
+    async def main() -> None:
+        async with client_with(handler) as caliber:
+            await asyncio.gather(
+                request_in_scope(caliber, "PRJ-A"),
+                request_in_scope(caliber, "PRJ-B"),
+            )
+            await caliber.me.get()
+
+    run(main())
+    assert sorted(seen[:2], key=lambda project_id: project_id or "") == ["PRJ-A", "PRJ-B"]
+    assert seen[2] is None
+
+
+def test_async_project_scope_restores_context_after_an_error() -> None:
+    async def main() -> str | None:
+        async with client_with(lambda _request: envelope({})) as caliber:
+            try:
+                async with caliber.project_scope("PRJ-temporary"):
+                    raise RuntimeError("stop")
+            except RuntimeError:
+                pass
+            return caliber._transport.project
+
+    assert run(main()) is None
+
+
 def test_the_async_client_accepts_the_same_verify_keyword_as_the_sync_one(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
