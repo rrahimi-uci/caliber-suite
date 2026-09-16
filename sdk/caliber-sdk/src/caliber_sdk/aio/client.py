@@ -1,7 +1,8 @@
 """The async client, and an honest statement of what it covers.
 
-``AsyncCaliberClient`` gives you the transport, the raw surface, async waiters,
-and the two typed surfaces where being async actually changes the outcome:
+``AsyncCaliberClient`` gives you the transport, the raw surface, project
+operations, async waiters, and the typed surfaces where being async actually
+changes the outcome:
 long-running work you poll, and the event stream you hold open.
 
 It does **not** mirror all twenty-odd typed resource modules. That is a decision,
@@ -42,6 +43,8 @@ from ..models.core import Capabilities, Identity, WorkflowRunCapabilities
 from ..models.operations import Job
 from ..models.workflows import FAILED_RUN_STATES, WorkflowRun
 from ..resources.workflows import WorkflowRunFailed
+from ._base import _AsyncResource
+from .projects import AsyncProjectsAPI
 from .transport import AsyncTransport
 from .waiters import wait_for
 
@@ -89,6 +92,7 @@ class AsyncCaliberClient:
         self.raw = AsyncRawAPI(self._transport)
         self.me = AsyncMeAPI(self._transport)
         self.capabilities_info = AsyncCapabilitiesAPI(self._transport)
+        self.projects = AsyncProjectsAPI(self._transport)
         self.workflows = AsyncWorkflowRunsAPI(self._transport)
         self.jobs = AsyncJobsAPI(self._transport)
         self.events = AsyncEventsAPI(self._transport)
@@ -134,19 +138,6 @@ class AsyncCaliberClient:
             stacklevel=2,
         )
         return self.capabilities_info
-
-
-class _AsyncResource:
-    """Shared plumbing: unwrap the envelope, hand back the payload."""
-
-    def __init__(self, transport: AsyncTransport) -> None:
-        self._transport = transport
-
-    async def _get(self, path: str, **kwargs: Any) -> Any:
-        return (await self._transport.get(path, **kwargs)).data
-
-    async def _post(self, path: str, **kwargs: Any) -> Any:
-        return (await self._transport.post(path, **kwargs)).data
 
 
 class AsyncRawAPI(_AsyncResource):
