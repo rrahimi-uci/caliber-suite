@@ -13,11 +13,12 @@ read APIs need. Additional tables land alongside the features that use them.
 from __future__ import annotations
 
 from datetime import datetime
-from typing import Any
+from typing import Any, cast
 
 from sqlalchemy import (
     JSON,
     Boolean,
+    CheckConstraint,
     DateTime,
     Float,
     ForeignKey,
@@ -27,12 +28,23 @@ from sqlalchemy import (
     String,
     Text,
     UniqueConstraint,
+    event,
     func,
+    select,
     text,
 )
-from sqlalchemy.orm import Mapped, mapped_column
+from sqlalchemy.orm import Mapped, Session, mapped_column
+from sqlalchemy.orm.attributes import get_history
 
 from caliber.db.base import Base
+
+
+class WorkspaceRevisionImmutableError(RuntimeError):
+    """Raised when a terminal Workspace revision or its pins is mutated."""
+
+
+class WorkspaceSnapshotRetentionError(RuntimeError):
+    """Raised when a snapshot is still referenced by a retained revision."""
 
 
 class CaliberAgentConfig(Base):
@@ -2073,10 +2085,23 @@ class CaliberProject(Base):
     source_mode: Mapped[str] = mapped_column(String(24), default="caliber_managed")
     archived_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     archived_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
-    #: Current package accepted by Change Request CAS (§9.1). Added nullable,
-    #: unconstrained here; a real FK to the revision table lands once Phase 4
-    #: creates it. Not an environment pointer.
-    accepted_revision_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    #: Current package accepted by Change Request CAS (§9.1). Not an
+    #: environment pointer.
+    accepted_revision_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey(
+            "caliber_workspace_revisions.revision_id",
+            name="fk_projects_accepted_revision",
+            use_alter=True,
+        ),
+        nullable=True,
+    )
+    #: Next per-workspace revision number. Allocation is a portable compare-
+    #: and-set update in :mod:`caliber.workspace_revisions`; numbers are
+    #: monotonic identifiers and may contain gaps after a failed transaction.
+    next_revision_number: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
@@ -2122,6 +2147,210 @@ class CaliberWorkspaceEnvironment(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+
+
+class CaliberWorkspaceSource(Base):
+    """The provider-neutral source configuration for one Workspace.
+
+    This is the dormant Phase-4 persistence boundary. Provider calls and
+    source transitions arrive in later slices; this row stores only the
+    canonical repository identity and policy snapshots they will consume.
+    """
+
+    __tablename__ = "caliber_workspace_sources"
+    __table_args__ = (
+        UniqueConstraint("project_id", name="uq_workspace_source_project"),
+        Index("ix_workspace_sources_project_status", "project_id", "status"),
+        CheckConstraint(
+            "provider IN ('github', 'gitlab', 'bitbucket')",
+            name="ck_workspace_source_provider",
+        ),
+        CheckConstraint(
+            "import_mode IN ('push', 'provider_pull')",
+            name="ck_workspace_source_import_mode",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'disabled', 'error')",
+            name="ck_workspace_source_status",
+        ),
+    )
+
+    source_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_host: Mapped[str] = mapped_column(String(256), nullable=False)
+    canonical_repository_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    display_path: Mapped[str] = mapped_column(String(512), nullable=False)
+    default_branch: Mapped[str] = mapped_column(String(256), nullable=False, default="main")
+    root_path: Mapped[str] = mapped_column(String(1024), nullable=False, default="")
+    manifest_path: Mapped[str] = mapped_column(
+        String(1024), nullable=False, default=".caliber/workspace.yaml"
+    )
+    import_mode: Mapped[str] = mapped_column(String(24), nullable=False, default="push")
+    connection_ref: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    provider_capabilities: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    external_review_policy: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    external_review_policy_version: Mapped[str] = mapped_column(String(64), default="v1")
+    external_review_policy_sha256: Mapped[str] = mapped_column(String(64), default="")
+    provider_ruleset_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    last_verified_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_reconciled_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(256), default="")
+    updated_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CaliberWorkspaceRevision(Base):
+    """An immutable candidate package for one Workspace.
+
+    A revision is mutable only while ``validating``. The mapper guard at the
+    bottom of this module rejects ORM updates after the row reaches ``ready``
+    or ``invalid``; the service layer provides the same invariant for explicit
+    lifecycle operations.
+    """
+
+    __tablename__ = "caliber_workspace_revisions"
+    __table_args__ = (
+        UniqueConstraint("project_id", "revision_number", name="uq_workspace_revision_number"),
+        UniqueConstraint("project_id", "revision_sha256", name="uq_workspace_revision_digest"),
+        UniqueConstraint(
+            "project_id",
+            "source_id",
+            "source_commit_sha",
+            "source_bundle_sha256",
+            "manifest_sha256",
+            name="uq_workspace_revision_import_content",
+        ),
+        UniqueConstraint(
+            "source_id", "source_commit_sha", name="uq_workspace_source_commit_observation"
+        ),
+        Index("ix_workspace_revisions_project_status", "project_id", "status"),
+        CheckConstraint(
+            "status IN ('validating', 'ready', 'invalid')",
+            name="ck_workspace_revision_status",
+        ),
+    )
+
+    revision_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    revision_number: Mapped[int] = mapped_column(Integer, nullable=False)
+    source_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_sources.source_id"), nullable=True
+    )
+    source_commit_sha: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    manifest: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    manifest_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_bundle_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_snapshot_file_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workflow_files.file_id"), nullable=True
+    )
+    source_attestation: Mapped[str] = mapped_column(String(32), default="caller_attested")
+    revision_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="validating")
+    validation_report: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(256), default="")
+    validated_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    validated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberWorkspaceRevisionResource(Base):
+    """One exact, digest-addressed resource pin contained by a revision."""
+
+    __tablename__ = "caliber_workspace_revision_resources"
+    __table_args__ = (
+        UniqueConstraint(
+            "revision_id",
+            "resource_type",
+            "logical_name",
+            name="uq_workspace_revision_resource_name",
+        ),
+        Index("ix_workspace_revision_resources_revision", "revision_id"),
+    )
+
+    resource_pin_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    revision_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_revisions.revision_id"), nullable=False
+    )
+    resource_type: Mapped[str] = mapped_column(String(64), nullable=False)
+    logical_name: Mapped[str] = mapped_column(String(256), nullable=False)
+    resource_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    version_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    content_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    source_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    source_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    provider_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    snapshot_file_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workflow_files.file_id"), nullable=True
+    )
+    snapshot_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    purpose: Mapped[str] = mapped_column(String(32), nullable=False, default="runtime")
+    resolution: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberWorkspaceImportJob(Base):
+    """Durable intent for a source-to-revision import.
+
+    Claim/lease execution is deliberately dormant until P4-B; the row already
+    carries the recovery fields needed by that worker without making provider
+    access part of this schema-only slice.
+    """
+
+    __tablename__ = "caliber_workspace_import_jobs"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "idempotency_key", name="uq_workspace_import_project_idempotency"
+        ),
+        Index("ix_workspace_import_jobs_project_status", "project_id", "status"),
+        Index("ix_workspace_import_jobs_lease", "status", "lease_expires_at"),
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed', 'reconcile_required')",
+            name="ck_workspace_import_status",
+        ),
+    )
+
+    import_job_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    source_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_sources.source_id"), nullable=False
+    )
+    repository: Mapped[str] = mapped_column(String(512), nullable=False)
+    commit_sha: Mapped[str] = mapped_column(String(128), nullable=False)
+    upload_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_bundle_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_snapshot_file_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workflow_files.file_id"), nullable=True
+    )
+    manifest_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="queued")
+    revision_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_revisions.revision_id"), nullable=True
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    claimed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    last_heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_by: Mapped[str] = mapped_column(String(256), default="")
+    updated_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
 class CaliberWorkflowFile(Base):
@@ -3244,3 +3473,82 @@ class CaliberSkillVersion(Base):
     summary: Mapped[str] = mapped_column(Text, default="")
     created_by: Mapped[str] = mapped_column(String(256), default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+_TERMINAL_WORKSPACE_REVISION_STATUSES = frozenset({"ready", "invalid"})
+
+
+def _revision_status(connection: Any, revision_id: str) -> str | None:
+    value = connection.execute(
+        select(CaliberWorkspaceRevision.status).where(
+            CaliberWorkspaceRevision.revision_id == revision_id
+        )
+    ).scalar_one_or_none()
+    return cast(str | None, value)
+
+
+@event.listens_for(CaliberWorkspaceRevision, "before_update")
+def _reject_terminal_revision_update(_mapper: Any, _connection: Any, target: Any) -> None:
+    """Allow validation to finalize once, then make the row append-only."""
+    history = get_history(target, "status")
+    previous_status = history.deleted[0] if history.deleted else target.status
+    if previous_status in _TERMINAL_WORKSPACE_REVISION_STATUSES:
+        raise WorkspaceRevisionImmutableError(
+            f"workspace revision {target.revision_id!r} is terminal ({previous_status})"
+        )
+
+
+@event.listens_for(Session, "before_flush")
+def _reject_terminal_revision_resource_mutation(
+    session: Session, _flush_context: Any, _instances: Any
+) -> None:
+    """Reject pin changes after terminal validation.
+
+    This session-level guard runs before SQL ordering can write a final
+    ``ready`` status ahead of its last resource pins. It therefore allows pins
+    prepared in the same validating-to-terminal transaction while refusing
+    inserts, updates, or deletes added in a later flush.
+    """
+    candidates = (*session.new, *session.dirty, *session.deleted)
+    for target in candidates:
+        if not isinstance(target, CaliberWorkspaceRevisionResource):
+            continue
+        revision = session.get(CaliberWorkspaceRevision, target.revision_id)
+        if revision is None or revision.status not in _TERMINAL_WORKSPACE_REVISION_STATUSES:
+            continue
+        history = get_history(revision, "status")
+        finalizing = history.deleted == ["validating"]
+        if revision in session.new or (finalizing and revision in session.dirty):
+            continue
+        raise WorkspaceRevisionImmutableError(
+            f"workspace revision {target.revision_id!r} is terminal ({revision.status})"
+        )
+
+
+@event.listens_for(CaliberWorkflowFile, "before_delete")
+def _reject_retained_snapshot_delete(_mapper: Any, connection: Any, target: Any) -> None:
+    """Keep snapshots reachable from retained ready revisions addressable."""
+    direct_reference = connection.execute(
+        select(CaliberWorkspaceRevision.revision_id)
+        .where(
+            CaliberWorkspaceRevision.status == "ready",
+            CaliberWorkspaceRevision.source_snapshot_file_id == target.file_id,
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    resource_reference = connection.execute(
+        select(CaliberWorkspaceRevisionResource.resource_pin_id)
+        .join(
+            CaliberWorkspaceRevision,
+            CaliberWorkspaceRevision.revision_id == CaliberWorkspaceRevisionResource.revision_id,
+        )
+        .where(
+            CaliberWorkspaceRevision.status == "ready",
+            CaliberWorkspaceRevisionResource.snapshot_file_id == target.file_id,
+        )
+        .limit(1)
+    ).scalar_one_or_none()
+    if direct_reference is not None or resource_reference is not None:
+        raise WorkspaceSnapshotRetentionError(
+            f"snapshot file {target.file_id!r} is retained by a ready workspace revision"
+        )
