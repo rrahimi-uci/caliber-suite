@@ -38,11 +38,13 @@ def _upload(
     *,
     strategy: str = "reject",
     rename_to: str = "",
+    headers: dict[str, str] | None = None,
 ) -> object:
     return client.post(
         f"{PREFIX}/skills/import-package.zip",
         data={"conflict_strategy": strategy, "rename_to": rename_to},
         files={"file": ("skill.zip", data, "application/zip")},
+        headers=headers,
     )
 
 
@@ -61,6 +63,9 @@ def test_zip_import_creates_versioned_project_skill_and_audit(
     ]
     stored = db_session.get(CaliberSkill, skill["skill_id"])
     assert stored is not None
+    assert stored.owner == "@test"
+    assert stored.project_id is None
+    assert stored.visibility == "user"
     assert (
         db_session.execute(
             select(CaliberSkillVersion).where(CaliberSkillVersion.skill_id == skill["skill_id"])
@@ -80,6 +85,24 @@ def test_zip_import_creates_versioned_project_skill_and_audit(
         .details["conflict_strategy"]
         == "reject"
     )
+
+
+def test_zip_import_persists_authenticated_project_context(
+    client: TestClient,
+    db_session: Session,
+) -> None:
+    response = _upload(
+        client,
+        _zip(name="project-skill"),
+        headers={"X-CALIBER-Project": "PRJ-zip-import"},
+    )
+
+    assert response.status_code == 201, response.text
+    skill = db_session.get(CaliberSkill, response.json()["data"]["skill_id"])
+    assert skill is not None
+    assert skill.owner == "@test"
+    assert skill.project_id == "PRJ-zip-import"
+    assert skill.visibility == "project"
 
 
 def test_zip_conflict_requires_explicit_rename_or_merge(client: TestClient) -> None:
