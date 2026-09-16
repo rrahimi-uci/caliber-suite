@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+from concurrent.futures import ThreadPoolExecutor
+from threading import Barrier, Lock
+
 import httpx
 import pytest
 
@@ -122,6 +125,37 @@ def test_project_scope_restores_context_after_an_error() -> None:
         assert caliber._transport.project == "PRJ-original"
     finally:
         caliber.close()
+
+
+def test_project_scope_is_context_local_across_threads() -> None:
+    """Concurrent users of one client must not overwrite each other's scope."""
+    seen: list[str | None] = []
+    lock = Lock()
+    entered = Barrier(2)
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        with lock:
+            seen.append(request.headers.get("x-caliber-project"))
+        return httpx.Response(200, json={"data": {}})
+
+    def request_in_scope(caliber: CaliberClient, project_id: str) -> None:
+        with caliber.project_scope(project_id):
+            entered.wait(timeout=5)
+            caliber.whoami()
+            entered.wait(timeout=5)
+
+    with (
+        client_with(handler, project="PRJ-default") as caliber,
+        ThreadPoolExecutor(max_workers=2) as executor,
+    ):
+        futures = [
+            executor.submit(request_in_scope, caliber, project_id)
+            for project_id in ("PRJ-A", "PRJ-B")
+        ]
+        for future in futures:
+            future.result(timeout=5)
+
+    assert sorted(seen, key=lambda project_id: project_id or "") == ["PRJ-A", "PRJ-B"]
 
 
 def test_project_scope_rejects_an_empty_project_id() -> None:

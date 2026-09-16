@@ -19,6 +19,7 @@ from __future__ import annotations
 import asyncio
 import uuid
 from collections.abc import AsyncIterator, Mapping
+from contextvars import Token
 from typing import Any
 
 import httpx
@@ -35,6 +36,7 @@ from ..transport import (
     Transport,
     UnsetProjectType,
     _decode,
+    _ProjectContext,
     _unwrap,
 )
 
@@ -65,13 +67,30 @@ class AsyncTransport:
 
         self.base_url = cleaned
         self.auth = auth or NoAuth()
-        self.project = project
+        self._project_context = _ProjectContext(
+            project, name=f"caliber_sdk_async_project_{id(self)}"
+        )
         self.max_retries = max_retries
         self.backoff_factor = backoff_factor
         self._user_agent = user_agent or USER_AGENT
         self._csrf_token: str | None = None
         self._owns_client = http_client is None
         self._client = http_client or httpx.AsyncClient(timeout=timeout, verify=verify)
+
+    @property
+    def project(self) -> str | None:
+        """The ambient project in the current task/thread context."""
+        return self._project_context.current
+
+    @project.setter
+    def project(self, value: str | None) -> None:
+        self._project_context.set(value)
+
+    def _push_project(self, project_id: str) -> Token[str | None]:
+        return self._project_context.set(project_id)
+
+    def _pop_project(self, token: Token[str | None]) -> None:
+        self._project_context.reset(token)
 
     async def aclose(self) -> None:
         """Close the underlying client, but only one we created.

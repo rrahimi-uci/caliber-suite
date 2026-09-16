@@ -16,6 +16,7 @@ from __future__ import annotations
 import time
 import uuid
 from collections.abc import Iterator, Mapping
+from contextvars import ContextVar, Token
 from typing import Any, Final
 
 import httpx
@@ -47,6 +48,30 @@ class UnsetProjectType:
 #: ``None`` to deliberately send no project header at all (a platform call).
 UNSET_PROJECT: Final = UnsetProjectType()
 
+
+class _ProjectContext:
+    """Context-local project selection shared by both SDK transports.
+
+    The constructor value is the fallback for every execution context. A
+    scoped override is stored in the current thread/task context only, so a
+    reusable client can be shared safely by concurrent callers without one
+    request changing another caller's project header.
+    """
+
+    def __init__(self, default: str | None, *, name: str) -> None:
+        self._value: ContextVar[str | None] = ContextVar(name, default=default)
+
+    @property
+    def current(self) -> str | None:
+        return self._value.get()
+
+    def set(self, project_id: str | None) -> Token[str | None]:
+        return self._value.set(project_id)
+
+    def reset(self, token: Token[str | None]) -> None:
+        self._value.reset(token)
+
+
 #: The management API root. Same-origin with MLflow by design.
 API_PREFIX = "/ajax-api/2.0/mlflow/caliber"
 
@@ -72,7 +97,11 @@ class Response:
 
 
 class Transport:
-    """Synchronous HTTP transport against one CALIBER deployment."""
+    """Synchronous HTTP transport against one CALIBER deployment.
+
+    The ambient project is context-local. Per-request ``project=`` pins remain
+    the preferred choice for resource methods whose path names the project.
+    """
 
     def __init__(
         self,
@@ -97,13 +126,28 @@ class Transport:
 
         self.base_url = cleaned
         self.auth = auth or NoAuth()
-        self.project = project
+        self._project_context = _ProjectContext(project, name=f"caliber_sdk_project_{id(self)}")
         self.max_retries: int = max_retries
         self.backoff_factor: float = backoff_factor
         self._csrf_token: str | None = None
         self._owns_client = client is None
         self._client = client or httpx.Client(timeout=timeout, verify=verify)
         self._user_agent = user_agent or USER_AGENT
+
+    @property
+    def project(self) -> str | None:
+        """The ambient project in the current thread/task context."""
+        return self._project_context.current
+
+    @project.setter
+    def project(self, value: str | None) -> None:
+        self._project_context.set(value)
+
+    def _push_project(self, project_id: str) -> Token[str | None]:
+        return self._project_context.set(project_id)
+
+    def _pop_project(self, token: Token[str | None]) -> None:
+        self._project_context.reset(token)
 
     # -- lifecycle ---------------------------------------------------------
 

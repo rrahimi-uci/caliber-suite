@@ -481,9 +481,9 @@ that project. The previous selection is restored even when an operation
 raises, so a reusable client does not silently leak project context into
 the caller's next task.
 
-A client must not be shared across threads while this context is active:
-project selection is request state on that client, not a process-wide
-context variable.
+Project selection is stored in the current thread/task context, so a
+concurrent caller gets its own selection. Per-request project pins are
+still preferred for resource methods whose path names the project.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -866,6 +866,9 @@ Operate on the response surface with the supplied arguments and return the serve
 
 Synchronous HTTP transport against one CALIBER deployment.
 
+The ambient project is context-local. Per-request ``project=`` pins remain
+the preferred choice for resource methods whose path names the project.
+
 **Constructor**
 
 ###### `__init__(base_url: str, *, auth: AuthProvider | None = None, project: str | None = None, timeout: float = 30.0, max_retries: int = 2, backoff_factor: float = 0.5, verify: bool | str = True, client: httpx.Client | None = None, user_agent: str | None = None) -> None`
@@ -896,9 +899,28 @@ Send a prepared request through the shared transport and decode the typed respon
 | --- | --- | --- |
 | `base_url` | `Any` | — |
 | `auth` | `Any` | Session inspection plus token and account sub-resources. |
-| `project` | `Any` | — |
+
+**Properties**
+
+###### `project() -> str | None`
+
+The ambient project in the current thread/task context.
+
+This callable takes no public parameters.
+
+**Returns:** `str | None`
 
 **Methods**
+
+###### `project(value: str | None) -> None`
+
+Send a prepared request through the shared transport and decode the typed response wrapper.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `value` | positional-or-keyword | `str | None` | `—` |
+
+**Returns:** `None`
 
 ###### `close() -> None`
 
@@ -11080,6 +11102,24 @@ Close any owned resources when leaving the async context manager.
 
 **Returns:** `None`
 
+###### `project_scope(project_id: str) -> AsyncIterator[AsyncCaliberClient]`
+
+Temporarily select a context-local project for async requests.
+
+The selection follows the current task across ``await`` points and is
+restored even when the scoped operation raises. Other tasks sharing the
+client keep their own project selection.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`AsyncIterator[AsyncCaliberClient]`](#asynccaliberclient)
+
+**Raises:**
+
+- [`CaliberConfigError`](#caliberconfigerror)
+
 ##### `AsyncRawAPI`
 
 `class AsyncRawAPI()`
@@ -11493,11 +11533,30 @@ Send a prepared request asynchronously through the shared transport and decode t
 | --- | --- | --- |
 | `base_url` | `Any` | — |
 | `auth` | `Any` | Session inspection plus token and account sub-resources. |
-| `project` | `Any` | — |
 | `max_retries` | `Any` | — |
 | `backoff_factor` | `Any` | — |
 
+**Properties**
+
+###### `project() -> str | None`
+
+The ambient project in the current task/thread context.
+
+This callable takes no public parameters.
+
+**Returns:** `str | None`
+
 **Methods**
+
+###### `project(value: str | None) -> None`
+
+Send a prepared request asynchronously through the shared transport and decode the typed response wrapper.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `value` | positional-or-keyword | `str | None` | `—` |
+
+**Returns:** `None`
 
 ###### `aclose() -> None`
 

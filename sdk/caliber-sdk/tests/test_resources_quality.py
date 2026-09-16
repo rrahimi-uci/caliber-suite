@@ -169,9 +169,7 @@ def test_verification_queue_list_sends_only_provided_filters() -> None:
 def test_verification_queue_list_decodes_items() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/verification-queue")
-        return envelope(
-            [{"item_id": "FB-1", "agent_id": "support-agent", "status": "pending"}]
-        )
+        return envelope([{"item_id": "FB-1", "agent_id": "support-agent", "status": "pending"}])
 
     with client_with(handler) as caliber:
         items = caliber.verification_queue.list(status="all")
