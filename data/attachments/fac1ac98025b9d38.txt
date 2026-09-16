@@ -1,0 +1,22 @@
+DEBUG    caliber.assistant.tracing:tracing.py:55 failed setting assistant span attribute custom
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/assistant/tracing.py", line 53, in set_attribute
+    setter(str(key), clean)
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_assistant_tracing.py", line 99, in set_attribute
+    raise RuntimeError(f"cannot set {key}={value}")
+RuntimeError: cannot set custom={"value": "kept locally"}
+DEBUG    caliber.assistant.tracing:tracing.py:55 failed setting assistant span attribute caliber.status
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/assistant/tracing.py", line 53, in set_attribute
+    setter(str(key), clean)
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_assistant_tracing.py", line 99, in set_attribute
+    raise RuntimeError(f"cannot set {key}={value}")
+RuntimeError: cannot set caliber.status=completed
+DEBUG    caliber.assistant.tracing:tracing.py:127 failed closing assistant MLflow span caliber.assistant.close_failure
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/assistant/tracing.py", line 125, in __exit__
+    return bool(self._cm.__exit__(exc_type, exc, tb))
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_assistant_tracing.py", line 110, in __exit__
+    raise RuntimeError("close failed")
+RuntimeError: close failed

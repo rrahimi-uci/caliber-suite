@@ -1,0 +1,18 @@
+ERROR    caliber.bundle:bundle.py:294 rollback failed for already-promoted target a-2/prompt; manual intervention needed
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/bundle.py", line 212, in promote_bundle
+    result = promoter.promote(
+             ^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_bundle.py", line 196, in promote
+    raise PromoterError(f"simulated failure for {request.agent_id}")
+caliber.promoter.PromoterError: simulated failure for a-3
+
+During handling of the above exception, another exception occurred:
+
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/bundle.py", line 279, in _rollback_succeeded
+    promoter.rollback(
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_bundle.py", line 282, in rollback
+    raise RuntimeError("rollback of a-2 also broken")
+RuntimeError: rollback of a-2 also broken
+ERROR    caliber.bundle:bundle.py:239 bundle promotion failed for approval=AP-1: bundle promotion failed at a-3/prompt: simulated failure for a-3; rollback also failed for [a-2/prompt]

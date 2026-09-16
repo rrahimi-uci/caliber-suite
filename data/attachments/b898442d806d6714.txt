@@ -1,0 +1,1 @@
+WARNING  caliber.events.nats_bus:nats_bus.py:104 dropping malformed NATS event payload
