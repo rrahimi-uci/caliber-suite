@@ -1,1 +1,0 @@
-WARNING  caliber.csrf:csrf.py:316 csrf is enabled but the secret source 'env://NOT_SET' resolved to empty; CSRF protection will not engage. Set the source named by config.csrf_signing_secret_env.

@@ -1,3 +1,0 @@
-{"t":"2026-09-16T03:21:51.090Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher started (urls=2, events=*, pending_capacity=4096)"}
-{"t":"2026-09-16T03:21:51.102Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook delivery exhausted, dead-lettering: url=https://broken.example/hook event='approval.promoted' err=simulated failure","trace_id":"6b744ce26ecd313b"}
-{"t":"2026-09-16T03:21:51.113Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher stopped"}
