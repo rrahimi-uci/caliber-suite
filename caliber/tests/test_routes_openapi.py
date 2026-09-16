@@ -79,9 +79,9 @@ def test_starlette_converters_are_translated_to_openapi_parameters(client: TestC
     """``{path:path}`` is Starlette syntax, not OpenAPI syntax."""
     doc = client.get(OPENAPI_URL).json()
 
-    assert not any(":" in path for path in doc["paths"]), (
-        "a Starlette converter leaked into a documented path: "
-        f"{[p for p in doc['paths'] if ':' in p]}"
+    converter_paths = [path for path in doc["paths"] if re.search(r"\{[^}]+:[^}]+\}", path)]
+    assert not converter_paths, (
+        f"a Starlette converter leaked into a documented path: {converter_paths}"
     )
 
     for path, operations in doc["paths"].items():

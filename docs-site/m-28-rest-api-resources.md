@@ -51,7 +51,7 @@ does this capability live?" before you drop into per-route details.
 | Route family | Purpose |
 | --- | --- |
 | `/jobs` | Durable background jobs, apply targets, request-changes (send a `candidate_ready` job back for another pass), and quality-reviews (a human go/no-go on the candidate, distinct from the machine eval gate) |
-| `/rework-tasks` | Owned, recoverable work auto-created when a refinement job is terminally rejected: list/get/claim/resolve/reassign |
+| `/rework-tasks` and `/projects/{id}/rework-tasks` | Owned, recoverable work auto-created when a refinement job is terminally rejected: list/get/claim/resolve/reassign; project routes enforce workspace visibility and role policy |
 | `/releases` | Candidates, evaluation, waivers, signoff, reporting, and reconcile operations |
 | `/rollback` | Shared rollback helpers where an asset family exposes them |
 | `/observability/*`, `/metrics`, `/events/stream` | Traces, experiments, metrics, and SSE |

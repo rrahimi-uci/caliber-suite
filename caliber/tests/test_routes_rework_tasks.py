@@ -15,6 +15,8 @@ from starlette.testclient import TestClient
 from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberAgentConfig,
+    CaliberProject,
+    CaliberProjectMember,
     CaliberRefinementJob,
     CaliberReworkTask,
     CaliberVerificationItem,
@@ -22,10 +24,16 @@ from caliber.db.models import (
 from caliber.eval.fake import FakeEvalProvider
 from caliber.eval.provider import ScoreSet
 from caliber.orchestrator.eval_stage import run_eval
+from caliber.resource_access import ROLE_EDITOR
 from caliber.routes.rework_tasks import (
     CLAIM_PATH,
     DETAIL_PATH,
     LIST_PATH,
+    PROJECT_CLAIM_PATH,
+    PROJECT_DETAIL_PATH,
+    PROJECT_LIST_PATH,
+    PROJECT_REASSIGN_PATH,
+    PROJECT_RESOLVE_PATH,
     REASSIGN_PATH,
     RESOLVE_PATH,
 )
@@ -123,6 +131,69 @@ def _operator_client(client: TestClient, app_config: CaliberConfig) -> None:
     )
 
 
+def _seed_project_task(
+    session: Session,
+    *,
+    project_id: str,
+    task_id: str,
+    job_id: str,
+    agent_id: str,
+    owner: str = "@test",
+) -> None:
+    """Seed a task whose source agent supplies its workspace boundary."""
+    session.add(CaliberProject(project_id=project_id, name=project_id, owner=owner))
+    session.add(
+        CaliberAgentConfig(
+            agent_id=agent_id,
+            experiment_id=f"exp-{agent_id}",
+            name=agent_id,
+            owner=owner,
+            project_id=project_id,
+            artifact_types=["prompt"],
+            eval_thresholds={},
+            optimizer_config={},
+            approval_policy={},
+        )
+    )
+    session.flush()
+    session.add(
+        CaliberVerificationItem(
+            item_id=f"FB-{agent_id}",
+            agent_id=agent_id,
+            category="hallucination",
+            free_text="...",
+            severity="critical",
+            status="verified",
+        )
+    )
+    session.flush()
+    session.add(
+        CaliberRefinementJob(
+            job_id=job_id,
+            agent_id=agent_id,
+            primary_item_id=f"FB-{agent_id}",
+            artifact_type="prompt",
+            status="rejected",
+            current_stage="done",
+            bundle_targets=[],
+        )
+    )
+    session.flush()
+    session.add(
+        CaliberReworkTask(
+            task_id=task_id,
+            job_id=job_id,
+            agent_id=agent_id,
+            failure_kind="machine_gate",
+            reason="regression gate failed",
+            gate_evidence={"reasons": ["factual dropped"]},
+            status="open",
+            created_by="@system",
+        )
+    )
+    session.commit()
+
+
 # ---------------------------------------------------------------------------
 # GET /rework-tasks, /rework-tasks/{id}
 # ---------------------------------------------------------------------------
@@ -183,6 +254,135 @@ def test_get_task_returns_record(client: TestClient, db_session: Session) -> Non
 def test_get_task_404_when_missing(client: TestClient) -> None:
     response = client.get(DETAIL_PATH.replace("{task_id}", "RWT-GHOST"))
     assert response.status_code == 404
+
+
+# ---------------------------------------------------------------------------
+# Workspace-scoped task collection
+# ---------------------------------------------------------------------------
+
+
+def test_project_task_list_uses_the_source_agent_project_boundary(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project_task(
+        db_session,
+        project_id="PRJ-task-a",
+        task_id="RWT-A",
+        job_id="RFN-A",
+        agent_id="agent-a",
+    )
+    _seed_project_task(
+        db_session,
+        project_id="PRJ-task-b",
+        task_id="RWT-B",
+        job_id="RFN-B",
+        agent_id="agent-b",
+        owner="@other",
+    )
+
+    response = client.get(PROJECT_LIST_PATH.replace("{project_id}", "PRJ-task-a"))
+    assert response.status_code == 200, response.text
+    assert [row["task_id"] for row in response.json()["data"]] == ["RWT-A"]
+
+    # The caller owns project A but has no membership in project B. The
+    # project guard hides B before its task collection is queried.
+    hidden = client.get(PROJECT_LIST_PATH.replace("{project_id}", "PRJ-task-b"))
+    assert hidden.status_code == 404
+
+
+def test_project_task_detail_cannot_cross_project_even_for_a_member(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project_task(
+        db_session,
+        project_id="PRJ-task-a",
+        task_id="RWT-A",
+        job_id="RFN-A",
+        agent_id="agent-a",
+    )
+    db_session.add(CaliberProject(project_id="PRJ-task-b", name="B", owner="@test"))
+    db_session.commit()
+
+    response = client.get(
+        PROJECT_DETAIL_PATH.replace("{project_id}", "PRJ-task-b").replace("{task_id}", "RWT-A")
+    )
+    assert response.status_code == 404
+
+
+def test_project_task_editor_can_claim_and_resolve(
+    client: TestClient, db_session: Session, app_config: CaliberConfig
+) -> None:
+    _seed_project_task(
+        db_session,
+        project_id="PRJ-task-a",
+        task_id="RWT-A",
+        job_id="RFN-A",
+        agent_id="agent-a",
+    )
+    db_session.add(
+        CaliberProjectMember(
+            member_id="M-task-editor",
+            project_id="PRJ-task-a",
+            user_id=OPERATOR_A,
+            role=ROLE_EDITOR,
+            created_by="@test",
+        )
+    )
+    db_session.commit()
+    _operator_client(client, app_config)
+    headers = {"X-CALIBER-User": OPERATOR_A}
+
+    claimed = client.post(
+        PROJECT_CLAIM_PATH.replace("{project_id}", "PRJ-task-a").replace("{task_id}", "RWT-A"),
+        headers=headers,
+    )
+    assert claimed.status_code == 200, claimed.text
+    assert claimed.json()["data"]["assigned_to"] == OPERATOR_A
+
+    resolved = client.post(
+        PROJECT_RESOLVE_PATH.replace("{project_id}", "PRJ-task-a").replace("{task_id}", "RWT-A"),
+        json={"resolution_notes": "fixed"},
+        headers=headers,
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["data"]["status"] == "resolved"
+
+
+def test_project_task_reassign_requires_project_admin_role(
+    client: TestClient, db_session: Session, app_config: CaliberConfig
+) -> None:
+    _seed_project_task(
+        db_session,
+        project_id="PRJ-task-a",
+        task_id="RWT-A",
+        job_id="RFN-A",
+        agent_id="agent-a",
+    )
+    db_session.add(
+        CaliberProjectMember(
+            member_id="M-task-editor",
+            project_id="PRJ-task-a",
+            user_id=OPERATOR_A,
+            role=ROLE_EDITOR,
+            created_by="@test",
+        )
+    )
+    db_session.commit()
+    _operator_client(client, app_config)
+
+    response = client.post(
+        PROJECT_REASSIGN_PATH.replace("{project_id}", "PRJ-task-a").replace("{task_id}", "RWT-A"),
+        json={"assigned_to": "@marcus"},
+        headers={"X-CALIBER-User": OPERATOR_A},
+    )
+    assert response.status_code == 403
+
+    owner_response = client.post(
+        PROJECT_REASSIGN_PATH.replace("{project_id}", "PRJ-task-a").replace("{task_id}", "RWT-A"),
+        json={"assigned_to": "@marcus"},
+    )
+    assert owner_response.status_code == 200, owner_response.text
+    assert owner_response.json()["data"]["status"] == "in_progress"
 
 
 # ---------------------------------------------------------------------------

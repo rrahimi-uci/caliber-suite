@@ -58,8 +58,8 @@ SDK_SURFACE_MAP = {
         "notes": "Runtime configuration summary and LLM credential status.",
     },
     "projects": {
-        "entry": "`client.projects`, `client.projects.files`",
-        "notes": "Project records, project storage visibility, uploads, folders, and downloads.",
+        "entry": "`client.projects`, `client.projects.files`, `client.projects.rework_tasks`",
+        "notes": "Project records, project storage visibility, uploads, folders, downloads, and scoped rework-task recovery.",
     },
     "prompts": {
         "entry": "`client.prompts`",

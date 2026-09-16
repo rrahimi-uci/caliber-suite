@@ -106,11 +106,10 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     # optionally-scoped treatment as `resource.execute` above: a personal
     # review queue (`project_id is None`) skips the project-role check.
     "feedback.submit": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER}),
-    # Reserved: `caliber_rework_tasks` is a global table today, not yet
-    # project-scoped (the project-scoped `/projects/{id}/rework-tasks` API
-    # section 3.6 describes still doesn't exist) -- there is no `project_id`
-    # to check a role against yet, so wiring this would mean building that
-    # scoping first, not just adding a call here.
+    # `P3-A`: the project-scoped `/projects/{id}/rework-tasks` routes derive
+    # ownership from the source agent's project binding and gate lifecycle
+    # mutations here. Global task routes retain their legacy platform-scope
+    # policy because those rows predate workspace binding.
     "rework.update": frozenset({ROLE_OWNER, ROLE_EDITOR}),
     # Everything below except `environment.manage` is reserved for a Phase
     # 2-5 route family that does not exist in this codebase yet (Change

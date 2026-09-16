@@ -30,6 +30,7 @@ from datetime import datetime, timezone
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
+from sqlalchemy.sql import Select
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
@@ -38,8 +39,16 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
-from caliber.db.models import CaliberRefinementJob, CaliberReworkTask
+from caliber.auth import (
+    SCOPE_ADMIN,
+    SCOPE_OPERATOR,
+    CaliberIdentity,
+    require_scopes,
+    require_user,
+    resolve_identity,
+)
+from caliber.db.models import CaliberAgentConfig, CaliberRefinementJob, CaliberReworkTask
+from caliber.resource_access import ROLE_OWNER, require_project_access
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
 from caliber.schemas import ReworkTaskReassignRequest, ReworkTaskResolveRequest, ReworkTaskSchema
 
@@ -49,16 +58,83 @@ CLAIM_PATH = "/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}/claim"
 RESOLVE_PATH = "/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}/resolve"
 REASSIGN_PATH = "/ajax-api/2.0/mlflow/caliber/rework-tasks/{task_id}/reassign"
 
+# Workspace-scoped counterparts. The colon action suffix follows the
+# workspace-plan contract; the existing global routes above remain unchanged
+# for compatibility with jobs created before project binding was available.
+PROJECT_LIST_PATH = "/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks"
+PROJECT_DETAIL_PATH = PROJECT_LIST_PATH + "/{task_id}"
+PROJECT_CLAIM_PATH = PROJECT_DETAIL_PATH + ":claim"
+PROJECT_RESOLVE_PATH = PROJECT_DETAIL_PATH + ":resolve"
+PROJECT_REASSIGN_PATH = PROJECT_DETAIL_PATH + ":reassign"
+
 _LIST_STATUS_VALUES: frozenset[str] = frozenset({"open", "in_progress", "resolved", "all"})
 
 _Factory = sessionmaker[Session]
 
 
+def _project_task_statement(project_id: str) -> Select[tuple[CaliberReworkTask]]:
+    """Return the task query restricted to agents owned by one project.
+
+    Rework tasks intentionally remain globally compatible in this phase, so
+    their project boundary is derived from the source agent. A task whose
+    agent is global or belongs to another project is not a member of the
+    project's task collection and is therefore indistinguishable from a
+    missing task.
+    """
+    return (
+        select(CaliberReworkTask)
+        .join(CaliberAgentConfig, CaliberAgentConfig.agent_id == CaliberReworkTask.agent_id)
+        .where(CaliberAgentConfig.project_id == project_id)
+    )
+
+
+def _task_for_scope(
+    session: Session, *, task_id: str, project_id: str | None
+) -> CaliberReworkTask | None:
+    if project_id is None:
+        return session.get(CaliberReworkTask, task_id)
+    return session.execute(
+        _project_task_statement(project_id).where(CaliberReworkTask.task_id == task_id)
+    ).scalar_one_or_none()
+
+
+def _authorize_project_task(
+    session: Session,
+    *,
+    identity: CaliberIdentity,
+    project_id: str,
+    action: str,
+) -> str | None:
+    """Authorize a project task operation in its SQLAlchemy session.
+
+    The action remains a literal at each route call site so the required-scope
+    inventory and generated OpenAPI document stay tied to the route contract.
+    """
+    _project, decision = require_project_access(session, identity, project_id, action)
+    return decision.role
+
+
 def _list_tasks_sync(
-    factory: _Factory, *, status: str, assigned_to: str | None
+    factory: _Factory,
+    *,
+    status: str,
+    assigned_to: str | None,
+    project_id: str | None = None,
+    identity: CaliberIdentity | None = None,
+    project_action: str | None = None,
 ) -> list[ReworkTaskSchema]:
     with factory() as session:
-        stmt = select(CaliberReworkTask).order_by(CaliberReworkTask.created_at.desc())
+        if project_id is not None:
+            if identity is None or project_action is None:
+                raise RuntimeError("project-scoped task operations require identity and action")
+            _authorize_project_task(
+                session, identity=identity, project_id=project_id, action=project_action
+            )
+        stmt = (
+            _project_task_statement(project_id)
+            if project_id is not None
+            else select(CaliberReworkTask)
+        ).order_by(CaliberReworkTask.created_at.desc())
         if status != "all":
             stmt = stmt.where(CaliberReworkTask.status == status)
         if assigned_to:
@@ -84,9 +160,22 @@ async def list_tasks(request: Request) -> JSONResponse:
     return envelope_response(schemas)
 
 
-def _get_task_sync(factory: _Factory, *, task_id: str) -> ReworkTaskSchema:
+def _get_task_sync(
+    factory: _Factory,
+    *,
+    task_id: str,
+    project_id: str | None = None,
+    identity: CaliberIdentity | None = None,
+    project_action: str | None = None,
+) -> ReworkTaskSchema:
     with factory() as session:
-        task = session.get(CaliberReworkTask, task_id)
+        if project_id is not None:
+            if identity is None or project_action is None:
+                raise RuntimeError("project-scoped task operations require identity and action")
+            _authorize_project_task(
+                session, identity=identity, project_id=project_id, action=project_action
+            )
+        task = _task_for_scope(session, task_id=task_id, project_id=project_id)
         if task is None:
             raise HTTPException(status_code=404, detail=f"rework task {task_id!r} not found")
         return ReworkTaskSchema.model_validate(task)
@@ -100,9 +189,23 @@ async def get_task(request: Request) -> JSONResponse:
     return envelope_response(schema)
 
 
-def _claim_task_sync(factory: _Factory, *, task_id: str, actor: str) -> ReworkTaskSchema:
+def _claim_task_sync(
+    factory: _Factory,
+    *,
+    task_id: str,
+    actor: str,
+    project_id: str | None = None,
+    identity: CaliberIdentity | None = None,
+    project_action: str | None = None,
+) -> ReworkTaskSchema:
     with factory() as session:
-        task = session.get(CaliberReworkTask, task_id)
+        if project_id is not None:
+            if identity is None or project_action is None:
+                raise RuntimeError("project-scoped task operations require identity and action")
+            _authorize_project_task(
+                session, identity=identity, project_id=project_id, action=project_action
+            )
+        task = _task_for_scope(session, task_id=task_id, project_id=project_id)
         if task is None:
             raise HTTPException(status_code=404, detail=f"rework task {task_id!r} not found")
         if task.status != "open":
@@ -138,9 +241,18 @@ def _resolve_task_sync(
     actor: str,
     is_admin: bool,
     payload: ReworkTaskResolveRequest,
+    project_id: str | None = None,
+    identity: CaliberIdentity | None = None,
+    project_action: str | None = None,
 ) -> ReworkTaskSchema:
     with factory() as session:
-        task = session.get(CaliberReworkTask, task_id)
+        if project_id is not None:
+            if identity is None or project_action is None:
+                raise RuntimeError("project-scoped task operations require identity and action")
+            _authorize_project_task(
+                session, identity=identity, project_id=project_id, action=project_action
+            )
+        task = _task_for_scope(session, task_id=task_id, project_id=project_id)
         if task is None:
             raise HTTPException(status_code=404, detail=f"rework task {task_id!r} not found")
         if task.status != "in_progress":
@@ -201,10 +313,28 @@ async def resolve_task(request: Request) -> JSONResponse:
 
 
 def _reassign_task_sync(
-    factory: _Factory, *, task_id: str, actor: str, payload: ReworkTaskReassignRequest
+    factory: _Factory,
+    *,
+    task_id: str,
+    actor: str,
+    payload: ReworkTaskReassignRequest,
+    project_id: str | None = None,
+    identity: CaliberIdentity | None = None,
+    project_action: str | None = None,
 ) -> ReworkTaskSchema:
     with factory() as session:
-        task = session.get(CaliberReworkTask, task_id)
+        if project_id is not None:
+            if identity is None or project_action is None:
+                raise RuntimeError("project-scoped task operations require identity and action")
+            role = _authorize_project_task(
+                session, identity=identity, project_id=project_id, action=project_action
+            )
+            if role != ROLE_OWNER:
+                raise HTTPException(
+                    status_code=403,
+                    detail="only a project Admin may reassign a project rework task",
+                )
+        task = _task_for_scope(session, task_id=task_id, project_id=project_id)
         if task is None:
             raise HTTPException(status_code=404, detail=f"rework task {task_id!r} not found")
         if task.status not in ("open", "in_progress"):
@@ -242,9 +372,121 @@ async def reassign_task(request: Request) -> JSONResponse:
     return envelope_response(schema)
 
 
+# ---------------------------------------------------------------------------
+# Workspace-scoped task collection. These routes deliberately reuse the
+# lifecycle helpers above so a task cannot behave differently merely because
+# it was reached through a project path. The project role is checked first,
+# then the query joins the task's source agent to the same project id.
+# ---------------------------------------------------------------------------
+
+
+async def list_project_tasks(request: Request) -> JSONResponse:
+    require_user(request)
+    identity = resolve_identity(request)
+    project_id = request.path_params["project_id"]
+    factory = get_session_factory(request)
+    status = request.query_params.get("status", "open")
+    if status not in _LIST_STATUS_VALUES:
+        raise HTTPException(
+            status_code=400,
+            detail=f"invalid value for 'status': {status!r}; expected one of {sorted(_LIST_STATUS_VALUES)}",
+        )
+    schemas = await run_in_threadpool(
+        _list_tasks_sync,
+        factory,
+        status=status,
+        assigned_to=request.query_params.get("assigned_to"),
+        project_id=project_id,
+        identity=identity,
+        project_action="read",
+    )
+    return envelope_response(schemas)
+
+
+async def get_project_task(request: Request) -> JSONResponse:
+    require_user(request)
+    identity = resolve_identity(request)
+    project_id = request.path_params["project_id"]
+    factory = get_session_factory(request)
+    schema = await run_in_threadpool(
+        _get_task_sync,
+        factory,
+        task_id=request.path_params["task_id"],
+        project_id=project_id,
+        identity=identity,
+        project_action="read",
+    )
+    return envelope_response(schema)
+
+
+async def claim_project_task(request: Request) -> JSONResponse:
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    project_id = request.path_params["project_id"]
+    factory = get_session_factory(request)
+    schema = await run_in_threadpool(
+        _claim_task_sync,
+        factory,
+        task_id=request.path_params["task_id"],
+        actor=actor,
+        project_id=project_id,
+        identity=identity,
+        project_action="rework.update",
+    )
+    return envelope_response(schema)
+
+
+async def resolve_project_task(request: Request) -> JSONResponse:
+    task_id = request.path_params["task_id"]
+    body = await parse_json_object(request, allow_empty=True)
+    payload = ReworkTaskResolveRequest.model_validate(body)
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    project_id = request.path_params["project_id"]
+    factory = get_session_factory(request)
+    schema = await run_in_threadpool(
+        _resolve_task_sync,
+        factory,
+        task_id=task_id,
+        actor=actor,
+        is_admin=identity.has_scope(SCOPE_ADMIN),
+        payload=payload,
+        project_id=project_id,
+        identity=identity,
+        project_action="rework.update",
+    )
+    return envelope_response(schema)
+
+
+async def reassign_project_task(request: Request) -> JSONResponse:
+    task_id = request.path_params["task_id"]
+    body = await parse_json_object(request)
+    payload = ReworkTaskReassignRequest.model_validate(body)
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    project_id = request.path_params["project_id"]
+    factory = get_session_factory(request)
+    schema = await run_in_threadpool(
+        _reassign_task_sync,
+        factory,
+        task_id=task_id,
+        actor=actor,
+        payload=payload,
+        project_id=project_id,
+        identity=identity,
+        project_action="rework.update",
+    )
+    return envelope_response(schema)
+
+
 def register(app: Starlette) -> None:
     app.routes.append(Route(LIST_PATH, list_tasks, methods=["GET"]))
     app.routes.append(Route(DETAIL_PATH, get_task, methods=["GET"]))
     app.routes.append(Route(CLAIM_PATH, claim_task, methods=["POST"]))
     app.routes.append(Route(RESOLVE_PATH, resolve_task, methods=["POST"]))
     app.routes.append(Route(REASSIGN_PATH, reassign_task, methods=["POST"]))
+    app.routes.append(Route(PROJECT_LIST_PATH, list_project_tasks, methods=["GET"]))
+    app.routes.append(Route(PROJECT_DETAIL_PATH, get_project_task, methods=["GET"]))
+    app.routes.append(Route(PROJECT_CLAIM_PATH, claim_project_task, methods=["POST"]))
+    app.routes.append(Route(PROJECT_RESOLVE_PATH, resolve_project_task, methods=["POST"]))
+    app.routes.append(Route(PROJECT_REASSIGN_PATH, reassign_project_task, methods=["POST"]))

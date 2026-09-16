@@ -1094,10 +1094,13 @@ the retry pass, then cleared."* The candidate stage **still reads it**, and
 Four things to build, in value order:
 
 1. **A rework assignment.** *Delivered by `P3-A`.* A failed gate produces an
-   owned, visible `caliber_rework_tasks` row (global scope today, not yet
-   project-scoped) rather than a terminal `rejected` row with nothing pointing
-   at it. `claim`/`resolve`/`reassign` cover the ownership lifecycle;
-   `resolve` optionally links the superseding job that fixed it.
+   owned, visible `caliber_rework_tasks` row rather than a terminal `rejected`
+   row with nothing pointing at it. The original global routes remain
+   compatible, and the project-scoped `/projects/{id}/rework-tasks` collection
+   now derives ownership from the source agent's project binding. Its
+   `claim`/`resolve`/`reassign` routes enforce project membership and the
+   `rework.update` role action; `resolve` optionally links the superseding job
+   that fixed it.
 2. **A QA sign-off record**, distinct from the machine gate. *Delivered by
    `P3-C`.* `POST /jobs/{id}/quality-reviews` (`caliber.operator`) records an
    append-only `caliber_quality_reviews` row. `"go"` is purely advisory — it
@@ -1129,8 +1132,10 @@ Four things to build, in value order:
    operational decision this slice does not make unilaterally.
 
 All four items are now delivered. What remains is the aggregate
-Workspace-release version of items 1 and 2 (Phase 5), and making the
-rework-task routes project-scoped (needs `P1-C`).
+Workspace-release version of items 1 and 2 (Phase 5); the project-scoped
+rework-task route slice is delivered, while the task table itself remains
+globally compatible and still has no direct `project_id` or Workspace-release
+foreign key.
 
 ## 4. The gates
 
@@ -3740,7 +3745,7 @@ combined with a later slice merely to reduce PR count.
 | `P2-M` | Backend/assistant | **Partially delivered (slice 7 of item 1's repo-wide sweep).** Route-backed assistant turns now retain the resolved `CaliberIdentity` through skill selection, capability dispatch, and intent-plan execution. Workflow calibration and prompt optimization adapters pass it to their existing visibility-aware route helpers; default workflow-calibration agent selection is scoped; assistant-created eval datasets retain the active project and visibility tier; and PAT-limited turn scopes are honored by capability dispatch. The remaining assistant registry/library/review reads are tracked in `P2-N`; MCP bindings remain a schema/resource-context task. | `P2-A`, `P2-K`, `P2-L` | A hidden project skill is not selected; a scope-limited turn cannot dispatch an operator capability; intent-plan calibration refuses a hidden workflow; project-created assistant datasets remain visible through the normal project predicate |
 | `P2-N` | Backend/assistant | **Partially delivered (slice 8 of item 1's repo-wide sweep).** The legacy `assistant/tools.py` registry dispatcher now scopes skill/tool list and detail reads through a request-bound identity, and `OpenAIAssistantEngine` derives that binding from the per-turn task context without sharing caller state across requests. Assistant library attachments scope skill/tool/workflow/knowledge-base snapshots; optimization/workflow result readers scope legacy refinement jobs through their visibility-aware agent parent; and promotion proposals refuse invisible agent targets. Direct callers without identity retain compatibility behavior. Prompt-provider lookup remains deferred because there is no CALIBER-side prompt resource to scope; MCP visibility is delivered in `P2-O`. | `P2-M` | A non-member cannot enumerate or attach another project's skill/tool/workflow/knowledge base, cannot inspect its refinement result through an assistant plan, and cannot propose promotion against its hidden agent; same-project and legacy direct callers remain functional |
 | `P2-O` | Backend/integrations | **Partially delivered (MCP visibility slice).** `CaliberMcpServer` now has nullable `project_id`, non-null `visibility`, and a `(project_id, visibility)` index (migration `0096`). Existing rows migrate to private user visibility without inventing a project binding; new HTTP-created rows take their owner/project from the authenticated identity, while the globally unique server name remains a compatibility handle. List/detail/history/tool operations and workflow import preflight use the shared visibility predicate; deployment bundles, deployment gates, runtime plans, and the run worker resolve MCP servers using the workflow's owner/project context before execution. Deleted-server history fails closed when its audit snapshot lacks visible resource context. | `P2-B`, `P2-N` | A caller cannot list, inspect, bind, invoke, calibrate, or execute another project's MCP server by guessed ID; a project owner/member can use a visible server; legacy rows remain owner-only; credentials remain write-only and absent from responses/audit details. Assistant publisher context is delivered in `P2-C`; provider prompt lookup remains follow-up context work |
-| `P3-A` | Workflow/quality | **Delivered** (global slice). `caliber_rework_tasks` (global, not yet project-scoped) auto-created in the same transaction that terminally rejects a `CaliberRefinementJob`; list/get/claim/resolve/reassign routes and CALIBER SDK methods (`client.rework_tasks`); `POST /jobs/{id}/request-changes` writer for the already-existing `review_notes` consumer. Exhaustion escalation is satisfied by (1) without changing the shipped `refinement_max_iterations=0` default — see section 3.6. The QA review record this row originally deferred was delivered separately as `P3-C`. Still open: the project-scoped `/projects/{id}/rework-tasks` API, which needs `P1-C`'s Workspace authorization | `P0-B`, `P1-C` | A rejected refinement job produces an owned, claimable, resolvable task instead of a terminal row nobody sees; the resolved slice needs no `P1-C` (gates on today's existing global scopes, see section 16 delivery-dependency notes); Phase 5 adds the release FK and aggregate path |
+| `P3-A` | Workflow/quality | **Delivered** (global compatibility plus project-scoped route slice). `caliber_rework_tasks` is auto-created in the same transaction that terminally rejects a `CaliberRefinementJob`; the original list/get/claim/resolve/reassign routes and CALIBER SDK methods (`client.rework_tasks`) remain compatible. New `/projects/{id}/rework-tasks` list/get/claim/resolve/reassign routes derive the boundary from the source agent's project binding, enforce project membership and the `rework.update` role action, and expose matching SDK methods under `client.projects.rework_tasks`; `POST /jobs/{id}/request-changes` remains the writer for the existing `review_notes` consumer. Exhaustion escalation is satisfied by (1) without changing the shipped `refinement_max_iterations=0` default — see section 3.6. The QA review record this row originally deferred was delivered separately as `P3-C`. Still open: a direct task `project_id`, Workspace-release FK, and aggregate release path | `P0-B`, `P1-C` | A rejected refinement job produces an owned, claimable, resolvable task instead of a terminal row nobody sees; a project member can access only tasks whose source agent belongs to that project, while a cross-project guessed task id is indistinguishable from missing; Phase 5 adds the release FK and aggregate path |
 | `P3-B` | Workflow/quality | **Delivered.** List/get/create/verify/dismiss/duplicate/batch verification-queue routes and CALIBER SDK methods against the existing `CaliberVerificationItem` model and schemas; no new table | `P0-B` | A human can verify or dismiss a pending item they did not create; none of today's four job-creation paths was required to change (and none did); ingestion (a poller creating `pending` items from real signals) remains explicitly out of scope per the Phase 0 decision |
 | `P3-C` | Workflow/quality | **Delivered.** New standalone `caliber_quality_reviews` table (not a narrower slice of a later target schema, unlike `caliber_rework_tasks`); `POST`/`GET /jobs/{id}/quality-reviews` and CALIBER SDK methods (`client.quality_reviews`). `"go"` is advisory only; `"no_go"` terminally rejects the job and creates a `caliber_rework_tasks` row with `failure_kind="quality_no_go"` in the same transaction | `P0-B` | A human can record a go/no-go on a `candidate_ready` job's candidate, distinct from the machine gate; a `no_go` produces the same owned rework task a machine-gate rejection does, closing the last gap section 3.6 named; the aggregate Workspace-release quality decision (Phase 5, `caliber_workspace_release_decisions`) is a separate table at a different granularity, not an extension of this one |
 | `P4-A` | Data/backend | Source/import/revision/resource schema, portable CAS revision allocator, immutable terminal rows and snapshot-retention guards | `P2-B`, `P2-C` | Concurrent snapshots allocate unique monotonic numbers with allowed gaps on SQLite/PostgreSQL; schema remains dormant behind flags |
@@ -4699,8 +4704,10 @@ refinement path that already ships today.
    `resolve` additionally requires the assignee or an admin — `caliber.admin`
    for reassign, matching this section's own admin-only reassign policy
    above), with `caliber-sdk`'s `client.rework_tasks` and its own SDK tests.
-   Deliberately narrower than the final target schema (section 9.2): global
-   scope, not yet project-scoped (no `project_id`, no Workspace-release FK);
+   Deliberately narrower than the final target schema (section 9.2): the task
+   table remains globally compatible (no direct `project_id`, no
+   Workspace-release FK), while the later project-scoped route slice derives
+   ownership from its source agent;
    `failure_kind` and `status` only declare the values a route can actually
    produce today (no `quality_no_go`/`release_no_go`/`cancelled`), the same
    anti-aspirational-value discipline `P3-B`'s review applied elsewhere.
