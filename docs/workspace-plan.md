@@ -4543,7 +4543,11 @@ execution path. **This is the hard prerequisite for the QA role.**
    persist their active project context, inherit it on later turns when no
    ambient project header is supplied, and reject conflicting project
    context. Still open: prompt-provider lookup has no CALIBER-side prompt
-   resource to scope.
+   resource to scope. **Delivered (partial, preview-context follow-up):** the
+   Aria `preview_workflow_version` tool now resolves a version through its
+   parent workflow's visibility predicate before executing it, and preview
+   runs persist that workflow's `project_id` in the run index. Preview lineage
+   therefore remains workspace-bound like queued and synchronous runs.
 6. Scope files, evaluations, review queues, release candidates, plans, and all
    run/event/checkpoint reads through the parent workspace.
    **Delivered (partial, `P2-A`).** Files/evaluations/review-queue/release-

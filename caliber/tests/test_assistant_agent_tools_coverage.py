@@ -200,6 +200,46 @@ class TestReadHandlerBranches:
         listed = json.loads(ts.dispatch("list_skills", {}))
         assert listed["ok"] and listed["data"] == []
 
+    def test_preview_workflow_version_hidden_in_a_different_project(
+        self, svc, session_factory
+    ) -> None:
+        """A guessed version id must not execute a hidden parent workflow."""
+        with session_factory() as db:
+            db.add(
+                CaliberWorkflow(
+                    workflow_id="WF-hidden-preview",
+                    name="Hidden preview",
+                    owner="@sarah",
+                    project_id="P-hidden",
+                    visibility="project",
+                )
+            )
+            db.add(
+                CaliberWorkflowVersion(
+                    version_id="WFV-hidden-preview",
+                    workflow_id="WF-hidden-preview",
+                    version_number=1,
+                    status="draft",
+                    manifest=make_manifest("WF-hidden-preview"),
+                    manifest_hash="hidden-preview-hash",
+                    created_by="@sarah",
+                )
+            )
+            db.commit()
+        sid = _session(svc, session_factory)
+        ts = _toolset(svc, session_factory, sid, mode="build", approval="auto_safe")
+
+        out = json.loads(
+            ts.dispatch(
+                "preview_workflow_version",
+                {"version_id": "WFV-hidden-preview", "input_text": "hello"},
+            )
+        )
+
+        assert "error" in out and "not found" in out["error"]
+        with session_factory() as db:
+            assert db.query(CaliberWorkflowRun).count() == 0
+
     def test_list_tools(self, svc, session_factory) -> None:
         with session_factory() as db:
             db.add(
