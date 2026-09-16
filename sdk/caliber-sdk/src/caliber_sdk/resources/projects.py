@@ -12,6 +12,7 @@ from typing import Any, BinaryIO
 
 from ..models._decode import decode, decode_list
 from ..models.core import Project, ProjectFile, ProjectFolder, ProjectMember, WorkspaceEnvironment
+from ..models.operations import ReworkTask
 from ._base import Resource
 
 _List = list
@@ -76,12 +77,70 @@ class ProjectFilesAPI(Resource):
         )
 
 
+class ProjectReworkTasksAPI(Resource):
+    """Rework tasks owned by one project-scoped agent population."""
+
+    def list(
+        self,
+        project_id: str,
+        *,
+        status: str | None = None,
+        assigned_to: str | None = None,
+    ) -> list[ReworkTask]:
+        params: dict[str, Any] = {}
+        if status is not None:
+            params["status"] = status
+        if assigned_to is not None:
+            params["assigned_to"] = assigned_to
+        return decode_list(
+            ReworkTask,
+            self._get(
+                f"/projects/{project_id}/rework-tasks",
+                params=params or None,
+                project=project_id,
+            ),
+        )
+
+    def get(self, project_id: str, task_id: str) -> ReworkTask:
+        return decode(
+            ReworkTask,
+            self._get(f"/projects/{project_id}/rework-tasks/{task_id}", project=project_id),
+        )
+
+    def claim(self, project_id: str, task_id: str) -> ReworkTask:
+        return decode(
+            ReworkTask,
+            self._post(f"/projects/{project_id}/rework-tasks/{task_id}:claim", project=project_id),
+        )
+
+    def resolve(self, project_id: str, task_id: str, **options: Any) -> ReworkTask:
+        return decode(
+            ReworkTask,
+            self._post(
+                f"/projects/{project_id}/rework-tasks/{task_id}:resolve",
+                json=options,
+                project=project_id,
+            ),
+        )
+
+    def reassign(self, project_id: str, task_id: str, assigned_to: str) -> ReworkTask:
+        return decode(
+            ReworkTask,
+            self._post(
+                f"/projects/{project_id}/rework-tasks/{task_id}:reassign",
+                json={"assigned_to": assigned_to},
+                project=project_id,
+            ),
+        )
+
+
 class ProjectsAPI(Resource):
     """Projects, project access, and the file sub-resource."""
 
     def __init__(self, transport: Any) -> None:
         super().__init__(transport)
         self.files = ProjectFilesAPI(transport)
+        self.rework_tasks = ProjectReworkTasksAPI(transport)
 
     def list(self, *, status: str | None = None) -> list[Project]:
         """Active projects by default; pass ``status="all"`` for everything."""
@@ -241,4 +300,4 @@ class ProjectsAPI(Resource):
         )
 
 
-__all__ = ["ProjectFilesAPI", "ProjectsAPI"]
+__all__ = ["ProjectFilesAPI", "ProjectReworkTasksAPI", "ProjectsAPI"]

@@ -29,7 +29,7 @@ from .operations import (
     SecretsAPI,
     SystemAPI,
 )
-from .projects import ProjectFilesAPI, ProjectsAPI
+from .projects import ProjectFilesAPI, ProjectReworkTasksAPI, ProjectsAPI
 from .quality import EvalDatasetsAPI, EvaluationsAPI, JudgesAPI, VerificationQueueAPI
 from .raw import RawAPI
 from .system import CapabilitiesAPI, MeAPI, SettingsAPI
@@ -71,6 +71,7 @@ __all__ = [
     "OpenApiIntegrationsAPI",
     "PlaygroundRunsAPI",
     "ProjectFilesAPI",
+    "ProjectReworkTasksAPI",
     "ProjectsAPI",
     "PromptsAPI",
     "QualityReviewsAPI",

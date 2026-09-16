@@ -180,6 +180,37 @@ def test_rework_tasks_reassign_sends_assigned_to() -> None:
     assert task.assigned_to == "@marcus"
 
 
+def test_project_rework_tasks_pin_project_path_and_header() -> None:
+    seen: list[tuple[str, str, dict[str, Any]]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(
+            (
+                request.method,
+                request.url.path.rsplit("/caliber", 1)[-1],
+                dict(request.headers),
+            )
+        )
+        return envelope({"task_id": "RWT-1", "status": "open"})
+
+    with client_with(handler) as caliber:
+        project_tasks = caliber.projects.rework_tasks
+        project_tasks.list("PRJ-1", status="open", assigned_to="@sarah")
+        project_tasks.get("PRJ-1", "RWT-1")
+        project_tasks.claim("PRJ-1", "RWT-1")
+        project_tasks.resolve("PRJ-1", "RWT-1", resolution_notes="fixed")
+        project_tasks.reassign("PRJ-1", "RWT-1", "@marcus")
+
+    assert [(method, path) for method, path, _headers in seen] == [
+        ("GET", "/projects/PRJ-1/rework-tasks"),
+        ("GET", "/projects/PRJ-1/rework-tasks/RWT-1"),
+        ("POST", "/projects/PRJ-1/rework-tasks/RWT-1:claim"),
+        ("POST", "/projects/PRJ-1/rework-tasks/RWT-1:resolve"),
+        ("POST", "/projects/PRJ-1/rework-tasks/RWT-1:reassign"),
+    ]
+    assert all(headers["x-caliber-project"] == "PRJ-1" for _method, _path, headers in seen)
+
+
 # --- quality reviews ---------------------------------------------------------
 
 

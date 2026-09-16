@@ -98,7 +98,26 @@ from typing import Any
 #: this static AST walk can't see either way; what matters for the
 #: inventory is that the call site names a real, closed action.
 _PROJECT_ACCESS_CALL_NAMES = frozenset(
-    {"require_project_access", "_require_project_action", "require_project_access_if_scoped"}
+    {
+        "require_project_access",
+        "_require_project_action",
+        "require_project_access_if_scoped",
+    }
+)
+
+# `routes/rework_tasks.py` keeps its SQLAlchemy session in the worker thread.
+# Project routes pass the literal `project_action=` to one of these helpers,
+# which performs authorization in the same session as the task query or
+# mutation. The inventory recognizes that call shape without treating the
+# compatibility routes that omit `project_action` as project-scoped.
+_PROJECT_ACCESS_OFFLOADED_HELPERS = frozenset(
+    {
+        "_list_tasks_sync",
+        "_get_task_sync",
+        "_claim_task_sync",
+        "_resolve_task_sync",
+        "_reassign_task_sync",
+    }
 )
 
 _SCOPE_CONSTANT_NAMES = frozenset(
@@ -235,6 +254,18 @@ def _survey_calls(statements: list[ast.stmt]) -> _CallSurvey:
             survey.has_require_user = True
         elif name in _PROJECT_ACCESS_CALL_NAMES:
             survey.project_access_calls.append(node)
+        elif (
+            name == "run_in_threadpool"
+            and node.args
+            and isinstance(node.args[0], ast.Name)
+            and node.args[0].id in _PROJECT_ACCESS_OFFLOADED_HELPERS
+            and any(keyword.arg == "project_action" for keyword in node.keywords)
+        ):
+            # The project task helper is passed as the callable to
+            # `run_in_threadpool`, not invoked as a nested AST Call. Treat the
+            # wrapper call as the authorization site so its literal
+            # `project_action=` remains visible in the route inventory.
+            survey.project_access_calls.append(node)
     return survey
 
 
@@ -269,7 +300,7 @@ def _literal_project_action(call: ast.Call) -> str | None:
     a non-default action is passed non-literally.
     """
     for keyword in call.keywords:
-        if keyword.arg == "action":
+        if keyword.arg in {"action", "project_action"}:
             if isinstance(keyword.value, ast.Constant) and isinstance(keyword.value.value, str):
                 return keyword.value.value
             return None
