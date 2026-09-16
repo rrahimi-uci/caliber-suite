@@ -35,7 +35,7 @@ The reference tables below are generated directly from the current SDK source. B
 | Package index | [`caliber_sdk`](#module-caliber_sdk), [`caliber_sdk.client`](#module-caliber_sdkclient), [`caliber_sdk.auth`](#module-caliber_sdkauth), [`caliber_sdk.transport`](#module-caliber_sdktransport), [`caliber_sdk.errors`](#module-caliber_sdkerrors), [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
 | Resource modules | [`caliber_sdk.resources`](#module-caliber_sdkresources), [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth), [`caliber_sdk.resources.system`](#module-caliber_sdkresourcessystem), [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects), [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets), [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows), [`caliber_sdk.resources.quality`](#module-caliber_sdkresourcesquality), [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations), [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations), [`caliber_sdk.resources.raw`](#module-caliber_sdkresourcesraw) |
 | Model modules | [`caliber_sdk.models`](#module-caliber_sdkmodels), [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon), [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore), [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets), [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality), [`caliber_sdk.models.integrations`](#module-caliber_sdkmodelsintegrations), [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations), [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows), [`caliber_sdk.models.errors`](#module-caliber_sdkmodelserrors) |
-| Async client | [`caliber_sdk.aio`](#module-caliber_sdkaio), [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient), [`caliber_sdk.aio.transport`](#module-caliber_sdkaiotransport), [`caliber_sdk.aio.waiters`](#module-caliber_sdkaiowaiters) |
+| Async client | [`caliber_sdk.aio`](#module-caliber_sdkaio), [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient), [`caliber_sdk.aio.projects`](#module-caliber_sdkaioprojects), [`caliber_sdk.aio.transport`](#module-caliber_sdkaiotransport), [`caliber_sdk.aio.waiters`](#module-caliber_sdkaiowaiters) |
 
 ## Symbol index
 
@@ -61,6 +61,8 @@ Every documented class and module-level function, with the module that defines i
 | [`AsyncEventsAPI`](#asynceventsapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
 | [`AsyncJobsAPI`](#asyncjobsapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
 | [`AsyncMeAPI`](#asyncmeapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
+| [`AsyncProjectFilesAPI`](#asyncprojectfilesapi) | [`caliber_sdk.aio.projects`](#module-caliber_sdkaioprojects) |
+| [`AsyncProjectsAPI`](#asyncprojectsapi) | [`caliber_sdk.aio.projects`](#module-caliber_sdkaioprojects) |
 | [`AsyncRawAPI`](#asyncrawapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
 | [`AsyncTransport`](#asynctransport) | [`caliber_sdk.aio.transport`](#module-caliber_sdkaiotransport) |
 | [`AsyncWorkflowRunsAPI`](#asyncworkflowrunsapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
@@ -10993,7 +10995,7 @@ sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
 
 **Public exports**
 
-`AsyncCaliberClient`, `AsyncTransport`, `wait_for`, `wait_for_terminal_state`
+`AsyncCaliberClient`, `AsyncProjectFilesAPI`, `AsyncProjectsAPI`, `AsyncTransport`, `wait_for`, `wait_for_terminal_state`
 
 ### Module `caliber_sdk.aio.client`
 
@@ -11060,6 +11062,7 @@ Operate on the caliber client surface with the supplied arguments and return the
 | `raw` | `AsyncRawAPI` | Low-level route access through the SDK transport. |
 | `me` | `AsyncMeAPI` | The caller identity surface. |
 | `capabilities_info` | `AsyncCapabilitiesAPI` | Runtime stability tiers and deployment capabilities. |
+| `projects` | [`AsyncProjectsAPI`](#asyncprojectsapi) | Projects plus the managed file registry. |
 | `workflows` | `AsyncWorkflowRunsAPI` | Workflow registry plus versions, runs, and services. |
 | `jobs` | `AsyncJobsAPI` | Long-running background jobs. |
 | `events` | `AsyncEventsAPI` | Server-sent event stream. |
@@ -11475,6 +11478,406 @@ Returns an async iterator rather than a coroutine, so it is used with
 | `params` | var-keyword | `Any` | `—` |
 
 **Returns:** `AsyncIterator[str]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+### Module `caliber_sdk.aio.projects`
+
+Asynchronous project, workspace, and project-file operations.
+
+**Tested example**
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
+
+**Public exports**
+
+`AsyncProjectFilesAPI`, `AsyncProjectsAPI`
+
+#### Classes
+
+##### `AsyncProjectFilesAPI`
+
+`class AsyncProjectFilesAPI()`
+
+Files inside one project.
+
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
+
+**Methods**
+
+###### `list(project_id: str) -> tuple[list[ProjectFile], list[ProjectFolder]]`
+
+Return files and directories separately.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `tuple[list[ProjectFile], list[ProjectFolder]]` — see [`ProjectFile`](#projectfile), [`ProjectFolder`](#projectfolder)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `upload(project_id: str, *, filename: str, content: bytes | BinaryIO, path: str | None = None, kind: str = 'input', media_type: str | None = None) -> ProjectFile`
+
+Upload a project file using the async transport's multipart path.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `filename` | keyword-only | `str` | `—` |
+| `content` | keyword-only | `bytes | BinaryIO` | `—` |
+| `path` | keyword-only | `str | None` | `None` |
+| `kind` | keyword-only | `str` | `'input'` |
+| `media_type` | keyword-only | `str | None` | `None` |
+
+**Returns:** [`ProjectFile`](#projectfile)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create_folder(project_id: str, path: str) -> ProjectFolder`
+
+Operate on the project files and folders surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `path` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`ProjectFolder`](#projectfolder)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `delete(project_id: str, file_id: str) -> bool`
+
+Delete a record on the project files and folders surface and return the server acknowledgement.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `file_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bool`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `download(project_id: str, file_id: str) -> bytes`
+
+Download raw file bytes without JSON envelope handling.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `file_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bytes`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `AsyncProjectsAPI`
+
+`class AsyncProjectsAPI(transport: AsyncTransport)`
+
+Projects, project access, environments, and their file sub-resource.
+
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
+```
+
+**Related APIs:** [`ProjectFilesAPI`](#projectfilesapi)
+
+**Constructor**
+
+###### `__init__(transport: AsyncTransport) -> None`
+
+Operate on the projects surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `transport` | positional-or-keyword | `AsyncTransport` | `—` |
+
+**Returns:** `None`
+
+**Attributes**
+
+| Attribute | Type | Notes |
+| --- | --- | --- |
+| `files` | [`AsyncProjectFilesAPI`](#asyncprojectfilesapi) | — |
+
+**Methods**
+
+###### `list(*, status: str | None = None) -> list[Project]`
+
+Active projects by default; pass ``status="all"`` for everything.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** [`list[Project]`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(project_id: str) -> Project`
+
+Fetch one record from the projects surface identified by `project_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(name: str, *, description: str | None = None) -> Project`
+
+Create a new record on the projects surface and return the server-normalized result.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `name` | positional-or-keyword | `str` | `—` |
+| `description` | keyword-only | `str | None` | `None` |
+
+**Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(project_id: str, *, name: str | None = None, description: str | None = None, status: str | None = None) -> Project`
+
+Update metadata, retaining sync compatibility for ``status``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `name` | keyword-only | `str | None` | `None` |
+| `description` | keyword-only | `str | None` | `None` |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- `ValueError`
+
+###### `archive(project_id: str) -> Project`
+
+Move a project to ``archived`` and record transition provenance.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `restore(project_id: str) -> Project`
+
+Move an archived project back to ``active``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `transfer_ownership(project_id: str, new_owner_user_id: str) -> Project`
+
+Operate on the projects surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `new_owner_user_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_members(project_id: str) -> list[ProjectMember]`
+
+Operate on the projects surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `list[ProjectMember]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `add_member(project_id: str, user_id: str, *, role: str = 'viewer') -> ProjectMember`
+
+Operate on the projects surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `user_id` | positional-or-keyword | `str` | `—` |
+| `role` | keyword-only | `str` | `'viewer'` |
+
+**Returns:** `ProjectMember`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update_member(project_id: str, user_id: str, *, role: str | None = None, status: str | None = None) -> ProjectMember`
+
+Operate on the projects surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `user_id` | positional-or-keyword | `str` | `—` |
+| `role` | keyword-only | `str | None` | `None` |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `ProjectMember`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `remove_member(project_id: str, user_id: str) -> bool`
+
+Operate on the projects surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `user_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bool`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `storage() -> Any`
+
+Return deployment storage capabilities.
+
+This callable takes no public parameters.
+
+**Returns:** `Any`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_environments(project_id: str) -> list[WorkspaceEnvironment]`
+
+Operate on the projects surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`list[WorkspaceEnvironment]`](#workspaceenvironment)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get_environment(project_id: str, name: str) -> WorkspaceEnvironment`
+
+Operate on the projects surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`WorkspaceEnvironment`](#workspaceenvironment)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `enable_environment(project_id: str, name: str) -> WorkspaceEnvironment`
+
+Operate on the projects surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`WorkspaceEnvironment`](#workspaceenvironment)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `disable_environment(project_id: str, name: str) -> WorkspaceEnvironment`
+
+Operate on the projects surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`WorkspaceEnvironment`](#workspaceenvironment)
 
 **Raises:**
 

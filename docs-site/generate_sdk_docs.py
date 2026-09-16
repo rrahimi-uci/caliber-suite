@@ -85,6 +85,8 @@ LINKABLE_TYPES: tuple[str, ...] = (
     "AriaPlanDetail",
     "AriaPlanStep",
     "AsyncCaliberClient",
+    "AsyncProjectFilesAPI",
+    "AsyncProjectsAPI",
     "AuditEntry",
     "Bucket",
     "CaliberAPIError",
@@ -368,6 +370,7 @@ MODULE_EXAMPLES = {
     "caliber_sdk.models.errors": "sdk/caliber-sdk/examples/quickstart.py#quickstart",
     "caliber_sdk.aio": "sdk/caliber-sdk/examples/workflow_run.py#run_and_wait",
     "caliber_sdk.aio.client": "sdk/caliber-sdk/examples/workflow_run.py#run_and_wait",
+    "caliber_sdk.aio.projects": "sdk/caliber-sdk/examples/workflow_run.py#run_and_wait",
     "caliber_sdk.aio.transport": "sdk/caliber-sdk/examples/workflow_run.py#run_and_wait",
     "caliber_sdk.aio.waiters": "sdk/caliber-sdk/examples/workflow_run.py#run_and_wait",
 }
@@ -375,6 +378,8 @@ MODULE_EXAMPLES = {
 CLASS_EXAMPLES = {
     "CaliberClient": MODULE_EXAMPLES["caliber_sdk.client"],
     "AsyncCaliberClient": MODULE_EXAMPLES["caliber_sdk.aio.client"],
+    "AsyncProjectFilesAPI": MODULE_EXAMPLES["caliber_sdk.aio.projects"],
+    "AsyncProjectsAPI": MODULE_EXAMPLES["caliber_sdk.aio.projects"],
     "WorkflowRunsAPI": MODULE_EXAMPLES["caliber_sdk.resources.workflows"],
     "WorkflowsAPI": MODULE_EXAMPLES["caliber_sdk.resources.workflows"],
     "PromptsAPI": MODULE_EXAMPLES["caliber_sdk.resources.assets"],
@@ -431,6 +436,7 @@ MODULE_GROUPS = [
         [
             "caliber_sdk.aio",
             "caliber_sdk.aio.client",
+            "caliber_sdk.aio.projects",
             "caliber_sdk.aio.transport",
             "caliber_sdk.aio.waiters",
         ],
@@ -1238,13 +1244,14 @@ def render_member(
     return lines
 
 
-#: Base classes that carry no public surface. ``Resource`` and ``_AsyncResource``
+#: Base classes that carry no public surface. ``Resource``, ``_AsyncResource``,
+#: and the project module's ``_AsyncProjectResource``
 #: exist so every resource class shares one envelope-unwrapping request path --
 #: their entire membership is ``_get``/``_post``/..., so a section for them would
 #: document nothing a caller can call. Naming them in a **Bases:** line was worse
 #: than omitting them: 38 classes pointed at a type the reference never defines,
 #: which is a dead end for the reader rather than a hint.
-INTERNAL_BASES = frozenset({"Resource", "_AsyncResource"})
+INTERNAL_BASES = frozenset({"Resource", "_AsyncResource", "_AsyncProjectResource"})
 
 
 def render_class(info: ClassInfo) -> list[str]:
