@@ -49,6 +49,12 @@ from caliber.db.models import (
     CaliberWorkflowRun,
     CaliberWorkflowSessionMemory,
     CaliberWorkflowVersion,
+    CaliberWorkspaceImportJob,
+    CaliberWorkspaceRevision,
+    CaliberWorkspaceRevisionResource,
+    CaliberWorkspaceSource,
+    WorkspaceRevisionImmutableError,
+    WorkspaceSnapshotRetentionError,
 )
 from caliber.db.session import create_engine_from_config, sessionmaker_from_engine
 
@@ -94,6 +100,12 @@ __all__ = [
     "CaliberWorkflowRun",
     "CaliberWorkflowSessionMemory",
     "CaliberWorkflowVersion",
+    "CaliberWorkspaceImportJob",
+    "CaliberWorkspaceRevision",
+    "CaliberWorkspaceRevisionResource",
+    "CaliberWorkspaceSource",
+    "WorkspaceRevisionImmutableError",
+    "WorkspaceSnapshotRetentionError",
     "create_engine_from_config",
     "sessionmaker_from_engine",
 ]

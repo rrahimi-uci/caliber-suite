@@ -79,6 +79,10 @@ WORKFLOW_FILE_PREFIX = "FILE-"
 PROJECT_PREFIX = "PRJ-"
 PROJECT_MEMBER_PREFIX = "PRJM-"
 WORKSPACE_ENVIRONMENT_PREFIX = "WSE-"
+WORKSPACE_SOURCE_PREFIX = "WSS-"
+WORKSPACE_IMPORT_PREFIX = "WSI-"
+WORKSPACE_REVISION_PREFIX = "WSR-"
+WORKSPACE_REVISION_RESOURCE_PREFIX = "WSRR-"
 
 # Ad-hoc prompt-test run prefix.
 PROMPT_TEST_RUN_PREFIX = "PTR-"
@@ -440,6 +444,26 @@ def new_workspace_environment_id() -> str:
     ``db/models.py::CaliberWorkspaceEnvironment``), not a rename target.
     """
     return f"{WORKSPACE_ENVIRONMENT_PREFIX}{_suffix()}"
+
+
+def new_workspace_source_id() -> str:
+    """Return a fresh Workspace-source ID, e.g. ``WSS-3a8f2c7e``."""
+    return f"{WORKSPACE_SOURCE_PREFIX}{_suffix()}"
+
+
+def new_workspace_import_id() -> str:
+    """Return a fresh Workspace-import-job ID, e.g. ``WSI-3a8f2c7e``."""
+    return f"{WORKSPACE_IMPORT_PREFIX}{_suffix()}"
+
+
+def new_workspace_revision_id() -> str:
+    """Return a fresh immutable Workspace-revision ID, e.g. ``WSR-3a8f2c7e``."""
+    return f"{WORKSPACE_REVISION_PREFIX}{_suffix()}"
+
+
+def new_workspace_revision_resource_id() -> str:
+    """Return a fresh Workspace-revision-resource ID, e.g. ``WSRR-3a8f2c7e``."""
+    return f"{WORKSPACE_REVISION_RESOURCE_PREFIX}{_suffix()}"
 
 
 def new_prompt_test_run_id() -> str:
