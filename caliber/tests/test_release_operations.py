@@ -1,9 +1,20 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+from unittest.mock import Mock
+
 import pytest
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 
-from caliber.db.models import CaliberAuditLog, CaliberReleaseOperation
+from caliber.db.models import (
+    CaliberAgentConfig,
+    CaliberApprovalRequest,
+    CaliberAuditLog,
+    CaliberRefinementJob,
+    CaliberReleaseOperation,
+    CaliberVerificationItem,
+)
 from caliber.release_operations import (
     PreparedReleaseResolutionError,
     ReleaseMutationNotStartedError,
@@ -12,6 +23,7 @@ from caliber.release_operations import (
     execute_prompt_alias_release,
     prepare_prompt_alias_release,
     reconcile_prompt_alias_releases,
+    serialize_release_operation,
 )
 
 
@@ -63,6 +75,38 @@ def test_non_prepared_release_cannot_be_abandoned(db_session: Session) -> None:
             operation_id=operation.operation_id,
             actor="@operator",
             reason="unsafe",
+        )
+
+
+@pytest.mark.parametrize("reason", ["", "   "])
+def test_abandon_prepared_release_requires_a_non_empty_reason(
+    db_session: Session, reason: str
+) -> None:
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="p-empty-reason",
+        alias="prod",
+        version_before=1,
+        version_after=2,
+        actor="@operator",
+    )
+
+    with pytest.raises(PreparedReleaseResolutionError, match="non-empty reason"):
+        abandon_prepared_prompt_release(
+            db_session,
+            operation_id=operation.operation_id,
+            actor="@operator",
+            reason=reason,
+        )
+
+
+def test_abandon_prepared_release_reports_a_missing_operation(db_session: Session) -> None:
+    with pytest.raises(PreparedReleaseResolutionError, match="not found"):
+        abandon_prepared_prompt_release(
+            db_session,
+            operation_id="REL-missing",
+            actor="@operator",
+            reason="operator cancelled it",
         )
 
 
@@ -167,6 +211,168 @@ def test_preflight_failure_clears_lock_without_reconciliation(db_session: Sessio
     assert row is not None
     assert row.status == "failed"
     assert row.active_lock is None
+
+
+def test_applied_release_retry_is_idempotent_and_serializes_provenance(
+    db_session: Session,
+) -> None:
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="p-serialize",
+        alias="prod",
+        version_before=1,
+        version_after=2,
+        actor="@operator",
+        effective_scopes=("operator", "operator"),
+        evidence={"gate": "pass"},
+        approval_id="AP-serialize",
+    )
+    expected = {"name": "p-serialize", "alias": "prod", "version": 2}
+
+    assert (
+        execute_prompt_alias_release(db_session, operation, mutate_alias=lambda **_: expected)
+        == expected
+    )
+
+    def must_not_mutate(**_: object) -> dict[str, object]:
+        raise AssertionError("an applied release must not call the provider again")
+
+    assert (
+        execute_prompt_alias_release(db_session, operation, mutate_alias=must_not_mutate)
+        == expected
+    )
+
+    serialized = serialize_release_operation(operation)
+    assert serialized["operation_id"] == operation.operation_id
+    assert serialized["active_lock"] is None
+    assert serialized["effective_scopes"] == ["operator"]
+    assert serialized["evidence"] == {"gate": "pass"}
+    assert serialized["approval_id"] == "AP-serialize"
+    assert serialized["status"] == "applied"
+    assert serialized["provider_result"] == expected
+    assert serialized["applied_at"] is not None
+    assert serialized["created_at"] is not None
+    assert serialized["updated_at"] is not None
+
+
+def _seed_reconciliation_job(
+    session: Session, *, job_id: str, approval_id: str, item_id: str, agent_id: str
+) -> None:
+    session.add(
+        CaliberAgentConfig(
+            agent_id=agent_id,
+            experiment_id=f"exp-{agent_id}",
+            name="Reconciliation agent",
+            owner="@operator",
+        )
+    )
+    session.add(
+        CaliberVerificationItem(
+            item_id=item_id,
+            agent_id=agent_id,
+            category="release",
+            free_text="release reconciliation",
+            severity="standard",
+            status="verified",
+        )
+    )
+    session.flush()
+    session.add(
+        CaliberRefinementJob(
+            job_id=job_id,
+            agent_id=agent_id,
+            primary_item_id=item_id,
+            artifact_type="prompt",
+            status="applying",
+            current_stage="apply",
+            bundle_targets=[],
+        )
+    )
+    session.add(
+        CaliberApprovalRequest(
+            approval_id=approval_id,
+            job_id=job_id,
+            agent_id=agent_id,
+            status="approved",
+        )
+    )
+    session.flush()
+
+
+def test_reconciler_marks_the_linked_applying_job_applied_when_target_is_observed(
+    db_session: Session,
+) -> None:
+    _seed_reconciliation_job(
+        db_session,
+        job_id="RFN-reconcile-applied",
+        approval_id="AP-reconcile-applied",
+        item_id="FB-reconcile-applied",
+        agent_id="agent-reconcile-applied",
+    )
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="p-reconcile-applied",
+        alias="prod",
+        version_before=1,
+        version_after=2,
+        actor="@operator",
+        approval_id="AP-reconcile-applied",
+    )
+    operation.status = "applying"
+    db_session.commit()
+
+    rows = reconcile_prompt_alias_releases(
+        db_session,
+        resolve_alias=lambda _name, _alias: {"version": 2},
+    )
+
+    assert rows == [operation]
+    job = db_session.get(CaliberRefinementJob, "RFN-reconcile-applied")
+    assert job is not None
+    assert job.status == "applied"
+    assert job.current_stage == "done"
+    assert (
+        db_session.query(CaliberAuditLog)
+        .filter(CaliberAuditLog.action == "reconcile_apply_candidate")
+        .count()
+        == 1
+    )
+
+
+def test_reconciler_returns_the_linked_job_to_candidate_ready_when_release_was_not_applied(
+    db_session: Session,
+) -> None:
+    _seed_reconciliation_job(
+        db_session,
+        job_id="RFN-reconcile-not-applied",
+        approval_id="AP-reconcile-not-applied",
+        item_id="FB-reconcile-not-applied",
+        agent_id="agent-reconcile-not-applied",
+    )
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="p-reconcile-not-applied",
+        alias="prod",
+        version_before=1,
+        version_after=2,
+        actor="@operator",
+        approval_id="AP-reconcile-not-applied",
+    )
+    operation.status = "reconcile_required"
+    db_session.commit()
+
+    reconcile_prompt_alias_releases(
+        db_session,
+        resolve_alias=lambda _name, _alias: {"version": 1},
+    )
+
+    assert operation.status == "failed"
+    assert operation.active_lock is None
+    job = db_session.get(CaliberRefinementJob, "RFN-reconcile-not-applied")
+    assert job is not None
+    assert job.status == "candidate_ready"
+    assert job.current_stage == "done"
+    assert "pre-release version" in (operation.last_error or "")
 
 
 def test_reconciler_settles_observed_target_and_flags_unknown_state(db_session: Session) -> None:
@@ -298,3 +504,29 @@ def test_incomplete_release_serializes_same_alias_across_operation_ids(
         operation_id="REL-second",
     )
     assert second.status == "prepared"
+
+
+def test_prepare_recovers_an_exact_request_after_an_insert_race() -> None:
+    """A duplicate operation-id race is a safe retry when the request matches."""
+    concurrent = SimpleNamespace(
+        operation_type="promote",
+        resource_name="support-agent",
+        target_name="prod",
+        version_after=5,
+    )
+    session = Mock()
+    session.get.side_effect = [None, concurrent]
+    session.commit.side_effect = IntegrityError("duplicate", {}, RuntimeError("raced insert"))
+
+    result = prepare_prompt_alias_release(
+        session,
+        name="support-agent",
+        alias="prod",
+        version_before=4,
+        version_after=5,
+        actor="@operator",
+        operation_id="REL-raced",
+    )
+
+    assert result is concurrent
+    session.rollback.assert_called_once_with()
