@@ -382,6 +382,7 @@ class SessionResponse(BaseModel):
     session_id: str
     title: str
     owner: str
+    project_id: str | None = None
     status: str
     goal: str
     metadata_: dict[str, Any] = Field(default_factory=dict)

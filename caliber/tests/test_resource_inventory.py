@@ -33,7 +33,10 @@ _EXPECTED_COUNTS = {
     # see below.
     # +1 (`P2-O`): CaliberMcpServer gained project_id/visibility and now
     # participates in the shared three-tier resource boundary.
-    SCOPING_OWNED_CATALOG: 22,
+    # -1 (`P2-B`): CaliberAssistantSession gained a nullable project_id so a
+    # multi-turn assistant conversation can retain its workspace context; it
+    # is project_only because sessions intentionally have no visibility tier.
+    SCOPING_OWNED_CATALOG: 21,
     SCOPING_VISIBILITY: 15,
     # +1 (`P1-A`): CaliberWorkspaceEnvironment has project_id, no
     # visibility/owner column -- correctly project_only, confirmed by
@@ -44,7 +47,7 @@ _EXPECTED_COUNTS = {
     # doesn't require the absence of one, only of `visibility`); the actual
     # binding is enforced by direct project_id equality in
     # `auth.py::resolve_identity`, not the 3-tier visibility scheme.
-    SCOPING_PROJECT_ONLY: 9,
+    SCOPING_PROJECT_ONLY: 10,
 }
 
 

@@ -30,6 +30,8 @@ from caliber.assistant.models import (
 )
 from caliber.assistant.service import (
     AssistantService,
+    AssistantSessionCredentialMismatchError,
+    AssistantSessionProjectMismatchError,
     ConflictError,
     normalize_disabled_domains,
     normalize_disabled_intents,
@@ -190,9 +192,10 @@ async def create_session(request: Request) -> JSONResponse:
     require_scopes(request, [SCOPE_OPERATOR])
     svc = _get_service(request)
     factory = get_session_factory(request)
+    identity = resolve_identity(request)
     data = await parse_json_object(request)
     body = SessionCreateRequest(**data)
-    result = svc.create_session(body, session_factory=factory, user=user)
+    result = svc.create_session(body, session_factory=factory, user=user, identity=identity)
     return envelope_response(result, status_code=201)
 
 
@@ -250,16 +253,21 @@ async def send_message(request: Request) -> JSONResponse:
     session_id = request.path_params["session_id"]
     data = await parse_json_object(request)
     body = MessageSendRequest(**data)
-    result = svc.send_message(
-        session_id,
-        body,
-        session_factory=factory,
-        user=user,
-        identity=identity,
-        project_id=identity.active_project_id,
-        scopes=sorted(identity.scopes),
-        current_surface="assistant_drawer",
-    )
+    try:
+        result = svc.send_message(
+            session_id,
+            body,
+            session_factory=factory,
+            user=user,
+            identity=identity,
+            project_id=identity.active_project_id,
+            scopes=sorted(identity.scopes),
+            current_surface="assistant_drawer",
+        )
+    except AssistantSessionCredentialMismatchError as exc:
+        raise HTTPException(status_code=403, detail=str(exc)) from exc
+    except AssistantSessionProjectMismatchError as exc:
+        raise HTTPException(status_code=400, detail=str(exc)) from exc
     return envelope_response(result, status_code=201)
 
 
