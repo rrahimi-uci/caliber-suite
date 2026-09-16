@@ -37,13 +37,14 @@ def safe_zip_members(
     *,
     max_entries: int = DEFAULT_MAX_ENTRIES,
     max_total_bytes: int = DEFAULT_MAX_TOTAL_BYTES,
+    max_entry_bytes: int | None = None,
     max_ratio: int = DEFAULT_MAX_RATIO,
 ) -> list[ArchiveMember]:
     """Validate a zip's entries; return safe members or raise.
 
     Rejects: non-zip data, traversal/absolute entry names (zip-slip), symlink
-    members, too many entries, excessive total decompressed size, and per-entry
-    compression ratios above ``max_ratio`` (zip-bomb).
+    members, too many entries, oversized entries, excessive total decompressed
+    size, and per-entry compression ratios above ``max_ratio`` (zip-bomb).
     """
     try:
         zf = zipfile.ZipFile(io.BytesIO(data))
@@ -68,6 +69,10 @@ def safe_zip_members(
             name = safe_relative_path(info.filename)
         except StorageValidationError as exc:
             raise StorageValidationError(f"unsafe archive entry {info.filename!r}: {exc}") from exc
+        if max_entry_bytes is not None and info.file_size > max_entry_bytes:
+            raise StorageValidationError(
+                f"archive entry {info.filename!r} is {info.file_size} bytes (max {max_entry_bytes})"
+            )
         total += info.file_size
         if total > max_total_bytes:
             raise StorageValidationError(
