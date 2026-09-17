@@ -334,7 +334,7 @@ def test_missing_fake_capabilities_are_typed_refusals() -> None:
     )
     with pytest.raises(SourceControlCapabilityError, match="commit_tree_fetch"):
         provider.fetch_commit(REPOSITORY, _sha("missing"))
-    payload = b"{}"
+    payload = b'{"repository_id":"owner/workspace"}'
     signature = hmac.new(SECRET, payload, hashlib.sha256).hexdigest()
     event = provider.verify_webhook(
         REPOSITORY,
@@ -409,7 +409,18 @@ def test_webhook_verification_is_signed_repository_bound_and_normalized() -> Non
             dict(headers, **{"x-hub-signature-256": f"sha256={list_signature}"}),
             list_payload,
         )
-    invalid_head = b'{"head_commit":"not-a-sha"}'
+    missing_repository = b"{}"
+    missing_repository_signature = hmac.new(SECRET, missing_repository, hashlib.sha256).hexdigest()
+    with pytest.raises(SourceControlWebhookError, match="repository binding"):
+        provider.verify_webhook(
+            REPOSITORY,
+            dict(
+                headers,
+                **{"x-hub-signature-256": f"sha256={missing_repository_signature}"},
+            ),
+            missing_repository,
+        )
+    invalid_head = b'{"repository_id":"owner/workspace","head_commit":"not-a-sha"}'
     invalid_head_signature = hmac.new(SECRET, invalid_head, hashlib.sha256).hexdigest()
     with pytest.raises(SourceControlWebhookError, match="head_commit"):
         provider.verify_webhook(

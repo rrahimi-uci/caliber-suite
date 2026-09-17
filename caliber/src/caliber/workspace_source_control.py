@@ -999,10 +999,9 @@ class FakeSourceControlProvider:
         if not isinstance(body, dict):
             raise SourceControlWebhookError("webhook payload must be a JSON object")
         body_repository = body.get("repository_id") or body.get("repository")
-        if (
-            body_repository is not None
-            and self.canonical_repository_id(str(body_repository)) != repository
-        ):
+        if not isinstance(body_repository, str) or not body_repository.strip():
+            raise SourceControlWebhookError("webhook repository binding is required")
+        if self.canonical_repository_id(body_repository) != repository:
             raise SourceControlWebhookError("webhook repository does not match the source binding")
         head_commit = body.get("head_commit")
         try:
