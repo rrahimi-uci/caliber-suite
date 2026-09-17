@@ -19,11 +19,12 @@
 #
 # Current state: P1-C's three project-lifecycle gaps were closed by the
 # follow-up SDK review fix. P4-C adds the provider-neutral source, import, and
-# revision HTTP surface before typed SDK resources are scheduled in P6-B, so
-# those 13 operations are tracked below as explicit temporary gaps. A future
-# SDK PR closes each gap by adding typed methods and deleting its entry; a
-# future server operation without SDK coverage must likewise add a tracked gap
-# or justify a permanent exclusion.
+# revision HTTP surface, and P4-D adds the Change Request/review/version-tag
+# surface, before typed SDK resources are scheduled in P6-B. Those operations
+# are tracked below as explicit temporary gaps. A future SDK PR closes each
+# gap by adding typed methods and deleting its entry; a future server operation
+# without SDK coverage must likewise add a tracked gap or justify a permanent
+# exclusion.
 
 [[exclusion]]
 method = "GET"
@@ -146,6 +147,142 @@ wave = "P6-B"
 [[gap]]
 method = "GET"
 path = "/projects/{}/revisions/{}/diff"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+# P4-D native Change Request/review/version-tag routes. The server contract
+# ships before typed SDK resources; P6-B owns the typed client closure.
+
+[[gap]]
+method = "DELETE"
+path = "/projects/{}/change-requests/{}/reviewers/{}"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/change-requests"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/change-requests/{}"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/change-requests/{}/checks"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/change-requests/{}/comments"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/change-requests/{}/external-review-attestations"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/change-requests/{}/reviewers"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/change-requests/{}/reviews"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/change-requests"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/change-requests/{}/comments"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/change-requests/{}/reviews"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/change-requests/{}:close"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/change-requests/{}:rebase"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/change-requests/{}:refresh-external-review"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/change-requests/{}:submit"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/change-requests/{}:update-head"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "PUT"
+path = "/projects/{}/change-requests/{}/reviewers/{}"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/version-tags"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/version-tags/{}"
 tag = "projects"
 stability = "ga"
 wave = "P6-B"

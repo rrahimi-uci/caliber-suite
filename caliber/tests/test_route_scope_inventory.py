@@ -345,7 +345,7 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
     """Ratchet, matching this session's inventory-test style (e.g.
     `test_resource_inventory.py`'s distribution pin): `P1-D` closed
     `PROJECT_ACTIONS` over section 2.4's full 29-key target vocabulary, of
-    which 14 are wired to a live route's `require_project_access()`/
+    which 19 are wired to a live route's `require_project_access()`/
     `_require_project_action()`/`require_project_access_if_scoped()` call
     (12 after the earlier `P1-D`/`P1-F`/`P3-A` slices; `P4-C` adds
     `source.manage` and `revision.import`). The other 15 are reserved --
@@ -389,16 +389,17 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
         "source.manage",
         # `P4-C`: durable revision import routes.
         "revision.import",
-    }
-    assert set(PROJECT_ACTIONS) - live_actions == {
-        "resource.write.evidence",
-        "resource.approve",
-        "revision.create",
+        # `P4-D`: Change Request lifecycle and review routes.
         "change_request.create",
         "change_request.update",
         "change_request.comment",
         "change_request.review",
         "change_request.manage",
+    }
+    assert set(PROJECT_ACTIONS) - live_actions == {
+        "resource.write.evidence",
+        "resource.approve",
+        "revision.create",
         "release.request",
         "release.evaluate",
         "release.quality_signoff",

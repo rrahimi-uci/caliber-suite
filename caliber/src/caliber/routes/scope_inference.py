@@ -105,6 +105,12 @@ _PROJECT_ACCESS_CALL_NAMES = frozenset(
     }
 )
 
+# A small set of route-local wrappers whose only purpose is to select a
+# related-resource kind before delegating to the project-authorized worker.
+# They are included explicitly so the live endpoint inventory reports the
+# project-role axis instead of stopping at the wrapper's `require_user()` call.
+_PROJECT_ACCESS_WRAPPER_CALL_NAMES = frozenset({"_list_related_route"})
+
 # `routes/rework_tasks.py` keeps its SQLAlchemy session in the worker thread.
 # Project routes pass the literal `project_action=` to one of these helpers,
 # which performs authorization in the same session as the task query or
@@ -128,6 +134,21 @@ _PROJECT_ACCESS_OFFLOADED_HELPERS = frozenset(
         "_claim_task_sync",
         "_resolve_task_sync",
         "_reassign_task_sync",
+        "_list_requests_sync",
+        "_get_request_sync",
+        "_list_related_sync",
+        "_list_tags_sync",
+        "_get_tag_sync",
+        "_create_change_request_sync",
+        "_submit_change_request_sync",
+        "_update_head_sync",
+        "_rebase_sync",
+        "_close_sync",
+        "_add_comment_sync",
+        "_assign_reviewer_sync",
+        "_remove_reviewer_sync",
+        "_submit_review_sync",
+        "_refresh_external_sync",
     }
 )
 
@@ -263,7 +284,7 @@ def _survey_calls(statements: list[ast.stmt]) -> _CallSurvey:
             survey.all_scope_calls.append(node)
         elif name == "require_user":
             survey.has_require_user = True
-        elif name in _PROJECT_ACCESS_CALL_NAMES:
+        elif name in _PROJECT_ACCESS_CALL_NAMES or name in _PROJECT_ACCESS_WRAPPER_CALL_NAMES:
             survey.project_access_calls.append(node)
         elif (
             name == "run_in_threadpool"

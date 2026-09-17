@@ -2378,6 +2378,336 @@ class CaliberWorkspaceImportJob(Base):
     completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
 
+class CaliberWorkspaceChangeRequest(Base):
+    """One review envelope around immutable Workspace revisions."""
+
+    __tablename__ = "caliber_workspace_change_requests"
+    __table_args__ = (
+        Index("ix_workspace_change_requests_project_status", "project_id", "status"),
+        CheckConstraint(
+            "status IN ('draft', 'open', 'changes_requested', 'technically_approved', "
+            "'qa_in_progress', 'out_of_date', 'accepted', 'closed')",
+            name="ck_workspace_change_request_status",
+        ),
+        CheckConstraint(
+            "review_backend IN ('caliber', 'source_provider')",
+            name="ck_workspace_change_request_review_backend",
+        ),
+        CheckConstraint("head_generation >= 1", name="ck_workspace_change_request_generation"),
+        CheckConstraint("lock_version >= 1", name="ck_workspace_change_request_lock_version"),
+    )
+
+    change_request_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    base_revision_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_revisions.revision_id"), nullable=True
+    )
+    current_head_revision_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_revisions.revision_id"), nullable=False
+    )
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    title: Mapped[str] = mapped_column(String(256), nullable=False)
+    description: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    head_generation: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    status: Mapped[str] = mapped_column(String(24), nullable=False, default="draft")
+    review_backend: Mapped[str] = mapped_column(String(24), nullable=False, default="caliber")
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    accepted_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    closed_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    lock_version: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CaliberWorkspaceChangeRequestHead(Base):
+    """Append-only current-head history for a Change Request."""
+
+    __tablename__ = "caliber_workspace_change_request_heads"
+    __table_args__ = (
+        UniqueConstraint(
+            "change_request_id", "generation", name="uq_workspace_change_request_head_generation"
+        ),
+        Index("ix_workspace_change_request_heads_request", "change_request_id", "generation"),
+    )
+
+    head_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    change_request_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
+    )
+    generation: Mapped[int] = mapped_column(Integer, nullable=False)
+    revision_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_revisions.revision_id"), nullable=False
+    )
+    revision_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    review_policy_version: Mapped[str] = mapped_column(String(64), nullable=False, default="v1")
+    review_policy_sha256: Mapped[str] = mapped_column(String(64), nullable=False, default="")
+    changed_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    change_summary: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberWorkspaceChangeRequestReviewer(Base):
+    """Reviewer assignment history; active assignments are unique per request/user."""
+
+    __tablename__ = "caliber_workspace_change_request_reviewers"
+    __table_args__ = (
+        Index("ix_workspace_change_request_reviewers_request", "change_request_id", "active"),
+        Index(
+            "uq_workspace_change_request_active_reviewer",
+            "change_request_id",
+            "user_id",
+            unique=True,
+            sqlite_where=text("active = 1"),
+            postgresql_where=text("active = true"),
+        ),
+    )
+
+    reviewer_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    change_request_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
+    )
+    user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    assigned_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    assigned_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    removed_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    removed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
+
+
+class CaliberWorkspaceChangeRequestComment(Base):
+    """Append-only bounded Markdown discussion."""
+
+    __tablename__ = "caliber_workspace_change_request_comments"
+    __table_args__ = (
+        Index("ix_workspace_change_request_comments_request", "change_request_id", "created_at"),
+    )
+
+    comment_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    change_request_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
+    )
+    head_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_change_request_heads.head_id"), nullable=True
+    )
+    resource_type: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    resource_name: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    source_path: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    body: Mapped[str] = mapped_column(Text, nullable=False)
+    author: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberWorkspaceChangeRequestCheck(Base):
+    """Durable head-bound check attempts."""
+
+    __tablename__ = "caliber_workspace_change_request_checks"
+    __table_args__ = (
+        UniqueConstraint(
+            "head_id", "check_name", "attempt_number", name="uq_workspace_check_attempt"
+        ),
+        Index("ix_workspace_change_request_checks_head", "head_id", "created_at"),
+        Index(
+            "uq_workspace_change_request_active_check",
+            "head_id",
+            "check_name",
+            unique=True,
+            sqlite_where=text("status IN ('queued', 'running')"),
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+        CheckConstraint(
+            "status IN ('queued', 'running', 'passed', 'failed', 'cancelled')",
+            name="ck_workspace_change_request_check_status",
+        ),
+        CheckConstraint("attempt_number >= 1", name="ck_workspace_change_request_check_attempt"),
+    )
+
+    check_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    head_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_change_request_heads.head_id"), nullable=False
+    )
+    check_name: Mapped[str] = mapped_column(String(128), nullable=False)
+    attempt_number: Mapped[int] = mapped_column(Integer, nullable=False, default=1)
+    implementation_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    input_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    evidence_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    evidence_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="queued")
+    claimed_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberWorkspaceChangeRequestReview(Base):
+    """Append-only technical decision for one reviewer and exact head."""
+
+    __tablename__ = "caliber_workspace_change_request_reviews"
+    __table_args__ = (
+        Index("ix_workspace_change_request_reviews_request", "change_request_id", "created_at"),
+        CheckConstraint(
+            "decision IN ('approve', 'request_changes')",
+            name="ck_workspace_change_request_review_decision",
+        ),
+    )
+
+    review_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    change_request_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
+    )
+    head_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_change_request_heads.head_id"), nullable=False
+    )
+    reviewer_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("caliber_workspace_change_request_reviewers.reviewer_id"),
+        nullable=False,
+    )
+    decision: Mapped[str] = mapped_column(String(24), nullable=False)
+    rationale: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    actor_role: Mapped[str] = mapped_column(String(32), nullable=False)
+    actor_scopes: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberWorkspaceExternalReviewAttestation(Base):
+    """Normalized provider evidence; provider response objects never persist here."""
+
+    __tablename__ = "caliber_workspace_external_review_attestations"
+    __table_args__ = (
+        UniqueConstraint(
+            "change_request_id",
+            "head_id",
+            "provider_change_request_id",
+            "provider_resulting_commit",
+            "verification_input_digest",
+            name="uq_workspace_external_attestation_input",
+        ),
+        Index("ix_workspace_external_attestations_head", "head_id", "status"),
+        CheckConstraint(
+            "status IN ('verified', 'insufficient', 'stale', 'revoked')",
+            name="ck_workspace_external_attestation_status",
+        ),
+    )
+
+    attestation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    change_request_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
+    )
+    head_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_change_request_heads.head_id"), nullable=False
+    )
+    source_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_sources.source_id"), nullable=False
+    )
+    provider_change_request_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    provider_url: Mapped[str | None] = mapped_column(String(1024), nullable=True)
+    provider_head_commit: Mapped[str] = mapped_column(String(128), nullable=False)
+    provider_resulting_commit: Mapped[str] = mapped_column(String(128), nullable=False)
+    source_tree_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    workspace_revision_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    provider_ruleset_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    required_checks: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    trusted_check_sources: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    check_conclusions: Mapped[dict[str, Any]] = mapped_column(JSON, nullable=False, default=dict)
+    review_actors: Mapped[list[dict[str, Any]]] = mapped_column(JSON, nullable=False, default=list)
+    merge_method: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    merge_actor: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    merged_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    provider_event_ids: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    adapter_version: Mapped[str] = mapped_column(String(64), nullable=False)
+    verified_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    status: Mapped[str] = mapped_column(String(16), nullable=False)
+    reason: Mapped[str] = mapped_column(Text, nullable=False, default="")
+    verification_input_digest: Mapped[str] = mapped_column(String(64), nullable=False)
+    coverage_digest: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    uncovered_commits: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+    uncovered_paths: Mapped[list[str]] = mapped_column(JSON, nullable=False, default=list)
+
+
+class CaliberWorkspaceVersionClaim(Base):
+    """Reserved semantic version; abandoned claims remain burned for auditability."""
+
+    __tablename__ = "caliber_workspace_version_claims"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "semantic_version", name="uq_workspace_version_claim_version"
+        ),
+        Index(
+            "uq_workspace_reserved_version_claim_request",
+            "change_request_id",
+            unique=True,
+            sqlite_where=text("status = 'reserved'"),
+            postgresql_where=text("status = 'reserved'"),
+        ),
+        CheckConstraint(
+            "status IN ('reserved', 'accepted', 'abandoned')",
+            name="ck_workspace_version_claim_status",
+        ),
+    )
+
+    claim_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    change_request_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
+    )
+    semantic_version: Mapped[str] = mapped_column(String(128), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="reserved")
+    claimed_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    claimed_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    accepted_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    abandoned_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+
+
+class CaliberWorkspaceVersionTag(Base):
+    """Immutable mapping from a package revision to a canonical tag."""
+
+    __tablename__ = "caliber_workspace_version_tags"
+    __table_args__ = (
+        UniqueConstraint("project_id", "tag", name="uq_workspace_version_tag"),
+        CheckConstraint(
+            "kind IN ('qa_candidate', 'accepted')", name="ck_workspace_version_tag_kind"
+        ),
+    )
+
+    tag_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    revision_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_revisions.revision_id"), nullable=False
+    )
+    change_request_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
+    )
+    tag: Mapped[str] = mapped_column(String(128), nullable=False)
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class CaliberWorkflowFile(Base):
     """File metadata for run/playground/dataset-scoped files (storage doc §4.6).
 

@@ -83,6 +83,15 @@ WORKSPACE_SOURCE_PREFIX = "WSS-"
 WORKSPACE_IMPORT_PREFIX = "WSI-"
 WORKSPACE_REVISION_PREFIX = "WSR-"
 WORKSPACE_REVISION_RESOURCE_PREFIX = "WSRR-"
+WORKSPACE_CHANGE_REQUEST_PREFIX = "WSCR-"
+WORKSPACE_CHANGE_REQUEST_HEAD_PREFIX = "WSCRH-"
+WORKSPACE_CHANGE_REQUEST_REVIEWER_PREFIX = "WSCRR-"
+WORKSPACE_CHANGE_REQUEST_COMMENT_PREFIX = "WSCRC-"
+WORKSPACE_CHANGE_REQUEST_CHECK_PREFIX = "WSCRCHK-"
+WORKSPACE_CHANGE_REQUEST_REVIEW_PREFIX = "WSCRREV-"
+WORKSPACE_EXTERNAL_REVIEW_ATTESTATION_PREFIX = "WSERA-"
+WORKSPACE_VERSION_CLAIM_PREFIX = "WSVC-"
+WORKSPACE_VERSION_TAG_PREFIX = "WSVT-"
 
 # Ad-hoc prompt-test run prefix.
 PROMPT_TEST_RUN_PREFIX = "PTR-"
@@ -156,6 +165,51 @@ def new_quality_review_id() -> str:
     see ``docs/workspace-plan.md`` section 9.2), so no rename is anticipated.
     """
     return f"{QUALITY_REVIEW_PREFIX}{_suffix()}"
+
+
+def new_workspace_change_request_id() -> str:
+    """Return a fresh Workspace Change Request ID."""
+    return f"{WORKSPACE_CHANGE_REQUEST_PREFIX}{_suffix()}"
+
+
+def new_workspace_change_request_head_id() -> str:
+    """Return a fresh append-only Change Request head ID."""
+    return f"{WORKSPACE_CHANGE_REQUEST_HEAD_PREFIX}{_suffix()}"
+
+
+def new_workspace_change_request_reviewer_id() -> str:
+    """Return a fresh Change Request reviewer-assignment ID."""
+    return f"{WORKSPACE_CHANGE_REQUEST_REVIEWER_PREFIX}{_suffix()}"
+
+
+def new_workspace_change_request_comment_id() -> str:
+    """Return a fresh append-only Change Request comment ID."""
+    return f"{WORKSPACE_CHANGE_REQUEST_COMMENT_PREFIX}{_suffix()}"
+
+
+def new_workspace_change_request_check_id() -> str:
+    """Return a fresh head-bound Change Request check ID."""
+    return f"{WORKSPACE_CHANGE_REQUEST_CHECK_PREFIX}{_suffix()}"
+
+
+def new_workspace_change_request_review_id() -> str:
+    """Return a fresh append-only technical-review ID."""
+    return f"{WORKSPACE_CHANGE_REQUEST_REVIEW_PREFIX}{_suffix()}"
+
+
+def new_workspace_external_review_attestation_id() -> str:
+    """Return a fresh normalized provider-attestation ID."""
+    return f"{WORKSPACE_EXTERNAL_REVIEW_ATTESTATION_PREFIX}{_suffix()}"
+
+
+def new_workspace_version_claim_id() -> str:
+    """Return a fresh semantic-version claim ID."""
+    return f"{WORKSPACE_VERSION_CLAIM_PREFIX}{_suffix()}"
+
+
+def new_workspace_version_tag_id() -> str:
+    """Return a fresh immutable Workspace version-tag ID."""
+    return f"{WORKSPACE_VERSION_TAG_PREFIX}{_suffix()}"
 
 
 def new_checkpoint_id() -> str:

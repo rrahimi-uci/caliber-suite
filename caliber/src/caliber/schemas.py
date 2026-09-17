@@ -2483,6 +2483,223 @@ class WorkspaceRevisionDiffSchema(BaseModel):
     changed: list[WorkspaceRevisionResourceSchema] = Field(default_factory=list)
 
 
+class WorkspaceChangeRequestCreateRequest(BaseModel):
+    """Body for creating a draft over ready Workspace revisions."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    title: str = Field(min_length=1, max_length=256)
+    description: str = Field(default="", max_length=20000)
+    head_revision_id: str = Field(min_length=1, max_length=64)
+    base_revision_id: str | None = Field(default=None, max_length=64)
+    semantic_version: str = Field(min_length=1, max_length=128)
+    review_backend: Literal["caliber", "source_provider"] = "caliber"
+    reviewer_user_ids: list[str] = Field(default_factory=list, max_length=20)
+
+
+class WorkspaceChangeRequestSubmitRequest(BaseModel):
+    """Optional submission idempotency token and no mutable policy fields."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    idempotency_key: str | None = Field(default=None, min_length=1, max_length=256)
+
+
+class WorkspaceChangeRequestHeadUpdateRequest(BaseModel):
+    """Body for appending a ready revision as the next head generation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    revision_id: str = Field(min_length=1, max_length=64)
+    change_summary: str = Field(default="", max_length=10000)
+    expected_lock_version: int = Field(ge=1)
+
+
+class WorkspaceChangeRequestRebaseRequest(BaseModel):
+    """Body for rebasing an out-of-date request on the current accepted head."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    revision_id: str = Field(min_length=1, max_length=64)
+    change_summary: str = Field(default="", max_length=10000)
+    expected_lock_version: int = Field(ge=1)
+    semantic_version: str | None = Field(default=None, max_length=128)
+
+
+class WorkspaceChangeRequestCloseRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=4000)
+    expected_lock_version: int = Field(ge=1)
+
+
+class WorkspaceChangeRequestCommentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    body: str = Field(min_length=1, max_length=20000)
+    head_id: str | None = Field(default=None, max_length=64)
+    resource_type: str | None = Field(default=None, max_length=64)
+    resource_name: str | None = Field(default=None, max_length=256)
+    source_path: str | None = Field(default=None, max_length=1024)
+
+
+class WorkspaceChangeRequestReviewerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_lock_version: int = Field(ge=1)
+
+
+class WorkspaceChangeRequestReviewRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    head_id: str = Field(min_length=1, max_length=64)
+    decision: Literal["approve", "request_changes"]
+    rationale: str = Field(default="", max_length=10000)
+
+
+class WorkspaceChangeRequestSchema(BaseModel):
+    change_request_id: str
+    project_id: str
+    base_revision_id: str | None
+    current_head_revision_id: str
+    created_by: str
+    title: str
+    description: str
+    head_generation: int
+    status: Literal[
+        "draft",
+        "open",
+        "changes_requested",
+        "technically_approved",
+        "qa_in_progress",
+        "out_of_date",
+        "accepted",
+        "closed",
+    ]
+    review_backend: Literal["caliber", "source_provider"]
+    accepted_at: str | None = None
+    accepted_by: str | None = None
+    closed_reason: str | None = None
+    lock_version: int
+    created_at: str | None = None
+    updated_at: str | None = None
+    current_head: dict[str, object] = Field(default_factory=dict)
+    version_claim: dict[str, object] | None = None
+    active_reviewer_count: int = 0
+
+
+class WorkspaceChangeRequestListSchema(BaseModel):
+    items: list[WorkspaceChangeRequestSchema] = Field(default_factory=list)
+
+
+class WorkspaceChangeRequestHeadSchema(BaseModel):
+    head_id: str
+    change_request_id: str
+    generation: int
+    revision_id: str
+    revision_sha256: str
+    review_policy_version: str
+    review_policy_sha256: str
+    changed_by: str
+    change_summary: str
+    created_at: str | None = None
+
+
+class WorkspaceChangeRequestReviewerSchema(BaseModel):
+    reviewer_id: str
+    change_request_id: str
+    user_id: str
+    assigned_by: str
+    assigned_at: str | None = None
+    removed_by: str | None = None
+    removed_at: str | None = None
+    active: bool
+
+
+class WorkspaceChangeRequestCommentSchema(BaseModel):
+    comment_id: str
+    change_request_id: str
+    head_id: str | None = None
+    resource_type: str | None = None
+    resource_name: str | None = None
+    source_path: str | None = None
+    body: str
+    author: str
+    created_at: str | None = None
+
+
+class WorkspaceChangeRequestCheckSchema(BaseModel):
+    check_id: str
+    head_id: str
+    check_name: str
+    attempt_number: int
+    implementation_version: str
+    input_digest: str
+    evidence_ref: str | None = None
+    evidence_digest: str | None = None
+    status: Literal["queued", "running", "passed", "failed", "cancelled"]
+    claimed_by: str | None = None
+    claimed_at: str | None = None
+    lease_expires_at: str | None = None
+    completed_at: str | None = None
+    created_at: str | None = None
+
+
+class WorkspaceChangeRequestReviewSchema(BaseModel):
+    review_id: str
+    change_request_id: str
+    head_id: str
+    reviewer_id: str
+    decision: Literal["approve", "request_changes"]
+    rationale: str
+    actor_role: str
+    actor_scopes: list[str] = Field(default_factory=list)
+    created_at: str | None = None
+
+
+class WorkspaceExternalReviewAttestationSchema(BaseModel):
+    attestation_id: str
+    change_request_id: str
+    head_id: str
+    source_id: str
+    provider_change_request_id: str
+    provider_url: str | None = None
+    provider_head_commit: str
+    provider_resulting_commit: str
+    source_tree_sha256: str
+    workspace_revision_sha256: str
+    policy_version: str
+    policy_sha256: str
+    provider_ruleset_sha256: str | None = None
+    required_checks: list[str] = Field(default_factory=list)
+    trusted_check_sources: list[str] = Field(default_factory=list)
+    check_conclusions: dict[str, object] = Field(default_factory=dict)
+    review_actors: list[dict[str, object]] = Field(default_factory=list)
+    merge_method: str | None = None
+    merge_actor: str | None = None
+    merged_at: str | None = None
+    provider_event_ids: list[str] = Field(default_factory=list)
+    adapter_version: str
+    verified_at: str | None = None
+    status: Literal["verified", "insufficient", "stale", "revoked"]
+    reason: str
+    verification_input_digest: str
+    coverage_digest: str | None = None
+    uncovered_commits: list[str] = Field(default_factory=list)
+    uncovered_paths: list[str] = Field(default_factory=list)
+
+
+class WorkspaceVersionTagSchema(BaseModel):
+    tag_id: str
+    project_id: str
+    revision_id: str
+    change_request_id: str
+    tag: str
+    kind: Literal["qa_candidate", "accepted"]
+    created_by: str
+    created_at: str | None = None
+
+
 class ProjectStorageSchema(BaseModel):
     """Where a project's files live, and what else it could be switched to."""
 
