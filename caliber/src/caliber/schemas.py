@@ -2700,6 +2700,227 @@ class WorkspaceVersionTagSchema(BaseModel):
     created_at: str | None = None
 
 
+class WorkspaceReleaseCreateRequest(BaseModel):
+    """Immutable release coordinates captured before evaluation dispatch."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    revision_id: str = Field(min_length=1, max_length=64)
+    environment_id: str = Field(min_length=1, max_length=64)
+    environment_config_sha256: str = Field(min_length=64, max_length=64)
+    runtime_dependencies_sha256: str = Field(min_length=64, max_length=64)
+    policy_sha256: str = Field(min_length=64, max_length=64)
+    request_idempotency_key: str = Field(min_length=1, max_length=256)
+    change_request_id: str | None = Field(default=None, max_length=64)
+    change_request_head_id: str | None = Field(default=None, max_length=64)
+    version_tag_id: str | None = Field(default=None, max_length=64)
+    predecessor_release_id: str | None = Field(default=None, max_length=64)
+
+
+class WorkspaceReleaseEvaluateRequest(BaseModel):
+    """Durable evaluation-attempt request; workers are not provider callers."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    idempotency_key: str = Field(min_length=1, max_length=256)
+    evaluation_plan_sha256: str = Field(min_length=64, max_length=64)
+    input_sha256: str = Field(min_length=64, max_length=64)
+
+
+class WorkspaceReleaseTransitionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    expected_lock_version: int = Field(ge=1)
+    error_code: str | None = Field(default=None, max_length=64)
+    error_summary: str | None = Field(default=None, max_length=4000)
+
+
+class WorkspaceReleaseSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    release_id: str
+    project_id: str
+    revision_id: str
+    environment_id: str
+    change_request_id: str | None = None
+    change_request_head_id: str | None = None
+    version_tag_id: str | None = None
+    predecessor_release_id: str | None = None
+    environment_config_sha256: str
+    runtime_dependencies_sha256: str
+    policy_sha256: str
+    request_idempotency_key: str
+    evaluation_evidence_sha256: str | None = None
+    decision_set_sha256: str | None = None
+    status: Literal[
+        "draft",
+        "evaluating",
+        "blocked",
+        "rejected",
+        "approved",
+        "awaiting_quality_signoff",
+        "awaiting_approval",
+    ]
+    requested_by: str
+    requested_at: datetime | None = None
+    evaluated_by: str | None = None
+    evaluated_at: datetime | None = None
+    lock_version: int
+    error_code: str | None = None
+    error_summary: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class WorkspaceReleaseEvaluationSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    evaluation_id: str
+    project_id: str
+    workspace_release_id: str
+    idempotency_key: str
+    evaluation_plan_sha256: str
+    input_sha256: str
+    status: Literal["queued", "running", "succeeded", "failed"]
+    attempt_number: int
+    claimed_by: str | None = None
+    lease_expires_at: datetime | None = None
+    heartbeat_at: datetime | None = None
+    linked_evaluation_run_ids: list[str] = Field(default_factory=list)
+    gate_verdict_id: str | None = None
+    error_code: str | None = None
+    error_summary: str | None = None
+    requested_by: str
+    requested_at: datetime | None = None
+    started_by: str | None = None
+    started_at: datetime | None = None
+    completed_by: str | None = None
+    completed_at: datetime | None = None
+
+
+class WorkspaceReleaseEvidenceSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    evidence_id: str
+    workspace_release_id: str
+    kind: Literal[
+        "evaluation_run",
+        "gate_verdict",
+        "release_candidate",
+        "config_snapshot",
+        "provider_preflight",
+    ]
+    evidence_ref: str
+    evidence_sha256: str
+    required: bool
+    recorded_by: str
+    recorded_at: datetime | None = None
+
+
+class WorkspaceReleaseDecisionSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    decision_id: str
+    workspace_release_id: str
+    kind: Literal["quality", "release"]
+    decision: Literal["go", "no_go"]
+    rationale: str
+    decided_by: str
+    actor_role_snapshot: dict[str, object] = Field(default_factory=dict)
+    effective_scope_snapshot: dict[str, object] = Field(default_factory=dict)
+    revision_sha256: str
+    environment_config_sha256: str
+    runtime_dependencies_sha256: str
+    gate_evidence_sha256: str
+    policy_sha256: str
+    created_at: datetime | None = None
+
+
+class WorkspaceBreakGlassAuthorizationSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    authorization_id: str
+    project_id: str
+    workspace_release_id: str
+    environment_id: str
+    reason: str
+    incident_ref: str
+    authorization_ref: str
+    authorized_by: str
+    credential_kind: str
+    credential_id: str
+    revision_sha256: str
+    environment_config_sha256: str
+    runtime_dependencies_sha256: str
+    gate_evidence_sha256: str
+    policy_sha256: str
+    expires_at: datetime
+    created_at: datetime | None = None
+
+
+class WorkspaceReleaseOperationSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    operation_id: str
+    project_id: str
+    workspace_release_id: str
+    environment_id: str
+    kind: Literal["apply", "rollback"]
+    target_release_id: str | None = None
+    idempotency_key: str
+    expected_current_release_id: str | None = None
+    expected_environment_lock_version: int
+    status: Literal[
+        "prepared",
+        "applying",
+        "applied",
+        "failed",
+        "reconcile_required",
+        "cancelled",
+    ]
+    lock_version: int
+    requested_by: str
+    requested_at: datetime | None = None
+    applied_by: str | None = None
+    applied_at: datetime | None = None
+    completed_by: str | None = None
+    completed_at: datetime | None = None
+    observation_count: int
+    last_observed_at: datetime | None = None
+    break_glass_authorization_id: str | None = None
+    error_code: str | None = None
+    error_summary: str | None = None
+    created_at: datetime | None = None
+    updated_at: datetime | None = None
+
+
+class WorkspaceReleaseOperationItemSchema(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    operation_item_id: str
+    workspace_release_operation_id: str
+    revision_resource_id: str
+    action: Literal["no_op", "bind", "promote", "activate", "publish", "verify"]
+    target_ref: str
+    before_ref: str | None = None
+    after_ref: str | None = None
+    status: Literal[
+        "prepared",
+        "applying",
+        "applied",
+        "failed",
+        "reconcile_required",
+        "rolled_back",
+    ]
+    provider_operation_ref: str | None = None
+    provider_result: dict[str, object] | None = None
+    started_at: datetime | None = None
+    completed_at: datetime | None = None
+    error_code: str | None = None
+    error_summary: str | None = None
+    created_at: datetime | None = None
+
+
 class ProjectStorageSchema(BaseModel):
     """Where a project's files live, and what else it could be switched to."""
 

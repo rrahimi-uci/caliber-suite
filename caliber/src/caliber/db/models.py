@@ -2787,6 +2787,396 @@ class CaliberWorkspaceVersionTag(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class CaliberWorkspaceRelease(Base):
+    """Immutable evaluation coordinates for one Workspace environment release.
+
+    This is deliberately separate from :class:`CaliberReleaseOperation`, which
+    records legacy prompt-alias mutations.  A Workspace release authorizes a
+    later operation; it never claims that an external provider effect occurred.
+    """
+
+    __tablename__ = "caliber_workspace_releases"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "request_idempotency_key",
+            name="uq_workspace_release_project_idempotency",
+        ),
+        Index("ix_workspace_releases_project_status", "project_id", "status"),
+        Index("ix_workspace_releases_environment_status", "environment_id", "status"),
+        CheckConstraint(
+            "status IN ('draft', 'evaluating', 'blocked', 'rejected', 'approved', "
+            "'awaiting_quality_signoff', 'awaiting_approval')",
+            name="ck_workspace_release_status",
+        ),
+        CheckConstraint("lock_version >= 1", name="ck_workspace_release_lock_version"),
+    )
+
+    release_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    revision_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_revisions.revision_id"), nullable=False
+    )
+    environment_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_environments.environment_id"), nullable=False
+    )
+    change_request_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_change_requests.change_request_id"), nullable=True
+    )
+    change_request_head_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("caliber_workspace_change_request_heads.head_id"),
+        nullable=True,
+    )
+    version_tag_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_version_tags.tag_id"), nullable=True
+    )
+    predecessor_release_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_releases.release_id"), nullable=True
+    )
+    environment_config_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    runtime_dependencies_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    request_idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    evaluation_evidence_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    decision_set_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(32), nullable=False, default="draft", server_default="draft"
+    )
+    requested_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    requested_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    evaluated_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    evaluated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    lock_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CaliberWorkspaceReleaseEvaluation(Base):
+    """Durable, lease-based machine evaluation attempt for a Workspace release."""
+
+    __tablename__ = "caliber_workspace_release_evaluations"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id", "idempotency_key", name="uq_workspace_release_eval_project_key"
+        ),
+        Index(
+            "uq_workspace_release_eval_active",
+            "workspace_release_id",
+            unique=True,
+            sqlite_where=text("status IN ('queued', 'running')"),
+            postgresql_where=text("status IN ('queued', 'running')"),
+        ),
+        Index(
+            "ix_workspace_release_evaluations_release_status",
+            "workspace_release_id",
+            "status",
+        ),
+        Index(
+            "ix_workspace_release_evaluations_lease",
+            "status",
+            "lease_expires_at",
+        ),
+        CheckConstraint(
+            "status IN ('queued', 'running', 'succeeded', 'failed')",
+            name="ck_workspace_release_evaluation_status",
+        ),
+        CheckConstraint("attempt_number >= 1", name="ck_workspace_release_eval_attempt_number"),
+    )
+
+    evaluation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    workspace_release_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_releases.release_id"), nullable=False
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    evaluation_plan_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    input_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="queued", server_default="queued"
+    )
+    attempt_number: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    claimed_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    heartbeat_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    linked_evaluation_run_ids: Mapped[list[str]] = mapped_column(JSON, default=list)
+    gate_verdict_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    requested_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    requested_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    started_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CaliberWorkspaceReleaseEvidence(Base):
+    """Immutable evidence link contributing to a release evaluation digest."""
+
+    __tablename__ = "caliber_workspace_release_evidence"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_release_id",
+            "kind",
+            "evidence_ref",
+            name="uq_workspace_release_evidence_ref",
+        ),
+        Index("ix_workspace_release_evidence_release", "workspace_release_id", "kind"),
+        CheckConstraint(
+            "kind IN ('evaluation_run', 'gate_verdict', 'release_candidate', "
+            "'config_snapshot', 'provider_preflight')",
+            name="ck_workspace_release_evidence_kind",
+        ),
+    )
+
+    evidence_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workspace_release_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_releases.release_id"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    evidence_ref: Mapped[str] = mapped_column(String(512), nullable=False)
+    evidence_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    required: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
+    recorded_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    recorded_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberWorkspaceReleaseDecision(Base):
+    """Append-only, digest-bound human decision for a Workspace release."""
+
+    __tablename__ = "caliber_workspace_release_decisions"
+    __table_args__ = (
+        UniqueConstraint("workspace_release_id", "kind", name="uq_workspace_release_decision_kind"),
+        Index("ix_workspace_release_decisions_release", "workspace_release_id", "kind"),
+        CheckConstraint(
+            "kind IN ('quality', 'release')", name="ck_workspace_release_decision_kind"
+        ),
+        CheckConstraint("decision IN ('go', 'no_go')", name="ck_workspace_release_decision_value"),
+    )
+
+    decision_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workspace_release_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_releases.release_id"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    decision: Mapped[str] = mapped_column(String(8), nullable=False)
+    rationale: Mapped[str] = mapped_column(String(4000), nullable=False)
+    decided_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    actor_role_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    effective_scope_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
+    revision_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    environment_config_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    runtime_dependencies_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    gate_evidence_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberWorkspaceBreakGlassAuthorization(Base):
+    """Append-only, expiring authorization for one exceptional prod apply."""
+
+    __tablename__ = "caliber_workspace_break_glass_authorizations"
+    __table_args__ = (
+        Index("ix_workspace_break_glass_release", "workspace_release_id"),
+        CheckConstraint("expires_at > created_at", name="ck_workspace_break_glass_expiry"),
+    )
+
+    authorization_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    workspace_release_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_releases.release_id"), nullable=False
+    )
+    environment_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_environments.environment_id"), nullable=False
+    )
+    reason: Mapped[str] = mapped_column(String(4000), nullable=False)
+    incident_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    authorization_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    authorized_by: Mapped[str] = mapped_column(String(256), nullable=False)
+    credential_kind: Mapped[str] = mapped_column(String(64), nullable=False)
+    credential_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    revision_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    environment_config_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    runtime_dependencies_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    gate_evidence_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    expires_at: Mapped[datetime] = mapped_column(DateTime, nullable=False)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
+class CaliberWorkspaceReleaseOperation(Base):
+    """Intent-first apply/rollback state for a Workspace release."""
+
+    __tablename__ = "caliber_workspace_release_operations"
+    __table_args__ = (
+        UniqueConstraint(
+            "project_id",
+            "kind",
+            "idempotency_key",
+            name="uq_workspace_release_operation_project_key",
+        ),
+        Index(
+            "uq_workspace_release_operation_environment_active",
+            "environment_id",
+            unique=True,
+            sqlite_where=text("status IN ('prepared', 'applying', 'reconcile_required')"),
+            postgresql_where=text("status IN ('prepared', 'applying', 'reconcile_required')"),
+        ),
+        Index(
+            "ix_workspace_release_operations_release_status",
+            "workspace_release_id",
+            "status",
+        ),
+        CheckConstraint(
+            "kind IN ('apply', 'rollback')", name="ck_workspace_release_operation_kind"
+        ),
+        CheckConstraint(
+            "status IN ('prepared', 'applying', 'applied', 'failed', "
+            "'reconcile_required', 'cancelled')",
+            name="ck_workspace_release_operation_status",
+        ),
+        CheckConstraint(
+            "kind = 'rollback' OR target_release_id IS NULL",
+            name="ck_workspace_release_operation_rollback_target",
+        ),
+        CheckConstraint(
+            "kind <> 'rollback' OR target_release_id IS NOT NULL",
+            name="ck_workspace_release_operation_rollback_target_required",
+        ),
+        CheckConstraint(
+            "target_release_id IS NULL OR target_release_id <> workspace_release_id",
+            name="ck_workspace_release_operation_target_prior",
+        ),
+        CheckConstraint(
+            "expected_environment_lock_version >= 1", name="ck_workspace_operation_expected_lock"
+        ),
+        CheckConstraint("lock_version >= 1", name="ck_workspace_release_operation_lock_version"),
+        CheckConstraint(
+            "observation_count >= 0", name="ck_workspace_release_operation_observations"
+        ),
+    )
+
+    operation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    workspace_release_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_releases.release_id"), nullable=False
+    )
+    environment_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_environments.environment_id"), nullable=False
+    )
+    kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_release_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_releases.release_id"), nullable=True
+    )
+    idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    expected_current_release_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    expected_environment_lock_version: Mapped[int] = mapped_column(Integer, nullable=False)
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="prepared", server_default="prepared"
+    )
+    lock_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
+    )
+    requested_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    requested_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    applied_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    applied_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    observation_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    last_observed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    break_glass_authorization_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey("caliber_workspace_break_glass_authorizations.authorization_id"),
+        nullable=True,
+        unique=True,
+    )
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
+class CaliberWorkspaceReleaseOperationItem(Base):
+    """One revision-resource action in a Workspace release operation."""
+
+    __tablename__ = "caliber_workspace_release_operation_items"
+    __table_args__ = (
+        UniqueConstraint(
+            "workspace_release_operation_id",
+            "revision_resource_id",
+            "target_ref",
+            name="uq_workspace_release_operation_item_target",
+        ),
+        Index(
+            "ix_workspace_release_operation_items_operation",
+            "workspace_release_operation_id",
+        ),
+        CheckConstraint(
+            "action IN ('no_op', 'bind', 'promote', 'activate', 'publish', 'verify')",
+            name="ck_workspace_release_operation_item_action",
+        ),
+        CheckConstraint(
+            "status IN ('prepared', 'applying', 'applied', 'failed', "
+            "'reconcile_required', 'rolled_back')",
+            name="ck_workspace_release_operation_item_status",
+        ),
+    )
+
+    operation_item_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    workspace_release_operation_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("caliber_workspace_release_operations.operation_id"),
+        nullable=False,
+    )
+    revision_resource_id: Mapped[str] = mapped_column(
+        String(64),
+        ForeignKey("caliber_workspace_revision_resources.resource_pin_id"),
+        nullable=False,
+    )
+    action: Mapped[str] = mapped_column(String(16), nullable=False)
+    target_ref: Mapped[str] = mapped_column(String(512), nullable=False)
+    before_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    after_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    status: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="prepared", server_default="prepared"
+    )
+    provider_operation_ref: Mapped[str | None] = mapped_column(String(512), nullable=True)
+    provider_result: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
+    started_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    completed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(String(4000), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class CaliberWorkflowFile(Base):
     """File metadata for run/playground/dataset-scoped files (storage doc §4.6).
 

@@ -94,6 +94,13 @@ WORKSPACE_CHANGE_REQUEST_REVIEW_PREFIX = "WSCRREV-"
 WORKSPACE_EXTERNAL_REVIEW_ATTESTATION_PREFIX = "WSERA-"
 WORKSPACE_VERSION_CLAIM_PREFIX = "WSVC-"
 WORKSPACE_VERSION_TAG_PREFIX = "WSVT-"
+WORKSPACE_RELEASE_PREFIX = "WSREL-"
+WORKSPACE_RELEASE_EVALUATION_PREFIX = "WSRELEV-"
+WORKSPACE_RELEASE_EVIDENCE_PREFIX = "WSRELE-"
+WORKSPACE_RELEASE_DECISION_PREFIX = "WSRELD-"
+WORKSPACE_BREAK_GLASS_AUTHORIZATION_PREFIX = "WSBGA-"
+WORKSPACE_RELEASE_OPERATION_PREFIX = "WSRELOP-"
+WORKSPACE_RELEASE_OPERATION_ITEM_PREFIX = "WSRELOPI-"
 
 # Ad-hoc prompt-test run prefix.
 PROMPT_TEST_RUN_PREFIX = "PTR-"
@@ -530,6 +537,41 @@ def new_workspace_revision_id() -> str:
 def new_workspace_revision_resource_id() -> str:
     """Return a fresh Workspace-revision-resource ID, e.g. ``WSRR-3a8f2c7e``."""
     return f"{WORKSPACE_REVISION_RESOURCE_PREFIX}{_suffix()}"
+
+
+def new_workspace_release_id() -> str:
+    """Return a fresh Workspace-release ID, e.g. ``WSREL-3a8f2c7e``."""
+    return f"{WORKSPACE_RELEASE_PREFIX}{_suffix()}"
+
+
+def new_workspace_release_evaluation_id() -> str:
+    """Return a fresh durable Workspace-release evaluation ID."""
+    return f"{WORKSPACE_RELEASE_EVALUATION_PREFIX}{_suffix()}"
+
+
+def new_workspace_release_evidence_id() -> str:
+    """Return a fresh Workspace-release evidence-link ID."""
+    return f"{WORKSPACE_RELEASE_EVIDENCE_PREFIX}{_suffix()}"
+
+
+def new_workspace_release_decision_id() -> str:
+    """Return a fresh Workspace-release decision ID."""
+    return f"{WORKSPACE_RELEASE_DECISION_PREFIX}{_suffix()}"
+
+
+def new_workspace_break_glass_authorization_id() -> str:
+    """Return a fresh Workspace break-glass authorization ID."""
+    return f"{WORKSPACE_BREAK_GLASS_AUTHORIZATION_PREFIX}{_suffix()}"
+
+
+def new_workspace_release_operation_id() -> str:
+    """Return a fresh Workspace release-operation ID."""
+    return f"{WORKSPACE_RELEASE_OPERATION_PREFIX}{_suffix()}"
+
+
+def new_workspace_release_operation_item_id() -> str:
+    """Return a fresh Workspace release-operation item ID."""
+    return f"{WORKSPACE_RELEASE_OPERATION_ITEM_PREFIX}{_suffix()}"
 
 
 def new_prompt_test_run_id() -> str:
