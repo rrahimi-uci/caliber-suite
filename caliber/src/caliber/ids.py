@@ -80,6 +80,8 @@ PROJECT_PREFIX = "PRJ-"
 PROJECT_MEMBER_PREFIX = "PRJM-"
 WORKSPACE_ENVIRONMENT_PREFIX = "WSE-"
 WORKSPACE_SOURCE_PREFIX = "WSS-"
+WORKSPACE_SOURCE_EVENT_PREFIX = "WSSE-"
+WORKSPACE_SOURCE_ACTOR_LINK_PREFIX = "WSSAL-"
 WORKSPACE_IMPORT_PREFIX = "WSI-"
 WORKSPACE_REVISION_PREFIX = "WSR-"
 WORKSPACE_REVISION_RESOURCE_PREFIX = "WSRR-"
@@ -503,6 +505,16 @@ def new_workspace_environment_id() -> str:
 def new_workspace_source_id() -> str:
     """Return a fresh Workspace-source ID, e.g. ``WSS-3a8f2c7e``."""
     return f"{WORKSPACE_SOURCE_PREFIX}{_suffix()}"
+
+
+def new_workspace_source_event_id() -> str:
+    """Return a fresh source webhook-event ID, e.g. ``WSSE-3a8f2c7e``."""
+    return f"{WORKSPACE_SOURCE_EVENT_PREFIX}{_suffix()}"
+
+
+def new_workspace_source_actor_link_id() -> str:
+    """Return a fresh provider-actor-link ID, e.g. ``WSSAL-3a8f2c7e``."""
+    return f"{WORKSPACE_SOURCE_ACTOR_LINK_PREFIX}{_suffix()}"
 
 
 def new_workspace_import_id() -> str:

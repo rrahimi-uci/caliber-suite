@@ -30,7 +30,9 @@ _EXPECTED_COUNTS = {
     # +6 (`P4-D`): change-request heads, comments, reviewers, checks, reviews,
     # and external attestations are subordinate audit/review rows. Their
     # parent change request supplies the project authorization boundary.
-    SCOPING_UNSCOPED: 47,
+    # +1 (`P4-E`): source-provider delivery inbox rows are subordinate to the
+    # source binding and use source_id rather than a duplicate project_id.
+    SCOPING_UNSCOPED: 48,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.
@@ -55,7 +57,9 @@ _EXPECTED_COUNTS = {
     # Workspace is the authorization boundary.
     # +3 (`P4-D`): change requests, version claims, and version tags are
     # project-bound control-plane rows without a visibility tier.
-    SCOPING_PROJECT_ONLY: 16,
+    # +1 (`P4-E`): provider actor links are project-bound identity records
+    # without a visibility tier.
+    SCOPING_PROJECT_ONLY: 17,
 }
 
 

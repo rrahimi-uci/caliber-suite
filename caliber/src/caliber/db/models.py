@@ -2206,6 +2206,85 @@ class CaliberWorkspaceSource(Base):
     )
 
 
+class CaliberWorkspaceSourceEvent(Base):
+    """Durable normalized inbox record for one source-provider delivery.
+
+    The raw webhook body is intentionally not retained here.  The adapter
+    verifies the signature and repository binding before producing the
+    normalized ``SourceControlWebhook`` value; this row makes delivery
+    identity, processing state, and a bounded digest durable and replay-safe.
+    """
+
+    __tablename__ = "caliber_workspace_source_events"
+    __table_args__ = (
+        UniqueConstraint(
+            "source_id", "provider_delivery_id", name="uq_workspace_source_event_delivery"
+        ),
+        Index("ix_workspace_source_events_source_status", "source_id", "status"),
+        CheckConstraint(
+            "status IN ('received', 'processed', 'failed')",
+            name="ck_workspace_source_event_status",
+        ),
+    )
+
+    source_event_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_sources.source_id"), nullable=False
+    )
+    provider_delivery_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    event_type: Mapped[str] = mapped_column(String(128), nullable=False)
+    repository_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    payload_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="received")
+    received_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    processed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    error_code: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    error_summary: Mapped[str | None] = mapped_column(Text, nullable=True)
+
+
+class CaliberWorkspaceSourceActorLink(Base):
+    """Provider subject to CALIBER principal link, with revocation state."""
+
+    __tablename__ = "caliber_workspace_source_actor_links"
+    __table_args__ = (
+        Index(
+            "uq_workspace_source_actor_link_active",
+            "source_id",
+            "provider_subject_id",
+            unique=True,
+            sqlite_where=text("status = 'active'"),
+            postgresql_where=text("status = 'active'"),
+        ),
+        Index("ix_workspace_source_actor_links_project_status", "project_id", "status"),
+        CheckConstraint(
+            "status IN ('active', 'revoked')",
+            name="ck_workspace_source_actor_link_status",
+        ),
+    )
+
+    source_actor_link_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    source_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_sources.source_id"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    provider_host: Mapped[str] = mapped_column(String(256), nullable=False)
+    provider_subject_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    caliber_user_id: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    verified_method: Mapped[str] = mapped_column(String(64), nullable=False)
+    verified_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    revoked_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
+    revoked_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    revocation_reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class CaliberWorkspaceRevision(Base):
     """An immutable candidate package for one Workspace.
 
