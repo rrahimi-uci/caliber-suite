@@ -112,6 +112,17 @@ _PROJECT_ACCESS_CALL_NAMES = frozenset(
 # compatibility routes that omit `project_action` as project-scoped.
 _PROJECT_ACCESS_OFFLOADED_HELPERS = frozenset(
     {
+        "_get_source_sync",
+        "_put_source_sync",
+        "_transition_source_sync",
+        "_source_capabilities_sync",
+        "_create_import_sync",
+        "_get_import_sync",
+        "_list_imports_sync",
+        "_reconcile_import_sync",
+        "_list_revisions_sync",
+        "_get_revision_sync",
+        "_diff_revisions_sync",
         "_list_tasks_sync",
         "_get_task_sync",
         "_claim_task_sync",

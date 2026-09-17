@@ -2320,6 +2320,169 @@ class WorkspaceEnvironmentListSchema(BaseModel):
     environments: list[WorkspaceEnvironmentSchema] = Field(default_factory=list)
 
 
+class WorkspaceSourceSchema(BaseModel):
+    """Public, secret-free projection of a Workspace source binding (`P4-C`)."""
+
+    source_id: str
+    project_id: str
+    provider: Literal["github", "gitlab", "bitbucket"]
+    provider_host: str
+    canonical_repository_id: str
+    display_path: str
+    default_branch: str
+    root_path: str
+    manifest_path: str
+    import_mode: Literal["push", "provider_pull"]
+    status: Literal["active", "disabled", "error"]
+    has_connection: bool = False
+    external_review_policy_version: str = "v1"
+    provider_ruleset_sha256: str | None = None
+    last_verified_at: str | None = None
+    last_reconciled_at: str | None = None
+    updated_at: str | None = None
+    etag: str
+
+
+class WorkspaceSourceResponse(BaseModel):
+    """Source mode plus its optional configured binding."""
+
+    source_mode: Literal["caliber_managed", "git_managed"]
+    source: WorkspaceSourceSchema | None = None
+
+
+class WorkspaceSourceConfigureRequest(BaseModel):
+    """Body of ``PUT /projects/{id}/source``.
+
+    Connection material is represented only by a reference. The reference is
+    never echoed by the read API and this endpoint never accepts credentials.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["github", "gitlab", "bitbucket"]
+    provider_host: str = Field(min_length=1, max_length=256)
+    canonical_repository_id: str = Field(min_length=1, max_length=256)
+    display_path: str = Field(min_length=1, max_length=512)
+    default_branch: str = Field(default="main", min_length=1, max_length=256)
+    root_path: str = Field(default="", max_length=1024)
+    manifest_path: str = Field(default=".caliber/workspace.yaml", min_length=1, max_length=1024)
+    import_mode: Literal["push", "provider_pull"] = "push"
+    connection_ref: str | None = Field(default=None, max_length=256)
+
+
+class WorkspaceSourceCapabilitiesSchema(BaseModel):
+    """Provider-neutral capability snapshot; never includes credentials."""
+
+    source_id: str
+    provider: str
+    provider_host: str
+    available: bool
+    capabilities: dict[str, object] = Field(default_factory=dict)
+    reason: str | None = None
+    last_verified_at: str | None = None
+
+
+class WorkspaceImportJobSchema(BaseModel):
+    """Durable source-to-revision import intent."""
+
+    import_job_id: str
+    project_id: str
+    source_id: str
+    repository: str
+    commit_sha: str
+    upload_sha256: str | None = None
+    source_bundle_sha256: str | None = None
+    source_snapshot_file_id: str | None = None
+    manifest_sha256: str | None = None
+    status: Literal["queued", "running", "succeeded", "failed", "reconcile_required"]
+    revision_id: str | None = None
+    idempotency_key: str
+    attempt_count: int
+    max_attempts: int
+    claimed_by: str | None = None
+    claimed_at: str | None = None
+    lease_expires_at: str | None = None
+    last_heartbeat_at: str | None = None
+    error_code: str | None = None
+    error_summary: str | None = None
+    created_by: str
+    updated_by: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    completed_at: str | None = None
+
+
+class WorkspaceImportJobListSchema(BaseModel):
+    items: list[WorkspaceImportJobSchema] = Field(default_factory=list)
+
+
+class WorkspaceImportReconcileSchema(BaseModel):
+    """An explicit observation of an ambiguous local import snapshot."""
+
+    job: WorkspaceImportJobSchema
+    observed: bool
+    observation: str
+
+
+class WorkspaceRevisionResourceSchema(BaseModel):
+    """One exact resource pin in an immutable revision."""
+
+    resource_pin_id: str
+    revision_id: str
+    resource_type: str
+    logical_name: str
+    resource_id: str
+    version_ref: str
+    content_sha256: str
+    source_path: str | None = None
+    source_sha256: str | None = None
+    provider_ref: str | None = None
+    snapshot_file_id: str | None = None
+    snapshot_sha256: str | None = None
+    purpose: str
+    resolution: dict[str, object] = Field(default_factory=dict)
+
+
+class WorkspaceRevisionSchema(BaseModel):
+    """Revision metadata and its exact resource pins."""
+
+    revision_id: str
+    project_id: str
+    revision_number: int
+    source_id: str | None = None
+    source_commit_sha: str | None = None
+    manifest: dict[str, object] = Field(default_factory=dict)
+    manifest_sha256: str
+    source_bundle_sha256: str
+    source_snapshot_file_id: str | None = None
+    source_attestation: str
+    revision_sha256: str
+    status: Literal["validating", "ready", "invalid"]
+    validation_report: dict[str, object] | None = None
+    created_by: str
+    validated_by: str | None = None
+    validated_at: str | None = None
+    created_at: str | None = None
+    resources: list[WorkspaceRevisionResourceSchema] = Field(default_factory=list)
+
+
+class WorkspaceRevisionListSchema(BaseModel):
+    items: list[WorkspaceRevisionSchema] = Field(default_factory=list)
+
+
+class WorkspaceRevisionDiffSchema(BaseModel):
+    """Deterministic base-to-candidate revision difference."""
+
+    base_revision_id: str
+    revision_id: str
+    manifest_changed: bool
+    source_bundle_changed: bool
+    source_commit_changed: bool
+    added: list[WorkspaceRevisionResourceSchema] = Field(default_factory=list)
+    removed: list[WorkspaceRevisionResourceSchema] = Field(default_factory=list)
+    changed: list[WorkspaceRevisionResourceSchema] = Field(default_factory=list)
+
+
 class ProjectStorageSchema(BaseModel):
     """Where a project's files live, and what else it could be switched to."""
 

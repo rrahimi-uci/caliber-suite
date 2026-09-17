@@ -345,17 +345,15 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
     """Ratchet, matching this session's inventory-test style (e.g.
     `test_resource_inventory.py`'s distribution pin): `P1-D` closed
     `PROJECT_ACTIONS` over section 2.4's full 29-key target vocabulary, of
-    which 12 are wired to a live route's `require_project_access()`/
+    which 14 are wired to a live route's `require_project_access()`/
     `_require_project_action()`/`require_project_access_if_scoped()` call
-    (10 as of `P1-D`; `P1-F` adds `environment.manage` via
-    `routes/projects.py`'s new environment enable/disable routes). The
-    other 17 are reserved -- declared for a route family that doesn't
-    exist yet (Change Requests, version tags, releases/operations,
-    `source.manage`), or (`resource.write.evidence`)
+    (12 after the earlier `P1-D`/`P1-F`/`P3-A` slices; `P4-C` adds
+    `source.manage` and `revision.import`). The other 15 are reserved --
+    declared for a route family that does not exist yet (Change Requests,
+    version tags, releases/operations), or (`resource.write.evidence`)
     deliberately not wired for reasons documented directly on that
-    `PROJECT_ACTIONS` entry (resource isolation). `rework.update` is now
-    wired by the project-scoped rework-task routes (`P3-A`), while the
-    legacy global routes retain their platform-scope compatibility policy. A
+    `PROJECT_ACTIONS` entry (resource isolation). The legacy global routes
+    retain their platform-scope compatibility policy. A
     change to either side is a real event (a route started/stopped enforcing an
     action, or the registry gained/lost a reserved key) and must update
     this pin deliberately, not drift past it silently.
@@ -387,12 +385,14 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
         "rework.update",
         # `P1-F`: `routes/projects.py`'s environment enable/disable routes.
         "environment.manage",
+        # `P4-C`: source lifecycle routes.
+        "source.manage",
+        # `P4-C`: durable revision import routes.
+        "revision.import",
     }
     assert set(PROJECT_ACTIONS) - live_actions == {
-        "source.manage",
         "resource.write.evidence",
         "resource.approve",
-        "revision.import",
         "revision.create",
         "change_request.create",
         "change_request.update",
@@ -414,15 +414,8 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
 # ---------------------------------------------------------------------------
 
 
-def test_no_live_route_declares_a_412_response(client: TestClient) -> None:
-    """Section 13.6's target design defines `412` as "stale ETag" -- but no
-    route emits it today. Today's two real compare-and-set checks
-    (`workflow_versions.py`'s `manifest_hash`, `object_store.py`'s
-    `expected_etag`) both use `409` against a body field, not a header. This
-    pins that fact so the documentation's "no 412 yet" claim can't silently
-    go stale -- a route that starts declaring `412` is a real event that
-    should prompt updating the ratified contract, not drift past unnoticed.
-    """
+def test_source_etag_routes_declare_412_response(client: TestClient) -> None:
+    """The P4-C source CAS contract advertises stale/missing ETags as 412."""
     doc = client.get(OPENAPI_URL).json()
     with_412 = [
         f"{method.upper()} {path}"
@@ -430,4 +423,9 @@ def test_no_live_route_declares_a_412_response(client: TestClient) -> None:
         for method, operation in operations.items()
         if "412" in operation.get("responses", {})
     ]
-    assert not with_412, f"route(s) now declare 412, update the ETag/CAS ratification: {with_412}"
+    assert set(with_412) == {
+        f"PUT {PREFIX}/projects/{{project_id}}/source",
+        f"POST {PREFIX}/projects/{{project_id}}/source:enable",
+        f"POST {PREFIX}/projects/{{project_id}}/source:disable",
+        f"POST {PREFIX}/projects/{{project_id}}/source:reconcile",
+    }

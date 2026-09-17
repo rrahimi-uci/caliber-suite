@@ -60,8 +60,8 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     "project.archive": frozenset({ROLE_OWNER}),
     "project.restore": frozenset({ROLE_OWNER}),
     "project.transfer_owner": frozenset({ROLE_OWNER}),
-    # Reserved: no `PUT/POST /projects/{id}/source*` route exists yet
-    # (Phase 4's job -- git-provider import/review).
+    # `P4-C`: source lifecycle routes use this owner-only action. Provider
+    # verification and external review remain later integration slices.
     "source.manage": frozenset({ROLE_OWNER}),
     # `P1-D`: `resource.write` (section 2.4's own "current registry" name)
     # retired in favor of this split -- see section 6.4's resource-family

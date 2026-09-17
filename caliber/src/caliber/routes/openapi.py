@@ -340,6 +340,9 @@ def build_openapi_document(app: Starlette) -> dict[str, Any]:
                 ),
                 "responses": contract["responses"],
             }
+            extra_responses = getattr(route.endpoint, "__caliber_openapi_responses__", {})
+            if extra_responses:
+                operation["responses"].update(extra_responses)
             if parameters:
                 operation["parameters"] = parameters
             request_body = contract.get("requestBody")

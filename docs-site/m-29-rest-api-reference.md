@@ -104,7 +104,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Me (`me`) | `ga` | `1` | Typed SDK | `CaliberClient.whoami()`, `client.me.get()` | Identity and effective scopes for the current credential. |
 | Capabilities (`capabilities`) | `ga` | `1` | Typed SDK | `CaliberClient.capabilities()`, `client.capabilities_info.get()` | Feature flags and SDK stability tiers for the current deployment. |
 | Settings (`settings`) | `ga` | `3` | Typed SDK | `client.settings.runtime()`, `client.settings.llm()` | Runtime configuration summary and LLM credential status. |
-| Projects (`projects`) | `ga` | `26` | Typed SDK | `client.projects`, `client.projects.files`, `client.projects.rework_tasks` | Project records, project storage visibility, uploads, folders, downloads, and scoped rework-task recovery. |
+| Projects (`projects`) | `ga` | `39` | Partial (26/39) | `client.projects`, `client.projects.files`, `client.projects.rework_tasks` | Project records, project storage visibility, uploads, folders, downloads, and scoped rework-task recovery. |
 | Prompts (`prompts`) | `ga` | `22` | Typed SDK | `client.prompts` | Prompt registry, versions, and alias promotion. |
 | Skills (`skills`) | `ga` | `19` | Typed SDK | `client.skills` | Skill registry, render checks, selection tests, and versions. |
 | Tools (`tools`) | `ga` | `20` | Typed SDK | `client.tools` | Tool registry plus calibration job submission and polling. |
@@ -162,8 +162,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `340` |
-| Operations | `416` |
+| Route paths | `351` |
+| Operations | `429` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -191,7 +191,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Me (`me`)](#me-me) | `1` | `1` |
 | [Capabilities (`capabilities`)](#capabilities-capabilities) | `1` | `1` |
 | [Settings (`settings`)](#settings-settings) | `3` | `2` |
-| [Projects (`projects`)](#projects-projects) | `26` | `21` |
+| [Projects (`projects`)](#projects-projects) | `39` | `32` |
 | [Prompts (`prompts`)](#prompts-prompts) | `22` | `18` |
 | [Skills (`skills`)](#skills-skills) | `19` | `16` |
 | [Tools (`tools`)](#tools-tools) | `20` | `16` |
@@ -316,7 +316,7 @@ Supported management routes that belong to the stable public automation surface.
 
 #### Projects (`projects`)
 
-26 operation(s) across 21 route path(s).
+39 operation(s) across 32 route path(s).
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
@@ -340,11 +340,24 @@ Supported management routes that belong to the stable public automation surface.
 | `DELETE` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members/{user_id}` | project role (`project.manage_members`) | `project_id`, `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_projects_project_id_members_user_id` |
 | `PATCH` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members/{user_id}` | project role (`project.manage_members`) | `project_id`, `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_projects_project_id_members_user_id`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/restore` | project role (`project.restore`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_restore` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/revision-imports` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_revision_imports` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/revision-imports` | project role (`revision.import`) | `project_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_revision_imports`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/revision-imports/{job_id}` | project role (`read`) | `job_id`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_revision_imports_job_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/revision-imports/{job_id}:reconcile` | project role (`revision.import`) | `job_id`, `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_revision_imports_job_id_reconcile` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/revisions` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_revisions` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/revisions/{revision_id}` | project role (`read`) | `project_id`, `revision_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_revisions_revision_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/revisions/{revision_id}/diff` | project role (`read`) | `project_id`, `revision_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_revisions_revision_id_diff` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_rework_tasks` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks/{task_id}` | project role (`read`) | `project_id`, `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_rework_tasks_task_id` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks/{task_id}:claim` | project role (`rework.update`) | `project_id`, `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_rework_tasks_task_id_claim` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks/{task_id}:reassign` | project role (`rework.update`) | `project_id`, `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_rework_tasks_task_id_reassign`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks/{task_id}:resolve` | project role (`rework.update`) | `project_id`, `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_rework_tasks_task_id_resolve`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/source` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_source` |
+| `PUT` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/source` | project role (`source.manage`) | `project_id` | `200`, `400`, `401`, `403`, `404`, `412` | `operationId`: `put_projects_project_id_source`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/source/capabilities` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_source_capabilities` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/source:disable` | project role (`source.manage`) | `project_id` | `200`, `400`, `401`, `403`, `404`, `412` | `operationId`: `post_projects_project_id_source_disable` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/source:enable` | project role (`source.manage`) | `project_id` | `200`, `400`, `401`, `403`, `404`, `412` | `operationId`: `post_projects_project_id_source_enable` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/source:reconcile` | project role (`source.manage`) | `project_id` | `200`, `400`, `401`, `403`, `404`, `412` | `operationId`: `post_projects_project_id_source_reconcile` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/transfer-ownership` | project role (`project.transfer_owner`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_transfer_ownership`; request body documented in OpenAPI |
 
 #### Prompts (`prompts`)
