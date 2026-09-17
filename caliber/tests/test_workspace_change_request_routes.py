@@ -236,11 +236,14 @@ def test_self_review_unassigned_review_and_lock_conflicts_are_denied(
     )
     unassigned_path = _change_request_path(project_id, str(unassigned["change_request_id"]))
     assert client.post(f"{unassigned_path}:submit", json={}).status_code == 200
-    assert client.post(
-        f"{unassigned_path}/reviews",
-        headers={"X-CALIBER-User": "@test"},
-        json={"head_id": unassigned["current_head"]["head_id"], "decision": "approve"},  # type: ignore[index]
-    ).status_code == 403
+    assert (
+        client.post(
+            f"{unassigned_path}/reviews",
+            headers={"X-CALIBER-User": "@test"},
+            json={"head_id": unassigned["current_head"]["head_id"], "decision": "approve"},  # type: ignore[index]
+        ).status_code
+        == 403
+    )
 
     stale_lock = client.post(
         f"{own_path}:update-head",
@@ -444,25 +447,31 @@ def test_acceptance_primitive_cas_moves_only_one_request(
 
     first_session = session_factory()
     try:
-        assert accept_change_request(
-            first_session,
-            project_id="PRJ-cas",
-            change_request_id="WSCR-cas-1",
-            actor="@qa",
-            qa_evidence={"passed": True, "revision_sha256": "digest-7"},
-        ) is True
+        assert (
+            accept_change_request(
+                first_session,
+                project_id="PRJ-cas",
+                change_request_id="WSCR-cas-1",
+                actor="@qa",
+                qa_evidence={"passed": True, "revision_sha256": "digest-7"},
+            )
+            is True
+        )
     finally:
         first_session.close()
 
     second_session = session_factory()
     try:
-        assert accept_change_request(
-            second_session,
-            project_id="PRJ-cas",
-            change_request_id="WSCR-cas-2",
-            actor="@qa",
-            qa_evidence={"passed": True, "revision_sha256": "digest-8"},
-        ) is False
+        assert (
+            accept_change_request(
+                second_session,
+                project_id="PRJ-cas",
+                change_request_id="WSCR-cas-2",
+                actor="@qa",
+                qa_evidence={"passed": True, "revision_sha256": "digest-8"},
+            )
+            is False
+        )
     finally:
         second_session.close()
 

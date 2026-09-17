@@ -140,7 +140,9 @@ def _claim_dict(row: Any) -> dict[str, object]:
     }
 
 
-def _request_schema(session: Session, row: CaliberWorkspaceChangeRequest) -> WorkspaceChangeRequestSchema:
+def _request_schema(
+    session: Session, row: CaliberWorkspaceChangeRequest
+) -> WorkspaceChangeRequestSchema:
     head = session.execute(
         select(CaliberWorkspaceChangeRequestHead).where(
             CaliberWorkspaceChangeRequestHead.change_request_id == row.change_request_id,
@@ -153,7 +155,9 @@ def _request_schema(session: Session, row: CaliberWorkspaceChangeRequest) -> Wor
         )
     ).scalar_one_or_none()
     count = session.scalar(
-        select(func.count()).select_from(CaliberWorkspaceChangeRequestReviewer).where(
+        select(func.count())
+        .select_from(CaliberWorkspaceChangeRequestReviewer)
+        .where(
             CaliberWorkspaceChangeRequestReviewer.change_request_id == row.change_request_id,
             CaliberWorkspaceChangeRequestReviewer.active.is_(True),
         )
@@ -263,15 +267,21 @@ def _list_requests_sync(
         )
         if clause is not None:
             stmt = stmt.where(clause)
-        rows = session.execute(
-            stmt.order_by(
-                CaliberWorkspaceChangeRequest.created_at.desc(),
-                CaliberWorkspaceChangeRequest.change_request_id.desc(),
-            ).limit(limit + 1)
-        ).scalars().all()
+        rows = (
+            session.execute(
+                stmt.order_by(
+                    CaliberWorkspaceChangeRequest.created_at.desc(),
+                    CaliberWorkspaceChangeRequest.change_request_id.desc(),
+                ).limit(limit + 1)
+            )
+            .scalars()
+            .all()
+        )
         has_more = len(rows) > limit
         rows = rows[:limit]
-        next_cursor = _encode_cursor(rows[-1].created_at, rows[-1].change_request_id) if has_more else None
+        next_cursor = (
+            _encode_cursor(rows[-1].created_at, rows[-1].change_request_id) if has_more else None
+        )
         return [_request_schema(session, row) for row in rows], next_cursor
 
 
@@ -318,12 +328,36 @@ def _list_related_sync(
         if request is None:
             raise HTTPException(status_code=404, detail="change_request_not_found")
         config: dict[str, Any] = {
-            "heads": (CaliberWorkspaceChangeRequestHead, CaliberWorkspaceChangeRequestHead.created_at, CaliberWorkspaceChangeRequestHead.head_id),
-            "comments": (CaliberWorkspaceChangeRequestComment, CaliberWorkspaceChangeRequestComment.created_at, CaliberWorkspaceChangeRequestComment.comment_id),
-            "reviewers": (CaliberWorkspaceChangeRequestReviewer, CaliberWorkspaceChangeRequestReviewer.assigned_at, CaliberWorkspaceChangeRequestReviewer.reviewer_id),
-            "reviews": (CaliberWorkspaceChangeRequestReview, CaliberWorkspaceChangeRequestReview.created_at, CaliberWorkspaceChangeRequestReview.review_id),
-            "attestations": (CaliberWorkspaceExternalReviewAttestation, CaliberWorkspaceExternalReviewAttestation.verified_at, CaliberWorkspaceExternalReviewAttestation.attestation_id),
-            "checks": (CaliberWorkspaceChangeRequestCheck, CaliberWorkspaceChangeRequestCheck.created_at, CaliberWorkspaceChangeRequestCheck.check_id),
+            "heads": (
+                CaliberWorkspaceChangeRequestHead,
+                CaliberWorkspaceChangeRequestHead.created_at,
+                CaliberWorkspaceChangeRequestHead.head_id,
+            ),
+            "comments": (
+                CaliberWorkspaceChangeRequestComment,
+                CaliberWorkspaceChangeRequestComment.created_at,
+                CaliberWorkspaceChangeRequestComment.comment_id,
+            ),
+            "reviewers": (
+                CaliberWorkspaceChangeRequestReviewer,
+                CaliberWorkspaceChangeRequestReviewer.assigned_at,
+                CaliberWorkspaceChangeRequestReviewer.reviewer_id,
+            ),
+            "reviews": (
+                CaliberWorkspaceChangeRequestReview,
+                CaliberWorkspaceChangeRequestReview.created_at,
+                CaliberWorkspaceChangeRequestReview.review_id,
+            ),
+            "attestations": (
+                CaliberWorkspaceExternalReviewAttestation,
+                CaliberWorkspaceExternalReviewAttestation.verified_at,
+                CaliberWorkspaceExternalReviewAttestation.attestation_id,
+            ),
+            "checks": (
+                CaliberWorkspaceChangeRequestCheck,
+                CaliberWorkspaceChangeRequestCheck.created_at,
+                CaliberWorkspaceChangeRequestCheck.check_id,
+            ),
         }
         model, timestamp_column, id_column = config[kind]
         parent_column = (
@@ -333,32 +367,84 @@ def _list_related_sync(
         )
         stmt = select(model)
         if kind == "checks":
-            stmt = stmt.join(CaliberWorkspaceChangeRequestHead, model.head_id == CaliberWorkspaceChangeRequestHead.head_id)
+            stmt = stmt.join(
+                CaliberWorkspaceChangeRequestHead,
+                model.head_id == CaliberWorkspaceChangeRequestHead.head_id,
+            )
             stmt = stmt.where(parent_column == request.change_request_id)
         else:
             stmt = stmt.where(parent_column == request.change_request_id)
         clause = _page_clause(timestamp_column, id_column, cursor)
         if clause is not None:
             stmt = stmt.where(clause)
-        rows = session.execute(
-            stmt.order_by(timestamp_column.desc(), id_column.desc()).limit(limit + 1)
-        ).scalars().all()
+        rows = (
+            session.execute(
+                stmt.order_by(timestamp_column.desc(), id_column.desc()).limit(limit + 1)
+            )
+            .scalars()
+            .all()
+        )
         has_more = len(rows) > limit
         rows = rows[:limit]
-        next_cursor = _encode_cursor(getattr(rows[-1], timestamp_column.key), getattr(rows[-1], id_column.key)) if has_more else None
+        next_cursor = (
+            _encode_cursor(
+                getattr(rows[-1], timestamp_column.key), getattr(rows[-1], id_column.key)
+            )
+            if has_more
+            else None
+        )
         payload: list[Any]
         if kind == "heads":
             payload = [_head_schema(row) for row in rows]
         elif kind == "comments":
-            payload = [WorkspaceChangeRequestCommentSchema.model_validate({**row.__dict__, "created_at": _iso(row.created_at)}) for row in rows]
+            payload = [
+                WorkspaceChangeRequestCommentSchema.model_validate(
+                    {**row.__dict__, "created_at": _iso(row.created_at)}
+                )
+                for row in rows
+            ]
         elif kind == "reviewers":
-            payload = [WorkspaceChangeRequestReviewerSchema.model_validate({**row.__dict__, "assigned_at": _iso(row.assigned_at), "removed_at": _iso(row.removed_at)}) for row in rows]
+            payload = [
+                WorkspaceChangeRequestReviewerSchema.model_validate(
+                    {
+                        **row.__dict__,
+                        "assigned_at": _iso(row.assigned_at),
+                        "removed_at": _iso(row.removed_at),
+                    }
+                )
+                for row in rows
+            ]
         elif kind == "reviews":
-            payload = [WorkspaceChangeRequestReviewSchema.model_validate({**row.__dict__, "created_at": _iso(row.created_at)}) for row in rows]
+            payload = [
+                WorkspaceChangeRequestReviewSchema.model_validate(
+                    {**row.__dict__, "created_at": _iso(row.created_at)}
+                )
+                for row in rows
+            ]
         elif kind == "attestations":
-            payload = [WorkspaceExternalReviewAttestationSchema.model_validate({**row.__dict__, "verified_at": _iso(row.verified_at), "merged_at": _iso(row.merged_at)}) for row in rows]
+            payload = [
+                WorkspaceExternalReviewAttestationSchema.model_validate(
+                    {
+                        **row.__dict__,
+                        "verified_at": _iso(row.verified_at),
+                        "merged_at": _iso(row.merged_at),
+                    }
+                )
+                for row in rows
+            ]
         else:
-            payload = [WorkspaceChangeRequestCheckSchema.model_validate({**row.__dict__, "claimed_at": _iso(row.claimed_at), "lease_expires_at": _iso(row.lease_expires_at), "completed_at": _iso(row.completed_at), "created_at": _iso(row.created_at)}) for row in rows]
+            payload = [
+                WorkspaceChangeRequestCheckSchema.model_validate(
+                    {
+                        **row.__dict__,
+                        "claimed_at": _iso(row.claimed_at),
+                        "lease_expires_at": _iso(row.lease_expires_at),
+                        "completed_at": _iso(row.completed_at),
+                        "created_at": _iso(row.created_at),
+                    }
+                )
+                for row in rows
+            ]
         return payload, next_cursor
 
 
@@ -373,15 +459,33 @@ def _list_tags_sync(
 ) -> tuple[list[WorkspaceVersionTagSchema], str | None]:
     with factory() as session:
         require_project_access(session, identity, project_id, project_action)
-        stmt = select(CaliberWorkspaceVersionTag).where(CaliberWorkspaceVersionTag.project_id == project_id)
-        clause = _page_clause(CaliberWorkspaceVersionTag.created_at, CaliberWorkspaceVersionTag.tag_id, cursor)
+        stmt = select(CaliberWorkspaceVersionTag).where(
+            CaliberWorkspaceVersionTag.project_id == project_id
+        )
+        clause = _page_clause(
+            CaliberWorkspaceVersionTag.created_at, CaliberWorkspaceVersionTag.tag_id, cursor
+        )
         if clause is not None:
             stmt = stmt.where(clause)
-        rows = session.execute(stmt.order_by(CaliberWorkspaceVersionTag.created_at.desc(), CaliberWorkspaceVersionTag.tag_id.desc()).limit(limit + 1)).scalars().all()
+        rows = (
+            session.execute(
+                stmt.order_by(
+                    CaliberWorkspaceVersionTag.created_at.desc(),
+                    CaliberWorkspaceVersionTag.tag_id.desc(),
+                ).limit(limit + 1)
+            )
+            .scalars()
+            .all()
+        )
         has_more = len(rows) > limit
         rows = rows[:limit]
         next_cursor = _encode_cursor(rows[-1].created_at, rows[-1].tag_id) if has_more else None
-        return [WorkspaceVersionTagSchema.model_validate({**row.__dict__, "created_at": _iso(row.created_at)}) for row in rows], next_cursor
+        return [
+            WorkspaceVersionTagSchema.model_validate(
+                {**row.__dict__, "created_at": _iso(row.created_at)}
+            )
+            for row in rows
+        ], next_cursor
 
 
 def _get_tag_sync(
@@ -394,10 +498,17 @@ def _get_tag_sync(
 ) -> WorkspaceVersionTagSchema:
     with factory() as session:
         require_project_access(session, identity, project_id, project_action)
-        row = session.execute(select(CaliberWorkspaceVersionTag).where(CaliberWorkspaceVersionTag.project_id == project_id, CaliberWorkspaceVersionTag.tag == tag)).scalar_one_or_none()
+        row = session.execute(
+            select(CaliberWorkspaceVersionTag).where(
+                CaliberWorkspaceVersionTag.project_id == project_id,
+                CaliberWorkspaceVersionTag.tag == tag,
+            )
+        ).scalar_one_or_none()
         if row is None:
             raise HTTPException(status_code=404, detail="version_tag_not_found")
-        return WorkspaceVersionTagSchema.model_validate({**row.__dict__, "created_at": _iso(row.created_at)})
+        return WorkspaceVersionTagSchema.model_validate(
+            {**row.__dict__, "created_at": _iso(row.created_at)}
+        )
 
 
 def _page(request: Request) -> tuple[int, tuple[datetime, str] | None]:
@@ -556,7 +667,11 @@ def _assign_reviewer_sync(
             **payload.model_dump(),
         )
         return WorkspaceChangeRequestReviewerSchema.model_validate(
-            {**row.__dict__, "assigned_at": _iso(row.assigned_at), "removed_at": _iso(row.removed_at)}
+            {
+                **row.__dict__,
+                "assigned_at": _iso(row.assigned_at),
+                "removed_at": _iso(row.removed_at),
+            }
         )
 
 
@@ -638,7 +753,16 @@ async def list_change_requests(request: Request) -> JSONResponse:
     identity = resolve_identity(request)
     limit, cursor = _page(request)
     status = request.query_params.get("status")
-    if status and status not in {"draft", "open", "changes_requested", "technically_approved", "qa_in_progress", "out_of_date", "accepted", "closed"}:
+    if status and status not in {
+        "draft",
+        "open",
+        "changes_requested",
+        "technically_approved",
+        "qa_in_progress",
+        "out_of_date",
+        "accepted",
+        "closed",
+    }:
         raise HTTPException(status_code=400, detail="invalid_change_request_status")
     items, next_cursor = await run_in_threadpool(
         _list_requests_sync,
@@ -653,7 +777,12 @@ async def list_change_requests(request: Request) -> JSONResponse:
         reviewer_user_id=request.query_params.get("reviewer_user_id"),
         semantic_version=request.query_params.get("semantic_version"),
     )
-    return JSONResponse({"data": WorkspaceChangeRequestListSchema(items=items).model_dump(mode="json"), "next_cursor": next_cursor})
+    return JSONResponse(
+        {
+            "data": WorkspaceChangeRequestListSchema(items=items).model_dump(mode="json"),
+            "next_cursor": next_cursor,
+        }
+    )
 
 
 async def get_change_request(request: Request) -> JSONResponse:
@@ -713,7 +842,9 @@ async def submit_change_request_route(request: Request) -> JSONResponse:
 async def update_head_route(request: Request) -> JSONResponse:
     project_id = request.path_params["project_id"]
     _require_workspace_header(request, project_id)
-    payload = WorkspaceChangeRequestHeadUpdateRequest.model_validate(await parse_json_object(request))
+    payload = WorkspaceChangeRequestHeadUpdateRequest.model_validate(
+        await parse_json_object(request)
+    )
     require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
     schema = await run_in_threadpool(
@@ -784,7 +915,9 @@ async def _list_related_route(
         cursor=cursor,
         project_action="read",
     )
-    return JSONResponse({"data": [item.model_dump(mode="json") for item in items], "next_cursor": next_cursor})
+    return JSONResponse(
+        {"data": [item.model_dump(mode="json") for item in items], "next_cursor": next_cursor}
+    )
 
 
 async def list_comments_route(request: Request) -> JSONResponse:
@@ -919,7 +1052,9 @@ async def list_tags_route(request: Request) -> JSONResponse:
         limit=limit,
         cursor=cursor,
     )
-    return JSONResponse({"data": [item.model_dump(mode="json") for item in items], "next_cursor": next_cursor})
+    return JSONResponse(
+        {"data": [item.model_dump(mode="json") for item in items], "next_cursor": next_cursor}
+    )
 
 
 async def get_tag_route(request: Request) -> JSONResponse:

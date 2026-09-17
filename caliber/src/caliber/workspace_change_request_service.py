@@ -140,7 +140,9 @@ def _fail(status: int, reason: str) -> HTTPException:
     return HTTPException(status_code=status, detail=reason)
 
 
-def _project(session: Session, project_id: str, identity: CaliberIdentity, action: str) -> CaliberProject:
+def _project(
+    session: Session, project_id: str, identity: CaliberIdentity, action: str
+) -> CaliberProject:
     project, _decision = require_project_access(session, identity, project_id, action)
     return project
 
@@ -159,7 +161,9 @@ def _revision(session: Session, project_id: str, revision_id: str) -> CaliberWor
     return row
 
 
-def _request(session: Session, project_id: str, change_request_id: str) -> CaliberWorkspaceChangeRequest:
+def _request(
+    session: Session, project_id: str, change_request_id: str
+) -> CaliberWorkspaceChangeRequest:
     row = session.execute(
         select(CaliberWorkspaceChangeRequest).where(
             CaliberWorkspaceChangeRequest.project_id == project_id,
@@ -171,7 +175,9 @@ def _request(session: Session, project_id: str, change_request_id: str) -> Calib
     return row
 
 
-def _head(session: Session, request: CaliberWorkspaceChangeRequest) -> CaliberWorkspaceChangeRequestHead:
+def _head(
+    session: Session, request: CaliberWorkspaceChangeRequest
+) -> CaliberWorkspaceChangeRequestHead:
     row = session.execute(
         select(CaliberWorkspaceChangeRequestHead).where(
             CaliberWorkspaceChangeRequestHead.change_request_id == request.change_request_id,
@@ -197,7 +203,9 @@ def _active_source(session: Session, project_id: str) -> CaliberWorkspaceSource:
 
 def _source_policy(session: Session, project_id: str) -> tuple[str, str, list[str]]:
     source = _active_source(session, project_id)
-    policy = source.external_review_policy if isinstance(source.external_review_policy, dict) else {}
+    policy = (
+        source.external_review_policy if isinstance(source.external_review_policy, dict) else {}
+    )
     raw_checks = policy.get("required_checks", [])
     checks = [item.strip() for item in raw_checks if isinstance(item, str) and item.strip()]
     return source.external_review_policy_version, source.external_review_policy_sha256, checks
@@ -419,7 +427,9 @@ def create_change_request(
     return request
 
 
-def _ensure_current_base(session: Session, project: CaliberProject, request: CaliberWorkspaceChangeRequest) -> None:
+def _ensure_current_base(
+    session: Session, project: CaliberProject, request: CaliberWorkspaceChangeRequest
+) -> None:
     if project.accepted_revision_id != request.base_revision_id:
         request.status = CR_OUT_OF_DATE
         request.lock_version += 1
@@ -428,7 +438,9 @@ def _ensure_current_base(session: Session, project: CaliberProject, request: Cal
 
 
 def _queue_required_checks(
-    session: Session, request: CaliberWorkspaceChangeRequest, head: CaliberWorkspaceChangeRequestHead
+    session: Session,
+    request: CaliberWorkspaceChangeRequest,
+    head: CaliberWorkspaceChangeRequestHead,
 ) -> None:
     _version, _digest, names = _head_policy(session, request.project_id, request.review_backend)
     for name in names:
@@ -474,12 +486,17 @@ def submit_change_request(
         raise _fail(409, "version_claim_required")
     _ensure_version_is_new(session, project_id, _claim_version(claim))
     if request.review_backend == "caliber":
-        reviewers = session.execute(
-            select(CaliberWorkspaceChangeRequestReviewer).where(
-                CaliberWorkspaceChangeRequestReviewer.change_request_id == request.change_request_id,
-                CaliberWorkspaceChangeRequestReviewer.active.is_(True),
+        reviewers = (
+            session.execute(
+                select(CaliberWorkspaceChangeRequestReviewer).where(
+                    CaliberWorkspaceChangeRequestReviewer.change_request_id
+                    == request.change_request_id,
+                    CaliberWorkspaceChangeRequestReviewer.active.is_(True),
+                )
             )
-        ).scalars().all()
+            .scalars()
+            .all()
+        )
         if not reviewers:
             raise _fail(409, "reviewer_assignment_required")
         for reviewer in reviewers:
@@ -529,7 +546,9 @@ def update_change_request_head(
     request.current_head_revision_id = revision.revision_id
     request.status = CR_OPEN
     request.lock_version += 1
-    policy_version, policy_sha256, _checks = _head_policy(session, project_id, request.review_backend)
+    policy_version, policy_sha256, _checks = _head_policy(
+        session, project_id, request.review_backend
+    )
     new_head = _create_head(
         session,
         request=request,
@@ -575,7 +594,9 @@ def rebase_change_request(
     claim = _active_claim(session, request.change_request_id)
     if claim is None:
         raise _fail(409, "version_claim_required")
-    if _claim_version(claim) <= (_highest_accepted_version(session, project_id) or SemanticVersion(0, 0, 0)):
+    if _claim_version(claim) <= (
+        _highest_accepted_version(session, project_id) or SemanticVersion(0, 0, 0)
+    ):
         if semantic_version is None:
             raise _fail(409, "new_semantic_version_required")
         canonical, parsed = canonical_semantic_version(semantic_version)
@@ -604,7 +625,9 @@ def rebase_change_request(
     request.current_head_revision_id = revision.revision_id
     request.status = CR_OPEN
     request.lock_version += 1
-    policy_version, policy_sha256, _checks = _head_policy(session, project_id, request.review_backend)
+    policy_version, policy_sha256, _checks = _head_policy(
+        session, project_id, request.review_backend
+    )
     new_head = _create_head(
         session,
         request=request,
@@ -777,39 +800,62 @@ def remove_reviewer(
     return request
 
 
-def _native_checks_pass(session: Session, request: CaliberWorkspaceChangeRequest, head: CaliberWorkspaceChangeRequestHead) -> bool:
+def _native_checks_pass(
+    session: Session,
+    request: CaliberWorkspaceChangeRequest,
+    head: CaliberWorkspaceChangeRequestHead,
+) -> bool:
     _version, _digest, required = _head_policy(session, request.project_id, request.review_backend)
     if not required:
         return True
-    rows = session.execute(
-        select(CaliberWorkspaceChangeRequestCheck).where(
-            CaliberWorkspaceChangeRequestCheck.head_id == head.head_id,
-            CaliberWorkspaceChangeRequestCheck.check_name.in_(required),
+    rows = (
+        session.execute(
+            select(CaliberWorkspaceChangeRequestCheck).where(
+                CaliberWorkspaceChangeRequestCheck.head_id == head.head_id,
+                CaliberWorkspaceChangeRequestCheck.check_name.in_(required),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     latest: dict[str, CaliberWorkspaceChangeRequestCheck] = {}
     for row in rows:
         previous = latest.get(row.check_name)
         if previous is None or row.attempt_number > previous.attempt_number:
             latest[row.check_name] = row
-    return all(latest.get(name) is not None and latest[name].status == "passed" for name in required)
+    return all(
+        latest.get(name) is not None and latest[name].status == "passed" for name in required
+    )
 
 
-def _native_approval_complete(session: Session, request: CaliberWorkspaceChangeRequest, head: CaliberWorkspaceChangeRequestHead) -> bool:
-    assignments = session.execute(
-        select(CaliberWorkspaceChangeRequestReviewer).where(
-            CaliberWorkspaceChangeRequestReviewer.change_request_id == request.change_request_id,
-            CaliberWorkspaceChangeRequestReviewer.active.is_(True),
+def _native_approval_complete(
+    session: Session,
+    request: CaliberWorkspaceChangeRequest,
+    head: CaliberWorkspaceChangeRequestHead,
+) -> bool:
+    assignments = (
+        session.execute(
+            select(CaliberWorkspaceChangeRequestReviewer).where(
+                CaliberWorkspaceChangeRequestReviewer.change_request_id
+                == request.change_request_id,
+                CaliberWorkspaceChangeRequestReviewer.active.is_(True),
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not assignments:
         return False
-    reviews = session.execute(
-        select(CaliberWorkspaceChangeRequestReview).where(
-            CaliberWorkspaceChangeRequestReview.change_request_id == request.change_request_id,
-            CaliberWorkspaceChangeRequestReview.head_id == head.head_id,
+    reviews = (
+        session.execute(
+            select(CaliberWorkspaceChangeRequestReview).where(
+                CaliberWorkspaceChangeRequestReview.change_request_id == request.change_request_id,
+                CaliberWorkspaceChangeRequestReview.head_id == head.head_id,
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     latest: dict[str, CaliberWorkspaceChangeRequestReview] = {}
     for row in reviews:
         latest[row.reviewer_id] = row
@@ -912,10 +958,13 @@ def record_check(
         session.commit()
         return active
     latest = session.execute(
-        select(CaliberWorkspaceChangeRequestCheck.attempt_number).where(
+        select(CaliberWorkspaceChangeRequestCheck.attempt_number)
+        .where(
             CaliberWorkspaceChangeRequestCheck.head_id == head_id,
             CaliberWorkspaceChangeRequestCheck.check_name == check_name,
-        ).order_by(CaliberWorkspaceChangeRequestCheck.attempt_number.desc()).limit(1)
+        )
+        .order_by(CaliberWorkspaceChangeRequestCheck.attempt_number.desc())
+        .limit(1)
     ).scalar_one_or_none()
     row = CaliberWorkspaceChangeRequestCheck(
         check_id=new_workspace_change_request_check_id(),
@@ -941,14 +990,20 @@ def _verified_external_attestation(
     head: CaliberWorkspaceChangeRequestHead,
     revision: CaliberWorkspaceRevision,
 ) -> bool:
-    rows = session.execute(
-        select(CaliberWorkspaceExternalReviewAttestation).where(
-            CaliberWorkspaceExternalReviewAttestation.change_request_id == request.change_request_id,
-            CaliberWorkspaceExternalReviewAttestation.head_id == head.head_id,
-            CaliberWorkspaceExternalReviewAttestation.status == "verified",
-            CaliberWorkspaceExternalReviewAttestation.workspace_revision_sha256 == revision.revision_sha256,
+    rows = (
+        session.execute(
+            select(CaliberWorkspaceExternalReviewAttestation).where(
+                CaliberWorkspaceExternalReviewAttestation.change_request_id
+                == request.change_request_id,
+                CaliberWorkspaceExternalReviewAttestation.head_id == head.head_id,
+                CaliberWorkspaceExternalReviewAttestation.status == "verified",
+                CaliberWorkspaceExternalReviewAttestation.workspace_revision_sha256
+                == revision.revision_sha256,
+            )
         )
-    ).scalars().all()
+        .scalars()
+        .all()
+    )
     if not rows:
         return False
     source = _active_source(session, request.project_id)
@@ -967,9 +1022,7 @@ def _verified_external_attestation(
         ):
             continue
         trusted_sources = (
-            row.trusted_check_sources
-            if isinstance(row.trusted_check_sources, list)
-            else []
+            row.trusted_check_sources if isinstance(row.trusted_check_sources, list) else []
         )
         if required and not trusted_sources:
             continue
@@ -980,7 +1033,9 @@ def _verified_external_attestation(
         if (
             not normalized_actors
             or any(item.get("user_id") == request.created_by for item in normalized_actors)
-            or not any(item.get("decision") in {"approve", "approved"} for item in normalized_actors)
+            or not any(
+                item.get("decision") in {"approve", "approved"} for item in normalized_actors
+            )
         ):
             continue
         return True
@@ -1138,7 +1193,10 @@ def accept_change_request(
         raise _fail(409, "change_request_not_qa_eligible")
     head = _head(session, request)
     revision = _revision(session, project_id, head.revision_id)
-    if qa_evidence.get("passed") is not True or qa_evidence.get("revision_sha256") != revision.revision_sha256:
+    if (
+        qa_evidence.get("passed") is not True
+        or qa_evidence.get("revision_sha256") != revision.revision_sha256
+    ):
         raise _fail(409, "qa_evidence_insufficient")
     claim = _active_claim(session, change_request_id)
     if claim is None:
@@ -1154,7 +1212,11 @@ def accept_change_request(
     # The conditional UPDATE reads the current database value atomically with
     # the write; no stale ORM project value participates in the decision.
     expected = request.base_revision_id
-    condition = CaliberProject.accepted_revision_id.is_(None) if expected is None else CaliberProject.accepted_revision_id == expected
+    condition = (
+        CaliberProject.accepted_revision_id.is_(None)
+        if expected is None
+        else CaliberProject.accepted_revision_id == expected
+    )
     result = session.execute(
         update(CaliberProject)
         .where(CaliberProject.project_id == project_id, condition)
