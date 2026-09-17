@@ -5,10 +5,10 @@ GitLab, Bitbucket, or a local test double.  This module is the narrow boundary
 between that service and an adapter.  Values crossing the boundary are
 normalized, immutable, and deliberately free of provider SDK response types.
 
-This slice provides the contract and an in-memory fake for deterministic
-tests.  It does not persist webhook deliveries, store provider credentials, or
-make network calls; those are explicit integration concerns for the GitHub
-adapter slice.
+This module provides the contract and an in-memory fake for deterministic tests.
+Durable webhook/event and actor-link persistence lives in
+``caliber.workspace_source_events``; provider credentials and network I/O stay
+behind separate adapters such as ``caliber.github_source_control``.
 """
 
 from __future__ import annotations
@@ -507,6 +507,113 @@ class SourceControlStatus:
         object.__setattr__(self, "status_id", _text(self.status_id, "status_id"))
 
 
+def verify_normalized_change_request(
+    *,
+    repository_id: str,
+    request: SourceControlChangeRequest,
+    comparison: SourceControlComparison,
+    reviews: tuple[SourceControlReview, ...],
+    checks: tuple[SourceControlCheck, ...],
+    policy: SourceControlVerificationPolicy,
+    expected_head_commit: str,
+    expected_base_commit: str | None = None,
+    expected_resulting_commit: str | None = None,
+    covered_commits: Sequence[str] = (),
+    covered_paths: Sequence[str] = (),
+    ruleset_sha256: str | None = None,
+    adapter_version: str = "",
+) -> SourceControlVerification:
+    """Evaluate normalized provider evidence without provider-specific logic."""
+
+    repository = _text(repository_id, "repository_id")
+    expected_head = _sha(expected_head_commit, "expected_head_commit")
+    expected_base = _optional_sha(expected_base_commit, "expected_base_commit")
+    expected_resulting = _optional_sha(expected_resulting_commit, "expected_resulting_commit")
+    normalized_covered_commits = tuple(_sha(value, "covered commit") for value in covered_commits)
+    normalized_covered_paths = _paths(covered_paths, "covered path")
+    stale = (
+        request.head_commit != expected_head
+        or (expected_base is not None and request.base_commit != expected_base)
+        or (expected_resulting is not None and request.resulting_commit != expected_resulting)
+    )
+    uncovered_commits = tuple(
+        sorted({commit.sha for commit in comparison.commits} - set(normalized_covered_commits))
+    )
+    uncovered_paths = tuple(sorted(set(comparison.changed_paths) - set(normalized_covered_paths)))
+    reasons: list[str] = []
+    if stale:
+        reasons.append("change request coordinates do not match the expected immutable head")
+    if policy.require_complete_range and (uncovered_commits or uncovered_paths):
+        reasons.append("provider review does not cover the complete source range")
+    if policy.require_merged and not request.merged:
+        reasons.append("change request is not merged")
+    if policy.require_merged and request.merged and request.resulting_commit is None:
+        reasons.append("merged change request has no resulting commit")
+    approvals = {
+        review.actor_id
+        for review in reviews
+        if review.decision == "approve"
+        and review.actor_kind == "human"
+        and review.commit_sha == request.head_commit
+        and bool(policy.eligible_reviewer_ids)
+        and review.actor_id in policy.eligible_reviewer_ids
+    }
+    if len(approvals) < policy.required_approvals:
+        reasons.append("required eligible human approvals are incomplete")
+    check_conclusions: dict[str, str] = {}
+    for required_name in policy.required_checks:
+        trusted = [
+            check
+            for check in checks
+            if check.name == required_name
+            and check.commit_sha == request.head_commit
+            and check.source_id in policy.trusted_check_sources
+            and check.conclusion == "success"
+        ]
+        if trusted:
+            check_conclusions[required_name] = trusted[-1].conclusion
+        else:
+            check_conclusions[required_name] = "missing"
+            reasons.append(f"required check {required_name!r} is not trusted and successful")
+    ruleset = None if ruleset_sha256 is None else _sha256_digest(ruleset_sha256, "ruleset_sha256")
+    if policy.expected_ruleset_sha256 is not None and ruleset != policy.expected_ruleset_sha256:
+        reasons.append("observed provider ruleset does not match the policy snapshot")
+    status = "stale" if stale else "verified" if not reasons else "insufficient"
+    reason = "; ".join(dict.fromkeys(reasons))
+    input_digest = _digest(
+        {
+            "request": request,
+            "policy": policy,
+            "reviews": reviews,
+            "checks": checks,
+            "coverage_digest": comparison.coverage_digest,
+            "covered_commits": normalized_covered_commits,
+            "covered_paths": normalized_covered_paths,
+            "ruleset_sha256": ruleset,
+        }
+    )
+    return SourceControlVerification(
+        repository_id=repository,
+        change_request_id=request.request_id,
+        base_commit=request.base_commit,
+        head_commit=request.head_commit,
+        resulting_commit=request.resulting_commit,
+        source_tree_sha256=comparison.head_tree_sha256,
+        policy=policy,
+        check_conclusions=check_conclusions,
+        reviews=reviews,
+        status=status,
+        reason=reason,
+        coverage_digest=comparison.coverage_digest,
+        uncovered_commits=uncovered_commits,
+        uncovered_paths=uncovered_paths,
+        provider_event_ids=request.provider_event_ids,
+        ruleset_sha256=ruleset,
+        adapter_version=_text(adapter_version, "adapter_version"),
+        verification_input_digest=input_digest,
+    )
+
+
 class SourceControlProvider(Protocol):
     """The provider-neutral interface implemented by source-control adapters."""
 
@@ -805,92 +912,6 @@ class FakeSourceControlProvider:
             raise SourceControlNotFoundError(f"unknown change request {change_request_id!r}")
         return request
 
-    def _range_findings(
-        self,
-        repository: str,
-        request: SourceControlChangeRequest,
-        policy: SourceControlVerificationPolicy,
-        root_path: str,
-    ) -> tuple[SourceControlComparison, tuple[str, ...], tuple[str, ...], str]:
-        comparison = self.compare_commits(
-            repository, request.base_commit, request.head_commit, root_path=root_path
-        )
-        covered_commits, covered_paths = self._coverage[(repository, request.request_id)]
-        uncovered_commits = tuple(
-            sorted({commit.sha for commit in comparison.commits} - set(covered_commits))
-        )
-        uncovered_paths = tuple(sorted(set(comparison.changed_paths) - set(covered_paths)))
-        reason = (
-            "provider review does not cover the complete source range"
-            if policy.require_complete_range and (uncovered_commits or uncovered_paths)
-            else ""
-        )
-        return comparison, uncovered_commits, uncovered_paths, reason
-
-    @staticmethod
-    def _coordinate_findings(
-        request: SourceControlChangeRequest,
-        expected_head: str,
-        expected_base: str | None,
-        expected_resulting: str | None,
-    ) -> tuple[bool, list[str]]:
-        stale = (
-            request.head_commit != expected_head
-            or (expected_base is not None and request.base_commit != expected_base)
-            or (expected_resulting is not None and request.resulting_commit != expected_resulting)
-        )
-        return (
-            stale,
-            ["change request coordinates do not match the expected immutable head"]
-            if stale
-            else [],
-        )
-
-    @staticmethod
-    def _review_findings(
-        reviews: tuple[SourceControlReview, ...],
-        request: SourceControlChangeRequest,
-        policy: SourceControlVerificationPolicy,
-    ) -> list[str]:
-        approvals = {
-            review.actor_id
-            for review in reviews
-            if review.decision == "approve"
-            and review.actor_kind == "human"
-            and review.commit_sha == request.head_commit
-            and bool(policy.eligible_reviewer_ids)
-            and review.actor_id in policy.eligible_reviewer_ids
-        }
-        return (
-            ["required eligible human approvals are incomplete"]
-            if len(approvals) < policy.required_approvals
-            else []
-        )
-
-    @staticmethod
-    def _check_findings(
-        checks: tuple[SourceControlCheck, ...],
-        request: SourceControlChangeRequest,
-        policy: SourceControlVerificationPolicy,
-    ) -> tuple[dict[str, str], list[str]]:
-        check_conclusions: dict[str, str] = {}
-        reasons: list[str] = []
-        for required_name in policy.required_checks:
-            trusted = [
-                check
-                for check in checks
-                if check.name == required_name
-                and check.commit_sha == request.head_commit
-                and check.source_id in policy.trusted_check_sources
-                and check.conclusion == "success"
-            ]
-            if trusted:
-                check_conclusions[required_name] = trusted[-1].conclusion
-            else:
-                check_conclusions[required_name] = "missing"
-                reasons.append(f"required check {required_name!r} is not trusted and successful")
-        return check_conclusions, reasons
-
     def verify_change_request(
         self,
         repository_id: str,
@@ -909,64 +930,27 @@ class FakeSourceControlProvider:
         self._require("commit_reachability")
         repository = self.canonical_repository_id(repository_id)
         request = self.get_change_request(repository, change_request_id)
-        expected_head = _sha(expected_head_commit, "expected_head_commit")
-        expected_base = _optional_sha(expected_base_commit, "expected_base_commit")
-        expected_resulting = _optional_sha(expected_resulting_commit, "expected_resulting_commit")
-        comparison, uncovered_commits, uncovered_paths, coverage_reason = self._range_findings(
-            repository, request, policy, root_path
+        comparison = self.compare_commits(
+            repository, request.base_commit, request.head_commit, root_path=root_path
         )
         covered_commits, covered_paths = self._coverage[(repository, request.request_id)]
         reviews = tuple(self._reviews[(repository, request.request_id)])
         checks = tuple(self._checks[(repository, request.request_id)])
-        stale, reasons = self._coordinate_findings(
-            request, expected_head, expected_base, expected_resulting
-        )
-        if coverage_reason:
-            reasons.append(coverage_reason)
-        if policy.require_merged and not request.merged:
-            reasons.append("change request is not merged")
-        if policy.require_merged and request.merged and request.resulting_commit is None:
-            reasons.append("merged change request has no resulting commit")
-        reasons.extend(self._review_findings(reviews, request, policy))
-        check_conclusions, check_reasons = self._check_findings(checks, request, policy)
-        reasons.extend(check_reasons)
-
         ruleset = self._rulesets.get(repository) or None
-        if policy.expected_ruleset_sha256 is not None and ruleset != policy.expected_ruleset_sha256:
-            reasons.append("observed provider ruleset does not match the policy snapshot")
-        status = "stale" if stale else "verified" if not reasons else "insufficient"
-        reason = "; ".join(dict.fromkeys(reasons))
-        input_digest = _digest(
-            {
-                "request": request,
-                "policy": policy,
-                "reviews": reviews,
-                "checks": checks,
-                "coverage_digest": comparison.coverage_digest,
-                "covered_commits": covered_commits,
-                "covered_paths": covered_paths,
-                "ruleset_sha256": ruleset,
-            }
-        )
-        return SourceControlVerification(
+        return verify_normalized_change_request(
             repository_id=repository,
-            change_request_id=request.request_id,
-            base_commit=request.base_commit,
-            head_commit=request.head_commit,
-            resulting_commit=request.resulting_commit,
-            source_tree_sha256=comparison.head_tree_sha256,
-            policy=policy,
-            check_conclusions=check_conclusions,
+            request=request,
+            comparison=comparison,
             reviews=reviews,
-            status=status,
-            reason=reason,
-            coverage_digest=comparison.coverage_digest,
-            uncovered_commits=uncovered_commits,
-            uncovered_paths=uncovered_paths,
-            provider_event_ids=request.provider_event_ids,
+            checks=checks,
+            policy=policy,
+            expected_head_commit=expected_head_commit,
+            expected_base_commit=expected_base_commit,
+            expected_resulting_commit=expected_resulting_commit,
+            covered_commits=covered_commits,
+            covered_paths=covered_paths,
             ruleset_sha256=ruleset,
             adapter_version=self.adapter_version,
-            verification_input_digest=input_digest,
         )
 
     def verify_webhook(
@@ -1064,4 +1048,5 @@ __all__ = [
     "SourceControlVerificationPolicy",
     "SourceControlWebhook",
     "SourceControlWebhookError",
+    "verify_normalized_change_request",
 ]
