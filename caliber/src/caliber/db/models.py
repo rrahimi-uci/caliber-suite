@@ -2436,7 +2436,9 @@ class CaliberWorkspaceChangeRequestHead(Base):
 
     head_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     change_request_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("caliber_workspace_change_requests.change_request_id"), nullable=False
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
     )
     generation: Mapped[int] = mapped_column(Integer, nullable=False)
     revision_id: Mapped[str] = mapped_column(
@@ -2468,7 +2470,9 @@ class CaliberWorkspaceChangeRequestReviewer(Base):
 
     reviewer_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     change_request_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("caliber_workspace_change_requests.change_request_id"), nullable=False
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
     )
     user_id: Mapped[str] = mapped_column(String(256), nullable=False)
     assigned_by: Mapped[str] = mapped_column(String(256), nullable=False)
@@ -2488,7 +2492,9 @@ class CaliberWorkspaceChangeRequestComment(Base):
 
     comment_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     change_request_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("caliber_workspace_change_requests.change_request_id"), nullable=False
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
     )
     head_id: Mapped[str | None] = mapped_column(
         String(64), ForeignKey("caliber_workspace_change_request_heads.head_id"), nullable=True
@@ -2506,7 +2512,9 @@ class CaliberWorkspaceChangeRequestCheck(Base):
 
     __tablename__ = "caliber_workspace_change_request_checks"
     __table_args__ = (
-        UniqueConstraint("head_id", "check_name", "attempt_number", name="uq_workspace_check_attempt"),
+        UniqueConstraint(
+            "head_id", "check_name", "attempt_number", name="uq_workspace_check_attempt"
+        ),
         Index("ix_workspace_change_request_checks_head", "head_id", "created_at"),
         Index(
             "uq_workspace_change_request_active_check",
@@ -2555,13 +2563,17 @@ class CaliberWorkspaceChangeRequestReview(Base):
 
     review_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     change_request_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("caliber_workspace_change_requests.change_request_id"), nullable=False
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
     )
     head_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("caliber_workspace_change_request_heads.head_id"), nullable=False
     )
     reviewer_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("caliber_workspace_change_request_reviewers.reviewer_id"), nullable=False
+        String(64),
+        ForeignKey("caliber_workspace_change_request_reviewers.reviewer_id"),
+        nullable=False,
     )
     decision: Mapped[str] = mapped_column(String(24), nullable=False)
     rationale: Mapped[str] = mapped_column(Text, nullable=False, default="")
@@ -2592,7 +2604,9 @@ class CaliberWorkspaceExternalReviewAttestation(Base):
 
     attestation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     change_request_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("caliber_workspace_change_requests.change_request_id"), nullable=False
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
     )
     head_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("caliber_workspace_change_request_heads.head_id"), nullable=False
@@ -2632,7 +2646,9 @@ class CaliberWorkspaceVersionClaim(Base):
 
     __tablename__ = "caliber_workspace_version_claims"
     __table_args__ = (
-        UniqueConstraint("project_id", "semantic_version", name="uq_workspace_version_claim_version"),
+        UniqueConstraint(
+            "project_id", "semantic_version", name="uq_workspace_version_claim_version"
+        ),
         Index(
             "uq_workspace_reserved_version_claim_request",
             "change_request_id",
@@ -2651,7 +2667,9 @@ class CaliberWorkspaceVersionClaim(Base):
         String(64), ForeignKey("caliber_projects.project_id"), nullable=False
     )
     change_request_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("caliber_workspace_change_requests.change_request_id"), nullable=False
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
     )
     semantic_version: Mapped[str] = mapped_column(String(128), nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="reserved")
@@ -2680,7 +2698,9 @@ class CaliberWorkspaceVersionTag(Base):
         String(64), ForeignKey("caliber_workspace_revisions.revision_id"), nullable=False
     )
     change_request_id: Mapped[str] = mapped_column(
-        String(64), ForeignKey("caliber_workspace_change_requests.change_request_id"), nullable=False
+        String(64),
+        ForeignKey("caliber_workspace_change_requests.change_request_id"),
+        nullable=False,
     )
     tag: Mapped[str] = mapped_column(String(128), nullable=False)
     kind: Mapped[str] = mapped_column(String(16), nullable=False)

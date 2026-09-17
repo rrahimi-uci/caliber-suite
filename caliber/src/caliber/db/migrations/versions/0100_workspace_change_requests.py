@@ -28,7 +28,10 @@ def upgrade() -> None:
         "caliber_workspace_change_requests",
         sa.Column("change_request_id", sa.String(64), primary_key=True),
         sa.Column(
-            "project_id", sa.String(64), sa.ForeignKey("caliber_projects.project_id"), nullable=False
+            "project_id",
+            sa.String(64),
+            sa.ForeignKey("caliber_projects.project_id"),
+            nullable=False,
         ),
         sa.Column(
             "base_revision_id",
@@ -183,7 +186,9 @@ def upgrade() -> None:
         sa.Column("lease_expires_at", sa.DateTime(), nullable=True),
         sa.Column("completed_at", sa.DateTime(), nullable=True),
         sa.Column("created_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
-        sa.UniqueConstraint("head_id", "check_name", "attempt_number", name="uq_workspace_check_attempt"),
+        sa.UniqueConstraint(
+            "head_id", "check_name", "attempt_number", name="uq_workspace_check_attempt"
+        ),
         sa.CheckConstraint(
             "status IN ('queued', 'running', 'passed', 'failed', 'cancelled')",
             name="ck_workspace_change_request_check_status",
@@ -310,7 +315,10 @@ def upgrade() -> None:
         "caliber_workspace_version_claims",
         sa.Column("claim_id", sa.String(64), primary_key=True),
         sa.Column(
-            "project_id", sa.String(64), sa.ForeignKey("caliber_projects.project_id"), nullable=False
+            "project_id",
+            sa.String(64),
+            sa.ForeignKey("caliber_projects.project_id"),
+            nullable=False,
         ),
         sa.Column(
             "change_request_id",
@@ -324,7 +332,9 @@ def upgrade() -> None:
         sa.Column("claimed_at", sa.DateTime(), nullable=False, server_default=sa.func.now()),
         sa.Column("accepted_at", sa.DateTime(), nullable=True),
         sa.Column("abandoned_at", sa.DateTime(), nullable=True),
-        sa.UniqueConstraint("project_id", "semantic_version", name="uq_workspace_version_claim_version"),
+        sa.UniqueConstraint(
+            "project_id", "semantic_version", name="uq_workspace_version_claim_version"
+        ),
         sa.CheckConstraint(
             "status IN ('reserved', 'accepted', 'abandoned')",
             name="ck_workspace_version_claim_status",
@@ -343,7 +353,10 @@ def upgrade() -> None:
         "caliber_workspace_version_tags",
         sa.Column("tag_id", sa.String(64), primary_key=True),
         sa.Column(
-            "project_id", sa.String(64), sa.ForeignKey("caliber_projects.project_id"), nullable=False
+            "project_id",
+            sa.String(64),
+            sa.ForeignKey("caliber_projects.project_id"),
+            nullable=False,
         ),
         sa.Column(
             "revision_id",

@@ -27,9 +27,10 @@ from caliber.db.scoping import owner_column
 #: scoping tier a deliberate choice?), the same spirit as
 #: test_async_offload_ratchet.py's baseline.
 _EXPECTED_COUNTS = {
-    # +1 (`P4-A`): CaliberWorkspaceRevisionResource has no direct project or
-    # owner column because its workspace boundary is the parent revision FK.
-    SCOPING_UNSCOPED: 41,
+    # +6 (`P4-D`): change-request heads, comments, reviewers, checks, reviews,
+    # and external attestations are subordinate audit/review rows. Their
+    # parent change request supplies the project authorization boundary.
+    SCOPING_UNSCOPED: 47,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.
@@ -52,7 +53,9 @@ _EXPECTED_COUNTS = {
     # +3 (`P4-A`): source, import-job, and revision rows have direct
     # project_id columns but intentionally no visibility tier; their parent
     # Workspace is the authorization boundary.
-    SCOPING_PROJECT_ONLY: 13,
+    # +3 (`P4-D`): change requests, version claims, and version tags are
+    # project-bound control-plane rows without a visibility tier.
+    SCOPING_PROJECT_ONLY: 16,
 }
 
 
