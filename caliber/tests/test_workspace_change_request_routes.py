@@ -18,8 +18,11 @@ from caliber.db.models import (
     CaliberWorkspaceVersionClaim,
 )
 from caliber.workspace_change_request_service import (
+    SemanticVersion,
     accept_change_request,
     canonical_semantic_version,
+    create_version_tag,
+    record_check,
     record_external_attestation,
 )
 
@@ -77,6 +80,7 @@ def _create_request(
     project_id: str,
     head_revision_id: str,
     *,
+    base_revision_id: str | None = None,
     version: str = "1.0.0",
     reviewers: list[str] | None = None,
     backend: str = "caliber",
@@ -87,6 +91,7 @@ def _create_request(
             "title": "Ship package",
             "description": "A deterministic package change",
             "head_revision_id": head_revision_id,
+            "base_revision_id": base_revision_id,
             "semantic_version": version,
             "review_backend": backend,
             "reviewer_user_ids": ["@reviewer"] if reviewers is None else reviewers,
@@ -483,3 +488,269 @@ def test_acceptance_primitive_cas_moves_only_one_request(
         assert stale is not None and stale.status == "out_of_date"
     finally:
         final_session.close()
+
+
+@pytest.mark.parametrize(
+    "value",
+    ["", "v1.2.3", "1.2", "1.02.3", "1.2.3-alpha.01", "1.2.3-"],
+)
+def test_semver_rejects_noncanonical_forms(value: str) -> None:
+    with pytest.raises(HTTPException, match="invalid_semantic_version"):
+        canonical_semantic_version(value)
+
+
+def test_semver_precedence_covers_numeric_and_identifier_rules() -> None:
+    assert SemanticVersion(1, 0, 0, ("alpha",)) < SemanticVersion(1, 0, 0, ("beta",))
+    assert SemanticVersion(1, 0, 0, ("1",)) < SemanticVersion(1, 0, 0, ("alpha",))
+    assert SemanticVersion(1, 0, 0, ("alpha", "1")) < SemanticVersion(1, 0, 0, ("alpha", "2"))
+    assert SemanticVersion(1, 0, 0, ("alpha",)) < SemanticVersion(1, 0, 0, ("alpha", "1"))
+    assert SemanticVersion(1, 0, 0) > SemanticVersion(1, 0, 0, ("rc",))
+    assert SemanticVersion(1, 1, 0) > SemanticVersion(1, 0, 9)
+
+
+def test_route_context_cursor_state_and_tag_errors_are_deterministic(
+    client: TestClient, db_session: Session
+) -> None:
+    project_id = _create_project(client, "Route edge cases")
+    _seed_revision(db_session, project_id, "WSR-10", "digest-edge")
+    request = _create_request(client, project_id, "WSR-10", version="8.0.0", reviewers=[])
+    request_id = str(request["change_request_id"])
+    path = _change_request_path(project_id, request_id)
+
+    mismatch = client.get(
+        f"{PREFIX}/projects/{project_id}/change-requests",
+        headers={"X-CALIBER-Project": "another-project"},
+    )
+    assert mismatch.status_code == 400
+    assert mismatch.json()["detail"] == "workspace_context_mismatch"
+    invalid_cursor = client.get(
+        f"{PREFIX}/projects/{project_id}/change-requests", params={"cursor": "YmFk"}
+    )
+    assert invalid_cursor.status_code == 400
+    assert invalid_cursor.json()["detail"] == "invalid_cursor"
+    invalid_status = client.get(
+        f"{PREFIX}/projects/{project_id}/change-requests", params={"status": "bogus"}
+    )
+    assert invalid_status.status_code == 400
+    assert invalid_status.json()["detail"] == "invalid_change_request_status"
+    missing = client.get(_change_request_path(project_id, "WSCR-missing"))
+    assert missing.status_code == 404
+    assert missing.json()["detail"] == "change_request_not_found"
+    missing_related = client.get(f"{path}/comments")
+    assert missing_related.status_code == 200
+    assert missing_related.json()["data"] == []
+    assert client.get(f"{PREFIX}/projects/{project_id}/version-tags").json()["data"] == []
+    missing_tag = client.get(f"{PREFIX}/projects/{project_id}/version-tags/does-not-exist")
+    assert missing_tag.status_code == 404
+    assert missing_tag.json()["detail"] == "version_tag_not_found"
+
+    closed = client.post(
+        f"{path}:close",
+        json={"reason": "edge test", "expected_lock_version": request["lock_version"]},
+    )
+    assert closed.status_code == 200
+    assert client.post(f"{path}:submit", json={}).json()["detail"] == "change_request_not_draft"
+    frozen = client.post(
+        f"{path}:update-head",
+        json={
+            "revision_id": "WSR-10",
+            "change_summary": "not allowed",
+            "expected_lock_version": closed.json()["data"]["lock_version"],
+        },
+    )
+    assert frozen.status_code == 409
+    assert frozen.json()["detail"] == "change_request_head_not_mutable"
+
+
+def test_internal_checks_and_version_tags_cover_attempt_history(
+    client: TestClient, db_session: Session
+) -> None:
+    project_id = _create_project(client, "Internal check hooks")
+    _seed_revision(db_session, project_id, "WSR-11", "digest-hook")
+    request = _create_request(client, project_id, "WSR-11", version="9.0.0", reviewers=[])
+    request_id = str(request["change_request_id"])
+    head_id = str(request["current_head"]["head_id"])  # type: ignore[index]
+
+    with pytest.raises(HTTPException, match="change_request_head_not_found"):
+        record_check(
+            db_session,
+            change_request_id=request_id,
+            head_id="WSCRH-missing",
+            check_name="ci",
+            status="queued",
+            implementation_version="check-v1",
+            input_digest="digest-hook",
+        )
+    queued = record_check(
+        db_session,
+        change_request_id=request_id,
+        head_id=head_id,
+        check_name="ci",
+        status="queued",
+        implementation_version="check-v1",
+        input_digest="digest-hook",
+    )
+    assert queued.attempt_number == 1
+    passed = record_check(
+        db_session,
+        change_request_id=request_id,
+        head_id=head_id,
+        check_name="ci",
+        status="passed",
+        implementation_version="check-v2",
+        input_digest="digest-hook-2",
+        evidence_ref="artifact://ci",
+        evidence_digest="evidence-1",
+        claimed_by="worker-1",
+    )
+    assert passed.check_id == queued.check_id
+    retry = record_check(
+        db_session,
+        change_request_id=request_id,
+        head_id=head_id,
+        check_name="ci",
+        status="failed",
+        implementation_version="check-v3",
+        input_digest="digest-hook-3",
+    )
+    assert retry.attempt_number == 2
+
+    with pytest.raises(HTTPException, match="version_tag_does_not_match_claim"):
+        create_version_tag(
+            db_session,
+            project_id=project_id,
+            change_request_id=request_id,
+            revision_id="WSR-11",
+            tag="9.0.0",
+            kind="qa_candidate",
+            actor="@qa",
+        )
+    candidate = create_version_tag(
+        db_session,
+        project_id=project_id,
+        change_request_id=request_id,
+        revision_id="WSR-11",
+        tag="9.0.0-rc.1",
+        kind="qa_candidate",
+        actor="@qa",
+    )
+    db_session.commit()
+    assert candidate.tag == "9.0.0-rc.1"
+    listed = client.get(f"{PREFIX}/projects/{project_id}/version-tags")
+    assert listed.status_code == 200
+    assert listed.json()["data"][0]["tag"] == "9.0.0-rc.1"
+
+
+def test_create_request_rejects_invalid_project_baselines_and_reviewers(
+    client: TestClient, db_session: Session
+) -> None:
+    project_id = _create_project(client, "Create denials")
+    _seed_revision(db_session, project_id, "WSR-12", "digest-denial")
+
+    invalid_base = client.post(
+        f"{PREFIX}/projects/{project_id}/change-requests",
+        json={
+            "title": "Invalid base",
+            "head_revision_id": "WSR-12",
+            "base_revision_id": "WSR-12",
+            "semantic_version": "10.0.0",
+            "reviewer_user_ids": [],
+        },
+    )
+    assert invalid_base.status_code == 409
+    assert invalid_base.json()["detail"] == "base_revision_must_be_null_for_first_acceptance"
+    missing_revision = client.post(
+        f"{PREFIX}/projects/{project_id}/change-requests",
+        json={
+            "title": "Missing head",
+            "head_revision_id": "WSR-missing",
+            "semantic_version": "10.0.1",
+            "reviewer_user_ids": [],
+        },
+    )
+    assert missing_revision.status_code == 404
+    assert missing_revision.json()["detail"] == "revision_not_found"
+    ineligible = client.post(
+        f"{PREFIX}/projects/{project_id}/change-requests",
+        json={
+            "title": "Unknown reviewer",
+            "head_revision_id": "WSR-12",
+            "semantic_version": "10.0.2",
+            "reviewer_user_ids": ["@not-a-member"],
+        },
+    )
+    assert ineligible.status_code == 403
+    assert ineligible.json()["detail"] == "reviewer_not_eligible"
+
+
+def test_out_of_date_rebase_replaces_an_older_version_claim(
+    client: TestClient, db_session: Session
+) -> None:
+    project_id = _create_project(client, "Rebase flow")
+    _seed_revision(db_session, project_id, "WSR-13", "digest-13")
+    _seed_revision(db_session, project_id, "WSR-14", "digest-14")
+    _seed_revision(db_session, project_id, "WSR-15", "digest-15")
+
+    accepted = _create_request(client, project_id, "WSR-13", version="10.0.0", reviewers=[])
+    accepted_claim = db_session.scalar(
+        select(CaliberWorkspaceVersionClaim).where(
+            CaliberWorkspaceVersionClaim.change_request_id == accepted["change_request_id"]
+        )
+    )
+    assert accepted_claim is not None
+    accepted_claim.status = "accepted"
+    project = db_session.get(CaliberProject, project_id)
+    assert project is not None
+    project.accepted_revision_id = "WSR-13"
+    db_session.commit()
+
+    candidate = _create_request(
+        client,
+        project_id,
+        "WSR-14",
+        base_revision_id="WSR-13",
+        version="11.0.0",
+        reviewers=[],
+    )
+    candidate_id = str(candidate["change_request_id"])
+    bump = _create_request(
+        client,
+        project_id,
+        "WSR-14",
+        base_revision_id="WSR-13",
+        version="12.0.0",
+        reviewers=[],
+    )
+    bump_claim = db_session.scalar(
+        select(CaliberWorkspaceVersionClaim).where(
+            CaliberWorkspaceVersionClaim.change_request_id == bump["change_request_id"]
+        )
+    )
+    assert bump_claim is not None
+    bump_claim.status = "accepted"
+    candidate_row = db_session.get(CaliberWorkspaceChangeRequest, candidate_id)
+    project.accepted_revision_id = "WSR-14"
+    assert candidate_row is not None
+    candidate_row.status = "out_of_date"
+    db_session.commit()
+
+    rebased = client.post(
+        f"{_change_request_path(project_id, candidate_id)}:rebase",
+        json={
+            "revision_id": "WSR-15",
+            "change_summary": "Rebase onto the new accepted baseline",
+            "expected_lock_version": candidate["lock_version"],
+            "semantic_version": "13.0.0",
+        },
+    )
+    assert rebased.status_code == 200, rebased.text
+    data = rebased.json()["data"]
+    assert data["base_revision_id"] == "WSR-14"
+    assert data["current_head_revision_id"] == "WSR-15"
+    assert data["version_claim"]["semantic_version"] == "13.0.0"
+    claims = db_session.scalars(
+        select(CaliberWorkspaceVersionClaim).where(
+            CaliberWorkspaceVersionClaim.change_request_id == candidate_id
+        )
+    ).all()
+    assert {claim.status for claim in claims} == {"abandoned", "reserved"}

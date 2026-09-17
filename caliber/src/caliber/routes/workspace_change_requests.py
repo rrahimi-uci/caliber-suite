@@ -152,8 +152,25 @@ def _request_schema(
     claim = session.execute(
         select(CaliberWorkspaceVersionClaim).where(
             CaliberWorkspaceVersionClaim.change_request_id == row.change_request_id,
+            CaliberWorkspaceVersionClaim.status == "reserved",
         )
     ).scalar_one_or_none()
+    if claim is None:
+        # Abandoned/accepted claims remain as immutable history. Once a
+        # rebase replaces a reservation there are multiple rows, so never use
+        # scalar_one_or_none() for the historical fallback.
+        claim = (
+            session.execute(
+                select(CaliberWorkspaceVersionClaim)
+                .where(CaliberWorkspaceVersionClaim.change_request_id == row.change_request_id)
+                .order_by(
+                    CaliberWorkspaceVersionClaim.claimed_at.desc(),
+                    CaliberWorkspaceVersionClaim.claim_id.desc(),
+                )
+            )
+            .scalars()
+            .first()
+        )
     count = session.scalar(
         select(func.count())
         .select_from(CaliberWorkspaceChangeRequestReviewer)
