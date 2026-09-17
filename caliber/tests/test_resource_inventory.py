@@ -32,7 +32,11 @@ _EXPECTED_COUNTS = {
     # parent change request supplies the project authorization boundary.
     # +1 (`P4-E`): source-provider delivery inbox rows are subordinate to the
     # source binding and use source_id rather than a duplicate project_id.
-    SCOPING_UNSCOPED: 48,
+    # +3 (`P5-A`): release evidence, decisions, and operation items are
+    # subordinate immutable rows. Their release/operation parent supplies the
+    # project authorization boundary, just as source-provider delivery rows
+    # and change-request audit rows do.
+    SCOPING_UNSCOPED: 51,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.
@@ -59,7 +63,12 @@ _EXPECTED_COUNTS = {
     # project-bound control-plane rows without a visibility tier.
     # +1 (`P4-E`): provider actor links are project-bound identity records
     # without a visibility tier.
-    SCOPING_PROJECT_ONLY: 17,
+    # +4 (`P5-A`): release, durable evaluation, break-glass authorization,
+    # and release operation rows have direct project_id bindings and no
+    # visibility tier. Their child evidence/decision/item rows are classified
+    # as unscoped above because they inherit the same boundary through their
+    # required parent FK.
+    SCOPING_PROJECT_ONLY: 21,
 }
 
 
@@ -122,6 +131,35 @@ def test_project_only_models_have_no_visibility_column() -> None:
         if row.scoping == SCOPING_PROJECT_ONLY:
             assert row.has_project_id
             assert not row.has_visibility
+
+
+def test_workspace_release_children_use_parent_project_boundary() -> None:
+    rows = {row.name: row for row in resource_inventory()}
+
+    assert {
+        name: rows[name].scoping
+        for name in (
+            "CaliberWorkspaceRelease",
+            "CaliberWorkspaceReleaseEvaluation",
+            "CaliberWorkspaceBreakGlassAuthorization",
+            "CaliberWorkspaceReleaseOperation",
+        )
+    } == dict.fromkeys(
+        (
+            "CaliberWorkspaceRelease",
+            "CaliberWorkspaceReleaseEvaluation",
+            "CaliberWorkspaceBreakGlassAuthorization",
+            "CaliberWorkspaceReleaseOperation",
+        ),
+        SCOPING_PROJECT_ONLY,
+    )
+    for name in (
+        "CaliberWorkspaceReleaseEvidence",
+        "CaliberWorkspaceReleaseDecision",
+        "CaliberWorkspaceReleaseOperationItem",
+    ):
+        assert rows[name].scoping == SCOPING_UNSCOPED
+        assert not rows[name].has_project_id
 
 
 def test_owned_catalog_models_have_no_project_id() -> None:
