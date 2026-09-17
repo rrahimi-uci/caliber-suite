@@ -2152,9 +2152,9 @@ class CaliberWorkspaceEnvironment(Base):
 class CaliberWorkspaceSource(Base):
     """The provider-neutral source configuration for one Workspace.
 
-    This is the dormant Phase-4 persistence boundary. Provider calls and
-    source transitions arrive in later slices; this row stores only the
-    canonical repository identity and policy snapshots they will consume.
+    This is the Phase-4 provider-neutral persistence boundary. Public source
+    lifecycle routes may configure and transition the row, while provider
+    adapters and external review remain separate integration slices.
     """
 
     __tablename__ = "caliber_workspace_sources"

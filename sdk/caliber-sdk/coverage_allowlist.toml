@@ -17,16 +17,13 @@
 #   * a [[gap]] entry the SDK now covers, or one naming a path the server no
 #     longer serves -- stale bookkeeping that must be deleted, not left behind.
 #
-# Current state: every gap that existed has been closed -- P1-C's follow-up
-# review-fix PR added `ProjectsAPI.archive()`/`restore()`/`transfer_ownership()`,
-# closing the three [[gap]] entries the original P1-C slice opened (a
-# `client.projects.update(status=...)` regression, found in review, made
-# implementing these now rather than deferring to Phase 6 the right fix --
-# see that PR's description). Only the permanent [[exclusion]] entries below
-# remain -- a future PR that adds a brand-new server operation without SDK
-# coverage will fail this gate and must either add the method, add a
-# [[gap]] entry naming the work that will close it, or justify a new
-# exclusion here.
+# Current state: P1-C's three project-lifecycle gaps were closed by the
+# follow-up SDK review fix. P4-C adds the provider-neutral source, import, and
+# revision HTTP surface before typed SDK resources are scheduled in P6-B, so
+# those 13 operations are tracked below as explicit temporary gaps. A future
+# SDK PR closes each gap by adding typed methods and deleting its entry; a
+# future server operation without SDK coverage must likewise add a tracked gap
+# or justify a permanent exclusion.
 
 [[exclusion]]
 method = "GET"
@@ -57,3 +54,98 @@ reason = "Static HTML report proxy, not a JSON API operation."
 method = "GET"
 path = "/metrics"
 reason = "Prometheus text exposition, not JSON -- belongs to a scraper, not a client."
+
+# P4-C provider-neutral Workspace source/import/revision routes. The server
+# contract is intentionally usable from raw HTTP first; typed SDK resources and
+# examples are the P6-B deliverable.
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/source"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "PUT"
+path = "/projects/{}/source"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/source:enable"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/source:disable"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/source/capabilities"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/source:reconcile"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/revision-imports"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/revision-imports"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/revision-imports/{}"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/revision-imports/{}:reconcile"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/revisions"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/revisions/{}"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/revisions/{}/diff"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
