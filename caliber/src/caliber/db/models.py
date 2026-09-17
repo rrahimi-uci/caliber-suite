@@ -2316,6 +2316,22 @@ class CaliberWorkspaceImportJob(Base):
             "status IN ('queued', 'running', 'succeeded', 'failed', 'reconcile_required')",
             name="ck_workspace_import_status",
         ),
+        CheckConstraint(
+            "attempt_count >= 0",
+            name="ck_workspace_import_attempt_count",
+        ),
+        CheckConstraint(
+            "max_attempts >= 1",
+            name="ck_workspace_import_max_attempts",
+        ),
+        CheckConstraint(
+            "attempt_count <= max_attempts",
+            name="ck_workspace_import_attempt_budget",
+        ),
+        CheckConstraint(
+            "status != 'queued' OR attempt_count < max_attempts",
+            name="ck_workspace_import_queued_attempt_budget",
+        ),
     )
 
     import_job_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -2338,6 +2354,15 @@ class CaliberWorkspaceImportJob(Base):
         String(64), ForeignKey("caliber_workspace_revisions.revision_id"), nullable=True
     )
     idempotency_key: Mapped[str] = mapped_column(String(256), nullable=False)
+    # ``attempt_count`` is the number of claims that have started, including
+    # the initial attempt. ``max_attempts`` is a total budget, not a retry
+    # count, so a value of 1 permits no retry after the first failure.
+    attempt_count: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=0, server_default="0"
+    )
+    max_attempts: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=3, server_default="3"
+    )
     claimed_by: Mapped[str | None] = mapped_column(String(128), nullable=True)
     claimed_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
     lease_expires_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)

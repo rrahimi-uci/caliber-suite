@@ -2,10 +2,11 @@
 
 This module owns the database arbitration around ``CaliberWorkspaceImportJob``.
 It deliberately does not materialize source files, call a source provider, or
-blindly retry a worker whose outcome is ambiguous.  A worker must hold a live
+blindly retry a worker whose outcome is ambiguous. A worker must hold a live
 lease while it works; an expired lease is converted to
 ``reconcile_required`` so an operator or a later reconcile command can observe
-the external state before deciding what to do.
+the external state before deciding what to do. Known failures may be
+deliberately requeued only while the job's total attempt budget remains.
 """
 
 from __future__ import annotations
@@ -35,6 +36,7 @@ IMPORT_JOB_TERMINAL_STATUSES = frozenset(
 
 DEFAULT_IMPORT_LEASE_SECONDS = 300.0
 MAX_IMPORT_LEASE_SECONDS = 3600.0
+DEFAULT_IMPORT_MAX_ATTEMPTS = 3
 MAX_IMPORT_ERROR_SUMMARY_CHARS = 2048
 MAX_IMPORT_WORKER_ID_CHARS = 128
 MAX_IMPORT_ERROR_CODE_CHARS = 64
@@ -50,6 +52,12 @@ class WorkspaceImportLeaseLostError(WorkspaceImportJobError):
     """Raised when a worker no longer owns a live import lease."""
 
     code = "import_job_lease_lost"
+
+
+class WorkspaceImportRetryExhaustedError(WorkspaceImportJobError):
+    """Raised when a known import failure has no attempts remaining."""
+
+    code = "import_retry_exhausted"
 
 
 class WorkspaceImportTransitionError(ValueError, WorkspaceImportJobError):
@@ -120,7 +128,10 @@ def claim_next_import_job(
 
     candidate = session.execute(
         select(CaliberWorkspaceImportJob)
-        .where(CaliberWorkspaceImportJob.status == IMPORT_JOB_STATUS_QUEUED)
+        .where(
+            CaliberWorkspaceImportJob.status == IMPORT_JOB_STATUS_QUEUED,
+            CaliberWorkspaceImportJob.attempt_count < CaliberWorkspaceImportJob.max_attempts,
+        )
         .order_by(
             CaliberWorkspaceImportJob.created_at.asc(),
             CaliberWorkspaceImportJob.import_job_id.asc(),
@@ -137,6 +148,7 @@ def claim_next_import_job(
             .where(
                 CaliberWorkspaceImportJob.import_job_id == candidate.import_job_id,
                 CaliberWorkspaceImportJob.status == IMPORT_JOB_STATUS_QUEUED,
+                CaliberWorkspaceImportJob.attempt_count < CaliberWorkspaceImportJob.max_attempts,
             )
             .values(
                 status=IMPORT_JOB_STATUS_RUNNING,
@@ -147,6 +159,7 @@ def claim_next_import_job(
                 error_code=None,
                 error_summary=None,
                 completed_at=None,
+                attempt_count=CaliberWorkspaceImportJob.attempt_count + 1,
                 updated_by=worker_id,
             )
         ),
@@ -155,6 +168,65 @@ def claim_next_import_job(
     if claimed.rowcount != 1:
         return None
     return session.get(CaliberWorkspaceImportJob, candidate.import_job_id)
+
+
+def retry_failed_import_job(
+    session: Session,
+    import_job_id: str,
+    *,
+    actor: str,
+    now: datetime | None = None,
+) -> CaliberWorkspaceImportJob:
+    """Deliberately requeue a known failed import while its budget remains.
+
+    Only a terminal ``failed`` outcome is retryable. ``reconcile_required`` is
+    intentionally excluded because a lost worker may have produced an
+    external revision or object; that state needs observation by the later
+    reconcile API before any new attempt is queued. The previous failure
+    details remain visible while the job is queued and are cleared by its next
+    claim.
+    """
+    actor = _validate_worker_id(actor)
+    stamp = _utc_naive(now)
+    requeued = cast(
+        CursorResult[Any],
+        session.execute(
+            update(CaliberWorkspaceImportJob)
+            .where(
+                CaliberWorkspaceImportJob.import_job_id == import_job_id,
+                CaliberWorkspaceImportJob.status == IMPORT_JOB_STATUS_FAILED,
+                CaliberWorkspaceImportJob.attempt_count < CaliberWorkspaceImportJob.max_attempts,
+            )
+            .values(
+                status=IMPORT_JOB_STATUS_QUEUED,
+                claimed_by=None,
+                claimed_at=None,
+                lease_expires_at=None,
+                last_heartbeat_at=None,
+                completed_at=None,
+                updated_at=stamp,
+                updated_by=actor,
+            )
+        ),
+    )
+    session.commit()
+    if requeued.rowcount == 1:
+        job = session.get(CaliberWorkspaceImportJob, import_job_id)
+        if job is None:  # pragma: no cover - the primary-key update proved existence
+            raise WorkspaceImportJobError(f"import job {import_job_id!r} disappeared")
+        return job
+
+    job = session.get(CaliberWorkspaceImportJob, import_job_id)
+    if job is None:
+        raise WorkspaceImportJobError(f"import job {import_job_id!r} was not found")
+    if job.status == IMPORT_JOB_STATUS_FAILED and job.attempt_count >= job.max_attempts:
+        raise WorkspaceImportRetryExhaustedError(
+            f"import job {import_job_id!r} exhausted its {job.max_attempts}-attempt budget"
+        )
+    raise WorkspaceImportTransitionError(
+        f"only failed imports with remaining budget may be retried; "
+        f"job {import_job_id!r} is {job.status!r}"
+    )
 
 
 def heartbeat_import_job(
@@ -328,6 +400,7 @@ def reconcile_expired_import_jobs(
 
 __all__ = [
     "DEFAULT_IMPORT_LEASE_SECONDS",
+    "DEFAULT_IMPORT_MAX_ATTEMPTS",
     "IMPORT_JOB_STATUS_FAILED",
     "IMPORT_JOB_STATUS_QUEUED",
     "IMPORT_JOB_STATUS_RECONCILE_REQUIRED",
@@ -338,9 +411,11 @@ __all__ = [
     "MAX_IMPORT_LEASE_SECONDS",
     "WorkspaceImportJobError",
     "WorkspaceImportLeaseLostError",
+    "WorkspaceImportRetryExhaustedError",
     "WorkspaceImportTransitionError",
     "claim_next_import_job",
     "finish_import_job",
     "heartbeat_import_job",
     "reconcile_expired_import_jobs",
+    "retry_failed_import_job",
 ]

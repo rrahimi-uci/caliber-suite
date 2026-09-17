@@ -14,13 +14,16 @@ from caliber.db.models import (
     CaliberWorkspaceSource,
 )
 from caliber.workspace_imports import (
+    DEFAULT_IMPORT_MAX_ATTEMPTS,
     MAX_IMPORT_ERROR_SUMMARY_CHARS,
     WorkspaceImportLeaseLostError,
+    WorkspaceImportRetryExhaustedError,
     WorkspaceImportTransitionError,
     claim_next_import_job,
     finish_import_job,
     heartbeat_import_job,
     reconcile_expired_import_jobs,
+    retry_failed_import_job,
 )
 
 NOW = datetime(2026, 9, 16, 12, 0, 0)
@@ -49,6 +52,8 @@ def _job(
     project_id: str = "PRJ-import",
     created_at: datetime = NOW,
     status: str = "queued",
+    attempt_count: int = 0,
+    max_attempts: int = DEFAULT_IMPORT_MAX_ATTEMPTS,
 ) -> CaliberWorkspaceImportJob:
     row = CaliberWorkspaceImportJob(
         import_job_id=import_job_id,
@@ -60,6 +65,8 @@ def _job(
         created_by="@author",
         created_at=created_at,
         status=status,
+        attempt_count=attempt_count,
+        max_attempts=max_attempts,
     )
     session.add(row)
     session.flush()
@@ -86,6 +93,8 @@ def test_claim_chooses_oldest_job_and_seeds_lease(db_session: Session) -> None:
     assert claimed.claimed_at == NOW
     assert claimed.last_heartbeat_at == NOW
     assert claimed.lease_expires_at == NOW + timedelta(seconds=45)
+    assert claimed.attempt_count == 1
+    assert claimed.max_attempts == DEFAULT_IMPORT_MAX_ATTEMPTS
 
 
 def test_claim_returns_none_when_queue_is_empty_or_only_nonqueued(db_session: Session) -> None:
@@ -138,7 +147,7 @@ def test_claim_race_has_one_winner(session_factory) -> None:
     assert loser is None
     with session_factory() as session:
         row = session.get(CaliberWorkspaceImportJob, "WSI-race")
-        assert row is not None and row.claimed_by == "rival"
+        assert row is not None and row.claimed_by == "rival" and row.attempt_count == 1
 
 
 @pytest.mark.parametrize(
@@ -315,6 +324,97 @@ def test_finish_failure_requires_bounded_error_code_and_summary(db_session: Sess
     )
     assert failed.status == "failed"
     assert failed.error_code == "manifest_invalid"
+
+
+def test_known_failure_can_be_requeued_once_within_budget(db_session: Session) -> None:
+    _project_and_source(db_session, "PRJ-retry")
+    _job(db_session, "WSI-retry", project_id="PRJ-retry", max_attempts=2)
+    db_session.commit()
+
+    claim_next_import_job(db_session, worker_id="worker-a", now=NOW)
+    finish_import_job(
+        db_session,
+        "WSI-retry",
+        worker_id="worker-a",
+        status="failed",
+        error_code="provider_timeout",
+        error_summary="provider did not respond",
+        now=NOW + timedelta(seconds=1),
+    )
+
+    queued = retry_failed_import_job(
+        db_session,
+        "WSI-retry",
+        actor="operator",
+        now=NOW + timedelta(seconds=2),
+    )
+    assert queued.status == "queued"
+    assert queued.attempt_count == 1
+    assert queued.error_code == "provider_timeout"
+    assert queued.completed_at is None
+    assert queued.last_heartbeat_at is None
+
+    claimed = claim_next_import_job(
+        db_session, worker_id="worker-b", now=NOW + timedelta(seconds=3)
+    )
+    assert claimed is not None and claimed.attempt_count == 2
+    assert claimed.error_code is None
+
+
+def test_retry_exhaustion_and_ambiguous_state_are_not_requeued(db_session: Session) -> None:
+    _project_and_source(db_session, "PRJ-retry-boundary")
+    _job(
+        db_session,
+        "WSI-exhausted",
+        project_id="PRJ-retry-boundary",
+        max_attempts=1,
+    )
+    _job(
+        db_session,
+        "WSI-ambiguous",
+        project_id="PRJ-retry-boundary",
+        created_at=NOW + timedelta(seconds=1),
+    )
+    db_session.commit()
+
+    claim_next_import_job(db_session, worker_id="worker-a", now=NOW)
+    finish_import_job(
+        db_session,
+        "WSI-exhausted",
+        worker_id="worker-a",
+        status="failed",
+        error_code="manifest_invalid",
+        now=NOW + timedelta(seconds=1),
+    )
+    with pytest.raises(WorkspaceImportRetryExhaustedError) as exhausted:
+        retry_failed_import_job(
+            db_session, "WSI-exhausted", actor="operator", now=NOW + timedelta(seconds=2)
+        )
+    assert exhausted.value.code == "import_retry_exhausted"
+
+    claim_next_import_job(db_session, worker_id="worker-b", lease_seconds=1, now=NOW)
+    reconcile_expired_import_jobs(db_session, now=NOW + timedelta(seconds=2))
+    with pytest.raises(WorkspaceImportTransitionError, match="only failed"):
+        retry_failed_import_job(
+            db_session, "WSI-ambiguous", actor="operator", now=NOW + timedelta(seconds=3)
+        )
+
+
+def test_retry_requires_a_bounded_actor(db_session: Session) -> None:
+    _project_and_source(db_session, "PRJ-retry-input")
+    _job(db_session, "WSI-retry-input", project_id="PRJ-retry-input")
+    db_session.commit()
+    claim_next_import_job(db_session, worker_id="worker", now=NOW)
+    finish_import_job(
+        db_session,
+        "WSI-retry-input",
+        worker_id="worker",
+        status="failed",
+        error_code="known_failure",
+        now=NOW + timedelta(seconds=1),
+    )
+    with pytest.raises(ValueError, match="worker_id"):
+        retry_failed_import_job(db_session, "WSI-retry-input", actor="", now=NOW)
 
 
 def test_expired_leases_require_reconciliation_and_are_not_retried(db_session: Session) -> None:
