@@ -2300,9 +2300,9 @@ class CaliberWorkspaceRevisionResource(Base):
 class CaliberWorkspaceImportJob(Base):
     """Durable intent for a source-to-revision import.
 
-    Claim/lease execution is deliberately dormant until P4-B; the row already
-    carries the recovery fields needed by that worker without making provider
-    access part of this schema-only slice.
+    The provider-neutral claim/lease lifecycle lives in
+    :mod:`caliber.workspace_imports`; provider access and source materialization
+    remain separate concerns.
     """
 
     __tablename__ = "caliber_workspace_import_jobs"
