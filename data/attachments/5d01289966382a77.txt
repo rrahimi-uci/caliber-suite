@@ -1,8 +1,0 @@
-WARNING  caliber.observability.worker_registry:worker_registry.py:147 could not record worker heartbeat for w-1
-Traceback (most recent call last):
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/observability/worker_registry.py", line 129, in record_heartbeat
-    row = session.get(CaliberWorkerHeartbeat, worker_id)
-          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_worker_registry.py", line 212, in get
-    raise RuntimeError("database is gone")
-RuntimeError: database is gone
