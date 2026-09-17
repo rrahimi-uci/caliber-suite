@@ -1,0 +1,8 @@
+ERROR    caliber.mlflow_client:mlflow_client.py:134 trace=_StubTrace(info=_StubTraceInfo(experiment_id='2'), feedbacks=[], raise_on_search=True): search_assessments failed; skipping
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/mlflow_client.py", line 132, in list_assessments_since
+    feedbacks = trace.search_assessments(type="feedback")
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_mlflow_client_impl.py", line 65, in search_assessments
+    raise RuntimeError("search_assessments boom")
+RuntimeError: search_assessments boom

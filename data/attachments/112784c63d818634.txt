@@ -1,0 +1,13 @@
+{"t":"2026-09-17T15:07:33.794Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-17T15:07:33.817Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-17T15:07:33.819Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-17T15:07:33.821Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-17T15:07:33.854Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-17T15:07:33.905Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-c8af65ad/import \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-17T15:07:33.916Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-c8af65ad/operations \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-17T15:07:33.929Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-c8af65ad/tool-drafts/generate \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-17T15:07:33.977Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET https://tickets.example.com/tickets/T-1 \"HTTP/1.1 200 OK\"","trace_id":"d9af4c6bf4a19b41"}
+{"t":"2026-09-17T15:07:33.980Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-c8af65ad/tool-drafts/OATD-b854c2d6/preview \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-17T15:07:34.013Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/openapi-integrations/OAI-c8af65ad/tool-drafts/OATD-b854c2d6/publish \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-17T15:07:34.064Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET https://tickets.example.com/tickets/T-1 \"HTTP/1.1 200 OK\"","trace_id":"2c0b7e2dedc4ce4b"}
+{"t":"2026-09-17T15:07:34.067Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-717d1e4c/test-run \"HTTP/1.1 200 OK\""}

@@ -1,0 +1,2 @@
+{"t":"2026-09-17T15:02:16.340Z","severity":"INFO","logger":"caliber.orchestrator.optimizer_select","message":"GEPA selected for job=RFN-GEPA (diagnosis meets GEPA criteria)"}
+{"t":"2026-09-17T15:02:16.350Z","severity":"INFO","logger":"caliber.orchestrator.candidate","message":"candidate complete: job=RFN-GEPA optimizer=GEPA cost_usd=0.0040"}
