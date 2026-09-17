@@ -173,6 +173,16 @@ def test_finalizing_revision_makes_it_immutable(db_session: Session) -> None:
     db_session.rollback()
 
 
+def test_finalizing_revision_requires_a_terminal_status(db_session: Session) -> None:
+    project = _project(db_session, "PRJ-finalize-status")
+    revision = _revision(project.project_id, revision_id="WSR-finalize-status")
+    db_session.add(revision)
+    db_session.commit()
+
+    with pytest.raises(ValueError, match="terminal revision status"):
+        finalize_revision(db_session, revision, "validating")
+
+
 def test_source_and_import_job_schema_is_project_bound_and_closed(db_session: Session) -> None:
     project = _project(db_session, "PRJ-source")
     source = CaliberWorkspaceSource(

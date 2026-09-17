@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
@@ -113,7 +113,26 @@ describe("WorkspaceSelector", () => {
   });
 
   it("creates and selects a workspace without leaving the shell", async () => {
-    vi.mocked(caliberApi.listProjects).mockResolvedValue([]);
+    vi.mocked(caliberApi.listProjects).mockResolvedValue([
+      {
+        project_id: "proj-1",
+        name: "Caliber Logs",
+        description: "",
+        owner: "@ops",
+        status: "active",
+        created_at: null,
+        updated_at: null,
+      },
+      {
+        project_id: "proj-2",
+        name: "Automation",
+        description: "",
+        owner: "@ops",
+        status: "active",
+        created_at: null,
+        updated_at: null,
+      },
+    ]);
     vi.mocked(caliberApi.createProject).mockResolvedValue({
       project_id: "proj-new",
       name: "Document automation",
@@ -128,6 +147,7 @@ describe("WorkspaceSelector", () => {
     const user = userEvent.setup();
 
     renderWithQuery(<WorkspaceSelector />);
+    await screen.findByRole("option", { name: "Caliber Logs" });
     await user.click(screen.getByRole("button", { name: "Create workspace" }));
     await user.type(screen.getByLabelText("Workspace name"), "Document automation");
     await user.click(screen.getByRole("button", { name: "Create and select" }));
@@ -135,6 +155,76 @@ describe("WorkspaceSelector", () => {
     await waitFor(() => expect(caliberApi.createProject).toHaveBeenCalledWith({ name: "Document automation" }));
     expect(getActiveProjectId()).toBe("proj-new");
     expect(screen.getByLabelText("Active workspace")).toHaveValue("proj-new");
+  });
+
+  it("fails safely when the workspace list cannot be loaded", async () => {
+    vi.mocked(caliberApi.listProjects).mockRejectedValue(new Error("offline"));
+
+    renderWithQuery(<WorkspaceSelector />);
+
+    await waitFor(() =>
+      expect(screen.getByLabelText("Active workspace")).toHaveValue(""),
+    );
+    expect(screen.getByRole("option", { name: "All workspaces" })).toBeInTheDocument();
+    expect(screen.getByLabelText("Active workspace").querySelectorAll("option")).toHaveLength(1);
+  });
+
+  it("ignores a project list that resolves after the selector unmounts", async () => {
+    let resolveList: (projects: never[]) => void = () => undefined;
+    const pending = new Promise<never[]>((resolve) => {
+      resolveList = resolve;
+    });
+    vi.mocked(caliberApi.listProjects).mockReturnValue(pending);
+
+    const { unmount } = renderWithQuery(<WorkspaceSelector />);
+    unmount();
+    resolveList([]);
+    await pending;
+  });
+
+  it("keeps the dialog open for an empty submitted name and closes on the backdrop", async () => {
+    vi.mocked(caliberApi.listProjects).mockResolvedValue([]);
+    const user = userEvent.setup();
+
+    renderWithQuery(<WorkspaceSelector />);
+    await user.click(screen.getByRole("button", { name: "Create workspace" }));
+    const dialog = screen.getByRole("dialog");
+    fireEvent.submit(dialog);
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+
+    const overlay = dialog.parentElement;
+    expect(overlay).not.toBeNull();
+    fireEvent.mouseDown(overlay!);
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("keeps the create dialog open and shows the API error when creation fails", async () => {
+    vi.mocked(caliberApi.listProjects).mockResolvedValue([]);
+    vi.mocked(caliberApi.createProject).mockRejectedValue(new Error("workspace exists"));
+    const user = userEvent.setup();
+
+    renderWithQuery(<WorkspaceSelector />);
+    await user.click(screen.getByRole("button", { name: "Create workspace" }));
+    await user.type(screen.getByLabelText("Workspace name"), "Existing workspace");
+    await user.click(screen.getByRole("button", { name: "Create and select" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("workspace exists");
+    expect(screen.getByRole("dialog")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Cancel" }));
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument();
+  });
+
+  it("surfaces non-Error API failures as text", async () => {
+    vi.mocked(caliberApi.listProjects).mockResolvedValue([]);
+    vi.mocked(caliberApi.createProject).mockRejectedValue("workspace exists");
+    const user = userEvent.setup();
+
+    renderWithQuery(<WorkspaceSelector />);
+    await user.click(screen.getByRole("button", { name: "Create workspace" }));
+    await user.type(screen.getByLabelText("Workspace name"), "Existing workspace");
+    await user.click(screen.getByRole("button", { name: "Create and select" }));
+
+    expect(await screen.findByRole("alert")).toHaveTextContent("workspace exists");
   });
 });
 

@@ -100,6 +100,68 @@ def test_canonical_digest_changes_when_content_or_executable_bit_changes() -> No
     assert original.source_bundle_sha256 != changed_mode.source_bundle_sha256
 
 
+def test_media_type_detection_uses_magic_bytes_then_stable_extension_fallback() -> None:
+    materialized = materialize_workspace_source(
+        _zip_bytes(
+            [
+                ("image-without-extension", b"\x89PNG\r\n\x1a\n", False),
+                ("unknown.suffix", b"plain text", False),
+            ]
+        )
+    )
+
+    by_path = {entry.path: entry for entry in materialized.entries}
+    assert by_path["image-without-extension"].media_type == "image/png"
+    assert by_path["unknown.suffix"].media_type == "application/octet-stream"
+
+
+def test_directory_entries_are_ignored_during_materialization() -> None:
+    materialized = materialize_workspace_source(
+        _zip_bytes([("folder/", b"", False), ("folder/file.txt", b"content", False)])
+    )
+
+    assert [entry.path for entry in materialized.entries] == ["folder/file.txt"]
+
+
+@pytest.mark.parametrize(
+    "limit_name",
+    ["max_bundle_bytes", "max_entries", "max_total_bytes", "max_file_bytes", "max_ratio"],
+)
+def test_source_limits_must_be_positive(limit_name: str) -> None:
+    with pytest.raises(ValueError, match="must be positive"):
+        materialize_workspace_source(b"", **{limit_name: 0})
+
+
+def test_entry_read_failures_are_wrapped_as_storage_validation_errors(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def fail_read(_archive: zipfile.ZipFile, _info: zipfile.ZipInfo) -> bytes:
+        raise OSError("corrupt entry")
+
+    monkeypatch.setattr(zipfile.ZipFile, "read", fail_read)
+    with pytest.raises(StorageValidationError, match="failed integrity validation"):
+        materialize_workspace_source(_zip_bytes([("file.txt", b"content", False)]))
+
+
+def test_entry_size_changes_are_rejected(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    def short_read(_archive: zipfile.ZipFile, _info: zipfile.ZipInfo) -> bytes:
+        return b""
+
+    monkeypatch.setattr(zipfile.ZipFile, "read", short_read)
+    with pytest.raises(StorageValidationError, match="size changed"):
+        materialize_workspace_source(_zip_bytes([("file.txt", b"content", False)]))
+
+
+def test_zip_open_failures_are_wrapped_after_member_validation(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.setattr("caliber.workspace_source.safe_zip_members", lambda *args, **kwargs: [])
+    with pytest.raises(StorageValidationError, match="not a valid zip archive"):
+        materialize_workspace_source(b"not a zip archive")
+
+
 def test_snapshot_is_a_fixed_tar_of_sorted_files() -> None:
     materialized = materialize_workspace_source(
         _zip_bytes([("z.txt", b"z", False), ("a.txt", b"a", True)])
