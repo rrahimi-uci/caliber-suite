@@ -111,12 +111,10 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     # mutations here. Global task routes retain their legacy platform-scope
     # policy because those rows predate workspace binding.
     "rework.update": frozenset({ROLE_OWNER, ROLE_EDITOR}),
-    # Everything below except `environment.manage` is reserved for a Phase
-    # 2-5 route family that does not exist in this codebase yet (Change
-    # Requests, version tags, releases/operations). Closing the registry
-    # over the full target vocabulary now means whichever of those routes
-    # lands first is instantly gated correctly, not added to
-    # `PROJECT_ACTIONS` as an afterthought alongside its own PR.
+    # The remaining actions are reserved for later route families (version
+    # tags, releases/operations) or deliberately deferred resource-isolation
+    # work. Closing the registry over the full target vocabulary means each
+    # route is gated correctly when its focused implementation lands.
     "revision.import": frozenset({ROLE_OWNER, ROLE_EDITOR}),
     "revision.create": frozenset({ROLE_OWNER, ROLE_EDITOR}),
     "change_request.create": frozenset({ROLE_OWNER, ROLE_EDITOR}),
