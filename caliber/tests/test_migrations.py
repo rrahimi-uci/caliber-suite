@@ -539,3 +539,60 @@ def test_0096_migrates_legacy_mcp_servers_to_private_visibility(
     finally:
         engine.dispose()
         os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+@pytest.mark.slow
+def test_0099_backfills_workspace_import_attempt_budget(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Existing import jobs receive the safe total-attempt defaults."""
+    db_path = tmp_path / "workspace_import_attempt_budget.db"
+    db_url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+
+    cfg = Config(str(ALEMBIC_INI))
+    monkeypatch.chdir(PROJECT_ROOT)
+    command.upgrade(cfg, "0098")
+
+    engine = create_engine(db_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_projects (project_id, tenant_id, name, owner) "
+                    "VALUES ('PRJ-0099', 'local', 'Import budget', '@owner')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_workspace_sources "
+                    "(source_id, project_id, provider, provider_host, "
+                    "canonical_repository_id, display_path) VALUES "
+                    "('WSS-0099', 'PRJ-0099', 'github', 'github.com', 'repo-0099', "
+                    "'owner/repo')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_workspace_import_jobs "
+                    "(import_job_id, project_id, source_id, repository, commit_sha, "
+                    "idempotency_key) VALUES "
+                    "('WSI-0099', 'PRJ-0099', 'WSS-0099', 'owner/repo', :commit_sha, "
+                    "'import-0099')"
+                ),
+                {"commit_sha": "a" * 40},
+            )
+
+        command.upgrade(cfg, "head")
+
+        with engine.connect() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT attempt_count, max_attempts "
+                    "FROM caliber_workspace_import_jobs WHERE import_job_id = 'WSI-0099'"
+                )
+            ).one()
+            assert tuple(row) == (0, 3)
+    finally:
+        engine.dispose()
+        os.environ.pop("CALIBER_DATABASE_URL", None)
