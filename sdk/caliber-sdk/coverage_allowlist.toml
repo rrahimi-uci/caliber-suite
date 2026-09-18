@@ -103,3 +103,78 @@ path = "/projects/{}/releases/{}/operations/{}:cancel-expired"
 tag = "projects"
 stability = "ga"
 wave = "P6-B"
+
+# `P5-F` release lifecycle routes (create/list/get, evidence, evaluate,
+# quality-signoff/approve, break-glass apply). The server contract ships
+# before typed SDK resources; P6-B owns the typed client closure, matching
+# every other Workspace resource family's own precedent.
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/releases"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/releases"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/releases/{}"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/releases/{}/evidence"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/releases/{}/evaluate"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/releases/{}/evaluations"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/releases/{}/evaluations/{}"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/releases/{}/quality-signoff"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/releases/{}/approve"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/releases/{}/break-glass-apply"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"

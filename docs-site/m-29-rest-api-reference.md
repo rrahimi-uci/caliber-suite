@@ -104,7 +104,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Me (`me`) | `ga` | `1` | Typed SDK | `CaliberClient.whoami()`, `client.me.get()` | Identity and effective scopes for the current credential. |
 | Capabilities (`capabilities`) | `ga` | `1` | Typed SDK | `CaliberClient.capabilities()`, `client.capabilities_info.get()` | Feature flags and SDK stability tiers for the current deployment. |
 | Settings (`settings`) | `ga` | `3` | Typed SDK | `client.settings.runtime()`, `client.settings.llm()` | Runtime configuration summary and LLM credential status. |
-| Projects (`projects`) | `ga` | `64` | Partial (58/64) | `client.projects`, `client.projects.files`, `client.projects.rework_tasks` | Project records, project storage visibility, uploads, folders, downloads, and scoped rework-task recovery. |
+| Projects (`projects`) | `ga` | `74` | Partial (58/74) | `client.projects`, `client.projects.files`, `client.projects.rework_tasks` | Project records, project storage visibility, uploads, folders, downloads, and scoped rework-task recovery. |
 | Prompts (`prompts`) | `ga` | `22` | Typed SDK | `client.prompts` | Prompt registry, versions, and alias promotion. |
 | Skills (`skills`) | `ga` | `19` | Typed SDK | `client.skills` | Skill registry, render checks, selection tests, and versions. |
 | Tools (`tools`) | `ga` | `20` | Typed SDK | `client.tools` | Tool registry plus calibration job submission and polling. |
@@ -162,8 +162,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `371` |
-| Operations | `454` |
+| Route paths | `380` |
+| Operations | `464` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -191,7 +191,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Me (`me`)](#me-me) | `1` | `1` |
 | [Capabilities (`capabilities`)](#capabilities-capabilities) | `1` | `1` |
 | [Settings (`settings`)](#settings-settings) | `3` | `2` |
-| [Projects (`projects`)](#projects-projects) | `64` | `52` |
+| [Projects (`projects`)](#projects-projects) | `74` | `61` |
 | [Prompts (`prompts`)](#prompts-prompts) | `22` | `18` |
 | [Skills (`skills`)](#skills-skills) | `19` | `16` |
 | [Tools (`tools`)](#tools-tools) | `20` | `16` |
@@ -316,7 +316,7 @@ Supported management routes that belong to the stable public automation surface.
 
 #### Projects (`projects`)
 
-64 operation(s) across 52 route path(s).
+74 operation(s) across 61 route path(s).
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
@@ -356,12 +356,22 @@ Supported management routes that belong to the stable public automation surface.
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members` | project role (`project.manage_members`) | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_members`; request body documented in OpenAPI |
 | `DELETE` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members/{user_id}` | project role (`project.manage_members`) | `project_id`, `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_projects_project_id_members_user_id` |
 | `PATCH` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/members/{user_id}` | project role (`project.manage_members`) | `project_id`, `user_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_projects_project_id_members_user_id`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases` | any authenticated user | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_releases` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases` | any authenticated user | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_releases`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}` | any authenticated user | `project_id`, `release_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_releases_release_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}/approve` | any authenticated user | `project_id`, `release_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_releases_release_id_approve`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}/break-glass-apply` | any authenticated user | `project_id`, `release_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_releases_release_id_break_glass_apply`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}/evaluate` | any authenticated user | `project_id`, `release_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_releases_release_id_evaluate`; request body documented in OpenAPI |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}/evaluations` | any authenticated user | `project_id`, `release_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_releases_release_id_evaluations` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}/evaluations/{evaluation_id}` | any authenticated user | `evaluation_id`, `project_id`, `release_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_releases_release_id_evaluations_evaluation_id` |
+| `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}/evidence` | any authenticated user | `project_id`, `release_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_releases_release_id_evidence` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}/operations` | any authenticated user | `project_id`, `release_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_releases_release_id_operations` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}/operations` | `caliber.operator` | `project_id`, `release_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_releases_release_id_operations`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}/operations/{operation_id}` | any authenticated user | `operation_id`, `project_id`, `release_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_releases_release_id_operations_operation_id` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}/operations/{operation_id}:apply` | `caliber.operator` | `operation_id`, `project_id`, `release_id` | `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_releases_release_id_operations_operation_id_apply` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}/operations/{operation_id}:cancel-expired` | `caliber.operator` | `operation_id`, `project_id`, `release_id` | `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_releases_release_id_operations_operation_id_cancel_expired` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}/operations/{operation_id}:observe` | `caliber.operator` | `operation_id`, `project_id`, `release_id` | `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_releases_release_id_operations_operation_id_observe` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/releases/{release_id}/quality-signoff` | any authenticated user | `project_id`, `release_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_releases_release_id_quality_signoff`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/restore` | project role (`project.restore`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_restore` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/revision-imports` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_revision_imports` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/revision-imports` | project role (`revision.import`) | `project_id` | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_revision_imports`; request body documented in OpenAPI |
