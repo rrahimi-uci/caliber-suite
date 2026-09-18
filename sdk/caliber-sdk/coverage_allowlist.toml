@@ -56,52 +56,9 @@ method = "GET"
 path = "/metrics"
 reason = "Prometheus text exposition, not JSON -- belongs to a scraper, not a client."
 
-# P4-C provider-neutral Workspace source-control-configuration routes. The
-# import/revision half of this same server contract is now covered by
-# ProjectImportsAPI/ProjectRevisionsAPI (P6-B); source get/configure/enable/
-# disable/capabilities/reconcile remains a tracked gap for a later P6-B slice.
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/source"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "PUT"
-path = "/projects/{}/source"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/source:enable"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/source:disable"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/source/capabilities"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/source:reconcile"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
+# P4-C provider-neutral Workspace source-control-configuration routes are now
+# covered by ProjectSourceAPI, alongside ProjectImportsAPI/ProjectRevisionsAPI
+# (all P6-B).
 
 # P4-D native Change Request/review/version-tag routes. The server contract
 # ships before typed SDK resources; P6-B owns the typed client closure.

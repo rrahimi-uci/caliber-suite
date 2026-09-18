@@ -53,6 +53,56 @@ class WorkspaceImportJob:
 
 
 @dataclass
+class WorkspaceSource:
+    """A project's configured Git-backed source-control binding."""
+
+    source_id: str = ""
+    project_id: str = ""
+    provider: str = ""
+    provider_host: str = ""
+    canonical_repository_id: str = ""
+    display_path: str = ""
+    default_branch: str = ""
+    root_path: str = ""
+    manifest_path: str = ""
+    import_mode: str = ""
+    status: str = ""
+    has_connection: bool = False
+    external_review_policy_version: str = ""
+    provider_ruleset_sha256: str | None = None
+    last_verified_at: str | None = None
+    last_reconciled_at: str | None = None
+    updated_at: str | None = None
+    etag: str = ""
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceSourceState:
+    """Source mode plus its optional configured binding.
+
+    ``source`` is ``None`` for a ``caliber_managed`` project -- one that has
+    never called :meth:`~caliber_sdk.resources.projects.ProjectSourceAPI.configure`.
+    """
+
+    source_mode: str = "caliber_managed"
+    source: WorkspaceSource | None = None
+
+
+@dataclass
+class WorkspaceSourceCapabilities:
+    """Provider-neutral capability snapshot; never includes credentials."""
+
+    source_id: str = ""
+    provider: str = ""
+    provider_host: str = ""
+    available: bool = False
+    capabilities: dict[str, Any] = field(default_factory=dict)
+    reason: str | None = None
+    last_verified_at: str | None = None
+
+
+@dataclass
 class WorkspaceImportReconciliation:
     """An explicit observation of an ambiguous local import snapshot."""
 
@@ -129,4 +179,7 @@ __all__ = [
     "WorkspaceRevision",
     "WorkspaceRevisionDiff",
     "WorkspaceRevisionResource",
+    "WorkspaceSource",
+    "WorkspaceSourceCapabilities",
+    "WorkspaceSourceState",
 ]

@@ -90,6 +90,9 @@ from .workspace import (
     WorkspaceRevision,
     WorkspaceRevisionDiff,
     WorkspaceRevisionResource,
+    WorkspaceSource,
+    WorkspaceSourceCapabilities,
+    WorkspaceSourceState,
 )
 
 __all__ = [
@@ -168,6 +171,9 @@ __all__ = [
     "WorkspaceRevision",
     "WorkspaceRevisionDiff",
     "WorkspaceRevisionResource",
+    "WorkspaceSource",
+    "WorkspaceSourceCapabilities",
+    "WorkspaceSourceState",
     "decode",
     "decode_list",
 ]

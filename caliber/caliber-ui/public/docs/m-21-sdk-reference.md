@@ -200,6 +200,7 @@ Every documented class and module-level function, with the module that defines i
 | [`ProjectRevisionsAPI`](#projectrevisionsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectReworkTasksAPI`](#projectreworktasksapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectsAPI`](#projectsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
+| [`ProjectSourceAPI`](#projectsourceapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`Prompt`](#prompt) | [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets) |
 | [`PromptsAPI`](#promptsapi) | [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets) |
 
@@ -293,6 +294,9 @@ Every documented class and module-level function, with the module that defines i
 | [`WorkspaceRevision`](#workspacerevision) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceRevisionDiff`](#workspacerevisiondiff) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceRevisionResource`](#workspacerevisionresource) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceSource`](#workspacesource) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceSourceCapabilities`](#workspacesourcecapabilities) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceSourceState`](#workspacesourcestate) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 
 ## Package index
 
@@ -1914,7 +1918,7 @@ sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
 
 **Public exports**
 
-`ProjectFilesAPI`, `ProjectImportsAPI`, `ProjectRevisionsAPI`, `ProjectReworkTasksAPI`, `ProjectsAPI`, `WorkspacesAPI`
+`ProjectFilesAPI`, `ProjectImportsAPI`, `ProjectRevisionsAPI`, `ProjectReworkTasksAPI`, `ProjectSourceAPI`, `ProjectsAPI`, `WorkspacesAPI`
 
 #### Classes
 
@@ -2007,6 +2011,136 @@ Raw bytes. Not JSON, so it bypasses the envelope entirely.
 | `file_id` | positional-or-keyword | `str` | `—` |
 
 **Returns:** `bytes`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `ProjectSourceAPI`
+
+`class ProjectSourceAPI()`
+
+A project's Git-backed source-control binding (`P6-B`).
+
+Every mutation is optimistic-concurrency-checked with an ``If-Match``
+etag, mirroring the server's own contract: a stale write 412s rather
+than silently overwriting a change another caller just made. Read the
+current binding with :meth:`get`, pass its ``.source.etag`` back as
+``if_match``.
+
+**Methods**
+
+###### `get(project_id: str) -> WorkspaceSourceState`
+
+Fetch one record from the project source surface identified by `project_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceSourceState`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `configure(project_id: str, *, provider: str, provider_host: str, canonical_repository_id: str, display_path: str, default_branch: str = 'main', root_path: str = '', manifest_path: str = '.caliber/workspace.yaml', import_mode: str = 'push', connection_ref: str | None = None, if_match: str | None = None) -> WorkspaceSourceState`
+
+Bind or replace this project's source-of-truth repository.
+
+``if_match`` must be omitted the first time a project has no source
+configured yet, and must carry the existing binding's ``etag`` to
+replace one that already exists -- passing one when there is
+nothing to match, or omitting it when there is, both 412.
+Replacing an existing binding also requires it to be disabled
+first (:meth:`disable`).
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `provider` | keyword-only | `str` | `—` |
+| `provider_host` | keyword-only | `str` | `—` |
+| `canonical_repository_id` | keyword-only | `str` | `—` |
+| `display_path` | keyword-only | `str` | `—` |
+| `default_branch` | keyword-only | `str` | `'main'` |
+| `root_path` | keyword-only | `str` | `''` |
+| `manifest_path` | keyword-only | `str` | `'.caliber/workspace.yaml'` |
+| `import_mode` | keyword-only | `str` | `'push'` |
+| `connection_ref` | keyword-only | `str | None` | `None` |
+| `if_match` | keyword-only | `str | None` | `None` |
+
+**Returns:** `WorkspaceSourceState`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `enable(project_id: str, *, if_match: str) -> WorkspaceSourceState`
+
+Verify the binding against its provider and make it importable.
+
+Each transition method calls its own literal path (rather than
+sharing one helper parameterized on the action) so
+``docs-site/sdk_coverage.py``'s static source-text scan -- which
+matches a literal ``f"...".`` after ``self._post(``, not a
+runtime-built path -- can see it as covered.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `if_match` | keyword-only | `str` | `—` |
+
+**Returns:** `WorkspaceSourceState`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `disable(project_id: str, *, if_match: str) -> WorkspaceSourceState`
+
+Operate on the project source surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `if_match` | keyword-only | `str` | `—` |
+
+**Returns:** `WorkspaceSourceState`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `reconcile(project_id: str, *, if_match: str) -> WorkspaceSourceState`
+
+Re-verify an already-enabled binding against its provider.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `if_match` | keyword-only | `str` | `—` |
+
+**Returns:** `WorkspaceSourceState`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `capabilities(project_id: str) -> WorkspaceSourceCapabilities`
+
+What the bound provider supports, without needing credentials.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceSourceCapabilities`
 
 **Raises:**
 
@@ -2299,6 +2433,7 @@ Operate on the projects surface with the supplied arguments and return the serve
 | --- | --- | --- |
 | `files` | `ProjectFilesAPI` | — |
 | `rework_tasks` | `ProjectReworkTasksAPI` | Owned, recoverable work auto-created from a rejected refinement job. |
+| `source` | `ProjectSourceAPI` | — |
 | `imports` | `ProjectImportsAPI` | — |
 | `revisions` | `ProjectRevisionsAPI` | — |
 
@@ -9607,7 +9742,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceEnvironment`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceEnvironment`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -11240,7 +11375,7 @@ Typed models for the Workspace revision/import lifecycle (`P6-B`).
 
 **Public exports**
 
-`IMPORT_JOB_TERMINAL_STATES`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`
+`IMPORT_JOB_TERMINAL_STATES`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`
 
 #### Classes
 
@@ -11290,6 +11425,70 @@ Operate on the workspace import job surface with the supplied arguments and retu
 This callable takes no public parameters.
 
 **Returns:** `bool`
+
+##### `WorkspaceSource`
+
+`class WorkspaceSource()`
+
+A project's configured Git-backed source-control binding.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `source_id` | `str` | `''` |
+| `project_id` | `str` | `''` |
+| `provider` | `str` | `''` |
+| `provider_host` | `str` | `''` |
+| `canonical_repository_id` | `str` | `''` |
+| `display_path` | `str` | `''` |
+| `default_branch` | `str` | `''` |
+| `root_path` | `str` | `''` |
+| `manifest_path` | `str` | `''` |
+| `import_mode` | `str` | `''` |
+| `status` | `str` | `''` |
+| `has_connection` | `bool` | `False` |
+| `external_review_policy_version` | `str` | `''` |
+| `provider_ruleset_sha256` | `str | None` | `None` |
+| `last_verified_at` | `str | None` | `None` |
+| `last_reconciled_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `etag` | `str` | `''` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceSourceState`
+
+`class WorkspaceSourceState()`
+
+Source mode plus its optional configured binding.
+
+``source`` is ``None`` for a ``caliber_managed`` project -- one that has
+never called :meth:`~caliber_sdk.resources.projects.ProjectSourceAPI.configure`.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `source_mode` | `str` | `'caliber_managed'` |
+| `source` | `WorkspaceSource | None` | `None` |
+
+##### `WorkspaceSourceCapabilities`
+
+`class WorkspaceSourceCapabilities()`
+
+Provider-neutral capability snapshot; never includes credentials.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `source_id` | `str` | `''` |
+| `provider` | `str` | `''` |
+| `provider_host` | `str` | `''` |
+| `available` | `bool` | `False` |
+| `capabilities` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `reason` | `str | None` | `None` |
+| `last_verified_at` | `str | None` | `None` |
 
 ##### `WorkspaceImportReconciliation`
 
