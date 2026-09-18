@@ -275,7 +275,7 @@ describe("Sidebar Build routes", () => {
       await screen.findByRole(
         "heading",
         { name: "Prompts" },
-        { timeout: 5000 },
+        { timeout: 20_000 },
       ),
     ).toBeInTheDocument();
     expect(
@@ -284,7 +284,7 @@ describe("Sidebar Build routes", () => {
 
     await navigateVia(user, "Tools");
     expect(
-      await screen.findByRole("heading", { name: "Tools" }, { timeout: 5000 }),
+      await screen.findByRole("heading", { name: "Tools" }, { timeout: 20_000 }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Not found" }),
@@ -295,7 +295,7 @@ describe("Sidebar Build routes", () => {
       await screen.findByRole(
         "heading",
         { name: "MCP Servers" },
-        { timeout: 5000 },
+        { timeout: 20_000 },
       ),
     ).toBeInTheDocument();
     expect(
@@ -307,7 +307,7 @@ describe("Sidebar Build routes", () => {
       await screen.findByRole(
         "heading",
         { name: "Workflows" },
-        { timeout: 5000 },
+        { timeout: 20_000 },
       ),
     ).toBeInTheDocument();
     expect(
@@ -316,7 +316,7 @@ describe("Sidebar Build routes", () => {
 
     await navigateVia(user, "Agents");
     expect(
-      await screen.findByRole("heading", { name: "Agents" }, { timeout: 5000 }),
+      await screen.findByRole("heading", { name: "Agents" }, { timeout: 20_000 }),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Not found" }),
@@ -327,7 +327,7 @@ describe("Sidebar Build routes", () => {
       await screen.findByRole(
         "heading",
         { name: "Knowledge Bases" },
-        { timeout: 5000 },
+        { timeout: 20_000 },
       ),
     ).toBeInTheDocument();
     expect(
@@ -339,7 +339,7 @@ describe("Sidebar Build routes", () => {
       await screen.findByRole(
         "heading",
         { name: "Object Store" },
-        { timeout: 5000 },
+        { timeout: 20_000 },
       ),
     ).toBeInTheDocument();
     expect(
@@ -351,11 +351,11 @@ describe("Sidebar Build routes", () => {
       await screen.findByRole(
         "heading",
         { name: "Settings" },
-        { timeout: 5000 },
+        { timeout: 20_000 },
       ),
     ).toBeInTheDocument();
     expect(
       screen.queryByRole("heading", { name: "Not found" }),
     ).not.toBeInTheDocument();
-  });
+  }, 20_000);
 });

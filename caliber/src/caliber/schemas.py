@@ -2292,12 +2292,8 @@ class ProjectTransferOwnershipRequest(BaseModel):
 class WorkspaceEnvironmentSchema(BaseModel):
     """One of a project's four fixed environments (`P1-A`/`P1-F`).
 
-    Section 9.2's remaining release/operation-tracking columns
-    (``current_release_id``, ``pending_operation_id``, ``policy``/
-    ``policy_sha256``, ``lock_version``) are not modelled yet -- nothing
-    consumes them until Phase 5's release machinery exists (see
-    ``db/models.py::CaliberWorkspaceEnvironment``'s own docstring), so
-    they are not on this schema either. ``access_role``/``permissions``
+    ``current_release_id`` and ``pending_operation_id`` are durable pointers,
+    not provider-derived status. ``access_role``/``permissions``
     are the same effective-capability projection ``ProjectSchema``
     already returns (Phase 1 item 11) -- an environment has no separate,
     per-environment role in this MVP (section 2.1), so these mirror the
@@ -2311,6 +2307,11 @@ class WorkspaceEnvironmentSchema(BaseModel):
     promotion_order: int
     status: str
     recovery_policy_enabled: bool = False
+    current_release_id: str | None = None
+    pending_operation_id: str | None = None
+    operation_state: Literal["idle", "applying", "reconcile_required"] = "idle"
+    policy_sha256: str = ""
+    lock_version: int = 1
     created_by: str
     created_at: str | None = None
     updated_at: str | None = None
@@ -2921,6 +2922,18 @@ class WorkspaceReleaseOperationSchema(BaseModel):
     error_summary: str | None = None
     created_at: datetime | None = None
     updated_at: datetime | None = None
+
+
+class WorkspaceReleaseOperationCreateRequest(BaseModel):
+    """Intent request for one Workspace apply or rollback operation."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    kind: Literal["apply", "rollback"]
+    idempotency_key: str = Field(min_length=1, max_length=256)
+    expected_environment_lock_version: int = Field(ge=1)
+    expected_current_release_id: str | None = Field(default=None, max_length=64)
+    target_release_id: str | None = Field(default=None, max_length=64)
 
 
 class WorkspaceReleaseOperationItemSchema(BaseModel):

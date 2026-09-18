@@ -63,6 +63,7 @@ from caliber.routes import (
     workflows,
     workspace,
     workspace_change_requests,
+    workspace_release_operations,
 )
 from caliber.routes import (
     secrets as secrets_routes,
@@ -97,6 +98,7 @@ def register_routes(app: Starlette) -> None:  # noqa: PLR0915 - one call per rou
     verification.register(app)
     workspace.register(app)
     workspace_change_requests.register(app)
+    workspace_release_operations.register(app)
     aria_plans.register(app)
     jobs.register(app)
     rework_tasks.register(app)
