@@ -2854,6 +2854,33 @@ uncovered.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `wait(project_id: str, release_id: str, operation_id: str, *, timeout: float = 900.0, **options) -> WorkspaceReleaseOperationResult`
+
+Poll until an apply or rollback operation reaches a terminal state.
+
+``reconcile_required`` counts as terminal here for the same reason it
+does for :meth:`ProjectImportsAPI.wait` -- it will never advance on
+its own, so a caller who only waited for ``applied``/``failed``
+would block until timeout on the one outcome that needs
+:meth:`observe` called, not more waiting.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `operation_id` | positional-or-keyword | `str` | `—` |
+| `timeout` | keyword-only | `float` | `900.0` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `WorkspaceReleaseOperationResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
+
 ##### `ProjectReleasesAPI`
 
 `class ProjectReleasesAPI()`
@@ -3015,6 +3042,25 @@ Operate on the project releases surface with the supplied arguments and return t
 
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
+
+###### `wait_for_evaluation(project_id: str, release_id: str, evaluation_id: str, *, timeout: float = 900.0, **options) -> WorkspaceReleaseEvaluation`
+
+Poll until the evaluation attempt reaches ``succeeded`` or ``failed``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `evaluation_id` | positional-or-keyword | `str` | `—` |
+| `timeout` | keyword-only | `float` | `900.0` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `WorkspaceReleaseEvaluation`
+
+**Raises:**
+
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
 
 ###### `quality_signoff(project_id: str, release_id: str, *, decision: str, gate_evidence_sha256: str, rationale: str = '', change_request_head_id: str | None = None) -> WorkspaceReleaseDecision`
 
@@ -10527,7 +10573,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceEnvironment`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`, `WorkspaceVersionTag`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `RELEASE_EVALUATION_TERMINAL_STATES`, `RELEASE_OPERATION_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceEnvironment`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`, `WorkspaceVersionTag`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -12160,7 +12206,7 @@ Typed models for the Workspace revision/import lifecycle (`P6-B`).
 
 **Public exports**
 
-`IMPORT_JOB_TERMINAL_STATES`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`, `WorkspaceVersionTag`
+`IMPORT_JOB_TERMINAL_STATES`, `RELEASE_EVALUATION_TERMINAL_STATES`, `RELEASE_OPERATION_TERMINAL_STATES`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`, `WorkspaceVersionTag`
 
 #### Classes
 
@@ -12641,6 +12687,16 @@ One durable evaluation attempt against a release's pinned digests.
 | `completed_at` | `str | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
+**Properties**
+
+###### `is_terminal() -> bool`
+
+Operate on the workspace release evaluation surface with the supplied arguments and return the server response.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
 ##### `WorkspaceReleaseEvidence`
 
 `class WorkspaceReleaseEvidence()`
@@ -12747,6 +12803,16 @@ One durable apply-or-rollback intent against a release
 | `updated_at` | `str | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
+**Properties**
+
+###### `is_terminal() -> bool`
+
+Operate on the workspace release operation surface with the supplied arguments and return the server response.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
 ##### `WorkspaceReleaseOperationItem`
 
 `class WorkspaceReleaseOperationItem()`
@@ -12790,6 +12856,16 @@ create/get/apply/observe/cancel-expired call on
 | --- | --- | --- |
 | `operation` | `WorkspaceReleaseOperation` | `field(default_factory=WorkspaceReleaseOperation)` |
 | `items` | `list[WorkspaceReleaseOperationItem]` | `field(default_factory=list)` |
+
+**Properties**
+
+###### `is_terminal() -> bool`
+
+Operate on the workspace release operation result surface with the supplied arguments and return the server response.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
 
 ### Module `caliber_sdk.models.errors`
 

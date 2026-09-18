@@ -85,6 +85,8 @@ from .workflows import (
 )
 from .workspace import (
     IMPORT_JOB_TERMINAL_STATES,
+    RELEASE_EVALUATION_TERMINAL_STATES,
+    RELEASE_OPERATION_TERMINAL_STATES,
     WorkspaceBreakGlassApplyResult,
     WorkspaceChangeRequest,
     WorkspaceChangeRequestCheck,
@@ -114,6 +116,8 @@ from .workspace import (
 __all__ = [
     "FAILED_RUN_STATES",
     "IMPORT_JOB_TERMINAL_STATES",
+    "RELEASE_EVALUATION_TERMINAL_STATES",
+    "RELEASE_OPERATION_TERMINAL_STATES",
     "STABILITY_BETA",
     "STABILITY_GA",
     "STABILITY_INTERNAL",

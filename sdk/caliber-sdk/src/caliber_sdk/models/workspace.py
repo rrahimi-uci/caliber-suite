@@ -15,6 +15,18 @@ from typing import Any
 #: their own -- a caller waiting past one of these would block until timeout.
 IMPORT_JOB_TERMINAL_STATES = frozenset({"succeeded", "failed", "reconcile_required"})
 
+#: ``WorkspaceReleaseEvaluationSchema.status`` values a worker will never
+#: move past on its own.
+RELEASE_EVALUATION_TERMINAL_STATES = frozenset({"succeeded", "failed"})
+
+#: ``WorkspaceReleaseOperationSchema.status`` values that will never advance
+#: on their own. ``reconcile_required`` is terminal for the same reason it is
+#: for :class:`WorkspaceImportJob` -- it needs a caller to act
+#: (:meth:`ProjectReleaseOperationsAPI.observe`), not more waiting.
+RELEASE_OPERATION_TERMINAL_STATES = frozenset(
+    {"applied", "failed", "reconcile_required", "cancelled"}
+)
+
 
 @dataclass
 class WorkspaceImportJob:
@@ -401,6 +413,10 @@ class WorkspaceReleaseEvaluation:
     completed_at: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in RELEASE_EVALUATION_TERMINAL_STATES
+
 
 @dataclass
 class WorkspaceReleaseEvidence:
@@ -488,6 +504,10 @@ class WorkspaceReleaseOperation:
     updated_at: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
+    @property
+    def is_terminal(self) -> bool:
+        return self.status in RELEASE_OPERATION_TERMINAL_STATES
+
 
 @dataclass
 class WorkspaceReleaseOperationItem:
@@ -522,9 +542,15 @@ class WorkspaceReleaseOperationResult:
     operation: WorkspaceReleaseOperation = field(default_factory=WorkspaceReleaseOperation)
     items: list[WorkspaceReleaseOperationItem] = field(default_factory=list)
 
+    @property
+    def is_terminal(self) -> bool:
+        return self.operation.is_terminal
+
 
 __all__ = [
     "IMPORT_JOB_TERMINAL_STATES",
+    "RELEASE_EVALUATION_TERMINAL_STATES",
+    "RELEASE_OPERATION_TERMINAL_STATES",
     "WorkspaceBreakGlassApplyResult",
     "WorkspaceChangeRequest",
     "WorkspaceChangeRequestCheck",

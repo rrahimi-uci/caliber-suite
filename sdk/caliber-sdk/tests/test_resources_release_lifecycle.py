@@ -439,3 +439,51 @@ def test_apply_observe_cancel_expired_hit_their_own_literal_paths() -> None:
         "/projects/PRJ-1/releases/WRL-1/operations/WRO-1:observe",
         "/projects/PRJ-1/releases/WRL-1/operations/WRO-1:cancel-expired",
     ]
+
+
+# --- waiters -----------------------------------------------------------------
+
+
+def test_wait_for_evaluation_polls_past_non_terminal_states() -> None:
+    states = iter(["queued", "running", "succeeded"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope({**_EVALUATION, "status": next(states)})
+
+    with client_with(handler) as caliber:
+        evaluation = caliber.workspaces.releases.wait_for_evaluation(
+            "PRJ-1", "WRL-1", "WRE-1", interval=0.001, max_interval=0.001, timeout=5
+        )
+
+    assert evaluation.status == "succeeded"
+    assert evaluation.is_terminal
+
+
+def test_operations_wait_polls_past_non_terminal_states() -> None:
+    states = iter(["prepared", "applying", "applied"])
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope({"operation": {**_OPERATION, "status": next(states)}, "items": []})
+
+    with client_with(handler) as caliber:
+        result = caliber.workspaces.release_operations.wait(
+            "PRJ-1", "WRL-1", "WRO-1", interval=0.001, max_interval=0.001, timeout=5
+        )
+
+    assert result.operation.status == "applied"
+    assert result.is_terminal
+
+
+def test_operations_wait_treats_reconcile_required_as_terminal() -> None:
+    """It will never advance on its own -- a waiter must not block past it."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope({"operation": {**_OPERATION, "status": "reconcile_required"}, "items": []})
+
+    with client_with(handler) as caliber:
+        result = caliber.workspaces.release_operations.wait(
+            "PRJ-1", "WRL-1", "WRO-1", interval=0.001, max_interval=0.001, timeout=5
+        )
+
+    assert result.operation.status == "reconcile_required"
+    assert result.is_terminal
