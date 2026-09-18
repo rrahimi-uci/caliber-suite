@@ -339,8 +339,193 @@ class WorkspaceVersionTag:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class WorkspaceRelease:
+    """A Workspace release's evaluation/decision state machine record
+    (`P5-A` through `P5-F`) -- ``draft`` -> ``evaluating`` ->
+    ``{blocked, rejected, approved, awaiting_quality_signoff}`` ->
+    ``awaiting_approval`` -> ``{approved, rejected}``."""
+
+    release_id: str = ""
+    project_id: str = ""
+    revision_id: str = ""
+    environment_id: str = ""
+    change_request_id: str | None = None
+    change_request_head_id: str | None = None
+    version_tag_id: str | None = None
+    predecessor_release_id: str | None = None
+    environment_config_sha256: str = ""
+    runtime_dependencies_sha256: str = ""
+    policy_sha256: str = ""
+    request_idempotency_key: str = ""
+    evaluation_evidence_sha256: str | None = None
+    decision_set_sha256: str | None = None
+    status: str = ""
+    requested_by: str = ""
+    requested_at: str | None = None
+    evaluated_by: str | None = None
+    evaluated_at: str | None = None
+    lock_version: int = 0
+    error_code: str | None = None
+    error_summary: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceReleaseEvaluation:
+    """One durable evaluation attempt against a release's pinned digests."""
+
+    evaluation_id: str = ""
+    runtime_lineage_id: str | None = None
+    project_id: str = ""
+    workspace_release_id: str = ""
+    idempotency_key: str = ""
+    evaluation_plan_sha256: str = ""
+    input_sha256: str = ""
+    status: str = ""
+    attempt_number: int = 0
+    claimed_by: str | None = None
+    lease_expires_at: str | None = None
+    heartbeat_at: str | None = None
+    linked_evaluation_run_ids: list[str] = field(default_factory=list)
+    gate_verdict_id: str | None = None
+    error_code: str | None = None
+    error_summary: str | None = None
+    requested_by: str = ""
+    requested_at: str | None = None
+    started_by: str | None = None
+    started_at: str | None = None
+    completed_by: str | None = None
+    completed_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceReleaseEvidence:
+    """One piece of evidence (an evaluation run, a gate verdict, ...) recorded
+    against a release, some of which a decision must reference to be valid."""
+
+    evidence_id: str = ""
+    workspace_release_id: str = ""
+    runtime_lineage_id: str | None = None
+    kind: str = ""
+    evidence_ref: str = ""
+    evidence_sha256: str = ""
+    required: bool = False
+    recorded_by: str = ""
+    recorded_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceReleaseDecision:
+    """A digest-bound quality or release go/no-go decision, snapshotting the
+    deciding actor's role and scopes at decision time."""
+
+    decision_id: str = ""
+    workspace_release_id: str = ""
+    kind: str = ""
+    decision: str = ""
+    change_request_head_id: str | None = None
+    rationale: str = ""
+    decided_by: str = ""
+    actor_role_snapshot: dict[str, Any] = field(default_factory=dict)
+    effective_scope_snapshot: dict[str, Any] = field(default_factory=dict)
+    revision_sha256: str = ""
+    environment_config_sha256: str = ""
+    runtime_dependencies_sha256: str = ""
+    gate_evidence_sha256: str = ""
+    policy_sha256: str = ""
+    created_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceBreakGlassApplyResult:
+    """What a break-glass apply call actually returns.
+
+    Deliberately thin: the server hands back only enough to look up the
+    resulting authorization and operation (``authorization_id``,
+    ``operation_id``), not the full authorization record -- fetch that
+    separately if needed rather than expecting it to ride along here.
+    """
+
+    authorization_id: str = ""
+    operation_id: str = ""
+
+
+@dataclass
+class WorkspaceReleaseOperation:
+    """One durable apply-or-rollback intent against a release
+    (`P5-C`), executed and reconciled through :class:`ProjectReleaseOperationsAPI`."""
+
+    operation_id: str = ""
+    project_id: str = ""
+    workspace_release_id: str = ""
+    environment_id: str = ""
+    runtime_lineage_id: str | None = None
+    kind: str = ""
+    target_release_id: str | None = None
+    idempotency_key: str = ""
+    expected_current_release_id: str | None = None
+    expected_environment_lock_version: int = 0
+    status: str = ""
+    lock_version: int = 0
+    requested_by: str = ""
+    requested_at: str | None = None
+    applied_by: str | None = None
+    applied_at: str | None = None
+    completed_by: str | None = None
+    completed_at: str | None = None
+    observation_count: int = 0
+    last_observed_at: str | None = None
+    break_glass_authorization_id: str | None = None
+    error_code: str | None = None
+    error_summary: str | None = None
+    created_at: str | None = None
+    updated_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceReleaseOperationItem:
+    """One resource-level step (bind/promote/activate/publish/verify) within
+    a release operation, tracked separately since a partial failure leaves
+    some items applied and others not."""
+
+    operation_item_id: str = ""
+    workspace_release_operation_id: str = ""
+    revision_resource_id: str = ""
+    action: str = ""
+    target_ref: str = ""
+    before_ref: str | None = None
+    after_ref: str | None = None
+    status: str = ""
+    provider_operation_ref: str | None = None
+    provider_result: dict[str, Any] | None = None
+    started_at: str | None = None
+    completed_at: str | None = None
+    error_code: str | None = None
+    error_summary: str | None = None
+    created_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceReleaseOperationResult:
+    """An operation plus its per-resource items, the shape every
+    create/get/apply/observe/cancel-expired call on
+    :class:`ProjectReleaseOperationsAPI` returns."""
+
+    operation: WorkspaceReleaseOperation = field(default_factory=WorkspaceReleaseOperation)
+    items: list[WorkspaceReleaseOperationItem] = field(default_factory=list)
+
+
 __all__ = [
     "IMPORT_JOB_TERMINAL_STATES",
+    "WorkspaceBreakGlassApplyResult",
     "WorkspaceChangeRequest",
     "WorkspaceChangeRequestCheck",
     "WorkspaceChangeRequestComment",
@@ -350,6 +535,13 @@ __all__ = [
     "WorkspaceExternalReviewAttestation",
     "WorkspaceImportJob",
     "WorkspaceImportReconciliation",
+    "WorkspaceRelease",
+    "WorkspaceReleaseDecision",
+    "WorkspaceReleaseEvaluation",
+    "WorkspaceReleaseEvidence",
+    "WorkspaceReleaseOperation",
+    "WorkspaceReleaseOperationItem",
+    "WorkspaceReleaseOperationResult",
     "WorkspaceRevision",
     "WorkspaceRevisionDiff",
     "WorkspaceRevisionResource",

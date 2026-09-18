@@ -3,11 +3,13 @@
 Every other resource can be scoped to a project via the ``X-CALIBER-Project``
 header, which the client sets for you. This module manages the projects
 themselves, the files they hold, and (`P6-B`) the Git-backed source binding,
-source-to-revision import/revision lifecycle, and Change Request review
-flow: :class:`ProjectSourceAPI`, :class:`ProjectImportsAPI`,
-:class:`ProjectRevisionsAPI`, :class:`ProjectChangeRequestsAPI` and
-:class:`ProjectVersionTagsAPI`, exposed as ``ProjectsAPI.source``/
-``.imports``/``.revisions``/``.change_requests``/``.version_tags``.
+source-to-revision import/revision lifecycle, Change Request review flow,
+and environment release lifecycle: :class:`ProjectSourceAPI`,
+:class:`ProjectImportsAPI`, :class:`ProjectRevisionsAPI`,
+:class:`ProjectChangeRequestsAPI`, :class:`ProjectVersionTagsAPI`,
+:class:`ProjectReleasesAPI` and :class:`ProjectReleaseOperationsAPI`, exposed
+as ``ProjectsAPI.source``/``.imports``/``.revisions``/``.change_requests``/
+``.version_tags``/``.releases``/``.release_operations``.
 """
 
 from __future__ import annotations
@@ -21,6 +23,7 @@ from ..models.common import CursorPage
 from ..models.core import Project, ProjectFile, ProjectFolder, ProjectMember, WorkspaceEnvironment
 from ..models.operations import ReworkTask
 from ..models.workspace import (
+    WorkspaceBreakGlassApplyResult,
     WorkspaceChangeRequest,
     WorkspaceChangeRequestCheck,
     WorkspaceChangeRequestComment,
@@ -30,6 +33,13 @@ from ..models.workspace import (
     WorkspaceExternalReviewAttestation,
     WorkspaceImportJob,
     WorkspaceImportReconciliation,
+    WorkspaceRelease,
+    WorkspaceReleaseDecision,
+    WorkspaceReleaseEvaluation,
+    WorkspaceReleaseEvidence,
+    WorkspaceReleaseOperation,
+    WorkspaceReleaseOperationItem,
+    WorkspaceReleaseOperationResult,
     WorkspaceRevision,
     WorkspaceRevisionDiff,
     WorkspaceRevisionResource,
@@ -93,6 +103,40 @@ def _decode_change_request(payload: Any) -> WorkspaceChangeRequest:
     head_payload = payload.get("current_head") if isinstance(payload, dict) else None
     request.current_head = decode(WorkspaceChangeRequestHead, head_payload)
     return request
+
+
+def _decode_operation_result(payload: Any) -> WorkspaceReleaseOperationResult:
+    operation_payload = payload.get("operation") if isinstance(payload, dict) else None
+    items_payload = payload.get("items") if isinstance(payload, dict) else None
+    return WorkspaceReleaseOperationResult(
+        operation=decode(WorkspaceReleaseOperation, operation_payload),
+        items=decode_list(WorkspaceReleaseOperationItem, items_payload),
+    )
+
+
+def _offset_params(limit: int | None, offset: int | None, **extra: Any) -> dict[str, Any] | None:
+    params: dict[str, Any] = {key: value for key, value in extra.items() if value is not None}
+    if limit is not None:
+        params["limit"] = limit
+    if offset is not None:
+        params["offset"] = offset
+    return params or None
+
+
+def _decision_body(
+    decision: str,
+    gate_evidence_sha256: str,
+    rationale: str,
+    change_request_head_id: str | None,
+) -> dict[str, Any]:
+    body: dict[str, Any] = {
+        "decision": decision,
+        "gate_evidence_sha256": gate_evidence_sha256,
+        "rationale": rationale,
+    }
+    if change_request_head_id is not None:
+        body["change_request_head_id"] = change_request_head_id
+    return body
 
 
 def _page_params(limit: int | None, cursor: str | None) -> dict[str, Any] | None:
@@ -770,6 +814,368 @@ class ProjectVersionTagsAPI(Resource):
         )
 
 
+class ProjectReleaseOperationsAPI(Resource):
+    """Durable apply/rollback intents against one release (`P5-C`).
+
+    Unlike the cursor-paginated Change-Request/import/revision families,
+    :meth:`list` uses plain ``limit``/``offset`` -- this resource's own
+    immediate server-side sibling (release list/evidence/evaluations, see
+    :class:`ProjectReleasesAPI`) already established that convention for
+    this release family, and there was no reason to introduce a third
+    pagination style where two already coexist in shipped code.
+    """
+
+    def list(
+        self,
+        project_id: str,
+        release_id: str,
+        *,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> _List[WorkspaceReleaseOperation]:
+        payload = self._get(
+            f"/projects/{project_id}/releases/{release_id}/operations",
+            params=_offset_params(limit, offset),
+            project=project_id,
+        )
+        return decode_list(WorkspaceReleaseOperation, payload)
+
+    def get(
+        self, project_id: str, release_id: str, operation_id: str
+    ) -> WorkspaceReleaseOperationResult:
+        return _decode_operation_result(
+            self._get(
+                f"/projects/{project_id}/releases/{release_id}/operations/{operation_id}",
+                project=project_id,
+            )
+        )
+
+    def create(
+        self,
+        project_id: str,
+        release_id: str,
+        *,
+        kind: str,
+        idempotency_key: str,
+        expected_environment_lock_version: int,
+        expected_current_release_id: str | None = None,
+        target_release_id: str | None = None,
+    ) -> WorkspaceReleaseOperationResult:
+        """Prepare an ``"apply"`` or ``"rollback"`` operation.
+
+        ``expected_environment_lock_version`` is a compare-and-swap against
+        the *environment's* current lock version -- a stale value 409s
+        rather than racing another operation targeting the same environment.
+        """
+        body: dict[str, Any] = {
+            "kind": kind,
+            "idempotency_key": idempotency_key,
+            "expected_environment_lock_version": expected_environment_lock_version,
+        }
+        if expected_current_release_id is not None:
+            body["expected_current_release_id"] = expected_current_release_id
+        if target_release_id is not None:
+            body["target_release_id"] = target_release_id
+        return _decode_operation_result(
+            self._post(
+                f"/projects/{project_id}/releases/{release_id}/operations",
+                json=body,
+                project=project_id,
+            )
+        )
+
+    def apply(
+        self, project_id: str, release_id: str, operation_id: str
+    ) -> WorkspaceReleaseOperationResult:
+        """Execute a prepared operation through its provider adapter."""
+        return _decode_operation_result(
+            self._post(
+                f"/projects/{project_id}/releases/{release_id}/operations/{operation_id}:apply",
+                project=project_id,
+            )
+        )
+
+    def observe(
+        self, project_id: str, release_id: str, operation_id: str
+    ) -> WorkspaceReleaseOperationResult:
+        """Re-check an in-flight or ambiguous operation against its provider."""
+        return _decode_operation_result(
+            self._post(
+                f"/projects/{project_id}/releases/{release_id}/operations/{operation_id}:observe",
+                project=project_id,
+            )
+        )
+
+    def cancel_expired(
+        self, project_id: str, release_id: str, operation_id: str
+    ) -> WorkspaceReleaseOperationResult:
+        """Cancel an operation whose lease has expired without ever applying.
+
+        The literal path stays one f-string passed straight into
+        ``self._post(`` (rather than split across adjacent literals, or
+        built up in a local variable first) because
+        ``docs-site/sdk_coverage.py``'s static source-text scan only matches
+        a single quoted literal immediately following ``self._post(`` --
+        either alternative would make this exact route silently read as
+        uncovered.
+        """
+        return _decode_operation_result(
+            self._post(
+                f"/projects/{project_id}/releases/{release_id}/operations/{operation_id}:cancel-expired",
+                project=project_id,
+            )
+        )
+
+
+class ProjectReleasesAPI(Resource):
+    """The Workspace release evaluation/decision/approval lifecycle (`P5-F`).
+
+    A release moves through a fixed state machine (``draft`` ->
+    ``evaluating`` -> ``{blocked, rejected, approved,
+    awaiting_quality_signoff}`` -> ``awaiting_approval`` -> ``{approved,
+    rejected}``); :class:`ProjectReleaseOperationsAPI` then executes an
+    *approved* release against an environment. Two authorization shapes
+    coexist here, mirroring the server routes exactly: :meth:`create`/
+    :meth:`evaluate` are plain project-scoped actions, while
+    :meth:`quality_signoff`/:meth:`approve`/:meth:`break_glass_apply` are
+    identity-specific governance decisions the server authorizes on role
+    (Reviewer vs. Owner) and platform scope, not a single scope check.
+    """
+
+    def list(
+        self,
+        project_id: str,
+        *,
+        status: str | None = None,
+        environment_id: str | None = None,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> _List[WorkspaceRelease]:
+        payload = self._get(
+            f"/projects/{project_id}/releases",
+            params=_offset_params(limit, offset, status=status, environment_id=environment_id),
+            project=project_id,
+        )
+        return decode_list(WorkspaceRelease, payload)
+
+    def create(
+        self,
+        project_id: str,
+        *,
+        revision_id: str,
+        environment_id: str,
+        environment_config_sha256: str,
+        runtime_dependencies_sha256: str,
+        policy_sha256: str,
+        request_idempotency_key: str,
+        change_request_id: str | None = None,
+        change_request_head_id: str | None = None,
+        version_tag_id: str | None = None,
+        predecessor_release_id: str | None = None,
+    ) -> WorkspaceRelease:
+        """Capture immutable release coordinates before evaluation dispatch.
+
+        The three ``*_sha256`` digests are pinned here and re-verified at
+        every later decision point -- a release evaluated against one
+        environment config and then approved against a different one is
+        exactly the drift this pinning exists to make impossible.
+        """
+        body: dict[str, Any] = {
+            "revision_id": revision_id,
+            "environment_id": environment_id,
+            "environment_config_sha256": environment_config_sha256,
+            "runtime_dependencies_sha256": runtime_dependencies_sha256,
+            "policy_sha256": policy_sha256,
+            "request_idempotency_key": request_idempotency_key,
+        }
+        for key, value in (
+            ("change_request_id", change_request_id),
+            ("change_request_head_id", change_request_head_id),
+            ("version_tag_id", version_tag_id),
+            ("predecessor_release_id", predecessor_release_id),
+        ):
+            if value is not None:
+                body[key] = value
+        return decode(
+            WorkspaceRelease,
+            self._post(f"/projects/{project_id}/releases", json=body, project=project_id),
+        )
+
+    def get(self, project_id: str, release_id: str) -> WorkspaceRelease:
+        return decode(
+            WorkspaceRelease,
+            self._get(f"/projects/{project_id}/releases/{release_id}", project=project_id),
+        )
+
+    def list_evidence(
+        self,
+        project_id: str,
+        release_id: str,
+        *,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> _List[WorkspaceReleaseEvidence]:
+        payload = self._get(
+            f"/projects/{project_id}/releases/{release_id}/evidence",
+            params=_offset_params(limit, offset),
+            project=project_id,
+        )
+        return decode_list(WorkspaceReleaseEvidence, payload)
+
+    def evaluate(
+        self,
+        project_id: str,
+        release_id: str,
+        *,
+        idempotency_key: str,
+        evaluation_plan_sha256: str,
+        input_sha256: str,
+    ) -> WorkspaceReleaseEvaluation:
+        """Request an evaluation attempt; a worker claims and runs it.
+
+        Replayed by ``idempotency_key``: calling this again with the same
+        key and digests while an attempt is active returns that same
+        attempt rather than starting a second one, but a *different* key
+        while one is still active is refused (409) rather than running two
+        evaluations concurrently.
+        """
+        return decode(
+            WorkspaceReleaseEvaluation,
+            self._post(
+                f"/projects/{project_id}/releases/{release_id}/evaluate",
+                json={
+                    "idempotency_key": idempotency_key,
+                    "evaluation_plan_sha256": evaluation_plan_sha256,
+                    "input_sha256": input_sha256,
+                },
+                project=project_id,
+            ),
+        )
+
+    def list_evaluations(
+        self,
+        project_id: str,
+        release_id: str,
+        *,
+        limit: int | None = None,
+        offset: int | None = None,
+    ) -> _List[WorkspaceReleaseEvaluation]:
+        payload = self._get(
+            f"/projects/{project_id}/releases/{release_id}/evaluations",
+            params=_offset_params(limit, offset),
+            project=project_id,
+        )
+        return decode_list(WorkspaceReleaseEvaluation, payload)
+
+    def get_evaluation(
+        self, project_id: str, release_id: str, evaluation_id: str
+    ) -> WorkspaceReleaseEvaluation:
+        return decode(
+            WorkspaceReleaseEvaluation,
+            self._get(
+                f"/projects/{project_id}/releases/{release_id}/evaluations/{evaluation_id}",
+                project=project_id,
+            ),
+        )
+
+    def quality_signoff(
+        self,
+        project_id: str,
+        release_id: str,
+        *,
+        decision: str,
+        gate_evidence_sha256: str,
+        rationale: str = "",
+        change_request_head_id: str | None = None,
+    ) -> WorkspaceReleaseDecision:
+        """Record a QA go/no-go decision. Requires the Reviewer project role.
+
+        ``decision`` is ``"go"`` or ``"no_go"``, passed through rather than a
+        stricter type for the same forward-compatibility reason as
+        :meth:`ProjectChangeRequestsAPI.submit_review`'s ``decision``.
+        """
+        return decode(
+            WorkspaceReleaseDecision,
+            self._post(
+                f"/projects/{project_id}/releases/{release_id}/quality-signoff",
+                json=_decision_body(
+                    decision, gate_evidence_sha256, rationale, change_request_head_id
+                ),
+                project=project_id,
+            ),
+        )
+
+    def approve(
+        self,
+        project_id: str,
+        release_id: str,
+        *,
+        decision: str,
+        gate_evidence_sha256: str,
+        rationale: str = "",
+        change_request_head_id: str | None = None,
+    ) -> WorkspaceReleaseDecision:
+        """Record the final release go/no-go decision. Requires the Owner role.
+
+        Refused (409) unless the release already carries a *fresh* quality
+        signoff bound to this exact head/revision/digests -- an approval
+        does not itself re-run or supersede quality review.
+        """
+        return decode(
+            WorkspaceReleaseDecision,
+            self._post(
+                f"/projects/{project_id}/releases/{release_id}/approve",
+                json=_decision_body(
+                    decision, gate_evidence_sha256, rationale, change_request_head_id
+                ),
+                project=project_id,
+            ),
+        )
+
+    def break_glass_apply(
+        self,
+        project_id: str,
+        release_id: str,
+        *,
+        reason: str,
+        incident_ref: str,
+        authorization_ref: str,
+        expires_at: str,
+        gate_evidence_sha256: str,
+        expected_current_release_id: str,
+        expected_environment_lock_version: int,
+        idempotency_key: str,
+    ) -> WorkspaceBreakGlassApplyResult:
+        """Interactive production recovery, bypassing the normal apply path.
+
+        Requires a real browser session (platform Admin, ``credential_kind
+        == "session"``) -- a personal access token can never call this,
+        by server-side design, not merely by convention. ``expires_at`` is
+        an ISO-8601 timestamp string; the authorization is void past it
+        regardless of whether it was ever used. ``expected_current_release_id``
+        is a compare-and-swap against *this* release (not the environment's
+        currently-deployed one) -- it fails closed if the release moved on
+        while the authorization was being requested.
+        """
+        return decode(
+            WorkspaceBreakGlassApplyResult,
+            self._post(
+                f"/projects/{project_id}/releases/{release_id}/break-glass-apply",
+                json={
+                    "reason": reason,
+                    "incident_ref": incident_ref,
+                    "authorization_ref": authorization_ref,
+                    "expires_at": expires_at,
+                    "gate_evidence_sha256": gate_evidence_sha256,
+                    "expected_current_release_id": expected_current_release_id,
+                    "expected_environment_lock_version": expected_environment_lock_version,
+                    "idempotency_key": idempotency_key,
+                },
+                project=project_id,
+            ),
+        )
+
+
 class ProjectReworkTasksAPI(Resource):
     """Rework tasks owned by one project-scoped agent population."""
 
@@ -839,6 +1245,8 @@ class ProjectsAPI(Resource):
         self.revisions = ProjectRevisionsAPI(transport)
         self.change_requests = ProjectChangeRequestsAPI(transport)
         self.version_tags = ProjectVersionTagsAPI(transport)
+        self.releases = ProjectReleasesAPI(transport)
+        self.release_operations = ProjectReleaseOperationsAPI(transport)
 
     def list(self, *, status: str | None = None) -> list[Project]:
         """Active projects by default; pass ``status="all"`` for everything."""
@@ -1006,6 +1414,8 @@ __all__ = [
     "ProjectChangeRequestsAPI",
     "ProjectFilesAPI",
     "ProjectImportsAPI",
+    "ProjectReleaseOperationsAPI",
+    "ProjectReleasesAPI",
     "ProjectRevisionsAPI",
     "ProjectReworkTasksAPI",
     "ProjectSourceAPI",
