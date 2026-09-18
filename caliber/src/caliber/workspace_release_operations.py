@@ -137,15 +137,22 @@ def _operation_items(
 
 
 def _prepared_from_item(item: CaliberWorkspaceReleaseOperationItem) -> PreparedAction:
+    # `P5-E`: `provider_result` is where `prepare_workspace_release_operation`
+    # persisted `prepared.metadata` (merged with `resource_type`) -- rebuilding
+    # `PreparedAction` without it silently dropped every adapter's own metadata
+    # (project id, environment name, etc.) at apply/observe/rollback time,
+    # forcing an adapter to encode everything into the ref strings instead.
+    stored = item.provider_result if isinstance(item.provider_result, dict) else {}
+    resource_type = stored.get("resource_type", "") if isinstance(stored, dict) else "unknown"
+    metadata = {key: value for key, value in stored.items() if key != "resource_type"}
     return PreparedAction(
         resource_pin_id=item.revision_resource_id,
-        resource_type=item.provider_result.get("resource_type", "")
-        if isinstance(item.provider_result, dict)
-        else "unknown",
+        resource_type=resource_type,
         action=item.action,
         target_ref=item.target_ref,
         before_ref=item.before_ref,
         after_ref=item.after_ref,
+        metadata=metadata,
     )
 
 
@@ -215,7 +222,7 @@ def _set_item_outcome(
 def _effect_method(
     operation: CaliberWorkspaceReleaseOperation,
     adapter: WorkspaceResourceAdapter,
-) -> Callable[[PreparedAction], ProviderOutcome]:
+) -> Callable[[Session, PreparedAction], ProviderOutcome]:
     """Select the provider effect for the operation's immutable intent."""
 
     if operation.kind == "rollback":
@@ -451,7 +458,7 @@ def apply_workspace_release_operation(  # noqa: PLR0911 - explicit child state m
             item.started_at = _now()
             session.flush()
             try:
-                outcome = _effect_method(operation, adapter)(prepared)
+                outcome = _effect_method(operation, adapter)(session, prepared)
             except WorkspaceProviderTimeoutError as exc:
                 item.status = "reconcile_required" if exc.effect_started else "failed"
                 item.error_code = "provider_timeout"
@@ -560,7 +567,7 @@ def observe_workspace_release_operation(  # noqa: PLR0915 - explicit observation
                     continue
                 adapter = adapters.require(resource_type)
                 try:
-                    outcome = _effect_method(operation, adapter)(_prepared_from_item(item))
+                    outcome = _effect_method(operation, adapter)(session, _prepared_from_item(item))
                 except WorkspaceProviderTimeoutError as exc:
                     item.status = "reconcile_required" if exc.effect_started else "failed"
                     item.error_code = "provider_timeout"
@@ -590,7 +597,9 @@ def observe_workspace_release_operation(  # noqa: PLR0915 - explicit observation
             if not isinstance(resource_type, str):
                 known_failure = True
                 continue
-            outcome = adapters.require(resource_type).observe_release(_prepared_from_item(item))
+            outcome = adapters.require(resource_type).observe_release(
+                session, _prepared_from_item(item)
+            )
             _set_item_outcome(item, outcome, completed=outcome.status != "reconcile_required")
             unresolved |= outcome.status == "reconcile_required"
             known_failure |= outcome.status == "failed"

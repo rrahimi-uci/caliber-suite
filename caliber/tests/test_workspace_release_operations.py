@@ -399,7 +399,7 @@ def test_adapter_contract_and_registry_reject_invalid_values(db_session: Session
     )
     prepared = adapter.prepare_release(fallback, environment, before_ref=None)
     assert prepared.target_ref == "fallback@1"
-    assert adapter.rollback_release(prepared).status == "applied"
+    assert adapter.rollback_release(None, prepared).status == "applied"
     assert adapter.rollback_calls
     with pytest.raises(ValueError, match="target_ref"):
         PreparedAction("pin", "fake", "promote", "", None, None)
@@ -420,7 +420,7 @@ def test_adapter_contract_and_registry_reject_invalid_values(db_session: Session
     with pytest.raises(ValueError, match="must not be empty"):
         registry.register(FakeWorkspaceResourceAdapter(""))
     missing_observation = adapter.observe_release(
-        PreparedAction("pin-missing", "fake", "promote", "fake:missing", None, "fake:missing")
+        None, PreparedAction("pin-missing", "fake", "promote", "fake:missing", None, "fake:missing")
     )
     assert missing_observation.status == "failed"
 
@@ -496,7 +496,7 @@ def test_apply_adapter_error_is_terminal_failure(db_session: Session) -> None:
     prepared = _prepare(db_session, release, adapter, key="adapter-error")
 
     class BrokenAdapter(FakeWorkspaceResourceAdapter):
-        def apply_release(self, prepared: PreparedAction) -> ProviderOutcome:
+        def apply_release(self, _session: object, prepared: PreparedAction) -> ProviderOutcome:
             raise WorkspaceReleaseAdapterError("adapter unavailable")
 
     result = apply_workspace_release_operation(
@@ -638,7 +638,7 @@ def test_observation_error_and_missing_metadata_paths_settle_failed(db_session: 
     )
 
     class BrokenAdapter(FakeWorkspaceResourceAdapter):
-        def apply_release(self, prepared: PreparedAction) -> ProviderOutcome:
+        def apply_release(self, _session: object, prepared: PreparedAction) -> ProviderOutcome:
             raise WorkspaceReleaseAdapterError("apply broke")
 
     item = db_session.query(CaliberWorkspaceReleaseOperationItem).first()

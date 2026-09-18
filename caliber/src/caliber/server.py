@@ -72,6 +72,8 @@ from caliber.runtime_advisories import (
 from caliber.trace_client import MLflowTraceClient
 from caliber.workflows.runtime import bind_sandbox_config
 from caliber.workflows.tools import bind_module_allowlist
+from caliber.workspace_release_adapters import WorkspaceResourceAdapterRegistry
+from caliber.workspace_release_workflow_adapter import WorkflowWorkspaceResourceAdapter
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp
@@ -475,6 +477,15 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     )
     promoter = build_promoter(resolved.promoter_provider)
     event_bus = build_event_bus(resolved, session_factory=session_factory)
+    # `P5-E`: the only resource type with a real (non-fake) release adapter
+    # today is a Workflow Studio workflow, whose deploy mechanics
+    # (alias rotation) are already mature and offline-testable. Every other
+    # resource type is left unregistered, so a release operation against one
+    # fails closed with "no adapter registered" rather than silently doing
+    # nothing (see workspace_release_operations.py's module docstring).
+    workspace_resource_adapter_registry = WorkspaceResourceAdapterRegistry(
+        {"workflow": WorkflowWorkspaceResourceAdapter(config=resolved)}
+    )
     worker = RefinementWorker(
         session_factory=session_factory,
         llm_provider=llm_provider,
@@ -625,6 +636,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     app.state.eval_provider = eval_provider
     app.state.promoter = promoter
     app.state.event_bus = event_bus
+    app.state.workspace_resource_adapter_registry = workspace_resource_adapter_registry
 
     # Caliber Assistant service.
     from caliber.assistant.engine import AssistantEngine  # noqa: PLC0415
