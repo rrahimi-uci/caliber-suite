@@ -2,23 +2,32 @@
 
 Every other resource can be scoped to a project via the ``X-CALIBER-Project``
 header, which the client sets for you. This module manages the projects
-themselves, the files they hold, and (`P6-B`) the Git-backed source binding
-and source-to-revision import/revision-review lifecycle:
-:class:`ProjectSourceAPI`, :class:`ProjectImportsAPI` and
-:class:`ProjectRevisionsAPI`, exposed as ``ProjectsAPI.source``/``.imports``/
-``.revisions``.
+themselves, the files they hold, and (`P6-B`) the Git-backed source binding,
+source-to-revision import/revision lifecycle, and Change Request review
+flow: :class:`ProjectSourceAPI`, :class:`ProjectImportsAPI`,
+:class:`ProjectRevisionsAPI`, :class:`ProjectChangeRequestsAPI` and
+:class:`ProjectVersionTagsAPI`, exposed as ``ProjectsAPI.source``/
+``.imports``/``.revisions``/``.change_requests``/``.version_tags``.
 """
 
 from __future__ import annotations
 
 import warnings
-from typing import Any, BinaryIO
+from collections.abc import Sequence
+from typing import Any, BinaryIO, TypeVar
 
 from ..models._decode import decode, decode_list
 from ..models.common import CursorPage
 from ..models.core import Project, ProjectFile, ProjectFolder, ProjectMember, WorkspaceEnvironment
 from ..models.operations import ReworkTask
 from ..models.workspace import (
+    WorkspaceChangeRequest,
+    WorkspaceChangeRequestCheck,
+    WorkspaceChangeRequestComment,
+    WorkspaceChangeRequestHead,
+    WorkspaceChangeRequestReview,
+    WorkspaceChangeRequestReviewer,
+    WorkspaceExternalReviewAttestation,
     WorkspaceImportJob,
     WorkspaceImportReconciliation,
     WorkspaceRevision,
@@ -27,11 +36,13 @@ from ..models.workspace import (
     WorkspaceSource,
     WorkspaceSourceCapabilities,
     WorkspaceSourceState,
+    WorkspaceVersionTag,
 )
 from ..waiters import wait_for
 from ._base import Resource
 
 _List = list
+_T = TypeVar("_T")
 
 
 def _if_match_header(if_match: str | None) -> dict[str, str] | None:
@@ -75,6 +86,39 @@ def _decode_revision_diff(payload: Any) -> WorkspaceRevisionDiff:
         diff.removed = decode_list(WorkspaceRevisionResource, payload.get("removed"))
         diff.changed = decode_list(WorkspaceRevisionResource, payload.get("changed"))
     return diff
+
+
+def _decode_change_request(payload: Any) -> WorkspaceChangeRequest:
+    request = decode(WorkspaceChangeRequest, payload)
+    head_payload = payload.get("current_head") if isinstance(payload, dict) else None
+    request.current_head = decode(WorkspaceChangeRequestHead, head_payload)
+    return request
+
+
+def _page_params(limit: int | None, cursor: str | None) -> dict[str, Any] | None:
+    params: dict[str, Any] = {}
+    if limit is not None:
+        params["limit"] = limit
+    if cursor is not None:
+        params["cursor"] = cursor
+    return params or None
+
+
+def _list_items_and_cursor(payload: Any) -> tuple[Any, str | None]:
+    """A list endpoint's raw items plus its ``next_cursor``.
+
+    Tolerates both wire shapes this SDK's cursor-paginated endpoints use:
+    ``{"data": {"items": [...]}}`` (import/revision/change-request lists) and
+    ``{"data": [...]}`` (change-request sub-resource and version-tag lists).
+    """
+    data = payload.get("data") if isinstance(payload, dict) else None
+    items = data.get("items") if isinstance(data, dict) else data
+    next_cursor = payload.get("next_cursor") if isinstance(payload, dict) else None
+    return items, next_cursor if isinstance(next_cursor, str) else None
+
+
+def _cursor_page(item_type: type[_T], items: Any, next_cursor: str | None) -> CursorPage[_T]:
+    return CursorPage(items=decode_list(item_type, items), next_cursor=next_cursor)
 
 
 class ProjectFilesAPI(Resource):
@@ -261,13 +305,8 @@ class ProjectImportsAPI(Resource):
             params=params or None,
             project=project_id,
         )
-        data = payload.get("data") if isinstance(payload, dict) else None
-        items = data.get("items") if isinstance(data, dict) else None
-        next_cursor = payload.get("next_cursor") if isinstance(payload, dict) else None
-        return CursorPage(
-            items=decode_list(WorkspaceImportJob, items),
-            next_cursor=next_cursor if isinstance(next_cursor, str) else None,
-        )
+        items, next_cursor = _list_items_and_cursor(payload)
+        return _cursor_page(WorkspaceImportJob, items, next_cursor)
 
     def get(self, project_id: str, job_id: str) -> WorkspaceImportJob:
         return decode(
@@ -355,12 +394,10 @@ class ProjectRevisionsAPI(Resource):
             params=params or None,
             project=project_id,
         )
-        data = payload.get("data") if isinstance(payload, dict) else None
-        items = data.get("items") if isinstance(data, dict) else None
-        next_cursor = payload.get("next_cursor") if isinstance(payload, dict) else None
+        items, next_cursor = _list_items_and_cursor(payload)
         return CursorPage(
             items=[_decode_revision(item) for item in items] if isinstance(items, list) else [],
-            next_cursor=next_cursor if isinstance(next_cursor, str) else None,
+            next_cursor=next_cursor,
         )
 
     def get(self, project_id: str, revision_id: str) -> WorkspaceRevision:
@@ -376,6 +413,360 @@ class ProjectRevisionsAPI(Resource):
                 params={"base": base},
                 project=project_id,
             )
+        )
+
+
+class ProjectChangeRequestsAPI(Resource):
+    """The Change Request review lifecycle for one project (`P6-B`).
+
+    A Change Request proposes a ready revision for review and promotes it
+    through a fixed status machine (``draft`` -> ``open`` -> ... ->
+    ``accepted``/``closed``). Mutations that touch a specific version of the
+    request (``update_head``/``rebase``/``close``/``assign_reviewer``/
+    ``remove_reviewer``) take ``expected_lock_version`` rather than an
+    ``If-Match`` header -- that is the server's own optimistic-concurrency
+    field here (from a prior ``get()``/``list()`` call's ``.lock_version``),
+    unlike :class:`ProjectSourceAPI`'s etag.
+    """
+
+    def list(
+        self,
+        project_id: str,
+        *,
+        status: str | None = None,
+        created_by: str | None = None,
+        reviewer_user_id: str | None = None,
+        semantic_version: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> CursorPage[WorkspaceChangeRequest]:
+        params: dict[str, Any] = {}
+        if status is not None:
+            params["status"] = status
+        if created_by is not None:
+            params["created_by"] = created_by
+        if reviewer_user_id is not None:
+            params["reviewer_user_id"] = reviewer_user_id
+        if semantic_version is not None:
+            params["semantic_version"] = semantic_version
+        if limit is not None:
+            params["limit"] = limit
+        if cursor is not None:
+            params["cursor"] = cursor
+        payload = self._get(
+            f"/projects/{project_id}/change-requests", params=params or None, project=project_id
+        )
+        items, next_cursor = _list_items_and_cursor(payload)
+        return CursorPage(
+            items=[_decode_change_request(item) for item in items]
+            if isinstance(items, list)
+            else [],
+            next_cursor=next_cursor,
+        )
+
+    def get(self, project_id: str, change_request_id: str) -> WorkspaceChangeRequest:
+        return _decode_change_request(
+            self._get(
+                f"/projects/{project_id}/change-requests/{change_request_id}", project=project_id
+            )
+        )
+
+    def create(
+        self,
+        project_id: str,
+        *,
+        title: str,
+        head_revision_id: str,
+        semantic_version: str,
+        description: str = "",
+        base_revision_id: str | None = None,
+        review_backend: str = "caliber",
+        reviewer_user_ids: Sequence[str] | None = None,
+    ) -> WorkspaceChangeRequest:
+        """Open a draft Change Request over a ready revision.
+
+        Stays ``draft`` until :meth:`submit` -- creating one does not by
+        itself start review or claim ``semantic_version``.
+        """
+        body: dict[str, Any] = {
+            "title": title,
+            "head_revision_id": head_revision_id,
+            "semantic_version": semantic_version,
+            "description": description,
+            "review_backend": review_backend,
+            "reviewer_user_ids": list(reviewer_user_ids) if reviewer_user_ids else [],
+        }
+        if base_revision_id is not None:
+            body["base_revision_id"] = base_revision_id
+        return _decode_change_request(
+            self._post(f"/projects/{project_id}/change-requests", json=body, project=project_id)
+        )
+
+    def submit(
+        self, project_id: str, change_request_id: str, *, idempotency_key: str | None = None
+    ) -> WorkspaceChangeRequest:
+        """Move a draft to ``open``, reserving its ``semantic_version`` claim."""
+        body = {"idempotency_key": idempotency_key} if idempotency_key is not None else {}
+        return _decode_change_request(
+            self._post(
+                f"/projects/{project_id}/change-requests/{change_request_id}:submit",
+                json=body,
+                project=project_id,
+            )
+        )
+
+    def update_head(
+        self,
+        project_id: str,
+        change_request_id: str,
+        *,
+        revision_id: str,
+        expected_lock_version: int,
+        change_summary: str = "",
+    ) -> WorkspaceChangeRequest:
+        """Append a new ready revision as the request's next head generation."""
+        return _decode_change_request(
+            self._post(
+                f"/projects/{project_id}/change-requests/{change_request_id}:update-head",
+                json={
+                    "revision_id": revision_id,
+                    "expected_lock_version": expected_lock_version,
+                    "change_summary": change_summary,
+                },
+                project=project_id,
+            )
+        )
+
+    def rebase(
+        self,
+        project_id: str,
+        change_request_id: str,
+        *,
+        revision_id: str,
+        expected_lock_version: int,
+        change_summary: str = "",
+        semantic_version: str | None = None,
+    ) -> WorkspaceChangeRequest:
+        """Bring an ``out_of_date`` request back onto the current accepted head."""
+        body: dict[str, Any] = {
+            "revision_id": revision_id,
+            "expected_lock_version": expected_lock_version,
+            "change_summary": change_summary,
+        }
+        if semantic_version is not None:
+            body["semantic_version"] = semantic_version
+        return _decode_change_request(
+            self._post(
+                f"/projects/{project_id}/change-requests/{change_request_id}:rebase",
+                json=body,
+                project=project_id,
+            )
+        )
+
+    def close(
+        self, project_id: str, change_request_id: str, *, reason: str, expected_lock_version: int
+    ) -> WorkspaceChangeRequest:
+        return _decode_change_request(
+            self._post(
+                f"/projects/{project_id}/change-requests/{change_request_id}:close",
+                json={"reason": reason, "expected_lock_version": expected_lock_version},
+                project=project_id,
+            )
+        )
+
+    def list_comments(
+        self,
+        project_id: str,
+        change_request_id: str,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> CursorPage[WorkspaceChangeRequestComment]:
+        params = _page_params(limit, cursor)
+        payload = self._get(
+            f"/projects/{project_id}/change-requests/{change_request_id}/comments",
+            params=params,
+            project=project_id,
+        )
+        items, next_cursor = _list_items_and_cursor(payload)
+        return _cursor_page(WorkspaceChangeRequestComment, items, next_cursor)
+
+    def add_comment(
+        self,
+        project_id: str,
+        change_request_id: str,
+        *,
+        body: str,
+        head_id: str | None = None,
+        resource_type: str | None = None,
+        resource_name: str | None = None,
+        source_path: str | None = None,
+    ) -> WorkspaceChangeRequestComment:
+        """Add a comment, optionally anchored to a specific head/resource/path."""
+        payload: dict[str, Any] = {"body": body}
+        for key, value in (
+            ("head_id", head_id),
+            ("resource_type", resource_type),
+            ("resource_name", resource_name),
+            ("source_path", source_path),
+        ):
+            if value is not None:
+                payload[key] = value
+        return decode(
+            WorkspaceChangeRequestComment,
+            self._post(
+                f"/projects/{project_id}/change-requests/{change_request_id}/comments",
+                json=payload,
+                project=project_id,
+            ),
+        )
+
+    def list_reviewers(
+        self,
+        project_id: str,
+        change_request_id: str,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> CursorPage[WorkspaceChangeRequestReviewer]:
+        params = _page_params(limit, cursor)
+        payload = self._get(
+            f"/projects/{project_id}/change-requests/{change_request_id}/reviewers",
+            params=params,
+            project=project_id,
+        )
+        items, next_cursor = _list_items_and_cursor(payload)
+        return _cursor_page(WorkspaceChangeRequestReviewer, items, next_cursor)
+
+    def assign_reviewer(
+        self, project_id: str, change_request_id: str, user_id: str, *, expected_lock_version: int
+    ) -> WorkspaceChangeRequestReviewer:
+        return decode(
+            WorkspaceChangeRequestReviewer,
+            self._put(
+                f"/projects/{project_id}/change-requests/{change_request_id}/reviewers/{user_id}",
+                json={"expected_lock_version": expected_lock_version},
+                project=project_id,
+            ),
+        )
+
+    def remove_reviewer(
+        self, project_id: str, change_request_id: str, user_id: str, *, expected_lock_version: int
+    ) -> WorkspaceChangeRequest:
+        """Deactivate a reviewer. Returns the Change Request, not the reviewer
+        row -- ``active_reviewer_count`` is the reason a caller would check."""
+        return _decode_change_request(
+            self._delete(
+                f"/projects/{project_id}/change-requests/{change_request_id}/reviewers/{user_id}",
+                json={"expected_lock_version": expected_lock_version},
+                project=project_id,
+            )
+        )
+
+    def list_reviews(
+        self,
+        project_id: str,
+        change_request_id: str,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> CursorPage[WorkspaceChangeRequestReview]:
+        params = _page_params(limit, cursor)
+        payload = self._get(
+            f"/projects/{project_id}/change-requests/{change_request_id}/reviews",
+            params=params,
+            project=project_id,
+        )
+        items, next_cursor = _list_items_and_cursor(payload)
+        return _cursor_page(WorkspaceChangeRequestReview, items, next_cursor)
+
+    def submit_review(
+        self,
+        project_id: str,
+        change_request_id: str,
+        *,
+        head_id: str,
+        decision: str,
+        rationale: str = "",
+    ) -> WorkspaceChangeRequestReview:
+        """Record one reviewer's decision against a specific head.
+
+        ``decision`` is ``"approve"`` or ``"request_changes"``; passed
+        through rather than a stricter type so a server that adds a third
+        decision is still reachable without an SDK release.
+        """
+        return decode(
+            WorkspaceChangeRequestReview,
+            self._post(
+                f"/projects/{project_id}/change-requests/{change_request_id}/reviews",
+                json={"head_id": head_id, "decision": decision, "rationale": rationale},
+                project=project_id,
+            ),
+        )
+
+    def list_attestations(
+        self,
+        project_id: str,
+        change_request_id: str,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> CursorPage[WorkspaceExternalReviewAttestation]:
+        params = _page_params(limit, cursor)
+        payload = self._get(
+            f"/projects/{project_id}/change-requests/{change_request_id}/external-review-attestations",
+            params=params,
+            project=project_id,
+        )
+        items, next_cursor = _list_items_and_cursor(payload)
+        return _cursor_page(WorkspaceExternalReviewAttestation, items, next_cursor)
+
+    def refresh_external_review(self, project_id: str, change_request_id: str) -> None:
+        """Queue a re-check of this request's external (e.g. GitHub PR) review state.
+
+        Fire-and-forget: the server responds ``202`` with no resource to
+        decode, so there is nothing meaningful to return.
+        """
+        self._post(
+            f"/projects/{project_id}/change-requests/{change_request_id}:refresh-external-review",
+            project=project_id,
+        )
+
+    def list_checks(
+        self,
+        project_id: str,
+        change_request_id: str,
+        *,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> CursorPage[WorkspaceChangeRequestCheck]:
+        params = _page_params(limit, cursor)
+        payload = self._get(
+            f"/projects/{project_id}/change-requests/{change_request_id}/checks",
+            params=params,
+            project=project_id,
+        )
+        items, next_cursor = _list_items_and_cursor(payload)
+        return _cursor_page(WorkspaceChangeRequestCheck, items, next_cursor)
+
+
+class ProjectVersionTagsAPI(Resource):
+    """Immutable semantic-version claims recorded against revisions (`P6-B`)."""
+
+    def list(
+        self, project_id: str, *, limit: int | None = None, cursor: str | None = None
+    ) -> CursorPage[WorkspaceVersionTag]:
+        params = _page_params(limit, cursor)
+        payload = self._get(
+            f"/projects/{project_id}/version-tags", params=params, project=project_id
+        )
+        items, next_cursor = _list_items_and_cursor(payload)
+        return _cursor_page(WorkspaceVersionTag, items, next_cursor)
+
+    def get(self, project_id: str, tag: str) -> WorkspaceVersionTag:
+        return decode(
+            WorkspaceVersionTag,
+            self._get(f"/projects/{project_id}/version-tags/{tag}", project=project_id),
         )
 
 
@@ -446,6 +837,8 @@ class ProjectsAPI(Resource):
         self.source = ProjectSourceAPI(transport)
         self.imports = ProjectImportsAPI(transport)
         self.revisions = ProjectRevisionsAPI(transport)
+        self.change_requests = ProjectChangeRequestsAPI(transport)
+        self.version_tags = ProjectVersionTagsAPI(transport)
 
     def list(self, *, status: str | None = None) -> list[Project]:
         """Active projects by default; pass ``status="all"`` for everything."""
@@ -610,11 +1003,13 @@ class ProjectsAPI(Resource):
 WorkspacesAPI = ProjectsAPI
 
 __all__ = [
+    "ProjectChangeRequestsAPI",
     "ProjectFilesAPI",
     "ProjectImportsAPI",
     "ProjectRevisionsAPI",
     "ProjectReworkTasksAPI",
     "ProjectSourceAPI",
+    "ProjectVersionTagsAPI",
     "ProjectsAPI",
     "WorkspacesAPI",
 ]

@@ -192,6 +192,7 @@ Every documented class and module-level function, with the module that defines i
 | [`PlatformAdminInventory`](#platformadmininventory) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`PlaygroundRunsAPI`](#playgroundrunsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`Project`](#project) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`ProjectChangeRequestsAPI`](#projectchangerequestsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectFile`](#projectfile) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`ProjectFilesAPI`](#projectfilesapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectFolder`](#projectfolder) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
@@ -201,6 +202,7 @@ Every documented class and module-level function, with the module that defines i
 | [`ProjectReworkTasksAPI`](#projectreworktasksapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectsAPI`](#projectsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectSourceAPI`](#projectsourceapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
+| [`ProjectVersionTagsAPI`](#projectversiontagsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`Prompt`](#prompt) | [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets) |
 | [`PromptsAPI`](#promptsapi) | [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets) |
 
@@ -288,7 +290,14 @@ Every documented class and module-level function, with the module that defines i
 | [`WorkflowServicesAPI`](#workflowservicesapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`WorkflowVersion`](#workflowversion) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`WorkflowVersionsAPI`](#workflowversionsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
+| [`WorkspaceChangeRequest`](#workspacechangerequest) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceChangeRequestCheck`](#workspacechangerequestcheck) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceChangeRequestComment`](#workspacechangerequestcomment) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceChangeRequestHead`](#workspacechangerequesthead) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceChangeRequestReview`](#workspacechangerequestreview) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceChangeRequestReviewer`](#workspacechangerequestreviewer) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceEnvironment`](#workspaceenvironment) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`WorkspaceExternalReviewAttestation`](#workspaceexternalreviewattestation) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceImportJob`](#workspaceimportjob) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceImportReconciliation`](#workspaceimportreconciliation) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceRevision`](#workspacerevision) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
@@ -297,6 +306,7 @@ Every documented class and module-level function, with the module that defines i
 | [`WorkspaceSource`](#workspacesource) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceSourceCapabilities`](#workspacesourcecapabilities) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceSourceState`](#workspacesourcestate) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceVersionTag`](#workspaceversiontag) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 
 ## Package index
 
@@ -1918,7 +1928,7 @@ sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
 
 **Public exports**
 
-`ProjectFilesAPI`, `ProjectImportsAPI`, `ProjectRevisionsAPI`, `ProjectReworkTasksAPI`, `ProjectSourceAPI`, `ProjectsAPI`, `WorkspacesAPI`
+`ProjectChangeRequestsAPI`, `ProjectFilesAPI`, `ProjectImportsAPI`, `ProjectRevisionsAPI`, `ProjectReworkTasksAPI`, `ProjectSourceAPI`, `ProjectVersionTagsAPI`, `ProjectsAPI`, `WorkspacesAPI`
 
 #### Classes
 
@@ -2316,6 +2326,390 @@ The deterministic pin-level difference from ``base`` to ``revision_id``.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+##### `ProjectChangeRequestsAPI`
+
+`class ProjectChangeRequestsAPI()`
+
+The Change Request review lifecycle for one project (`P6-B`).
+
+A Change Request proposes a ready revision for review and promotes it
+through a fixed status machine (``draft`` -> ``open`` -> ... ->
+``accepted``/``closed``). Mutations that touch a specific version of the
+request (``update_head``/``rebase``/``close``/``assign_reviewer``/
+``remove_reviewer``) take ``expected_lock_version`` rather than an
+``If-Match`` header -- that is the server's own optimistic-concurrency
+field here (from a prior ``get()``/``list()`` call's ``.lock_version``),
+unlike :class:`ProjectSourceAPI`'s etag.
+
+**Methods**
+
+###### `list(project_id: str, *, status: str | None = None, created_by: str | None = None, reviewer_user_id: str | None = None, semantic_version: str | None = None, limit: int | None = None, cursor: str | None = None) -> CursorPage[WorkspaceChangeRequest]`
+
+Return the current collection of project change requests, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `status` | keyword-only | `str | None` | `None` |
+| `created_by` | keyword-only | `str | None` | `None` |
+| `reviewer_user_id` | keyword-only | `str | None` | `None` |
+| `semantic_version` | keyword-only | `str | None` | `None` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CursorPage[WorkspaceChangeRequest]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(project_id: str, change_request_id: str) -> WorkspaceChangeRequest`
+
+Fetch one record from the project change requests surface identified by `project_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceChangeRequest`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(project_id: str, *, title: str, head_revision_id: str, semantic_version: str, description: str = '', base_revision_id: str | None = None, review_backend: str = 'caliber', reviewer_user_ids: Sequence[str] | None = None) -> WorkspaceChangeRequest`
+
+Open a draft Change Request over a ready revision.
+
+Stays ``draft`` until :meth:`submit` -- creating one does not by
+itself start review or claim ``semantic_version``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `title` | keyword-only | `str` | `—` |
+| `head_revision_id` | keyword-only | `str` | `—` |
+| `semantic_version` | keyword-only | `str` | `—` |
+| `description` | keyword-only | `str` | `''` |
+| `base_revision_id` | keyword-only | `str | None` | `None` |
+| `review_backend` | keyword-only | `str` | `'caliber'` |
+| `reviewer_user_ids` | keyword-only | `Sequence[str] | None` | `None` |
+
+**Returns:** `WorkspaceChangeRequest`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `submit(project_id: str, change_request_id: str, *, idempotency_key: str | None = None) -> WorkspaceChangeRequest`
+
+Move a draft to ``open``, reserving its ``semantic_version`` claim.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+| `idempotency_key` | keyword-only | `str | None` | `None` |
+
+**Returns:** `WorkspaceChangeRequest`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update_head(project_id: str, change_request_id: str, *, revision_id: str, expected_lock_version: int, change_summary: str = '') -> WorkspaceChangeRequest`
+
+Append a new ready revision as the request's next head generation.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+| `revision_id` | keyword-only | `str` | `—` |
+| `expected_lock_version` | keyword-only | `int` | `—` |
+| `change_summary` | keyword-only | `str` | `''` |
+
+**Returns:** `WorkspaceChangeRequest`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `rebase(project_id: str, change_request_id: str, *, revision_id: str, expected_lock_version: int, change_summary: str = '', semantic_version: str | None = None) -> WorkspaceChangeRequest`
+
+Bring an ``out_of_date`` request back onto the current accepted head.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+| `revision_id` | keyword-only | `str` | `—` |
+| `expected_lock_version` | keyword-only | `int` | `—` |
+| `change_summary` | keyword-only | `str` | `''` |
+| `semantic_version` | keyword-only | `str | None` | `None` |
+
+**Returns:** `WorkspaceChangeRequest`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `close(project_id: str, change_request_id: str, *, reason: str, expected_lock_version: int) -> WorkspaceChangeRequest`
+
+Close the underlying HTTP client or transport owned by this object.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+| `reason` | keyword-only | `str` | `—` |
+| `expected_lock_version` | keyword-only | `int` | `—` |
+
+**Returns:** `WorkspaceChangeRequest`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_comments(project_id: str, change_request_id: str, *, limit: int | None = None, cursor: str | None = None) -> CursorPage[WorkspaceChangeRequestComment]`
+
+Operate on the project change requests surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CursorPage[WorkspaceChangeRequestComment]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `add_comment(project_id: str, change_request_id: str, *, body: str, head_id: str | None = None, resource_type: str | None = None, resource_name: str | None = None, source_path: str | None = None) -> WorkspaceChangeRequestComment`
+
+Add a comment, optionally anchored to a specific head/resource/path.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+| `body` | keyword-only | `str` | `—` |
+| `head_id` | keyword-only | `str | None` | `None` |
+| `resource_type` | keyword-only | `str | None` | `None` |
+| `resource_name` | keyword-only | `str | None` | `None` |
+| `source_path` | keyword-only | `str | None` | `None` |
+
+**Returns:** `WorkspaceChangeRequestComment`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_reviewers(project_id: str, change_request_id: str, *, limit: int | None = None, cursor: str | None = None) -> CursorPage[WorkspaceChangeRequestReviewer]`
+
+Operate on the project change requests surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CursorPage[WorkspaceChangeRequestReviewer]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `assign_reviewer(project_id: str, change_request_id: str, user_id: str, *, expected_lock_version: int) -> WorkspaceChangeRequestReviewer`
+
+Operate on the project change requests surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+| `user_id` | positional-or-keyword | `str` | `—` |
+| `expected_lock_version` | keyword-only | `int` | `—` |
+
+**Returns:** `WorkspaceChangeRequestReviewer`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `remove_reviewer(project_id: str, change_request_id: str, user_id: str, *, expected_lock_version: int) -> WorkspaceChangeRequest`
+
+Deactivate a reviewer. Returns the Change Request, not the reviewer
+row -- ``active_reviewer_count`` is the reason a caller would check.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+| `user_id` | positional-or-keyword | `str` | `—` |
+| `expected_lock_version` | keyword-only | `int` | `—` |
+
+**Returns:** `WorkspaceChangeRequest`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_reviews(project_id: str, change_request_id: str, *, limit: int | None = None, cursor: str | None = None) -> CursorPage[WorkspaceChangeRequestReview]`
+
+Operate on the project change requests surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CursorPage[WorkspaceChangeRequestReview]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `submit_review(project_id: str, change_request_id: str, *, head_id: str, decision: str, rationale: str = '') -> WorkspaceChangeRequestReview`
+
+Record one reviewer's decision against a specific head.
+
+``decision`` is ``"approve"`` or ``"request_changes"``; passed
+through rather than a stricter type so a server that adds a third
+decision is still reachable without an SDK release.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+| `head_id` | keyword-only | `str` | `—` |
+| `decision` | keyword-only | `str` | `—` |
+| `rationale` | keyword-only | `str` | `''` |
+
+**Returns:** `WorkspaceChangeRequestReview`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_attestations(project_id: str, change_request_id: str, *, limit: int | None = None, cursor: str | None = None) -> CursorPage[WorkspaceExternalReviewAttestation]`
+
+Operate on the project change requests surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CursorPage[WorkspaceExternalReviewAttestation]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `refresh_external_review(project_id: str, change_request_id: str) -> None`
+
+Queue a re-check of this request's external (e.g. GitHub PR) review state.
+
+Fire-and-forget: the server responds ``202`` with no resource to
+decode, so there is nothing meaningful to return.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `None`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_checks(project_id: str, change_request_id: str, *, limit: int | None = None, cursor: str | None = None) -> CursorPage[WorkspaceChangeRequestCheck]`
+
+Operate on the project change requests surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CursorPage[WorkspaceChangeRequestCheck]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `ProjectVersionTagsAPI`
+
+`class ProjectVersionTagsAPI()`
+
+Immutable semantic-version claims recorded against revisions (`P6-B`).
+
+**Methods**
+
+###### `list(project_id: str, *, limit: int | None = None, cursor: str | None = None) -> CursorPage[WorkspaceVersionTag]`
+
+Return the current collection of project version tags, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CursorPage[WorkspaceVersionTag]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(project_id: str, tag: str) -> WorkspaceVersionTag`
+
+Fetch one record from the project version tags surface identified by `project_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `tag` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceVersionTag`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `ProjectReworkTasksAPI`
 
 `class ProjectReworkTasksAPI()`
@@ -2436,6 +2830,8 @@ Operate on the projects surface with the supplied arguments and return the serve
 | `source` | `ProjectSourceAPI` | — |
 | `imports` | `ProjectImportsAPI` | — |
 | `revisions` | `ProjectRevisionsAPI` | — |
+| `change_requests` | `ProjectChangeRequestsAPI` | — |
+| `version_tags` | `ProjectVersionTagsAPI` | — |
 
 **Methods**
 
@@ -9742,7 +10138,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceEnvironment`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceEnvironment`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`, `WorkspaceVersionTag`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -11375,7 +11771,7 @@ Typed models for the Workspace revision/import lifecycle (`P6-B`).
 
 **Public exports**
 
-`IMPORT_JOB_TERMINAL_STATES`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`
+`IMPORT_JOB_TERMINAL_STATES`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`, `WorkspaceVersionTag`
 
 #### Classes
 
@@ -11578,6 +11974,209 @@ Deterministic base-to-candidate revision difference.
 | `added` | `list[WorkspaceRevisionResource]` | `field(default_factory=list)` |
 | `removed` | `list[WorkspaceRevisionResource]` | `field(default_factory=list)` |
 | `changed` | `list[WorkspaceRevisionResource]` | `field(default_factory=list)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceChangeRequestHead`
+
+`class WorkspaceChangeRequestHead()`
+
+One generation of a Change Request's reviewed revision pointer.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `head_id` | `str` | `''` |
+| `change_request_id` | `str` | `''` |
+| `generation` | `int` | `0` |
+| `revision_id` | `str` | `''` |
+| `revision_sha256` | `str` | `''` |
+| `review_policy_version` | `str` | `''` |
+| `review_policy_sha256` | `str` | `''` |
+| `changed_by` | `str` | `''` |
+| `change_summary` | `str` | `''` |
+| `created_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceChangeRequest`
+
+`class WorkspaceChangeRequest()`
+
+A revision proposed for review, promotion through a fixed status
+machine (``draft`` -> ``open`` -> ... -> ``accepted``/``closed``).
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `change_request_id` | `str` | `''` |
+| `project_id` | `str` | `''` |
+| `base_revision_id` | `str | None` | `None` |
+| `current_head_revision_id` | `str` | `''` |
+| `created_by` | `str` | `''` |
+| `title` | `str` | `''` |
+| `description` | `str` | `''` |
+| `head_generation` | `int` | `0` |
+| `status` | `str` | `''` |
+| `review_backend` | `str` | `''` |
+| `accepted_at` | `str | None` | `None` |
+| `accepted_by` | `str | None` | `None` |
+| `closed_reason` | `str | None` | `None` |
+| `lock_version` | `int` | `0` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `current_head` | `WorkspaceChangeRequestHead` | `field(default_factory=WorkspaceChangeRequestHead)` |
+| `version_claim` | `dict[str, Any] | None` | `None` |
+| `active_reviewer_count` | `int` | `0` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceChangeRequestReviewer`
+
+`class WorkspaceChangeRequestReviewer()`
+
+One user assigned to review a Change Request.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `reviewer_id` | `str` | `''` |
+| `change_request_id` | `str` | `''` |
+| `user_id` | `str` | `''` |
+| `assigned_by` | `str` | `''` |
+| `assigned_at` | `str | None` | `None` |
+| `removed_by` | `str | None` | `None` |
+| `removed_at` | `str | None` | `None` |
+| `active` | `bool` | `False` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceChangeRequestComment`
+
+`class WorkspaceChangeRequestComment()`
+
+One comment on a Change Request, optionally anchored to a resource.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `comment_id` | `str` | `''` |
+| `change_request_id` | `str` | `''` |
+| `head_id` | `str | None` | `None` |
+| `resource_type` | `str | None` | `None` |
+| `resource_name` | `str | None` | `None` |
+| `source_path` | `str | None` | `None` |
+| `body` | `str` | `''` |
+| `author` | `str` | `''` |
+| `created_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceChangeRequestCheck`
+
+`class WorkspaceChangeRequestCheck()`
+
+One automated check run against a Change Request head.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `check_id` | `str` | `''` |
+| `head_id` | `str` | `''` |
+| `check_name` | `str` | `''` |
+| `attempt_number` | `int` | `0` |
+| `implementation_version` | `str` | `''` |
+| `input_digest` | `str` | `''` |
+| `evidence_ref` | `str | None` | `None` |
+| `evidence_digest` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `claimed_by` | `str | None` | `None` |
+| `claimed_at` | `str | None` | `None` |
+| `lease_expires_at` | `str | None` | `None` |
+| `completed_at` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceChangeRequestReview`
+
+`class WorkspaceChangeRequestReview()`
+
+One reviewer's approve/request-changes decision on a specific head.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `review_id` | `str` | `''` |
+| `change_request_id` | `str` | `''` |
+| `head_id` | `str` | `''` |
+| `reviewer_id` | `str` | `''` |
+| `decision` | `str` | `''` |
+| `rationale` | `str` | `''` |
+| `actor_role` | `str` | `''` |
+| `actor_scopes` | `list[str]` | `field(default_factory=list)` |
+| `created_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceExternalReviewAttestation`
+
+`class WorkspaceExternalReviewAttestation()`
+
+A verified provider-side (e.g. GitHub PR) review, mapped onto a head.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `attestation_id` | `str` | `''` |
+| `change_request_id` | `str` | `''` |
+| `head_id` | `str` | `''` |
+| `source_id` | `str` | `''` |
+| `provider_change_request_id` | `str` | `''` |
+| `provider_url` | `str | None` | `None` |
+| `provider_head_commit` | `str` | `''` |
+| `provider_resulting_commit` | `str` | `''` |
+| `source_tree_sha256` | `str` | `''` |
+| `workspace_revision_sha256` | `str` | `''` |
+| `policy_version` | `str` | `''` |
+| `policy_sha256` | `str` | `''` |
+| `provider_ruleset_sha256` | `str | None` | `None` |
+| `required_checks` | `list[str]` | `field(default_factory=list)` |
+| `trusted_check_sources` | `list[str]` | `field(default_factory=list)` |
+| `check_conclusions` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `review_actors` | `list[dict[str, Any]]` | `field(default_factory=list)` |
+| `merge_method` | `str | None` | `None` |
+| `merge_actor` | `str | None` | `None` |
+| `merged_at` | `str | None` | `None` |
+| `provider_event_ids` | `list[str]` | `field(default_factory=list)` |
+| `adapter_version` | `str` | `''` |
+| `verified_at` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `reason` | `str` | `''` |
+| `verification_input_digest` | `str` | `''` |
+| `coverage_digest` | `str | None` | `None` |
+| `uncovered_commits` | `list[str]` | `field(default_factory=list)` |
+| `uncovered_paths` | `list[str]` | `field(default_factory=list)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceVersionTag`
+
+`class WorkspaceVersionTag()`
+
+An immutable semantic-version claim recorded against a revision.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `tag_id` | `str` | `''` |
+| `project_id` | `str` | `''` |
+| `revision_id` | `str` | `''` |
+| `change_request_id` | `str` | `''` |
+| `tag` | `str` | `''` |
+| `kind` | `str` | `''` |
+| `created_by` | `str` | `''` |
+| `created_at` | `str | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ### Module `caliber_sdk.models.errors`

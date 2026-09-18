@@ -85,6 +85,13 @@ from .workflows import (
 )
 from .workspace import (
     IMPORT_JOB_TERMINAL_STATES,
+    WorkspaceChangeRequest,
+    WorkspaceChangeRequestCheck,
+    WorkspaceChangeRequestComment,
+    WorkspaceChangeRequestHead,
+    WorkspaceChangeRequestReview,
+    WorkspaceChangeRequestReviewer,
+    WorkspaceExternalReviewAttestation,
     WorkspaceImportJob,
     WorkspaceImportReconciliation,
     WorkspaceRevision,
@@ -93,6 +100,7 @@ from .workspace import (
     WorkspaceSource,
     WorkspaceSourceCapabilities,
     WorkspaceSourceState,
+    WorkspaceVersionTag,
 )
 
 __all__ = [
@@ -165,7 +173,14 @@ __all__ = [
     "WorkflowRunCapabilities",
     "WorkflowService",
     "WorkflowVersion",
+    "WorkspaceChangeRequest",
+    "WorkspaceChangeRequestCheck",
+    "WorkspaceChangeRequestComment",
+    "WorkspaceChangeRequestHead",
+    "WorkspaceChangeRequestReview",
+    "WorkspaceChangeRequestReviewer",
     "WorkspaceEnvironment",
+    "WorkspaceExternalReviewAttestation",
     "WorkspaceImportJob",
     "WorkspaceImportReconciliation",
     "WorkspaceRevision",
@@ -174,6 +189,7 @@ __all__ = [
     "WorkspaceSource",
     "WorkspaceSourceCapabilities",
     "WorkspaceSourceState",
+    "WorkspaceVersionTag",
     "decode",
     "decode_list",
 ]
