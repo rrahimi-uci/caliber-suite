@@ -59,6 +59,8 @@ def record(
     entity_type: str,
     entity_id: str,
     details: dict[str, Any] | None = None,
+    severity: str = "standard",
+    environment_id: str | None = None,
 ) -> CaliberAuditLog:
     """Append one row to the audit log.
 
@@ -87,6 +89,8 @@ def record(
         before the row is persisted, so callers don't have to think about
         sanitization at call sites.
     """
+    if severity not in {"standard", "high", "critical"}:
+        raise ValueError("severity must be standard, high, or critical")
     redacted_details: dict[str, Any] | None
     if details is None:
         redacted_details = None
@@ -100,6 +104,8 @@ def record(
         action=action,
         entity_type=entity_type,
         entity_id=entity_id,
+        severity=severity,
+        environment_id=environment_id,
         details=redacted_details,
     )
     session.add(row)

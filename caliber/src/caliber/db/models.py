@@ -654,6 +654,10 @@ class CaliberAuditLog(Base):
         Index("ix_audit_log_entity", "entity_type", "entity_id"),
         Index("ix_audit_log_actor_timestamp", "actor", "timestamp"),
         Index("ix_audit_log_environment", "environment_id"),
+        CheckConstraint(
+            "severity IN ('standard', 'high', 'critical')",
+            name="ck_audit_log_severity",
+        ),
     )
 
     log_id: Mapped[int] = mapped_column(Integer, primary_key=True, autoincrement=True)
@@ -662,6 +666,9 @@ class CaliberAuditLog(Base):
     action: Mapped[str] = mapped_column(String(64))
     entity_type: Mapped[str] = mapped_column(String(32))
     entity_id: Mapped[str] = mapped_column(String(128))
+    severity: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="standard", server_default="standard"
+    )
     details: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True)
     #: `P1-A` audit correlation (docs/workspace-plan.md §9.1). Only
     #: `environment_id` is buildable now -- the table's other correlation
@@ -2114,7 +2121,8 @@ class CaliberWorkspaceEnvironment(Base):
     A minimal slice of docs/workspace-plan.md section 9.2's
     ``caliber_workspace_environments`` table: just enough to seed and name
     the four fixed environments (``dev``/``qa``/``staging``/``prod``) per
-    project. The release/operation-tracking columns section 9.2 also
+    project, plus the explicit recovery-policy switch used by P5-B. The
+    release/operation-tracking columns section 9.2 also
     describes (``current_release_id``, ``pending_operation_id``,
     ``operation_state``, ``policy``/``policy_sha256``, ``lock_version``) are
     deliberately not here yet -- nothing consumes them until Phase 5's
@@ -2142,6 +2150,9 @@ class CaliberWorkspaceEnvironment(Base):
     environment_class: Mapped[str] = mapped_column(String(16), nullable=False)
     promotion_order: Mapped[int] = mapped_column(Integer, nullable=False)
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="disabled")
+    recovery_policy_enabled: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=False, server_default="0"
+    )
     created_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
     updated_at: Mapped[datetime] = mapped_column(
@@ -2979,6 +2990,14 @@ class CaliberWorkspaceReleaseDecision(Base):
     )
     kind: Mapped[str] = mapped_column(String(16), nullable=False)
     decision: Mapped[str] = mapped_column(String(8), nullable=False)
+    change_request_head_id: Mapped[str | None] = mapped_column(
+        String(64),
+        ForeignKey(
+            "caliber_workspace_change_request_heads.head_id",
+            name="fk_workspace_release_decision_head",
+        ),
+        nullable=True,
+    )
     rationale: Mapped[str] = mapped_column(String(4000), nullable=False)
     decided_by: Mapped[str] = mapped_column(String(256), nullable=False)
     actor_role_snapshot: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)

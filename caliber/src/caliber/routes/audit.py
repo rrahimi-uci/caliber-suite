@@ -49,6 +49,7 @@ _CSV_COLUMNS = (
     "action",
     "entity_type",
     "entity_id",
+    "severity",
     "details",
 )
 
@@ -58,6 +59,7 @@ _EQ_FILTERS = (
     ("action", CaliberAuditLog.action),
     ("entity_type", CaliberAuditLog.entity_type),
     ("entity_id", CaliberAuditLog.entity_id),
+    ("severity", CaliberAuditLog.severity),
 )
 
 
@@ -178,6 +180,7 @@ async def export_audit_log(request: Request) -> Response:
                 entry.action,
                 entry.entity_type,
                 entry.entity_id,
+                entry.severity,
                 "" if entry.details is None else json.dumps(entry.details, sort_keys=True),
             ]
         )

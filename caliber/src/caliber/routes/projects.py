@@ -1049,6 +1049,7 @@ def _environment_to_schema(
         environment_class=row.environment_class,
         promotion_order=row.promotion_order,
         status=row.status,
+        recovery_policy_enabled=row.recovery_policy_enabled,
         created_by=row.created_by,
         created_at=row.created_at.isoformat() if row.created_at else None,
         updated_at=row.updated_at.isoformat() if row.updated_at else None,
