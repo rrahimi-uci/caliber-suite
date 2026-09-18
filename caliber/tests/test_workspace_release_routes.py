@@ -230,7 +230,7 @@ def test_evaluate_starts_the_release_then_creates_an_attempt_and_lists_it(
     concurrent = client.post(
         f"{_releases_path(project_id)}/{release_id}/evaluate",
         json={
-            "idempotency_key": "eval-f4-second",
+            "idempotency_key": "eval-second-attempt",
             "evaluation_plan_sha256": HEX,
             "input_sha256": HEX,
         },
