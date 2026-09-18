@@ -476,6 +476,9 @@ class CaliberReleaseOperation(Base):
     )
 
     operation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    runtime_lineage_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
     operation_type: Mapped[str] = mapped_column(String(16))  # promote | rollback
     resource_type: Mapped[str] = mapped_column(String(32))
     resource_name: Mapped[str] = mapped_column(String(256))
@@ -589,6 +592,9 @@ class CaliberRegressionRun(Base):
         String(64), ForeignKey("caliber_approval_requests.approval_id"), nullable=True
     )
     agent_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_agent_config.agent_id"))
+    runtime_lineage_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
 
     candidate_hash: Mapped[str] = mapped_column(String(64))
     status: Mapped[str] = mapped_column(String(16))
@@ -1058,6 +1064,9 @@ class CaliberEvalRun(Base):
     )
 
     run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    runtime_lineage_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
     dataset_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("caliber_eval_datasets.dataset_id")
     )
@@ -1936,6 +1945,9 @@ class CaliberWorkflowRun(Base):
     )
 
     workflow_run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    runtime_lineage_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
     workflow_id: Mapped[str] = mapped_column(String(128))
     project_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
     tenant_id: Mapped[str] = mapped_column(String(64), default="local")
@@ -2810,6 +2822,74 @@ class CaliberWorkspaceVersionTag(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
 
 
+class CaliberWorkspaceRuntimeLineage(Base):
+    """Immutable execution coordinates shared by Workspace runtime artifacts.
+
+    A lineage row is the durable answer to "what executed, against which
+    release, and why was it eligible?"  The consumer link is intentionally
+    typed rather than polymorphic at the database level: the consuming run,
+    evidence row, or provider operation keeps a nullable FK to this record,
+    while this table stores the complete release/revision/environment and
+    model/config digest set in one queryable place.
+
+    Existing pre-Workspace rows may have no link.  They remain readable as
+    historical data, but strict Workspace execution must call
+    ``require_runtime_lineage`` before doing work.
+    """
+
+    __tablename__ = "caliber_workspace_runtime_lineage"
+    __table_args__ = (
+        UniqueConstraint(
+            "consumer_kind",
+            "consumer_id",
+            name="uq_workspace_runtime_lineage_consumer",
+        ),
+        Index("ix_workspace_runtime_lineage_project_created", "project_id", "created_at"),
+        Index(
+            "ix_workspace_runtime_lineage_release_environment",
+            "workspace_release_id",
+            "environment_id",
+        ),
+        CheckConstraint(
+            "consumer_kind IN ('run', 'evidence', 'provider_operation')",
+            name="ck_workspace_runtime_lineage_consumer_kind",
+        ),
+        CheckConstraint(
+            "eligibility_status IN ('eligible', 'blocked', 'stale')",
+            name="ck_workspace_runtime_lineage_eligibility",
+        ),
+    )
+
+    lineage_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    workspace_release_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_releases.release_id"), nullable=False
+    )
+    revision_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_revisions.revision_id"), nullable=False
+    )
+    environment_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_environments.environment_id"), nullable=False
+    )
+    consumer_kind: Mapped[str] = mapped_column(String(32), nullable=False)
+    consumer_id: Mapped[str] = mapped_column(String(128), nullable=False)
+    model_id: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    config_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    runtime_dependencies_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    policy_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    eligibility_status: Mapped[str] = mapped_column(
+        String(16), nullable=False, default="eligible", server_default="eligible"
+    )
+    eligibility_reason: Mapped[str] = mapped_column(String(4000), nullable=False, default="")
+    strict_execution: Mapped[bool] = mapped_column(
+        Boolean, nullable=False, default=True, server_default="1"
+    )
+    created_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+
+
 class CaliberWorkspaceRelease(Base):
     """Immutable evaluation coordinates for one Workspace environment release.
 
@@ -2916,6 +2996,9 @@ class CaliberWorkspaceReleaseEvaluation(Base):
     )
 
     evaluation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    runtime_lineage_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
     project_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("caliber_projects.project_id"), nullable=False
     )
@@ -2970,6 +3053,9 @@ class CaliberWorkspaceReleaseEvidence(Base):
     )
 
     evidence_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    runtime_lineage_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
     workspace_release_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("caliber_workspace_releases.release_id"), nullable=False
     )
@@ -3109,6 +3195,9 @@ class CaliberWorkspaceReleaseOperation(Base):
     )
 
     operation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    runtime_lineage_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
     project_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("caliber_projects.project_id"), nullable=False
     )
@@ -3619,6 +3708,9 @@ class CaliberKnowledgeBaseRun(Base):
     )
 
     knowledge_base_run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    runtime_lineage_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
     knowledge_base_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("caliber_knowledge_bases.knowledge_base_id")
     )
@@ -3778,6 +3870,9 @@ class CaliberPromptTestRun(Base):
     )
 
     test_run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    runtime_lineage_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
     agent_id: Mapped[str] = mapped_column(String(64), index=True)
     prompt_name: Mapped[str] = mapped_column(String(256), default="")
     prompt_alias: Mapped[str | None] = mapped_column(String(64), nullable=True)
@@ -3820,6 +3915,9 @@ class CaliberToolTestRun(Base):
     )
 
     test_run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    runtime_lineage_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
     tool_id: Mapped[str] = mapped_column(String(64), index=True)
     # Snapshot of the tool's registry version at run time (e.g. "1.0").
     tool_version: Mapped[str | None] = mapped_column(String(32), nullable=True)
@@ -3865,6 +3963,9 @@ class CaliberSkillTestRun(Base):
     )
 
     test_run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    runtime_lineage_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
     skill_id: Mapped[str] = mapped_column(String(64), index=True)
     # Snapshot of the skill's version at run time.
     skill_version: Mapped[int | None] = mapped_column(Integer, nullable=True)
@@ -3913,6 +4014,9 @@ class CaliberKnowledgeBaseTestRun(Base):
     )
 
     test_run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    runtime_lineage_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
     knowledge_base_id: Mapped[str] = mapped_column(String(64), index=True)
     knowledge_base_version_id: Mapped[str] = mapped_column(String(64))
     # Populated when the questions came from a saved eval dataset; the version
@@ -4016,6 +4120,9 @@ class CaliberAssistantRun(Base):
     __table_args__ = (Index("ix_asst_run_session", "session_id"),)
 
     run_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    runtime_lineage_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
     session_id: Mapped[str] = mapped_column(
         String(64), ForeignKey("caliber_assistant_sessions.session_id")
     )

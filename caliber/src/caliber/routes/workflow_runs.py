@@ -27,6 +27,7 @@ from caliber.db.models import (
     CaliberWorkflowRunCheckpoint,
     CaliberWorkflowRunEvent,
     CaliberWorkflowVersion,
+    CaliberWorkspaceRelease,
 )
 from caliber.ids import new_workflow_run_id
 from caliber.mcp_policy import deployment_blockers
@@ -82,6 +83,7 @@ from caliber.workflows.run_state import (
     assert_run_transition,
 )
 from caliber.workflows.validation import find_inline_secrets
+from caliber.workspace_runtime_lineage import create_runtime_lineage
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 CREATE_PATH = PREFIX + "/workflow-runs"
@@ -598,7 +600,7 @@ def _clone_manifest(manifest: dict[str, Any]) -> dict[str, Any]:
     return deepcopy(manifest)
 
 
-async def create_workflow_run(request: Request) -> JSONResponse:
+async def create_workflow_run(request: Request) -> JSONResponse:  # noqa: PLR0915
     from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
 
     actor = require_scopes(request, [SCOPE_OPERATOR])
@@ -696,6 +698,7 @@ async def create_workflow_run(request: Request) -> JSONResponse:
                     else {}
                 ),
                 **manifest_metadata,
+                "strict_lineage": payload.workspace_release_id is not None,
             },
         )
         session.add(run)
@@ -716,6 +719,27 @@ async def create_workflow_run(request: Request) -> JSONResponse:
             raise HTTPException(
                 status_code=409, detail="workflow run idempotency conflict"
             ) from exc
+
+        if payload.workspace_release_id is not None and payload.environment_id is not None:
+            try:
+                release = session.get(CaliberWorkspaceRelease, payload.workspace_release_id)
+                lineage = create_runtime_lineage(
+                    session,
+                    project_id=workflow.project_id or "",
+                    workspace_release_id=payload.workspace_release_id,
+                    revision_id=release.revision_id if release is not None else "",
+                    environment_id=payload.environment_id,
+                    consumer_kind="run",
+                    consumer_id=run.workflow_run_id,
+                    model_id=payload.model_id,
+                    config_sha256=payload.config_sha256,
+                    strict_execution=True,
+                    created_by=actor,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            run.runtime_lineage_id = lineage.lineage_id
+            session.flush()
 
         _append_run_event(
             session,

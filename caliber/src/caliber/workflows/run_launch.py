@@ -23,10 +23,12 @@ from caliber.db.models import (
     CaliberWorkflow,
     CaliberWorkflowRun,
     CaliberWorkflowVersion,
+    CaliberWorkspaceRelease,
 )
 from caliber.ids import new_workflow_run_id
 from caliber.workflows.run_events import append_run_event
 from caliber.workflows.run_state import RUN_STATUS_QUEUED
+from caliber.workspace_runtime_lineage import create_runtime_lineage
 
 
 def _find_idempotent(
@@ -90,6 +92,10 @@ def enqueue_workflow_run(
     idempotency_key: str | None = None,
     priority: int = 0,
     session_id: str | None = None,
+    workspace_release_id: str | None = None,
+    environment_id: str | None = None,
+    model_id: str | None = None,
+    config_sha256: str | None = None,
     publish: Callable[[dict[str, Any]], None] | None = None,
 ) -> tuple[CaliberWorkflowRun, bool]:
     """Insert a ``queued`` run for the worker to pick up.
@@ -116,6 +122,15 @@ def enqueue_workflow_run(
 
     now = datetime.now(timezone.utc)
     manifest_metadata = _saved_version_manifest_metadata(version)
+    run_summary = {
+        "preview": False,
+        "status": RUN_STATUS_QUEUED,
+        "input": (input_text or "")[:1000],
+        **manifest_metadata,
+    }
+    if workspace_release_id is not None:
+        run_summary["strict_lineage"] = True
+
     run = CaliberWorkflowRun(
         workflow_run_id=new_workflow_run_id(),
         workflow_id=workflow.workflow_id,
@@ -134,12 +149,7 @@ def enqueue_workflow_run(
         idempotency_key=idempotency_key,
         input_payload=input_text or "",
         manifest_snapshot=_clone_manifest(version.manifest),
-        summary={
-            "preview": False,
-            "status": RUN_STATUS_QUEUED,
-            "input": (input_text or "")[:1000],
-            **manifest_metadata,
-        },
+        summary=run_summary,
     )
     try:
         # SAVEPOINT so a duplicate-key conflict rolls back ONLY this insert. A
@@ -160,6 +170,24 @@ def enqueue_workflow_run(
         if duplicate is not None:
             return duplicate, False
         raise
+
+    if workspace_release_id is not None and environment_id is not None:
+        release = session.get(CaliberWorkspaceRelease, workspace_release_id)
+        lineage = create_runtime_lineage(
+            session,
+            project_id=workflow.project_id or "",
+            workspace_release_id=workspace_release_id,
+            revision_id=release.revision_id if release is not None else "",
+            environment_id=environment_id,
+            consumer_kind="run",
+            consumer_id=run.workflow_run_id,
+            model_id=model_id,
+            config_sha256=config_sha256,
+            strict_execution=True,
+            created_by=actor,
+        )
+        run.runtime_lineage_id = lineage.lineage_id
+        session.flush()
 
     _append_run_event(
         session,

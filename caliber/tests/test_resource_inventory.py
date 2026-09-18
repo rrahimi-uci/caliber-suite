@@ -68,7 +68,10 @@ _EXPECTED_COUNTS = {
     # visibility tier. Their child evidence/decision/item rows are classified
     # as unscoped above because they inherit the same boundary through their
     # required parent FK.
-    SCOPING_PROJECT_ONLY: 21,
+    # +1 (`P5-D`): runtime lineage is a project-bound reconstruction record;
+    # every consumer points to it, so the project remains queryable without
+    # copying authorization columns onto each legacy run table.
+    SCOPING_PROJECT_ONLY: 22,
 }
 
 

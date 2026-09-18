@@ -38,6 +38,7 @@ from caliber.db.models import (
     CaliberWorkflowPatch,
     CaliberWorkflowRun,
     CaliberWorkflowVersion,
+    CaliberWorkspaceRelease,
 )
 from caliber.db.scoping import get_visible
 from caliber.ids import new_workflow_patch_id, new_workflow_run_id, new_workflow_version_id
@@ -109,6 +110,7 @@ from caliber.workflows.validation import (
     find_inline_secrets,
     validate_manifest,
 )
+from caliber.workspace_runtime_lineage import create_runtime_lineage
 
 logger = logging.getLogger("caliber.workflows.run")
 _MANIFEST_ERROR_PATH_MIN_PARTS = 3
@@ -885,6 +887,7 @@ def _run_workflow_version_sync(  # noqa: PLR0912, PLR0915 - run orchestration + 
             manifest_snapshot=manifest_snapshot,
             summary={
                 "preview": False,
+                "strict_lineage": payload.workspace_release_id is not None,
                 **manifest_metadata,
                 "node_path": [],
                 "steps": [],
@@ -899,6 +902,26 @@ def _run_workflow_version_sync(  # noqa: PLR0912, PLR0915 - run orchestration + 
         )
         session.add(run)
         session.flush()
+        if payload.workspace_release_id is not None and payload.environment_id is not None:
+            try:
+                release = session.get(CaliberWorkspaceRelease, payload.workspace_release_id)
+                lineage = create_runtime_lineage(
+                    session,
+                    project_id=workflow.project_id or "",
+                    workspace_release_id=payload.workspace_release_id,
+                    revision_id=release.revision_id if release is not None else "",
+                    environment_id=payload.environment_id,
+                    consumer_kind="run",
+                    consumer_id=run.workflow_run_id,
+                    model_id=payload.model_id,
+                    config_sha256=payload.config_sha256,
+                    strict_execution=True,
+                    created_by=actor,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            run.runtime_lineage_id = lineage.lineage_id
+            session.flush()
         run_id = run.workflow_run_id
         session.commit()
 

@@ -1547,6 +1547,16 @@ class WorkflowRunRequest(BaseModel):
     # upload (``{"file_id": ...}``) or a read-only dataset file
     # (``{"file_ref": ...}``). Runtime binds them into the run ``input/``.
     input_files: list[dict[str, str]] | None = Field(default=None)
+    workspace_release_id: str | None = Field(default=None, max_length=64)
+    environment_id: str | None = Field(default=None, max_length=64)
+    model_id: str | None = Field(default=None, max_length=256)
+    config_sha256: str | None = Field(default=None, min_length=64, max_length=64)
+
+    @model_validator(mode="after")
+    def _validate_lineage_coordinates(self) -> WorkflowRunRequest:
+        if bool(self.workspace_release_id) != bool(self.environment_id):
+            raise ValueError("workspace_release_id and environment_id must be provided together")
+        return self
 
 
 class WorkflowRunCreateRequest(BaseModel):
@@ -1564,16 +1574,20 @@ class WorkflowRunCreateRequest(BaseModel):
     idempotency_key: str | None = Field(default=None, min_length=1, max_length=128)
     manifest: dict[str, object] | None = None
     input_files: list[dict[str, str]] | None = Field(default=None)
+    workspace_release_id: str | None = Field(default=None, max_length=64)
+    environment_id: str | None = Field(default=None, max_length=64)
+    model_id: str | None = Field(default=None, max_length=256)
+    config_sha256: str | None = Field(default=None, min_length=64, max_length=64)
 
     @model_validator(mode="after")
     def _validate_target(self) -> WorkflowRunCreateRequest:
-        if self.workflow_version_id:
-            return self
-        if self.workflow_id and self.alias:
-            return self
-        raise ValueError(
-            "provide either workflow_version_id, or (workflow_id + alias) for async runs"
-        )
+        if not self.workflow_version_id and not (self.workflow_id and self.alias):
+            raise ValueError(
+                "provide either workflow_version_id, or (workflow_id + alias) for async runs"
+            )
+        if bool(self.workspace_release_id) != bool(self.environment_id):
+            raise ValueError("workspace_release_id and environment_id must be provided together")
+        return self
 
 
 class WorkflowTriggerRequest(BaseModel):
@@ -1693,6 +1707,7 @@ class WorkflowRunSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     workflow_run_id: str
+    runtime_lineage_id: str | None = None
     workflow_id: str
     project_id: str | None = None
     tenant_id: str | None = None
@@ -2779,6 +2794,7 @@ class WorkspaceReleaseEvaluationSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     evaluation_id: str
+    runtime_lineage_id: str | None = None
     project_id: str
     workspace_release_id: str
     idempotency_key: str
@@ -2806,6 +2822,7 @@ class WorkspaceReleaseEvidenceSchema(BaseModel):
 
     evidence_id: str
     workspace_release_id: str
+    runtime_lineage_id: str | None = None
     kind: Literal[
         "evaluation_run",
         "gate_verdict",
@@ -2895,6 +2912,7 @@ class WorkspaceReleaseOperationSchema(BaseModel):
     project_id: str
     workspace_release_id: str
     environment_id: str
+    runtime_lineage_id: str | None = None
     kind: Literal["apply", "rollback"]
     target_release_id: str | None = None
     idempotency_key: str
@@ -4533,6 +4551,9 @@ class EvalRunCreateRequest(BaseModel):
     # The artifact under test for non-``llm`` targets (prompt ref / skill id /
     # workflow version id).
     subject_ref: str | None = Field(default=None, max_length=256)
+    workspace_release_id: str | None = Field(default=None, max_length=64)
+    environment_id: str | None = Field(default=None, max_length=64)
+    config_sha256: str | None = Field(default=None, min_length=64, max_length=64)
 
     @model_validator(mode="after")
     def _subject_required_for_artifact_targets(self) -> EvalRunCreateRequest:
@@ -4541,6 +4562,8 @@ class EvalRunCreateRequest(BaseModel):
                 f"predict_target {self.predict_target!r} requires a 'subject_ref' "
                 "(the prompt ref / skill id to score)"
             )
+        if bool(self.workspace_release_id) != bool(self.environment_id):
+            raise ValueError("workspace_release_id and environment_id must be provided together")
         return self
 
 
@@ -4550,6 +4573,7 @@ class EvalRunSummarySchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     run_id: str
+    runtime_lineage_id: str | None = None
     dataset_id: str
     dataset_version: int
     label: str

@@ -44,6 +44,7 @@ from caliber.db.models import (
     CaliberJudge,
     CaliberSkill,
     CaliberWorkflowVersion,
+    CaliberWorkspaceRelease,
 )
 from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.eval.evidence import build_evidence, content_digest_of_text
@@ -74,6 +75,7 @@ from caliber.schemas import (
     EvalRunSchema,
     EvalRunSummarySchema,
 )
+from caliber.workspace_runtime_lineage import create_runtime_lineage
 
 LIST_PATH = "/ajax-api/2.0/mlflow/caliber/evaluations"
 DETAIL_PATH = "/ajax-api/2.0/mlflow/caliber/evaluations/{run_id}"
@@ -712,6 +714,26 @@ def _persist_eval_run(
         )
         session.add(run)
         session.flush()
+        if payload.workspace_release_id is not None and payload.environment_id is not None:
+            release = session.get(CaliberWorkspaceRelease, payload.workspace_release_id)
+            try:
+                lineage = create_runtime_lineage(
+                    session,
+                    project_id=project_id or "",
+                    workspace_release_id=payload.workspace_release_id,
+                    revision_id=release.revision_id if release is not None else "",
+                    environment_id=payload.environment_id,
+                    consumer_kind="run",
+                    consumer_id=run.run_id,
+                    model_id=model,
+                    config_sha256=payload.config_sha256,
+                    strict_execution=True,
+                    created_by=actor,
+                )
+            except RuntimeError as exc:
+                raise HTTPException(status_code=409, detail=str(exc)) from exc
+            run.runtime_lineage_id = lineage.lineage_id
+            session.flush()
         audit_record(
             session,
             actor=actor,

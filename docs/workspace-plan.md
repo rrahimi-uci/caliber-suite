@@ -1949,6 +1949,7 @@ flowchart LR
 | `WorkspaceEnvironmentService` | Seed/manage environment identities and policy, capture config digest | Secret plaintext |
 | `WorkspaceReleaseService` | Request/evaluate one revision/environment pair and record digest-bound human decisions | Provider effects or mutable approval history |
 | `WorkspaceReleaseOperationService` | Prepare, apply, observe, reconcile, and roll back through intent-first parent/child operations | Pretending child effects are atomic or rewriting release evidence |
+| `WorkspaceRuntimeLineage` | Stamp immutable release/revision/environment/model/config coordinates and fail closed before strict execution | Reconstructing provenance from mutable aliases or provider payloads |
 | `WorkspaceReworkService` | Own failed-gate and human-rejection tasks through a superseding revision/release | Mutating an immutable rejected release |
 | `WorkspaceResourceAdapter` registry | Domain-specific resolve/materialize/validate/release/observe/rollback operations | Generic domain CRUD replacement |
 
@@ -2438,6 +2439,22 @@ and provenance timestamps/actor. Unique
 computed from the canonical ordered set, allowing an aggregate revision to bind
 multiple runs and artifact candidates without pretending one candidate is the
 whole release.
+
+**`caliber_workspace_runtime_lineage`** — `WSRLIN-*` primary key; one immutable
+consumer binding for a `run`, `evidence`, or `provider_operation`; non-null
+project, release, revision, and environment coordinates; optional model ID;
+release-bound environment-config, runtime-dependency, and policy SHA-256
+digests; explicit `eligibility_status`/reason; and the strict-execution flag.
+Workflow/evaluation runs, Workspace release evaluations/evidence, and Workspace
+provider operations retain a nullable `runtime_lineage_id` foreign key so old
+rows remain readable while new strict paths cannot infer provenance from a
+mutable alias. `reconstruct_runtime_lineage()` joins the lineage, release,
+revision, and environment in one query. `require_runtime_lineage()` rejects
+missing links, changed coordinates, non-ready revisions, non-approved releases,
+inactive environments, unsettled runtime environments, and provider workers
+that no longer own the pending operation lock. A release-evidence helper records
+the same binding without treating evidence capture as live execution; valid
+break-glass provider operations retain their explicit exceptional eligibility.
 
 **`caliber_workspace_release_decisions`** — `WSRELD-*` primary key; non-null
 `workspace_release_id`; `kind` in `quality`, `release`; `decision` in `go`,
@@ -3756,7 +3773,7 @@ combined with a later slice merely to reduce PR count.
 | `P5-A` | Data/backend | **Partially delivered (durable foundation slice).** Added Workspace release/evaluation/evidence/decision/break-glass and release-operation/item IDs, ORM models, migration `0102`, typed schemas, and provider-free release/evaluation and operation state-machine services with lock-version CAS and atomic evaluation lease claim/heartbeat arbitration. | `P3-A`, `P4-D` | 70 focused tests cover illegal edges, durable lease recovery, idempotency, typed schemas, DB constraints, and lease CAS races; development/staging machine passes (with staging predecessor proof) reach `approved`, while QA/production stop at `awaiting_quality_signoff`; no provider calls or external effects. P5-B security decisions/actor binding/break-glass policy and P5-C adapters/effects/reconciliation/rollback/routes remain open. |
 | `P5-B` | Security/backend | **Delivered.** Added migration `0103`, digest-bound append-only QA and production decision services, exact Change Request head/revision binding, role/scope snapshots, originator/requester separation, explicit recovery-policy state, severity-aware audit records, and a provider-free interactive break-glass authorization plus prepared apply intent with idempotent replay and atomic persistence. | `P5-A` | Both decisions are digest-bound and append-only; author/requester self-approval and non-interactive break-glass deny; emergency production apply requires an interactive `caliber.admin` session, enabled recovery policy, accepted QA package, verified staging predecessor, production coordinates, bounded expiry, and high-severity audit evidence. P5-C still owns provider effects, environment pointers, reconciliation, rollback, and public routes. |
 | `P5-C` | Release/integrations | **Delivered.** Added a typed, provider-neutral Workspace resource-adapter registry and deterministic fake adapter; durable environment current/pending pointers with CAS lock and migration `0104`; intent-first apply/rollback preparation; ordered child-effect execution; timeout-before/after-effect handling; observation/reconciliation; expired break-glass cancellation; pointer advancement only after proven settlement; and project-scoped operation routes for create/list/detail/apply/observe/cancel. Provider-specific clients remain explicit application wiring rather than an implicit network dependency. | `P5-B` | Timeout-before/after-effect and partial-child tests never report false success; rollback calls the rollback adapter and leaves original releases immutable; disabled/degraded environments block prepare/apply; reconciliation preserves ambiguous effects and clears the pointer only after settlement; targeted P5-C coverage is above 99% with route, migration, governance, and regression tests |
-| `P5-D` | Runtime/observability | Stamp release/revision/environment/model/config lineage on runs, evidence and provider operations | `P5-C` | One query reconstructs what executed and why it was eligible; missing lineage fails strict execution |
+| `P5-D` | Runtime/observability | **Delivered.** Added immutable `caliber_workspace_runtime_lineage` records and migration `0105`, consumer links on workflow/evaluation/test/assistant/regression runs, Workspace release evaluations/evidence, and legacy/provider operation records, plus typed lineage schemas. Workspace release operations and release evaluations stamp their coordinates automatically; queued workflow and scorecard evaluation submissions accept an explicit release/environment/model/config basis; the workflow worker calls the strict validator before execution. One joined query reconstructs release, revision, environment, model, config/runtime/policy digests and eligibility reason; missing, stale, inactive, unsettled, or lock-lost lineage fails closed, while legacy rows remain readable and valid break-glass operations retain their explicit exception. | `P5-C` | Immutable-coordinate, evidence-idempotency, migration-parity, operation-lock, strict-worker, stale-state, and release regression tests pass; focused lineage coverage is 99% and the existing backend/UI/SDK gates remain independently reported |
 | `P6-A` | SDK | Concurrency-safe tri-state scope, shared models/errors/contracts, sync/async resource skeleton | `P0-B` | Legacy SDK tests and signature-normalization tests pass; no unsupported public lifecycle method is exported |
 | `P6-B` | SDK + API | Typed members/source/import/revision/Change Request/version/environment/rework/release/operation methods, cursor pages and waiters, delivered with corresponding route coverage | `P4-D`, `P5-D`, `P6-A` | OpenAPI inventory has no untracked Workspace route; examples drive package, review and development release without raw HTTP |
 | `P6-C` | SDK/docs | Async parity, packaging, executable examples, CLI delegates and compatibility/deprecation notes | `P6-B` | Wheel inspected; sync/async semantic parity and docs contracts pass; pending states retain typed meaning |
