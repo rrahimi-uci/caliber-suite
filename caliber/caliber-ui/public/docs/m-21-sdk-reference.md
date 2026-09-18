@@ -380,6 +380,7 @@ Operate on the caliber client surface with the supplied arguments and return the
 | `capabilities_info` | `CapabilitiesAPI` | Runtime stability tiers and deployment capabilities. |
 | `settings` | `SettingsAPI` | Runtime and LLM configuration inventory. |
 | `projects` | `ProjectsAPI` | Projects plus the managed file registry. |
+| `workspaces` | `Any` | — |
 | `prompts` | `PromptsAPI` | Prompt registry authoring and promotion. |
 | `skills` | `SkillsAPI` | Skill registry, render tests, selection tests, and versions. |
 | `tools` | `ToolsAPI` | Tool registry, schemas, and deterministic calibration. |
@@ -474,9 +475,9 @@ Close any owned resources when leaving the context manager.
 
 **Returns:** `None`
 
-###### `project_scope(project_id: str) -> Iterator[CaliberClient]`
+###### `workspace_scope(project_id: str) -> Iterator[CaliberClient]`
 
-Temporarily select the project sent on subsequent requests.
+Temporarily select the workspace sent on subsequent requests.
 
 This is useful when a script creates its own workspace and needs the
 following prompt, dataset, workflow, or assistant records to belong to
@@ -487,6 +488,32 @@ the caller's next task.
 Project selection is stored in the current thread/task context, so a
 concurrent caller gets its own selection. Per-request project pins are
 still preferred for resource methods whose path names the project.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`Iterator[CaliberClient]`](#caliberclient)
+
+**Raises:**
+
+- [`CaliberConfigError`](#caliberconfigerror)
+
+###### `library_scope() -> Iterator[CaliberClient]`
+
+Temporarily omit the project header for a library-scoped call.
+
+``None`` is intentionally distinct from an unset scope: it prevents a
+constructor or outer workspace scope from leaking into a platform or
+personal-library request. The prior scope is restored on exit.
+
+This callable takes no public parameters.
+
+**Returns:** [`Iterator[CaliberClient]`](#caliberclient)
+
+###### `project_scope(project_id: str) -> Iterator[CaliberClient]`
+
+Compatibility alias for :meth:`workspace_scope`.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -1514,7 +1541,7 @@ Resource modules — typed façades over route groups.
 
 **Public exports**
 
-`AccountsAPI`, `AdminAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `LlmPricingAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `PlaygroundRunsAPI`, `ProjectFilesAPI`, `ProjectReworkTasksAPI`, `ProjectsAPI`, `PromptsAPI`, `QualityReviewsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `ReworkTasksAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `VerificationQueueAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`
+`AccountsAPI`, `AdminAPI`, `AgentsAPI`, `AriaAPI`, `AriaDraftsAPI`, `AriaSessionsAPI`, `AuditAPI`, `AuthAPI`, `CapabilitiesAPI`, `CookbooksAPI`, `EvalDatasetsAPI`, `EvaluationsAPI`, `EventsAPI`, `GateVerdictsAPI`, `GatewayAPI`, `JobsAPI`, `JudgesAPI`, `KnowledgeBasesAPI`, `LlmPricingAPI`, `McpServersAPI`, `MeAPI`, `MemoryAPI`, `ObjectStoreAPI`, `ObservabilityAPI`, `OpenApiIntegrationsAPI`, `PlaygroundRunsAPI`, `ProjectFilesAPI`, `ProjectReworkTasksAPI`, `ProjectsAPI`, `PromptsAPI`, `QualityReviewsAPI`, `RawAPI`, `ReleasesAPI`, `Resource`, `ReviewQueuesAPI`, `ReworkTasksAPI`, `SecretsAPI`, `SettingsAPI`, `SkillsAPI`, `SystemAPI`, `TokensAPI`, `ToolsAPI`, `VerificationQueueAPI`, `WorkflowPromotionsAPI`, `WorkflowRunFailed`, `WorkflowRunsAPI`, `WorkflowServicesAPI`, `WorkflowVersionsAPI`, `WorkflowsAPI`, `WorkspacesAPI`
 
 ### Module `caliber_sdk.resources.auth`
 
@@ -1879,7 +1906,7 @@ sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
 
 **Public exports**
 
-`ProjectFilesAPI`, `ProjectReworkTasksAPI`, `ProjectsAPI`
+`ProjectFilesAPI`, `ProjectReworkTasksAPI`, `ProjectsAPI`, `WorkspacesAPI`
 
 #### Classes
 
@@ -11088,7 +11115,7 @@ sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
 
 **Public exports**
 
-`AsyncCaliberClient`, `AsyncProjectFilesAPI`, `AsyncProjectsAPI`, `AsyncTransport`, `wait_for`, `wait_for_terminal_state`
+`AsyncCaliberClient`, `AsyncProjectFilesAPI`, `AsyncProjectsAPI`, `AsyncTransport`, `AsyncWorkspacesAPI`, `wait_for`, `wait_for_terminal_state`
 
 ### Module `caliber_sdk.aio.client`
 
@@ -11156,6 +11183,7 @@ Operate on the caliber client surface with the supplied arguments and return the
 | `me` | `AsyncMeAPI` | The caller identity surface. |
 | `capabilities_info` | `AsyncCapabilitiesAPI` | Runtime stability tiers and deployment capabilities. |
 | `projects` | [`AsyncProjectsAPI`](#asyncprojectsapi) | Projects plus the managed file registry. |
+| `workspaces` | `Any` | — |
 | `workflows` | `AsyncWorkflowRunsAPI` | Workflow registry plus versions, runs, and services. |
 | `jobs` | `AsyncJobsAPI` | Long-running background jobs. |
 | `events` | `AsyncEventsAPI` | Server-sent event stream. |
@@ -11198,9 +11226,9 @@ Close any owned resources when leaving the async context manager.
 
 **Returns:** `None`
 
-###### `project_scope(project_id: str) -> AsyncIterator[AsyncCaliberClient]`
+###### `workspace_scope(project_id: str) -> AsyncIterator[AsyncCaliberClient]`
 
-Temporarily select a context-local project for async requests.
+Temporarily select a context-local workspace for async requests.
 
 The selection follows the current task across ``await`` points and is
 restored even when the scoped operation raises. Other tasks sharing the
@@ -11215,6 +11243,24 @@ client keep their own project selection.
 **Raises:**
 
 - [`CaliberConfigError`](#caliberconfigerror)
+
+###### `library_scope() -> AsyncIterator[AsyncCaliberClient]`
+
+Temporarily omit the project header for library-scoped calls.
+
+This callable takes no public parameters.
+
+**Returns:** [`AsyncIterator[AsyncCaliberClient]`](#asynccaliberclient)
+
+###### `project_scope(project_id: str) -> AsyncIterator[AsyncCaliberClient]`
+
+Compatibility alias for :meth:`workspace_scope`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`AsyncIterator[AsyncCaliberClient]`](#asynccaliberclient)
 
 ##### `AsyncRawAPI`
 
@@ -11589,7 +11635,7 @@ sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
 
 **Public exports**
 
-`AsyncProjectFilesAPI`, `AsyncProjectsAPI`
+`AsyncProjectFilesAPI`, `AsyncProjectsAPI`, `AsyncWorkspacesAPI`
 
 #### Classes
 

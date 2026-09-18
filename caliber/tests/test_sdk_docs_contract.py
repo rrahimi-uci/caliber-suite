@@ -184,6 +184,10 @@ def test_every_method_that_performs_a_request_documents_its_exceptions() -> None
                 "stability",
                 "capabilities_api",
                 "datasets",
+                # A context-var push/pop with no argument to validate and no
+                # request in its body -- unlike ``workspace_scope``/
+                # ``project_scope``, it genuinely cannot raise.
+                "library_scope",
             }:
                 continue
             missing.append(f"{class_name}.{name}")
