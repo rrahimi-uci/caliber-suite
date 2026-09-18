@@ -56,9 +56,10 @@ method = "GET"
 path = "/metrics"
 reason = "Prometheus text exposition, not JSON -- belongs to a scraper, not a client."
 
-# P4-C provider-neutral Workspace source/import/revision routes. The server
-# contract is intentionally usable from raw HTTP first; typed SDK resources and
-# examples are the P6-B deliverable.
+# P4-C provider-neutral Workspace source-control-configuration routes. The
+# import/revision half of this same server contract is now covered by
+# ProjectImportsAPI/ProjectRevisionsAPI (P6-B); source get/configure/enable/
+# disable/capabilities/reconcile remains a tracked gap for a later P6-B slice.
 
 [[gap]]
 method = "GET"
@@ -98,55 +99,6 @@ wave = "P6-B"
 [[gap]]
 method = "POST"
 path = "/projects/{}/source:reconcile"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/revision-imports"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/revision-imports"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/revision-imports/{}"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/revision-imports/{}:reconcile"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/revisions"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/revisions/{}"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/revisions/{}/diff"
 tag = "projects"
 stability = "ga"
 wave = "P6-B"

@@ -2,7 +2,9 @@
 
 Every other resource can be scoped to a project via the ``X-CALIBER-Project``
 header, which the client sets for you. This module manages the projects
-themselves and the files they hold.
+themselves, the files they hold, and (`P6-B`) the source-to-revision import
+and revision-review lifecycle: :class:`ProjectImportsAPI` and
+:class:`ProjectRevisionsAPI`, exposed as ``ProjectsAPI.imports``/``.revisions``.
 """
 
 from __future__ import annotations
@@ -11,11 +13,44 @@ import warnings
 from typing import Any, BinaryIO
 
 from ..models._decode import decode, decode_list
+from ..models.common import CursorPage
 from ..models.core import Project, ProjectFile, ProjectFolder, ProjectMember, WorkspaceEnvironment
 from ..models.operations import ReworkTask
+from ..models.workspace import (
+    WorkspaceImportJob,
+    WorkspaceImportReconciliation,
+    WorkspaceRevision,
+    WorkspaceRevisionDiff,
+    WorkspaceRevisionResource,
+)
+from ..waiters import wait_for
 from ._base import Resource
 
 _List = list
+
+
+def _decode_import_reconciliation(payload: Any) -> WorkspaceImportReconciliation:
+    result = decode(WorkspaceImportReconciliation, payload)
+    job_payload = payload.get("job") if isinstance(payload, dict) else None
+    result.job = decode(WorkspaceImportJob, job_payload)
+    return result
+
+
+def _decode_revision(payload: Any) -> WorkspaceRevision:
+    revision = decode(WorkspaceRevision, payload)
+    revision.resources = decode_list(
+        WorkspaceRevisionResource, payload.get("resources") if isinstance(payload, dict) else None
+    )
+    return revision
+
+
+def _decode_revision_diff(payload: Any) -> WorkspaceRevisionDiff:
+    diff = decode(WorkspaceRevisionDiff, payload)
+    if isinstance(payload, dict):
+        diff.added = decode_list(WorkspaceRevisionResource, payload.get("added"))
+        diff.removed = decode_list(WorkspaceRevisionResource, payload.get("removed"))
+        diff.changed = decode_list(WorkspaceRevisionResource, payload.get("changed"))
+    return diff
 
 
 class ProjectFilesAPI(Resource):
@@ -74,6 +109,147 @@ class ProjectFilesAPI(Resource):
         """Raw bytes. Not JSON, so it bypasses the envelope entirely."""
         return self._transport.download(
             f"/projects/{project_id}/files/{file_id}/content", project=project_id
+        )
+
+
+class ProjectImportsAPI(Resource):
+    """Durable source-to-revision import jobs for one project (`P6-B`)."""
+
+    def list(
+        self,
+        project_id: str,
+        *,
+        status: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> CursorPage[WorkspaceImportJob]:
+        params: dict[str, Any] = {}
+        if status is not None:
+            params["status"] = status
+        if limit is not None:
+            params["limit"] = limit
+        if cursor is not None:
+            params["cursor"] = cursor
+        payload = self._get(
+            f"/projects/{project_id}/revision-imports",
+            params=params or None,
+            project=project_id,
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        items = data.get("items") if isinstance(data, dict) else None
+        next_cursor = payload.get("next_cursor") if isinstance(payload, dict) else None
+        return CursorPage(
+            items=decode_list(WorkspaceImportJob, items),
+            next_cursor=next_cursor if isinstance(next_cursor, str) else None,
+        )
+
+    def get(self, project_id: str, job_id: str) -> WorkspaceImportJob:
+        return decode(
+            WorkspaceImportJob,
+            self._get(f"/projects/{project_id}/revision-imports/{job_id}", project=project_id),
+        )
+
+    def create(
+        self,
+        project_id: str,
+        *,
+        repository: str,
+        commit_sha: str,
+        bundle: bytes | BinaryIO,
+        idempotency_key: str,
+        filename: str = "bundle",
+    ) -> WorkspaceImportJob:
+        """Start an import. Multipart, so it does not go through the JSON path.
+
+        ``idempotency_key`` has no default on purpose: the server replays a
+        prior job for a reused key rather than starting a second one, so
+        generating a fresh key on every call here would silently defeat that
+        retry-safety guarantee. Reuse the same key across a retry of the
+        *same* logical import; the server compares content digests and
+        rejects a key reused for genuinely different content.
+        """
+        files = {"bundle": (filename, bundle, "application/octet-stream")}
+        data = {"repository": repository, "commit_sha": commit_sha}
+        response = self._transport.request(
+            "POST",
+            f"/projects/{project_id}/revision-imports",
+            files=files,
+            data=data,
+            headers={"Idempotency-Key": idempotency_key},
+            project=project_id,
+        )
+        return decode(WorkspaceImportJob, response.data)
+
+    def reconcile(self, project_id: str, job_id: str) -> WorkspaceImportReconciliation:
+        """Explicitly observe an import stuck in ``reconcile_required``."""
+        return _decode_import_reconciliation(
+            self._post(
+                f"/projects/{project_id}/revision-imports/{job_id}:reconcile", project=project_id
+            )
+        )
+
+    def wait(
+        self, project_id: str, job_id: str, *, timeout: float = 900.0, **options: Any
+    ) -> WorkspaceImportJob:
+        """Poll until the import reaches a terminal state.
+
+        ``reconcile_required`` counts as terminal here -- it will never
+        advance on its own, so a waiter that only accepted ``succeeded``/
+        ``failed`` would block until timeout on the one outcome that needs a
+        caller to act (:meth:`reconcile`), not wait longer.
+        """
+        return wait_for(
+            lambda: self.get(project_id, job_id),
+            is_done=lambda job: job.is_terminal,
+            timeout=timeout,
+            **options,
+        )
+
+
+class ProjectRevisionsAPI(Resource):
+    """Immutable, reviewable Workspace revisions for one project (`P6-B`)."""
+
+    def list(
+        self,
+        project_id: str,
+        *,
+        status: str | None = None,
+        limit: int | None = None,
+        cursor: str | None = None,
+    ) -> CursorPage[WorkspaceRevision]:
+        params: dict[str, Any] = {}
+        if status is not None:
+            params["status"] = status
+        if limit is not None:
+            params["limit"] = limit
+        if cursor is not None:
+            params["cursor"] = cursor
+        payload = self._get(
+            f"/projects/{project_id}/revisions",
+            params=params or None,
+            project=project_id,
+        )
+        data = payload.get("data") if isinstance(payload, dict) else None
+        items = data.get("items") if isinstance(data, dict) else None
+        next_cursor = payload.get("next_cursor") if isinstance(payload, dict) else None
+        return CursorPage(
+            items=[_decode_revision(item) for item in items] if isinstance(items, list) else [],
+            next_cursor=next_cursor if isinstance(next_cursor, str) else None,
+        )
+
+    def get(self, project_id: str, revision_id: str) -> WorkspaceRevision:
+        return _decode_revision(
+            self._get(f"/projects/{project_id}/revisions/{revision_id}", project=project_id)
+        )
+
+    def diff(self, project_id: str, revision_id: str, *, base: str) -> WorkspaceRevisionDiff:
+        """The deterministic pin-level difference from ``base`` to ``revision_id``."""
+        return _decode_revision_diff(
+            self._get(
+                f"/projects/{project_id}/revisions/{revision_id}/diff",
+                params={"base": base},
+                project=project_id,
+            )
         )
 
 
@@ -141,6 +317,8 @@ class ProjectsAPI(Resource):
         super().__init__(transport)
         self.files = ProjectFilesAPI(transport)
         self.rework_tasks = ProjectReworkTasksAPI(transport)
+        self.imports = ProjectImportsAPI(transport)
+        self.revisions = ProjectRevisionsAPI(transport)
 
     def list(self, *, status: str | None = None) -> list[Project]:
         """Active projects by default; pass ``status="all"`` for everything."""
@@ -304,4 +482,11 @@ class ProjectsAPI(Resource):
 # remain ProjectsAPI for compatibility.
 WorkspacesAPI = ProjectsAPI
 
-__all__ = ["ProjectFilesAPI", "ProjectReworkTasksAPI", "ProjectsAPI", "WorkspacesAPI"]
+__all__ = [
+    "ProjectFilesAPI",
+    "ProjectImportsAPI",
+    "ProjectRevisionsAPI",
+    "ProjectReworkTasksAPI",
+    "ProjectsAPI",
+    "WorkspacesAPI",
+]

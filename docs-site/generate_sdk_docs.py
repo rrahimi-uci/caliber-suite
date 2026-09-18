@@ -428,6 +428,7 @@ MODULE_GROUPS = [
             "caliber_sdk.models.integrations",
             "caliber_sdk.models.operations",
             "caliber_sdk.models.workflows",
+            "caliber_sdk.models.workspace",
             "caliber_sdk.models.errors",
         ],
     ),

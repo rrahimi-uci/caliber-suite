@@ -3,12 +3,34 @@
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from typing import Any
+from typing import Any, Generic, TypeVar
+
+T = TypeVar("T")
 
 #: Stability tiers advertised by /capabilities and the OpenAPI document.
 STABILITY_GA = "ga"
 STABILITY_BETA = "beta"
 STABILITY_INTERNAL = "internal"
+
+
+@dataclass(frozen=True)
+class CursorPage(Generic[T]):
+    """One page of a cursor-paginated list.
+
+    Unlike :class:`Page`'s ``limit``/``offset``, the cursor is an opaque,
+    server-issued token: a caller resumes by passing ``next_cursor`` straight
+    back as the next request's ``cursor`` parameter, never by computing an
+    offset itself. Workspace's import/revision/Change-Request list endpoints
+    use this scheme because their rows can be deleted or reordered between
+    pages in a way a numeric offset would silently skip or repeat.
+    """
+
+    items: list[T] = field(default_factory=list)
+    next_cursor: str | None = None
+
+    @property
+    def has_more(self) -> bool:
+        return self.next_cursor is not None
 
 
 @dataclass(frozen=True)
@@ -67,4 +89,11 @@ class Stability:
         return None
 
 
-__all__ = ["STABILITY_BETA", "STABILITY_GA", "STABILITY_INTERNAL", "Page", "Stability"]
+__all__ = [
+    "STABILITY_BETA",
+    "STABILITY_GA",
+    "STABILITY_INTERNAL",
+    "CursorPage",
+    "Page",
+    "Stability",
+]
