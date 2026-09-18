@@ -175,6 +175,7 @@ class AuditLogEntrySchema(BaseModel):
     action: str
     entity_type: str
     entity_id: str
+    severity: Literal["standard", "high", "critical"]
     details: dict[str, object] | None
 
 
@@ -2291,7 +2292,7 @@ class ProjectTransferOwnershipRequest(BaseModel):
 class WorkspaceEnvironmentSchema(BaseModel):
     """One of a project's four fixed environments (`P1-A`/`P1-F`).
 
-    Section 9.2's release/operation-tracking columns
+    Section 9.2's remaining release/operation-tracking columns
     (``current_release_id``, ``pending_operation_id``, ``policy``/
     ``policy_sha256``, ``lock_version``) are not modelled yet -- nothing
     consumes them until Phase 5's release machinery exists (see
@@ -2309,6 +2310,7 @@ class WorkspaceEnvironmentSchema(BaseModel):
     environment_class: str
     promotion_order: int
     status: str
+    recovery_policy_enabled: bool = False
     created_by: str
     created_at: str | None = None
     updated_at: str | None = None
@@ -2824,6 +2826,7 @@ class WorkspaceReleaseDecisionSchema(BaseModel):
     workspace_release_id: str
     kind: Literal["quality", "release"]
     decision: Literal["go", "no_go"]
+    change_request_head_id: str | None = None
     rationale: str
     decided_by: str
     actor_role_snapshot: dict[str, object] = Field(default_factory=dict)
@@ -2856,6 +2859,32 @@ class WorkspaceBreakGlassAuthorizationSchema(BaseModel):
     policy_sha256: str
     expires_at: datetime
     created_at: datetime | None = None
+
+
+class WorkspaceReleaseDecisionRequest(BaseModel):
+    """Body for a digest-bound QA or Workspace Admin decision."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    decision: Literal["go", "no_go"]
+    rationale: str = Field(default="", max_length=4000)
+    gate_evidence_sha256: str = Field(min_length=64, max_length=64)
+    change_request_head_id: str | None = Field(default=None, max_length=64)
+
+
+class WorkspaceBreakGlassApplyRequest(BaseModel):
+    """Body for the narrowly scoped, interactive production recovery path."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    reason: str = Field(min_length=1, max_length=4000)
+    incident_ref: str = Field(min_length=1, max_length=256)
+    authorization_ref: str = Field(min_length=1, max_length=256)
+    expires_at: datetime
+    gate_evidence_sha256: str = Field(min_length=64, max_length=64)
+    expected_current_release_id: str = Field(min_length=1, max_length=64)
+    expected_environment_lock_version: int = Field(ge=1)
+    idempotency_key: str = Field(min_length=1, max_length=256)
 
 
 class WorkspaceReleaseOperationSchema(BaseModel):

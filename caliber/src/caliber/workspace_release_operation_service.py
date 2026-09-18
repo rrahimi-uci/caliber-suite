@@ -8,8 +8,11 @@ from sqlalchemy import select, update
 from sqlalchemy.orm import Session
 
 from caliber.db.models import (
+    CaliberWorkspaceBreakGlassAuthorization,
+    CaliberWorkspaceEnvironment,
     CaliberWorkspaceRelease,
     CaliberWorkspaceReleaseOperation,
+    CaliberWorkspaceRevision,
 )
 from caliber.ids import new_workspace_release_operation_id
 
@@ -46,7 +49,13 @@ def _now() -> datetime:
     return datetime.now(timezone.utc)
 
 
-def create_workspace_release_operation(  # noqa: PLR0912
+def _utc(value: datetime | None) -> datetime | None:
+    if value is None or value.tzinfo is not None:
+        return value
+    return value.replace(tzinfo=timezone.utc)
+
+
+def create_workspace_release_operation(  # noqa: PLR0912, PLR0915
     session: Session,
     *,
     project_id: str,
@@ -84,8 +93,57 @@ def create_workspace_release_operation(  # noqa: PLR0912
         raise WorkspaceReleaseOperationConflictError("workspace release is outside the project")
     if release.environment_id != environment_id:
         raise WorkspaceReleaseOperationConflictError("release environment does not match operation")
-    if kind == "apply" and release.status != "approved":
+    environment = session.get(CaliberWorkspaceEnvironment, environment_id)
+    if environment is None or environment.project_id != project_id:
+        raise WorkspaceReleaseOperationConflictError("operation environment is outside the project")
+    if break_glass_authorization_id is None and kind == "apply" and release.status != "approved":
         raise WorkspaceReleaseOperationConflictError("only an approved release can be applied")
+    if break_glass_authorization_id is not None:
+        if kind != "apply":
+            raise WorkspaceReleaseOperationConflictError(
+                "break-glass authorization can only create an apply operation"
+            )
+        if release.status not in {"awaiting_quality_signoff", "awaiting_approval"}:
+            raise WorkspaceReleaseOperationConflictError(
+                "break-glass apply requires a release awaiting a human decision"
+            )
+        authorization = session.get(
+            CaliberWorkspaceBreakGlassAuthorization, break_glass_authorization_id
+        )
+        if authorization is None:
+            raise WorkspaceReleaseOperationConflictError("break-glass authorization not found")
+        if (
+            authorization.project_id != project_id
+            or authorization.workspace_release_id != workspace_release_id
+            or authorization.environment_id != environment_id
+            or authorization.credential_kind != "session"
+            or not authorization.credential_id
+            or environment.name != "prod"
+            or environment.environment_class != "production"
+        ):
+            raise WorkspaceReleaseOperationConflictError(
+                "break-glass authorization coordinates are invalid"
+            )
+        expiry = _utc(authorization.expires_at)
+        if expiry is None or expiry <= _now():
+            raise WorkspaceReleaseOperationConflictError("break-glass authorization has expired")
+        revision = session.get(CaliberWorkspaceRevision, release.revision_id)
+        if revision is None or authorization.revision_sha256 != revision.revision_sha256:
+            raise WorkspaceReleaseOperationConflictError(
+                "break-glass authorization revision binding is invalid"
+            )
+        if any(
+            getattr(authorization, key) != getattr(release, release_key)
+            for key, release_key in (
+                ("environment_config_sha256", "environment_config_sha256"),
+                ("runtime_dependencies_sha256", "runtime_dependencies_sha256"),
+                ("policy_sha256", "policy_sha256"),
+                ("gate_evidence_sha256", "evaluation_evidence_sha256"),
+            )
+        ):
+            raise WorkspaceReleaseOperationConflictError(
+                "break-glass authorization digest binding is invalid"
+            )
     existing = session.execute(
         select(CaliberWorkspaceReleaseOperation).where(
             CaliberWorkspaceReleaseOperation.project_id == project_id,

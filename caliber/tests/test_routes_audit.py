@@ -21,7 +21,16 @@ LIST_PATH = "/ajax-api/2.0/mlflow/caliber/audit-log"
 EXPORT_PATH = "/ajax-api/2.0/mlflow/caliber/audit-log/export"
 VIEWER_HEADERS = {"X-CALIBER-User": "@viewer"}
 
-_CSV_HEADER = ["log_id", "timestamp", "actor", "action", "entity_type", "entity_id", "details"]
+_CSV_HEADER = [
+    "log_id",
+    "timestamp",
+    "actor",
+    "action",
+    "entity_type",
+    "entity_id",
+    "severity",
+    "details",
+]
 
 
 def _seed(session: Session) -> None:
@@ -130,7 +139,7 @@ def test_csv_export(client: TestClient, db_session: Session) -> None:
     rows = list(csv.reader(io.StringIO(resp.text)))
     assert rows[0] == _CSV_HEADER
     assert [row[3] for row in rows[1:]] == ["dismiss", "approve"]  # 2 alice rows, newest first
-    assert json.loads(rows[1][6]) == {"reason": "duplicate"}
+    assert json.loads(rows[1][7]) == {"reason": "duplicate"}
 
 
 def test_json_export(client: TestClient, db_session: Session) -> None:

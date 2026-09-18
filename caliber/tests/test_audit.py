@@ -2,10 +2,11 @@
 
 from __future__ import annotations
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
-from caliber.audit import record
+from caliber.audit import configure_redactor, get_redactor, record
 from caliber.db.models import CaliberAuditLog
 
 
@@ -43,6 +44,36 @@ def test_record_details_optional(db_session: Session) -> None:
     db_session.commit()
     row = db_session.execute(select(CaliberAuditLog)).scalar_one()
     assert row.details is None
+
+
+def test_record_persists_environment_and_validates_severity(db_session: Session) -> None:
+    row = record(
+        db_session,
+        actor="ops-admin",
+        action="break_glass",
+        entity_type="workspace_release",
+        entity_id="WSREL-1",
+        severity="high",
+        environment_id="WSE-prod",
+    )
+    assert row.severity == "high"
+    assert row.environment_id == "WSE-prod"
+    db_session.rollback()
+    with pytest.raises(ValueError, match="severity"):
+        record(
+            db_session,
+            actor="ops-admin",
+            action="break_glass",
+            entity_type="workspace_release",
+            entity_id="WSREL-1",
+            severity="urgent",
+        )
+
+
+def test_redactor_configuration_is_introspectable() -> None:
+    current = get_redactor()
+    configure_redactor(current)
+    assert get_redactor() is current
 
 
 def test_record_does_not_commit_on_its_own(db_session: Session) -> None:
