@@ -1,12 +1,18 @@
-"""Workspace import/revision lifecycle: ``ProjectImportsAPI``/``ProjectRevisionsAPI`` (`P6-B`).
+"""Workspace source/import/revision lifecycle: ``ProjectSourceAPI``/
+``ProjectImportsAPI``/``ProjectRevisionsAPI`` (`P6-B`).
 
 Import/revision list endpoints are cursor-paginated, not offset-paginated
 like the rest of this SDK -- these tests pin the request shape (``limit``/
 ``cursor`` params, ``next_cursor`` in the response) as much as the decoding.
+Source mutations are optimistic-concurrency-checked with an ``If-Match``
+etag -- these tests pin that every mutating call actually sends one when
+given, and sends none when omitted (the create-vs-replace distinction the
+server itself enforces).
 """
 
 from __future__ import annotations
 
+import json as jsonlib
 from typing import Any
 
 import httpx
@@ -17,6 +23,7 @@ from caliber_sdk.models.workspace import (
     WorkspaceImportJob,
     WorkspaceImportReconciliation,
     WorkspaceRevision,
+    WorkspaceSource,
 )
 
 BASE = "https://caliber.test"
@@ -58,6 +65,22 @@ _REVISION_RESOURCE: dict[str, Any] = {
     "purpose": "primary",
 }
 
+_SOURCE: dict[str, Any] = {
+    "source_id": "SRC-1",
+    "project_id": "PRJ-1",
+    "provider": "github",
+    "provider_host": "github.com",
+    "canonical_repository_id": "123456",
+    "display_path": "org/repo",
+    "default_branch": "main",
+    "root_path": "",
+    "manifest_path": ".caliber/workspace.yaml",
+    "import_mode": "push",
+    "status": "disabled",
+    "external_review_policy_version": "v1",
+    "etag": "etag-1",
+}
+
 _REVISION: dict[str, Any] = {
     "revision_id": "WSR-1",
     "project_id": "PRJ-1",
@@ -78,6 +101,134 @@ _REVISION: dict[str, Any] = {
 def test_cursor_page_has_more_reflects_next_cursor() -> None:
     assert CursorPage(items=[1], next_cursor="tok").has_more
     assert not CursorPage(items=[1], next_cursor=None).has_more
+
+
+# --- source: get / configure / enable / disable / reconcile / capabilities --
+
+
+def test_source_get_decodes_a_configured_binding() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/projects/PRJ-1/source")
+        return envelope({"source_mode": "git_managed", "source": _SOURCE})
+
+    with client_with(handler) as caliber:
+        state = caliber.workspaces.source.get("PRJ-1")
+
+    assert state.source_mode == "git_managed"
+    assert isinstance(state.source, WorkspaceSource)
+    assert state.source.etag == "etag-1"
+
+
+def test_source_get_with_no_binding_decodes_a_null_source() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope({"source_mode": "caliber_managed", "source": None})
+
+    with client_with(handler) as caliber:
+        state = caliber.workspaces.source.get("PRJ-1")
+
+    assert state.source_mode == "caliber_managed"
+    assert state.source is None
+
+
+def test_source_configure_first_time_sends_no_if_match_header() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["if_match"] = request.headers.get("If-Match")
+        seen["body"] = jsonlib.loads(request.content)
+        return envelope({"source_mode": "git_managed", "source": _SOURCE})
+
+    with client_with(handler) as caliber:
+        state = caliber.workspaces.source.configure(
+            "PRJ-1",
+            provider="github",
+            provider_host="github.com",
+            canonical_repository_id="123456",
+            display_path="org/repo",
+        )
+
+    assert seen["if_match"] is None
+    assert seen["body"]["provider"] == "github"
+    assert seen["body"]["default_branch"] == "main"
+    assert "connection_ref" not in seen["body"]
+    assert state.source is not None and state.source.source_id == "SRC-1"
+
+
+def test_source_configure_replacement_quotes_the_if_match_etag() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["if_match"] = request.headers.get("If-Match")
+        return envelope({"source_mode": "git_managed", "source": _SOURCE})
+
+    with client_with(handler) as caliber:
+        caliber.workspaces.source.configure(
+            "PRJ-1",
+            provider="github",
+            provider_host="github.com",
+            canonical_repository_id="123456",
+            display_path="org/repo",
+            if_match="etag-0",
+        )
+
+    assert seen["if_match"] == '"etag-0"'
+
+
+def test_source_enable_disable_reconcile_send_the_action_and_if_match() -> None:
+    seen: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(
+            {
+                "path": request.url.path.rsplit("/caliber", 1)[-1],
+                "method": request.method,
+                "if_match": request.headers.get("If-Match"),
+            }
+        )
+        return envelope({"source_mode": "git_managed", "source": _SOURCE})
+
+    with client_with(handler) as caliber:
+        caliber.workspaces.source.enable("PRJ-1", if_match="etag-1")
+        caliber.workspaces.source.disable("PRJ-1", if_match="etag-1")
+        caliber.workspaces.source.reconcile("PRJ-1", if_match="etag-1")
+
+    assert seen == [
+        {
+            "path": "/projects/PRJ-1/source:enable",
+            "method": "POST",
+            "if_match": '"etag-1"',
+        },
+        {
+            "path": "/projects/PRJ-1/source:disable",
+            "method": "POST",
+            "if_match": '"etag-1"',
+        },
+        {
+            "path": "/projects/PRJ-1/source:reconcile",
+            "method": "POST",
+            "if_match": '"etag-1"',
+        },
+    ]
+
+
+def test_source_capabilities_decodes_the_snapshot() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.path.endswith("/source/capabilities")
+        return envelope(
+            {
+                "source_id": "SRC-1",
+                "provider": "github",
+                "provider_host": "github.com",
+                "available": True,
+                "capabilities": {"provider_pull": True},
+            }
+        )
+
+    with client_with(handler) as caliber:
+        caps = caliber.workspaces.source.capabilities("PRJ-1")
+
+    assert caps.available is True
+    assert caps.capabilities == {"provider_pull": True}
 
 
 # --- imports: list / get / create / reconcile / wait ------------------------

@@ -2,9 +2,11 @@
 
 Every other resource can be scoped to a project via the ``X-CALIBER-Project``
 header, which the client sets for you. This module manages the projects
-themselves, the files they hold, and (`P6-B`) the source-to-revision import
-and revision-review lifecycle: :class:`ProjectImportsAPI` and
-:class:`ProjectRevisionsAPI`, exposed as ``ProjectsAPI.imports``/``.revisions``.
+themselves, the files they hold, and (`P6-B`) the Git-backed source binding
+and source-to-revision import/revision-review lifecycle:
+:class:`ProjectSourceAPI`, :class:`ProjectImportsAPI` and
+:class:`ProjectRevisionsAPI`, exposed as ``ProjectsAPI.source``/``.imports``/
+``.revisions``.
 """
 
 from __future__ import annotations
@@ -22,11 +24,33 @@ from ..models.workspace import (
     WorkspaceRevision,
     WorkspaceRevisionDiff,
     WorkspaceRevisionResource,
+    WorkspaceSource,
+    WorkspaceSourceCapabilities,
+    WorkspaceSourceState,
 )
 from ..waiters import wait_for
 from ._base import Resource
 
 _List = list
+
+
+def _if_match_header(if_match: str | None) -> dict[str, str] | None:
+    """An ``If-Match`` header from a plain etag string.
+
+    Always quoted: the server's own ``ETag`` response header is quoted, and
+    its ``If-Match`` parser tolerates a quoted or bare value identically
+    (including a literal ``"*"``) -- so a caller who round-trips
+    ``state.source.etag`` back into ``if_match`` never has to think about
+    HTTP quoting.
+    """
+    return {"If-Match": f'"{if_match}"'} if if_match is not None else None
+
+
+def _decode_source_state(payload: Any) -> WorkspaceSourceState:
+    state = decode(WorkspaceSourceState, payload)
+    source_payload = payload.get("source") if isinstance(payload, dict) else None
+    state.source = decode(WorkspaceSource, source_payload) if source_payload is not None else None
+    return state
 
 
 def _decode_import_reconciliation(payload: Any) -> WorkspaceImportReconciliation:
@@ -109,6 +133,108 @@ class ProjectFilesAPI(Resource):
         """Raw bytes. Not JSON, so it bypasses the envelope entirely."""
         return self._transport.download(
             f"/projects/{project_id}/files/{file_id}/content", project=project_id
+        )
+
+
+class ProjectSourceAPI(Resource):
+    """A project's Git-backed source-control binding (`P6-B`).
+
+    Every mutation is optimistic-concurrency-checked with an ``If-Match``
+    etag, mirroring the server's own contract: a stale write 412s rather
+    than silently overwriting a change another caller just made. Read the
+    current binding with :meth:`get`, pass its ``.source.etag`` back as
+    ``if_match``.
+    """
+
+    def get(self, project_id: str) -> WorkspaceSourceState:
+        return _decode_source_state(self._get(f"/projects/{project_id}/source", project=project_id))
+
+    def configure(
+        self,
+        project_id: str,
+        *,
+        provider: str,
+        provider_host: str,
+        canonical_repository_id: str,
+        display_path: str,
+        default_branch: str = "main",
+        root_path: str = "",
+        manifest_path: str = ".caliber/workspace.yaml",
+        import_mode: str = "push",
+        connection_ref: str | None = None,
+        if_match: str | None = None,
+    ) -> WorkspaceSourceState:
+        """Bind or replace this project's source-of-truth repository.
+
+        ``if_match`` must be omitted the first time a project has no source
+        configured yet, and must carry the existing binding's ``etag`` to
+        replace one that already exists -- passing one when there is
+        nothing to match, or omitting it when there is, both 412.
+        Replacing an existing binding also requires it to be disabled
+        first (:meth:`disable`).
+        """
+        body: dict[str, Any] = {
+            "provider": provider,
+            "provider_host": provider_host,
+            "canonical_repository_id": canonical_repository_id,
+            "display_path": display_path,
+            "default_branch": default_branch,
+            "root_path": root_path,
+            "manifest_path": manifest_path,
+            "import_mode": import_mode,
+        }
+        if connection_ref is not None:
+            body["connection_ref"] = connection_ref
+        return _decode_source_state(
+            self._put(
+                f"/projects/{project_id}/source",
+                json=body,
+                headers=_if_match_header(if_match),
+                project=project_id,
+            )
+        )
+
+    def enable(self, project_id: str, *, if_match: str) -> WorkspaceSourceState:
+        """Verify the binding against its provider and make it importable.
+
+        Each transition method calls its own literal path (rather than
+        sharing one helper parameterized on the action) so
+        ``docs-site/sdk_coverage.py``'s static source-text scan -- which
+        matches a literal ``f"...".`` after ``self._post(``, not a
+        runtime-built path -- can see it as covered.
+        """
+        return _decode_source_state(
+            self._post(
+                f"/projects/{project_id}/source:enable",
+                headers=_if_match_header(if_match),
+                project=project_id,
+            )
+        )
+
+    def disable(self, project_id: str, *, if_match: str) -> WorkspaceSourceState:
+        return _decode_source_state(
+            self._post(
+                f"/projects/{project_id}/source:disable",
+                headers=_if_match_header(if_match),
+                project=project_id,
+            )
+        )
+
+    def reconcile(self, project_id: str, *, if_match: str) -> WorkspaceSourceState:
+        """Re-verify an already-enabled binding against its provider."""
+        return _decode_source_state(
+            self._post(
+                f"/projects/{project_id}/source:reconcile",
+                headers=_if_match_header(if_match),
+                project=project_id,
+            )
+        )
+
+    def capabilities(self, project_id: str) -> WorkspaceSourceCapabilities:
+        """What the bound provider supports, without needing credentials."""
+        return decode(
+            WorkspaceSourceCapabilities,
+            self._get(f"/projects/{project_id}/source/capabilities", project=project_id),
         )
 
 
@@ -317,6 +443,7 @@ class ProjectsAPI(Resource):
         super().__init__(transport)
         self.files = ProjectFilesAPI(transport)
         self.rework_tasks = ProjectReworkTasksAPI(transport)
+        self.source = ProjectSourceAPI(transport)
         self.imports = ProjectImportsAPI(transport)
         self.revisions = ProjectRevisionsAPI(transport)
 
@@ -487,6 +614,7 @@ __all__ = [
     "ProjectImportsAPI",
     "ProjectRevisionsAPI",
     "ProjectReworkTasksAPI",
+    "ProjectSourceAPI",
     "ProjectsAPI",
     "WorkspacesAPI",
 ]
