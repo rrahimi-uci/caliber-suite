@@ -13,7 +13,7 @@ import importlib.util
 import re
 from datetime import datetime, timezone
 from pathlib import PurePosixPath
-from typing import Any
+from typing import Any, Literal, cast
 
 from sqlalchemy import and_, or_, select
 from sqlalchemy import update as sa_update
@@ -1050,6 +1050,13 @@ def _environment_to_schema(
         promotion_order=row.promotion_order,
         status=row.status,
         recovery_policy_enabled=row.recovery_policy_enabled,
+        current_release_id=row.current_release_id,
+        pending_operation_id=row.pending_operation_id,
+        operation_state=cast(
+            Literal["idle", "applying", "reconcile_required"], row.operation_state
+        ),
+        policy_sha256=row.policy_sha256,
+        lock_version=row.lock_version,
         created_by=row.created_by,
         created_at=row.created_at.isoformat() if row.created_at else None,
         updated_at=row.updated_at.isoformat() if row.updated_at else None,

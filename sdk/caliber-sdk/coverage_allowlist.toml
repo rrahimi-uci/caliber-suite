@@ -238,6 +238,51 @@ tag = "projects"
 stability = "ga"
 wave = "P6-B"
 
+# P5-C release-operation routes. The server contract ships before typed SDK
+# resources; P6-B owns the typed client closure.
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/releases/{}/operations"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "GET"
+path = "/projects/{}/releases/{}/operations/{}"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/releases/{}/operations"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/releases/{}/operations/{}:apply"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/releases/{}/operations/{}:observe"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
+[[gap]]
+method = "POST"
+path = "/projects/{}/releases/{}/operations/{}:cancel-expired"
+tag = "projects"
+stability = "ga"
+wave = "P6-B"
+
 [[gap]]
 method = "POST"
 path = "/projects/{}/change-requests/{}:rebase"

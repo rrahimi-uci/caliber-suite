@@ -2122,12 +2122,12 @@ class CaliberWorkspaceEnvironment(Base):
     ``caliber_workspace_environments`` table: just enough to seed and name
     the four fixed environments (``dev``/``qa``/``staging``/``prod``) per
     project, plus the explicit recovery-policy switch used by P5-B. The
-    release/operation-tracking columns section 9.2 also
-    describes (``current_release_id``, ``pending_operation_id``,
-    ``operation_state``, ``policy``/``policy_sha256``, ``lock_version``) are
-    deliberately not here yet -- nothing consumes them until Phase 5's
-    release/operation machinery exists, and adding them now would be dead
-    schema with no test able to exercise it honestly.
+    Release/operation pointers and the environment lock are owned here rather
+    than inferred from provider state.  The pointers intentionally use plain
+    identifiers: release and operation rows refer back to this table, so a
+    relational FK in both directions would create a dialect-dependent cycle
+    during SQLite metadata creation.  The operation service validates both
+    coordinates and applies the matching CAS update atomically.
 
     Exactly four rows are seeded per project (`P1-A` transactionally on
     create; backfilled additively for pre-existing projects by migration
@@ -2152,6 +2152,18 @@ class CaliberWorkspaceEnvironment(Base):
     status: Mapped[str] = mapped_column(String(16), nullable=False, default="disabled")
     recovery_policy_enabled: Mapped[bool] = mapped_column(
         Boolean, nullable=False, default=False, server_default="0"
+    )
+    current_release_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    pending_operation_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    operation_state: Mapped[str] = mapped_column(
+        String(24), nullable=False, default="idle", server_default="idle"
+    )
+    policy: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict, server_default="{}")
+    policy_sha256: Mapped[str] = mapped_column(
+        String(64), nullable=False, default="", server_default=""
+    )
+    lock_version: Mapped[int] = mapped_column(
+        Integer, nullable=False, default=1, server_default="1"
     )
     created_by: Mapped[str] = mapped_column(String(256), nullable=False, default="")
     created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
