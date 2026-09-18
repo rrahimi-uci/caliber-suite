@@ -1,0 +1,15 @@
+
+Gate execution ledger
+========================================================
+
+ ! Lint & format                     failure
+ ! Type check                        skipped
+ . Backend smoke                     success
+ . Docs validation                   success
+ . UI (test + build)                 success
+ . Compose merged-config validation  success
+ . Wheel build (with bundled SPA)    success
+ . Security scan                     success
+
+1 gate(s) did not run, but another job failed first: Type check.
+This is the normal `needs:` cascade and the run is already red, so it is reported rather than failed.

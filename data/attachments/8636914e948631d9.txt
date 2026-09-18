@@ -1,0 +1,4 @@
+{"t":"2026-09-18T22:19:00.781Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher started (urls=1, events=*, pending_capacity=2048)"}
+{"t":"2026-09-18T22:19:00.803Z","severity":"WARNING","logger":"caliber.events.webhooks","message":"webhook POST failed, retrying: url=https://broken.example/hook event='run.completed' attempt=1/2 err=receiver returned HTTP 500","trace_id":"44bf9087869e99c9"}
+{"t":"2026-09-18T22:19:00.804Z","severity":"ERROR","logger":"caliber.events.webhooks","message":"webhook delivery exhausted, dead-lettering: url=https://broken.example/hook event='run.completed' err=receiver returned HTTP 500","trace_id":"44bf9087869e99c9"}
+{"t":"2026-09-18T22:19:00.814Z","severity":"INFO","logger":"caliber.events.webhooks","message":"webhook dispatcher stopped"}
