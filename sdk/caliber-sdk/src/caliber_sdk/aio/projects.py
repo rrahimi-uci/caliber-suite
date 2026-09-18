@@ -232,4 +232,6 @@ class AsyncProjectsAPI(_AsyncResource):
         )
 
 
-__all__ = ["AsyncProjectFilesAPI", "AsyncProjectsAPI"]
+AsyncWorkspacesAPI = AsyncProjectsAPI
+
+__all__ = ["AsyncProjectFilesAPI", "AsyncProjectsAPI", "AsyncWorkspacesAPI"]

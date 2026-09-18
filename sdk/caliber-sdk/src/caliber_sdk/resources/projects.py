@@ -300,4 +300,8 @@ class ProjectsAPI(Resource):
         )
 
 
-__all__ = ["ProjectFilesAPI", "ProjectReworkTasksAPI", "ProjectsAPI"]
+# Workspace is the public product term; the wire API and the legacy class name
+# remain ProjectsAPI for compatibility.
+WorkspacesAPI = ProjectsAPI
+
+__all__ = ["ProjectFilesAPI", "ProjectReworkTasksAPI", "ProjectsAPI", "WorkspacesAPI"]

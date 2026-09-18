@@ -115,6 +115,26 @@ def test_async_project_scope_is_context_local_across_tasks() -> None:
     assert seen[2] is None
 
 
+def test_async_workspace_and_library_scopes_are_explicit_and_nested() -> None:
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("x-caliber-project"))
+        return envelope({})
+
+    async def main() -> None:
+        async with client_with(handler) as caliber:
+            assert caliber.workspaces is caliber.projects
+            async with caliber.workspace_scope("PRJ-workspace"):
+                await caliber.me.get()
+                async with caliber.library_scope():
+                    await caliber.me.get()
+                await caliber.me.get()
+
+    run(main())
+    assert seen == ["PRJ-workspace", None, "PRJ-workspace"]
+
+
 def test_async_project_scope_restores_context_after_an_error() -> None:
     async def main() -> str | None:
         async with client_with(lambda _request: envelope({})) as caliber:

@@ -110,6 +110,10 @@ class CaliberClient:
         self.capabilities_info = CapabilitiesAPI(self._transport)
         self.settings = SettingsAPI(self._transport)
         self.projects = ProjectsAPI(self._transport)
+        # Workspace is the product name for the existing project aggregate.
+        # Keep one resource object so aliases cannot drift in methods, models,
+        # or transport behavior.
+        self.workspaces = self.projects
         self.prompts = PromptsAPI(self._transport)
         self.skills = SkillsAPI(self._transport)
         self.tools = ToolsAPI(self._transport)
@@ -172,8 +176,8 @@ class CaliberClient:
         self.close()
 
     @contextmanager
-    def project_scope(self, project_id: str) -> Iterator[CaliberClient]:
-        """Temporarily select the project sent on subsequent requests.
+    def workspace_scope(self, project_id: str) -> Iterator[CaliberClient]:
+        """Temporarily select the workspace sent on subsequent requests.
 
         This is useful when a script creates its own workspace and needs the
         following prompt, dataset, workflow, or assistant records to belong to
@@ -193,6 +197,26 @@ class CaliberClient:
             yield self
         finally:
             self._transport._pop_project(token)
+
+    @contextmanager
+    def library_scope(self) -> Iterator[CaliberClient]:
+        """Temporarily omit the project header for a library-scoped call.
+
+        ``None`` is intentionally distinct from an unset scope: it prevents a
+        constructor or outer workspace scope from leaking into a platform or
+        personal-library request. The prior scope is restored on exit.
+        """
+        token = self._transport._push_project(None)
+        try:
+            yield self
+        finally:
+            self._transport._pop_project(token)
+
+    @contextmanager
+    def project_scope(self, project_id: str) -> Iterator[CaliberClient]:
+        """Compatibility alias for :meth:`workspace_scope`."""
+        with self.workspace_scope(project_id):
+            yield self
 
     # -- discovery ---------------------------------------------------------
 

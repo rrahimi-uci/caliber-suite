@@ -93,6 +93,9 @@ class AsyncCaliberClient:
         self.me = AsyncMeAPI(self._transport)
         self.capabilities_info = AsyncCapabilitiesAPI(self._transport)
         self.projects = AsyncProjectsAPI(self._transport)
+        # Keep the workspace and legacy project terms as aliases to one
+        # resource object, matching the synchronous client.
+        self.workspaces = self.projects
         self.workflows = AsyncWorkflowRunsAPI(self._transport)
         self.jobs = AsyncJobsAPI(self._transport)
         self.events = AsyncEventsAPI(self._transport)
@@ -107,8 +110,8 @@ class AsyncCaliberClient:
         await self.aclose()
 
     @asynccontextmanager
-    async def project_scope(self, project_id: str) -> AsyncIterator[AsyncCaliberClient]:
-        """Temporarily select a context-local project for async requests.
+    async def workspace_scope(self, project_id: str) -> AsyncIterator[AsyncCaliberClient]:
+        """Temporarily select a context-local workspace for async requests.
 
         The selection follows the current task across ``await`` points and is
         restored even when the scoped operation raises. Other tasks sharing the
@@ -122,6 +125,21 @@ class AsyncCaliberClient:
             yield self
         finally:
             self._transport._pop_project(token)
+
+    @asynccontextmanager
+    async def library_scope(self) -> AsyncIterator[AsyncCaliberClient]:
+        """Temporarily omit the project header for library-scoped calls."""
+        token = self._transport._push_project(None)
+        try:
+            yield self
+        finally:
+            self._transport._pop_project(token)
+
+    @asynccontextmanager
+    async def project_scope(self, project_id: str) -> AsyncIterator[AsyncCaliberClient]:
+        """Compatibility alias for :meth:`workspace_scope`."""
+        async with self.workspace_scope(project_id):
+            yield self
 
     # -- deprecated aliases -------------------------------------------------
     #

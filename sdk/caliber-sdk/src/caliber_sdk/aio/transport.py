@@ -86,7 +86,7 @@ class AsyncTransport:
     def project(self, value: str | None) -> None:
         self._project_context.set(value)
 
-    def _push_project(self, project_id: str) -> Token[str | None]:
+    def _push_project(self, project_id: str | None) -> Token[str | None]:
         return self._project_context.set(project_id)
 
     def _pop_project(self, token: Token[str | None]) -> None:

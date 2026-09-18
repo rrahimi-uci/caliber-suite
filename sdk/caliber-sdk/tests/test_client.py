@@ -117,6 +117,25 @@ def test_project_scope_applies_and_restores_the_project_header() -> None:
     assert seen == ["PRJ-original", "PRJ-created", "PRJ-original"]
 
 
+def test_workspace_and_library_scopes_are_explicit_and_nested() -> None:
+    seen: list[str | None] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen.append(request.headers.get("x-caliber-project"))
+        return httpx.Response(200, json={"data": {}})
+
+    with client_with(handler, project="PRJ-original") as caliber:
+        assert caliber.workspaces is caliber.projects
+        with caliber.workspace_scope(" PRJ-workspace "):
+            caliber.whoami()
+            with caliber.library_scope():
+                caliber.whoami()
+            caliber.whoami()
+        caliber.whoami()
+
+    assert seen == ["PRJ-workspace", None, "PRJ-workspace", "PRJ-original"]
+
+
 def test_project_scope_restores_context_after_an_error() -> None:
     caliber = client_with(lambda _request: httpx.Response(200), project="PRJ-original")
     try:
