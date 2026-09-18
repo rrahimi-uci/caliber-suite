@@ -111,7 +111,7 @@ def test_the_pagination_shape_distribution_is_pinned(client: TestClient) -> None
             counts[shape] = counts.get(shape, 0) + 1
 
     assert counts == {
-        PaginationShape.LIST_LIMIT_HELPER: 11,
+        PaginationShape.LIST_LIMIT_HELPER: 14,
         PaginationShape.AD_HOC_LIMIT_ONLY: 12,
         PaginationShape.BESPOKE_TOTAL_ENVELOPE: 1,
         PaginationShape.UNPAGINATED_FAKE_TOTAL: 2,
