@@ -22,6 +22,7 @@ from caliber.db.models import (
     CaliberWorkspaceReleaseEvaluation,
 )
 from caliber.ids import new_workspace_release_evaluation_id, new_workspace_release_id
+from caliber.workspace_runtime_lineage import create_runtime_lineage
 
 RELEASE_DRAFT = "draft"
 RELEASE_EVALUATING = "evaluating"
@@ -428,6 +429,20 @@ def create_workspace_release_evaluation(
         requested_by=requested_by,
     )
     session.add(evaluation)
+    session.flush()
+    lineage = create_runtime_lineage(
+        session,
+        project_id=project_id,
+        workspace_release_id=workspace_release_id,
+        revision_id=release.revision_id,
+        environment_id=release.environment_id,
+        consumer_kind="evidence",
+        consumer_id=evaluation.evaluation_id,
+        config_sha256=release.environment_config_sha256,
+        strict_execution=False,
+        created_by=requested_by,
+    )
+    evaluation.runtime_lineage_id = lineage.lineage_id
     session.flush()
     return evaluation
 

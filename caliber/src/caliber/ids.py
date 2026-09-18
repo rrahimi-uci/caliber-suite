@@ -101,6 +101,7 @@ WORKSPACE_RELEASE_DECISION_PREFIX = "WSRELD-"
 WORKSPACE_BREAK_GLASS_AUTHORIZATION_PREFIX = "WSBGA-"
 WORKSPACE_RELEASE_OPERATION_PREFIX = "WSRELOP-"
 WORKSPACE_RELEASE_OPERATION_ITEM_PREFIX = "WSRELOPI-"
+WORKSPACE_RUNTIME_LINEAGE_PREFIX = "WSRLIN-"
 
 # Ad-hoc prompt-test run prefix.
 PROMPT_TEST_RUN_PREFIX = "PTR-"
@@ -572,6 +573,11 @@ def new_workspace_release_operation_id() -> str:
 def new_workspace_release_operation_item_id() -> str:
     """Return a fresh Workspace release-operation item ID."""
     return f"{WORKSPACE_RELEASE_OPERATION_ITEM_PREFIX}{_suffix()}"
+
+
+def new_workspace_runtime_lineage_id() -> str:
+    """Return a fresh Workspace runtime-lineage ID."""
+    return f"{WORKSPACE_RUNTIME_LINEAGE_PREFIX}{_suffix()}"
 
 
 def new_prompt_test_run_id() -> str:

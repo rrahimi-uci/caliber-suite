@@ -56,6 +56,7 @@ from caliber.workflows.run_state import (
     normalize_runtime_result_status,
 )
 from caliber.workflows.runtime import NodeStep, RuntimeResumeCheckpoint, WorkflowRunResult, execute
+from caliber.workspace_runtime_lineage import RuntimeLineageError, require_runtime_lineage
 
 logger = logging.getLogger("caliber.orchestrator.workflow_run_worker")
 
@@ -1465,6 +1466,22 @@ class WorkflowRunWorker:
             run = session.get(CaliberWorkflowRun, run_id)
             if run is None or run.status != RUN_STATUS_RUNNING:
                 return
+            if bool((run.summary or {}).get("strict_lineage")):
+                try:
+                    require_runtime_lineage(
+                        session,
+                        run.runtime_lineage_id,
+                        consumer_kind="run",
+                        consumer_id=run.workflow_run_id,
+                    )
+                except RuntimeLineageError as exc:
+                    self._mark_failed(
+                        session,
+                        run,
+                        error_code="runtime_lineage_invalid",
+                        error_summary=str(exc),
+                    )
+                    return
             workflow = session.get(CaliberWorkflow, run.workflow_id)
             version_row = session.get(CaliberWorkflowVersion, run.workflow_version_id)
             manifest_snapshot = (

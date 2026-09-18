@@ -15,6 +15,7 @@ from caliber.db.models import (
     CaliberWorkspaceRevision,
 )
 from caliber.ids import new_workspace_release_operation_id
+from caliber.workspace_runtime_lineage import create_runtime_lineage
 
 OPERATION_PREPARED = "prepared"
 OPERATION_APPLYING = "applying"
@@ -207,6 +208,21 @@ def create_workspace_release_operation(  # noqa: PLR0912, PLR0915
         break_glass_authorization_id=break_glass_authorization_id,
     )
     session.add(operation)
+    session.flush()
+    lineage = create_runtime_lineage(
+        session,
+        project_id=project_id,
+        workspace_release_id=workspace_release_id,
+        revision_id=release.revision_id,
+        environment_id=environment_id,
+        consumer_kind="provider_operation",
+        consumer_id=operation.operation_id,
+        config_sha256=release.environment_config_sha256,
+        strict_execution=False,
+        created_by=requested_by,
+        allow_break_glass=break_glass_authorization_id is not None,
+    )
+    operation.runtime_lineage_id = lineage.lineage_id
     session.flush()
     return operation
 

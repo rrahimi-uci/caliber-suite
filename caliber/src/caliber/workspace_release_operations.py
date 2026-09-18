@@ -45,6 +45,7 @@ from caliber.workspace_release_operation_service import (
     create_workspace_release_operation,
     transition_workspace_release_operation,
 )
+from caliber.workspace_runtime_lineage import require_runtime_lineage
 
 
 class WorkspaceReleaseExecutionError(WorkspaceReleaseOperationConflictError):
@@ -406,6 +407,16 @@ def apply_workspace_release_operation(  # noqa: PLR0911 - explicit child state m
             raise WorkspaceReleaseExecutionError("operation does not own the environment lock")
         if environment.status != "active":
             raise WorkspaceReleaseExecutionError("environment is not active")
+        try:
+            require_runtime_lineage(
+                session,
+                operation.runtime_lineage_id,
+                consumer_kind="provider_operation",
+                consumer_id=operation.operation_id,
+                require_current_release=False,
+            )
+        except RuntimeError as exc:
+            raise WorkspaceReleaseExecutionError(str(exc)) from exc
         transition_workspace_release_operation(
             session,
             operation,
