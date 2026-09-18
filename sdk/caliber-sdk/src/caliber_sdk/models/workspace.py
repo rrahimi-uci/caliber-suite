@@ -172,8 +172,182 @@ class WorkspaceRevisionDiff:
     extra: dict[str, Any] = field(default_factory=dict)
 
 
+@dataclass
+class WorkspaceChangeRequestHead:
+    """One generation of a Change Request's reviewed revision pointer."""
+
+    head_id: str = ""
+    change_request_id: str = ""
+    generation: int = 0
+    revision_id: str = ""
+    revision_sha256: str = ""
+    review_policy_version: str = ""
+    review_policy_sha256: str = ""
+    changed_by: str = ""
+    change_summary: str = ""
+    created_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceChangeRequest:
+    """A revision proposed for review, promotion through a fixed status
+    machine (``draft`` -> ``open`` -> ... -> ``accepted``/``closed``)."""
+
+    change_request_id: str = ""
+    project_id: str = ""
+    base_revision_id: str | None = None
+    current_head_revision_id: str = ""
+    created_by: str = ""
+    title: str = ""
+    description: str = ""
+    head_generation: int = 0
+    status: str = ""
+    review_backend: str = ""
+    accepted_at: str | None = None
+    accepted_by: str | None = None
+    closed_reason: str | None = None
+    lock_version: int = 0
+    created_at: str | None = None
+    updated_at: str | None = None
+    current_head: WorkspaceChangeRequestHead = field(default_factory=WorkspaceChangeRequestHead)
+    # A version claim is server-side bookkeeping (``caliber.schemas`` itself
+    # types it as a plain dict, not a nested schema), so it stays a raw dict
+    # here too rather than gaining a dataclass this SDK would have to keep in
+    # lockstep with an internal shape.
+    version_claim: dict[str, Any] | None = None
+    active_reviewer_count: int = 0
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceChangeRequestReviewer:
+    """One user assigned to review a Change Request."""
+
+    reviewer_id: str = ""
+    change_request_id: str = ""
+    user_id: str = ""
+    assigned_by: str = ""
+    assigned_at: str | None = None
+    removed_by: str | None = None
+    removed_at: str | None = None
+    active: bool = False
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceChangeRequestComment:
+    """One comment on a Change Request, optionally anchored to a resource."""
+
+    comment_id: str = ""
+    change_request_id: str = ""
+    head_id: str | None = None
+    resource_type: str | None = None
+    resource_name: str | None = None
+    source_path: str | None = None
+    body: str = ""
+    author: str = ""
+    created_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceChangeRequestCheck:
+    """One automated check run against a Change Request head."""
+
+    check_id: str = ""
+    head_id: str = ""
+    check_name: str = ""
+    attempt_number: int = 0
+    implementation_version: str = ""
+    input_digest: str = ""
+    evidence_ref: str | None = None
+    evidence_digest: str | None = None
+    status: str = ""
+    claimed_by: str | None = None
+    claimed_at: str | None = None
+    lease_expires_at: str | None = None
+    completed_at: str | None = None
+    created_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceChangeRequestReview:
+    """One reviewer's approve/request-changes decision on a specific head."""
+
+    review_id: str = ""
+    change_request_id: str = ""
+    head_id: str = ""
+    reviewer_id: str = ""
+    decision: str = ""
+    rationale: str = ""
+    actor_role: str = ""
+    actor_scopes: list[str] = field(default_factory=list)
+    created_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceExternalReviewAttestation:
+    """A verified provider-side (e.g. GitHub PR) review, mapped onto a head."""
+
+    attestation_id: str = ""
+    change_request_id: str = ""
+    head_id: str = ""
+    source_id: str = ""
+    provider_change_request_id: str = ""
+    provider_url: str | None = None
+    provider_head_commit: str = ""
+    provider_resulting_commit: str = ""
+    source_tree_sha256: str = ""
+    workspace_revision_sha256: str = ""
+    policy_version: str = ""
+    policy_sha256: str = ""
+    provider_ruleset_sha256: str | None = None
+    required_checks: list[str] = field(default_factory=list)
+    trusted_check_sources: list[str] = field(default_factory=list)
+    check_conclusions: dict[str, Any] = field(default_factory=dict)
+    review_actors: list[dict[str, Any]] = field(default_factory=list)
+    merge_method: str | None = None
+    merge_actor: str | None = None
+    merged_at: str | None = None
+    provider_event_ids: list[str] = field(default_factory=list)
+    adapter_version: str = ""
+    verified_at: str | None = None
+    status: str = ""
+    reason: str = ""
+    verification_input_digest: str = ""
+    coverage_digest: str | None = None
+    uncovered_commits: list[str] = field(default_factory=list)
+    uncovered_paths: list[str] = field(default_factory=list)
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
+class WorkspaceVersionTag:
+    """An immutable semantic-version claim recorded against a revision."""
+
+    tag_id: str = ""
+    project_id: str = ""
+    revision_id: str = ""
+    change_request_id: str = ""
+    tag: str = ""
+    kind: str = ""
+    created_by: str = ""
+    created_at: str | None = None
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
 __all__ = [
     "IMPORT_JOB_TERMINAL_STATES",
+    "WorkspaceChangeRequest",
+    "WorkspaceChangeRequestCheck",
+    "WorkspaceChangeRequestComment",
+    "WorkspaceChangeRequestHead",
+    "WorkspaceChangeRequestReview",
+    "WorkspaceChangeRequestReviewer",
+    "WorkspaceExternalReviewAttestation",
     "WorkspaceImportJob",
     "WorkspaceImportReconciliation",
     "WorkspaceRevision",
@@ -182,4 +356,5 @@ __all__ = [
     "WorkspaceSource",
     "WorkspaceSourceCapabilities",
     "WorkspaceSourceState",
+    "WorkspaceVersionTag",
 ]
