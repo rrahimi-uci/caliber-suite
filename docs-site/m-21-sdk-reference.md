@@ -198,6 +198,8 @@ Every documented class and module-level function, with the module that defines i
 | [`ProjectFolder`](#projectfolder) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`ProjectImportsAPI`](#projectimportsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectMember`](#projectmember) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`ProjectReleaseOperationsAPI`](#projectreleaseoperationsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
+| [`ProjectReleasesAPI`](#projectreleasesapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectRevisionsAPI`](#projectrevisionsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectReworkTasksAPI`](#projectreworktasksapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectsAPI`](#projectsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
@@ -290,6 +292,7 @@ Every documented class and module-level function, with the module that defines i
 | [`WorkflowServicesAPI`](#workflowservicesapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`WorkflowVersion`](#workflowversion) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`WorkflowVersionsAPI`](#workflowversionsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
+| [`WorkspaceBreakGlassApplyResult`](#workspacebreakglassapplyresult) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceChangeRequest`](#workspacechangerequest) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceChangeRequestCheck`](#workspacechangerequestcheck) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceChangeRequestComment`](#workspacechangerequestcomment) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
@@ -300,6 +303,13 @@ Every documented class and module-level function, with the module that defines i
 | [`WorkspaceExternalReviewAttestation`](#workspaceexternalreviewattestation) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceImportJob`](#workspaceimportjob) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceImportReconciliation`](#workspaceimportreconciliation) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceRelease`](#workspacerelease) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceReleaseDecision`](#workspacereleasedecision) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceReleaseEvaluation`](#workspacereleaseevaluation) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceReleaseEvidence`](#workspacereleaseevidence) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceReleaseOperation`](#workspacereleaseoperation) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceReleaseOperationItem`](#workspacereleaseoperationitem) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceReleaseOperationResult`](#workspacereleaseoperationresult) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceRevision`](#workspacerevision) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceRevisionDiff`](#workspacerevisiondiff) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 | [`WorkspaceRevisionResource`](#workspacerevisionresource) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
@@ -1928,7 +1938,7 @@ sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
 
 **Public exports**
 
-`ProjectChangeRequestsAPI`, `ProjectFilesAPI`, `ProjectImportsAPI`, `ProjectRevisionsAPI`, `ProjectReworkTasksAPI`, `ProjectSourceAPI`, `ProjectVersionTagsAPI`, `ProjectsAPI`, `WorkspacesAPI`
+`ProjectChangeRequestsAPI`, `ProjectFilesAPI`, `ProjectImportsAPI`, `ProjectReleaseOperationsAPI`, `ProjectReleasesAPI`, `ProjectRevisionsAPI`, `ProjectReworkTasksAPI`, `ProjectSourceAPI`, `ProjectVersionTagsAPI`, `ProjectsAPI`, `WorkspacesAPI`
 
 #### Classes
 
@@ -2710,6 +2720,383 @@ Fetch one record from the project version tags surface identified by `project_id
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+##### `ProjectReleaseOperationsAPI`
+
+`class ProjectReleaseOperationsAPI()`
+
+Durable apply/rollback intents against one release (`P5-C`).
+
+Unlike the cursor-paginated Change-Request/import/revision families,
+:meth:`list` uses plain ``limit``/``offset`` -- this resource's own
+immediate server-side sibling (release list/evidence/evaluations, see
+:class:`ProjectReleasesAPI`) already established that convention for
+this release family, and there was no reason to introduce a third
+pagination style where two already coexist in shipped code.
+
+**Methods**
+
+###### `list(project_id: str, release_id: str, *, limit: int | None = None, offset: int | None = None) -> list[WorkspaceReleaseOperation]`
+
+Return the current collection of project release operations, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `offset` | keyword-only | `int | None` | `None` |
+
+**Returns:** `list[WorkspaceReleaseOperation]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(project_id: str, release_id: str, operation_id: str) -> WorkspaceReleaseOperationResult`
+
+Fetch one record from the project release operations surface identified by `project_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `operation_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceReleaseOperationResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(project_id: str, release_id: str, *, kind: str, idempotency_key: str, expected_environment_lock_version: int, expected_current_release_id: str | None = None, target_release_id: str | None = None) -> WorkspaceReleaseOperationResult`
+
+Prepare an ``"apply"`` or ``"rollback"`` operation.
+
+``expected_environment_lock_version`` is a compare-and-swap against
+the *environment's* current lock version -- a stale value 409s
+rather than racing another operation targeting the same environment.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `kind` | keyword-only | `str` | `—` |
+| `idempotency_key` | keyword-only | `str` | `—` |
+| `expected_environment_lock_version` | keyword-only | `int` | `—` |
+| `expected_current_release_id` | keyword-only | `str | None` | `None` |
+| `target_release_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `WorkspaceReleaseOperationResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `apply(project_id: str, release_id: str, operation_id: str) -> WorkspaceReleaseOperationResult`
+
+Execute a prepared operation through its provider adapter.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `operation_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceReleaseOperationResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `observe(project_id: str, release_id: str, operation_id: str) -> WorkspaceReleaseOperationResult`
+
+Re-check an in-flight or ambiguous operation against its provider.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `operation_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceReleaseOperationResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `cancel_expired(project_id: str, release_id: str, operation_id: str) -> WorkspaceReleaseOperationResult`
+
+Cancel an operation whose lease has expired without ever applying.
+
+The literal path stays one f-string passed straight into
+``self._post(`` (rather than split across adjacent literals, or
+built up in a local variable first) because
+``docs-site/sdk_coverage.py``'s static source-text scan only matches
+a single quoted literal immediately following ``self._post(`` --
+either alternative would make this exact route silently read as
+uncovered.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `operation_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceReleaseOperationResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `ProjectReleasesAPI`
+
+`class ProjectReleasesAPI()`
+
+The Workspace release evaluation/decision/approval lifecycle (`P5-F`).
+
+A release moves through a fixed state machine (``draft`` ->
+``evaluating`` -> ``{blocked, rejected, approved,
+awaiting_quality_signoff}`` -> ``awaiting_approval`` -> ``{approved,
+rejected}``); :class:`ProjectReleaseOperationsAPI` then executes an
+*approved* release against an environment. Two authorization shapes
+coexist here, mirroring the server routes exactly: :meth:`create`/
+:meth:`evaluate` are plain project-scoped actions, while
+:meth:`quality_signoff`/:meth:`approve`/:meth:`break_glass_apply` are
+identity-specific governance decisions the server authorizes on role
+(Reviewer vs. Owner) and platform scope, not a single scope check.
+
+**Methods**
+
+###### `list(project_id: str, *, status: str | None = None, environment_id: str | None = None, limit: int | None = None, offset: int | None = None) -> list[WorkspaceRelease]`
+
+Return the current collection of project releases, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `status` | keyword-only | `str | None` | `None` |
+| `environment_id` | keyword-only | `str | None` | `None` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `offset` | keyword-only | `int | None` | `None` |
+
+**Returns:** `list[WorkspaceRelease]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(project_id: str, *, revision_id: str, environment_id: str, environment_config_sha256: str, runtime_dependencies_sha256: str, policy_sha256: str, request_idempotency_key: str, change_request_id: str | None = None, change_request_head_id: str | None = None, version_tag_id: str | None = None, predecessor_release_id: str | None = None) -> WorkspaceRelease`
+
+Capture immutable release coordinates before evaluation dispatch.
+
+The three ``*_sha256`` digests are pinned here and re-verified at
+every later decision point -- a release evaluated against one
+environment config and then approved against a different one is
+exactly the drift this pinning exists to make impossible.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `revision_id` | keyword-only | `str` | `—` |
+| `environment_id` | keyword-only | `str` | `—` |
+| `environment_config_sha256` | keyword-only | `str` | `—` |
+| `runtime_dependencies_sha256` | keyword-only | `str` | `—` |
+| `policy_sha256` | keyword-only | `str` | `—` |
+| `request_idempotency_key` | keyword-only | `str` | `—` |
+| `change_request_id` | keyword-only | `str | None` | `None` |
+| `change_request_head_id` | keyword-only | `str | None` | `None` |
+| `version_tag_id` | keyword-only | `str | None` | `None` |
+| `predecessor_release_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `WorkspaceRelease`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(project_id: str, release_id: str) -> WorkspaceRelease`
+
+Fetch one record from the project releases surface identified by `project_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceRelease`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_evidence(project_id: str, release_id: str, *, limit: int | None = None, offset: int | None = None) -> list[WorkspaceReleaseEvidence]`
+
+Operate on the project releases surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `offset` | keyword-only | `int | None` | `None` |
+
+**Returns:** `list[WorkspaceReleaseEvidence]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `evaluate(project_id: str, release_id: str, *, idempotency_key: str, evaluation_plan_sha256: str, input_sha256: str) -> WorkspaceReleaseEvaluation`
+
+Request an evaluation attempt; a worker claims and runs it.
+
+Replayed by ``idempotency_key``: calling this again with the same
+key and digests while an attempt is active returns that same
+attempt rather than starting a second one, but a *different* key
+while one is still active is refused (409) rather than running two
+evaluations concurrently.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `idempotency_key` | keyword-only | `str` | `—` |
+| `evaluation_plan_sha256` | keyword-only | `str` | `—` |
+| `input_sha256` | keyword-only | `str` | `—` |
+
+**Returns:** `WorkspaceReleaseEvaluation`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_evaluations(project_id: str, release_id: str, *, limit: int | None = None, offset: int | None = None) -> list[WorkspaceReleaseEvaluation]`
+
+Operate on the project releases surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `offset` | keyword-only | `int | None` | `None` |
+
+**Returns:** `list[WorkspaceReleaseEvaluation]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get_evaluation(project_id: str, release_id: str, evaluation_id: str) -> WorkspaceReleaseEvaluation`
+
+Operate on the project releases surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `evaluation_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceReleaseEvaluation`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `quality_signoff(project_id: str, release_id: str, *, decision: str, gate_evidence_sha256: str, rationale: str = '', change_request_head_id: str | None = None) -> WorkspaceReleaseDecision`
+
+Record a QA go/no-go decision. Requires the Reviewer project role.
+
+``decision`` is ``"go"`` or ``"no_go"``, passed through rather than a
+stricter type for the same forward-compatibility reason as
+:meth:`ProjectChangeRequestsAPI.submit_review`'s ``decision``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `decision` | keyword-only | `str` | `—` |
+| `gate_evidence_sha256` | keyword-only | `str` | `—` |
+| `rationale` | keyword-only | `str` | `''` |
+| `change_request_head_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `WorkspaceReleaseDecision`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `approve(project_id: str, release_id: str, *, decision: str, gate_evidence_sha256: str, rationale: str = '', change_request_head_id: str | None = None) -> WorkspaceReleaseDecision`
+
+Record the final release go/no-go decision. Requires the Owner role.
+
+Refused (409) unless the release already carries a *fresh* quality
+signoff bound to this exact head/revision/digests -- an approval
+does not itself re-run or supersede quality review.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `decision` | keyword-only | `str` | `—` |
+| `gate_evidence_sha256` | keyword-only | `str` | `—` |
+| `rationale` | keyword-only | `str` | `''` |
+| `change_request_head_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `WorkspaceReleaseDecision`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `break_glass_apply(project_id: str, release_id: str, *, reason: str, incident_ref: str, authorization_ref: str, expires_at: str, gate_evidence_sha256: str, expected_current_release_id: str, expected_environment_lock_version: int, idempotency_key: str) -> WorkspaceBreakGlassApplyResult`
+
+Interactive production recovery, bypassing the normal apply path.
+
+Requires a real browser session (platform Admin, ``credential_kind
+== "session"``) -- a personal access token can never call this,
+by server-side design, not merely by convention. ``expires_at`` is
+an ISO-8601 timestamp string; the authorization is void past it
+regardless of whether it was ever used. ``expected_current_release_id``
+is a compare-and-swap against *this* release (not the environment's
+currently-deployed one) -- it fails closed if the release moved on
+while the authorization was being requested.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `reason` | keyword-only | `str` | `—` |
+| `incident_ref` | keyword-only | `str` | `—` |
+| `authorization_ref` | keyword-only | `str` | `—` |
+| `expires_at` | keyword-only | `str` | `—` |
+| `gate_evidence_sha256` | keyword-only | `str` | `—` |
+| `expected_current_release_id` | keyword-only | `str` | `—` |
+| `expected_environment_lock_version` | keyword-only | `int` | `—` |
+| `idempotency_key` | keyword-only | `str` | `—` |
+
+**Returns:** `WorkspaceBreakGlassApplyResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `ProjectReworkTasksAPI`
 
 `class ProjectReworkTasksAPI()`
@@ -2832,6 +3219,8 @@ Operate on the projects surface with the supplied arguments and return the serve
 | `revisions` | `ProjectRevisionsAPI` | — |
 | `change_requests` | `ProjectChangeRequestsAPI` | — |
 | `version_tags` | `ProjectVersionTagsAPI` | — |
+| `releases` | `ProjectReleasesAPI` | Release candidates, waivers, signoff, and reports. |
+| `release_operations` | `ProjectReleaseOperationsAPI` | — |
 
 **Methods**
 
@@ -10138,7 +10527,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceEnvironment`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`, `WorkspaceVersionTag`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceEnvironment`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`, `WorkspaceVersionTag`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -11771,7 +12160,7 @@ Typed models for the Workspace revision/import lifecycle (`P6-B`).
 
 **Public exports**
 
-`IMPORT_JOB_TERMINAL_STATES`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`, `WorkspaceVersionTag`
+`IMPORT_JOB_TERMINAL_STATES`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceState`, `WorkspaceVersionTag`
 
 #### Classes
 
@@ -12178,6 +12567,229 @@ An immutable semantic-version claim recorded against a revision.
 | `created_by` | `str` | `''` |
 | `created_at` | `str | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceRelease`
+
+`class WorkspaceRelease()`
+
+A Workspace release's evaluation/decision state machine record
+(`P5-A` through `P5-F`) -- ``draft`` -> ``evaluating`` ->
+``{blocked, rejected, approved, awaiting_quality_signoff}`` ->
+``awaiting_approval`` -> ``{approved, rejected}``.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `release_id` | `str` | `''` |
+| `project_id` | `str` | `''` |
+| `revision_id` | `str` | `''` |
+| `environment_id` | `str` | `''` |
+| `change_request_id` | `str | None` | `None` |
+| `change_request_head_id` | `str | None` | `None` |
+| `version_tag_id` | `str | None` | `None` |
+| `predecessor_release_id` | `str | None` | `None` |
+| `environment_config_sha256` | `str` | `''` |
+| `runtime_dependencies_sha256` | `str` | `''` |
+| `policy_sha256` | `str` | `''` |
+| `request_idempotency_key` | `str` | `''` |
+| `evaluation_evidence_sha256` | `str | None` | `None` |
+| `decision_set_sha256` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `requested_by` | `str` | `''` |
+| `requested_at` | `str | None` | `None` |
+| `evaluated_by` | `str | None` | `None` |
+| `evaluated_at` | `str | None` | `None` |
+| `lock_version` | `int` | `0` |
+| `error_code` | `str | None` | `None` |
+| `error_summary` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceReleaseEvaluation`
+
+`class WorkspaceReleaseEvaluation()`
+
+One durable evaluation attempt against a release's pinned digests.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `evaluation_id` | `str` | `''` |
+| `runtime_lineage_id` | `str | None` | `None` |
+| `project_id` | `str` | `''` |
+| `workspace_release_id` | `str` | `''` |
+| `idempotency_key` | `str` | `''` |
+| `evaluation_plan_sha256` | `str` | `''` |
+| `input_sha256` | `str` | `''` |
+| `status` | `str` | `''` |
+| `attempt_number` | `int` | `0` |
+| `claimed_by` | `str | None` | `None` |
+| `lease_expires_at` | `str | None` | `None` |
+| `heartbeat_at` | `str | None` | `None` |
+| `linked_evaluation_run_ids` | `list[str]` | `field(default_factory=list)` |
+| `gate_verdict_id` | `str | None` | `None` |
+| `error_code` | `str | None` | `None` |
+| `error_summary` | `str | None` | `None` |
+| `requested_by` | `str` | `''` |
+| `requested_at` | `str | None` | `None` |
+| `started_by` | `str | None` | `None` |
+| `started_at` | `str | None` | `None` |
+| `completed_by` | `str | None` | `None` |
+| `completed_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceReleaseEvidence`
+
+`class WorkspaceReleaseEvidence()`
+
+One piece of evidence (an evaluation run, a gate verdict, ...) recorded
+against a release, some of which a decision must reference to be valid.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `evidence_id` | `str` | `''` |
+| `workspace_release_id` | `str` | `''` |
+| `runtime_lineage_id` | `str | None` | `None` |
+| `kind` | `str` | `''` |
+| `evidence_ref` | `str` | `''` |
+| `evidence_sha256` | `str` | `''` |
+| `required` | `bool` | `False` |
+| `recorded_by` | `str` | `''` |
+| `recorded_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceReleaseDecision`
+
+`class WorkspaceReleaseDecision()`
+
+A digest-bound quality or release go/no-go decision, snapshotting the
+deciding actor's role and scopes at decision time.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `decision_id` | `str` | `''` |
+| `workspace_release_id` | `str` | `''` |
+| `kind` | `str` | `''` |
+| `decision` | `str` | `''` |
+| `change_request_head_id` | `str | None` | `None` |
+| `rationale` | `str` | `''` |
+| `decided_by` | `str` | `''` |
+| `actor_role_snapshot` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `effective_scope_snapshot` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `revision_sha256` | `str` | `''` |
+| `environment_config_sha256` | `str` | `''` |
+| `runtime_dependencies_sha256` | `str` | `''` |
+| `gate_evidence_sha256` | `str` | `''` |
+| `policy_sha256` | `str` | `''` |
+| `created_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceBreakGlassApplyResult`
+
+`class WorkspaceBreakGlassApplyResult()`
+
+What a break-glass apply call actually returns.
+
+Deliberately thin: the server hands back only enough to look up the
+resulting authorization and operation (``authorization_id``,
+``operation_id``), not the full authorization record -- fetch that
+separately if needed rather than expecting it to ride along here.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `authorization_id` | `str` | `''` |
+| `operation_id` | `str` | `''` |
+
+##### `WorkspaceReleaseOperation`
+
+`class WorkspaceReleaseOperation()`
+
+One durable apply-or-rollback intent against a release
+(`P5-C`), executed and reconciled through :class:`ProjectReleaseOperationsAPI`.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `operation_id` | `str` | `''` |
+| `project_id` | `str` | `''` |
+| `workspace_release_id` | `str` | `''` |
+| `environment_id` | `str` | `''` |
+| `runtime_lineage_id` | `str | None` | `None` |
+| `kind` | `str` | `''` |
+| `target_release_id` | `str | None` | `None` |
+| `idempotency_key` | `str` | `''` |
+| `expected_current_release_id` | `str | None` | `None` |
+| `expected_environment_lock_version` | `int` | `0` |
+| `status` | `str` | `''` |
+| `lock_version` | `int` | `0` |
+| `requested_by` | `str` | `''` |
+| `requested_at` | `str | None` | `None` |
+| `applied_by` | `str | None` | `None` |
+| `applied_at` | `str | None` | `None` |
+| `completed_by` | `str | None` | `None` |
+| `completed_at` | `str | None` | `None` |
+| `observation_count` | `int` | `0` |
+| `last_observed_at` | `str | None` | `None` |
+| `break_glass_authorization_id` | `str | None` | `None` |
+| `error_code` | `str | None` | `None` |
+| `error_summary` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceReleaseOperationItem`
+
+`class WorkspaceReleaseOperationItem()`
+
+One resource-level step (bind/promote/activate/publish/verify) within
+a release operation, tracked separately since a partial failure leaves
+some items applied and others not.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `operation_item_id` | `str` | `''` |
+| `workspace_release_operation_id` | `str` | `''` |
+| `revision_resource_id` | `str` | `''` |
+| `action` | `str` | `''` |
+| `target_ref` | `str` | `''` |
+| `before_ref` | `str | None` | `None` |
+| `after_ref` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `provider_operation_ref` | `str | None` | `None` |
+| `provider_result` | `dict[str, Any] | None` | `None` |
+| `started_at` | `str | None` | `None` |
+| `completed_at` | `str | None` | `None` |
+| `error_code` | `str | None` | `None` |
+| `error_summary` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceReleaseOperationResult`
+
+`class WorkspaceReleaseOperationResult()`
+
+An operation plus its per-resource items, the shape every
+create/get/apply/observe/cancel-expired call on
+:class:`ProjectReleaseOperationsAPI` returns.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `operation` | `WorkspaceReleaseOperation` | `field(default_factory=WorkspaceReleaseOperation)` |
+| `items` | `list[WorkspaceReleaseOperationItem]` | `field(default_factory=list)` |
 
 ### Module `caliber_sdk.models.errors`
 

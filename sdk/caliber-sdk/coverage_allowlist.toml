@@ -17,13 +17,12 @@
 #   * a [[gap]] entry the SDK now covers, or one naming a path the server no
 #     longer serves -- stale bookkeeping that must be deleted, not left behind.
 #
-# Current state: P1-C's three project-lifecycle gaps were closed by the
-# follow-up SDK review fix. P4-C's source/import/revision surface and P4-D's
-# Change Request/review/version-tag surface are both now covered by P6-B's
-# typed resources; only P5-C's release-operation routes remain, tracked below
-# as explicit temporary gaps. A future SDK PR closes each by adding typed
-# methods and deleting its entry; a future server operation without SDK
-# coverage must likewise add a tracked gap or justify a permanent exclusion.
+# Current state: every Workspace route family shipped so far -- source/import/
+# revision (P4-C), Change Request/review/version-tag (P4-D), release-operation
+# (P5-C) and release lifecycle (P5-F) -- is now covered by P6-B's typed
+# resources. No gaps remain; the only entries below are permanent exclusions.
+# A future server operation without SDK coverage must add a tracked [[gap]] or
+# justify a permanent [[exclusion]].
 
 [[exclusion]]
 method = "GET"
@@ -54,127 +53,3 @@ reason = "Static HTML report proxy, not a JSON API operation."
 method = "GET"
 path = "/metrics"
 reason = "Prometheus text exposition, not JSON -- belongs to a scraper, not a client."
-
-# P4-C provider-neutral Workspace source-control-configuration routes are now
-# covered by ProjectSourceAPI, alongside ProjectImportsAPI/ProjectRevisionsAPI
-# (all P6-B).
-
-# P5-C release-operation routes. The server contract ships before typed SDK
-# resources; P6-B owns the typed client closure.
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/releases/{}/operations"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/releases/{}/operations/{}"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/releases/{}/operations"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/releases/{}/operations/{}:apply"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/releases/{}/operations/{}:observe"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/releases/{}/operations/{}:cancel-expired"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-# `P5-F` release lifecycle routes (create/list/get, evidence, evaluate,
-# quality-signoff/approve, break-glass apply). The server contract ships
-# before typed SDK resources; P6-B owns the typed client closure, matching
-# every other Workspace resource family's own precedent.
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/releases"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/releases"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/releases/{}"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/releases/{}/evidence"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/releases/{}/evaluate"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/releases/{}/evaluations"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "GET"
-path = "/projects/{}/releases/{}/evaluations/{}"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/releases/{}/quality-signoff"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/releases/{}/approve"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
-
-[[gap]]
-method = "POST"
-path = "/projects/{}/releases/{}/break-glass-apply"
-tag = "projects"
-stability = "ga"
-wave = "P6-B"
