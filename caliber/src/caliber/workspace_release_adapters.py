@@ -4,6 +4,27 @@ Adapters are deliberately smaller than domain CRUD services.  They receive an
 immutable revision pin and return a normalized prepared action or provider
 outcome.  No provider SDK type crosses this boundary, which lets the release
 operation service preserve an ambiguous outcome as ``reconcile_required``.
+
+``apply_release``/``observe_release``/``rollback_release`` all receive the
+*caller's own* :class:`~sqlalchemy.orm.Session` (`P5-E`) -- the same session
+:func:`caliber.workspace_release_operations.apply_workspace_release_operation`
+is already running inside a ``session.begin_nested()`` savepoint on. An
+adapter whose "provider" genuinely is the same database (see
+:mod:`caliber.workspace_release_workflow_adapter`) should use this session
+directly and only ``flush()``, never ``commit()`` or open a second
+connection: on SQLite (this project's default engine, including the whole
+test suite) a second connection attempting to write while the caller's
+transaction is still open blocks on the single-writer file lock for the
+caller's *entire* remaining transaction, not just its own query -- an
+unconditional wait, not a real timeout, since nothing releases that lock
+until the outer transaction commits or rolls back. Sharing the session
+avoids that deadlock entirely and is also more correct: the operation's own
+state and the actual provider mutation commit or roll back as one atomic
+unit, rather than needing ``reconcile_required`` to paper over a window
+where one succeeded and the other did not. A genuinely external provider
+(a real network call) still cannot share this transaction and keeps the
+original two-phase apply/observe contract this session parameter does not
+change.
 """
 
 from __future__ import annotations
@@ -101,11 +122,17 @@ class WorkspaceResourceAdapter(Protocol):
         before_ref: str | None,
     ) -> PreparedAction: ...  # pragma: no cover
 
-    def apply_release(self, prepared: PreparedAction) -> ProviderOutcome: ...  # pragma: no cover
+    def apply_release(
+        self, session: object, prepared: PreparedAction
+    ) -> ProviderOutcome: ...  # pragma: no cover
 
-    def observe_release(self, prepared: PreparedAction) -> ProviderOutcome: ...  # pragma: no cover
+    def observe_release(
+        self, session: object, prepared: PreparedAction
+    ) -> ProviderOutcome: ...  # pragma: no cover
 
-    def rollback_release(self, prepared: PreparedAction) -> ProviderOutcome: ...  # pragma: no cover
+    def rollback_release(
+        self, session: object, prepared: PreparedAction
+    ) -> ProviderOutcome: ...  # pragma: no cover
 
 
 class WorkspaceResourceAdapterRegistry:
@@ -189,7 +216,7 @@ class FakeWorkspaceResourceAdapter:
     def queue_observe(self, outcome: ProviderOutcome) -> None:
         self._queued_observe.append(outcome)
 
-    def apply_release(self, prepared: PreparedAction) -> ProviderOutcome:
+    def apply_release(self, _session: object, prepared: PreparedAction) -> ProviderOutcome:
         self.apply_calls.append(prepared)
         outcome = self._queued_apply.pop(0) if self._queued_apply else None
         if isinstance(outcome, WorkspaceProviderTimeoutError):
@@ -202,7 +229,7 @@ class FakeWorkspaceResourceAdapter:
             self.state[prepared.target_ref] = prepared.after_ref
         return outcome
 
-    def observe_release(self, prepared: PreparedAction) -> ProviderOutcome:
+    def observe_release(self, _session: object, prepared: PreparedAction) -> ProviderOutcome:
         self.observe_calls.append(prepared)
         if self._queued_observe:
             return self._queued_observe.pop(0)
@@ -215,7 +242,7 @@ class FakeWorkspaceResourceAdapter:
             error_summary="fake provider target does not match the prepared after_ref",
         )
 
-    def rollback_release(self, prepared: PreparedAction) -> ProviderOutcome:
+    def rollback_release(self, _session: object, prepared: PreparedAction) -> ProviderOutcome:
         self.rollback_calls.append(prepared)
         self.state[prepared.target_ref] = prepared.after_ref
         return ProviderOutcome("applied", f"fake-rollback:{len(self.rollback_calls)}")

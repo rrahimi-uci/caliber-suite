@@ -2516,6 +2516,33 @@ def _rotate_alias(
     return deployment
 
 
+def rotate_alias_to_version(
+    session: Session,
+    workflow_id: str,
+    alias: str,
+    version_id: str,
+    *,
+    actor: str,
+    config: CaliberConfig | None = None,
+    preflight: bool = True,
+) -> CaliberWorkflowDeployment:
+    """Public wrapper over :func:`_rotate_alias`.
+
+    Exists so a caller outside this module -- currently
+    :mod:`caliber.workspace_release_workflow_adapter` (`P5-E`) -- can rotate an
+    alias without importing a private name. Deliberately does not also run
+    :func:`evaluate_deploy_gates`: that check replays the eval dataset the
+    same way :func:`promote` does, which is expensive (potentially live model
+    calls) and non-deterministic in a way this rotation primitive's other
+    callers (rollback, refinement-candidate rotation) already accept skipping.
+    A caller that needs the quality gate enforced must run
+    :func:`evaluate_deploy_gates` itself first, as :func:`promote` does.
+    """
+    return _rotate_alias(
+        session, workflow_id, alias, version_id, actor=actor, config=config, preflight=preflight
+    )
+
+
 def promote(
     session: Session,
     workflow_id: str,
@@ -2825,5 +2852,6 @@ __all__ = [
     "requires_quality_gate",
     "resolver_from_session",
     "rollback",
+    "rotate_alias_to_version",
     "run_preview",
 ]
