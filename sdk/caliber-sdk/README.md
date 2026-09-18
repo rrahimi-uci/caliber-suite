@@ -57,13 +57,18 @@ exceed its owner, and demoting the owner narrows the token immediately. Omit
   know whether the failure happened before or after the write took effect.
 - **CSRF.** A write refused for want of a token bootstraps one and replays
   exactly once. A genuine permission failure is not mistaken for CSRF.
-- **Project scoping.** `X-CALIBER-Project` on every request when set (via
-  `CaliberClient(project=...)`, `$CALIBER_PROJECT`, or the `project_scope()`
-  context manager). The sync and async scope managers are thread/task-local and
-  restore their previous selection on exit. `client.projects` (and its `files`
-  sub-resource) pin the header to the path's own `project_id` on every call,
-  regardless of the client's ambient scope — a client scoped to one project
-  asking about a different one by id sends that id, not its own. Pass `project=` directly to
+- **Workspace scoping.** `X-CALIBER-Project` on every request when set (via
+  `CaliberClient(project=...)`, `$CALIBER_PROJECT`, or the
+  `workspace_scope()` context manager). `client.workspaces is client.projects`
+  so the workspace terminology adds no second resource tree. Use
+  `library_scope()` for a platform/personal-library call that must explicitly
+  omit an inherited workspace header; the older `project_scope()` remains a
+  compatibility alias. The sync and async scope managers are thread/task-local
+  and restore their previous selection on exit. `client.workspaces` (and its
+  `files` sub-resource) pin the header to the path's own `project_id` on every
+  call, regardless of the client's ambient scope — a client scoped to one
+  project asking about a different one by id sends that id, not its own. Pass
+  `project=` directly to
   `Transport.request()`/`download()` for the same per-call pin anywhere else;
   `project=None` deliberately omits the header even when an ambient scope is
   set (for a platform-level call); a `project=` that disagrees with a manual

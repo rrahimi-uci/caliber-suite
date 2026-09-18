@@ -21,7 +21,7 @@ than a feature. ``client.raw`` reaches everything either way.
 from __future__ import annotations
 
 from .client import AsyncCaliberClient
-from .projects import AsyncProjectFilesAPI, AsyncProjectsAPI
+from .projects import AsyncProjectFilesAPI, AsyncProjectsAPI, AsyncWorkspacesAPI
 from .transport import AsyncTransport
 from .waiters import wait_for, wait_for_terminal_state
 
@@ -30,6 +30,7 @@ __all__ = [
     "AsyncProjectFilesAPI",
     "AsyncProjectsAPI",
     "AsyncTransport",
+    "AsyncWorkspacesAPI",
     "wait_for",
     "wait_for_terminal_state",
 ]

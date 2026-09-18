@@ -29,7 +29,7 @@ from .operations import (
     SecretsAPI,
     SystemAPI,
 )
-from .projects import ProjectFilesAPI, ProjectReworkTasksAPI, ProjectsAPI
+from .projects import ProjectFilesAPI, ProjectReworkTasksAPI, ProjectsAPI, WorkspacesAPI
 from .quality import EvalDatasetsAPI, EvaluationsAPI, JudgesAPI, VerificationQueueAPI
 from .raw import RawAPI
 from .system import CapabilitiesAPI, MeAPI, SettingsAPI
@@ -93,4 +93,5 @@ __all__ = [
     "WorkflowServicesAPI",
     "WorkflowVersionsAPI",
     "WorkflowsAPI",
+    "WorkspacesAPI",
 ]
