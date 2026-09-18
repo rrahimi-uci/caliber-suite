@@ -34,7 +34,7 @@ The reference tables below are generated directly from the current SDK source. B
 | --- | --- |
 | Package index | [`caliber_sdk`](#module-caliber_sdk), [`caliber_sdk.client`](#module-caliber_sdkclient), [`caliber_sdk.auth`](#module-caliber_sdkauth), [`caliber_sdk.transport`](#module-caliber_sdktransport), [`caliber_sdk.errors`](#module-caliber_sdkerrors), [`caliber_sdk.waiters`](#module-caliber_sdkwaiters) |
 | Resource modules | [`caliber_sdk.resources`](#module-caliber_sdkresources), [`caliber_sdk.resources.auth`](#module-caliber_sdkresourcesauth), [`caliber_sdk.resources.system`](#module-caliber_sdkresourcessystem), [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects), [`caliber_sdk.resources.assets`](#module-caliber_sdkresourcesassets), [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows), [`caliber_sdk.resources.quality`](#module-caliber_sdkresourcesquality), [`caliber_sdk.resources.integrations`](#module-caliber_sdkresourcesintegrations), [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations), [`caliber_sdk.resources.raw`](#module-caliber_sdkresourcesraw) |
-| Model modules | [`caliber_sdk.models`](#module-caliber_sdkmodels), [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon), [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore), [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets), [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality), [`caliber_sdk.models.integrations`](#module-caliber_sdkmodelsintegrations), [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations), [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows), [`caliber_sdk.models.errors`](#module-caliber_sdkmodelserrors) |
+| Model modules | [`caliber_sdk.models`](#module-caliber_sdkmodels), [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon), [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore), [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets), [`caliber_sdk.models.quality`](#module-caliber_sdkmodelsquality), [`caliber_sdk.models.integrations`](#module-caliber_sdkmodelsintegrations), [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations), [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows), [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace), [`caliber_sdk.models.errors`](#module-caliber_sdkmodelserrors) |
 | Async client | [`caliber_sdk.aio`](#module-caliber_sdkaio), [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient), [`caliber_sdk.aio.projects`](#module-caliber_sdkaioprojects), [`caliber_sdk.aio.transport`](#module-caliber_sdkaiotransport), [`caliber_sdk.aio.waiters`](#module-caliber_sdkaiowaiters) |
 
 ## Symbol index
@@ -99,6 +99,7 @@ Every documented class and module-level function, with the module that defines i
 | [`CapabilitiesAPI`](#capabilitiesapi) | [`caliber_sdk.resources.system`](#module-caliber_sdkresourcessystem) |
 | [`CookbookRecipe`](#cookbookrecipe) | [`caliber_sdk.models.operations`](#module-caliber_sdkmodelsoperations) |
 | [`CookbooksAPI`](#cookbooksapi) | [`caliber_sdk.resources.operations`](#module-caliber_sdkresourcesoperations) |
+| [`CursorPage`](#cursorpage) | [`caliber_sdk.models.common`](#module-caliber_sdkmodelscommon) |
 
 **E**
 
@@ -194,7 +195,9 @@ Every documented class and module-level function, with the module that defines i
 | [`ProjectFile`](#projectfile) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`ProjectFilesAPI`](#projectfilesapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectFolder`](#projectfolder) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`ProjectImportsAPI`](#projectimportsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectMember`](#projectmember) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`ProjectRevisionsAPI`](#projectrevisionsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectReworkTasksAPI`](#projectreworktasksapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectsAPI`](#projectsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`Prompt`](#prompt) | [`caliber_sdk.models.assets`](#module-caliber_sdkmodelsassets) |
@@ -285,6 +288,11 @@ Every documented class and module-level function, with the module that defines i
 | [`WorkflowVersion`](#workflowversion) | [`caliber_sdk.models.workflows`](#module-caliber_sdkmodelsworkflows) |
 | [`WorkflowVersionsAPI`](#workflowversionsapi) | [`caliber_sdk.resources.workflows`](#module-caliber_sdkresourcesworkflows) |
 | [`WorkspaceEnvironment`](#workspaceenvironment) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`WorkspaceImportJob`](#workspaceimportjob) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceImportReconciliation`](#workspaceimportreconciliation) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceRevision`](#workspacerevision) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceRevisionDiff`](#workspacerevisiondiff) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
+| [`WorkspaceRevisionResource`](#workspacerevisionresource) | [`caliber_sdk.models.workspace`](#module-caliber_sdkmodelsworkspace) |
 
 ## Package index
 
@@ -1906,7 +1914,7 @@ sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
 
 **Public exports**
 
-`ProjectFilesAPI`, `ProjectReworkTasksAPI`, `ProjectsAPI`, `WorkspacesAPI`
+`ProjectFilesAPI`, `ProjectImportsAPI`, `ProjectRevisionsAPI`, `ProjectReworkTasksAPI`, `ProjectsAPI`, `WorkspacesAPI`
 
 #### Classes
 
@@ -1999,6 +2007,175 @@ Raw bytes. Not JSON, so it bypasses the envelope entirely.
 | `file_id` | positional-or-keyword | `str` | `—` |
 
 **Returns:** `bytes`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `ProjectImportsAPI`
+
+`class ProjectImportsAPI()`
+
+Durable source-to-revision import jobs for one project (`P6-B`).
+
+**Methods**
+
+###### `list(project_id: str, *, status: str | None = None, limit: int | None = None, cursor: str | None = None) -> CursorPage[WorkspaceImportJob]`
+
+Return the current collection of project imports, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `status` | keyword-only | `str | None` | `None` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CursorPage[WorkspaceImportJob]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(project_id: str, job_id: str) -> WorkspaceImportJob`
+
+Fetch one record from the project imports surface identified by `project_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `job_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceImportJob`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(project_id: str, *, repository: str, commit_sha: str, bundle: bytes | BinaryIO, idempotency_key: str, filename: str = 'bundle') -> WorkspaceImportJob`
+
+Start an import. Multipart, so it does not go through the JSON path.
+
+``idempotency_key`` has no default on purpose: the server replays a
+prior job for a reused key rather than starting a second one, so
+generating a fresh key on every call here would silently defeat that
+retry-safety guarantee. Reuse the same key across a retry of the
+*same* logical import; the server compares content digests and
+rejects a key reused for genuinely different content.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `repository` | keyword-only | `str` | `—` |
+| `commit_sha` | keyword-only | `str` | `—` |
+| `bundle` | keyword-only | `bytes | BinaryIO` | `—` |
+| `idempotency_key` | keyword-only | `str` | `—` |
+| `filename` | keyword-only | `str` | `'bundle'` |
+
+**Returns:** `WorkspaceImportJob`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `reconcile(project_id: str, job_id: str) -> WorkspaceImportReconciliation`
+
+Explicitly observe an import stuck in ``reconcile_required``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `job_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceImportReconciliation`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `wait(project_id: str, job_id: str, *, timeout: float = 900.0, **options) -> WorkspaceImportJob`
+
+Poll until the import reaches a terminal state.
+
+``reconcile_required`` counts as terminal here -- it will never
+advance on its own, so a waiter that only accepted ``succeeded``/
+``failed`` would block until timeout on the one outcome that needs a
+caller to act (:meth:`reconcile`), not wait longer.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `job_id` | positional-or-keyword | `str` | `—` |
+| `timeout` | keyword-only | `float` | `900.0` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `WorkspaceImportJob`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
+
+##### `ProjectRevisionsAPI`
+
+`class ProjectRevisionsAPI()`
+
+Immutable, reviewable Workspace revisions for one project (`P6-B`).
+
+**Methods**
+
+###### `list(project_id: str, *, status: str | None = None, limit: int | None = None, cursor: str | None = None) -> CursorPage[WorkspaceRevision]`
+
+Return the current collection of project revisions, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `status` | keyword-only | `str | None` | `None` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CursorPage[WorkspaceRevision]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(project_id: str, revision_id: str) -> WorkspaceRevision`
+
+Fetch one record from the project revisions surface identified by `project_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `revision_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceRevision`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `diff(project_id: str, revision_id: str, *, base: str) -> WorkspaceRevisionDiff`
+
+The deterministic pin-level difference from ``base`` to ``revision_id``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `revision_id` | positional-or-keyword | `str` | `—` |
+| `base` | keyword-only | `str` | `—` |
+
+**Returns:** `WorkspaceRevisionDiff`
 
 **Raises:**
 
@@ -2122,6 +2299,8 @@ Operate on the projects surface with the supplied arguments and return the serve
 | --- | --- | --- |
 | `files` | `ProjectFilesAPI` | — |
 | `rework_tasks` | `ProjectReworkTasksAPI` | Owned, recoverable work auto-created from a rejected refinement job. |
+| `imports` | `ProjectImportsAPI` | — |
+| `revisions` | `ProjectRevisionsAPI` | — |
 
 **Methods**
 
@@ -9428,7 +9607,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceEnvironment`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceEnvironment`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -9442,7 +9621,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `Page`, `Stability`
+`STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `CursorPage`, `Page`, `Stability`
 
 **Module constants**
 
@@ -9453,6 +9632,38 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 | `STABILITY_INTERNAL` | `'internal'` |
 
 #### Classes
+
+##### `CursorPage`
+
+`class CursorPage()`
+
+**Bases:** `Generic[T]`
+
+One page of a cursor-paginated list.
+
+Unlike :class:`Page`'s ``limit``/``offset``, the cursor is an opaque,
+server-issued token: a caller resumes by passing ``next_cursor`` straight
+back as the next request's ``cursor`` parameter, never by computing an
+offset itself. Workspace's import/revision/Change-Request list endpoints
+use this scheme because their rows can be deleted or reordered between
+pages in a way a numeric offset would silently skip or repeat.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `items` | `list[T]` | `field(default_factory=list)` |
+| `next_cursor` | `str | None` | `None` |
+
+**Properties**
+
+###### `has_more() -> bool`
+
+Operate on the cursor page surface with the supplied arguments and return the server response.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
 
 ##### `Page`
 
@@ -11021,6 +11232,153 @@ A workflow published as an externally invocable HTTP service.
 | `created_at` | `str | None` | `None` |
 | `updated_at` | `str | None` | `None` |
 | `token_count` | `int` | `0` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+### Module `caliber_sdk.models.workspace`
+
+Typed models for the Workspace revision/import lifecycle (`P6-B`).
+
+**Public exports**
+
+`IMPORT_JOB_TERMINAL_STATES`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`
+
+#### Classes
+
+##### `WorkspaceImportJob`
+
+`class WorkspaceImportJob()`
+
+Durable source-to-revision import intent.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `import_job_id` | `str` | `''` |
+| `project_id` | `str` | `''` |
+| `source_id` | `str` | `''` |
+| `repository` | `str` | `''` |
+| `commit_sha` | `str` | `''` |
+| `upload_sha256` | `str | None` | `None` |
+| `source_bundle_sha256` | `str | None` | `None` |
+| `source_snapshot_file_id` | `str | None` | `None` |
+| `manifest_sha256` | `str | None` | `None` |
+| `status` | `str` | `''` |
+| `revision_id` | `str | None` | `None` |
+| `idempotency_key` | `str` | `''` |
+| `attempt_count` | `int` | `0` |
+| `max_attempts` | `int` | `0` |
+| `claimed_by` | `str | None` | `None` |
+| `claimed_at` | `str | None` | `None` |
+| `lease_expires_at` | `str | None` | `None` |
+| `last_heartbeat_at` | `str | None` | `None` |
+| `error_code` | `str | None` | `None` |
+| `error_summary` | `str | None` | `None` |
+| `created_by` | `str` | `''` |
+| `updated_by` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `updated_at` | `str | None` | `None` |
+| `completed_at` | `str | None` | `None` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+**Properties**
+
+###### `is_terminal() -> bool`
+
+Operate on the workspace import job surface with the supplied arguments and return the server response.
+
+This callable takes no public parameters.
+
+**Returns:** `bool`
+
+##### `WorkspaceImportReconciliation`
+
+`class WorkspaceImportReconciliation()`
+
+An explicit observation of an ambiguous local import snapshot.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `job` | `WorkspaceImportJob` | `field(default_factory=WorkspaceImportJob)` |
+| `observed` | `bool` | `False` |
+| `observation` | `str` | `''` |
+
+##### `WorkspaceRevisionResource`
+
+`class WorkspaceRevisionResource()`
+
+One exact resource pin in an immutable revision.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `resource_pin_id` | `str` | `''` |
+| `revision_id` | `str` | `''` |
+| `resource_type` | `str` | `''` |
+| `logical_name` | `str` | `''` |
+| `resource_id` | `str` | `''` |
+| `version_ref` | `str` | `''` |
+| `content_sha256` | `str` | `''` |
+| `source_path` | `str | None` | `None` |
+| `source_sha256` | `str | None` | `None` |
+| `provider_ref` | `str | None` | `None` |
+| `snapshot_file_id` | `str | None` | `None` |
+| `snapshot_sha256` | `str | None` | `None` |
+| `purpose` | `str` | `''` |
+| `resolution` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceRevision`
+
+`class WorkspaceRevision()`
+
+Revision metadata and its exact resource pins.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `revision_id` | `str` | `''` |
+| `project_id` | `str` | `''` |
+| `revision_number` | `int` | `0` |
+| `source_id` | `str | None` | `None` |
+| `source_commit_sha` | `str | None` | `None` |
+| `manifest` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `manifest_sha256` | `str` | `''` |
+| `source_bundle_sha256` | `str` | `''` |
+| `source_snapshot_file_id` | `str | None` | `None` |
+| `source_attestation` | `str` | `''` |
+| `revision_sha256` | `str` | `''` |
+| `status` | `str` | `''` |
+| `validation_report` | `dict[str, Any] | None` | `None` |
+| `created_by` | `str` | `''` |
+| `validated_by` | `str | None` | `None` |
+| `validated_at` | `str | None` | `None` |
+| `created_at` | `str | None` | `None` |
+| `resources` | `list[WorkspaceRevisionResource]` | `field(default_factory=list)` |
+| `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
+
+##### `WorkspaceRevisionDiff`
+
+`class WorkspaceRevisionDiff()`
+
+Deterministic base-to-candidate revision difference.
+
+**Dataclass fields**
+
+| Field | Type | Default |
+| --- | --- | --- |
+| `base_revision_id` | `str` | `''` |
+| `revision_id` | `str` | `''` |
+| `manifest_changed` | `bool` | `False` |
+| `source_bundle_changed` | `bool` | `False` |
+| `source_commit_changed` | `bool` | `False` |
+| `added` | `list[WorkspaceRevisionResource]` | `field(default_factory=list)` |
+| `removed` | `list[WorkspaceRevisionResource]` | `field(default_factory=list)` |
+| `changed` | `list[WorkspaceRevisionResource]` | `field(default_factory=list)` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ### Module `caliber_sdk.models.errors`

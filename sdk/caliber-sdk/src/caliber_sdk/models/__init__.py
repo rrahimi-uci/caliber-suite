@@ -11,7 +11,14 @@ from .assets import (
     SkillVersion,
     Tool,
 )
-from .common import STABILITY_BETA, STABILITY_GA, STABILITY_INTERNAL, Page, Stability
+from .common import (
+    STABILITY_BETA,
+    STABILITY_GA,
+    STABILITY_INTERNAL,
+    CursorPage,
+    Page,
+    Stability,
+)
 from .core import (
     Account,
     Capabilities,
@@ -76,9 +83,18 @@ from .workflows import (
     WorkflowService,
     WorkflowVersion,
 )
+from .workspace import (
+    IMPORT_JOB_TERMINAL_STATES,
+    WorkspaceImportJob,
+    WorkspaceImportReconciliation,
+    WorkspaceRevision,
+    WorkspaceRevisionDiff,
+    WorkspaceRevisionResource,
+)
 
 __all__ = [
     "FAILED_RUN_STATES",
+    "IMPORT_JOB_TERMINAL_STATES",
     "STABILITY_BETA",
     "STABILITY_GA",
     "STABILITY_INTERNAL",
@@ -94,6 +110,7 @@ __all__ = [
     "CalibrationJob",
     "Capabilities",
     "CookbookRecipe",
+    "CursorPage",
     "ErrorBody",
     "EvalDataset",
     "EvalExample",
@@ -146,6 +163,11 @@ __all__ = [
     "WorkflowService",
     "WorkflowVersion",
     "WorkspaceEnvironment",
+    "WorkspaceImportJob",
+    "WorkspaceImportReconciliation",
+    "WorkspaceRevision",
+    "WorkspaceRevisionDiff",
+    "WorkspaceRevisionResource",
     "decode",
     "decode_list",
 ]
