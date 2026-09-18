@@ -521,6 +521,10 @@ Compatibility alias for :meth:`workspace_scope`.
 
 **Returns:** [`Iterator[CaliberClient]`](#caliberclient)
 
+**Raises:**
+
+- [`CaliberConfigError`](#caliberconfigerror)
+
 ###### `capabilities() -> Any`
 
 Runtime feature flags and the SDK stability tiers.

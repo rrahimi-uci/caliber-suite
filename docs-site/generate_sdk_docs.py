@@ -957,6 +957,11 @@ def infer_raises(
         names.add("CaliberConfigError")
     if class_name == "AsyncCaliberClient" and member.name == "__init__":
         names.add("CaliberConfigError")
+    if class_name == "CaliberClient" and member.name == "project_scope":
+        # Delegates to ``workspace_scope`` via a ``with`` statement, so the
+        # ``raise CaliberConfigError(...)`` it can propagate lives in a
+        # different function body and a single-function AST walk never sees it.
+        names.add("CaliberConfigError")
     return sorted(names)
 
 
