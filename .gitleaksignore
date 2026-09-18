@@ -1,0 +1,13 @@
+# Suppressions for specific, already-reviewed gitleaks findings.
+#
+# Unlike .gitleaks.toml's content-based allowlist (which stays broad and safe by matching
+# only known-non-secret shapes), an entry here is scoped to one exact historical finding by
+# fingerprint -- it does not weaken detection for any other commit, file, or string.
+#
+# 7b044ccdc00c60ea93b168f9a085aa8ee838cb07:caliber/tests/test_workspace_release_routes.py:generic-api-key:233
+# A test idempotency-key placeholder ("eval-f4-second") tripped the generic-api-key entropy
+# heuristic. Not a credential -- an arbitrary test fixture string, since replaced (see
+# f15eb91dfc7) with a lower-entropy value that no longer trips the rule going forward. This
+# entry only silences the already-pushed historical commit, which cannot be un-pushed
+# without rewriting shared PR history.
+7b044ccdc00c60ea93b168f9a085aa8ee838cb07:caliber/tests/test_workspace_release_routes.py:generic-api-key:233
