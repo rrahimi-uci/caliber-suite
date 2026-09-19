@@ -109,7 +109,14 @@ def test_configure_sends_every_field_and_decodes_the_response() -> None:
             "PRJ-1",
             app_id="123456",
             installation_id="789012",
-            private_key="-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+            # Deliberately not shaped like a real PEM key block: the SDK
+            # never parses this value, it only forwards it as an opaque
+            # string in the request body (the server is what interprets it,
+            # after storing it exclusively through the encrypted secret
+            # store) -- so the test fixture doesn't need that structure
+            # either, and embedding one in source is exactly what this
+            # repo's secret-scanning gate (rightly) flags.
+            private_key="test-private-key-placeholder",
             webhook_secret="whsec_test",
         )
 
@@ -120,7 +127,7 @@ def test_configure_sends_every_field_and_decodes_the_response() -> None:
         "provider": "github",
         "app_id": "123456",
         "installation_id": "789012",
-        "private_key": "-----BEGIN PRIVATE KEY-----\nfake\n-----END PRIVATE KEY-----",
+        "private_key": "test-private-key-placeholder",
         "webhook_secret": "whsec_test",
     }
     assert connection is not None
