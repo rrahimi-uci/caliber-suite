@@ -1,0 +1,11 @@
+{"t":"2026-09-19T06:34:56.214Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-09-19T06:34:56.242Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-09-19T06:34:56.245Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-09-19T06:34:56.246Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-09-19T06:34:56.288Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-19T06:34:56.334Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-2dd750d3/change-requests \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-19T06:34:56.362Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-2dd750d3/change-requests/WSCR-88e4f46d:submit \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-19T06:34:56.372Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-2dd750d3/change-requests/WSCR-88e4f46d \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-19T06:34:56.389Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-2dd750d3/change-requests/WSCR-88e4f46d/reviews \"HTTP/1.1 201 Created\""}
+{"t":"2026-09-19T06:34:56.397Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-2dd750d3/change-requests/WSCR-88e4f46d \"HTTP/1.1 200 OK\""}
+{"t":"2026-09-19T06:34:56.455Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-2dd750d3/change-requests/WSCR-88e4f46d:accept \"HTTP/1.1 409 Conflict\""}

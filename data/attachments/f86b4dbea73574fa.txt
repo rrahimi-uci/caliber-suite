@@ -1,0 +1,1 @@
+WARNING  caliber.eval.predict:predict.py:176 eval default predict_fn wanted a openai key at 'X' but none resolved; register a per-agent predict_fn or set the key.

@@ -1,0 +1,63 @@
+INFO     caliber:server.py:409 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:251 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
+INFO     caliber:server.py:677 CALIBER assistant engine: fake (configured=fake)
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 409 Conflict"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 409 Conflict"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 409 Conflict"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-407d74d6/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-98354278/publish "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs "HTTP/1.1 202 Accepted"
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy failed (attempt 1/1): policy backend failed attempt 1 for outage-immediate
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 1/3): policy backend failed attempt 1 for outage-retry
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 2/3): policy backend failed attempt 2 for outage-retry
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 3/3): policy backend failed attempt 3 for outage-retry
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-e7db051f "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-e7db051f/approvals "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-e7db051f/approval/approve "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-e7db051f/resume "HTTP/1.1 202 Accepted"
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-e7db051f "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs "HTTP/1.1 202 Accepted"
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy failed (attempt 1/1): policy backend failed attempt 2 for outage-immediate
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 1/3): policy backend failed attempt 4 for outage-retry
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 2/3): policy backend failed attempt 5 for outage-retry
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 3/3): policy backend failed attempt 6 for outage-retry
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-319f50ed "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-319f50ed/approvals "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-319f50ed/approval/approve "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-319f50ed/resume "HTTP/1.1 202 Accepted"
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-319f50ed "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs "HTTP/1.1 202 Accepted"
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy failed (attempt 1/1): policy backend failed attempt 3 for outage-immediate
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 1/3): policy backend failed attempt 7 for outage-retry
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 2/3): policy backend failed attempt 8 for outage-retry
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 3/3): policy backend failed attempt 9 for outage-retry
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c0456862 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c0456862/approvals "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c0456862/approval/approve "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c0456862/resume "HTTP/1.1 202 Accepted"
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c0456862 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs "HTTP/1.1 202 Accepted"
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy failed (attempt 1/1): policy backend failed attempt 4 for outage-immediate
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 1/3): policy backend failed attempt 10 for outage-retry
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 2/3): policy backend failed attempt 11 for outage-retry
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 3/3): policy backend failed attempt 12 for outage-retry
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c6eb5279 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c6eb5279/approvals "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c6eb5279/approval/approve "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c6eb5279/resume "HTTP/1.1 202 Accepted"
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-c6eb5279 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs "HTTP/1.1 202 Accepted"
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy failed (attempt 1/1): policy backend failed attempt 5 for outage-immediate
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 1/3): policy backend failed attempt 13 for outage-retry
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 2/3): policy backend failed attempt 14 for outage-retry
+WARNING  caliber.workflows.runtime:runtime.py:2416 tool lookup_policy_retry failed (attempt 3/3): policy backend failed attempt 15 for outage-retry
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-1d32d89c "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-1d32d89c/approvals "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-1d32d89c/approval/approve "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-1d32d89c/resume "HTTP/1.1 202 Accepted"
+INFO     httpx2:_client.py:1085 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-1d32d89c "HTTP/1.1 200 OK"
