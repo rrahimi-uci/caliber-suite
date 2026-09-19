@@ -449,6 +449,15 @@ def build_parser() -> argparse.ArgumentParser:
         "--expected-lock-version", required=True, type=int, dest="expected_lock_version"
     )
 
+    cr_accept = _add(
+        ws_cr,
+        "accept",
+        commands.workspace_cr_accept,
+        "accept a Change Request once QA has recorded a passing decision",
+        requires_project=True,
+    )
+    cr_accept.add_argument("change_request_id")
+
     ws_release = _group(
         workspace, "release", "environment release evaluation, decision, and apply/rollback"
     )

@@ -391,6 +391,67 @@ def test_cr_close(stub: Any) -> None:
     assert code == exits.FAILURE
 
 
+def test_cr_accept_ok(stub: Any) -> None:
+    run = stub(
+        {
+            "POST /projects/PRJ-1/change-requests/CR-1:accept": {
+                "change_request_id": "CR-1",
+                "status": "accepted",
+            }
+        }
+    )
+    code = run(["--project", "PRJ-1", "workspace", "cr", "accept", "CR-1"])
+    assert code == exits.OK
+
+
+def test_cr_accept_sends_no_body(stub: Any) -> None:
+    """``accept_route`` never parses a request body -- see this route's own
+    docstring on why a client-supplied QA claim can't be trusted. The CLI
+    command takes no evidence flags at all, so confirm the SDK call it
+    delegates to still posts an empty body rather than silently growing one."""
+    sent: dict[str, Any] = {}
+
+    def record(request: httpx.Request) -> Any:
+        sent["body"] = body_of(request)
+        return {"change_request_id": "CR-1", "status": "accepted"}
+
+    run = stub({"POST /projects/PRJ-1/change-requests/CR-1:accept": record})
+    code = run(["--project", "PRJ-1", "workspace", "cr", "accept", "CR-1"])
+    assert code == exits.OK
+    assert sent["body"] == {}
+
+
+def test_cr_accept_without_a_qa_go_decision_exits_awaiting_human(stub: Any) -> None:
+    """A `409 qa_go_decision_required` means the command worked and QA simply
+    has not recorded a passing decision for the current head yet -- not a
+    hard failure, so it must not collapse into ``exits.FAILURE`` the way an
+    ordinary 409 does."""
+    run = stub(
+        {
+            "POST /projects/PRJ-1/change-requests/CR-1:accept": httpx.Response(
+                409, json={"detail": "qa_go_decision_required"}
+            )
+        }
+    )
+    code = run(["--project", "PRJ-1", "workspace", "cr", "accept", "CR-1"])
+    assert code == exits.AWAITING_HUMAN
+
+
+def test_cr_accept_out_of_date_conflict_exits_failure(stub: Any) -> None:
+    """A different 409 (a competing acceptance already moved the project's
+    accepted revision) is an ordinary conflict, not the "not ready yet"
+    case -- only ``qa_go_decision_required`` gets the distinct code."""
+    run = stub(
+        {
+            "POST /projects/PRJ-1/change-requests/CR-1:accept": httpx.Response(
+                409, json={"detail": "change_request_out_of_date"}
+            )
+        }
+    )
+    code = run(["--project", "PRJ-1", "workspace", "cr", "accept", "CR-1"])
+    assert code == exits.FAILURE
+
+
 # --- releases: blocked / awaiting a decision / approved -----------------
 
 

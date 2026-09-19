@@ -649,6 +649,24 @@ def workspace_cr_close(client: CaliberClient, args: argparse.Namespace, out: Pri
     return _change_request_exit(change_request)
 
 
+def workspace_cr_accept(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Accept a Change Request, advancing the project's accepted revision.
+
+    Takes no QA-evidence argument -- the server derives it itself from a
+    durably recorded QA ``go`` decision bound to the request's current head
+    (see ``ProjectChangeRequestsAPI.accept``'s own docstring on the SDK
+    side and ``caliber.routes.workspace_change_requests`` on the server
+    side); this command never has evidence of its own to send. A ``409``
+    with ``qa_go_decision_required`` means QA has not recorded a passing
+    decision for this head yet -- ``api_error_exit`` maps that to
+    ``AWAITING_HUMAN`` rather than ``FAILURE`` so a caller can script
+    around "not ready yet" distinctly from a hard error.
+    """
+    change_request = client.workspaces.change_requests.accept(args.project, args.change_request_id)
+    out.data(change_request)
+    return _change_request_exit(change_request)
+
+
 #: Statuses in which a Change Request is simply waiting on somebody's decision
 #: -- not rejected, not stale, not accepted. Maps onto AWAITING_HUMAN because
 #: that is exactly what it means: the command worked, and a person has to act.
@@ -921,12 +939,24 @@ def _maybe_json(raw: str | None) -> Any:
 def api_error_exit(error: CaliberAPIError) -> int:
     """Map an API failure to an exit code.
 
-    Only 401 gets its own code, because only 401 has a single always-correct
-    fix. A 403 is "this credential lacks the scope", which is a real failure the
-    caller has to resolve rather than a missing credential.
+    Only 401 gets its own code on status alone, because only 401 has a
+    single always-correct fix. A 403 is "this credential lacks the scope",
+    which is a real failure the caller has to resolve rather than a missing
+    credential.
+
+    One additional, detail-keyed case: ``:accept``'s ``409
+    qa_go_decision_required`` (``workspace_cr_accept``) is not a hard
+    failure -- the command worked and QA simply has not recorded a passing
+    decision for the current head yet, the same "stopped and asked a person
+    to act" situation ``AWAITING_HUMAN`` already names for a Change
+    Request's own pending statuses. The detail string is specific to the
+    ``:accept`` route (see ``_resolve_verified_qa_evidence`` server-side),
+    so keying on it here cannot misclassify a 409 from any other command.
     """
     if error.status_code == 401:
         return exits.UNAUTHENTICATED
+    if error.status_code == 409 and error.detail == "qa_go_decision_required":
+        return exits.AWAITING_HUMAN
     return exits.FAILURE
 
 
