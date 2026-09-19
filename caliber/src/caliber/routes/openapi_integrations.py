@@ -16,6 +16,7 @@ from datetime import datetime, timezone
 from typing import Any
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
@@ -364,6 +365,27 @@ async def list_openapi_integrations(request: Request) -> JSONResponse:
     return envelope_response(data)
 
 
+def _find_openapi_integration_name_conflict(
+    session: Session, name: str
+) -> CaliberOpenApiIntegration | None:
+    """Friendly pre-check only: `uq_openapi_integration_name` is the actual
+    guarantee. `name` is a global, not per-project, handle (same convention
+    as `uq_skill_name` et al. and `caliber_workflows`'s own name check). A
+    separate, importable function so a test can monkeypatch it to simulate
+    two concurrent `create_openapi_integration` calls both passing this check
+    before either flushes, the same way
+    `workspace_source_connections.py::get_connection_by_installation` is
+    monkeypatched in its own race test.
+    """
+    return (
+        session.execute(
+            select(CaliberOpenApiIntegration).where(CaliberOpenApiIntegration.name == name)
+        )
+        .scalars()
+        .first()
+    )
+
+
 async def create_openapi_integration(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = OpenApiIntegrationCreateRequest.model_validate(body)
@@ -371,6 +393,15 @@ async def create_openapi_integration(request: Request) -> JSONResponse:
     identity = resolve_identity(request)
     factory = get_session_factory(request)
     with factory() as session:
+        existing = _find_openapi_integration_name_conflict(session, payload.name)
+        if existing is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"openapi integration name {payload.name!r} is already in use "
+                    f"by {existing.integration_id!r}"
+                ),
+            )
         row = CaliberOpenApiIntegration(
             integration_id=new_openapi_integration_id(),
             name=payload.name,
@@ -380,8 +411,15 @@ async def create_openapi_integration(request: Request) -> JSONResponse:
             project_id=identity.active_project_id,
             visibility="project" if identity.active_project_id else "user",
         )
-        session.add(row)
-        session.flush()
+        try:
+            with session.begin_nested():
+                session.add(row)
+                session.flush()
+        except IntegrityError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=f"openapi integration name {payload.name!r} is already in use",
+            ) from exc
         audit_record(
             session,
             actor=actor,

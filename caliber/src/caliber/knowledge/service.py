@@ -19,6 +19,7 @@ from typing import Any, Literal, cast
 from urllib.parse import quote
 
 from sqlalchemy import delete, or_, select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.exceptions import HTTPException
 
@@ -989,11 +990,25 @@ class KnowledgeBaseService:
                 queued_at=now if queue_build else None,
                 started_at=None if queue_build else now,
             )
-            session.add(knowledge_base)
-            session.add(version)
-            # Persist parent rows first so Postgres sees the referenced
-            # knowledge-base version before the run row arrives.
-            session.flush()
+            # `_assert_unique_name` above is a friendly pre-check, not the
+            # race-safety net: two concurrent creates can both observe no
+            # conflict before either commits. `uq_knowledge_base_project_owner_name`/
+            # `uq_knowledge_base_owner_name_no_project` are the actual
+            # guarantee; this translates their violation into the same 409
+            # the pre-check raises, mirroring
+            # `workspace_source_connections.py::configure_connection`.
+            try:
+                with session.begin_nested():
+                    session.add(knowledge_base)
+                    session.add(version)
+                    # Persist parent rows first so Postgres sees the referenced
+                    # knowledge-base version before the run row arrives.
+                    session.flush()
+            except IntegrityError as exc:
+                raise HTTPException(
+                    status_code=409,
+                    detail=f"knowledge-base name {payload.name!r} is already in use",
+                ) from exc
             session.add(run)
             session.flush()
             if queue_build:
