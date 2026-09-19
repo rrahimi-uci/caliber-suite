@@ -171,35 +171,37 @@ async def approve_plan(request: Request) -> JSONResponse:
     return envelope_response_dict(updated)
 
 
-def _authorize_plan_execution(
-    session: Session, identity: CaliberIdentity, plan_id: str, project_id: str | None
+def _record_plan_authorization_snapshot(
+    session: Session,
+    identity: CaliberIdentity,
+    plan_id: str,
+    project_id: str | None,
+    role: str | None,
 ) -> None:
-    """Enforce `resource.execute` for a project-scoped plan (`P2`, item 7)
-    and record the authorization snapshot the first time this plan clears the
-    check (`P2-E`).
+    """Persist the plan-level authorization snapshot the first time this
+    plan clears its `execute`/`poll` role check (`P2-E`).
 
-    Visibility alone let any active project member -- including a plain
-    `viewer` -- execute or poll a teammate's plan. `resource.execute`'s role
-    floor (owner/editor/reviewer) is the same one `create_workflow_run`
-    already enforces for the equivalent REST action; a personal
-    (`project_id is None`) plan has no project role to check.
+    Recorded once (`CaliberAriaPlan.authorization_recorded_at` is the
+    write-once guard) -- purely an auditable record of what first authorized
+    the plan, mirroring `CaliberWorkspaceReleaseDecision.actor_role_snapshot`/
+    `.effective_scope_snapshot` without displacing the fresh, unconditional
+    per-call check itself (still inline in `execute_plan`/`poll_plan` below --
+    a still-active plan's authorization can genuinely change between calls,
+    e.g. a role edit or a membership change, so re-deriving it live on every
+    call stays the safer default; a cached decision would not see that).
 
-    This check is unconditional on every call -- a still-active plan's
-    authorization can genuinely change between calls (a role edit, a
-    membership change), so re-deriving it live on each `execute`/`poll` stays
-    the safer default, not something a cached decision replaces. The snapshot
-    persisted here is purely an auditable record of what first authorized the
-    plan (`CaliberAriaPlan.authorization_recorded_at` is the write-once
-    guard) -- mirroring how `CaliberWorkspaceReleaseDecision` snapshots a
-    decision without displacing the fresh CAS checks elsewhere in that same
-    flow.
+    Deliberately just a persistence helper, not the authorization call
+    itself: `routes/scope_inference.py` (the AST-based route-scope inventory
+    this codebase's generated REST API docs are built from) only walks a
+    handler's own function body for its primary authorization call and does
+    not chase into helpers by design -- see that module's docstring. Every
+    handler in this codebase puts `require_project_access(...)` directly in
+    the function Starlette dispatches to for exactly that reason; hiding it
+    behind an indirection layer would silently under-report this route's own
+    requirement in the generated docs (confirmed: doing so made the
+    generated REST API reference say "any authenticated user" for
+    `execute`/`poll` instead of "project role (`resource.execute`)").
     """
-    role: str | None = None
-    if project_id is not None:
-        _project, decision = require_project_access(
-            session, identity, project_id, "resource.execute"
-        )
-        role = decision.role
     plan = session.get(CaliberAriaPlan, plan_id)
     if plan is not None and plan.authorization_recorded_at is None:
         plan.actor_role_snapshot = {"role": role} if project_id is not None else None
@@ -219,8 +221,20 @@ async def execute_plan(request: Request) -> JSONResponse:
     detail = _service.get_plan(session_factory=factory, plan_id=plan_id, identity=identity)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"aria plan {plan_id!r} not found")
+    # `P2` (isolation closure, item 7): visibility alone let any active
+    # project member -- including a plain `viewer` -- execute a teammate's
+    # plan. `resource.execute`'s role floor (owner/editor/reviewer) is the
+    # same one `create_workflow_run` already enforces for the equivalent
+    # REST action; a personal (`project_id is None`) plan is unaffected.
+    project_id = detail["plan"].get("project_id")
     with factory() as session:
-        _authorize_plan_execution(session, identity, plan_id, detail["plan"].get("project_id"))
+        role: str | None = None
+        if project_id is not None:
+            _project, decision = require_project_access(
+                session, identity, project_id, "resource.execute"
+            )
+            role = decision.role
+        _record_plan_authorization_snapshot(session, identity, plan_id, project_id, role)
     if detail["plan"]["status"] not in ("approved", "paused", "running"):
         raise HTTPException(
             status_code=409,
@@ -244,9 +258,16 @@ async def poll_plan(request: Request) -> JSONResponse:
     detail = _service.get_plan(session_factory=factory, plan_id=plan_id, identity=identity)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"aria plan {plan_id!r} not found")
-    # See `_authorize_plan_execution` above.
+    # `P2` (isolation closure, item 7): see `execute_plan` above.
+    project_id = detail["plan"].get("project_id")
     with factory() as session:
-        _authorize_plan_execution(session, identity, plan_id, detail["plan"].get("project_id"))
+        role = None
+        if project_id is not None:
+            _project, decision = require_project_access(
+                session, identity, project_id, "resource.execute"
+            )
+            role = decision.role
+        _record_plan_authorization_snapshot(session, identity, plan_id, project_id, role)
     result = _executor.poll(
         session_factory=factory,
         config=_config(request),
