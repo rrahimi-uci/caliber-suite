@@ -72,6 +72,7 @@ from caliber.workspace_release_governance import (
     WorkspaceReleaseDecisionConflictError,
     WorkspaceReleaseGovernanceError,
     create_workspace_break_glass_apply,
+    derive_break_glass_gate_evidence,
     record_workspace_release_decision,
 )
 from caliber.workspace_release_service import (
@@ -364,6 +365,24 @@ def _break_glass_apply_sync(
 ) -> dict[str, object]:
     with factory() as session:
         try:
+            # `create_workspace_break_glass_apply`'s own docstring: "P5-C
+            # must replace/revalidate [these] from persisted machine and
+            # integrity evidence immediately before the first external
+            # effect." `derive_break_glass_gate_evidence` is that
+            # revalidation: it reads the release's own currently-persisted
+            # status and evidence digest right here, rather than trusting a
+            # caller-supplied or previously-cached value, so a release whose
+            # evidence has moved on since an earlier precondition check is
+            # caught live. `create_workspace_break_glass_apply`'s existing
+            # hard deny-on-false check (unchanged) still refuses the apply
+            # outright if either comes back false -- break-glass never
+            # bypasses a failed machine gate or integrity check.
+            machine_gates_passed, integrity_checks_passed = derive_break_glass_gate_evidence(
+                session,
+                project_id=project_id,
+                workspace_release_id=release_id,
+                gate_evidence_sha256=payload.gate_evidence_sha256,
+            )
             result = create_workspace_break_glass_apply(
                 session,
                 project_id=project_id,
@@ -377,16 +396,8 @@ def _break_glass_apply_sync(
                 expected_current_release_id=payload.expected_current_release_id,
                 expected_environment_lock_version=payload.expected_environment_lock_version,
                 idempotency_key=payload.idempotency_key,
-                # `create_workspace_break_glass_apply`'s own docstring: "P5-C
-                # must replace/revalidate [these] from persisted machine and
-                # integrity evidence immediately before the first external
-                # effect." No route in this repository re-derives that
-                # evidence yet (a real, named gap -- not a silent shortcut);
-                # every other precondition this function checks (gate-digest
-                # binding, QA->staging->prod chain, distinct-actor, TTL) is
-                # still fully enforced.
-                machine_gates_passed=True,
-                integrity_checks_passed=True,
+                machine_gates_passed=machine_gates_passed,
+                integrity_checks_passed=integrity_checks_passed,
             )
         except WorkspaceReleaseGovernanceError as exc:
             raise _governance_error(exc) from exc

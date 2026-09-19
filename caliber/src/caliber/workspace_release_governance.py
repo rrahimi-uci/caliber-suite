@@ -559,6 +559,55 @@ def _require_break_glass_preconditions(
     return request, head
 
 
+def derive_break_glass_gate_evidence(
+    session: Session,
+    *,
+    project_id: str,
+    workspace_release_id: str,
+    gate_evidence_sha256: str,
+) -> tuple[bool, bool]:
+    """Re-derive ``machine_gates_passed``/``integrity_checks_passed`` live.
+
+    ``create_workspace_break_glass_apply`` takes those two booleans as
+    caller-supplied input and hard-denies the apply when either is false --
+    but it trusts whatever the caller passes in. A caller that fabricates
+    ``True`` regardless of reality defeats that check entirely, which is
+    exactly the gap this function closes: it must be called immediately
+    before ``create_workspace_break_glass_apply``, using nothing cached or
+    read earlier in the request, so a release whose evidence has moved on
+    since an earlier precondition check is caught here, live, rather than
+    waved through on a stale assumption.
+
+    Mirrors ``_require_gate_binding``'s digest comparison, but returns a
+    boolean pair instead of raising: a break-glass caller needs a truthful
+    ``False`` it can hand to ``create_workspace_break_glass_apply`` (which
+    performs the actual deny), not an exception from this helper that would
+    prevent the attempt from even being evaluated.
+
+    ``machine_gates_passed`` is true only when the release is currently
+    sitting in a status a *passing* machine evaluation produces --
+    ``settle_machine_evaluation``'s ``result="pass"`` branch is the only path
+    into ``RELEASE_AWAITING_QUALITY_SIGNOFF``/``RELEASE_AWAITING_APPROVAL``;
+    a ``no_go``/``blocked`` result never reaches either -- with persisted
+    evaluation evidence recorded. ``integrity_checks_passed`` is true only
+    when the caller's claimed ``gate_evidence_sha256`` still matches that
+    persisted evidence digest exactly, right now.
+    """
+    release = session.get(CaliberWorkspaceRelease, workspace_release_id)
+    if release is None or release.project_id != project_id:
+        return False, False
+    machine_gates_passed = (
+        release.status in {RELEASE_AWAITING_QUALITY_SIGNOFF, RELEASE_AWAITING_APPROVAL}
+        and release.evaluation_evidence_sha256 is not None
+    )
+    integrity_checks_passed = (
+        release.evaluation_evidence_sha256 is not None
+        and bool(_DIGEST_RE.fullmatch(gate_evidence_sha256))
+        and gate_evidence_sha256 == release.evaluation_evidence_sha256
+    )
+    return machine_gates_passed, integrity_checks_passed
+
+
 def create_workspace_break_glass_apply(  # noqa: PLR0912
     session: Session,
     *,
@@ -722,5 +771,6 @@ __all__ = [
     "WorkspaceReleaseDecisionConflictError",
     "WorkspaceReleaseGovernanceError",
     "create_workspace_break_glass_apply",
+    "derive_break_glass_gate_evidence",
     "record_workspace_release_decision",
 ]
