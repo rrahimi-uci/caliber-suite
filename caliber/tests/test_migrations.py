@@ -19,88 +19,31 @@ set. That env var is set only by the "Migration parity (PostgreSQL)" CI job
 (``.github/workflows/ci.yml``), which is the one deliberate, narrowly-scoped
 exception to this repo's otherwise-offline test policy: every other test in
 this file, and every test outside this file, stays SQLite/offline.
+
+The ``DIALECTS``/``dialect_database_url`` scaffolding itself now lives in
+``dialect_helpers.py`` (shared with
+``test_workspace_revision_allocation_concurrency.py``, `P4-A`'s
+cross-dialect concurrent-allocation coverage) rather than being private to
+this file.
 """
 
 from __future__ import annotations
 
 import os
-import uuid
 import warnings
-from collections.abc import Iterator
-from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.engine import make_url
 from sqlalchemy.exc import IntegrityError, SAWarning
 
 from caliber.db import Base
-from caliber.db_url import normalize_database_url
+from tests.dialect_helpers import DIALECTS, dialect_database_url
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
-
-# See the module docstring. Unset (empty string) everywhere except the
-# dedicated CI job, so every PostgreSQL-parametrized case below is skipped by
-# default rather than failing on a socket nobody offered.
-POSTGRES_TEST_URL = os.environ.get("CALIBER_TEST_POSTGRES_URL", "").strip()
-
-DIALECTS = [
-    pytest.param("sqlite", id="sqlite"),
-    pytest.param(
-        "postgresql",
-        id="postgresql",
-        marks=pytest.mark.skipif(
-            not POSTGRES_TEST_URL,
-            reason="CALIBER_TEST_POSTGRES_URL is not set (see the "
-            "'Migration parity (PostgreSQL)' CI job)",
-        ),
-    ),
-]
-
-
-@contextmanager
-def _dialect_database_url(dialect: str, tmp_path: Path, name: str) -> Iterator[str]:
-    """Yield an isolated, empty database URL for ``dialect``.
-
-    SQLite: a fresh file under ``tmp_path`` -- this file's established
-    pattern, unchanged. PostgreSQL: a throwaway database created on the
-    shared CI service (``CALIBER_TEST_POSTGRES_URL`` is an *admin* connection
-    string -- any reachable database on that server, used only to run
-    ``CREATE DATABASE``/``DROP DATABASE``) and dropped again once the test
-    finishes, so multiple PostgreSQL-parametrized tests sharing one live
-    server in the same CI job never collide.
-    """
-    if dialect == "sqlite":
-        yield f"sqlite:///{tmp_path / f'{name}.db'}"
-        return
-
-    assert dialect == "postgresql"
-    admin_url = normalize_database_url(POSTGRES_TEST_URL)
-    db_name = f"caliber_test_{name}_{uuid.uuid4().hex[:12]}"
-    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
-    try:
-        with admin_engine.connect() as connection:
-            connection.execute(text(f'CREATE DATABASE "{db_name}"'))
-        try:
-            # str(URL) masks the password (renders "***"); this URL is used to
-            # open a real connection, so the password must round-trip intact.
-            yield make_url(admin_url).set(database=db_name).render_as_string(hide_password=False)
-        finally:
-            with admin_engine.connect() as connection:
-                connection.execute(
-                    text(
-                        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
-                        "WHERE datname = :name AND pid <> pg_backend_pid()"
-                    ),
-                    {"name": db_name},
-                )
-                connection.execute(text(f'DROP DATABASE IF EXISTS "{db_name}"'))
-    finally:
-        admin_engine.dispose()
 
 
 # Columns a migration adds via raw, dialect-gated DDL (``op.execute``, not
@@ -122,7 +65,7 @@ _UNMANAGED_COLUMNS: dict[str, set[str]] = {
 def test_alembic_upgrade_head_matches_metadata(
     dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    with _dialect_database_url(dialect, tmp_path, "alembic_test") as db_url:
+    with dialect_database_url(dialect, tmp_path, "alembic_test") as db_url:
         monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
 
         cfg = Config(str(ALEMBIC_INI))
@@ -497,7 +440,7 @@ def test_0093_backfills_slug_source_mode_and_four_environments_per_project(
     tenant-unique slug, a default source mode, and its four fixed
     environment rows -- additively, with no data loss. Two projects whose
     names slugify identically ("Demo" / "demo!") must not collide."""
-    with _dialect_database_url(dialect, tmp_path, "workspace_environments") as db_url:
+    with dialect_database_url(dialect, tmp_path, "workspace_environments") as db_url:
         monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
         monkeypatch.chdir(PROJECT_ROOT)
         cfg = Config(str(ALEMBIC_INI))

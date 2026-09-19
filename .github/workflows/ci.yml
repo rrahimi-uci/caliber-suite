@@ -417,14 +417,22 @@ jobs:
   # because migration dialect drift is exactly the kind of defect that must
   # be caught before merge, not after.
   #
-  # Scope is deliberately narrow: only the two `tests/test_migrations.py`
-  # cases parametrized over dialect (`-k postgresql` selects just those
-  # cases' PostgreSQL variant; their SQLite variant plus every other test in
-  # the file keep running in `test-smoke`, unchanged) -- the fresh-install +
-  # full-upgrade-chain + ORM-metadata-parity test, and one
-  # upgrade-from-the-preceding-revision data-backfill test (`0093`, `P1-A`'s
-  # own migration). This is not an attempt to port the rest of the (SQLite
-  # by design) test suite to PostgreSQL.
+  # Scope is deliberately narrow: only the dialect-parametrized cases in
+  # `tests/test_migrations.py` and `tests/test_workspace_revision_allocation_
+  # concurrency.py` (`-k postgresql` selects just those cases' PostgreSQL
+  # variant) -- `test_migrations.py`'s fresh-install + full-upgrade-chain +
+  # ORM-metadata-parity test and one upgrade-from-the-preceding-revision
+  # data-backfill test (`0093`, `P1-A`'s own migration), plus
+  # `test_workspace_revision_allocation_concurrency.py`'s real
+  # concurrent-session races against `workspace_revisions.py::
+  # allocate_revision_number` (`P4-A`'s own previously-untested
+  # cross-dialect concurrent-allocation gap). Every other test in both
+  # files, and every other test everywhere else, stays SQLite/offline --
+  # `test_migrations.py`'s own SQLite cases run in `test-smoke` below;
+  # `test_workspace_revision_allocation_concurrency.py`'s SQLite cases run
+  # as part of the full suite (the `test` job), same as any test file not
+  # named explicitly in a smoke/targeted job. This is not an attempt to
+  # port the rest of the (SQLite by design) test suite to PostgreSQL.
   migration-parity-postgres:
     name: Migration parity (PostgreSQL)
     runs-on: ubuntu-latest
@@ -460,16 +468,19 @@ jobs:
           python-version: "3.11"
       - name: Install package + dev + postgres extras
         run: uv pip install --system -e ".[dev,postgres]"
-      - name: Run the PostgreSQL-parametrized migration tests
+      - name: Run the PostgreSQL-parametrized migration + allocation-concurrency tests
         # CALIBER_TEST_POSTGRES_URL is an *admin* connection string: the
         # tests create and drop their own throwaway per-test databases on
         # this server so parametrized cases never collide (see
-        # tests/test_migrations.py::_dialect_database_url). It is set only
-        # here -- every other job, and every other test in this file, stays
+        # tests/dialect_helpers.py::dialect_database_url). It is set only
+        # here -- every other job, and every other test in these files, stays
         # SQLite/offline.
         env:
           CALIBER_TEST_POSTGRES_URL: postgresql+psycopg://caliber:caliber@localhost:5432/caliber_migration_admin
-        run: pytest tests/test_migrations.py -k postgresql --no-cov -q
+        run: >-
+          pytest tests/test_migrations.py
+          tests/test_workspace_revision_allocation_concurrency.py
+          -k postgresql --no-cov -q
 
   test:
     name: Full backend suite (Python 3.11)
