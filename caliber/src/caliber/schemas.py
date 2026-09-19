@@ -379,8 +379,10 @@ class ReworkTaskSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     task_id: str
-    job_id: str
-    agent_id: str
+    job_id: str | None
+    workspace_release_id: str | None
+    agent_id: str | None
+    project_id: str | None
     failure_kind: str
     reason: str
     gate_evidence: dict[str, object] | None

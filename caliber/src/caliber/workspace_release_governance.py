@@ -22,6 +22,7 @@ from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_ADMIN, SCOPE_APPROVER, SCOPE_OPERATOR, CaliberIdentity
 from caliber.db.models import (
     CaliberProject,
+    CaliberReworkTask,
     CaliberWorkspaceBreakGlassAuthorization,
     CaliberWorkspaceChangeRequest,
     CaliberWorkspaceChangeRequestHead,
@@ -32,6 +33,7 @@ from caliber.db.models import (
     CaliberWorkspaceRevision,
 )
 from caliber.ids import (
+    new_rework_task_id,
     new_workspace_break_glass_authorization_id,
     new_workspace_release_decision_id,
 )
@@ -199,6 +201,66 @@ def _require_gate_binding(release: CaliberWorkspaceRelease, gate_evidence_sha256
     if gate != release.evaluation_evidence_sha256:
         raise WorkspaceReleaseDecisionConflictError("gate evidence digest does not bind release")
     return gate
+
+
+def _create_release_rework_task(
+    session: Session,
+    *,
+    project_id: str,
+    release: CaliberWorkspaceRelease,
+    decision_row: CaliberWorkspaceReleaseDecision,
+    identity: CaliberIdentity,
+) -> CaliberReworkTask:
+    """Create the owned rework task a rejected Workspace release produces.
+
+    Mirrors ``routes/quality_reviews.py``'s ``quality_no_go`` creation: same
+    transaction (the caller's ``session.begin_nested()`` savepoint), same
+    audit-record pattern. ``record_workspace_release_decision`` computes
+    ``target_status = RELEASE_REJECTED`` from two different governance
+    branches -- a quality no_go and a final release no_go -- but both call
+    this single site rather than duplicating task creation in each branch:
+    what matters to Developer-facing rework is the release's terminal
+    ``rejected`` status, not which governance stage produced it, and a
+    release can only ever be rejected once (rejecting one branch makes the
+    other's precondition check fail, so no release reaches this twice).
+    ``uq_rework_task_workspace_release`` backs that with a database
+    constraint rather than relying solely on the state machine.
+
+    A ``RELEASE_BLOCKED`` release (an operational gate failure --
+    ``block_workspace_release`` in ``workspace_release_service.py``, e.g. a
+    missing predecessor or an evaluation the worker could not run) does not
+    reach this function at all: it is retryable rather than rejected
+    (``RELEASE_TRANSITIONS[RELEASE_BLOCKED] == {RELEASE_EVALUATING}``,
+    machinery can resume it), so creating owned human rework for it would be
+    a false positive -- the same reason a rejected job, not a blocked one,
+    is what creates a rework task on the refinement-job side.
+    """
+    task = CaliberReworkTask(
+        task_id=new_rework_task_id(),
+        workspace_release_id=release.release_id,
+        project_id=project_id,
+        failure_kind="release_no_go",
+        reason=decision_row.rationale,
+        gate_evidence={
+            "decision_id": decision_row.decision_id,
+            "kind": decision_row.kind,
+            "gate_evidence_sha256": decision_row.gate_evidence_sha256,
+            "revision_sha256": decision_row.revision_sha256,
+        },
+        status="open",
+        created_by=identity.user_id,
+    )
+    session.add(task)
+    session.flush()
+    audit_record(
+        session,
+        actor=identity.user_id,
+        action="create_rework_task",
+        entity_type="rework_task",
+        entity_id=task.task_id,
+        details={"workspace_release_id": release.release_id, "failure_kind": task.failure_kind},
+    )
+    return task
 
 
 def _decision_set_digest(
@@ -376,6 +438,20 @@ def record_workspace_release_decision(  # noqa: PLR0912
             evaluation_evidence_sha256=release.evaluation_evidence_sha256,
             decision_set_sha256=digest,
         )
+        if target_status == RELEASE_REJECTED:
+            # A rejected release used to end here: an immutable row nobody
+            # was assigned to act on. This creates the owned rework task in
+            # the same savepoint, so "rejected" always produces visible,
+            # recoverable work rather than silence -- the release-sourced
+            # counterpart to eval_stage.py's job-rejection rework task and
+            # quality_reviews.py's quality_no_go rework task.
+            _create_release_rework_task(
+                session,
+                project_id=project.project_id,
+                release=release,
+                decision_row=row,
+                identity=identity,
+            )
         audit_record(
             session,
             actor=identity.user_id,
