@@ -11,3 +11,13 @@
 # entry only silences the already-pushed historical commit, which cannot be un-pushed
 # without rewriting shared PR history.
 7b044ccdc00c60ea93b168f9a085aa8ee838cb07:caliber/tests/test_workspace_release_routes.py:generic-api-key:233
+
+# b087200387d325942a5bb8a57f8a184c2398bcd4:sdk/caliber-sdk/tests/test_resources_source_connection.py:private-key:112
+# A fake PEM-shaped private-key test fixture ("-----BEGIN PRIVATE KEY-----\nfake\n-----END
+# PRIVATE KEY-----") tripped the private-key rule. Not a credential -- ProjectSourceConnectionAPI
+# .configure() never parses private_key, it only forwards it as an opaque string in the
+# request body, so the fixture never needed PEM structure either; since replaced (see
+# 82f559c2593) with a plain, non-PEM placeholder that no longer trips the rule going forward.
+# This entry only silences the already-pushed historical commit, which cannot be un-pushed
+# without rewriting shared PR history.
+b087200387d325942a5bb8a57f8a184c2398bcd4:sdk/caliber-sdk/tests/test_resources_source_connection.py:private-key:112

@@ -19,10 +19,12 @@
 #
 # Current state: every Workspace route family shipped so far -- source/import/
 # revision (P4-C), Change Request/review/version-tag (P4-D), release-operation
-# (P5-C) and release lifecycle (P5-F) -- is now covered by P6-B's typed
-# resources. No gaps remain; the only entries below are permanent exclusions.
-# A future server operation without SDK coverage must add a tracked [[gap]] or
-# justify a permanent [[exclusion]].
+# (P5-C), release lifecycle (P5-F) and the source connection/webhook-delivery
+# reconciliation surface (P4-E) -- is now covered by typed resources, except
+# for the one genuinely non-SDK-callable route below (`POST /webhooks/github`).
+# No gaps remain; the only entries below are permanent exclusions. A future
+# server operation without SDK coverage must add a tracked [[gap]] or justify
+# a permanent [[exclusion]].
 
 [[exclusion]]
 method = "GET"
@@ -53,3 +55,8 @@ reason = "Static HTML report proxy, not a JSON API operation."
 method = "GET"
 path = "/metrics"
 reason = "Prometheus text exposition, not JSON -- belongs to a scraper, not a client."
+
+[[exclusion]]
+method = "POST"
+path = "/webhooks/github"
+reason = "Called by GitHub itself, never by a caliber_sdk client -- there is no CALIBER identity on this request (see routes/workspace_source_connections.py / routes/github_webhooks.py: admission is HMAC signature verification against a stored connection's webhook secret, not session/PAT auth). Operator-facing management of the connection this delivers to (get/configure/revoke/reconcile-deliveries) is real SDK coverage on ProjectSourceConnectionAPI; the inbound delivery endpoint itself is deliberately not modelled, the same way /auth/login's browser-cookie session is not."

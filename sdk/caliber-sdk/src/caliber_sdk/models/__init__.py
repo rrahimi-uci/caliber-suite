@@ -109,6 +109,8 @@ from .workspace import (
     WorkspaceRevisionResource,
     WorkspaceSource,
     WorkspaceSourceCapabilities,
+    WorkspaceSourceConnection,
+    WorkspaceSourceReconciliationResult,
     WorkspaceSourceState,
     WorkspaceVersionTag,
 )
@@ -208,6 +210,8 @@ __all__ = [
     "WorkspaceRevisionResource",
     "WorkspaceSource",
     "WorkspaceSourceCapabilities",
+    "WorkspaceSourceConnection",
+    "WorkspaceSourceReconciliationResult",
     "WorkspaceSourceState",
     "WorkspaceVersionTag",
     "decode",
