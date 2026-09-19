@@ -1,2 +1,0 @@
-WARNING  caliber.extensibility.registry:registry.py:266 optimizer plugin broken-plugin failed to load: entry point 'broken' returned str, which is missing ['name', 'summary', 'artifact_types']; expected a caliber_plugin_sdk.PluginDeclaration (or a callable returning one)
-WARNING  caliber.extensibility.registry:registry.py:266 optimizer plugin broken-plugin failed to load: entry point 'broken' returned str, which is missing ['name', 'summary', 'artifact_types']; expected a caliber_plugin_sdk.PluginDeclaration (or a callable returning one)
