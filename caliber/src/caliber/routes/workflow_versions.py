@@ -27,7 +27,13 @@ from starlette.responses import JSONResponse, PlainTextResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
+from caliber.auth import (
+    SCOPE_OPERATOR,
+    CaliberIdentity,
+    require_scopes,
+    require_user,
+    resolve_identity,
+)
 from caliber.db.models import (
     CaliberEvalDataset,
     CaliberProject,
@@ -247,7 +253,28 @@ def _enrich_subworkflow_validation(
     session: Session,
     manifest: Any,
     report: ValidationReport,
+    identity: CaliberIdentity,
 ) -> None:
+    """Report validation problems for every ``SubworkflowNode`` reference.
+
+    `P2` (isolation closure, item 1's repo-wide sweep): the child-workflow
+    lookup used to be a bare ``session.get`` -- unlike every *other* place a
+    subworkflow reference is resolved (`workflows/promoter.py::_resolve_version`
+    at publish/run time, `routes/workflows.py::_preflight_subworkflow_node` at
+    deployment-preflight time, both already gated on `get_visible` with a
+    `P2`-item-5 comment), this route's own "just validate the draft" endpoint
+    skipped that check entirely. A caller only needs create/edit access to
+    *some* workflow of their own (a personal one is enough -- `create_version`
+    only requires the parent to be visible, not the referenced child) to embed
+    a `SubworkflowNode` naming another project's private `workflow_id` and
+    call `POST /workflow-versions/{id}/validate` on their own draft: the
+    report then disclosed whether that id exists, its active deployment alias,
+    and its latest/deployed version's id/number/status -- all without ever
+    needing project access to the target. Resolving through `get_visible`
+    closes that the same way: an invisible target now produces the identical
+    `subworkflow_unknown_workflow` report entry as a genuinely missing one, so
+    "forbidden" stays indistinguishable from "doesn't exist" here too.
+    """
     parent_workflow_id = manifest.workflow_id.strip()
     for node_id, node in manifest.nodes.items():
         if not isinstance(node, SubworkflowNode):
@@ -257,7 +284,9 @@ def _enrich_subworkflow_validation(
             continue
 
         path = f"nodes.{node_id}.workflow_id"
-        target_workflow = session.get(CaliberWorkflow, workflow_id)
+        target_workflow = get_visible(
+            session, CaliberWorkflow, CaliberWorkflow.workflow_id, workflow_id, identity
+        )
         if target_workflow is None:
             report.add(
                 "subworkflow_unknown_workflow",
@@ -672,14 +701,15 @@ async def validate_version(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         version = _get_version_or_404(session, version_id, request=request)
-        resolver = resolver_from_session(session, resolve_identity(request))
+        identity = resolve_identity(request)
+        resolver = resolver_from_session(session, identity)
         try:
             manifest = parse_manifest(version.manifest)
         except (WorkflowManifestError, ValueError) as exc:
             return envelope_response_dict(_manifest_parse_error_report(version.manifest, exc))
         skill_names = {str(name) for name in session.execute(select(CaliberSkill.name)).scalars()}
         report = validate_manifest(manifest, resolver=resolver, skill_names=skill_names)
-        _enrich_subworkflow_validation(session, manifest, report)
+        _enrich_subworkflow_validation(session, manifest, report, identity)
     return envelope_response_dict(report.to_dict())
 
 

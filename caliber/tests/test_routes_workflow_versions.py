@@ -4,10 +4,16 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 import caliber.routes.workflow_versions as workflow_versions_routes
-from caliber.db.models import CaliberWorkflowRun, CaliberWorkflowVersion
+from caliber.db.models import (
+    CaliberWorkflow,
+    CaliberWorkflowDeployment,
+    CaliberWorkflowRun,
+    CaliberWorkflowVersion,
+)
 from caliber.workflows.manifest import compute_manifest_hash
 from caliber.workflows.runtime import NodeStep, WorkflowRunResult
 from tests.workflow_helpers import (
@@ -293,6 +299,114 @@ def test_validate_subworkflow_warns_when_manual_alias_tracks_latest_draft(
         warning["code"] == "subworkflow_manual_uses_unpublished_version"
         for warning in body["warnings"]
     )
+
+
+def test_validate_subworkflow_hides_target_from_non_member(
+    client: TestClient, db_session: Session
+) -> None:
+    """`P2` (isolation closure, item 1's repo-wide sweep): `_enrich_subworkflow_validation`
+    resolved a referenced ``SubworkflowNode``'s target with a bare ``session.get`` --
+    unlike every other place a subworkflow reference is resolved (`workflows/
+    promoter.py::_resolve_version` at publish/run time, `routes/workflows.py::
+    _preflight_subworkflow_node` at deployment-preflight time, both already gated
+    on `get_visible`). A non-member only needs create access to a workflow of
+    their own (a personal one is enough -- `create_version` only checks the
+    *parent* is visible) to embed another project's private ``workflow_id`` in a
+    `SubworkflowNode` and learn, via this validate endpoint, that it exists plus
+    its active deployment's version id/number/status. Now an invisible target
+    reports the identical ``subworkflow_unknown_workflow`` code a genuinely
+    missing one does -- the same "forbidden is indistinguishable from missing"
+    contract every other visibility-checked lookup in this codebase holds.
+    """
+    hidden = CaliberWorkflow(
+        workflow_id="WF-hidden-child",
+        name="hidden-child-workflow",
+        owner="@owner-other",
+        status="active",
+        visibility="user",
+        project_id=None,
+    )
+    db_session.add(hidden)
+    db_session.flush()
+    hidden_version = CaliberWorkflowVersion(
+        version_id="WFV-hidden-1",
+        workflow_id=hidden.workflow_id,
+        version_number=1,
+        status="published",
+        manifest={
+            "schema_version": 1,
+            "workflow_id": hidden.workflow_id,
+            "name": "hidden",
+            "nodes": {},
+            "edges": [],
+        },
+        manifest_hash="hash",
+        created_by="@owner-other",
+    )
+    db_session.add(hidden_version)
+    db_session.flush()
+    db_session.add(
+        CaliberWorkflowDeployment(
+            deployment_id="WFD-hidden-1",
+            workflow_id=hidden.workflow_id,
+            alias="prod",
+            version_id=hidden_version.version_id,
+            status="active",
+        )
+    )
+    db_session.commit()
+
+    # Deliberately not in the test suite's permissive admin default, and not
+    # the hidden workflow's owner -- a genuine non-member with only operator
+    # scope (admin bypasses visibility unconditionally, so it would not
+    # exercise this check).
+    stranger = "@stranger-subflow"
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"operator_users": stranger}
+    )
+    headers = {"X-CALIBER-User": stranger}
+
+    parent = client.post(
+        f"{PREFIX}/workflows", json={"name": "Parent-of-hidden-subflow"}, headers=headers
+    )
+    assert parent.status_code == 201, parent.text
+    parent_wid = parent.json()["data"]["workflow_id"]
+
+    manifest = make_manifest(parent_wid)
+    del manifest["nodes"]["agent"]
+    manifest["nodes"]["subflow"] = {
+        "id": "subflow",
+        "type": "subworkflow",
+        "workflow_id": hidden.workflow_id,
+        "alias": "prod",
+        "inputs": {"input": {"type": "string"}},
+        "outputs": {
+            "output": {"type": "string"},
+            "result": {"type": "structured"},
+        },
+    }
+    manifest["edges"] = [
+        {"id": "e1", "from": "start", "to": "subflow", "map": {"msg": "input"}},
+        {"id": "e2", "from": "subflow", "to": "final", "map": {"output": "response"}},
+    ]
+    draft = client.post(
+        f"{PREFIX}/workflows/{parent_wid}/versions", json={"manifest": manifest}, headers=headers
+    )
+    assert draft.status_code == 201, draft.text
+    vid = draft.json()["data"]["version_id"]
+
+    r = client.post(f"{PREFIX}/workflow-versions/{vid}/validate", headers=headers)
+
+    assert r.status_code == 200, r.text
+    body = r.json()["data"]
+    assert body["valid"] is False
+    codes = {error["code"] for error in body["errors"]}
+    assert "subworkflow_unknown_workflow" in codes
+    assert "subworkflow_missing_active_alias" not in codes
+    # None of the hidden workflow's real internal facts -- its deployed
+    # version id, or the fact it *has* an active "prod" deployment at all --
+    # leak into the report.
+    assert hidden_version.version_id not in r.text
 
 
 def test_compile_valid(client: TestClient) -> None:
