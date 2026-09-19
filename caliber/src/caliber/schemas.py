@@ -2422,6 +2422,44 @@ class WorkspaceSourceCapabilitiesSchema(BaseModel):
     last_verified_at: str | None = None
 
 
+class WorkspaceSourceConnectionConfigureRequest(BaseModel):
+    """Body of ``PUT /projects/{id}/source/connection`` (`P4-E`).
+
+    Every secret-shaped field is write-only: accepted here, stored through
+    the encrypted secret store, and never echoed back by any read API --
+    there is deliberately no response schema that carries
+    ``private_key``/``webhook_secret``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    provider: Literal["github"] = "github"
+    app_id: str = Field(min_length=1, max_length=64)
+    installation_id: str = Field(min_length=1, max_length=64)
+    private_key: str = Field(min_length=1)
+    webhook_secret: str = Field(min_length=1)
+
+
+class WorkspaceSourceConnectionSchema(BaseModel):
+    """Public, secret-free projection of a GitHub App connection (`P4-E`)."""
+
+    connection_id: str
+    source_id: str
+    project_id: str
+    provider: Literal["github", "gitlab", "bitbucket"]
+    app_id: str
+    installation_id: str
+    status: Literal["active", "revoked"]
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+class WorkspaceSourceConnectionResponse(BaseModel):
+    """A source's connection binding, or ``None`` when unconfigured/revoked."""
+
+    connection: WorkspaceSourceConnectionSchema | None = None
+
+
 class WorkspaceImportJobSchema(BaseModel):
     """Durable source-to-revision import intent."""
 

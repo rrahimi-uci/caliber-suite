@@ -41,6 +41,7 @@ from caliber.eval.provider import build_provider as build_eval_provider
 from caliber.events.bus import EventBus
 from caliber.events.nats_bus import build_event_bus
 from caliber.events.webhooks import WebhookDispatcher, build_dispatcher
+from caliber.github_workspace_provider import GitHubWorkspaceSourceProvider
 from caliber.integrations.openapi.executor import (
     bind_egress_policy as bind_openapi_egress_policy,
 )
@@ -522,14 +523,30 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     working_dir_service = WorkingDirectoryService(
         build_backend(resolved.workflow_storage), resolved.workflow_storage
     )
-    # No adapter is registered here: `P4-E`'s GitHub adapter still needs
-    # encrypted least-privilege connection storage before it can be wired to
-    # a live deployment (see docs/workspace-plan.md's P4-E row). An empty
-    # registry is a supported, honest default -- the import worker treats a
-    # missing/unavailable provider as best-effort-skipped, never fatal, since
-    # the content it materializes already comes from an independently
-    # digest-verified retained snapshot, not from a provider fetch.
+    # `P4-E`'s encrypted connection storage now exists, so a real adapter can
+    # be registered -- gated on its own flag rather than going live
+    # unconditionally on upgrade, matching docs/workspace-plan.md's "P4-E is
+    # an independently feature-flagged... increment" deferral note. With the
+    # flag off (the default) the registry stays empty, exactly as before: the
+    # import worker already treats a missing/unavailable provider as
+    # best-effort-skipped, never fatal, since the content it materializes
+    # already comes from an independently digest-verified retained snapshot,
+    # not from a provider fetch.
     workspace_source_registry = WorkspaceSourceProviderRegistry()
+    if resolved.github_source_control_enabled:
+        if secret_store is None:
+            logger.warning(
+                "CALIBER_GITHUB_SOURCE_CONTROL_ENABLED is true but no encrypted secret "
+                "store is configured (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); the "
+                "GitHub source provider will not be registered"
+            )
+        else:
+            workspace_source_registry.register(
+                GitHubWorkspaceSourceProvider(
+                    session_factory=session_factory,
+                    secret_store=secret_store,
+                )
+            )
     workspace_import_worker = WorkspaceImportWorker(
         session_factory=session_factory,
         config=resolved,

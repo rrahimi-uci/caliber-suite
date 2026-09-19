@@ -2413,6 +2413,58 @@ class CaliberWorkspaceSourceActorLink(Base):
     )
 
 
+class CaliberWorkspaceSourceConnection(Base):
+    """Encrypted least-privilege GitHub App connection for one source (`P4-E`).
+
+    Only identifiers and :mod:`caliber.secret_store` references are stored
+    here -- ``private_key_ref``/``webhook_secret_ref`` are ``secret://name``
+    strings resolved lazily through the encrypted secret store, never
+    plaintext columns. A source has at most one *active* connection; a
+    revoked row is retained for audit rather than deleted, mirroring
+    ``CaliberWorkspaceSourceActorLink``'s revocation shape.
+    """
+
+    __tablename__ = "caliber_workspace_source_connections"
+    __table_args__ = (
+        Index(
+            "uq_workspace_source_connection_active",
+            "source_id",
+            unique=True,
+            sqlite_where=text("status = 'active'"),
+            postgresql_where=text("status = 'active'"),
+        ),
+        Index("ix_workspace_source_connections_project_status", "project_id", "status"),
+        CheckConstraint(
+            "provider IN ('github', 'gitlab', 'bitbucket')",
+            name="ck_workspace_source_connection_provider",
+        ),
+        CheckConstraint(
+            "status IN ('active', 'revoked')",
+            name="ck_workspace_source_connection_status",
+        ),
+    )
+
+    connection_id: Mapped[str] = mapped_column(String(64), primary_key=True)
+    source_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_sources.source_id"), nullable=False
+    )
+    project_id: Mapped[str] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=False
+    )
+    provider: Mapped[str] = mapped_column(String(32), nullable=False)
+    app_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    installation_id: Mapped[str] = mapped_column(String(64), nullable=False)
+    private_key_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    webhook_secret_ref: Mapped[str] = mapped_column(String(256), nullable=False)
+    status: Mapped[str] = mapped_column(String(16), nullable=False, default="active")
+    created_by: Mapped[str] = mapped_column(String(256), default="")
+    updated_by: Mapped[str | None] = mapped_column(String(256), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, server_default=func.now())
+    updated_at: Mapped[datetime] = mapped_column(
+        DateTime, server_default=func.now(), onupdate=func.now()
+    )
+
+
 class CaliberWorkspaceRevision(Base):
     """An immutable candidate package for one Workspace.
 
