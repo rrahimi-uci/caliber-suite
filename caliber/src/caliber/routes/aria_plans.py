@@ -134,11 +134,12 @@ async def update_plan(request: Request) -> JSONResponse:
         raise HTTPException(status_code=409, detail="only draft plans can be edited")
     # `P2-A` (isolation closure, item 1's "root routes to centralized
     # authorization"): visibility alone let any active project member --
-    # including a plain `viewer` -- relax a teammate's plan autonomy (this
-    # function's own docstring above already calls that "security-relevant")
-    # or cancel their plan outright. Same `resource.execute` role floor
-    # `execute_plan`/`poll_plan` already enforce (`P2-E`) for the same plan
-    # resource; a personal (`project_id is None`) plan is unaffected.
+    # including a plain `viewer` -- relax a teammate's plan autonomy (the
+    # comment on the `set_autonomy` call below already calls that
+    # "security-relevant") or cancel their plan outright. Same
+    # `resource.execute` role floor `execute_plan`/`poll_plan` already
+    # enforce (`P2-E`) for the same plan resource; a personal
+    # (`project_id is None`) plan is unaffected.
     project_id = detail["plan"].get("project_id")
     if project_id is not None:
         with factory() as session:
