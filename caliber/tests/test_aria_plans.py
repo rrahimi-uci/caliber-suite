@@ -15,7 +15,7 @@ from caliber.db.models import (
     CaliberProject,
     CaliberProjectMember,
 )
-from caliber.resource_access import ROLE_EDITOR, ROLE_VIEWER
+from caliber.resource_access import POLICY_VERSION, ROLE_EDITOR, ROLE_VIEWER
 from caliber.routes.aria_plans import (
     APPROVE_PATH,
     DETAIL_PATH,
@@ -294,6 +294,119 @@ def test_route_execute_and_poll_deny_a_project_viewer_but_allow_an_editor(
     executed = client.post(execute, headers=editor_headers)
     assert executed.status_code == 200, executed.text
     assert executed.json()["data"]["plan"]["status"] in ("completed", "paused", "running")
+
+
+def test_route_execute_records_authorization_snapshot_once(
+    client: TestClient, db_session: Session
+) -> None:
+    """`P2-E`: the first successful `execute`/`poll` authorization check
+    persists a first-class snapshot onto the plan row -- mirroring
+    `CaliberWorkspaceReleaseDecision.actor_role_snapshot`/
+    `.effective_scope_snapshot` one level up (a plan, not a release). It
+    records what *first* authorized the plan, so a later call that re-passes
+    the still-live check must not overwrite it.
+    """
+    project_id = "P-aria-snapshot"
+    db_session.add(CaliberProject(project_id=project_id, name="aria snapshot", owner="@test"))
+    db_session.add(
+        CaliberProjectMember(
+            member_id="M-aria-snap-editor",
+            project_id=project_id,
+            user_id="@snap-editor",
+            role=ROLE_EDITOR,
+            created_by="@test",
+        )
+    )
+    db_session.commit()
+
+    created = client.post(
+        LIST_PATH, json={"goal": "create a judge"}, headers={"X-CALIBER-Project": project_id}
+    )
+    assert created.status_code == 201, created.text
+    plan_id = created.json()["data"]["plan"]["plan_id"]
+    assert client.post(APPROVE_PATH.replace("{plan_id}", plan_id)).status_code == 200
+
+    editor_headers = {"X-CALIBER-User": "@snap-editor", "X-CALIBER-Project": project_id}
+    execute = EXECUTE_PATH.replace("{plan_id}", plan_id)
+    poll = POLL_PATH.replace("{plan_id}", plan_id)
+
+    assert client.post(execute, headers=editor_headers).status_code == 200
+
+    plan_row = db_session.get(CaliberAriaPlan, plan_id)
+    assert plan_row is not None
+    assert plan_row.actor_role_snapshot == {"role": ROLE_EDITOR}
+    assert plan_row.effective_scope_snapshot is not None
+    assert plan_row.effective_scope_snapshot["policy_version"] == POLICY_VERSION
+    assert isinstance(plan_row.effective_scope_snapshot["scopes"], list)
+    first_recorded_at = plan_row.authorization_recorded_at
+    assert first_recorded_at is not None
+    db_session.commit()  # release the read transaction so the next read is fresh
+
+    # A second call (poll) re-derives and re-passes the live check but must
+    # not overwrite the already-recorded snapshot.
+    assert client.post(poll, headers=editor_headers).status_code == 200
+    db_session.commit()
+    refreshed = db_session.get(CaliberAriaPlan, plan_id)
+    assert refreshed is not None
+    assert refreshed.authorization_recorded_at == first_recorded_at
+
+
+def test_route_execute_denied_viewer_does_not_record_snapshot(
+    client: TestClient, db_session: Session
+) -> None:
+    """A refused caller never reaches the persistence step -- the snapshot is
+    only ever written alongside a successful authorization decision, not a
+    denied one."""
+    project_id = "P-aria-snap-denied"
+    db_session.add(CaliberProject(project_id=project_id, name="aria snap denied", owner="@test"))
+    db_session.add(
+        CaliberProjectMember(
+            member_id="M-aria-snap-viewer",
+            project_id=project_id,
+            user_id="@snap-viewer",
+            role=ROLE_VIEWER,
+            created_by="@test",
+        )
+    )
+    db_session.commit()
+
+    created = client.post(
+        LIST_PATH, json={"goal": "create a judge"}, headers={"X-CALIBER-Project": project_id}
+    )
+    plan_id = created.json()["data"]["plan"]["plan_id"]
+    assert client.post(APPROVE_PATH.replace("{plan_id}", plan_id)).status_code == 200
+
+    viewer_headers = {"X-CALIBER-User": "@snap-viewer", "X-CALIBER-Project": project_id}
+    denied = client.post(EXECUTE_PATH.replace("{plan_id}", plan_id), headers=viewer_headers)
+    assert denied.status_code == 403
+
+    plan_row = db_session.get(CaliberAriaPlan, plan_id)
+    assert plan_row is not None
+    assert plan_row.authorization_recorded_at is None
+    assert plan_row.actor_role_snapshot is None
+    assert plan_row.effective_scope_snapshot is None
+
+
+def test_route_execute_personal_plan_records_scope_snapshot_without_role(
+    client: TestClient, db_session: Session
+) -> None:
+    """A personal (`project_id is None`) plan has no project role to snapshot
+    -- `actor_role_snapshot` stays `None` -- but the scope snapshot (the part
+    a capability dispatch's own scope floor relies on regardless of project
+    scoping) is still recorded.
+    """
+    created = client.post(LIST_PATH, json={"goal": "create a judge"})
+    plan_id = created.json()["data"]["plan"]["plan_id"]
+    assert client.post(APPROVE_PATH.replace("{plan_id}", plan_id)).status_code == 200
+    assert client.post(EXECUTE_PATH.replace("{plan_id}", plan_id)).status_code == 200
+
+    plan_row = db_session.get(CaliberAriaPlan, plan_id)
+    assert plan_row is not None
+    assert plan_row.project_id is None
+    assert plan_row.actor_role_snapshot is None
+    assert plan_row.effective_scope_snapshot is not None
+    assert plan_row.effective_scope_snapshot["policy_version"] == POLICY_VERSION
+    assert plan_row.authorization_recorded_at is not None
 
 
 def test_route_patch_autonomy_then_list(client: TestClient, db_session: Session) -> None:

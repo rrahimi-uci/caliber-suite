@@ -17,6 +17,9 @@ interactions.
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
+from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -30,8 +33,9 @@ from caliber.assistant.executor import (
     PlanForbiddenError,
 )
 from caliber.assistant.plans import PlanService
-from caliber.auth import require_user, resolve_identity
-from caliber.resource_access import require_project_access_if_scoped
+from caliber.auth import CaliberIdentity, require_user, resolve_identity
+from caliber.db.models import CaliberAriaPlan
+from caliber.resource_access import POLICY_VERSION, require_project_access
 from caliber.routes._deps import (
     envelope_response,
     envelope_response_dict,
@@ -167,6 +171,46 @@ async def approve_plan(request: Request) -> JSONResponse:
     return envelope_response_dict(updated)
 
 
+def _authorize_plan_execution(
+    session: Session, identity: CaliberIdentity, plan_id: str, project_id: str | None
+) -> None:
+    """Enforce `resource.execute` for a project-scoped plan (`P2`, item 7)
+    and record the authorization snapshot the first time this plan clears the
+    check (`P2-E`).
+
+    Visibility alone let any active project member -- including a plain
+    `viewer` -- execute or poll a teammate's plan. `resource.execute`'s role
+    floor (owner/editor/reviewer) is the same one `create_workflow_run`
+    already enforces for the equivalent REST action; a personal
+    (`project_id is None`) plan has no project role to check.
+
+    This check is unconditional on every call -- a still-active plan's
+    authorization can genuinely change between calls (a role edit, a
+    membership change), so re-deriving it live on each `execute`/`poll` stays
+    the safer default, not something a cached decision replaces. The snapshot
+    persisted here is purely an auditable record of what first authorized the
+    plan (`CaliberAriaPlan.authorization_recorded_at` is the write-once
+    guard) -- mirroring how `CaliberWorkspaceReleaseDecision` snapshots a
+    decision without displacing the fresh CAS checks elsewhere in that same
+    flow.
+    """
+    role: str | None = None
+    if project_id is not None:
+        _project, decision = require_project_access(
+            session, identity, project_id, "resource.execute"
+        )
+        role = decision.role
+    plan = session.get(CaliberAriaPlan, plan_id)
+    if plan is not None and plan.authorization_recorded_at is None:
+        plan.actor_role_snapshot = {"role": role} if project_id is not None else None
+        plan.effective_scope_snapshot = {
+            "scopes": sorted(identity.scopes),
+            "policy_version": POLICY_VERSION,
+        }
+        plan.authorization_recorded_at = datetime.now(timezone.utc)
+        session.commit()
+
+
 async def execute_plan(request: Request) -> JSONResponse:
     actor = require_user(request)
     plan_id = request.path_params["plan_id"]
@@ -175,15 +219,8 @@ async def execute_plan(request: Request) -> JSONResponse:
     detail = _service.get_plan(session_factory=factory, plan_id=plan_id, identity=identity)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"aria plan {plan_id!r} not found")
-    # `P2` (isolation closure, item 7): visibility alone let any active
-    # project member -- including a plain `viewer` -- execute a teammate's
-    # plan. `resource.execute`'s role floor (owner/editor/reviewer) is the
-    # same one `create_workflow_run` already enforces for the equivalent
-    # REST action; a personal (`project_id is None`) plan is unaffected.
     with factory() as session:
-        require_project_access_if_scoped(
-            session, identity, detail["plan"].get("project_id"), "resource.execute"
-        )
+        _authorize_plan_execution(session, identity, plan_id, detail["plan"].get("project_id"))
     if detail["plan"]["status"] not in ("approved", "paused", "running"):
         raise HTTPException(
             status_code=409,
@@ -207,11 +244,9 @@ async def poll_plan(request: Request) -> JSONResponse:
     detail = _service.get_plan(session_factory=factory, plan_id=plan_id, identity=identity)
     if detail is None:
         raise HTTPException(status_code=404, detail=f"aria plan {plan_id!r} not found")
-    # `P2` (isolation closure, item 7): see `execute_plan` above.
+    # See `_authorize_plan_execution` above.
     with factory() as session:
-        require_project_access_if_scoped(
-            session, identity, detail["plan"].get("project_id"), "resource.execute"
-        )
+        _authorize_plan_execution(session, identity, plan_id, detail["plan"].get("project_id"))
     result = _executor.poll(
         session_factory=factory,
         config=_config(request),

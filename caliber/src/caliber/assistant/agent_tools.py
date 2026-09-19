@@ -468,6 +468,18 @@ class AssistantAgentToolset:
         # already requires for the whole turn -- but the declared contract
         # itself was unenforced, so a future ``approver``/``admin``-scoped
         # capability would have silently run for anyone.
+        # `P2-E`: unlike `PlanExecutor`'s async/plan path, this synchronous
+        # per-turn dispatch is never bound to a `CaliberAriaPlan`/
+        # `CaliberAriaPlanStep` row -- `AgentToolset` carries a session_id and
+        # an acting identity, not a plan_id, and this call can happen with no
+        # plan in existence at all. There is therefore no durable row to
+        # persist a scope-decision snapshot onto here (see
+        # `db/models.py::CaliberAriaPlanStep.capability_scope_decision` for
+        # the plan-bound counterpart this check's async twin now records).
+        # This check stays live-only/re-derived on every call, which is the
+        # same judgment `CaliberWorkspaceReleaseDecision` applies alongside
+        # its own fresh CAS checks: a snapshot records what already-durable
+        # state was authorized under, it does not invent a place to store one.
         if cap.required_scopes and self._deps.config is not None:
             have = self._capability_context().identity().scopes
             missing = [s for s in cap.required_scopes if f"caliber.{s}" not in have]

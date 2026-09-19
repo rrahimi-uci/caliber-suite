@@ -22,6 +22,7 @@ from caliber.db.models import (
     CaliberJudge,
 )
 from caliber.ids import new_aria_plan_id, new_aria_plan_step_id
+from caliber.resource_access import POLICY_VERSION
 
 # The plan owner (@reza) must hold the scope a mutate capability declares
 # (judge.create → operator); the executor now enforces capability scopes against
@@ -94,6 +95,146 @@ def test_execute_runs_mutate_step_under_approve_plan(session_factory) -> None:
             db.execute(select(CaliberJudge).where(CaliberJudge.name == "exec-aj")).scalars().first()
             is not None
         )
+
+
+def test_execute_records_capability_scope_decision_on_success(session_factory) -> None:
+    """`P2-E`: the executor persists the exact scope decision it checked
+    immediately before dispatch onto the step row -- not just a live
+    pass/fail -- so "under what authorization did this step actually run" is
+    answerable after the fact, the step-level counterpart to the plan-level
+    `CaliberAriaPlan.effective_scope_snapshot`."""
+    plan_id = _approved_plan(session_factory, autonomy="approve_plan", judge_name="decision-aj")
+    detail = PlanExecutor().execute(
+        session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id
+    )
+    assert detail["steps"][0]["status"] == "done"
+    step_id = detail["steps"][0]["step_id"]
+    with session_factory() as db:
+        step = db.get(CaliberAriaPlanStep, step_id)
+        decision = step.capability_scope_decision
+        assert decision is not None
+        assert decision["required_scopes"] == ["operator"]
+        assert decision["missing_scopes"] == []
+        assert decision["satisfied"] is True
+        assert decision["checked_against"] == "@reza"
+        assert decision["policy_version"] == POLICY_VERSION
+        assert decision["checked_scopes"] is not None
+        assert "caliber.operator" in decision["checked_scopes"]
+
+
+def test_execute_blocks_step_records_unsatisfied_capability_scope_decision(
+    session_factory,
+) -> None:
+    """The same snapshot is recorded on the *failure* branch too
+    (`_plan_next_action`'s early-admission check), so a failed step's
+    authorization state is equally auditable, not just its error string."""
+    svc = PlanService()
+    plan_id = svc.create_plan(
+        session_factory=session_factory,
+        goal="make a judge",
+        owner="@nobody",
+        autonomy="auto_guarded",
+    )["plan"]["plan_id"]
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@nobody"
+    )
+    detail = PlanExecutor().execute(
+        session_factory=session_factory, config=_CFG, actor="@nobody", plan_id=plan_id
+    )
+    assert detail["steps"][0]["status"] == "failed"
+    step_id = detail["steps"][0]["step_id"]
+    with session_factory() as db:
+        step = db.get(CaliberAriaPlanStep, step_id)
+        decision = step.capability_scope_decision
+        assert decision is not None
+        assert decision["required_scopes"] == ["operator"]
+        assert decision["missing_scopes"] == ["operator"]
+        assert decision["satisfied"] is False
+        assert decision["checked_against"] == "@nobody"
+        assert decision["policy_version"] == POLICY_VERSION
+
+
+def test_run_step_redundant_scope_check_also_records_decision(session_factory) -> None:
+    """`_run_step` re-checks a capability's required scopes immediately before
+    dispatch -- defense against the scope landscape changing between
+    `_plan_next_action` admitting the step and actual dispatch -- and that
+    re-check persists the same snapshot shape. Invoked directly (bypassing
+    `_plan_next_action`, which would otherwise always catch this first under
+    the normal `execute()` loop) so this second check site is exercised on
+    its own, not only via `_plan_next_action`'s early-admission path above.
+    """
+    # A fully-specified planner (not the default heuristic one, which would
+    # leave ``instructions``/``name`` unresolved and fail on *that* first --
+    # `_run_step` resolves inputs before it re-checks scopes, unlike
+    # `_plan_next_action`, which checks scopes first) so this reaches the
+    # scope check.
+    svc = PlanService(planner=_JudgePlanner("redundant-check-aj"))
+    detail = svc.create_plan(
+        session_factory=session_factory,
+        goal="make a judge",
+        owner="@nobody",
+        autonomy="auto_guarded",
+    )
+    plan_id = detail["plan"]["plan_id"]
+    step_id = detail["steps"][0]["step_id"]
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@nobody"
+    )
+    PlanExecutor()._run_step(
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@nobody",
+        project_id=None,
+        plan_id=plan_id,
+        step_id=step_id,
+        cap_key="judge.create",
+    )
+    with session_factory() as db:
+        step = db.get(CaliberAriaPlanStep, step_id)
+        assert step.status == "failed"
+        assert "scope" in (step.error or "").lower()
+        decision = step.capability_scope_decision
+        assert decision is not None
+        assert decision["satisfied"] is False
+        assert decision["missing_scopes"] == ["operator"]
+        assert decision["checked_against"] == "@nobody"
+        assert decision["policy_version"] == POLICY_VERSION
+
+
+def test_capability_scope_decision_is_honest_about_an_unperformed_check() -> None:
+    """No `required_scopes`, or no `config` to resolve them against, never
+    fails a step -- the recorded decision says so explicitly (`checked_scopes`
+    stays `None`) instead of fabricating a check that never ran."""
+    from caliber.assistant.capabilities import TIER_MUTATE, TIER_READ, Capability
+
+    def _h(_ctx, _args):  # pragma: no cover - not invoked
+        return None
+
+    unscoped = Capability(key="x.read", title="x", description="x", tier=TIER_READ, handler=_h)
+    decision = PlanExecutor._capability_scope_decision(unscoped, owner="@anyone", config=_CFG)
+    assert decision == {
+        "required_scopes": [],
+        "checked_scopes": None,
+        "checked_against": "@anyone",
+        "missing_scopes": [],
+        "satisfied": True,
+        "policy_version": POLICY_VERSION,
+    }
+
+    scoped = Capability(
+        key="x.mutate",
+        title="x",
+        description="x",
+        tier=TIER_MUTATE,
+        handler=_h,
+        required_scopes=("operator",),
+    )
+    decision_no_config = PlanExecutor._capability_scope_decision(
+        scoped, owner="@anyone", config=None
+    )
+    assert decision_no_config["satisfied"] is True
+    assert decision_no_config["checked_scopes"] is None
+    assert decision_no_config["required_scopes"] == ["operator"]
 
 
 def test_execute_pauses_for_interaction_under_ask_each(session_factory) -> None:
