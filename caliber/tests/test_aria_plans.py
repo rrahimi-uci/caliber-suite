@@ -368,9 +368,7 @@ def test_route_update_and_approve_still_work_for_an_unscoped_plan(client: TestCl
     assert created.status_code == 201, created.text
     plan_id = created.json()["data"]["plan"]["plan_id"]
 
-    patched = client.patch(
-        DETAIL_PATH.replace("{plan_id}", plan_id), json={"autonomy": "ask_each"}
-    )
+    patched = client.patch(DETAIL_PATH.replace("{plan_id}", plan_id), json={"autonomy": "ask_each"})
     assert patched.status_code == 200, patched.text
     approved = client.post(APPROVE_PATH.replace("{plan_id}", plan_id))
     assert approved.status_code == 200, approved.text

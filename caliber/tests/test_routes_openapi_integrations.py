@@ -481,9 +481,7 @@ def test_publish_project_scoped_draft_requires_operator_scope_not_just_project_r
     # is this project's owner -- unrelated to the actual behavior under
     # test (a non-admin *editor*'s publish attempt, exercised separately
     # below via the explicit "@viewer-editor" override).
-    db_session.add(
-        CaliberProject(project_id=project_id, name="OpenAPI scope check", owner="@test")
-    )
+    db_session.add(CaliberProject(project_id=project_id, name="OpenAPI scope check", owner="@test"))
     db_session.add(
         CaliberProjectMember(
             member_id="M-openapi-editor",
