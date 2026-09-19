@@ -9,8 +9,21 @@ from typing import Any
 import httpx
 import pytest
 
-from caliber_sdk.aio import AsyncCaliberClient, AsyncProjectFilesAPI, AsyncProjectsAPI
-from caliber_sdk.resources.projects import ProjectFilesAPI, ProjectsAPI
+from caliber_sdk.aio import (
+    AsyncCaliberClient,
+    AsyncProjectFilesAPI,
+    AsyncProjectImportsAPI,
+    AsyncProjectReleaseOperationsAPI,
+    AsyncProjectReleasesAPI,
+    AsyncProjectsAPI,
+)
+from caliber_sdk.resources.projects import (
+    ProjectFilesAPI,
+    ProjectImportsAPI,
+    ProjectReleaseOperationsAPI,
+    ProjectReleasesAPI,
+    ProjectsAPI,
+)
 
 BASE = "https://caliber.test"
 
@@ -50,9 +63,20 @@ def test_async_project_public_signatures_match_the_sync_surface() -> None:
 
     assert public_methods(AsyncProjectsAPI).keys() == public_methods(ProjectsAPI).keys()
     assert public_methods(AsyncProjectFilesAPI).keys() == public_methods(ProjectFilesAPI).keys()
+    assert public_methods(AsyncProjectImportsAPI).keys() == public_methods(ProjectImportsAPI).keys()
+    assert (
+        public_methods(AsyncProjectReleasesAPI).keys() == public_methods(ProjectReleasesAPI).keys()
+    )
+    assert (
+        public_methods(AsyncProjectReleaseOperationsAPI).keys()
+        == public_methods(ProjectReleaseOperationsAPI).keys()
+    )
     for async_cls, sync_cls in (
         (AsyncProjectsAPI, ProjectsAPI),
         (AsyncProjectFilesAPI, ProjectFilesAPI),
+        (AsyncProjectImportsAPI, ProjectImportsAPI),
+        (AsyncProjectReleasesAPI, ProjectReleasesAPI),
+        (AsyncProjectReleaseOperationsAPI, ProjectReleaseOperationsAPI),
     ):
         async_methods = public_methods(async_cls)
         sync_methods = public_methods(sync_cls)
@@ -231,5 +255,236 @@ def test_async_client_exposes_projects_as_the_typed_resource() -> None:
         async with client_with(lambda _request: envelope({})) as caliber:
             assert isinstance(caliber.projects, AsyncProjectsAPI)
             assert isinstance(caliber.projects.files, AsyncProjectFilesAPI)
+            assert isinstance(caliber.projects.imports, AsyncProjectImportsAPI)
+            assert isinstance(caliber.projects.releases, AsyncProjectReleasesAPI)
+            assert isinstance(caliber.projects.release_operations, AsyncProjectReleaseOperationsAPI)
 
     run(main())
+
+
+def test_async_imports_releases_and_operations_cover_the_complete_route_surface() -> None:
+    """`P6-C`: the three async resources whose sync counterpart has a
+    ``wait()``-shaped long-running-poll operation. Exercises every method,
+    mirroring ``test_async_projects_and_files_cover_the_complete_typed_route_surface``'s
+    own "complete route surface" style for the flat resources."""
+    seen: list[tuple[str, str]] = []
+
+    _JOB = {
+        "import_job_id": "WSI-1",
+        "project_id": "PRJ-1",
+        "status": "succeeded",
+    }
+    _RELEASE = {
+        "release_id": "WRL-1",
+        "project_id": "PRJ-1",
+        "revision_id": "WSR-1",
+        "environment_id": "development",
+        "environment_config_sha256": "a" * 64,
+        "runtime_dependencies_sha256": "b" * 64,
+        "policy_sha256": "c" * 64,
+        "request_idempotency_key": "req-1",
+        "status": "draft",
+        "requested_by": "user-1",
+        "lock_version": 1,
+    }
+    _EVALUATION = {
+        "evaluation_id": "WRE-1",
+        "project_id": "PRJ-1",
+        "workspace_release_id": "WRL-1",
+        "idempotency_key": "eval-1",
+        "evaluation_plan_sha256": "d" * 64,
+        "input_sha256": "e" * 64,
+        "status": "succeeded",
+        "attempt_number": 1,
+        "requested_by": "user-1",
+    }
+    _EVIDENCE = {
+        "evidence_id": "WEV-1",
+        "workspace_release_id": "WRL-1",
+        "kind": "evaluation_run",
+        "evidence_ref": "run-1",
+        "evidence_sha256": "f" * 64,
+        "required": True,
+        "recorded_by": "user-1",
+    }
+    _DECISION = {
+        "decision_id": "WRD-1",
+        "workspace_release_id": "WRL-1",
+        "kind": "quality",
+        "decision": "go",
+        "rationale": "ok",
+        "decided_by": "qa-1",
+        "revision_sha256": "g" * 64,
+        "environment_config_sha256": "a" * 64,
+        "runtime_dependencies_sha256": "b" * 64,
+        "gate_evidence_sha256": "h" * 64,
+        "policy_sha256": "c" * 64,
+    }
+    _OPERATION = {
+        "operation_id": "WRO-1",
+        "project_id": "PRJ-1",
+        "workspace_release_id": "WRL-1",
+        "environment_id": "production",
+        "kind": "apply",
+        "idempotency_key": "op-1",
+        "expected_environment_lock_version": 1,
+        "status": "applied",
+        "lock_version": 1,
+        "requested_by": "user-1",
+        "observation_count": 0,
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        path = _route_path(request)
+        seen.append((request.method, path))
+        if path.endswith(":reconcile"):
+            return envelope({"job": _JOB, "observed": True, "observation": "found_on_disk"})
+        if path.endswith("/revision-imports"):
+            if request.method == "GET":
+                # A sibling ``next_cursor`` key stops the transport's
+                # single-key ``{"data": ...}`` auto-unwrap from collapsing
+                # the outer envelope before ``_list_items_and_cursor`` reads it.
+                return httpx.Response(200, json={"data": {"items": [_JOB]}, "next_cursor": None})
+            return httpx.Response(201, json={"data": _JOB})
+        if "/revision-imports/" in path:
+            return envelope(_JOB)
+        if path.endswith("/break-glass-apply"):
+            return httpx.Response(
+                201, json={"data": {"authorization_id": "WBG-1", "operation_id": "WRO-1"}}
+            )
+        if path.endswith("/quality-signoff") or path.endswith("/approve"):
+            return httpx.Response(201, json={"data": _DECISION})
+        if path.endswith("/evaluate"):
+            return httpx.Response(202, json={"data": _EVALUATION})
+        if path.endswith("/evaluations"):
+            return envelope([_EVALUATION])
+        if "/evaluations/" in path:
+            return envelope(_EVALUATION)
+        if path.endswith("/evidence"):
+            return envelope([_EVIDENCE])
+        if path.endswith("/releases"):
+            if request.method == "GET":
+                return envelope([_RELEASE])
+            return httpx.Response(201, json={"data": _RELEASE})
+        if path.endswith("/operations"):
+            if request.method == "GET":
+                return envelope([_OPERATION])
+            return httpx.Response(201, json={"data": {"operation": _OPERATION, "items": []}})
+        if path.endswith((":apply", ":observe", ":cancel-expired")):
+            return envelope({"operation": _OPERATION, "items": []})
+        if "/operations/" in path:
+            return envelope({"operation": _OPERATION, "items": []})
+        if "/releases/" in path:
+            return envelope(_RELEASE)
+        raise AssertionError(f"unhandled {request.method} {path}")
+
+    async def main() -> dict[str, Any]:
+        async with client_with(handler) as caliber:
+            imports_page = await caliber.projects.imports.list("PRJ-1")
+            import_job = await caliber.projects.imports.get("PRJ-1", "WSI-1")
+            created_job = await caliber.projects.imports.create(
+                "PRJ-1",
+                repository="git@x",
+                commit_sha="c" * 40,
+                bundle=b"zip",
+                idempotency_key="idem-1",
+            )
+            reconciled = await caliber.projects.imports.reconcile("PRJ-1", "WSI-1")
+            waited_job = await caliber.projects.imports.wait(
+                "PRJ-1", "WSI-1", interval=0.001, max_interval=0.001, timeout=5
+            )
+
+            releases = await caliber.projects.releases.list("PRJ-1")
+            created_release = await caliber.projects.releases.create(
+                "PRJ-1",
+                revision_id="WSR-1",
+                environment_id="development",
+                environment_config_sha256="a" * 64,
+                runtime_dependencies_sha256="b" * 64,
+                policy_sha256="c" * 64,
+                request_idempotency_key="req-1",
+            )
+            release = await caliber.projects.releases.get("PRJ-1", "WRL-1")
+            evidence = await caliber.projects.releases.list_evidence("PRJ-1", "WRL-1")
+            evaluation = await caliber.projects.releases.evaluate(
+                "PRJ-1",
+                "WRL-1",
+                idempotency_key="eval-1",
+                evaluation_plan_sha256="d" * 64,
+                input_sha256="e" * 64,
+            )
+            evaluations = await caliber.projects.releases.list_evaluations("PRJ-1", "WRL-1")
+            evaluation_detail = await caliber.projects.releases.get_evaluation(
+                "PRJ-1", "WRL-1", "WRE-1"
+            )
+            waited_evaluation = await caliber.projects.releases.wait_for_evaluation(
+                "PRJ-1", "WRL-1", "WRE-1", interval=0.001, max_interval=0.001, timeout=5
+            )
+            signoff = await caliber.projects.releases.quality_signoff(
+                "PRJ-1", "WRL-1", decision="go", gate_evidence_sha256="h" * 64
+            )
+            approval = await caliber.projects.releases.approve(
+                "PRJ-1", "WRL-1", decision="go", gate_evidence_sha256="h" * 64
+            )
+            break_glass = await caliber.projects.releases.break_glass_apply(
+                "PRJ-1",
+                "WRL-1",
+                reason="incident",
+                incident_ref="INC-1",
+                authorization_ref="AUTH-1",
+                expires_at="2026-01-01T00:00:00Z",
+                gate_evidence_sha256="h" * 64,
+                expected_current_release_id="WRL-1",
+                expected_environment_lock_version=1,
+                idempotency_key="bg-1",
+            )
+
+            operations = await caliber.projects.release_operations.list("PRJ-1", "WRL-1")
+            created_operation = await caliber.projects.release_operations.create(
+                "PRJ-1",
+                "WRL-1",
+                kind="apply",
+                idempotency_key="op-1",
+                expected_environment_lock_version=1,
+            )
+            operation = await caliber.projects.release_operations.get("PRJ-1", "WRL-1", "WRO-1")
+            applied = await caliber.projects.release_operations.apply("PRJ-1", "WRL-1", "WRO-1")
+            observed = await caliber.projects.release_operations.observe("PRJ-1", "WRL-1", "WRO-1")
+            cancelled = await caliber.projects.release_operations.cancel_expired(
+                "PRJ-1", "WRL-1", "WRO-1"
+            )
+            waited_operation = await caliber.projects.release_operations.wait(
+                "PRJ-1", "WRL-1", "WRO-1", interval=0.001, max_interval=0.001, timeout=5
+            )
+            return locals()
+
+    values = run(main())
+    assert values["imports_page"].items[0].import_job_id == "WSI-1"
+    assert values["import_job"].import_job_id == "WSI-1"
+    assert values["created_job"].import_job_id == "WSI-1"
+    assert values["reconciled"].observed is True
+    assert values["waited_job"].is_terminal
+
+    assert values["releases"][0].release_id == "WRL-1"
+    assert values["created_release"].release_id == "WRL-1"
+    assert values["release"].release_id == "WRL-1"
+    assert values["evidence"][0].evidence_id == "WEV-1"
+    assert values["evaluation"].evaluation_id == "WRE-1"
+    assert values["evaluations"][0].evaluation_id == "WRE-1"
+    assert values["evaluation_detail"].evaluation_id == "WRE-1"
+    assert values["waited_evaluation"].is_terminal
+    assert values["signoff"].decision_id == "WRD-1"
+    assert values["approval"].decision_id == "WRD-1"
+    assert values["break_glass"].authorization_id == "WBG-1"
+
+    assert values["operations"][0].operation_id == "WRO-1"
+    assert values["created_operation"].operation.operation_id == "WRO-1"
+    assert values["operation"].operation.operation_id == "WRO-1"
+    assert values["applied"].operation.operation_id == "WRO-1"
+    assert values["observed"].operation.operation_id == "WRO-1"
+    assert values["cancelled"].operation.operation_id == "WRO-1"
+    assert values["waited_operation"].is_terminal
+
+    assert ("POST", "/projects/PRJ-1/releases/WRL-1/operations/WRO-1:apply") in seen
+    assert ("POST", "/projects/PRJ-1/releases/WRL-1/operations/WRO-1:observe") in seen
+    assert ("POST", "/projects/PRJ-1/releases/WRL-1/operations/WRO-1:cancel-expired") in seen
