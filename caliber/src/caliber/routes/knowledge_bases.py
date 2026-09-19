@@ -2,14 +2,21 @@
 
 from __future__ import annotations
 
+from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
-from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
-from caliber.db.models import CaliberKnowledgeBase
+from caliber.auth import (
+    SCOPE_OPERATOR,
+    CaliberIdentity,
+    require_scopes,
+    require_user,
+    resolve_identity,
+)
+from caliber.db.models import CaliberKnowledgeBase, CaliberKnowledgeBaseVersion
 from caliber.db.scoping import get_visible
 from caliber.knowledge.embeddings import KnowledgeDependencyError
 from caliber.knowledge.schemas import (
@@ -60,6 +67,32 @@ BASELINE_PATH = PREFIX + "/knowledge-bases/{knowledge_base_id}/baseline"
 TEST_RUN_DETAIL_PATH = PREFIX + "/knowledge/test-runs/{test_run_id}"
 
 _STATUS_VALUES = frozenset({"active", "archived", "all"})
+
+
+def _require_visible_knowledge_base(
+    session: Session, knowledge_base_id: str, identity: CaliberIdentity
+) -> CaliberKnowledgeBase:
+    """Fetch a KB by id, gated by visibility -- 404s an invisible/missing one.
+
+    `P2-A` child-mutation closure: shared by every child-mutation route below
+    (`create_version`/`activate_version`/`rollback_version`/`calibrate_
+    knowledge_base`/`set_knowledge_base_baseline`) so each can add its own
+    project-role check on the KB's *own* project (not the caller's active
+    one) before delegating to the service -- the same shape `update_
+    knowledge_base`/`delete_knowledge_base` above already inline individually.
+    """
+    kb = get_visible(
+        session,
+        CaliberKnowledgeBase,
+        CaliberKnowledgeBase.knowledge_base_id,
+        knowledge_base_id,
+        identity,
+    )
+    if kb is None:
+        raise HTTPException(
+            status_code=404, detail=f"knowledge base {knowledge_base_id!r} not found"
+        )
+    return kb  # type: ignore[no-any-return]
 
 
 def _service(request: Request) -> KnowledgeBaseService:
@@ -213,6 +246,15 @@ async def create_version(request: Request) -> JSONResponse:
     knowledge_base_id = request.path_params["knowledge_base_id"]
     body = await parse_json_object(request)
     payload = KnowledgeBaseVersionCreateRequest.model_validate(body)
+    # `P2-A` child-mutation closure: this route previously checked only the
+    # global `caliber.operator` scope plus the service's own visibility
+    # gate (`get_visible`, via `_require_visible_knowledge_base` inside
+    # `create_version`) -- no project-role floor, so a project viewer could
+    # trigger a real embedding build. Same `resource.write.runtime` action
+    # `create_knowledge_base`/`update_knowledge_base` above already use.
+    with get_session_factory(request)() as session:
+        kb = _require_visible_knowledge_base(session, knowledge_base_id, identity)
+        require_project_access_if_scoped(session, identity, kb.project_id, "resource.write.runtime")
     try:
         result = _service(request).create_version(
             knowledge_base_id,
@@ -230,6 +272,11 @@ async def activate_version(request: Request) -> JSONResponse:
     identity = resolve_identity(request)
     knowledge_base_id = request.path_params["knowledge_base_id"]
     version_id = request.path_params["version_id"]
+    # `P2-A`: same `resource.write.runtime` floor as `create_version` above
+    # -- switching the active version is a write to the KB's own row.
+    with get_session_factory(request)() as session:
+        kb = _require_visible_knowledge_base(session, knowledge_base_id, identity)
+        require_project_access_if_scoped(session, identity, kb.project_id, "resource.write.runtime")
     row = _service(request).activate_version(
         knowledge_base_id,
         version_id,
@@ -244,6 +291,11 @@ async def rollback_version(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
     knowledge_base_id = request.path_params["knowledge_base_id"]
+    # `P2-A`: same `resource.write.runtime` floor as `create_version`/
+    # `activate_version` above.
+    with get_session_factory(request)() as session:
+        kb = _require_visible_knowledge_base(session, knowledge_base_id, identity)
+        require_project_access_if_scoped(session, identity, kb.project_id, "resource.write.runtime")
     row = _service(request).rollback_version(
         knowledge_base_id,
         identity=identity,
@@ -264,6 +316,19 @@ async def sync_version_to_age(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
     version_id = request.path_params["version_id"]
+    # `P2-A`: same `resource.write.runtime` floor as the other child-mutation
+    # routes above -- syncing a version's chunks/entities into Apache AGE is
+    # a write, not a read. Resolved the same way the service's own
+    # `_require_visible_version` does (bare version lookup for its owning
+    # KB id, then KB visibility) since this route only has `version_id`.
+    with get_session_factory(request)() as session:
+        version = session.get(CaliberKnowledgeBaseVersion, version_id)
+        if version is None:
+            raise HTTPException(
+                status_code=404, detail=f"knowledge-base version {version_id!r} not found"
+            )
+        kb = _require_visible_knowledge_base(session, version.knowledge_base_id, identity)
+        require_project_access_if_scoped(session, identity, kb.project_id, "resource.write.runtime")
     row = _service(request).sync_version_to_age(
         version_id,
         identity=identity,
@@ -377,6 +442,14 @@ async def calibrate_knowledge_base(request: Request) -> JSONResponse:
     knowledge_base_id = request.path_params["knowledge_base_id"]
     body = await parse_json_object(request)
     payload = KnowledgeCalibrationRequest.model_validate(body)
+    # `P2-A`: `resource.execute`, not `.runtime` -- calibration synchronously
+    # runs a real retrieve+judge loop (LLM judge calls, a genuine execution
+    # side effect), the same "run a job against this resource" shape
+    # `workflow_runs.py`/`evaluations.py` already gate with this action,
+    # rather than `.runtime`'s narrower "author/edit the resource" ceiling.
+    with get_session_factory(request)() as session:
+        kb = _require_visible_knowledge_base(session, knowledge_base_id, identity)
+        require_project_access_if_scoped(session, identity, kb.project_id, "resource.execute")
     try:
         summary = _service(request).calibrate(
             knowledge_base_id,
@@ -427,6 +500,12 @@ async def set_knowledge_base_baseline(request: Request) -> JSONResponse:
     knowledge_base_id = request.path_params["knowledge_base_id"]
     body = await parse_json_object(request)
     payload = KnowledgeBaselineRequest.model_validate(body)
+    # `P2-A`: same `resource.write.runtime` floor as the other child-mutation
+    # routes above -- pinning a baseline mutates the KB's own
+    # `baseline_run_id` pointer.
+    with get_session_factory(request)() as session:
+        kb = _require_visible_knowledge_base(session, knowledge_base_id, identity)
+        require_project_access_if_scoped(session, identity, kb.project_id, "resource.write.runtime")
     knowledge_base = _service(request).set_baseline(
         knowledge_base_id,
         test_run_id=payload.test_run_id,

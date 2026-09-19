@@ -622,11 +622,23 @@ async def import_openapi_version(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = OpenApiImportRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_ADMIN, SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     integration_id = request.path_params["integration_id"]
     policy = EgressPolicy.from_config(getattr(request.app.state, "config", None))
     factory = get_session_factory(request)
     with factory() as session:
         integration = _visible_integration_or_404(session, request, integration_id)
+        # `P2-A` child-mutation closure: this route previously checked only
+        # the global `caliber.admin`/`caliber.operator` scope plus
+        # visibility -- no project-role floor, so a project viewer could
+        # pull an arbitrary spec into the integration. Same
+        # `resource.write.runtime` action `create_openapi_integration`/
+        # `update_openapi_integration` above already use: importing persists
+        # a new version row (an authored artifact), the same "write" shape
+        # as those routes, not a `resource.execute` run/job.
+        require_project_access_if_scoped(
+            session, identity, integration.project_id, "resource.write.runtime"
+        )
         if integration.status == "archived":
             raise HTTPException(
                 status_code=409,
@@ -784,9 +796,23 @@ async def reimport_openapi_version(request: Request) -> JSONResponse:
     """
 
     actor = require_scopes(request, [SCOPE_ADMIN, SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     integration_id = request.path_params["integration_id"]
     policy = EgressPolicy.from_config(getattr(request.app.state, "config", None))
     factory = get_session_factory(request)
+    # `P2-A`: same `resource.write.runtime` floor as `import_openapi_version`
+    # above. Placed directly in this handler (not inside the `run_in_
+    # threadpool`-offloaded `_sync_reimport_openapi_version` below), matching
+    # `import_skill_package_zip`'s established convention: `scope_inference.py`'s
+    # AST-based doc/authorization inventory only reads a route's own handler
+    # body, not helpers it calls, so a check placed inside the offloaded
+    # helper would silently under-report as `caliber.admin`/`caliber.operator`
+    # only in the generated REST API reference.
+    with factory() as session:
+        integration = _visible_integration_or_404(session, request, integration_id)
+        require_project_access_if_scoped(
+            session, identity, integration.project_id, "resource.write.runtime"
+        )
     return await run_in_threadpool(
         _sync_reimport_openapi_version, factory, request, integration_id, actor, policy
     )
@@ -1130,7 +1156,19 @@ async def review_openapi_dependency(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = OpenApiDependencyReviewRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_ADMIN, SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     factory = get_session_factory(request)
+    # `P2-A`: same `resource.write.runtime` floor as `import_openapi_version`
+    # above -- confirming/rejecting a dependency edits a row, with no external
+    # side effect (unlike calibration/preview). Placed directly in this
+    # handler, not inside the `run_in_threadpool`-offloaded `_sync_review_
+    # openapi_dependency` below -- see `reimport_openapi_version`'s identical
+    # comment for why.
+    with factory() as session:
+        integration = _visible_integration_or_404(session, request, integration_id)
+        require_project_access_if_scoped(
+            session, identity, integration.project_id, "resource.write.runtime"
+        )
     return await run_in_threadpool(
         _sync_review_openapi_dependency,
         factory,
@@ -1274,6 +1312,16 @@ async def generate_openapi_tool_drafts(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         integration = _visible_integration_or_404(session, request, integration_id)
+        # `P2-A`: same `resource.write.runtime` floor as `import_openapi_
+        # version` above -- generating drafts persists new
+        # `CaliberOpenApiToolDraft` rows (an authored artifact), the same
+        # "write" shape as import, not a run/job.
+        require_project_access_if_scoped(
+            session,
+            resolve_identity(request),
+            integration.project_id,
+            "resource.write.runtime",
+        )
         version_id = payload.version_id or (integration.last_imported_version_id or "")
         if not version_id:
             raise HTTPException(
@@ -1429,6 +1477,15 @@ async def update_openapi_tool_draft(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         integration = _visible_integration_or_404(session, request, integration_id)
+        # `P2-A`: same `resource.write.runtime` floor as `import_openapi_
+        # version`/`generate_openapi_tool_drafts` above -- edits an existing
+        # draft row, no external side effect.
+        require_project_access_if_scoped(
+            session,
+            resolve_identity(request),
+            integration.project_id,
+            "resource.write.runtime",
+        )
         draft = _draft_for_integration_or_404(session, integration.integration_id, draft_id)
         operations = _draft_operations(session, integration.integration_id, draft)
         diff: dict[str, Any] = {}
@@ -1530,6 +1587,17 @@ async def preview_openapi_tool_draft(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         integration = _visible_integration_or_404(session, request, integration_id)
+        # `P2-A`: `resource.execute`, not `.runtime` -- preview fires a real
+        # upstream HTTP call (a genuine execution side effect), the same
+        # "run this resource" shape `workflow_runs.py`/`evaluations.py`/
+        # `calibrate_knowledge_base` gate with this action, rather than
+        # `.runtime`'s narrower "author/edit the resource" ceiling.
+        require_project_access_if_scoped(
+            session,
+            resolve_identity(request),
+            integration.project_id,
+            "resource.execute",
+        )
         draft = _draft_for_integration_or_404(session, integration.integration_id, draft_id)
         if not draft.allow_in_preview:
             raise HTTPException(

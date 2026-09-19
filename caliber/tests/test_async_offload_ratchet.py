@@ -96,7 +96,27 @@ _ROUTES = Path(__file__).resolve().parents[1] / "src" / "caliber" / "routes"
 #: shape the `254` bump above already used for this file's `execute_plan`/
 #: `poll_plan` siblings, for the same `scope_inference.py` AST-visibility
 #: reason given there.
-_BASELINE = 261
+#:
+#: Bumped from 261 to 263: `P2-A`'s named child-mutation-route follow-up
+#: (docs/workspace-plan.md's `P2-A` row) added `require_project_access_
+#: if_scoped` to `routes/openapi_integrations.py::reimport_openapi_version`/
+#: `review_openapi_dependency`. Both dispatch their real work to a module-level
+#: `run_in_threadpool`-offloaded helper (`_sync_reimport_openapi_version`/
+#: `_sync_review_openapi_dependency`) that already opened its own session and
+#: was already counted -- the check itself had to go in the *handler*, not the
+#: helper, for the same `scope_inference.py` AST-visibility reason the `257`
+#: bump above documents for `import_skill_package_zip` (a check inside an
+#: offloaded helper is invisible to the single-function AST walk that drives
+#: the generated REST API reference), which meant opening a second, new
+#: session directly in each handler. Every other `P2-A` child-mutation route
+#: this same follow-up touched (`knowledge_bases.py`'s `create_version`/
+#: `activate_version`/`rollback_version`/`sync_version_to_age`/`calibrate_
+#: knowledge_base`/`set_knowledge_base_baseline`, and `openapi_integrations.py`'s
+#: `import_openapi_version`/`generate_openapi_tool_drafts`/
+#: `update_openapi_tool_draft`/`preview_openapi_tool_draft`) added its check to
+#: a session block (or a handler body) already counted, so it doesn't move
+#: this ratchet.
+_BASELINE = 263
 
 _SESSION_MARKERS = ("with factory() as session", "with session_factory() as session")
 
