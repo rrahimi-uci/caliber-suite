@@ -431,6 +431,56 @@ def test_project_access_members_decode_and_mutate() -> None:
     ]
 
 
+def test_project_members_grouped_api_reaches_the_same_routes_as_the_flat_delegates() -> None:
+    """``ProjectsAPI.list_members``/``add_member``/``update_member``/
+    ``remove_member``/``transfer_ownership`` delegate to ``.members`` -- a
+    root convenience, not a second implementation. Calling the grouped form
+    directly must hit the identical routes."""
+    seen: list[tuple[str, str, dict[str, Any] | None]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        path = request.url.path.rsplit("/caliber", 1)[-1]
+        body = _json.loads(request.content) if request.content else None
+        seen.append((request.method, path, body))
+        member = {
+            "member_id": "PM-1",
+            "project_id": "PRJ-1",
+            "user_id": "@bob",
+            "role": "editor",
+            "status": "active",
+            "created_by": "@alice",
+        }
+        if path.endswith("/transfer-ownership"):
+            return envelope({"project_id": "PRJ-1", "owner": "@bob"})
+        if request.method == "GET":
+            return envelope({"members": [member]})
+        if request.method == "DELETE":
+            return envelope({"project_id": "PRJ-1", "user_id": "@bob", "removed": True})
+        return httpx.Response(201 if request.method == "POST" else 200, json={"data": member})
+
+    with client_with(handler) as caliber:
+        members = caliber.projects.members.list("PRJ-1")
+        added = caliber.projects.members.add("PRJ-1", "@bob", role="editor")
+        updated = caliber.projects.members.update("PRJ-1", "@bob", status="inactive")
+        removed = caliber.projects.members.remove("PRJ-1", "@bob")
+        transferred = caliber.projects.members.transfer_ownership("PRJ-1", "@bob")
+
+    assert members[0].user_id == "@bob"
+    assert added.role == "editor"
+    assert updated.status == "active"
+    assert removed is True
+    assert transferred.owner == "@bob"
+    assert seen == [
+        ("GET", "/projects/PRJ-1/members", None),
+        ("POST", "/projects/PRJ-1/members", {"user_id": "@bob", "role": "editor"}),
+        ("PATCH", "/projects/PRJ-1/members/@bob", {"status": "inactive"}),
+        ("DELETE", "/projects/PRJ-1/members/@bob", None),
+        ("POST", "/projects/PRJ-1/transfer-ownership", {"new_owner_user_id": "@bob"}),
+    ]
+
+
 def test_project_files_are_returned_separately_from_directories() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         return envelope(

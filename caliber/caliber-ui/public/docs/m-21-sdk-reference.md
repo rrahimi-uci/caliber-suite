@@ -198,6 +198,7 @@ Every documented class and module-level function, with the module that defines i
 | [`ProjectFolder`](#projectfolder) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
 | [`ProjectImportsAPI`](#projectimportsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectMember`](#projectmember) | [`caliber_sdk.models.core`](#module-caliber_sdkmodelscore) |
+| [`ProjectMembersAPI`](#projectmembersapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectReleaseOperationsAPI`](#projectreleaseoperationsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectReleasesAPI`](#projectreleasesapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
 | [`ProjectRevisionsAPI`](#projectrevisionsapi) | [`caliber_sdk.resources.projects`](#module-caliber_sdkresourcesprojects) |
@@ -1938,7 +1939,7 @@ sdk/caliber-sdk/examples/prompt_lifecycle.py#prompt_lifecycle
 
 **Public exports**
 
-`ProjectChangeRequestsAPI`, `ProjectFilesAPI`, `ProjectImportsAPI`, `ProjectReleaseOperationsAPI`, `ProjectReleasesAPI`, `ProjectRevisionsAPI`, `ProjectReworkTasksAPI`, `ProjectSourceAPI`, `ProjectVersionTagsAPI`, `ProjectsAPI`, `WorkspacesAPI`
+`ProjectChangeRequestsAPI`, `ProjectFilesAPI`, `ProjectImportsAPI`, `ProjectMembersAPI`, `ProjectReleaseOperationsAPI`, `ProjectReleasesAPI`, `ProjectRevisionsAPI`, `ProjectReworkTasksAPI`, `ProjectSourceAPI`, `ProjectVersionTagsAPI`, `ProjectsAPI`, `WorkspacesAPI`
 
 #### Classes
 
@@ -3234,6 +3235,107 @@ Operate on the project rework tasks surface with the supplied arguments and retu
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+##### `ProjectMembersAPI`
+
+`class ProjectMembersAPI()`
+
+A project's membership, role, and primary-ownership management (`P6-B`).
+
+Exposed as ``ProjectsAPI.members``. The equivalent flat methods on
+``ProjectsAPI`` itself (``list_members``/``add_member``/
+``update_member``/``remove_member``/``transfer_ownership``) delegate to
+this class -- a root convenience for the common case, not a second
+implementation to keep in sync.
+
+**Methods**
+
+###### `list(project_id: str) -> list[ProjectMember]`
+
+List active members and their effective project roles.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `list[ProjectMember]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `add(project_id: str, user_id: str, *, role: str = 'viewer') -> ProjectMember`
+
+Grant ``user_id`` a project role; only owners may manage members.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `user_id` | positional-or-keyword | `str` | `—` |
+| `role` | keyword-only | `str` | `'viewer'` |
+
+**Returns:** `ProjectMember`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update(project_id: str, user_id: str, *, role: str | None = None, status: str | None = None) -> ProjectMember`
+
+Change a member's role or active status.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `user_id` | positional-or-keyword | `str` | `—` |
+| `role` | keyword-only | `str | None` | `None` |
+| `status` | keyword-only | `str | None` | `None` |
+
+**Returns:** `ProjectMember`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `remove(project_id: str, user_id: str) -> bool`
+
+Deactivate a member; the project owner cannot be removed.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `user_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bool`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `transfer_ownership(project_id: str, new_owner_user_id: str) -> Project`
+
+Atomically move the primary-owner pointer to another active,
+eligible ``owner``-role (Admin) member.
+
+Only the current primary owner may call this; the target must
+already hold the ``owner`` role (see :meth:`add`/:meth:`update`) and
+pass a live scope-eligibility check.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `new_owner_user_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`Project`](#project)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `ProjectsAPI`
 
 `class ProjectsAPI(transport)`
@@ -3259,6 +3361,7 @@ Operate on the projects surface with the supplied arguments and return the serve
 | Attribute | Type | Notes |
 | --- | --- | --- |
 | `files` | `ProjectFilesAPI` | — |
+| `members` | `ProjectMembersAPI` | — |
 | `rework_tasks` | `ProjectReworkTasksAPI` | Owned, recoverable work auto-created from a rejected refinement job. |
 | `source` | `ProjectSourceAPI` | — |
 | `imports` | `ProjectImportsAPI` | — |
@@ -3380,12 +3483,7 @@ Move an archived project back to ``active``, clearing provenance.
 
 ###### `transfer_ownership(project_id: str, new_owner_user_id: str) -> Project`
 
-Atomically move the primary-owner pointer to another active,
-eligible ``owner``-role (Admin) member.
-
-Only the current primary owner may call this; the target must
-already hold the ``owner`` role (see ``add_member``/
-``update_member``) and pass a live scope-eligibility check.
+Delegates to :meth:`ProjectMembersAPI.transfer_ownership` (``self.members``).
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3401,7 +3499,7 @@ already hold the ``owner`` role (see ``add_member``/
 
 ###### `list_members(project_id: str) -> list[ProjectMember]`
 
-List active members and their effective project roles.
+Delegates to :meth:`ProjectMembersAPI.list` (``self.members``).
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3416,7 +3514,7 @@ List active members and their effective project roles.
 
 ###### `add_member(project_id: str, user_id: str, *, role: str = 'viewer') -> ProjectMember`
 
-Grant ``user_id`` a project role; only owners may manage members.
+Delegates to :meth:`ProjectMembersAPI.add` (``self.members``).
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3433,7 +3531,7 @@ Grant ``user_id`` a project role; only owners may manage members.
 
 ###### `update_member(project_id: str, user_id: str, *, role: str | None = None, status: str | None = None) -> ProjectMember`
 
-Change a member's role or active status.
+Delegates to :meth:`ProjectMembersAPI.update` (``self.members``).
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -3451,7 +3549,7 @@ Change a member's role or active status.
 
 ###### `remove_member(project_id: str, user_id: str) -> bool`
 
-Deactivate a member; the project owner cannot be removed.
+Delegates to :meth:`ProjectMembersAPI.remove` (``self.members``).
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
