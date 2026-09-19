@@ -65,6 +65,19 @@ CR_DRAFT = "draft"
 CR_OPEN = "open"
 CR_CHANGES_REQUESTED = "changes_requested"
 CR_TECHNICALLY_APPROVED = "technically_approved"
+# Reserved, superseded design step: section 3.2/9.2's original draft moved a
+# Change Request here on QA entry, before quality sign-off. That step was
+# never wired up -- no code ever assigns `request.status = CR_QA_IN_PROGRESS`
+# -- and the shipped flow goes directly from CR_TECHNICALLY_APPROVED to
+# CR_ACCEPTED once quality sign-off records a QA `go` decision and the
+# Change Request's own `:accept` route wins the acceptance CAS (see
+# `accept_change_request` below). The constant and the schema status value it
+# backs are kept, and other callers (`accept_change_request`,
+# `record_workspace_release_decision`) still defensively tolerate it as a
+# valid status, only so a future slice could wire it up without a schema
+# change; nothing here ever produces it today. docs/workspace-plan.md's `P5-B`
+# row records this as an investigated, deliberate simplification, not an
+# accidental gap.
 CR_QA_IN_PROGRESS = "qa_in_progress"
 CR_OUT_OF_DATE = "out_of_date"
 CR_ACCEPTED = "accepted"
@@ -1144,7 +1157,19 @@ def create_version_tag(
     kind: Literal["qa_candidate", "accepted"],
     actor: str,
 ) -> CaliberWorkspaceVersionTag:
-    """Internal immutable tag repository used by Phase 5 release services."""
+    """Internal immutable tag repository used by Phase 5 release services.
+
+    ``kind="accepted"`` is the only kind the shipped flow ever calls (from
+    :func:`accept_change_request` below). ``kind="qa_candidate"`` -- an
+    immutable ``<version>-rc.<generation>`` tag originally meant to be minted
+    on QA entry (section 3.2/9.2 of ``docs/workspace-plan.md``'s original
+    draft) -- has no production caller: quality sign-off never reaches this
+    function. It remains supported (and the DB `CHECK` constraint still
+    allows it) as a reserved, superseded extension point rather than dead
+    code to delete, in case a future slice reintroduces a candidate-tag step;
+    see the `P5-B` row in the plan for the investigation that confirmed this
+    is a deliberate simplification, not an unwired gap.
+    """
     project = session.get(CaliberProject, project_id)
     if project is None:
         raise _fail(404, "project_not_found")
