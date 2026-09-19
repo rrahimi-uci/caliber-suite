@@ -39,7 +39,9 @@ from caliber.auth import (
 from caliber.db.models import (
     CaliberProject,
     CaliberProjectMember,
+    CaliberWorkflowDeployment,
     CaliberWorkflowFile,
+    CaliberWorkflowVersion,
     CaliberWorkspaceEnvironment,
 )
 from caliber.deployment_environments import (
@@ -1462,6 +1464,58 @@ async def download_project_file(request: Request) -> Response:
     )
 
 
+def _deployments_referencing_project_file(session: Session, file_id: str) -> list[str]:
+    """Return ``{alias}@{workflow_id}`` for every *active* deployment whose
+    version pins ``file_id`` in a ``file_input`` node (`P2-C`'s "not yet
+    delivered: immutable pin/reconstructability semantics" gap).
+
+    `register_project_file` already makes the pinned *bytes* immutable
+    (content-addressed storage, dedup on identical content, a content-addressed
+    sibling path rather than an overwrite on differing content) and
+    `ScopedManagedFileResolver`/`_preflight_managed_file_node` already re-verify
+    the actual bytes against the pinned digest at both preflight and runtime.
+    What none of that closes is deletion: nothing stopped an ordinary project
+    file delete from silently breaking an *active* deployment's managed-file
+    dependency -- the pin's metadata could never be forged, but the file it
+    pointed at could simply vanish out from under it with no warning. Mirrors
+    the existing `routes/tools.py::_referencing_deployments` /
+    `routes/mcp_servers.py::_deployments_referencing_server` precedent for
+    blocking a destructive delete that would orphan a live deployment; like
+    `tools.py`'s version (and unlike `mcp_servers.py`'s), this checks each
+    deployment's own root manifest only -- a referenced file inside a
+    subworkflow's own graph is not walked transitively here, matching that
+    existing precedent rather than introducing new transitive-walk machinery.
+    """
+    deployments = (
+        session.execute(
+            select(CaliberWorkflowDeployment).where(CaliberWorkflowDeployment.status == "active")
+        )
+        .scalars()
+        .all()
+    )
+    blocking: list[str] = []
+    for deployment in deployments:
+        version = session.get(CaliberWorkflowVersion, deployment.version_id)
+        if version is None:
+            continue
+        nodes = (version.manifest or {}).get("nodes", {})
+        node_values: list[Any] = (
+            list(nodes.values())
+            if isinstance(nodes, dict)
+            else list(nodes)
+            if isinstance(nodes, list)
+            else []
+        )
+        for node in node_values:
+            if not isinstance(node, dict) or node.get("type") != "file_input":
+                continue
+            ref = node.get("file_ref")
+            if isinstance(ref, dict) and ref.get("file_id") == file_id:
+                blocking.append(f"{deployment.alias}@{deployment.workflow_id}")
+                break
+    return blocking
+
+
 async def delete_project_file(request: Request) -> JSONResponse:
     project_id = request.path_params["project_id"]
     file_id = request.path_params["file_id"]
@@ -1475,6 +1529,18 @@ async def delete_project_file(request: Request) -> JSONResponse:
             session, project_id, identity=identity, action="resource.write.runtime"
         )
         row = _file_for_project_or_404(session, project_id, file_id)
+        # Block deletion that would orphan a live workflow's managed-file
+        # dependency, rather than silently breaking the next run/preflight
+        # (the console used to delete blind -- see `P2-C`'s workspace-plan row).
+        referencing = _deployments_referencing_project_file(session, file_id)
+        if referencing:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"project file {file_id!r} is referenced by active deployment(s) "
+                    f"{', '.join(referencing)}; undeploy those workflows first"
+                ),
+            )
         # Soft-delete in metadata (storage doc §2.6); the retention janitor
         # reclaims the physical object later.
         row.status = "deleted"

@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
 from pathlib import Path
 
 import pytest
@@ -11,9 +12,17 @@ from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from caliber.config import WorkflowStorageConfig
-from caliber.db.models import CaliberProject, CaliberProjectMember, CaliberWorkspaceEnvironment
+from caliber.db.models import (
+    CaliberProject,
+    CaliberProjectMember,
+    CaliberWorkflow,
+    CaliberWorkflowDeployment,
+    CaliberWorkflowVersion,
+    CaliberWorkspaceEnvironment,
+)
 from caliber.resource_access import ROLE_EDITOR, ROLE_OWNER
 from caliber.storage import LocalStorageBackend, WorkingDirectoryService
+from caliber.workflows.manifest import ManagedFileReference
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 
@@ -838,6 +847,151 @@ def test_delete_project_file_soft(proj_client: TestClient) -> None:
     assert proj_client.delete(f"{PREFIX}/projects/{pid}/files/{file_id}").status_code == 200
     # gone from the list
     assert proj_client.get(f"{PREFIX}/projects/{pid}/files").json()["data"]["items"] == []
+
+
+def _file_input_manifest(workflow_id: str, pinned: ManagedFileReference) -> dict:
+    """A minimal manifest whose one node pins ``pinned`` (route-level test only;
+    not run through the compiler/validator)."""
+    return {
+        "schema_version": 1,
+        "workflow_id": workflow_id,
+        "name": "File input workflow",
+        "nodes": {
+            "file_in": {
+                "id": "file_in",
+                "type": "file_input",
+                "file_ref": pinned.model_dump(mode="json"),
+            },
+        },
+        "edges": [],
+        "tools": {},
+    }
+
+
+def _deploy_with_pinned_file(
+    db_session: Session,
+    *,
+    workflow_id: str,
+    project_id: str,
+    pinned: ManagedFileReference,
+    status: str = "active",
+) -> None:
+    db_session.add(
+        CaliberWorkflow(
+            workflow_id=workflow_id,
+            name=workflow_id,
+            owner="@test",
+            project_id=project_id,
+        )
+    )
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id=f"{workflow_id}-v1",
+            workflow_id=workflow_id,
+            version_number=1,
+            status="published",
+            manifest=_file_input_manifest(workflow_id, pinned),
+            manifest_hash=f"hash-{workflow_id}",
+        )
+    )
+    db_session.add(
+        CaliberWorkflowDeployment(
+            deployment_id=f"{workflow_id}-dep",
+            workflow_id=workflow_id,
+            alias="prod",
+            version_id=f"{workflow_id}-v1",
+            status=status,
+            deployed_by="@test",
+            deployed_at=datetime.now(timezone.utc),
+            rollback_checkpoint=[],
+        )
+    )
+    db_session.commit()
+
+
+def _upload_project_file(proj_client: TestClient, pid: str, name: str = "pinned.txt") -> dict:
+    resp = proj_client.post(
+        f"{PREFIX}/projects/{pid}/files",
+        files={"file": (name, b"pinned-bytes", "text/plain")},
+        data={"kind": "input"},
+    )
+    assert resp.status_code == 201, resp.text
+    return resp.json()["data"]
+
+
+def test_delete_project_file_blocked_by_active_deployment(
+    proj_client: TestClient, db_session: Session
+) -> None:
+    """`P2-C`'s remaining "reconstructability" gap: deleting a project file that
+    an active deployment's ``file_input`` node pins must be refused, not silently
+    orphan the deployment's next preflight/run."""
+    pid = _create(proj_client)
+    uploaded = _upload_project_file(proj_client, pid)
+    pinned = ManagedFileReference(
+        file_id=uploaded["file_id"],
+        file_ref=uploaded["file_ref"],
+        sha256=uploaded["sha256"],
+        name=uploaded["name"],
+        size_bytes=uploaded["size_bytes"],
+    )
+    _deploy_with_pinned_file(db_session, workflow_id="WF-PIN-BLOCKS", project_id=pid, pinned=pinned)
+
+    resp = proj_client.delete(f"{PREFIX}/projects/{pid}/files/{uploaded['file_id']}")
+    assert resp.status_code == 409, resp.text
+    assert "WF-PIN-BLOCKS" in resp.json()["detail"]
+
+    # Never soft-deleted: it is still visible and downloadable.
+    listing = proj_client.get(f"{PREFIX}/projects/{pid}/files").json()["data"]["items"]
+    assert any(item["file_id"] == uploaded["file_id"] for item in listing)
+
+
+def test_delete_project_file_allowed_when_deployment_inactive(
+    proj_client: TestClient, db_session: Session
+) -> None:
+    """A rolled-back/superseded deployment's old pin no longer blocks deletion --
+    only *active* deployments protect a file, matching the tool/MCP-server
+    precedent's own ``status == "active"`` scope."""
+    pid = _create(proj_client)
+    uploaded = _upload_project_file(proj_client, pid)
+    pinned = ManagedFileReference(
+        file_id=uploaded["file_id"],
+        file_ref=uploaded["file_ref"],
+        sha256=uploaded["sha256"],
+        name=uploaded["name"],
+        size_bytes=uploaded["size_bytes"],
+    )
+    _deploy_with_pinned_file(
+        db_session,
+        workflow_id="WF-PIN-INACTIVE",
+        project_id=pid,
+        pinned=pinned,
+        status="rolled_back",
+    )
+
+    resp = proj_client.delete(f"{PREFIX}/projects/{pid}/files/{uploaded['file_id']}")
+    assert resp.status_code == 200, resp.text
+
+
+def test_delete_project_file_allowed_for_unpinned_file(
+    proj_client: TestClient, db_session: Session
+) -> None:
+    """An active deployment pinning a *different* file_id never blocks deleting
+    this one -- the check must match on file_id, not merely "some deployment
+    exists"."""
+    pid = _create(proj_client)
+    uploaded = _upload_project_file(proj_client, pid, name="unrelated.txt")
+    other = _upload_project_file(proj_client, pid, name="pinned-elsewhere.txt")
+    pinned = ManagedFileReference(
+        file_id=other["file_id"],
+        file_ref=other["file_ref"],
+        sha256=other["sha256"],
+        name=other["name"],
+        size_bytes=other["size_bytes"],
+    )
+    _deploy_with_pinned_file(db_session, workflow_id="WF-PIN-OTHER", project_id=pid, pinned=pinned)
+
+    resp = proj_client.delete(f"{PREFIX}/projects/{pid}/files/{uploaded['file_id']}")
+    assert resp.status_code == 200, resp.text
 
 
 def test_upload_requires_operator(proj_client: TestClient) -> None:
