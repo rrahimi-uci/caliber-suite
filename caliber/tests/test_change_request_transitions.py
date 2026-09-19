@@ -2,8 +2,9 @@
 
 `workspace_change_requests.py` transcribes docs/workspace-plan.md section
 3.2's Mermaid state diagram as data. These tests assert that transcription
-is internally consistent -- they do not (and cannot) test any real Change
-Request behavior, because none exists yet; that is Phase 4's job.
+is internally consistent -- they do not test the real Change Request service
+(`workspace_change_request_service.py`) directly; that behavior has its own
+dedicated test modules.
 """
 
 from __future__ import annotations
@@ -45,18 +46,23 @@ def test_every_non_terminal_state_has_at_least_one_outgoing_transition() -> None
 
 
 def test_transition_count_matches_the_diagram() -> None:
-    """Ratchet: section 3.2's diagram has exactly 18 arrows. A change here
-    must be a conscious update to match a real diagram edit, not a typo."""
-    assert len(TRANSITIONS) == 18
+    """Ratchet: section 3.2's diagram has exactly 15 arrows. A change here
+    must be a conscious update to match a real diagram edit, not a typo.
+    (It was 18 arrows through a distinct `qa_in_progress` state before an
+    audit found that state was never shipped -- see the module docstring in
+    `caliber.workspace_change_requests`.)"""
+    assert len(TRANSITIONS) == 15
 
 
-def test_accepted_is_reachable_only_through_qa_in_progress() -> None:
+def test_accepted_is_reachable_only_through_technically_approved() -> None:
     """`accepted` guarantees the package passed change review and QA
     (section 3.2's own text) -- the diagram has exactly one incoming edge
-    into it, and it originates from `qa_in_progress`."""
+    into it, and it originates from `technically_approved` (quality sign-off
+    plus a winning `:accept` CAS collapse into one direct edge; there is no
+    separate `qa_in_progress` state in the shipped design)."""
     incoming = [t for t in TRANSITIONS if t.target == "accepted"]
     assert len(incoming) == 1
-    assert incoming[0].source == "qa_in_progress"
+    assert incoming[0].source == "technically_approved"
 
 
 def test_out_of_date_can_only_return_to_open() -> None:
