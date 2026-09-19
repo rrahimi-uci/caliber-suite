@@ -77,6 +77,7 @@ from caliber.workflows.runtime import bind_sandbox_config
 from caliber.workflows.tools import bind_module_allowlist
 from caliber.workspace_import_worker import WorkspaceImportWorker
 from caliber.workspace_release_adapters import WorkspaceResourceAdapterRegistry
+from caliber.workspace_release_prompt_adapter import PromptWorkspaceResourceAdapter
 from caliber.workspace_release_workflow_adapter import WorkflowWorkspaceResourceAdapter
 from caliber.workspace_sources import WorkspaceSourceProviderRegistry
 
@@ -489,14 +490,19 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     )
     promoter = build_promoter(resolved.promoter_provider)
     event_bus = build_event_bus(resolved, session_factory=session_factory)
-    # `P5-E`: the only resource type with a real (non-fake) release adapter
-    # today is a Workflow Studio workflow, whose deploy mechanics
-    # (alias rotation) are already mature and offline-testable. Every other
-    # resource type is left unregistered, so a release operation against one
-    # fails closed with "no adapter registered" rather than silently doing
-    # nothing (see workspace_release_operations.py's module docstring).
+    # `P5-E`/`P4-C`: two resource types have a real (non-fake) adapter today
+    # -- a Workflow Studio workflow (alias-rotation release deploys) and a
+    # CALIBER prompt (MLflow Prompt Registry resolve/snapshot for `POST
+    # .../revisions:snapshot`, plus alias-promotion release deploys). Every
+    # other resource type is left unregistered, so a release/snapshot
+    # operation against one fails closed with "no adapter registered" rather
+    # than silently doing nothing (see workspace_release_operations.py's and
+    # routes/workspace.py::snapshot_revision's own module docstrings).
     workspace_resource_adapter_registry = WorkspaceResourceAdapterRegistry(
-        {"workflow": WorkflowWorkspaceResourceAdapter(config=resolved)}
+        {
+            "workflow": WorkflowWorkspaceResourceAdapter(config=resolved),
+            "prompt": PromptWorkspaceResourceAdapter(),
+        }
     )
     worker = RefinementWorker(
         session_factory=session_factory,

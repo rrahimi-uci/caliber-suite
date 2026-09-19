@@ -76,6 +76,34 @@ class PreparedAction:
 
 
 @dataclass(frozen=True)
+class SnapshotPin:
+    """Content-addressed resource pin produced by a real adapter's ``snapshot()``.
+
+    ``POST /projects/{id}/revisions:snapshot`` (`P4-C`,
+    ``routes/workspace.py::snapshot_revision``) builds a
+    :class:`~caliber.db.models.CaliberWorkspaceRevisionResource` row
+    generically from this shape rather than special-casing each resource
+    type's own ``snapshot()`` return value. Only an adapter whose
+    ``snapshot()`` returns this type can participate in a managed snapshot --
+    :class:`~caliber.workspace_release_workflow_adapter.WorkflowWorkspaceResourceAdapter`'s
+    ``snapshot()`` still returns its input unchanged (its own documented
+    placeholder), so ``workflow`` is not snapshot-eligible yet; the route
+    fails closed on that rather than guessing at a shape.
+    """
+
+    resource_id: str
+    version_ref: str
+    content_sha256: str
+    provider_ref: str | None = None
+    resolution: Mapping[str, object] = field(default_factory=dict)
+
+    def __post_init__(self) -> None:
+        for name in ("resource_id", "version_ref", "content_sha256"):
+            if not str(getattr(self, name)).strip():
+                raise ValueError(f"{name} must not be empty")
+
+
+@dataclass(frozen=True)
 class ProviderOutcome:
     """Normalized provider result; raw payloads stay inside an adapter."""
 
@@ -252,6 +280,7 @@ __all__ = [
     "FakeWorkspaceResourceAdapter",
     "PreparedAction",
     "ProviderOutcome",
+    "SnapshotPin",
     "WorkspaceProviderTimeoutError",
     "WorkspaceReleaseAdapterError",
     "WorkspaceReleaseAdapterUnavailableError",

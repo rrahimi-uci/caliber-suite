@@ -191,9 +191,16 @@ class WorkspaceRevision:
     revision_number: int = 0
     source_id: str | None = None
     source_commit_sha: str | None = None
+    # 'git' (the only kind before this field existed) or 'managed' (created
+    # via `.snapshot()` -- no Git commit/bundle, see manifest_sha256/
+    # source_bundle_sha256 below).
+    source_kind: str = "git"
     manifest: dict[str, Any] = field(default_factory=dict)
-    manifest_sha256: str = ""
-    source_bundle_sha256: str = ""
+    # Git-import-only digests; ``None`` for a 'managed' revision, which has
+    # neither a committed manifest file nor an uploaded source bundle.
+    # ``revision_sha256`` remains the integrity anchor for both kinds.
+    manifest_sha256: str | None = None
+    source_bundle_sha256: str | None = None
     source_snapshot_file_id: str | None = None
     source_attestation: str = ""
     revision_sha256: str = ""

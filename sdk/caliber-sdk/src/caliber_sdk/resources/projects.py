@@ -560,6 +560,34 @@ class ProjectRevisionsAPI(Resource):
             )
         )
 
+    def snapshot(
+        self, project_id: str, *, resources: Sequence[dict[str, Any]]
+    ) -> WorkspaceRevision:
+        """Pin an explicit list of live CALIBER resource versions into a new,
+        immutable, source-less ("managed") revision (`P4-B`/`P4-C`).
+
+        Unlike a Git-backed import, this never resolves "current" for you --
+        each entry in ``resources`` names an exact
+        ``{"resource_type": ..., "resource_id": ..., "version_ref": ...}``
+        pin (``logical_name``/``purpose`` are optional), so the same request
+        always produces the same content. A resource type with no registered
+        adapter, or whose adapter does not yet support managed snapshotting,
+        is refused (``409``) rather than silently skipped -- today that's
+        only ``"prompt"``.
+
+        Idempotent by content: retrying with the same ``resources`` list
+        returns the already-created revision instead of a duplicate (the
+        resource list's own digest becomes the revision's ``revision_sha256``,
+        deduplicated server-side), so no separate idempotency key is needed.
+        """
+        return _decode_revision(
+            self._post(
+                f"/projects/{project_id}/revisions:snapshot",
+                json={"resources": list(resources)},
+                project=project_id,
+            )
+        )
+
 
 class ProjectChangeRequestsAPI(Resource):
     """The Change Request review lifecycle for one project (`P6-B`).

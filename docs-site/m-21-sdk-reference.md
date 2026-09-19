@@ -2346,6 +2346,37 @@ The deterministic pin-level difference from ``base`` to ``revision_id``.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `snapshot(project_id: str, *, resources: Sequence[dict[str, Any]]) -> WorkspaceRevision`
+
+Pin an explicit list of live CALIBER resource versions into a new,
+immutable, source-less ("managed") revision (`P4-B`/`P4-C`).
+
+Unlike a Git-backed import, this never resolves "current" for you --
+each entry in ``resources`` names an exact
+``{"resource_type": ..., "resource_id": ..., "version_ref": ...}``
+pin (``logical_name``/``purpose`` are optional), so the same request
+always produces the same content. A resource type with no registered
+adapter, or whose adapter does not yet support managed snapshotting,
+is refused (``409``) rather than silently skipped -- today that's
+only ``"prompt"``.
+
+Idempotent by content: retrying with the same ``resources`` list
+returns the already-created revision instead of a duplicate (the
+resource list's own digest becomes the revision's ``revision_sha256``,
+deduplicated server-side), so no separate idempotency key is needed.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `resources` | keyword-only | `Sequence[dict[str, Any]]` | `—` |
+
+**Returns:** `WorkspaceRevision`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ##### `ProjectChangeRequestsAPI`
 
 `class ProjectChangeRequestsAPI()`
@@ -12563,9 +12594,10 @@ Revision metadata and its exact resource pins.
 | `revision_number` | `int` | `0` |
 | `source_id` | `str | None` | `None` |
 | `source_commit_sha` | `str | None` | `None` |
+| `source_kind` | `str` | `'git'` |
 | `manifest` | `dict[str, Any]` | `field(default_factory=dict)` |
-| `manifest_sha256` | `str` | `''` |
-| `source_bundle_sha256` | `str` | `''` |
+| `manifest_sha256` | `str | None` | `None` |
+| `source_bundle_sha256` | `str | None` | `None` |
 | `source_snapshot_file_id` | `str | None` | `None` |
 | `source_attestation` | `str` | `''` |
 | `revision_sha256` | `str` | `''` |

@@ -21,6 +21,7 @@ from typing import Any, Literal, cast
 
 import yaml
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session, sessionmaker
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
@@ -46,7 +47,12 @@ from caliber.db.models import (
     CaliberWorkspaceRevisionResource,
     CaliberWorkspaceSource,
 )
-from caliber.ids import new_workspace_import_id, new_workspace_source_id
+from caliber.ids import (
+    new_workspace_import_id,
+    new_workspace_revision_id,
+    new_workspace_revision_resource_id,
+    new_workspace_source_id,
+)
 from caliber.resource_access import require_project_access
 from caliber.routes._deps import (
     envelope_response,
@@ -62,6 +68,8 @@ from caliber.schemas import (
     WorkspaceRevisionListSchema,
     WorkspaceRevisionResourceSchema,
     WorkspaceRevisionSchema,
+    WorkspaceRevisionSnapshotRequest,
+    WorkspaceRevisionSnapshotResourceRequest,
     WorkspaceSourceCapabilitiesSchema,
     WorkspaceSourceConfigureRequest,
     WorkspaceSourceResponse,
@@ -73,7 +81,15 @@ from caliber.storage import (
     WorkingDirectoryService,
     safe_relative_path,
 )
+from caliber.workflows.manifest import canonical_json
 from caliber.workspace_manifest import manifest_digest, parse_workspace_manifest
+from caliber.workspace_release_adapters import (
+    SnapshotPin,
+    WorkspaceReleaseAdapterError,
+    WorkspaceReleaseAdapterUnavailableError,
+    WorkspaceResourceAdapterRegistry,
+)
+from caliber.workspace_revisions import allocate_revision_number, finalize_revision
 from caliber.workspace_source import materialize_workspace_source
 from caliber.workspace_sources import (
     WorkspaceSourceProviderError,
@@ -95,6 +111,7 @@ IMPORT_RECONCILE_PATH = IMPORT_DETAIL_PATH + ":reconcile"
 REVISIONS_PATH = PREFIX + "/projects/{project_id}/revisions"
 REVISION_DETAIL_PATH = REVISIONS_PATH + "/{revision_id}"
 REVISION_DIFF_PATH = REVISION_DETAIL_PATH + "/diff"
+REVISIONS_SNAPSHOT_PATH = REVISIONS_PATH + ":snapshot"
 
 _ETAG_RESPONSE = {
     "description": "The source changed or is not configured for the supplied validator.",
@@ -363,6 +380,15 @@ def _provider_registry(request: Request) -> WorkspaceSourceProviderRegistry:
         return WorkspaceSourceProviderRegistry()
     if not isinstance(registry, WorkspaceSourceProviderRegistry):
         raise RuntimeError("app.state.workspace_source_registry has an invalid type")
+    return registry
+
+
+def _resource_adapter_registry(request: Request) -> WorkspaceResourceAdapterRegistry:
+    registry = getattr(request.app.state, "workspace_resource_adapter_registry", None)
+    if registry is None:
+        return WorkspaceResourceAdapterRegistry()
+    if not isinstance(registry, WorkspaceResourceAdapterRegistry):
+        raise RuntimeError("app.state.workspace_resource_adapter_registry has an invalid type")
     return registry
 
 
@@ -859,6 +885,7 @@ def _revision_schema(
         revision_number=revision.revision_number,
         source_id=revision.source_id,
         source_commit_sha=revision.source_commit_sha,
+        source_kind=cast(Literal["git", "managed"], revision.source_kind),
         manifest=dict(revision.manifest or {}),
         manifest_sha256=revision.manifest_sha256,
         source_bundle_sha256=revision.source_bundle_sha256,
@@ -1044,6 +1071,202 @@ def _diff_revisions_sync(
             removed=[_resource_schema(row) for row in removed],
             changed=[_resource_schema(row) for row in changed],
         )
+
+
+def _create_snapshot_sync(
+    factory: _Factory,
+    *,
+    project_id: str,
+    actor: str,
+    identity: CaliberIdentity,
+    project_action: str,
+    payload: WorkspaceRevisionSnapshotRequest,
+    adapter_registry: WorkspaceResourceAdapterRegistry,
+) -> WorkspaceRevisionSchema:
+    """Pin an explicit list of live CALIBER resource versions into a new,
+    immutable, source-less ("managed") revision (`P4-B`/`P4-C`).
+
+    Unlike ``_create_import_sync`` (which pins resources by reading an
+    already-validated Git source snapshot), this resolves and snapshots each
+    requested pin *live*, through the registered
+    :class:`~caliber.workspace_release_adapters.WorkspaceResourceAdapter` for
+    its ``resource_type`` -- failing closed (409) for any resource type with
+    no registered adapter, or whose adapter's ``snapshot()`` does not yet
+    return a :class:`~caliber.workspace_release_adapters.SnapshotPin` (see
+    that type's docstring: only ``prompt`` does today).
+
+    Idempotency is content-derived rather than header-based: the resource
+    list's own digest becomes ``revision_sha256``, so a byte-identical retry
+    naturally converges on the already-created revision via
+    ``uq_workspace_revision_digest`` (project_id, revision_sha256) instead of
+    creating a duplicate -- the same "second attempt is idempotent" property
+    ``workspace_source.assert_source_commit_digest`` gives the import path,
+    without needing a separate ``Idempotency-Key`` header here (this
+    request's JSON body *is* the content whose digest is being deduplicated,
+    unlike the multipart import route's arbitrary uploaded bytes). A
+    concurrent request racing to create the same content is caught by
+    ``begin_nested()``/``IntegrityError`` (mirrors
+    ``routes/workflows.py``'s benchmark-report create) and replayed from the
+    winner's committed row rather than erroring.
+    """
+    with factory() as session:
+        project, _decision = require_project_access(session, identity, project_id, project_action)
+        if project.status != "active":
+            raise HTTPException(status_code=409, detail="archived_workspace")
+
+        seen_keys: set[tuple[str, str]] = set()
+        prepared: list[tuple[WorkspaceRevisionSnapshotResourceRequest, SnapshotPin]] = []
+        for entry in payload.resources:
+            logical_name = entry.logical_name or entry.resource_id
+            key = (entry.resource_type, logical_name)
+            if key in seen_keys:
+                raise HTTPException(
+                    status_code=400,
+                    detail=(
+                        f"duplicate resource pin for resource_type={entry.resource_type!r} "
+                        f"logical_name={logical_name!r}"
+                    ),
+                )
+            seen_keys.add(key)
+            try:
+                adapter = adapter_registry.require(entry.resource_type)
+            except WorkspaceReleaseAdapterUnavailableError as exc:
+                raise HTTPException(
+                    status_code=409, detail=f"resource_type_adapter_unavailable: {exc}"
+                ) from exc
+            declaration = {"resource_id": entry.resource_id, "version_ref": entry.version_ref}
+            try:
+                resolved = adapter.resolve(session, project, declaration)
+            except WorkspaceReleaseAdapterError as exc:
+                raise HTTPException(
+                    status_code=409, detail=f"resource_resolve_failed: {exc}"
+                ) from exc
+            try:
+                pin = adapter.snapshot(session, resolved)
+            except WorkspaceReleaseAdapterError as exc:
+                raise HTTPException(
+                    status_code=409, detail=f"resource_snapshot_failed: {exc}"
+                ) from exc
+            if not isinstance(pin, SnapshotPin):
+                raise HTTPException(
+                    status_code=409,
+                    detail=(
+                        f"resource_type {entry.resource_type!r} does not support "
+                        "managed snapshotting yet"
+                    ),
+                )
+            prepared.append((entry, pin))
+
+        prepared.sort(
+            key=lambda item: (item[0].resource_type, item[0].logical_name or item[0].resource_id)
+        )
+
+        descriptor = {
+            "schema_version": "v1alpha1-managed",
+            "project_id": project_id,
+            "source_kind": "managed",
+            "resources": [
+                {
+                    "resource_type": entry.resource_type,
+                    "logical_name": entry.logical_name or entry.resource_id,
+                    "resource_id": pin.resource_id,
+                    "version_ref": pin.version_ref,
+                    "content_sha256": pin.content_sha256,
+                }
+                for entry, pin in prepared
+            ],
+        }
+        revision_sha256 = hashlib.sha256(canonical_json(descriptor).encode("utf-8")).hexdigest()
+
+        existing = session.execute(
+            select(CaliberWorkspaceRevision).where(
+                CaliberWorkspaceRevision.project_id == project_id,
+                CaliberWorkspaceRevision.revision_sha256 == revision_sha256,
+            )
+        ).scalar_one_or_none()
+        if existing is not None:
+            return _revision_schema(existing, _revision_resources(session, existing.revision_id))
+
+        try:
+            with session.begin_nested():
+                revision_number = allocate_revision_number(session, project_id)
+                revision = CaliberWorkspaceRevision(
+                    revision_id=new_workspace_revision_id(),
+                    project_id=project_id,
+                    revision_number=revision_number,
+                    source_id=None,
+                    source_commit_sha=None,
+                    source_kind="managed",
+                    manifest={
+                        "schema_version": "v1alpha1-managed",
+                        "resource_count": len(prepared),
+                    },
+                    manifest_sha256=None,
+                    source_bundle_sha256=None,
+                    source_snapshot_file_id=None,
+                    source_attestation="caller_attested",
+                    revision_sha256=revision_sha256,
+                    created_by=actor,
+                )
+                session.add(revision)
+                session.flush()
+                for entry, pin in prepared:
+                    session.add(
+                        CaliberWorkspaceRevisionResource(
+                            resource_pin_id=new_workspace_revision_resource_id(),
+                            revision_id=revision.revision_id,
+                            resource_type=entry.resource_type,
+                            logical_name=entry.logical_name or entry.resource_id,
+                            resource_id=pin.resource_id,
+                            version_ref=pin.version_ref,
+                            content_sha256=pin.content_sha256,
+                            source_path=None,
+                            source_sha256=None,
+                            provider_ref=pin.provider_ref,
+                            snapshot_file_id=None,
+                            snapshot_sha256=None,
+                            purpose=entry.purpose,
+                            resolution=dict(pin.resolution),
+                        )
+                    )
+                finalize_revision(
+                    session,
+                    revision,
+                    "ready",
+                    validation_report={
+                        "strategy": "managed_snapshot",
+                        "resource_count": len(prepared),
+                    },
+                    validated_by=actor,
+                )
+                session.flush()
+        except IntegrityError:
+            replay = session.execute(
+                select(CaliberWorkspaceRevision).where(
+                    CaliberWorkspaceRevision.project_id == project_id,
+                    CaliberWorkspaceRevision.revision_sha256 == revision_sha256,
+                )
+            ).scalar_one_or_none()
+            if replay is None:
+                raise HTTPException(
+                    status_code=409, detail="workspace_revision_snapshot_conflict"
+                ) from None
+            return _revision_schema(replay, _revision_resources(session, replay.revision_id))
+
+        audit_record(
+            session,
+            actor=actor,
+            action="snapshot_workspace_revision",
+            entity_type="workspace_revision",
+            entity_id=revision.revision_id,
+            details={
+                "project_id": project_id,
+                "revision_sha256": revision_sha256,
+                "resource_count": len(prepared),
+            },
+        )
+        session.commit()
+        return _revision_schema(revision, _revision_resources(session, revision.revision_id))
 
 
 async def get_source(request: Request) -> JSONResponse:
@@ -1350,6 +1573,26 @@ async def diff_revisions(request: Request) -> JSONResponse:
     return envelope_response(response)
 
 
+async def snapshot_revision(request: Request) -> JSONResponse:
+    project_id = request.path_params["project_id"]
+    _require_workspace_header(request, project_id)
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    body = await parse_json_object(request)
+    payload = WorkspaceRevisionSnapshotRequest.model_validate(body)
+    response = await run_in_threadpool(
+        _create_snapshot_sync,
+        get_session_factory(request),
+        project_id=project_id,
+        actor=actor,
+        identity=identity,
+        project_action="revision.create",
+        payload=payload,
+        adapter_registry=_resource_adapter_registry(request),
+    )
+    return envelope_response(response, status_code=201)
+
+
 def register(app: Starlette) -> None:
     for endpoint in (put_source, enable_source, disable_source, reconcile_source):
         endpoint.__caliber_openapi_responses__ = {"412": _ETAG_RESPONSE}  # type: ignore[attr-defined]
@@ -1366,3 +1609,4 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(REVISIONS_PATH, list_revisions, methods=["GET"]))
     app.routes.append(Route(REVISION_DETAIL_PATH, get_revision, methods=["GET"]))
     app.routes.append(Route(REVISION_DIFF_PATH, diff_revisions, methods=["GET"]))
+    app.routes.append(Route(REVISIONS_SNAPSHOT_PATH, snapshot_revision, methods=["POST"]))
