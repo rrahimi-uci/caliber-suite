@@ -690,11 +690,11 @@ Supported but still moving route groups. Expect capability growth and narrower c
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases` | project role (`resource.write.runtime`) | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/options` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases_options` |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}` | `caliber.operator` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_knowledge_bases_knowledge_base_id` |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}` | project role (`resource.write.runtime`) | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_knowledge_bases_knowledge_base_id` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}` | any authenticated user | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_knowledge_bases_knowledge_base_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}` | `caliber.operator` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_knowledge_bases_knowledge_base_id`; request body documented in OpenAPI |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}` | project role (`resource.write.runtime`) | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_knowledge_bases_knowledge_base_id`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/baseline` | `caliber.operator` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases_knowledge_base_id_baseline`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/calibrate` | `caliber.operator` | `knowledge_base_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases_knowledge_base_id_calibrate`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/knowledge-bases/{knowledge_base_id}/rollback` | `caliber.operator` | `knowledge_base_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_knowledge_bases_knowledge_base_id_rollback` |
@@ -740,10 +740,10 @@ Supported but still moving route groups. Expect capability growth and narrower c
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations` | one of `caliber.admin` or `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations` | project role (`resource.write.runtime`) | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}` | any authenticated user | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}` | one of `caliber.admin` or `caliber.operator` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/archive` | one of `caliber.admin` or `caliber.operator` | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_archive`; request body documented in OpenAPI |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}` | project role (`resource.write.runtime`) | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/archive` | project role (`resource.write.runtime`) | `integration_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_openapi_integrations_integration_id_archive`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/dependencies` | any authenticated user | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_dependencies` |
 | `PATCH` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/dependencies/{dependency_id}` | one of `caliber.admin` or `caliber.operator` | `dependency_id`, `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `patch_openapi_integrations_integration_id_dependencies_dependency_id`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/openapi-integrations/{integration_id}/graph` | any authenticated user | `integration_id` | `400`, `401`, `403`, `404` | `operationId`: `get_openapi_integrations_integration_id_graph` |
@@ -895,8 +895,8 @@ Supported but still moving route groups. Expect capability growth and narrower c
 | `GET` | `/ajax-api/2.0/mlflow/caliber/aria/plans` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_aria_plans` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans` | any authenticated user | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_aria_plans_plan_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_aria_plans_plan_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/approve` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_approve` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}` | project role (`resource.execute`) | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_aria_plans_plan_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/approve` | project role (`resource.execute`) | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_approve` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/execute` | project role (`resource.execute`) | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_execute` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/interactions` | any authenticated user | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_aria_plans_plan_id_interactions` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/aria/plans/{plan_id}/poll` | project role (`resource.execute`) | `plan_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_aria_plans_plan_id_poll` |
@@ -1064,9 +1064,9 @@ Published for route-table completeness, but not part of the supported SDK contra
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/llm-pricing` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_llm_pricing` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/llm-pricing` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_llm_pricing`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/llm-pricing` | project role (`resource.write.runtime`) | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_llm_pricing`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/llm-pricing/{pricing_id}` | any authenticated user | `pricing_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_llm_pricing_pricing_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/llm-pricing/{pricing_id}` | `caliber.admin` | `pricing_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_llm_pricing_pricing_id`; request body documented in OpenAPI |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/llm-pricing/{pricing_id}` | project role (`resource.write.runtime`) | `pricing_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_llm_pricing_pricing_id`; request body documented in OpenAPI |
 
 #### Memory (`memory`)
 

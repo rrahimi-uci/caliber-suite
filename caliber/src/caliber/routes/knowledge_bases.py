@@ -9,6 +9,8 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
+from caliber.db.models import CaliberKnowledgeBase
+from caliber.db.scoping import get_visible
 from caliber.knowledge.embeddings import KnowledgeDependencyError
 from caliber.knowledge.schemas import (
     KnowledgeBaseCreateRequest,
@@ -22,6 +24,7 @@ from caliber.knowledge.schemas import (
     KnowledgeQueryRequest,
 )
 from caliber.knowledge.service import KnowledgeBaseService
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -105,6 +108,18 @@ async def create_knowledge_base(request: Request) -> JSONResponse:
     identity = resolve_identity(request)
     body = await parse_json_object(request)
     payload = KnowledgeBaseCreateRequest.model_validate(body)
+    # `P2-A` (isolation closure, item 1's "root routes to centralized
+    # authorization"): this route previously checked only the global
+    # `caliber.operator` scope, with no project-role check at all -- a
+    # project `viewer` (visible but not meant to write) could create a
+    # knowledge base into any project they merely belong to. Same
+    # `resource.write.runtime` action `create_prompt`/`create_workflow`/
+    # `register_tool`/`create_skill` already use for this identical "root
+    # create" shape. A no-op when no project is active (a personal/global KB).
+    with get_session_factory(request)() as session:
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, "resource.write.runtime"
+        )
     try:
         result = _service(request).create_knowledge_base(payload, identity=identity, actor=actor)
     except KnowledgeDependencyError as exc:
@@ -126,6 +141,23 @@ async def update_knowledge_base(request: Request) -> JSONResponse:
     knowledge_base_id = request.path_params["knowledge_base_id"]
     body = await parse_json_object(request)
     payload = KnowledgeBaseUpdateRequest.model_validate(body)
+    # `P2-A`: same `resource.write.runtime` role floor as `create_knowledge_
+    # base` above, gated on the KB's own project (not the caller's active
+    # one). The service's own visibility check below still 404s a genuinely
+    # invisible/missing id; this only adds the role check for a visible one.
+    with get_session_factory(request)() as session:
+        kb = get_visible(
+            session,
+            CaliberKnowledgeBase,
+            CaliberKnowledgeBase.knowledge_base_id,
+            knowledge_base_id,
+            identity,
+        )
+        if kb is None:
+            raise HTTPException(
+                status_code=404, detail=f"knowledge base {knowledge_base_id!r} not found"
+            )
+        require_project_access_if_scoped(session, identity, kb.project_id, "resource.write.runtime")
     row = _service(request).update_knowledge_base(
         knowledge_base_id,
         payload,
@@ -148,6 +180,21 @@ async def delete_knowledge_base(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
     knowledge_base_id = request.path_params["knowledge_base_id"]
+    # `P2-A`: same `resource.write.runtime` role floor as `create_knowledge_
+    # base`/`update_knowledge_base` above.
+    with get_session_factory(request)() as session:
+        kb = get_visible(
+            session,
+            CaliberKnowledgeBase,
+            CaliberKnowledgeBase.knowledge_base_id,
+            knowledge_base_id,
+            identity,
+        )
+        if kb is None:
+            raise HTTPException(
+                status_code=404, detail=f"knowledge base {knowledge_base_id!r} not found"
+            )
+        require_project_access_if_scoped(session, identity, kb.project_id, "resource.write.runtime")
     _service(request).delete(knowledge_base_id, identity=identity, actor=actor)
     return JSONResponse({"data": {"knowledge_base_id": knowledge_base_id, "deleted": True}})
 
