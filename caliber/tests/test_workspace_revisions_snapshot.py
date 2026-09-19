@@ -20,7 +20,7 @@ import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from caliber.db.models import CaliberAgentConfig, CaliberProject
+from caliber.db.models import CaliberAgentConfig, CaliberProject, CaliberProjectMember
 from caliber.workspace_release_adapters import FakeWorkspaceResourceAdapter
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
@@ -238,6 +238,15 @@ def test_snapshot_refuses_a_missing_prompt_version(
 def test_snapshot_refuses_a_prompt_bound_to_a_different_project(
     client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
+    """The default test identity (``@test``) is a platform admin (see
+    ``conftest.py::app_config``), and an admin bypasses the 3-tier
+    visibility model everywhere in this codebase (``db/scoping.py``'s own
+    documented admin bypass) -- exactly like a real CALIBER admin should be
+    able to. So proving this refusal for real needs a genuinely non-admin
+    caller: one who has the ``caliber.operator`` platform scope (to reach
+    the route at all) and an editor role on the *calling* project (to pass
+    the project-role check), but is neither a member of the *other* project
+    nor the prompt's owner."""
     project_id = _create_project(client, "Snapshot owner")
     other_project_id = _create_project(client, "Snapshot other")
     db_session.add(
@@ -254,7 +263,20 @@ def test_snapshot_refuses_a_prompt_bound_to_a_different_project(
             approval_policy={},
         )
     )
+    db_session.add(
+        CaliberProjectMember(
+            member_id="PM-snapshot-operator",
+            project_id=project_id,
+            user_id="@snapshot-operator",
+            role="editor",
+            status="active",
+            created_by="@test",
+        )
+    )
     db_session.commit()
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"operator_users": "@snapshot-operator"}
+    )
     _install_mlflow(
         monkeypatch,
         load_refs={
@@ -265,9 +287,11 @@ def test_snapshot_refuses_a_prompt_bound_to_a_different_project(
     )
     response = client.post(
         f"{PREFIX}/projects/{project_id}/revisions:snapshot",
+        headers={"X-CALIBER-User": "@snapshot-operator", "X-CALIBER-Project": project_id},
         json=_snapshot_body(resource_id="owned-elsewhere", version_ref="1"),
     )
-    assert response.status_code == 409
+    assert response.status_code == 409, response.text
+    assert "resource_resolve_failed" in response.json()["detail"]
     assert "resource_resolve_failed" in response.json()["detail"]
 
 

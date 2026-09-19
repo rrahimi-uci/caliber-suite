@@ -25,6 +25,27 @@ where one succeeded and the other did not. A genuinely external provider
 (a real network call) still cannot share this transaction and keeps the
 original two-phase apply/observe contract this session parameter does not
 change.
+
+``resolve()`` additionally receives the caller's ``identity`` (`P4-B`/`P4-C`,
+added when ``routes/workspace.py::snapshot_revision`` became this Protocol's
+first real caller for ``resolve()``/``snapshot()``). Typed as ``object`` here
+for the same reason ``session``/``workspace``/``declaration`` are: this
+module stays import-light, and a real adapter narrows the type itself (e.g.
+``assert isinstance(identity, CaliberIdentity)``). An adapter resolving a
+resource that has its own multi-tenant visibility model (a CALIBER prompt's
+project/user/public tiers, for one -- see
+:mod:`caliber.workspace_release_prompt_adapter`) must check ``identity``
+against that model before returning content -- an adapter that only checks
+``workspace``/project-id equality is not enough, since a `None` project id
+on the target row can mean "public" (open to everyone) or "personal to one
+specific owner" (`P4-B`/`P4-C` fixed exactly this gap for the prompt adapter,
+the same disclosure `P2-N`/`P2-O` already closed for the prompt *lookup*
+routes). :class:`FakeWorkspaceResourceAdapter` and
+:class:`~caliber.workspace_release_workflow_adapter.WorkflowWorkspaceResourceAdapter`
+still ignore ``identity`` in ``resolve()`` -- that method is an unused
+placeholder for both today (see the workflow adapter's own module
+docstring: "Not called anywhere yet"), not a resource this Protocol
+addition has already audited for a real visibility model of its own.
 """
 
 from __future__ import annotations
@@ -130,7 +151,7 @@ class WorkspaceResourceAdapter(Protocol):
     resource_type: str
 
     def resolve(
-        self, session: object, workspace: object, declaration: object
+        self, session: object, workspace: object, declaration: object, identity: object
     ) -> object: ...  # pragma: no cover
 
     def snapshot(self, session: object, resolved_pin: object) -> object: ...  # pragma: no cover
@@ -206,7 +227,9 @@ class FakeWorkspaceResourceAdapter:
         self._queued_apply: list[ProviderOutcome | WorkspaceProviderTimeoutError] = []
         self._queued_observe: list[ProviderOutcome] = []
 
-    def resolve(self, _session: object, _workspace: object, declaration: object) -> object:
+    def resolve(
+        self, _session: object, _workspace: object, declaration: object, _identity: object
+    ) -> object:
         return declaration
 
     def snapshot(self, _session: object, resolved_pin: object) -> object:

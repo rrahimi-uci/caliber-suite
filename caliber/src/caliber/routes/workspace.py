@@ -1136,7 +1136,7 @@ def _create_snapshot_sync(
                 ) from exc
             declaration = {"resource_id": entry.resource_id, "version_ref": entry.version_ref}
             try:
-                resolved = adapter.resolve(session, project, declaration)
+                resolved = adapter.resolve(session, project, declaration, identity)
             except WorkspaceReleaseAdapterError as exc:
                 raise HTTPException(
                     status_code=409, detail=f"resource_resolve_failed: {exc}"

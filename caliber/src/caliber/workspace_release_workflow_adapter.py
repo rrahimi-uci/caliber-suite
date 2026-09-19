@@ -105,11 +105,18 @@ class WorkflowWorkspaceResourceAdapter:
         self._actor = actor
 
     # -- resolve / snapshot ---------------------------------------------
-    # Not called anywhere yet (revision materialization doesn't exist),
-    # but implemented for real rather than left as a stub so the Protocol
-    # is genuinely satisfiable once that path lands.
+    # `routes/workspace.py::snapshot_revision` (`P4-C`) is this Protocol's
+    # first real caller for any resource_type, but a "workflow" pin always
+    # fails here today: that route's declaration shape is generic
+    # (`resource_id`/`version_ref`), and this method still expects its own
+    # pre-existing `workflow_id` key, so it never reaches -- let alone
+    # returns -- real content. `_identity` is accordingly unused: this
+    # adapter's `resolve()` has no real caller to authorize against yet, the
+    # same reason `snapshot()` right below is still a placeholder.
 
-    def resolve(self, session: object, _workspace: object, declaration: object) -> CaliberWorkflow:
+    def resolve(
+        self, session: object, _workspace: object, declaration: object, _identity: object
+    ) -> CaliberWorkflow:
         # The Protocol types `session` as `object` so this module need not be
         # imported wherever the Protocol is (see workspace_release_adapters's
         # module docstring); every real caller passes a live Session.

@@ -18,10 +18,13 @@ MLflow itself), and the only CALIBER-side row is a hidden runtime identity,
 :class:`~caliber.db.models.CaliberAgentConfig` keyed by
 ``agent_id == prompt_name`` (see ``prompt_targets.py``). That makes a prompt
 adapter's ``resolve()`` genuinely two lookups rather than one: a CALIBER-side
-project-scoping check against the hidden target (mirroring
-``routes/prompts.py::create_prompt``'s `P2-G` collision refusal -- a prompt
-already bound to a *different* project must not be snapshottable into this
-one), and a live MLflow Prompt Registry read for the actual content.
+visibility check against the hidden target's own 3-tier model
+(``project``/``user``/``public``, :func:`caliber.db.scoping.get_visible`) --
+the exact same check ``routes/prompts.py``'s prompt *lookup* routes already
+enforce (`P2-N`/`P2-O`), reused here rather than reimplemented, since a bare
+``target.project_id`` comparison cannot distinguish a public prompt from
+another user's unshared personal one (both have ``project_id is None``) --
+and a live MLflow Prompt Registry read for the actual content.
 
 Pin field convention this adapter establishes, mirroring
 ``workspace_release_workflow_adapter.py``'s own:
@@ -55,12 +58,13 @@ from typing import Any, cast
 
 from sqlalchemy.orm import Session
 
+from caliber.auth import CaliberIdentity
 from caliber.db.models import (
     CaliberAgentConfig,
-    CaliberProject,
     CaliberWorkspaceEnvironment,
     CaliberWorkspaceRevisionResource,
 )
+from caliber.db.scoping import get_visible
 from caliber.workspace_release_adapters import (
     PreparedAction,
     ProviderOutcome,
@@ -138,16 +142,32 @@ class PromptWorkspaceResourceAdapter:
     # -- resolve / snapshot --------------------------------------------------
 
     def resolve(
-        self, session: object, workspace: object, declaration: object
+        self, session: object, _workspace: object, declaration: object, identity: object
     ) -> ResolvedPromptVersion:
-        """Load one exact prompt version and enforce project scoping.
+        """Load one exact prompt version and enforce the prompt's own
+        3-tier visibility model.
 
         ``declaration`` carries ``resource_id`` (the prompt name) and
         ``version_ref`` (the exact MLflow version, as a string/int) --
         the shape ``routes/workspace.py::snapshot_revision`` builds from
         its request body's explicit pin list.
+
+        The hidden ``CaliberAgentConfig`` prompt target's ``project_id`` is
+        ``None`` for *two* distinct cases -- ``visibility="public"`` (open to
+        everyone) and ``visibility="user"`` (personal to exactly one owner,
+        ``routes/prompts.py``'s "without an active project defaults to
+        personal library" default) -- so a bare ``target.project_id !=
+        <caller's project>`` comparison cannot tell them apart and would let
+        any operator snapshot any other user's unshared personal prompt by
+        name. This reuses :func:`caliber.db.scoping.get_visible`, the exact
+        same call ``routes/prompts.py::_prompt_target_invisible`` already
+        uses for every prompt *lookup* route (`P2-N`/`P2-O`), so a managed
+        snapshot is refused under precisely the same visibility rule a
+        direct API read already enforces -- not a second, adapter-local
+        reimplementation of that policy.
         """
         assert isinstance(session, Session)
+        assert isinstance(identity, CaliberIdentity)
         if not isinstance(declaration, Mapping):
             raise WorkspaceReleaseAdapterError("prompt declaration must be a mapping")
         name = declaration.get("resource_id") or declaration.get("prompt_name")
@@ -164,18 +184,16 @@ class PromptWorkspaceResourceAdapter:
                 f"prompt version {raw_version!r} must be an integer"
             ) from exc
 
-        project = workspace if isinstance(workspace, CaliberProject) else None
         target = session.get(CaliberAgentConfig, name)
-        if (
-            target is not None
-            and target.project_id is not None
-            and project is not None
-            and target.project_id != project.project_id
-        ):
-            raise WorkspaceReleaseAdapterError(
-                f"prompt {name!r} is registered to project {target.project_id!r}, "
-                f"not {project.project_id!r}"
+        if target is not None:
+            visible = (
+                get_visible(
+                    session, CaliberAgentConfig, CaliberAgentConfig.agent_id, name, identity
+                )
+                is not None
             )
+            if not visible:
+                raise WorkspaceReleaseAdapterError(f"prompt {name!r} is not visible to the caller")
 
         mlflow_mod = self._mlflow_module()
         if mlflow_mod is None:
@@ -237,6 +255,20 @@ class PromptWorkspaceResourceAdapter:
         pin: CaliberWorkspaceRevisionResource,
         environment: CaliberWorkspaceEnvironment | None = None,
     ) -> dict[str, Any]:
+        """Not called by any live route or worker today (mirrors
+        ``WorkflowWorkspaceResourceAdapter.validate()``'s own "not called by
+        ``workspace_release_operations.py`` today" note) -- kept real and
+        exercised directly rather than left a stub. Unlike ``resolve()``
+        above, the :class:`~caliber.workspace_release_adapters.WorkspaceResourceAdapter`
+        Protocol's ``validate()`` does not carry a caller ``identity`` to
+        check the prompt's full 3-tier visibility model against, so this
+        still only compares ``project_id`` directly -- the same narrower
+        check ``resolve()`` used to have, and the same class of gap, though
+        unreachable in production while nothing calls this method. Widening
+        ``validate()``'s Protocol signature the same way is left for when a
+        real caller needs it, so that change can be reviewed against an
+        actual call site instead of speculatively.
+        """
         assert isinstance(session, Session)
         name = pin.resource_id
         target = session.get(CaliberAgentConfig, name)

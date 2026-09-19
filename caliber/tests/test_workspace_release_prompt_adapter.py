@@ -19,9 +19,11 @@ from typing import Any
 import pytest
 from sqlalchemy.orm import Session
 
+from caliber.auth import SCOPE_ADMIN, CaliberIdentity
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberProject,
+    CaliberProjectMember,
     CaliberWorkspaceEnvironment,
     CaliberWorkspaceRevisionResource,
 )
@@ -39,6 +41,16 @@ from caliber.workspace_release_prompt_adapter import (
 PROJECT_ID = "PRJ-prompt-adapter"
 OTHER_PROJECT_ID = "PRJ-prompt-adapter-other"
 ADAPTER = PromptWorkspaceResourceAdapter()
+
+
+def _identity(
+    user_id: str = "@caller", *, active_project_id: str | None = None, admin: bool = False
+) -> CaliberIdentity:
+    return CaliberIdentity(
+        user_id=user_id,
+        scopes=frozenset({SCOPE_ADMIN}) if admin else frozenset(),
+        active_project_id=active_project_id,
+    )
 
 
 def _install_mlflow(
@@ -82,14 +94,21 @@ def _seed_project(session: Session, *, project_id: str = PROJECT_ID) -> None:
     session.flush()
 
 
-def _seed_target(session: Session, *, name: str, project_id: str | None) -> CaliberAgentConfig:
+def _seed_target(
+    session: Session,
+    *,
+    name: str,
+    project_id: str | None,
+    owner: str = "@test",
+    visibility: str | None = None,
+) -> CaliberAgentConfig:
     target = CaliberAgentConfig(
         agent_id=name,
         experiment_id=f"exp-{name}",
         name=name,
-        owner="@test",
+        owner=owner,
         project_id=project_id,
-        visibility="project" if project_id else "user",
+        visibility=visibility or ("project" if project_id else "user"),
         artifact_types=["prompt"],
         eval_thresholds={},
         optimizer_config={},
@@ -117,7 +136,10 @@ def test_resolve_loads_the_exact_version_and_computes_no_alias(
     )
     project = db_session.get(CaliberProject, PROJECT_ID)
     resolved = ADAPTER.resolve(
-        db_session, project, {"resource_id": "support-agent", "version_ref": "3"}
+        db_session,
+        project,
+        {"resource_id": "support-agent", "version_ref": "3"},
+        _identity(),
     )
     assert isinstance(resolved, ResolvedPromptVersion)
     assert resolved.name == "support-agent"
@@ -128,17 +150,20 @@ def test_resolve_loads_the_exact_version_and_computes_no_alias(
 
 
 def test_resolve_requires_resource_id_and_version_ref(db_session: Session) -> None:
+    identity = _identity()
     with pytest.raises(WorkspaceReleaseAdapterError, match="requires"):
-        ADAPTER.resolve(db_session, None, {"resource_id": "x"})
+        ADAPTER.resolve(db_session, None, {"resource_id": "x"}, identity)
     with pytest.raises(WorkspaceReleaseAdapterError, match="requires"):
-        ADAPTER.resolve(db_session, None, {})
+        ADAPTER.resolve(db_session, None, {}, identity)
     with pytest.raises(WorkspaceReleaseAdapterError):
-        ADAPTER.resolve(db_session, None, "not-a-mapping")  # type: ignore[arg-type]
+        ADAPTER.resolve(db_session, None, "not-a-mapping", identity)  # type: ignore[arg-type]
 
 
 def test_resolve_rejects_a_non_integer_version(db_session: Session) -> None:
     with pytest.raises(WorkspaceReleaseAdapterError, match="integer"):
-        ADAPTER.resolve(db_session, None, {"resource_id": "x", "version_ref": "not-a-number"})
+        ADAPTER.resolve(
+            db_session, None, {"resource_id": "x", "version_ref": "not-a-number"}, _identity()
+        )
 
 
 def test_resolve_fails_closed_when_mlflow_is_unavailable(
@@ -146,7 +171,7 @@ def test_resolve_fails_closed_when_mlflow_is_unavailable(
 ) -> None:
     monkeypatch.setitem(sys.modules, "mlflow", None)
     with pytest.raises(WorkspaceReleaseAdapterError, match="mlflow is not installed"):
-        ADAPTER.resolve(db_session, None, {"resource_id": "x", "version_ref": "1"})
+        ADAPTER.resolve(db_session, None, {"resource_id": "x", "version_ref": "1"}, _identity())
 
 
 def test_resolve_raises_when_the_prompt_version_does_not_exist(
@@ -154,7 +179,7 @@ def test_resolve_raises_when_the_prompt_version_does_not_exist(
 ) -> None:
     _install_mlflow(monkeypatch, load_refs={})
     with pytest.raises(WorkspaceReleaseAdapterError, match="not found"):
-        ADAPTER.resolve(db_session, None, {"resource_id": "ghost", "version_ref": "9"})
+        ADAPTER.resolve(db_session, None, {"resource_id": "ghost", "version_ref": "9"}, _identity())
 
 
 def test_resolve_refuses_a_prompt_bound_to_a_different_project(
@@ -162,7 +187,7 @@ def test_resolve_refuses_a_prompt_bound_to_a_different_project(
 ) -> None:
     _seed_project(db_session)
     _seed_project(db_session, project_id=OTHER_PROJECT_ID)
-    _seed_target(db_session, name="owned-elsewhere", project_id=OTHER_PROJECT_ID)
+    _seed_target(db_session, name="owned-elsewhere", project_id=OTHER_PROJECT_ID, owner="@owner")
     _install_mlflow(
         monkeypatch,
         load_refs={
@@ -172,16 +197,167 @@ def test_resolve_refuses_a_prompt_bound_to_a_different_project(
         },
     )
     project = db_session.get(CaliberProject, PROJECT_ID)
-    with pytest.raises(WorkspaceReleaseAdapterError, match="registered to project"):
-        ADAPTER.resolve(db_session, project, {"resource_id": "owned-elsewhere", "version_ref": "1"})
+    caller = _identity("@caller", active_project_id=PROJECT_ID)
+    with pytest.raises(WorkspaceReleaseAdapterError, match="not visible"):
+        ADAPTER.resolve(
+            db_session, project, {"resource_id": "owned-elsewhere", "version_ref": "1"}, caller
+        )
+
+
+def test_resolve_allows_a_project_scoped_prompt_for_an_active_member(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The positive side of the project-tier check: a caller who is an
+    active member of the target's own project (not its owner) can still
+    resolve it -- proving the fix reuses the *real* visibility model
+    (owner-or-member) rather than a stricter "owner only" shortcut."""
+    _seed_project(db_session)
+    _seed_target(db_session, name="team-prompt", project_id=PROJECT_ID, owner="@owner")
+    db_session.add(
+        CaliberProjectMember(
+            member_id="PM-prompt-adapter-1",
+            project_id=PROJECT_ID,
+            user_id="@teammate",
+            role="editor",
+            status="active",
+            created_by="@owner",
+        )
+    )
+    db_session.flush()
+    _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/team-prompt/1": SimpleNamespace(
+                name="team-prompt", version=1, template="x", tags={}
+            )
+        },
+    )
+    project = db_session.get(CaliberProject, PROJECT_ID)
+    member = _identity("@teammate", active_project_id=PROJECT_ID)
+    resolved = ADAPTER.resolve(
+        db_session, project, {"resource_id": "team-prompt", "version_ref": "1"}, member
+    )
+    assert resolved.name == "team-prompt"
+
+
+def test_resolve_refuses_another_users_unshared_personal_prompt(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The actual disclosure this fix closes: a personal prompt
+    (``project_id=None``, ``visibility="user"``) has the *same* ``None``
+    project id as a public prompt, so a bare ``target.project_id !=
+    caller's project`` comparison could not tell them apart and would let
+    any operator on any project snapshot another user's unshared personal
+    prompt by name. Must be refused now, the same way
+    ``routes/prompts.py``'s lookup routes already refuse it (`P2-N`/`P2-O`)."""
+    _seed_project(db_session)
+    _seed_target(db_session, name="my-personal-prompt", project_id=None, owner="@someone-else")
+    _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/my-personal-prompt/1": SimpleNamespace(
+                name="my-personal-prompt", version=1, template="secret", tags={}
+            )
+        },
+    )
+    project = db_session.get(CaliberProject, PROJECT_ID)
+    other_user = _identity("@a-different-user", active_project_id=PROJECT_ID)
+    with pytest.raises(WorkspaceReleaseAdapterError, match="not visible"):
+        ADAPTER.resolve(
+            db_session,
+            project,
+            {"resource_id": "my-personal-prompt", "version_ref": "1"},
+            other_user,
+        )
+
+
+def test_resolve_allows_the_owners_own_personal_prompt(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_project(db_session)
+    _seed_target(db_session, name="my-personal-prompt", project_id=None, owner="@owner-self")
+    _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/my-personal-prompt/1": SimpleNamespace(
+                name="my-personal-prompt", version=1, template="mine", tags={}
+            )
+        },
+    )
+    project = db_session.get(CaliberProject, PROJECT_ID)
+    owner = _identity("@owner-self", active_project_id=PROJECT_ID)
+    resolved = ADAPTER.resolve(
+        db_session,
+        project,
+        {"resource_id": "my-personal-prompt", "version_ref": "1"},
+        owner,
+    )
+    assert resolved.name == "my-personal-prompt"
+
+
+def test_resolve_allows_a_public_prompt_for_any_caller(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A genuinely public prompt also has ``project_id=None`` -- proving the
+    fix's ``get_visible`` reuse allows this tier too, not just refusing
+    everything with a ``None`` project id."""
+    _seed_project(db_session)
+    _seed_target(
+        db_session,
+        name="shared-prompt",
+        project_id=None,
+        owner="@publisher",
+        visibility="public",
+    )
+    _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/shared-prompt/1": SimpleNamespace(
+                name="shared-prompt", version=1, template="open to all", tags={}
+            )
+        },
+    )
+    project = db_session.get(CaliberProject, PROJECT_ID)
+    stranger = _identity("@total-stranger", active_project_id=PROJECT_ID)
+    resolved = ADAPTER.resolve(
+        db_session, project, {"resource_id": "shared-prompt", "version_ref": "1"}, stranger
+    )
+    assert resolved.name == "shared-prompt"
+
+
+def test_resolve_admin_bypasses_visibility(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_project(db_session)
+    _seed_target(db_session, name="my-personal-prompt", project_id=None, owner="@someone-else")
+    _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/my-personal-prompt/1": SimpleNamespace(
+                name="my-personal-prompt", version=1, template="secret", tags={}
+            )
+        },
+    )
+    project = db_session.get(CaliberProject, PROJECT_ID)
+    admin = _identity("@platform-admin", active_project_id=PROJECT_ID, admin=True)
+    resolved = ADAPTER.resolve(
+        db_session,
+        project,
+        {"resource_id": "my-personal-prompt", "version_ref": "1"},
+        admin,
+    )
+    assert resolved.name == "my-personal-prompt"
 
 
 def test_resolve_allows_a_prompt_with_no_project_bound_target(
     db_session: Session, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    """A bare provider-only prompt (no hidden target row at all) is not
-    scoped to any project -- see ``prompt_targets.py``'s own "no target = no
-    project to gate against" carve-out, reused here."""
+    """A bare provider-only prompt (no hidden CaliberAgentConfig row at all,
+    not merely one with ``project_id=None``) is never hidden -- see
+    ``prompt_targets.py``'s own "no target = no project to gate against"
+    carve-out, reused here. Distinct from the personal/public
+    ``project_id=None`` cases above, which *do* have a real target row and
+    are gated by ``get_visible``."""
     _seed_project(db_session)
     _install_mlflow(
         monkeypatch,
@@ -192,8 +368,9 @@ def test_resolve_allows_a_prompt_with_no_project_bound_target(
         },
     )
     project = db_session.get(CaliberProject, PROJECT_ID)
+    stranger = _identity("@total-stranger", active_project_id=PROJECT_ID)
     resolved = ADAPTER.resolve(
-        db_session, project, {"resource_id": "unregistered", "version_ref": "1"}
+        db_session, project, {"resource_id": "unregistered", "version_ref": "1"}, stranger
     )
     assert resolved.name == "unregistered"
 
