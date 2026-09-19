@@ -41,6 +41,7 @@ REQUIRED_GATES = (
     "Lint & format",
     "Type check",
     "Backend smoke",
+    "Migration parity (PostgreSQL)",
     "Docs validation",
     "UI (test + build)",
     "Compose merged-config validation",

@@ -396,6 +396,81 @@ jobs:
           --no-cov
           -q
 
+  # `docs/workspace-plan.md` section 15.2: "Each schema step has a
+  # fresh-install test, upgrade test from the preceding revision, and
+  # ORM-metadata parity test on SQLite and PostgreSQL. The current migration
+  # test exercises SQLite only." `test-smoke` above runs the full
+  # `tests/test_migrations.py` suite, but only ever against SQLite (no
+  # PostgreSQL is reachable there) -- every Workspace migration merged to
+  # date has only ever proven out on SQLite's much more permissive dialect
+  # (e.g. SQLite does not enforce foreign keys by default at all, and
+  # partial-index predicates round-trip as literal source text instead of
+  # the cast-annotated form PostgreSQL reflects them as).
+  #
+  # A separate job (rather than adding a `services:` block to `test-smoke`)
+  # so a transient Postgres image pull/startup failure can never fail the
+  # fast, universally-required smoke gate that four unrelated test files
+  # also depend on, and so the two dialects' results are legible as
+  # independent checks in the PR UI rather than one merged verdict. It runs
+  # unconditionally (matching `test-smoke`'s "fast required gates run on
+  # every CI invocation" model, not `compatibility`'s main-push-only one)
+  # because migration dialect drift is exactly the kind of defect that must
+  # be caught before merge, not after.
+  #
+  # Scope is deliberately narrow: only the two `tests/test_migrations.py`
+  # cases parametrized over dialect (`-k postgresql` selects just those
+  # cases' PostgreSQL variant; their SQLite variant plus every other test in
+  # the file keep running in `test-smoke`, unchanged) -- the fresh-install +
+  # full-upgrade-chain + ORM-metadata-parity test, and one
+  # upgrade-from-the-preceding-revision data-backfill test (`0093`, `P1-A`'s
+  # own migration). This is not an attempt to port the rest of the (SQLite
+  # by design) test suite to PostgreSQL.
+  migration-parity-postgres:
+    name: Migration parity (PostgreSQL)
+    runs-on: ubuntu-latest
+    needs: [lint, type-check]
+    services:
+      postgres:
+        # Not the stock `postgres` image: migration `0060` runs `CREATE
+        # EXTENSION IF NOT EXISTS vector` (pgvector, for HNSW-indexed
+        # knowledge-chunk retrieval — see that migration's own docstring),
+        # which the stock image does not ship. `pgvector/pgvector` is the
+        # upstream pgvector project's own published image, built on top of
+        # the official `postgres` image at the matching major version.
+        image: pgvector/pgvector:pg16
+        env:
+          POSTGRES_USER: caliber
+          POSTGRES_PASSWORD: caliber
+          POSTGRES_DB: caliber_migration_admin
+        ports:
+          - 5432:5432
+        options: >-
+          --health-cmd "pg_isready -U caliber"
+          --health-interval 5s
+          --health-timeout 5s
+          --health-retries 10
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: caliber/pyproject.toml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install package + dev + postgres extras
+        run: uv pip install --system -e ".[dev,postgres]"
+      - name: Run the PostgreSQL-parametrized migration tests
+        # CALIBER_TEST_POSTGRES_URL is an *admin* connection string: the
+        # tests create and drop their own throwaway per-test databases on
+        # this server so parametrized cases never collide (see
+        # tests/test_migrations.py::_dialect_database_url). It is set only
+        # here -- every other job, and every other test in this file, stays
+        # SQLite/offline.
+        env:
+          CALIBER_TEST_POSTGRES_URL: postgresql+psycopg://caliber:caliber@localhost:5432/caliber_migration_admin
+        run: pytest tests/test_migrations.py -k postgresql --no-cov -q
+
   test:
     name: Full backend suite (Python 3.11)
     runs-on: ubuntu-latest
@@ -1033,6 +1108,7 @@ jobs:
       - lint
       - type-check
       - test-smoke
+      - migration-parity-postgres
       - docs-validation
       - ui
       - compose

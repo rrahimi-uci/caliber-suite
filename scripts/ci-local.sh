@@ -46,7 +46,7 @@ VENV_PY="$CALIBER_DIR/.venv/bin/python"
 # fails here the same way it would there.
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
-ALL_JOBS=(lint type-check test-smoke test compatibility integration docs-validation ui cookbook-ui-only compose package security sdk plugin-sdk cli)
+ALL_JOBS=(lint type-check test-smoke migration-parity-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package security sdk plugin-sdk cli)
 FAST_SKIP=(test compatibility integration cookbook-ui-only package)
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -123,6 +123,50 @@ job_test_smoke() {
     tests/test_migrations.py \
     tests/test_auth_sessions.py \
     --no-cov -q
+}
+
+# The PostgreSQL half of tests/test_migrations.py's dialect coverage (see that
+# file's module docstring and docs/workspace-plan.md section 15.2). job_test_smoke
+# above already runs the whole file, but CALIBER_TEST_POSTGRES_URL is unset there
+# so the two dialect-parametrized cases' "postgresql" variant just skips -- this
+# job is what actually supplies a live server, the same way CI's
+# "Migration parity (PostgreSQL)" job does with a service container.
+job_migration_parity_postgres() {
+  cd "$CALIBER_DIR" || return 1
+  command -v docker >/dev/null 2>&1 || {
+    SKIP_REASON="docker is unavailable; CI still runs the PostgreSQL migration parity job"
+    return "$EXIT_SKIPPED"
+  }
+  local container="caliber-ci-local-pg-migrations"
+  local port="${CALIBER_LOCAL_MIGRATION_PG_PORT:-55432}"
+  docker rm -f "$container" >/dev/null 2>&1
+  # Same image CI uses, not the stock `postgres` one: migration 0060 runs
+  # `CREATE EXTENSION IF NOT EXISTS vector`, which only a pgvector-bundled
+  # image ships.
+  docker run -d --name "$container" \
+    -e POSTGRES_USER=caliber -e POSTGRES_PASSWORD=caliber -e POSTGRES_DB=caliber_migration_admin \
+    -p "127.0.0.1:${port}:5432" \
+    pgvector/pgvector:pg16 >/dev/null || return 1
+
+  local ready=1 attempt
+  for attempt in $(seq 1 30); do
+    if docker exec "$container" pg_isready -U caliber >/dev/null 2>&1; then
+      ready=0
+      break
+    fi
+    sleep 1
+  done
+  local status
+  if [ "$ready" -ne 0 ]; then
+    yellow "postgres container did not become ready within 30s"
+    status=1
+  else
+    CALIBER_TEST_POSTGRES_URL="postgresql+psycopg://caliber:caliber@localhost:${port}/caliber_migration_admin" \
+      "$VENV_PY" -m pytest tests/test_migrations.py -k postgresql --no-cov -q
+    status=$?
+  fi
+  docker rm -f "$container" >/dev/null 2>&1
+  return "$status"
 }
 
 # Coverage on, matching CI: the repo gate is 80% and running without it locally is how
@@ -510,6 +554,7 @@ main() {
       lint) run_job lint job_lint ;;
       type-check) run_job type-check job_type_check ;;
       test-smoke) run_job test-smoke job_test_smoke ;;
+      migration-parity-postgres) run_job migration-parity-postgres job_migration_parity_postgres ;;
       test) run_job test job_test ;;
       compatibility) run_job compatibility job_compatibility ;;
       integration) run_job integration job_integration ;;
