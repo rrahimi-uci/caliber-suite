@@ -79,7 +79,12 @@ _EXPECTED_COUNTS = {
     # every consumer points to it, so the project remains queryable without
     # copying authorization columns onto each legacy run table.
     # +1 (`P3-A` release FK): CaliberReworkTask, see SCOPING_OWNED_CATALOG.
-    SCOPING_PROJECT_ONLY: 23,
+    # +1 (`P4-E`): CaliberWorkspaceSourceConnection (encrypted GitHub App
+    # connection storage) has a direct project_id binding and no visibility
+    # tier -- same shape as its sibling CaliberWorkspaceSourceActorLink
+    # above, correctly project_only, confirmed by direct look. It carries
+    # only secret-store references, never credential material itself.
+    SCOPING_PROJECT_ONLY: 24,
 }
 
 

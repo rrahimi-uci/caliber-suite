@@ -741,6 +741,19 @@ class CaliberConfig(BaseModel):
             "workspace_imports.DEFAULT_IMPORT_LEASE_SECONDS."
         ),
     )
+    github_source_control_enabled: bool = Field(
+        default=False,
+        description=(
+            "When true, server.py registers a real GitHubWorkspaceSourceProvider "
+            "(backed by encrypted, project-configured GitHub App connections) under "
+            "'github' in the Workspace source provider registry, instead of leaving "
+            "the registry empty. Off by default: enabling this without any project "
+            "having configured a connection is a safe no-op, but the flag exists so "
+            "an operator opts in deliberately (P4-E is 'an independently "
+            "feature-flagged... increment' per docs/workspace-plan.md) rather than a "
+            "GitHub adapter silently going live for every deployment on upgrade."
+        ),
+    )
     knowledge_graph_extractor_backend: KnowledgeGraphExtractorBackend = Field(
         default="heuristic",
         description=(
@@ -1879,6 +1892,11 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         float,
     ),
     ("CALIBER_WORKSPACE_IMPORT_LEASE_SECONDS", "workspace_import_lease_seconds", float),
+    (
+        "CALIBER_GITHUB_SOURCE_CONTROL_ENABLED",
+        "github_source_control_enabled",
+        _flag,
+    ),
     (
         "CALIBER_KNOWLEDGE_GRAPH_EXTRACTOR_BACKEND",
         "knowledge_graph_extractor_backend",

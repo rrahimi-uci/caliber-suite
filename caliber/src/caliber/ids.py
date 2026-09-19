@@ -82,6 +82,7 @@ WORKSPACE_ENVIRONMENT_PREFIX = "WSE-"
 WORKSPACE_SOURCE_PREFIX = "WSS-"
 WORKSPACE_SOURCE_EVENT_PREFIX = "WSSE-"
 WORKSPACE_SOURCE_ACTOR_LINK_PREFIX = "WSSAL-"
+WORKSPACE_SOURCE_CONNECTION_PREFIX = "WSCN-"
 WORKSPACE_IMPORT_PREFIX = "WSI-"
 WORKSPACE_REVISION_PREFIX = "WSR-"
 WORKSPACE_REVISION_RESOURCE_PREFIX = "WSRR-"
@@ -523,6 +524,11 @@ def new_workspace_source_event_id() -> str:
 def new_workspace_source_actor_link_id() -> str:
     """Return a fresh provider-actor-link ID, e.g. ``WSSAL-3a8f2c7e``."""
     return f"{WORKSPACE_SOURCE_ACTOR_LINK_PREFIX}{_suffix()}"
+
+
+def new_workspace_source_connection_id() -> str:
+    """Return a fresh Workspace-source-connection ID, e.g. ``WSCN-3a8f2c7e``."""
+    return f"{WORKSPACE_SOURCE_CONNECTION_PREFIX}{_suffix()}"
 
 
 def new_workspace_import_id() -> str:
