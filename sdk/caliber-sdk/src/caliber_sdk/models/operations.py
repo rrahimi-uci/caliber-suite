@@ -46,18 +46,29 @@ class Job:
 
 @dataclass
 class ReworkTask:
-    """Owned, recoverable work auto-created when a refinement job is
-    terminally rejected (see ``client.jobs``' rejected/terminal status).
+    """Owned, recoverable work auto-created when a refinement job or a
+    Workspace release is terminally rejected (see ``client.jobs``' rejected/
+    terminal status, or ``client.workspaces.releases``' release decisions).
 
     ``status`` is ``"open"``, ``"in_progress"``, or ``"resolved"``.
-    ``failure_kind`` is ``"machine_gate"``, ``"iterations_exhausted"``, or
+    ``failure_kind`` is ``"machine_gate"``, ``"iterations_exhausted"``,
     ``"quality_no_go"`` (created via ``client.quality_reviews.create(...)``
-    rather than an automatic rejection).
+    rather than an automatic rejection), or ``"release_no_go"`` (created when
+    a Workspace release is rejected).
+
+    A task has exactly one source: ``job_id`` for a job-sourced task, or
+    ``workspace_release_id`` for a release-sourced task -- the other is
+    ``None``. ``agent_id`` is only present for a job-sourced task, since a
+    Workspace release is scoped to a project rather than a single agent;
+    ``project_id`` is only present for a release-sourced task, since a
+    job-sourced task's project is still reached through its agent.
     """
 
     task_id: str = ""
-    job_id: str = ""
-    agent_id: str = ""
+    job_id: str | None = None
+    workspace_release_id: str | None = None
+    agent_id: str | None = None
+    project_id: str | None = None
     failure_kind: str = ""
     reason: str = ""
     gate_evidence: dict[str, Any] | None = None

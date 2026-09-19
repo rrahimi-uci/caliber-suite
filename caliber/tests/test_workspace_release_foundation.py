@@ -6,12 +6,14 @@ from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 from sqlalchemy.sql.dml import Update
 
 from caliber.db.models import (
     CaliberProject,
+    CaliberReworkTask,
     CaliberWorkspaceBreakGlassAuthorization,
     CaliberWorkspaceEnvironment,
     CaliberWorkspaceRelease,
@@ -526,6 +528,20 @@ def test_evaluation_blocker_fails_attempt_and_release_is_retryable(db_session: S
     assert done.status == EVALUATION_FAILED
     assert release.status == RELEASE_BLOCKED
     assert release.error_code == "worker_timeout"
+    # A blocked release is a retryable operational failure (worker/infra),
+    # not a content rejection -- workspace_release_governance.py only ever
+    # creates a rework task from a RELEASE_REJECTED transition. Asserting
+    # zero rows here, rather than only in the governance test module, pins
+    # that a blocked release never accumulates owned human rework, even
+    # though the block path never imports CaliberReworkTask at all.
+    assert (
+        db_session.execute(
+            select(CaliberReworkTask).where(
+                CaliberReworkTask.workspace_release_id == release.release_id
+            )
+        ).scalar_one_or_none()
+        is None
+    )
 
 
 def test_operation_state_machine_rejects_illegal_edges_and_uses_cas(db_session: Session) -> None:

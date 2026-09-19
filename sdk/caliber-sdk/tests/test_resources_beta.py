@@ -120,6 +120,30 @@ def test_rework_tasks_list_passes_status_and_assigned_to() -> None:
     ]
 
 
+def test_rework_task_decodes_a_release_sourced_payload() -> None:
+    """A release-sourced task has no ``job_id``/``agent_id`` (no single owning
+    agent for a Workspace release) and instead carries
+    ``workspace_release_id``/``project_id`` -- decoding must not require the
+    job-sourced fields to be present."""
+    task = decode(
+        ReworkTask,
+        {
+            "task_id": "RWT-REL-1",
+            "job_id": None,
+            "workspace_release_id": "WSREL-1",
+            "agent_id": None,
+            "project_id": "PRJ-1",
+            "failure_kind": "release_no_go",
+            "status": "open",
+        },
+    )
+    assert task.job_id is None
+    assert task.agent_id is None
+    assert task.workspace_release_id == "WSREL-1"
+    assert task.project_id == "PRJ-1"
+    assert task.failure_kind == "release_no_go"
+
+
 def test_rework_tasks_get_hits_the_detail_path() -> None:
     def handler(request: httpx.Request) -> httpx.Response:
         assert request.url.path.endswith("/rework-tasks/RWT-1")

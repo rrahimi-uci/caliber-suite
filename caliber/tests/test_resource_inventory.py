@@ -45,7 +45,14 @@ _EXPECTED_COUNTS = {
     # -1 (`P2-B`): CaliberAssistantSession gained a nullable project_id so a
     # multi-turn assistant conversation can retain its workspace context; it
     # is project_only because sessions intentionally have no visibility tier.
-    SCOPING_OWNED_CATALOG: 21,
+    # -1 (`P3-A` release FK): CaliberReworkTask gained a direct, nullable
+    # project_id (populated only for a release-sourced task, since a
+    # Workspace release has no single owning agent to derive one from) and
+    # moves from owned_catalog to project_only. A job-sourced task's
+    # project_id stays NULL -- its boundary is still derived live through
+    # the source agent join in routes/rework_tasks.py, unchanged -- but the
+    # column's mere presence is what this inventory classifies on.
+    SCOPING_OWNED_CATALOG: 20,
     SCOPING_VISIBILITY: 15,
     # +1 (`P1-A`): CaliberWorkspaceEnvironment has project_id, no
     # visibility/owner column -- correctly project_only, confirmed by
@@ -71,7 +78,8 @@ _EXPECTED_COUNTS = {
     # +1 (`P5-D`): runtime lineage is a project-bound reconstruction record;
     # every consumer points to it, so the project remains queryable without
     # copying authorization columns onto each legacy run table.
-    SCOPING_PROJECT_ONLY: 22,
+    # +1 (`P3-A` release FK): CaliberReworkTask, see SCOPING_OWNED_CATALOG.
+    SCOPING_PROJECT_ONLY: 23,
 }
 
 

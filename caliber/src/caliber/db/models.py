@@ -236,43 +236,94 @@ class CaliberRefinementJob(Base):
 
 
 class CaliberReworkTask(Base):
-    """Owned, recoverable work created when a refinement job is rejected.
+    """Owned, recoverable work created when a refinement job or a Workspace
+    release is rejected.
 
     Before this table existed, a failed eval gate set ``job.status =
     "rejected"`` and stopped: nobody was assigned the failure, and there was
-    no task, notification, or queue entry for a Developer. This is a
-    deliberately narrower slice of ``docs/workspace-plan.md``'s final target
-    schema for this table (section 9.2) — Phase 3 only permits a refinement
-    job as the source; the Workspace-release source and the
-    ``release_no_go`` failure kind require machinery (an aggregate release)
-    that doesn't exist yet. Adding it here would declare a reachable-looking
-    value nothing can ever set — the same aspirational-allowlist problem
-    ``routes/jobs.py``'s own ``_VALID_STATUSES`` already has for
-    ``awaiting_approval``/``completed``/``cancelled``. ``quality_no_go`` no
-    longer has this problem: ``routes/quality_reviews.py`` produces it.
+    no task, notification, or queue entry for a Developer. Phase 3 (`P3-A`)
+    shipped a narrower slice of ``docs/workspace-plan.md``'s final target
+    schema for this table (section 9.2): only a refinement job could be a
+    source, since the Workspace-release source needed machinery (an
+    aggregate release) that didn't exist yet. Phase 5 delivered that
+    machinery (``workspace_release_service.py``,
+    ``workspace_release_governance.py``), so this table now accepts either
+    source: ``job_id`` (a rejected :class:`CaliberRefinementJob`) or
+    ``workspace_release_id`` (a :class:`CaliberWorkspaceRelease` that reached
+    ``rejected`` via :func:`caliber.workspace_release_governance.
+    record_workspace_release_decision`). ``ck_rework_task_exactly_one_source``
+    enforces that a row has exactly one of the two — never both, never
+    neither — matching section 15.2's "nullable rework-task release FK and
+    exactly-one-source check" migration step. Both source columns are
+    therefore nullable, a change from Phase 3's non-null ``job_id``.
 
-    One row per rejected job (``job_id`` is unique): a job is rejected at most
-    once, since ``rejected`` is terminal and a content fix produces a new,
-    superseding job rather than resurrecting the old one.
+    ``agent_id`` is denormalized from the job so a job-sourced task's
+    list/filter doesn't need a join — but a Workspace release is scoped to a
+    project + revision + environment, not to a single agent, so a
+    release-sourced task has no agent to denormalize. ``agent_id`` is
+    therefore also nullable, and ``routes/rework_tasks.py``'s project-scoped
+    query keeps deriving a job-sourced task's project through the existing
+    agent join (unchanged) while matching a release-sourced task directly on
+    ``project_id`` instead.
+
+    ``project_id`` is populated only for release-sourced tasks, where
+    :func:`record_workspace_release_decision` already has the release's
+    ``project_id`` in hand. It is deliberately left ``NULL`` for job-sourced
+    tasks rather than backfilled from ``agent.project_id``: an agent's
+    ``project_id`` is itself nullable (a "global" agent has none) and can be
+    reassigned after the fact, so denormalizing it a second time here would
+    create a second, staler copy of a fact the agent join already answers
+    correctly. A job-sourced task's project boundary keeps coming from that
+    live join, exactly as it did before this column existed; this column
+    only carries the boundary a release-sourced task has no other way to
+    express.
+
+    One row per rejected job (``job_id`` is unique when set) and one row per
+    rejected release (``workspace_release_id`` is unique when set): a job or
+    a release is rejected at most once, since ``rejected`` is terminal for
+    both and a content fix produces a new, superseding job/revision rather
+    than resurrecting the old one.
     """
 
     __tablename__ = "caliber_rework_tasks"
     __table_args__ = (
         UniqueConstraint("job_id", name="uq_rework_task_job"),
+        UniqueConstraint("workspace_release_id", name="uq_rework_task_workspace_release"),
         Index("ix_rework_tasks_status_created", "status", "created_at"),
+        Index("ix_rework_tasks_project_id", "project_id"),
+        CheckConstraint(
+            "(job_id IS NOT NULL) != (workspace_release_id IS NOT NULL)",
+            name="ck_rework_task_exactly_one_source",
+        ),
     )
 
     task_id: Mapped[str] = mapped_column(String(64), primary_key=True)
-    job_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_refinement_jobs.job_id"))
-    # Denormalized from the job so list/filter don't need a join.
-    agent_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_agent_config.agent_id"))
+    job_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_refinement_jobs.job_id"), nullable=True
+    )
+    workspace_release_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_workspace_releases.release_id"), nullable=True
+    )
+    # Non-null for a job-sourced task (denormalized from the job so
+    # list/filter don't need a join); null for a release-sourced task, which
+    # has no single owning agent. See the class docstring.
+    agent_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_agent_config.agent_id"), nullable=True
+    )
+    # Populated only for a release-sourced task; a job-sourced task's project
+    # boundary is still derived live through its agent. See the class
+    # docstring.
+    project_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=True
+    )
 
     # "machine_gate" | "iterations_exhausted" — the two cases eval_stage.py
     # can distinguish today (whether refine_iteration > 0 at the terminal
     # rejection) — plus "quality_no_go", set by routes/quality_reviews.py
-    # when a human reviewer vetoes a candidate the machine gate passed.
-    # "release_no_go" is the target schema's remaining value, deferred with
-    # the aggregate Workspace release.
+    # when a human reviewer vetoes a candidate the machine gate passed, and
+    # "release_no_go", set by workspace_release_governance.py when a
+    # Workspace release is rejected (at either the quality-decision or the
+    # final-approval governance stage).
     failure_kind: Mapped[str] = mapped_column(String(32))
     reason: Mapped[str] = mapped_column(Text)
     # decision.to_json() snapshot at rejection time for a machine-gate

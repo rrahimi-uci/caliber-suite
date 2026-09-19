@@ -13,6 +13,7 @@ from caliber.db.models import (
     CaliberAuditLog,
     CaliberProject,
     CaliberProjectMember,
+    CaliberReworkTask,
     CaliberWorkspaceBreakGlassAuthorization,
     CaliberWorkspaceChangeRequest,
     CaliberWorkspaceChangeRequestHead,
@@ -47,6 +48,7 @@ from caliber.workspace_release_service import (
     RELEASE_APPROVED,
     RELEASE_AWAITING_APPROVAL,
     RELEASE_AWAITING_QUALITY_SIGNOFF,
+    RELEASE_REJECTED,
     create_workspace_release,
 )
 
@@ -1379,3 +1381,137 @@ def test_operation_service_rejects_missing_environment(
             expected_environment_lock_version=1,
             requested_by="ops-admin",
         )
+
+
+# ---------------------------------------------------------------------------
+# release_no_go rework tasks (P3-A release FK)
+# ---------------------------------------------------------------------------
+#
+# record_workspace_release_decision computes ``target_status =
+# RELEASE_REJECTED`` from two different governance branches -- a quality
+# no_go (any environment) and a final production release no_go -- and both
+# reach one shared creation site
+# (``_create_release_rework_task``) rather than duplicating it per branch.
+# A release is rejected at most once (REJECTED is terminal), so exactly one
+# task is ever created per release; ``uq_rework_task_workspace_release``
+# backs that at the DB level too (see ``test_models.py``).
+
+
+def _rework_task_for_release(session: Session, release_id: str) -> CaliberReworkTask:
+    return session.execute(
+        select(CaliberReworkTask).where(CaliberReworkTask.workspace_release_id == release_id)
+    ).scalar_one()
+
+
+def test_qa_quality_no_go_creates_a_release_no_go_rework_task(db_session: Session) -> None:
+    _seed(db_session)
+    release = _release(db_session)
+
+    decision = record_workspace_release_decision(
+        db_session,
+        project_id=PROJECT_ID,
+        workspace_release_id=release.release_id,
+        identity=_identity("qa"),
+        kind="quality",
+        decision="no_go",
+        rationale="factual accuracy regressed",
+        gate_evidence_sha256=GATE,
+        change_request_head_id=HEAD_ID,
+    )
+
+    assert release.status == RELEASE_REJECTED
+    task = _rework_task_for_release(db_session, release.release_id)
+    assert task.failure_kind == "release_no_go"
+    assert task.job_id is None
+    assert task.agent_id is None
+    assert task.workspace_release_id == release.release_id
+    assert task.project_id == PROJECT_ID
+    assert task.reason == "factual accuracy regressed"
+    assert task.status == "open"
+    assert task.created_by == "qa"
+    assert task.gate_evidence == {
+        "decision_id": decision.decision_id,
+        "kind": "quality",
+        "gate_evidence_sha256": GATE,
+        "revision_sha256": HEX,
+    }
+    audit = db_session.execute(
+        select(CaliberAuditLog).where(CaliberAuditLog.entity_id == task.task_id)
+    ).scalar_one()
+    assert audit.action == "create_rework_task"
+    assert audit.actor == "qa"
+    assert audit.details["workspace_release_id"] == release.release_id
+    assert audit.details["failure_kind"] == "release_no_go"
+
+
+def test_final_release_no_go_creates_a_release_no_go_rework_task(db_session: Session) -> None:
+    _seed(db_session, request_status="accepted")
+    release = _release(db_session, environment_id="WSE-p5b-prod")
+
+    record_workspace_release_decision(
+        db_session,
+        project_id=PROJECT_ID,
+        workspace_release_id=release.release_id,
+        identity=_identity("qa"),
+        kind="quality",
+        decision="go",
+        gate_evidence_sha256=GATE,
+        change_request_head_id=HEAD_ID,
+    )
+    # The quality decision was a "go", so the release is only awaiting final
+    # approval -- not yet rejected -- and no task exists yet.
+    assert (
+        db_session.execute(
+            select(CaliberReworkTask).where(
+                CaliberReworkTask.workspace_release_id == release.release_id
+            )
+        ).scalar_one_or_none()
+        is None
+    )
+
+    record_workspace_release_decision(
+        db_session,
+        project_id=PROJECT_ID,
+        workspace_release_id=release.release_id,
+        identity=_identity("workspace-admin"),
+        kind="release",
+        decision="no_go",
+        rationale="regressed in canary",
+        gate_evidence_sha256=GATE,
+    )
+
+    assert release.status == RELEASE_REJECTED
+    task = _rework_task_for_release(db_session, release.release_id)
+    assert task.failure_kind == "release_no_go"
+    assert task.reason == "regressed in canary"
+    assert task.created_by == "workspace-admin"
+    assert task.project_id == PROJECT_ID
+    assert task.job_id is None
+    assert task.agent_id is None
+
+
+def test_qa_quality_go_does_not_create_a_rework_task(db_session: Session) -> None:
+    """A "go" decision never rejects the release, so it never owes rework."""
+    _seed(db_session)
+    release = _release(db_session)
+
+    record_workspace_release_decision(
+        db_session,
+        project_id=PROJECT_ID,
+        workspace_release_id=release.release_id,
+        identity=_identity("qa"),
+        kind="quality",
+        decision="go",
+        gate_evidence_sha256=GATE,
+        change_request_head_id=HEAD_ID,
+    )
+
+    assert release.status == RELEASE_APPROVED
+    assert (
+        db_session.execute(
+            select(CaliberReworkTask).where(
+                CaliberReworkTask.workspace_release_id == release.release_id
+            )
+        ).scalar_one_or_none()
+        is None
+    )

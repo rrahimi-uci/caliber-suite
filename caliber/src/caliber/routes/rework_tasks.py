@@ -12,12 +12,12 @@ terminal ``rejected`` row. See ``docs/workspace-plan.md`` section 3.6.
 * ``POST /rework-tasks/{task_id}/resolve`` (operator, assignee or admin) — ``in_progress`` -> ``resolved``.
 * ``POST /rework-tasks/{task_id}/reassign`` (admin) — change the assignee.
 
-**Deliberately not built here:** a ``release_no_go`` failure kind — that
-needs an aggregate Workspace release, which doesn't exist yet (see
-``docs/workspace-plan.md`` section 3.6). ``quality_no_go`` is no longer in
-this category: ``routes/quality_reviews.py`` creates a task with that
-``failure_kind`` directly from a human "no_go" decision, the same way
-``eval_stage.py`` creates one from a machine-gate rejection.
+``quality_no_go`` and ``release_no_go`` are not created here either:
+``routes/quality_reviews.py`` creates a ``quality_no_go`` task directly from
+a human "no_go" decision on a job, the same way ``eval_stage.py`` creates one
+from a machine-gate rejection, and ``workspace_release_governance.py``
+creates a ``release_no_go`` task directly from a rejected Workspace release
+(see that module's ``record_workspace_release_decision``).
 
 Every handler offloads its synchronous SQLAlchemy work to
 :func:`starlette.concurrency.run_in_threadpool`, matching
@@ -28,7 +28,7 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session, sessionmaker
 from sqlalchemy.sql import Select
 from starlette.applications import Starlette
@@ -73,18 +73,32 @@ _Factory = sessionmaker[Session]
 
 
 def _project_task_statement(project_id: str) -> Select[tuple[CaliberReworkTask]]:
-    """Return the task query restricted to agents owned by one project.
+    """Return the task query restricted to one project's tasks.
 
     Rework tasks intentionally remain globally compatible in this phase, so
-    their project boundary is derived from the source agent. A task whose
-    agent is global or belongs to another project is not a member of the
-    project's task collection and is therefore indistinguishable from a
-    missing task.
+    a job-sourced task's project boundary is derived from its source agent
+    (unchanged from before the Workspace-release source existed): a task
+    whose agent is global or belongs to another project is not a member of
+    the project's task collection and is therefore indistinguishable from a
+    missing task. A release-sourced task has no agent to join through --
+    ``CaliberReworkTask.agent_id`` is null -- so the agent join is outer and
+    a release-sourced task instead matches directly on its own
+    ``project_id`` (populated at creation time from the Workspace release;
+    see ``workspace_release_governance.py``).
     """
     return (
         select(CaliberReworkTask)
-        .join(CaliberAgentConfig, CaliberAgentConfig.agent_id == CaliberReworkTask.agent_id)
-        .where(CaliberAgentConfig.project_id == project_id)
+        .join(
+            CaliberAgentConfig,
+            CaliberAgentConfig.agent_id == CaliberReworkTask.agent_id,
+            isouter=True,
+        )
+        .where(
+            or_(
+                CaliberAgentConfig.project_id == project_id,
+                CaliberReworkTask.project_id == project_id,
+            )
+        )
     )
 
 
