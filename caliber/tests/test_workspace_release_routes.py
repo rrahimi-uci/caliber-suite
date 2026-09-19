@@ -14,8 +14,10 @@ from __future__ import annotations
 import hashlib
 from datetime import datetime, timedelta, timezone
 
+import pytest
 from sqlalchemy import select
 from sqlalchemy.orm import Session, sessionmaker
+from starlette.exceptions import HTTPException
 from starlette.testclient import TestClient
 
 from caliber.auth import SCOPE_ADMIN, SCOPE_APPROVER, SCOPE_OPERATOR, SCOPE_VIEWER, CaliberIdentity
@@ -543,21 +545,20 @@ def test_break_glass_apply_over_http_is_refused_without_a_real_session_credentia
     assert "session" in response.json()["detail"]
 
 
-def test_break_glass_apply_succeeds_through_a_verified_qa_staging_prod_chain(
-    db_session: Session, session_factory: sessionmaker[Session]
-) -> None:
-    """Calls this module's own `_break_glass_apply_sync` directly with a
-    session-credentialed identity -- see the module comment above for why
-    this isn't a genuine HTTP call. The QA->staging->prod chain itself is
-    exhaustively covered by test_workspace_release_governance.py; this only
-    proves this route module maps a valid request into that call correctly
-    and shapes the response as `{authorization_id, operation_id}`.
+def _seed_verified_qa_staging_prod_chain(
+    db_session: Session, *, project_id: str, key: str
+) -> CaliberWorkspaceRelease:
+    """Build a full QA(applied)->staging(applied)->prod(awaiting quality
+    signoff) chain eligible for break-glass apply, and return the prod
+    release. Shared by every break-glass-apply route test below -- the
+    break-glass preconditions require the *entire* chain, not just the
+    terminal release, so each test needs this same fixture setup rather than
+    duplicating it per test.
     """
-    project_id = "PRJ-f12"
     db_session.add(CaliberProject(project_id=project_id, name="P5-F break-glass", owner="@test"))
     db_session.add(
         CaliberProjectMember(
-            member_id="PRJM-f12-qa",
+            member_id=f"PRJM-{key}-qa",
             project_id=project_id,
             user_id="@qa",
             role="reviewer",
@@ -574,7 +575,7 @@ def test_break_glass_apply_succeeds_through_a_verified_qa_staging_prod_chain(
     ):
         db_session.add(
             CaliberWorkspaceEnvironment(
-                environment_id=f"WSE-f12-{name}",
+                environment_id=f"WSE-{key}-{name}",
                 project_id=project_id,
                 name=name,
                 environment_class=environment_class,
@@ -589,7 +590,7 @@ def test_break_glass_apply_succeeds_through_a_verified_qa_staging_prod_chain(
     digest = "d" * 64
     db_session.add(
         CaliberWorkspaceRevision(
-            revision_id="WSR-f12",
+            revision_id=f"WSR-{key}",
             project_id=project_id,
             revision_number=1,
             manifest={"apiVersion": "caliber/v1alpha1"},
@@ -603,9 +604,9 @@ def test_break_glass_apply_succeeds_through_a_verified_qa_staging_prod_chain(
     )
     db_session.add(
         CaliberWorkspaceChangeRequest(
-            change_request_id="WCR-f12",
+            change_request_id=f"WCR-{key}",
             project_id=project_id,
-            current_head_revision_id="WSR-f12",
+            current_head_revision_id=f"WSR-{key}",
             created_by="@dev",
             title="P5-F break-glass candidate",
             status="accepted",
@@ -614,10 +615,10 @@ def test_break_glass_apply_succeeds_through_a_verified_qa_staging_prod_chain(
     )
     db_session.add(
         CaliberWorkspaceChangeRequestHead(
-            head_id="WCH-f12",
-            change_request_id="WCR-f12",
+            head_id=f"WCH-{key}",
+            change_request_id=f"WCR-{key}",
             generation=1,
-            revision_id="WSR-f12",
+            revision_id=f"WSR-{key}",
             revision_sha256=digest,
             review_policy_version="v1",
             review_policy_sha256=digest,
@@ -629,15 +630,15 @@ def test_break_glass_apply_succeeds_through_a_verified_qa_staging_prod_chain(
     qa_release = create_workspace_release(
         db_session,
         project_id=project_id,
-        revision_id="WSR-f12",
-        environment_id="WSE-f12-qa",
+        revision_id=f"WSR-{key}",
+        environment_id=f"WSE-{key}-qa",
         environment_config_sha256=digest,
         runtime_dependencies_sha256=digest,
         policy_sha256=digest,
-        request_idempotency_key="f12-qa",
+        request_idempotency_key=f"{key}-qa",
         requested_by="@dev",
-        change_request_id="WCR-f12",
-        change_request_head_id="WCH-f12",
+        change_request_id=f"WCR-{key}",
+        change_request_head_id=f"WCH-{key}",
     )
     qa_release.status = "awaiting_quality_signoff"
     qa_release.evaluation_evidence_sha256 = GATE
@@ -650,15 +651,15 @@ def test_break_glass_apply_succeeds_through_a_verified_qa_staging_prod_chain(
         kind="quality",
         decision="go",
         gate_evidence_sha256=GATE,
-        change_request_head_id="WCH-f12",
+        change_request_head_id=f"WCH-{key}",
     )
     qa_apply = create_workspace_release_operation(
         db_session,
         project_id=project_id,
         workspace_release_id=qa_release.release_id,
-        environment_id="WSE-f12-qa",
+        environment_id=f"WSE-{key}-qa",
         kind="apply",
-        idempotency_key="f12-qa-apply",
+        idempotency_key=f"{key}-qa-apply",
         expected_environment_lock_version=1,
         requested_by="@test",
     )
@@ -672,15 +673,15 @@ def test_break_glass_apply_succeeds_through_a_verified_qa_staging_prod_chain(
     staging_release = create_workspace_release(
         db_session,
         project_id=project_id,
-        revision_id="WSR-f12",
-        environment_id="WSE-f12-staging",
+        revision_id=f"WSR-{key}",
+        environment_id=f"WSE-{key}-staging",
         environment_config_sha256=digest,
         runtime_dependencies_sha256=digest,
         policy_sha256=digest,
-        request_idempotency_key="f12-staging",
+        request_idempotency_key=f"{key}-staging",
         requested_by="@dev",
-        change_request_id="WCR-f12",
-        change_request_head_id="WCH-f12",
+        change_request_id=f"WCR-{key}",
+        change_request_head_id=f"WCH-{key}",
         predecessor_release_id=qa_release.release_id,
     )
     staging_release.status = RELEASE_APPROVED
@@ -689,9 +690,9 @@ def test_break_glass_apply_succeeds_through_a_verified_qa_staging_prod_chain(
         db_session,
         project_id=project_id,
         workspace_release_id=staging_release.release_id,
-        environment_id="WSE-f12-staging",
+        environment_id=f"WSE-{key}-staging",
         kind="apply",
-        idempotency_key="f12-staging-apply",
+        idempotency_key=f"{key}-staging-apply",
         expected_environment_lock_version=1,
         requested_by="@test",
     )
@@ -705,20 +706,41 @@ def test_break_glass_apply_succeeds_through_a_verified_qa_staging_prod_chain(
     prod_release = create_workspace_release(
         db_session,
         project_id=project_id,
-        revision_id="WSR-f12",
-        environment_id="WSE-f12-prod",
+        revision_id=f"WSR-{key}",
+        environment_id=f"WSE-{key}-prod",
         environment_config_sha256=digest,
         runtime_dependencies_sha256=digest,
         policy_sha256=digest,
-        request_idempotency_key="f12-prod",
+        request_idempotency_key=f"{key}-prod",
         requested_by="@dev",
-        change_request_id="WCR-f12",
-        change_request_head_id="WCH-f12",
+        change_request_id=f"WCR-{key}",
+        change_request_head_id=f"WCH-{key}",
         predecessor_release_id=staging_release.release_id,
     )
     prod_release.status = "awaiting_quality_signoff"
     prod_release.evaluation_evidence_sha256 = GATE
     db_session.commit()
+    return prod_release
+
+
+def test_break_glass_apply_succeeds_through_a_verified_qa_staging_prod_chain(
+    db_session: Session, session_factory: sessionmaker[Session]
+) -> None:
+    """Calls this module's own `_break_glass_apply_sync` directly with a
+    session-credentialed identity -- see the module comment above for why
+    this isn't a genuine HTTP call. The QA->staging->prod chain itself is
+    exhaustively covered by test_workspace_release_governance.py; this proves
+    both that this route module maps a valid request into that call
+    correctly, shaping the response as `{authorization_id, operation_id}`,
+    and -- since the route no longer hardcodes `machine_gates_passed`/
+    `integrity_checks_passed` -- that a genuinely passed release still
+    derives `True`/`True` live and the apply still succeeds exactly as
+    before (the no-regression case for the P5-F gap closure).
+    """
+    project_id = "PRJ-f12"
+    prod_release = _seed_verified_qa_staging_prod_chain(
+        db_session, project_id=project_id, key="f12"
+    )
 
     payload = WorkspaceBreakGlassApplyRequest(
         reason="prod incident",
@@ -745,3 +767,52 @@ def test_break_glass_apply_succeeds_through_a_verified_qa_staging_prod_chain(
 
     assert data["authorization_id"]
     assert data["operation_id"]
+
+
+def test_break_glass_apply_denies_when_persisted_evidence_has_gone_stale_since_earlier_checks(
+    db_session: Session, session_factory: sessionmaker[Session]
+) -> None:
+    """Proves the actual production wiring, not just the governance-layer
+    helper in isolation: build the identical verified QA->staging->prod
+    chain the success test above uses, then mutate the prod release's own
+    persisted evidence digest right before calling `_break_glass_apply_sync`
+    -- simulating evidence that went stale between an earlier read and the
+    apply itself. The route must re-derive live from the release row at call
+    time and deny, proving this is a real check and not a relocated
+    constant (the old hardcoded `True, True` would have let this through).
+    """
+    project_id = "PRJ-f13"
+    prod_release = _seed_verified_qa_staging_prod_chain(
+        db_session, project_id=project_id, key="f13"
+    )
+    prod_release.evaluation_evidence_sha256 = (
+        "e" * 64
+    )  # evidence moved on after the chain was built
+    db_session.commit()
+
+    payload = WorkspaceBreakGlassApplyRequest(
+        reason="prod incident",
+        incident_ref="INC-3",
+        authorization_ref="AUTH-3",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        gate_evidence_sha256=GATE,  # the caller's earlier-captured (now-stale) digest
+        expected_current_release_id=prod_release.release_id,
+        expected_environment_lock_version=1,
+        idempotency_key="f13-break-glass",
+    )
+
+    with pytest.raises(HTTPException) as exc_info:
+        _break_glass_apply_sync(
+            session_factory,
+            project_id=project_id,
+            release_id=prod_release.release_id,
+            identity=CaliberIdentity(
+                user_id="@test",
+                scopes=_ADMIN_SCOPES,
+                credential_kind="session",
+                credential_id="session-f13",
+            ),
+            payload=payload,
+        )
+    assert exc_info.value.status_code == 409
+    assert "machine and integrity gates must pass" in str(exc_info.value.detail)

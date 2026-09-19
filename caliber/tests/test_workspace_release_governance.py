@@ -29,6 +29,7 @@ from caliber.workspace_release_governance import (
     WorkspaceReleaseDecisionConflictError,
     WorkspaceReleaseGovernanceError,
     create_workspace_break_glass_apply,
+    derive_break_glass_gate_evidence,
     record_workspace_release_decision,
 )
 from caliber.workspace_release_governance import (
@@ -751,6 +752,157 @@ def _seed_break_glass_candidate(
         key="prod-release",
         predecessor_release_id=staging.release_id,
     )
+
+
+def test_derive_break_glass_gate_evidence_reflects_a_genuinely_passed_release(
+    db_session: Session,
+) -> None:
+    """The no-regression case: a release that legitimately completed the
+    QA->staging->prod chain (``_seed_break_glass_candidate``, the same
+    fixture every other break-glass test in this module uses) must derive
+    ``(True, True)`` live -- not because a caller claimed it, but because
+    the release's own persisted status and evidence digest say so -- and
+    that live-derived pair must still be accepted by
+    ``create_workspace_break_glass_apply``'s own unchanged hard check.
+    """
+    release = _seed_break_glass_candidate(db_session)
+
+    machine_gates_passed, integrity_checks_passed = derive_break_glass_gate_evidence(
+        db_session,
+        project_id=PROJECT_ID,
+        workspace_release_id=release.release_id,
+        gate_evidence_sha256=GATE,
+    )
+    assert machine_gates_passed is True
+    assert integrity_checks_passed is True
+
+    result = create_workspace_break_glass_apply(
+        db_session,
+        project_id=PROJECT_ID,
+        workspace_release_id=release.release_id,
+        identity=_identity("ops-admin"),
+        reason="production incident",
+        incident_ref="INC-DERIVE-OK",
+        authorization_ref="AUTH-DERIVE-OK",
+        expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+        gate_evidence_sha256=GATE,
+        expected_current_release_id=release.release_id,
+        expected_environment_lock_version=1,
+        idempotency_key="breakglass-derive-ok",
+        machine_gates_passed=machine_gates_passed,
+        integrity_checks_passed=integrity_checks_passed,
+    )
+    assert result.authorization.authorization_id
+    assert result.operation.operation_id
+
+
+def test_derive_break_glass_gate_evidence_catches_a_digest_that_has_gone_stale(
+    db_session: Session,
+) -> None:
+    """Simulates evidence going stale between an earlier read and the apply
+    itself: a caller holds a ``gate_evidence_sha256`` it captured earlier,
+    but the release's own persisted evidence digest has since moved on (a
+    fresh evaluation superseded it). Re-deriving from the release row right
+    now -- not trusting the caller's earlier-captured digest -- must catch
+    this live, and feeding the truthful ``False`` into
+    ``create_workspace_break_glass_apply`` (unchanged) must still deny.
+    """
+    release = _seed_break_glass_candidate(db_session)
+    stale_gate_evidence_sha256 = GATE  # what an earlier read/request captured
+    release.evaluation_evidence_sha256 = "c" * 64  # evidence has since moved on
+    db_session.flush()
+
+    machine_gates_passed, integrity_checks_passed = derive_break_glass_gate_evidence(
+        db_session,
+        project_id=PROJECT_ID,
+        workspace_release_id=release.release_id,
+        gate_evidence_sha256=stale_gate_evidence_sha256,
+    )
+    assert integrity_checks_passed is False
+
+    with pytest.raises(WorkspaceBreakGlassError, match="machine and integrity gates must pass"):
+        create_workspace_break_glass_apply(
+            db_session,
+            project_id=PROJECT_ID,
+            workspace_release_id=release.release_id,
+            identity=_identity("ops-admin"),
+            reason="production incident",
+            incident_ref="INC-DERIVE-STALE-DIGEST",
+            authorization_ref="AUTH-DERIVE-STALE-DIGEST",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+            gate_evidence_sha256=stale_gate_evidence_sha256,
+            expected_current_release_id=release.release_id,
+            expected_environment_lock_version=1,
+            idempotency_key="breakglass-derive-stale-digest",
+            machine_gates_passed=machine_gates_passed,
+            integrity_checks_passed=integrity_checks_passed,
+        )
+
+
+def test_derive_break_glass_gate_evidence_catches_a_release_that_left_the_passed_chain(
+    db_session: Session,
+) -> None:
+    """A second drift scenario: the release's *status* itself has moved away
+    from the passed-machine-gate chain since an earlier check (e.g. a
+    concurrent re-evaluation rejected it) while the evidence digest a caller
+    might have cached is still byte-for-byte identical. A pure digest
+    comparison would miss this; deriving from the release's current status
+    must not.
+    """
+    release = _seed_break_glass_candidate(db_session)
+    release.status = RELEASE_REJECTED  # persisted state moved on since an earlier check
+    db_session.flush()
+
+    machine_gates_passed, integrity_checks_passed = derive_break_glass_gate_evidence(
+        db_session,
+        project_id=PROJECT_ID,
+        workspace_release_id=release.release_id,
+        gate_evidence_sha256=GATE,
+    )
+    assert machine_gates_passed is False
+    # The digest itself still matches (only the status moved) -- proving this
+    # is genuinely a status-chain signal, not a relabeled digest check.
+    assert integrity_checks_passed is True
+
+    with pytest.raises(WorkspaceBreakGlassError, match="machine and integrity gates must pass"):
+        create_workspace_break_glass_apply(
+            db_session,
+            project_id=PROJECT_ID,
+            workspace_release_id=release.release_id,
+            identity=_identity("ops-admin"),
+            reason="production incident",
+            incident_ref="INC-DERIVE-STALE-STATUS",
+            authorization_ref="AUTH-DERIVE-STALE-STATUS",
+            expires_at=datetime.now(timezone.utc) + timedelta(minutes=10),
+            gate_evidence_sha256=GATE,
+            expected_current_release_id=release.release_id,
+            expected_environment_lock_version=1,
+            idempotency_key="breakglass-derive-stale-status",
+            machine_gates_passed=machine_gates_passed,
+            integrity_checks_passed=integrity_checks_passed,
+        )
+
+
+def test_derive_break_glass_gate_evidence_returns_false_for_an_unknown_or_foreign_release(
+    db_session: Session,
+) -> None:
+    """Hardening edge case: a release that does not exist, or belongs to a
+    different project, must never be treated as a passed gate by default.
+    """
+    assert derive_break_glass_gate_evidence(
+        db_session,
+        project_id=PROJECT_ID,
+        workspace_release_id="WSREL-does-not-exist",
+        gate_evidence_sha256=GATE,
+    ) == (False, False)
+
+    release = _seed_break_glass_candidate(db_session)
+    assert derive_break_glass_gate_evidence(
+        db_session,
+        project_id="PRJ-some-other-project",
+        workspace_release_id=release.release_id,
+        gate_evidence_sha256=GATE,
+    ) == (False, False)
 
 
 def test_break_glass_is_disabled_by_default_and_rejects_noninteractive_credentials(
