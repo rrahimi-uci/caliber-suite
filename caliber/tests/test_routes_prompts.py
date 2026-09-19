@@ -2604,6 +2604,88 @@ def test_list_prompts_hides_a_prompt_whose_target_belongs_to_another_project(
     assert "bare-prompt" in names
 
 
+def test_list_prompt_versions_hides_a_prompt_whose_target_belongs_to_another_project(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    """`P2-N`/`P2-O`: `list_prompt_versions` had no CALIBER-side visibility
+    check at all -- a caller blocked from ``GET /prompts/{name}`` (per
+    `test_get_prompt_hides_a_prompt_whose_target_belongs_to_another_project`)
+    could still enumerate that project's prompt version history through this
+    sibling route."""
+    _insert_agent(
+        db_session,
+        agent_id="shared-prompt",
+        experiment_id="exp-shared-prompt",
+        visibility="project",
+        project_id="P-hidden",
+        optimizer_config={"source_type": "prompt_target", "model": None, "bound_to": None},
+    )
+
+    class FakeClient:
+        def search_prompt_versions(self, name: str) -> list[object]:
+            return [
+                SimpleNamespace(
+                    version=1,
+                    source=None,
+                    tags={},
+                    description=None,
+                    commit_message="v1",
+                    creation_timestamp=100,
+                    last_updated_timestamp=100,
+                    run_id=None,
+                    aliases=["prod"],
+                )
+            ]
+
+    _install_mlflow(monkeypatch, client_cls=FakeClient)
+
+    hidden = client.get(f"{PREFIX}/shared-prompt/versions", headers=_STRANGER)
+    assert hidden.status_code == 404
+
+    # A prompt with no CALIBER row at all (a bare provider-only/legacy
+    # prompt) has no target to hide behind -- stays visible to everyone.
+    bare = client.get(f"{PREFIX}/bare-prompt/versions", headers=_STRANGER)
+    assert bare.status_code == 200
+    assert bare.json()["data"][0]["version"] == 1
+
+
+def test_get_prompt_version_hides_a_prompt_whose_target_belongs_to_another_project(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    """`P2-N`/`P2-O`: `get_prompt_version` returns the prompt's full template
+    body for a specific version -- the same genuine disclosure `get_prompt`
+    already refuses for the live alias -- but had no CALIBER-side visibility
+    check at all before this fix."""
+    _insert_agent(
+        db_session,
+        agent_id="shared-prompt",
+        experiment_id="exp-shared-prompt",
+        visibility="project",
+        project_id="P-hidden",
+        optimizer_config={"source_type": "prompt_target", "model": None, "bound_to": None},
+    )
+    _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/shared-prompt/1": SimpleNamespace(
+                name="shared-prompt", version=1, template="secret v1 template"
+            ),
+            "prompts:/bare-prompt/1": SimpleNamespace(
+                name="bare-prompt", version=1, template="public v1 template"
+            ),
+        },
+    )
+
+    hidden = client.get(f"{PREFIX}/shared-prompt/versions/1", headers=_STRANGER)
+    assert hidden.status_code == 404
+
+    # A prompt with no CALIBER row at all (a bare provider-only/legacy
+    # prompt) has no target to hide behind -- stays visible to everyone.
+    bare = client.get(f"{PREFIX}/bare-prompt/versions/1", headers=_STRANGER)
+    assert bare.status_code == 200
+    assert bare.json()["data"]["template"] == "public v1 template"
+
+
 def test_create_prompt_optimization_run_hides_a_hidden_eval_dataset(
     client: TestClient, db_session: Session
 ) -> None:
