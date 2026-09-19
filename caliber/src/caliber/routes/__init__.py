@@ -27,6 +27,7 @@ from caliber.routes import (
     files,
     gate_verdicts,
     gateway,
+    github_webhooks,
     health,
     jobs,
     judges,
@@ -100,6 +101,7 @@ def register_routes(app: Starlette) -> None:  # noqa: PLR0915 - one call per rou
     verification.register(app)
     workspace.register(app)
     workspace_source_connections.register(app)
+    github_webhooks.register(app)
     workspace_change_requests.register(app)
     workspace_release_operations.register(app)
     workspace_releases.register(app)

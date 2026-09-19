@@ -30,6 +30,7 @@ from __future__ import annotations
 from datetime import datetime, timezone
 
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
 from caliber.db.models import CaliberWorkspaceSource, CaliberWorkspaceSourceConnection
@@ -58,6 +59,19 @@ class WorkspaceSourceConnectionProviderMismatchError(WorkspaceSourceConnectionEr
     """The connection's provider does not match its source's configured provider."""
 
     code = "workspace_source_connection_provider_mismatch"
+
+
+class WorkspaceSourceConnectionInstallationConflictError(WorkspaceSourceConnectionError):
+    """Another active connection already claims this (provider, installation_id).
+
+    A real GitHub App installation is only ever legitimately bound to one
+    target -- enforced by a DB-level partial unique index, not just this
+    check. This is the friendly pre-check; a race against a concurrent
+    write is still caught by the same underlying constraint (see
+    :func:`configure_connection`'s ``IntegrityError`` handling).
+    """
+
+    code = "workspace_source_connection_installation_conflict"
 
 
 class WorkspaceSourceConnectionUnavailableError(WorkspaceSourceConnectionError):
@@ -109,6 +123,28 @@ def get_connection(session: Session, source_id: str) -> CaliberWorkspaceSourceCo
     ).scalar_one_or_none()
 
 
+def get_connection_by_installation(
+    session: Session, *, provider: str, installation_id: str
+) -> CaliberWorkspaceSourceConnection | None:
+    """Return the one active connection claiming ``(provider, installation_id)``.
+
+    Used by webhook ingress to find a *candidate* source from an inbound
+    delivery's untrusted ``installation.id`` claim. The DB-level partial
+    unique index on ``(provider, installation_id)`` where ``status =
+    'active'`` guarantees at most one row -- this is a lookup, not a trust
+    decision; the caller must still verify the delivery's HMAC signature
+    against this candidate's own webhook secret before treating it as
+    authentic.
+    """
+    return session.execute(
+        select(CaliberWorkspaceSourceConnection).where(
+            CaliberWorkspaceSourceConnection.provider == provider,
+            CaliberWorkspaceSourceConnection.installation_id == installation_id,
+            CaliberWorkspaceSourceConnection.status == CONNECTION_ACTIVE,
+        )
+    ).scalar_one_or_none()
+
+
 def configure_connection(
     session: Session,
     secret_store: SecretStore,
@@ -144,8 +180,27 @@ def configure_connection(
         raise ValueError("webhook_secret must be a non-empty string")
 
     stamp = _utc_naive(now)
-    connection = get_connection(session, source.source_id)
-    if connection is None:
+    existing_connection = get_connection(session, source.source_id)
+
+    # Friendly pre-check: a real GitHub App installation is only ever
+    # legitimately bound to one target. This is the actionable error path;
+    # the DB-level partial unique index (checked below via IntegrityError)
+    # is what makes it correct under a race, not merely convention.
+    existing_claim = get_connection_by_installation(
+        session, provider=source.provider, installation_id=normalized_installation_id
+    )
+    if existing_claim is not None and (
+        existing_connection is None
+        or existing_claim.connection_id != existing_connection.connection_id
+    ):
+        raise WorkspaceSourceConnectionInstallationConflictError(
+            f"{WorkspaceSourceConnectionInstallationConflictError.code}: "
+            f"installation_id {normalized_installation_id!r} is already bound to "
+            "another active connection"
+        )
+
+    connection: CaliberWorkspaceSourceConnection
+    if existing_connection is None:
         connection = CaliberWorkspaceSourceConnection(
             connection_id=new_workspace_source_connection_id(),
             source_id=source.source_id,
@@ -163,11 +218,26 @@ def configure_connection(
             created_at=stamp,
             updated_at=stamp,
         )
-        session.add(connection)
-        session.flush()
     else:
+        connection = existing_connection
         connection.app_id = normalized_app_id
         connection.installation_id = normalized_installation_id
+
+    try:
+        with session.begin_nested():
+            if existing_connection is None:
+                session.add(connection)
+            session.flush()
+    except IntegrityError as exc:
+        # Race safety net: two concurrent configure_connection calls could
+        # both pass the pre-check above before either flushes. The partial
+        # unique index is the actual guarantee; this translates its
+        # violation into the same typed error the pre-check raises.
+        raise WorkspaceSourceConnectionInstallationConflictError(
+            f"{WorkspaceSourceConnectionInstallationConflictError.code}: "
+            f"installation_id {normalized_installation_id!r} is already bound to "
+            "another active connection"
+        ) from exc
 
     private_key_name = private_key_secret_name(connection.connection_id)
     webhook_secret_name = webhook_secret_secret_name(connection.connection_id)
@@ -263,17 +333,45 @@ def resolve_credentials(
     return private_key, webhook_secret.encode("utf-8")
 
 
+def resolve_webhook_secret(
+    session: Session,
+    secret_store: SecretStore,
+    connection: CaliberWorkspaceSourceConnection,
+) -> bytes:
+    """Resolve only a connection's webhook-signing secret -- never its private key.
+
+    Webhook signature verification is pure HMAC math; it needs no GitHub API
+    call and therefore no installation token, no JWT, and no private key.
+    Webhook ingress may need to check several *candidate* connections for
+    one inbound delivery (see ``get_connection_by_installation``); paying
+    the cost -- and blast radius -- of decrypting every candidate's private
+    key just to reject most of them would violate least privilege for no
+    benefit. Raises :class:`WorkspaceSourceConnectionUnavailableError`,
+    matching :func:`resolve_credentials`'s fail-closed behavior.
+    """
+    webhook_secret = secret_store.resolve(session, reference_name(connection.webhook_secret_ref))
+    if not webhook_secret:
+        raise WorkspaceSourceConnectionUnavailableError(
+            f"{WorkspaceSourceConnectionUnavailableError.code}: webhook secret for "
+            f"connection {connection.connection_id!r} is unavailable"
+        )
+    return webhook_secret.encode("utf-8")
+
+
 __all__ = [
     "CONNECTION_ACTIVE",
     "CONNECTION_REVOKED",
     "WorkspaceSourceConnectionError",
+    "WorkspaceSourceConnectionInstallationConflictError",
     "WorkspaceSourceConnectionNotFoundError",
     "WorkspaceSourceConnectionProviderMismatchError",
     "WorkspaceSourceConnectionUnavailableError",
     "configure_connection",
     "get_connection",
+    "get_connection_by_installation",
     "private_key_secret_name",
     "resolve_credentials",
+    "resolve_webhook_secret",
     "revoke_connection",
     "webhook_secret_secret_name",
 ]

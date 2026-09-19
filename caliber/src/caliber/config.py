@@ -754,6 +754,20 @@ class CaliberConfig(BaseModel):
             "GitHub adapter silently going live for every deployment on upgrade."
         ),
     )
+    github_webhook_max_body_bytes: int = Field(
+        default=2_097_152,
+        ge=1,
+        description=(
+            "Maximum raw bytes accepted from a POST to the GitHub webhook ingress "
+            "route (routes/github_webhooks.py) before HMAC verification is even "
+            "attempted. The route counts streamed ASGI chunks rather than trusting "
+            "Content-Length, matching services.py's service_invoke_max_body_bytes "
+            "pattern. GitHub's own documented webhook payload ceiling is 25MB for "
+            "the largest event types; this default is intentionally much smaller "
+            "since CALIBER only needs delivery metadata and commit/PR identifiers, "
+            "never full diff contents, out of a webhook payload."
+        ),
+    )
     knowledge_graph_extractor_backend: KnowledgeGraphExtractorBackend = Field(
         default="heuristic",
         description=(
@@ -1896,6 +1910,11 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         "CALIBER_GITHUB_SOURCE_CONTROL_ENABLED",
         "github_source_control_enabled",
         _flag,
+    ),
+    (
+        "CALIBER_GITHUB_WEBHOOK_MAX_BODY_BYTES",
+        "github_webhook_max_body_bytes",
+        int,
     ),
     (
         "CALIBER_KNOWLEDGE_GRAPH_EXTRACTOR_BACKEND",

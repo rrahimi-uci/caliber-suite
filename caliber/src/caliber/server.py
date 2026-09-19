@@ -62,6 +62,7 @@ from caliber.redaction import build_redactor
 from caliber.routes import register_routes
 from caliber.routes._errors import http_exception_handler, validation_error_handler
 from caliber.routes.csrf import CSRF_PATH
+from caliber.routes.github_webhooks import PATH as GITHUB_WEBHOOK_PATH
 from caliber.routes.health import HEALTH_PATH
 from caliber.routes.static import build_handler as build_static_ui_handler
 from caliber.runtime_advisories import (
@@ -649,8 +650,12 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         CSRFMiddleware,
         manager=csrf_manager,
         # The ``/csrf`` endpoint is itself exempt — the SPA needs to be
-        # able to fetch a token before it can include one.
-        exempt_paths=frozenset({CSRF_PATH}),
+        # able to fetch a token before it can include one. The GitHub
+        # webhook ingress route is exempt for a different reason: GitHub
+        # itself is the caller, with no CALIBER session to bind a CSRF
+        # token to. Its only admission control is HMAC signature
+        # verification inside the handler itself (routes/github_webhooks.py).
+        exempt_paths=frozenset({CSRF_PATH, GITHUB_WEBHOOK_PATH}),
         dev_user=resolved.dev_user,
     )
     # Rate-limit middleware is installed only when enabled — when the
@@ -661,10 +666,17 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         # consume tokens (an aggressive Kubernetes probe interval
         # could otherwise drain anonymous's bucket), and the SPA
         # needs to bootstrap a CSRF token before spending any budget.
+        # The GitHub webhook route is exempt for the same reason as CSRF
+        # above: it has no CALIBER identity to key a rate-limit bucket on,
+        # and an unauthenticated shared "anonymous" bucket would let a
+        # burst of legitimate GitHub deliveries and an unrelated anonymous
+        # caller starve each other. Its own body-size ceiling
+        # (github_webhook_max_body_bytes) plus the cost of HMAC
+        # verification bound worst-case per-request cost instead.
         app.add_middleware(
             RateLimitMiddleware,
             limiter=rate_limiter,
-            exempt_paths=frozenset({HEALTH_PATH, CSRF_PATH}),
+            exempt_paths=frozenset({HEALTH_PATH, CSRF_PATH, GITHUB_WEBHOOK_PATH}),
             dev_user=resolved.dev_user,
         )
     app.state.config = resolved
