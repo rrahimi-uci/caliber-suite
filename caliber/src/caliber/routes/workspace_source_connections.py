@@ -14,6 +14,7 @@ statically cannot contain a private key or webhook secret, by schema.
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from typing import Literal, cast
 
 from sqlalchemy import select
@@ -34,12 +35,19 @@ from caliber.auth import (
     resolve_identity,
 )
 from caliber.db.models import CaliberWorkspaceSource, CaliberWorkspaceSourceConnection
+from caliber.github_http_transport import HTTPXGitHubTransport
+from caliber.github_source_control import GitHubTransport
+from caliber.github_webhook_reconciliation import (
+    WebhookReconciliationError,
+    reconcile_connection,
+)
 from caliber.resource_access import require_project_access
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
 from caliber.schemas import (
     WorkspaceSourceConnectionConfigureRequest,
     WorkspaceSourceConnectionResponse,
     WorkspaceSourceConnectionSchema,
+    WorkspaceSourceReconciliationResultSchema,
 )
 from caliber.secret_store import SecretStore
 from caliber.workspace_source_connections import (
@@ -53,6 +61,7 @@ from caliber.workspace_source_connections import (
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
 CONNECTION_PATH = PREFIX + "/projects/{project_id}/source/connection"
 CONNECTION_REVOKE_PATH = PREFIX + "/projects/{project_id}/source/connection:revoke"
+CONNECTION_RECONCILE_PATH = PREFIX + "/projects/{project_id}/source/connection:reconcile-deliveries"
 
 _Factory = sessionmaker[Session]
 
@@ -80,6 +89,21 @@ def _store(request: Request) -> SecretStore:
             ),
         )
     return cast(SecretStore, store)
+
+
+def _github_transport_factory(request: Request) -> Callable[[str], GitHubTransport]:
+    """The per-host GitHub transport builder, overridable for tests.
+
+    Mirrors ``routes/workspace.py``'s ``_provider_registry`` pattern: a
+    real ``HTTPXGitHubTransport`` in production, but a test can install
+    ``app.state.github_transport_factory`` to inject a fake transport and
+    keep this route's tests offline, matching this whole series'
+    credential-free/network-free testing convention.
+    """
+    factory = getattr(request.app.state, "github_transport_factory", None)
+    if factory is not None:
+        return cast(Callable[[str], GitHubTransport], factory)
+    return lambda host: HTTPXGitHubTransport(host=host)
 
 
 def _source_for_project(session: Session, project_id: str) -> CaliberWorkspaceSource | None:
@@ -204,6 +228,56 @@ def _revoke_connection_sync(
         return WorkspaceSourceConnectionResponse(connection=_connection_schema(connection))
 
 
+def _reconcile_connection_sync(
+    factory: _Factory,
+    secret_store: SecretStore,
+    transport_factory: Callable[[str], GitHubTransport],
+    *,
+    project_id: str,
+    actor: str,
+    identity: CaliberIdentity,
+) -> WorkspaceSourceReconciliationResultSchema:
+    with factory() as session:
+        require_project_access(session, identity, project_id, "source.manage")
+        source = _source_for_project(session, project_id)
+        if source is None:
+            raise HTTPException(status_code=404, detail="workspace source not found")
+        connection = get_connection(session, source.source_id)
+        if connection is None:
+            raise HTTPException(
+                status_code=409, detail="workspace_source_connection_not_configured"
+            )
+        transport = transport_factory(source.provider_host)
+        try:
+            result = reconcile_connection(session, secret_store, connection, transport)
+        except WebhookReconciliationError as exc:
+            raise HTTPException(status_code=502, detail=str(exc)) from exc
+        finally:
+            close = getattr(transport, "close", None)
+            if callable(close):
+                close()
+        audit_record(
+            session,
+            actor=actor,
+            action="reconcile_workspace_source_connection_deliveries",
+            entity_type="workspace_source_connection",
+            entity_id=connection.connection_id,
+            details={
+                "project_id": project_id,
+                "source_id": source.source_id,
+                "checked": result.checked,
+                "missed": len(result.missed),
+                "redelivery_requested": len(result.redelivery_requested),
+            },
+        )
+        session.commit()
+        return WorkspaceSourceReconciliationResultSchema(
+            checked=result.checked,
+            missed_delivery_ids=[delivery.guid for delivery in result.missed],
+            redelivery_requested_ids=list(result.redelivery_requested),
+        )
+
+
 async def get_source_connection(request: Request) -> JSONResponse:
     project_id = request.path_params["project_id"]
     _require_workspace_header(request, project_id)
@@ -255,7 +329,37 @@ async def revoke_source_connection(request: Request) -> JSONResponse:
     return envelope_response(response)
 
 
+async def reconcile_source_connection_deliveries(request: Request) -> JSONResponse:
+    """Find and request redelivery of any webhook deliveries this source's
+    inbox is missing, using GitHub's own App-scoped delivery log.
+
+    See ``github_webhook_reconciliation.py``'s module docstring: this route
+    never inserts anything into the inbox itself -- a requested redelivery
+    re-enters through ``routes/github_webhooks.py`` exactly like a live
+    delivery would.
+    """
+    project_id = request.path_params["project_id"]
+    _require_workspace_header(request, project_id)
+    actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    store = _store(request)
+    transport_factory = _github_transport_factory(request)
+    response = await run_in_threadpool(
+        _reconcile_connection_sync,
+        get_session_factory(request),
+        store,
+        transport_factory,
+        project_id=project_id,
+        actor=actor,
+        identity=identity,
+    )
+    return envelope_response(response)
+
+
 def register(app: Starlette) -> None:
     app.routes.append(Route(CONNECTION_PATH, get_source_connection, methods=["GET"]))
     app.routes.append(Route(CONNECTION_PATH, put_source_connection, methods=["PUT"]))
     app.routes.append(Route(CONNECTION_REVOKE_PATH, revoke_source_connection, methods=["POST"]))
+    app.routes.append(
+        Route(CONNECTION_RECONCILE_PATH, reconcile_source_connection_deliveries, methods=["POST"])
+    )

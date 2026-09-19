@@ -2460,6 +2460,19 @@ class WorkspaceSourceConnectionResponse(BaseModel):
     connection: WorkspaceSourceConnectionSchema | None = None
 
 
+class WorkspaceSourceReconciliationResultSchema(BaseModel):
+    """Result of one webhook-delivery reconciliation pass (`P4-E`).
+
+    Delivery guids are provider-assigned delivery identifiers (the same
+    value GitHub sends as ``X-GitHub-Delivery``) -- identifiers, not secret
+    material, safe to return.
+    """
+
+    checked: int
+    missed_delivery_ids: list[str] = Field(default_factory=list)
+    redelivery_requested_ids: list[str] = Field(default_factory=list)
+
+
 class WorkspaceImportJobSchema(BaseModel):
     """Durable source-to-revision import intent."""
 
