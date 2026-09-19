@@ -71,21 +71,33 @@ def _seed_revision(
     *,
     digest: str = HEX,
     actor: str = "@dev",
+    source_kind: str = "git",
 ) -> None:
+    # `ck_workspace_revision_source_kind_digest` (migration `0111`) requires a
+    # `"managed"` revision to carry neither Git-import digest.
+    is_managed = source_kind == "managed"
     db_session.add(
         CaliberWorkspaceRevision(
             revision_id=revision_id,
             project_id=project_id,
             revision_number=1,
+            source_kind=source_kind,
             manifest={"apiVersion": "caliber/v1alpha1"},
-            manifest_sha256=digest,
-            source_bundle_sha256=digest,
+            manifest_sha256=None if is_managed else digest,
+            source_bundle_sha256=None if is_managed else digest,
             source_attestation="caller_attested",
             revision_sha256=digest,
             status="ready",
             created_by=actor,
         )
     )
+    db_session.commit()
+
+
+def _set_source_mode(db_session: Session, project_id: str, source_mode: str) -> None:
+    project = db_session.get(CaliberProject, project_id)
+    assert project is not None
+    project.source_mode = source_mode
     db_session.commit()
 
 
@@ -150,6 +162,106 @@ def test_create_replaying_the_same_idempotency_key_and_content_returns_the_same_
     assert first.status_code == 201, first.text
     assert second.status_code == 201, second.text
     assert first.json()["data"]["release_id"] == second.json()["data"]["release_id"]
+
+
+def test_create_refuses_managed_revision_beyond_development_once_git_managed(
+    client: TestClient, db_session: Session
+) -> None:
+    """End-to-end HTTP proof of Phase 4 item 11's Git-managed authority gate:
+    a `git_managed` project cannot create a `qa` release from a CALIBER-managed
+    (non-Git) revision -- it must first be imported from a commit."""
+
+    project_id = _create_project(client)
+    _seed_revision(db_session, project_id, "WSR-gm1", source_kind="managed")
+    _set_source_mode(db_session, project_id, "git_managed")
+    qa_environment = _environment_id(db_session, project_id, "qa")
+
+    response = client.post(
+        _releases_path(project_id),
+        json={
+            "revision_id": "WSR-gm1",
+            "environment_id": qa_environment,
+            "environment_config_sha256": HEX,
+            "runtime_dependencies_sha256": HEX,
+            "policy_sha256": HEX,
+            "request_idempotency_key": "release-gm1",
+        },
+    )
+    assert response.status_code == 409, response.text
+    assert "beyond the development environment" in response.text
+
+
+def test_create_allows_managed_revision_in_development_once_git_managed(
+    client: TestClient, db_session: Session
+) -> None:
+    """`development` is unaffected -- a local draft may still release there."""
+
+    project_id = _create_project(client)
+    _seed_revision(db_session, project_id, "WSR-gm2", source_kind="managed")
+    _set_source_mode(db_session, project_id, "git_managed")
+    dev_environment = _environment_id(db_session, project_id, "dev")
+
+    response = client.post(
+        _releases_path(project_id),
+        json={
+            "revision_id": "WSR-gm2",
+            "environment_id": dev_environment,
+            "environment_config_sha256": HEX,
+            "runtime_dependencies_sha256": HEX,
+            "policy_sha256": HEX,
+            "request_idempotency_key": "release-gm2",
+        },
+    )
+    assert response.status_code == 201, response.text
+
+
+def test_create_allows_git_revision_beyond_development_once_git_managed(
+    client: TestClient, db_session: Session
+) -> None:
+    """A Git-sourced revision is the authoritative kind and is never
+    restricted by the gate, even once the project is `git_managed`."""
+
+    project_id = _create_project(client)
+    _seed_revision(db_session, project_id, "WSR-gm3", source_kind="git")
+    _set_source_mode(db_session, project_id, "git_managed")
+    qa_environment = _environment_id(db_session, project_id, "qa")
+
+    response = client.post(
+        _releases_path(project_id),
+        json={
+            "revision_id": "WSR-gm3",
+            "environment_id": qa_environment,
+            "environment_config_sha256": HEX,
+            "runtime_dependencies_sha256": HEX,
+            "policy_sha256": HEX,
+            "request_idempotency_key": "release-gm3",
+        },
+    )
+    assert response.status_code == 201, response.text
+
+
+def test_create_allows_managed_revision_beyond_development_under_caliber_managed_mode(
+    client: TestClient, db_session: Session
+) -> None:
+    """The default `caliber_managed` project mode is unaffected -- the gate
+    only fires once a project has committed to `git_managed` authority."""
+
+    project_id = _create_project(client)
+    _seed_revision(db_session, project_id, "WSR-gm4", source_kind="managed")
+    qa_environment = _environment_id(db_session, project_id, "qa")
+
+    response = client.post(
+        _releases_path(project_id),
+        json={
+            "revision_id": "WSR-gm4",
+            "environment_id": qa_environment,
+            "environment_config_sha256": HEX,
+            "runtime_dependencies_sha256": HEX,
+            "policy_sha256": HEX,
+            "request_idempotency_key": "release-gm4",
+        },
+    )
+    assert response.status_code == 201, response.text
 
 
 def test_get_release_404s_outside_its_project(client: TestClient, db_session: Session) -> None:

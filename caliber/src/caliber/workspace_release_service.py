@@ -17,9 +17,11 @@ from sqlalchemy import or_, select, update
 from sqlalchemy.orm import Session
 
 from caliber.db.models import (
+    CaliberProject,
     CaliberWorkspaceEnvironment,
     CaliberWorkspaceRelease,
     CaliberWorkspaceReleaseEvaluation,
+    CaliberWorkspaceRevision,
 )
 from caliber.ids import new_workspace_release_evaluation_id, new_workspace_release_id
 from caliber.workspace_runtime_lineage import create_runtime_lineage
@@ -56,6 +58,22 @@ _MAX_ERROR_CODE_LENGTH = 64
 _MAX_ERROR_SUMMARY_LENGTH = 4000
 EMPTY_DECISION_SET_SHA256 = hashlib.sha256(b"[]").hexdigest()
 
+#: `caliber_projects.source_mode` (`P1-A`, migration `0093`). The only other
+#: value is `"caliber_managed"` (the default) -- `schemas.py`'s
+#: `WorkspaceSourceResponse.source_mode` is a closed two-value `Literal` and
+#: `routes/workspace.py::_put_source_sync` is the only site that ever writes
+#: `"git_managed"`, with no reverse transition. Git-managed authority is
+#: therefore a one-way commitment: once a project configures a Git source,
+#: local (CALIBER-managed) drafts stop being promotable beyond development.
+SOURCE_MODE_GIT_MANAGED = "git_managed"
+
+#: `caliber_workspace_revisions.source_kind` (`P4-C`, migration `0111`). The
+#: only other value is `"git"` (the default), produced by the Git-import
+#: materializer; `"managed"` is produced only by
+#: `routes/workspace.py::snapshot_revision` and pins live CALIBER resource
+#: versions with no Git commit behind them.
+SOURCE_KIND_MANAGED = "managed"
+
 
 class WorkspaceReleaseConflictError(RuntimeError):
     """The requested release mutation conflicts with durable state."""
@@ -67,6 +85,12 @@ class WorkspaceReleaseTransitionError(WorkspaceReleaseConflictError):
 
 class WorkspaceReleaseLeaseError(WorkspaceReleaseConflictError):
     """An evaluation lease is missing, live, expired, or owned by another worker."""
+
+
+class WorkspaceReleaseSourceModeError(WorkspaceReleaseConflictError):
+    """A CALIBER-managed revision cannot release beyond development once the
+    project has committed to Git-managed source authority (docs/workspace-plan.md
+    Phase 4 item 11)."""
 
 
 def _now() -> datetime:
@@ -95,6 +119,61 @@ def _require_release(session: Session, release_id: str) -> CaliberWorkspaceRelea
     if release is None:
         raise WorkspaceReleaseConflictError("workspace release not found")
     return release
+
+
+def _require_source_mode_promotion_eligible(
+    session: Session,
+    *,
+    project_id: str,
+    revision_id: str,
+    environment_id: str,
+) -> None:
+    """Enforce Git-managed source authority before a new release is created.
+
+    Only a project that has transitioned to ``git_managed`` is restricted,
+    and only a CALIBER-managed (``source_kind="managed"``) revision is
+    affected: it may still release to the ``development`` environment class
+    but not beyond it until the same change is imported from a Git commit.
+    Git-sourced revisions, and any revision under the default
+    ``caliber_managed`` project mode, are always eligible -- the plan names
+    only Git-managed authority as exclusive, never the reverse. Fails closed
+    (raises) rather than silently allowing when the project, revision, or
+    environment cannot be resolved, since those are exactly the coordinates
+    this check depends on.
+
+    Session factories in this codebase are configured with
+    ``autoflush=False`` (``db/session.py::sessionmaker_from_engine``), so a
+    caller that just added the project/revision/environment rows in the same
+    session (a fresh Workspace, or a test fixture) would not see them via
+    ``session.get``/``select`` without an explicit flush first.
+    """
+
+    session.flush()
+    project = session.get(CaliberProject, project_id)
+    if project is None:
+        raise WorkspaceReleaseConflictError("workspace release project not found")
+    if project.source_mode != SOURCE_MODE_GIT_MANAGED:
+        return
+    revision = session.get(CaliberWorkspaceRevision, revision_id)
+    if revision is None or revision.project_id != project_id:
+        raise WorkspaceReleaseConflictError("workspace release revision not found")
+    if revision.source_kind != SOURCE_KIND_MANAGED:
+        return
+    environment = session.execute(
+        select(CaliberWorkspaceEnvironment).where(
+            CaliberWorkspaceEnvironment.environment_id == environment_id,
+            CaliberWorkspaceEnvironment.project_id == project_id,
+        )
+    ).scalar_one_or_none()
+    if environment is None:
+        raise WorkspaceReleaseConflictError("workspace release environment not found")
+    if environment.environment_class == "development":
+        return
+    raise WorkspaceReleaseSourceModeError(
+        "git-managed projects cannot release a CALIBER-managed (non-Git) revision "
+        "beyond the development environment; import the change from a Git commit "
+        "first"
+    )
 
 
 def create_workspace_release(
@@ -146,6 +225,13 @@ def create_workspace_release(
         if any(getattr(existing, key) != value for key, value in requested.items()):
             raise WorkspaceReleaseConflictError("workspace release idempotency conflict")
         return existing
+
+    _require_source_mode_promotion_eligible(
+        session,
+        project_id=project_id,
+        revision_id=revision_id,
+        environment_id=environment_id,
+    )
 
     release = CaliberWorkspaceRelease(
         release_id=release_id or new_workspace_release_id(),
@@ -651,8 +737,11 @@ __all__ = [
     "RELEASE_EVALUATING",
     "RELEASE_REJECTED",
     "RELEASE_TRANSITIONS",
+    "SOURCE_KIND_MANAGED",
+    "SOURCE_MODE_GIT_MANAGED",
     "WorkspaceReleaseConflictError",
     "WorkspaceReleaseLeaseError",
+    "WorkspaceReleaseSourceModeError",
     "WorkspaceReleaseTransitionError",
     "block_workspace_release",
     "claim_workspace_release_evaluation",
