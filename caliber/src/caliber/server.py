@@ -69,11 +69,14 @@ from caliber.runtime_advisories import (
     SUPPORTED_PYTHON_RANGE_LABEL,
     get_runtime_dependency_advisories,
 )
+from caliber.storage import WorkingDirectoryService, build_backend
 from caliber.trace_client import MLflowTraceClient
 from caliber.workflows.runtime import bind_sandbox_config
 from caliber.workflows.tools import bind_module_allowlist
+from caliber.workspace_import_worker import WorkspaceImportWorker
 from caliber.workspace_release_adapters import WorkspaceResourceAdapterRegistry
 from caliber.workspace_release_workflow_adapter import WorkflowWorkspaceResourceAdapter
+from caliber.workspace_sources import WorkspaceSourceProviderRegistry
 
 if TYPE_CHECKING:
     from starlette.types import ASGIApp
@@ -157,6 +160,7 @@ def _build_lifespan(
     workflow_run_worker: WorkflowRunWorker | None,
     aria_plan_worker: AriaPlanWorker | None,
     knowledge_build_worker: KnowledgeBaseWorker | None,
+    workspace_import_worker: WorkspaceImportWorker | None,
     scheduler: WorkflowSchedulerTask | None,
     janitor: JanitorTask,
     release_reconciler: ReleaseReconcilerTask,
@@ -173,12 +177,12 @@ def _build_lifespan(
     """Create the Starlette lifespan callback that starts/stops background tasks.
 
     Startup order: refinement worker → workflow-run worker → Aria worker →
-    knowledge-build worker → scheduler → janitor → release reconciler →
-    calibration drain → webhooks.
+    knowledge-build worker → workspace-import worker → scheduler → janitor →
+    release reconciler → calibration drain → webhooks.
     Shutdown reverses the dependency edge: webhooks and scheduler stop first,
-    followed by the knowledge, Aria, workflow-run, refinement, and calibration
-    workers; the janitor, release reconciler, and event bus stop before the
-    database engine is disposed.
+    followed by the workspace-import, knowledge, Aria, workflow-run,
+    refinement, and calibration workers; the janitor, release reconciler, and
+    event bus stop before the database engine is disposed.
 
     This list is prose and drifts; ``paper/scripts/gen_stats.py`` derives the loop
     count from the ``await <task>.start()`` calls below rather than from here.
@@ -190,7 +194,9 @@ def _build_lifespan(
     """
 
     @asynccontextmanager
-    async def lifespan(_app: Starlette) -> AsyncIterator[None]:
+    async def lifespan(  # noqa: PLR0912 - one optional-worker start/stop branch per background task
+        _app: Starlette,
+    ) -> AsyncIterator[None]:
         start_bus = getattr(_event_bus, "start", None)
         if callable(start_bus):
             await start_bus()
@@ -202,6 +208,8 @@ def _build_lifespan(
                 await aria_plan_worker.start()
             if knowledge_build_worker is not None:
                 await knowledge_build_worker.start()
+            if workspace_import_worker is not None:
+                await workspace_import_worker.start()
             if scheduler is not None:
                 await scheduler.start()
             await janitor.start()
@@ -214,6 +222,8 @@ def _build_lifespan(
             await webhooks.stop()
             if scheduler is not None:
                 await scheduler.stop()
+            if workspace_import_worker is not None:
+                await workspace_import_worker.stop(grace_seconds=grace_seconds)
             if knowledge_build_worker is not None:
                 await knowledge_build_worker.stop(grace_seconds=grace_seconds)
             if aria_plan_worker is not None:
@@ -505,6 +515,27 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         session_factory=session_factory,
         config=resolved,
     )
+    # Built eagerly (rather than lazily on first request, as
+    # ``routes/_deps.py::get_working_dir_service`` does) so the same instance
+    # can be handed to the worker below; assigning it onto ``app.state`` up
+    # front keeps that helper's cache hit on the first request.
+    working_dir_service = WorkingDirectoryService(
+        build_backend(resolved.workflow_storage), resolved.workflow_storage
+    )
+    # No adapter is registered here: `P4-E`'s GitHub adapter still needs
+    # encrypted least-privilege connection storage before it can be wired to
+    # a live deployment (see docs/workspace-plan.md's P4-E row). An empty
+    # registry is a supported, honest default -- the import worker treats a
+    # missing/unavailable provider as best-effort-skipped, never fatal, since
+    # the content it materializes already comes from an independently
+    # digest-verified retained snapshot, not from a provider fetch.
+    workspace_source_registry = WorkspaceSourceProviderRegistry()
+    workspace_import_worker = WorkspaceImportWorker(
+        session_factory=session_factory,
+        config=resolved,
+        storage=working_dir_service,
+        provider_registry=workspace_source_registry,
+    )
     scheduler = WorkflowSchedulerTask(
         session_factory=session_factory,
         interval_seconds=resolved.workflow_scheduler_interval_seconds,
@@ -570,6 +601,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             workflow_run_worker if resolved.workflow_run_worker_enabled else None,
             aria_plan_worker,
             knowledge_build_worker if resolved.knowledge_build_worker_enabled else None,
+            workspace_import_worker if resolved.workspace_import_worker_enabled else None,
             scheduler if resolved.workflow_scheduler_enabled else None,
             janitor,
             release_reconciler,
@@ -626,6 +658,9 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     app.state.workflow_run_worker = workflow_run_worker
     app.state.aria_plan_worker = aria_plan_worker
     app.state.knowledge_build_worker = knowledge_build_worker
+    app.state.workspace_import_worker = workspace_import_worker
+    app.state.working_dir_service = working_dir_service
+    app.state.workspace_source_registry = workspace_source_registry
     app.state.workflow_scheduler = scheduler
     app.state.janitor = janitor
     app.state.webhook_dispatcher = webhooks

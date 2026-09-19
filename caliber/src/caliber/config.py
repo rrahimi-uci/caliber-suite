@@ -719,6 +719,28 @@ class CaliberConfig(BaseModel):
         gt=0,
         description="Claim-lease duration for running knowledge-base builds before recovery.",
     )
+    workspace_import_worker_enabled: bool = Field(
+        default=True,
+        description=(
+            "When true, the Workspace import worker starts with app lifespan and claims "
+            "queued CaliberWorkspaceImportJob rows, materializing each into an immutable "
+            "WorkspaceRevision."
+        ),
+    )
+    workspace_import_worker_interval_seconds: float = Field(
+        default=2.0,
+        gt=0,
+        description="Polling interval for Workspace import worker claim ticks.",
+    )
+    workspace_import_lease_seconds: float = Field(
+        default=300.0,
+        gt=0,
+        description=(
+            "Claim-lease duration for a running Workspace import job before "
+            "reconcile_expired_import_jobs moves it to reconcile_required. Matches "
+            "workspace_imports.DEFAULT_IMPORT_LEASE_SECONDS."
+        ),
+    )
     knowledge_graph_extractor_backend: KnowledgeGraphExtractorBackend = Field(
         default="heuristic",
         description=(
@@ -1846,6 +1868,17 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
         float,
     ),
     ("CALIBER_KNOWLEDGE_BUILD_LEASE_SECONDS", "knowledge_build_lease_seconds", float),
+    (
+        "CALIBER_WORKSPACE_IMPORT_WORKER_ENABLED",
+        "workspace_import_worker_enabled",
+        _flag,
+    ),
+    (
+        "CALIBER_WORKSPACE_IMPORT_WORKER_INTERVAL_SECONDS",
+        "workspace_import_worker_interval_seconds",
+        float,
+    ),
+    ("CALIBER_WORKSPACE_IMPORT_LEASE_SECONDS", "workspace_import_lease_seconds", float),
     (
         "CALIBER_KNOWLEDGE_GRAPH_EXTRACTOR_BACKEND",
         "knowledge_graph_extractor_backend",
