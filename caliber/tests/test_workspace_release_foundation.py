@@ -63,8 +63,11 @@ from caliber.workspace_release_service import (
     RELEASE_EVALUATING,
     RELEASE_REJECTED,
     RELEASE_TRANSITIONS,
+    SOURCE_KIND_MANAGED,
+    SOURCE_MODE_GIT_MANAGED,
     WorkspaceReleaseConflictError,
     WorkspaceReleaseLeaseError,
+    WorkspaceReleaseSourceModeError,
     WorkspaceReleaseTransitionError,
     block_workspace_release,
     claim_workspace_release_evaluation,
@@ -92,8 +95,17 @@ def _seed_workspace(
     *,
     environment_id: str = DEV_ENVIRONMENT_ID,
     environment_class: str = "development",
+    source_mode: str = "caliber_managed",
+    revision_source_kind: str = "git",
 ) -> None:
-    session.add(CaliberProject(project_id=PROJECT_ID, name="P5-A workspace", owner="developer"))
+    session.add(
+        CaliberProject(
+            project_id=PROJECT_ID,
+            name="P5-A workspace",
+            owner="developer",
+            source_mode=source_mode,
+        )
+    )
     session.add(
         CaliberWorkspaceEnvironment(
             environment_id=environment_id,
@@ -105,6 +117,9 @@ def _seed_workspace(
             created_by="developer",
         )
     )
+    # `ck_workspace_revision_source_kind_digest` (migration `0111`) requires a
+    # `"managed"` revision to carry neither Git-import digest -- unlike a
+    # `"git"` revision, which requires both.
     session.add(
         CaliberWorkspaceRevision(
             revision_id=REVISION_ID,
@@ -112,9 +127,10 @@ def _seed_workspace(
             revision_number=1,
             source_id=None,
             source_commit_sha=None,
+            source_kind=revision_source_kind,
             manifest={"apiVersion": "caliber/v1alpha1"},
-            manifest_sha256=HEX,
-            source_bundle_sha256=HEX,
+            manifest_sha256=None if revision_source_kind == "managed" else HEX,
+            source_bundle_sha256=None if revision_source_kind == "managed" else HEX,
             source_snapshot_file_id=None,
             source_attestation="caller_attested",
             revision_sha256=HEX,
@@ -731,11 +747,207 @@ def test_database_constraints_reject_invalid_evidence_decisions_and_expiry(
         db_session.flush()
     db_session.rollback()
 
+    # The rollback above also discards the project/environment/revision rows
+    # `_seed_workspace` had only flushed (never committed) earlier in this
+    # same transaction -- `create_workspace_release`'s source-mode-authority
+    # check (`_require_source_mode_promotion_eligible`) now looks those rows
+    # up, so they must be re-seeded before creating another release.
+    _seed_workspace(db_session)
     release = _release(db_session, key="invalid-lock-version")
     release.lock_version = 0
     with pytest.raises(IntegrityError):
         db_session.flush()
     db_session.rollback()
+
+
+@pytest.mark.parametrize(
+    ("environment_id", "environment_class"),
+    [
+        (QA_ENVIRONMENT_ID, "qa"),
+        (STAGING_ENVIRONMENT_ID, "staging"),
+        ("WSE-p5a-prod", "production"),
+    ],
+)
+def test_git_managed_project_refuses_managed_revision_beyond_development(
+    db_session: Session, environment_id: str, environment_class: str
+) -> None:
+    """Phase 4 item 11: once a project is `git_managed`, a CALIBER-managed
+    (non-Git) revision is a local draft that cannot release past `development`
+    until it is imported from a commit (`source_kind="git"`)."""
+
+    _seed_workspace(
+        db_session,
+        environment_id=environment_id,
+        environment_class=environment_class,
+        source_mode=SOURCE_MODE_GIT_MANAGED,
+        revision_source_kind=SOURCE_KIND_MANAGED,
+    )
+    with pytest.raises(WorkspaceReleaseSourceModeError, match="beyond the development environment"):
+        _release(db_session, environment_id=environment_id)
+    # Nothing was created: not even a `draft` release exists for this
+    # coordinate set, so the refusal must be provable, not just an in-memory
+    # exception the caller could ignore.
+    assert (
+        db_session.execute(
+            select(CaliberWorkspaceRelease).where(CaliberWorkspaceRelease.project_id == PROJECT_ID)
+        ).first()
+        is None
+    )
+
+
+def test_git_managed_project_allows_managed_revision_in_development(db_session: Session) -> None:
+    """The `development` tier is unaffected by "non-promotable beyond
+    development" -- a local draft may always release to `development`."""
+
+    _seed_workspace(
+        db_session,
+        source_mode=SOURCE_MODE_GIT_MANAGED,
+        revision_source_kind=SOURCE_KIND_MANAGED,
+    )
+    release = _release(db_session)
+    assert release.status == RELEASE_DRAFT
+
+
+@pytest.mark.parametrize(
+    ("environment_id", "environment_class"),
+    [
+        (DEV_ENVIRONMENT_ID, "development"),
+        (QA_ENVIRONMENT_ID, "qa"),
+        (STAGING_ENVIRONMENT_ID, "staging"),
+        ("WSE-p5a-prod", "production"),
+    ],
+)
+def test_git_managed_project_allows_git_revision_at_any_tier(
+    db_session: Session, environment_id: str, environment_class: str
+) -> None:
+    """Git-sourced revisions are the authoritative kind under `git_managed`
+    and are never restricted by this gate, at any environment class."""
+
+    _seed_workspace(
+        db_session,
+        environment_id=environment_id,
+        environment_class=environment_class,
+        source_mode=SOURCE_MODE_GIT_MANAGED,
+        revision_source_kind="git",
+    )
+    release = _release(db_session, environment_id=environment_id)
+    assert release.status == RELEASE_DRAFT
+
+
+@pytest.mark.parametrize(
+    ("environment_id", "environment_class"),
+    [
+        (DEV_ENVIRONMENT_ID, "development"),
+        (QA_ENVIRONMENT_ID, "qa"),
+        (STAGING_ENVIRONMENT_ID, "staging"),
+        ("WSE-p5a-prod", "production"),
+    ],
+)
+def test_caliber_managed_project_allows_managed_revision_at_any_tier(
+    db_session: Session, environment_id: str, environment_class: str
+) -> None:
+    """The gate only fires once a project has committed to `git_managed`
+    authority -- the default `caliber_managed` mode is unaffected at any
+    environment class, including `qa`/`staging`/`production`."""
+
+    _seed_workspace(
+        db_session,
+        environment_id=environment_id,
+        environment_class=environment_class,
+        source_mode="caliber_managed",
+        revision_source_kind=SOURCE_KIND_MANAGED,
+    )
+    release = _release(db_session, environment_id=environment_id)
+    assert release.status == RELEASE_DRAFT
+
+
+def test_git_managed_source_mode_refusal_does_not_block_idempotent_replay(
+    db_session: Session,
+) -> None:
+    """A prior, already-durable release replays by idempotency key without
+    re-running the source-mode gate, exactly like every other immutable
+    coordinate on this request (`create_workspace_release`'s own digest
+    comparison already treats a stored release as decided, not re-derived)."""
+
+    _seed_workspace(
+        db_session,
+        environment_id=QA_ENVIRONMENT_ID,
+        environment_class="qa",
+        source_mode="caliber_managed",
+        revision_source_kind=SOURCE_KIND_MANAGED,
+    )
+    first = _release(db_session, environment_id=QA_ENVIRONMENT_ID, key="replay-key")
+    # Flip the project to `git_managed` *after* the release already exists --
+    # a strict re-check on replay would now refuse it (the revision itself
+    # cannot be mutated back to test this the other way: it is already
+    # `ready`, and terminal revisions are append-only).
+    project = db_session.get(CaliberProject, PROJECT_ID)
+    assert project is not None
+    project.source_mode = SOURCE_MODE_GIT_MANAGED
+    db_session.flush()
+    replayed = create_workspace_release(
+        db_session,
+        project_id=PROJECT_ID,
+        revision_id=REVISION_ID,
+        environment_id=QA_ENVIRONMENT_ID,
+        environment_config_sha256=HEX,
+        runtime_dependencies_sha256=HEX,
+        policy_sha256=HEX,
+        request_idempotency_key="replay-key",
+        requested_by="developer",
+    )
+    assert replayed.release_id == first.release_id
+
+
+def test_source_mode_gate_fails_closed_on_missing_project(db_session: Session) -> None:
+    with pytest.raises(WorkspaceReleaseConflictError, match="project not found"):
+        create_workspace_release(
+            db_session,
+            project_id="PRJ-missing",
+            revision_id="WSR-missing",
+            environment_id="WSE-missing",
+            environment_config_sha256=HEX,
+            runtime_dependencies_sha256=HEX,
+            policy_sha256=HEX,
+            request_idempotency_key="missing-project",
+            requested_by="developer",
+        )
+
+
+def test_source_mode_gate_fails_closed_on_missing_revision(db_session: Session) -> None:
+    _seed_workspace(db_session, source_mode=SOURCE_MODE_GIT_MANAGED)
+    with pytest.raises(WorkspaceReleaseConflictError, match="revision not found"):
+        create_workspace_release(
+            db_session,
+            project_id=PROJECT_ID,
+            revision_id="WSR-does-not-exist",
+            environment_id=DEV_ENVIRONMENT_ID,
+            environment_config_sha256=HEX,
+            runtime_dependencies_sha256=HEX,
+            policy_sha256=HEX,
+            request_idempotency_key="missing-revision",
+            requested_by="developer",
+        )
+
+
+def test_source_mode_gate_fails_closed_on_missing_environment(db_session: Session) -> None:
+    _seed_workspace(
+        db_session,
+        source_mode=SOURCE_MODE_GIT_MANAGED,
+        revision_source_kind=SOURCE_KIND_MANAGED,
+    )
+    with pytest.raises(WorkspaceReleaseConflictError, match="environment not found"):
+        create_workspace_release(
+            db_session,
+            project_id=PROJECT_ID,
+            revision_id=REVISION_ID,
+            environment_id="WSE-does-not-exist",
+            environment_config_sha256=HEX,
+            runtime_dependencies_sha256=HEX,
+            policy_sha256=HEX,
+            request_idempotency_key="missing-environment",
+            requested_by="developer",
+        )
 
 
 def test_release_service_rejects_invalid_inputs_and_cas_races(
