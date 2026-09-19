@@ -10,6 +10,7 @@ from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from caliber.db.models import (
+    CaliberProject,
     CaliberToolRegistry,
     CaliberToolTestRun,
     CaliberWorkflow,
@@ -23,6 +24,21 @@ from tests.workflow_helpers import (
     make_tool_payload,
     seed_eval_dataset,
 )
+
+
+def _seed_project(db_session: Session, project_id: str, *, owner: str = "@test") -> None:
+    """Insert a real `CaliberProject` row so `X-CALIBER-Project: <project_id>`
+    resolves to an owned project rather than a nonexistent one.
+
+    `P2` (isolation closure): `register_tool` now calls
+    `require_project_access_if_scoped`, which 404s "project not found" for a
+    project id with no backing row -- several tests here used a bare made-up
+    id purely to exercise cross-project *visibility*, not creation
+    authorization; seeding a real project (owned by the creating identity)
+    keeps that original intent while satisfying the new create-time check.
+    """
+    db_session.add(CaliberProject(project_id=project_id, name=project_id, owner=owner))
+    db_session.commit()
 
 
 def test_list_includes_builtin_tools_on_fresh_registry(client: TestClient) -> None:
@@ -112,8 +128,11 @@ def test_list_tool_versions_sorts_naturally_not_lexically(client: TestClient) ->
     assert [row["version"] for row in rows] == ["10", "9", "2.0", "1.10", "1.9"]
 
 
-def test_list_tool_versions_does_not_leak_other_scopes(client: TestClient) -> None:
+def test_list_tool_versions_does_not_leak_other_scopes(
+    client: TestClient, db_session: Session
+) -> None:
     """A project-scoped tool family must not leak its versions to outside identities."""
+    _seed_project(db_session, "PRJ-1")
     tid = client.post(
         f"{PREFIX}/tools",
         json=make_tool_payload("scoped", version="1.0"),
@@ -812,13 +831,16 @@ def test_create_list_and_get_tool_test_run_roundtrip(
     assert detail_data["results"][2]["error"] == "ValueError: boom"
 
 
-def test_foreign_tool_and_test_run_families_are_scoped(client: TestClient) -> None:
+def test_foreign_tool_and_test_run_families_are_scoped(
+    client: TestClient, db_session: Session
+) -> None:
     """Every child route must enforce the visibility used by the tool list.
 
     Before the shared parent lookup, a foreign operator could not list this tool but could
     fetch its source, execute it, replace its fixtures, calibrate it, inspect its workspace
     and run history, or pin a baseline by supplying the id directly.
     """
+    _seed_project(db_session, "PRJ-SECRET")
     created = client.post(
         f"{PREFIX}/tools",
         json=make_tool_payload("foreign_tool", allow_in_preview=True),
@@ -1098,6 +1120,7 @@ def test_tool_set_baseline_wrong_tool_returns_400(client: TestClient) -> None:
 def test_tool_set_baseline_does_not_reveal_a_hidden_run(
     client: TestClient, db_session: Session
 ) -> None:
+    _seed_project(db_session, "PRJ-SECRET")
     hidden_tool = client.post(
         f"{PREFIX}/tools",
         json=make_tool_payload("hidden_baseline_tool"),

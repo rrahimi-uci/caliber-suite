@@ -53,6 +53,7 @@ from caliber.eval.dataset_sync import (
     MLflowDatasetSyncClient,
 )
 from caliber.ids import new_eval_dataset_id, new_eval_example_id
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -189,6 +190,14 @@ async def create_dataset(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
+        # `P2` (isolation closure): a test set is created into the caller's
+        # *active* project (`identity.active_project_id`), the same value
+        # persisted onto the new row below -- gate that project, not the
+        # not-yet-existing dataset, mirroring `create_workflow`/`create_skill`.
+        # A no-op when no project is active (a personal/global test set).
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, "resource.write.evidence"
+        )
         try:
             dataset = create_eval_dataset_record(
                 session, payload=payload, actor=actor, project_id=identity.active_project_id
@@ -208,6 +217,7 @@ async def update_dataset(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = EvalDatasetUpdateRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
 
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
@@ -218,6 +228,11 @@ async def update_dataset(request: Request) -> JSONResponse:
         dataset = session.get(CaliberEvalDataset, dataset_id)
         if dataset is None:
             raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
+        # `P2` (isolation closure): `resource.write.evidence` -- a no-op for
+        # an unscoped (`project_id is None`) test set.
+        require_project_access_if_scoped(
+            session, identity, dataset.project_id, "resource.write.evidence"
+        )
 
         diff: dict[str, dict[str, object]] = {}
         for field in _UPDATABLE_FIELDS:
@@ -369,6 +384,12 @@ async def create_example(request: Request) -> JSONResponse:
         )
         if dataset is None:
             raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
+        # `P2` (isolation closure): `resource.write.evidence` -- appending an
+        # example mutates the dataset (bumps its version), same evidence-
+        # write class as `update_dataset`.
+        require_project_access_if_scoped(
+            session, identity, dataset.project_id, "resource.write.evidence"
+        )
         dataset.version = dataset.version + 1
         example = CaliberEvalDatasetExample(
             example_id=new_eval_example_id(),
@@ -468,6 +489,9 @@ async def create_example_from_trace(request: Request) -> JSONResponse:
         )
         if dataset is None:
             raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
+        require_project_access_if_scoped(
+            session, identity, dataset.project_id, "resource.write.evidence"
+        )
         dataset.version = dataset.version + 1
         example = CaliberEvalDatasetExample(
             example_id=new_eval_example_id(),
@@ -507,12 +531,16 @@ async def supersede_example(request: Request) -> JSONResponse:
     dataset_id = request.path_params["dataset_id"]
     example_id = request.path_params["example_id"]
     actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
 
     factory = get_session_factory(request)
     with factory() as session:
         dataset = session.get(CaliberEvalDataset, dataset_id)
         if dataset is None:
             raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
+        require_project_access_if_scoped(
+            session, identity, dataset.project_id, "resource.write.evidence"
+        )
         example = session.get(CaliberEvalDatasetExample, example_id)
         if example is None or example.dataset_id != dataset_id:
             raise HTTPException(
@@ -563,6 +591,9 @@ async def revise_example(request: Request) -> JSONResponse:
         )
         if dataset is None:
             raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
+        require_project_access_if_scoped(
+            session, identity, dataset.project_id, "resource.write.evidence"
+        )
         old = session.get(CaliberEvalDatasetExample, example_id)
         if old is None or old.dataset_id != dataset_id:
             raise HTTPException(
@@ -751,6 +782,9 @@ async def restore_dataset_version(request: Request) -> JSONResponse:
         )
         if dataset is None:
             raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
+        require_project_access_if_scoped(
+            session, identity, dataset.project_id, "resource.write.evidence"
+        )
         if raw_version >= dataset.version:
             raise HTTPException(
                 status_code=400,

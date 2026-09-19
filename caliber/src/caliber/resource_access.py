@@ -41,14 +41,17 @@ PROJECT_ROLES: Final[frozenset[str]] = frozenset(
 #:
 #: Most of these keys are reserved, not live: their routes don't exist yet
 #: (Change Request/version-tag/release/environment machinery is Phase 2-5's
-#: job) or, for `resource.write.evidence`/`rework.update`, wiring a real
-#: project-role check onto their routes is deliberately deferred (see the
-#: two comments below) rather than done here. A reserved key still closes
-#: the registry -- `decide_project_access` denies any action not present as
-#: a key at all, so adding a key now means a route that starts using this
-#: literal next is instantly covered by an already-correct role set, not an
-#: implicit allow. `test_the_live_vs_reserved_action_partition_is_pinned`
-#: pins exactly which of these are live vs. reserved today.
+#: job) or, for `rework.update`, wiring a real project-role check onto its
+#: route is deliberately deferred (`caliber_rework_tasks` has no
+#: `project_id` column yet). `resource.write.evidence` was in that deferred
+#: set as of `P1-D`; `P2` (isolation closure) wires it, and
+#: `resource.write.runtime`, onto their real routes -- see the two comments
+#: below. A reserved key still closes the registry -- `decide_project_access`
+#: denies any action not present as a key at all, so adding a key now means a
+#: route that starts using this literal next is instantly covered by an
+#: already-correct role set, not an implicit allow.
+#: `test_the_live_vs_reserved_action_partition_is_pinned` pins exactly which
+#: of these are live vs. reserved today.
 PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     "read": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER, ROLE_VIEWER}),
     "project.update": frozenset({ROLE_OWNER, ROLE_EDITOR}),
@@ -75,14 +78,35 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     # inputs/outputs for both. They're migrated to `.runtime` here (the
     # closer fit: `object_store.py`'s own docstring already calls this tree
     # "accepted by workflow file-input nodes"), not left on a retired name.
+    #
+    # `P2` (isolation closure): now also wired onto the real Prompt/Workflow/
+    # Tool/Skill CRUD routes the `P1-D` comment above used to name as
+    # deliberately deferred. `routes/prompts.py`'s `create_prompt`,
+    # `create_prompt_version` and `delete_prompt`; `routes/workflows.py`'s
+    # `create_workflow`, `update_workflow`, `delete_workflow` and
+    # `import_workflow`; `routes/tools.py`'s `register_tool`, `update_tool`
+    # and `archive_tool`; and `routes/skills.py`'s `create_skill`,
+    # `update_skill`, `import_skill_package` and `import_skill_package_zip`.
+    # Each call goes through `require_project_access_if_scoped` -- a no-op
+    # for a personal/global (`project_id is None`) resource, a real role
+    # check otherwise -- and composes with, rather than replaces, each
+    # route's pre-existing global scope check
+    # (`caliber.operator`/`caliber.admin`).
     "resource.write.runtime": frozenset({ROLE_OWNER, ROLE_EDITOR}),
-    # Reserved: wiring this onto the actual Prompt/Workflow/Tool/Skill/
-    # Test-set/Judge/Scorer CRUD routes is section 2.3's own explicit
-    # warning -- "isolation closure is a hard prerequisite for shipping QA"
-    # (Phase 2, not this slice). Those routes check only global scope today;
-    # adding a project-role check on top of that now, before Phase 2 makes
-    # resource-to-workspace ownership consistent, is exactly the premature
-    # tightening section 2.3 says not to do yet.
+    # `P2` (isolation closure): now wired onto the real Test-set/Judge CRUD
+    # routes this key used to name as deliberately deferred (the comment
+    # above this dict's `P1-D` docstring). `routes/eval_datasets.py`
+    # (create_dataset, update_dataset, create_example,
+    # create_example_from_trace, supersede_example, revise_example,
+    # restore_dataset_version) and `routes/judges.py` (create_judge,
+    # update_judge) -- a judge is this codebase's "scorer": there is no
+    # separate `CaliberScorer` model, and `routes/judges.py`'s own
+    # docstring already calls a judge "a reusable, operator-authored
+    # scorer". `routes/gateway.py`'s MLflow-guardrail "scorer" templates are
+    # a distinct, platform-global concept with no `project_id` column at
+    # all, so they are out of scope for a project-role check (nothing to
+    # gate against) and are not touched here. Same `require_project_access_
+    # if_scoped` no-op-when-unscoped shape as `.runtime` above.
     "resource.write.evidence": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER}),
     "resource.publish": frozenset({ROLE_OWNER, ROLE_EDITOR}),
     # Reserved (never wired to a route in this codebase's history) --

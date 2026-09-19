@@ -39,6 +39,7 @@ from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.eval.alignment import cohen_kappa, confusion_counts, observed_agreement
 from caliber.eval.judge_scorer import JudgeError, build_judge, score_with_judge
 from caliber.ids import new_judge_id
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -174,6 +175,13 @@ async def create_judge(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
+        # `P2` (isolation closure): a judge ("a reusable, operator-authored
+        # scorer" per this module's docstring -- the codebase's "scorer"
+        # concept, there being no separate scorer model) is created into the
+        # caller's active project; a no-op when no project is active.
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, "resource.write.evidence"
+        )
         try:
             judge = create_judge_record(
                 session, payload=payload, actor=actor, project_id=identity.active_project_id
@@ -218,6 +226,9 @@ async def update_judge(request: Request) -> JSONResponse:
         judge = get_visible(session, CaliberJudge, CaliberJudge.judge_id, judge_id, identity)
         if judge is None:
             raise HTTPException(status_code=404, detail=f"judge {judge_id!r} not found")
+        require_project_access_if_scoped(
+            session, identity, judge.project_id, "resource.write.evidence"
+        )
 
         diff: dict[str, dict[str, object]] = {}
         for field in _UPDATABLE_FIELDS:

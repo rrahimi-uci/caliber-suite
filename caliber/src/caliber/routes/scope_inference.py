@@ -163,11 +163,19 @@ _SCOPE_CONSTANT_NAMES = frozenset(
 #: ``test_route_scope_inventory.py`` -- this dict is where a human explains
 #: *why*, not a place new entries get added silently.
 _DYNAMIC_SCOPE_NOTES: dict[str, str] = {
-    "caliber.routes.judges.update_judge": (
-        "SCOPE_ADMIN if the request body includes 'status' (archive/restore, "
-        "the delete-equivalent for a judge), else SCOPE_OPERATOR for content "
-        "fields (description/instructions/model/feedback_value_type/tags)."
-    ),
+    # `caliber.routes.judges.update_judge` no longer appears here: `P2`
+    # (isolation closure) added a `require_project_access_if_scoped` call to
+    # that handler, and `infer_required_scope` checks `project_access_calls`
+    # before `scope_calls`/`scope_all_calls` (see its own body below), so the
+    # route now classifies as `"project_role"` (action
+    # `resource.write.evidence`), not `"dynamic"`. The underlying dynamic
+    # global-scope requirement this note used to explain (`SCOPE_ADMIN` iff
+    # the request body includes `'status'`, else `SCOPE_OPERATOR`) is still
+    # real and still enforced at runtime -- this inventory just reports one
+    # classification per handler, and the project-role axis wins, the same
+    # trade-off already accepted for e.g.
+    # `routes/workflow_runs.py::create_workflow_run` (a literal
+    # `require_scopes([SCOPE_OPERATOR])` alongside `resource.execute`).
     "caliber.routes.workflow_deployments.promote_deployment": (
         "SCOPE_ADMIN if requires_human_approval(alias, config) -- i.e. the "
         "target alias is a gated environment under the deployment's release "

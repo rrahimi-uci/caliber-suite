@@ -36,6 +36,7 @@ from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from caliber.db.models import (
+    CaliberProject,
     CaliberWorkflow,
     CaliberWorkflowDeployment,
     CaliberWorkflowRun,
@@ -446,7 +447,7 @@ def test_a_playground_runs_files_are_private_to_their_uploader(client: TestClien
 
 
 def test_a_duplicate_judge_name_does_not_disclose_the_conflicting_id(
-    client: TestClient, foreign_judge: str
+    client: TestClient, db_session: Session, foreign_judge: str
 ) -> None:
     """`uq_judge_name` is global, so a name collision can cross a project boundary.
 
@@ -454,6 +455,14 @@ def test_a_duplicate_judge_name_does_not_disclose_the_conflicting_id(
     a project they cannot see — which is then usable against any route still taking a bare
     ID. The caller needs to know the name is taken, not whose it is.
     """
+    # `P2` (isolation closure): `create_judge` now calls
+    # `require_project_access_if_scoped`, which 404s "project not found" for
+    # a project id with no backing row -- `PRJ-OTHER` is used ambiently
+    # throughout this file via direct ORM rows and was never a real project.
+    # Seed one, owned by the acting identity, so the request reaches the
+    # duplicate-name check this test actually targets.
+    db_session.add(CaliberProject(project_id="PRJ-OTHER", name="PRJ-OTHER", owner="@dev2"))
+    db_session.commit()
     response = client.post(
         f"{PREFIX}/judges",
         json={

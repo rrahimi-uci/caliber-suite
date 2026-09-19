@@ -13,7 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from caliber.db.models import CaliberSkill
+from caliber.db.models import CaliberProject, CaliberSkill
 from caliber.routes.skills import LIST_PATH
 
 
@@ -67,6 +67,14 @@ def test_create_without_active_project_defaults_to_user_visibility(
 def test_create_with_project_header_is_project_scoped(
     client: TestClient, db_session: Session
 ) -> None:
+    # `P2` (isolation closure): `create_skill` now calls
+    # `require_project_access_if_scoped`, which 404s "project not found" for
+    # a project id with no backing row -- seed a real one, owned by the
+    # creating identity (the default `@test`), so this stays a test of
+    # project-context persistence rather than tripping the new create-time
+    # check.
+    db_session.add(CaliberProject(project_id="PRJ-1", name="PRJ-1", owner="@test"))
+    db_session.commit()
     _create(client, "in-project", headers={"X-CALIBER-Project": "PRJ-1"})
     row = _stored(db_session, "in-project")
     assert row.visibility == "project"

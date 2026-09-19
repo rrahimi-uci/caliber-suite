@@ -11,7 +11,7 @@ from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 from starlette.testclient import TestClient
 
-from caliber.db.models import CaliberAuditLog, CaliberSkill, CaliberSkillVersion
+from caliber.db.models import CaliberAuditLog, CaliberProject, CaliberSkill, CaliberSkillVersion
 from caliber.skill_packages import parse_skill_package_zip
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
@@ -91,6 +91,15 @@ def test_zip_import_persists_authenticated_project_context(
     client: TestClient,
     db_session: Session,
 ) -> None:
+    # `P2` (isolation closure): `import_skill_package_zip` now calls
+    # `require_project_access_if_scoped`, which 404s "project not found" for
+    # a project id with no backing row -- seed a real one, owned by the
+    # importing identity, so this stays a test of project-context
+    # persistence rather than tripping the new create-time check.
+    db_session.add(
+        CaliberProject(project_id="PRJ-zip-import", name="PRJ-zip-import", owner="@test")
+    )
+    db_session.commit()
     response = _upload(
         client,
         _zip(name="project-skill"),
