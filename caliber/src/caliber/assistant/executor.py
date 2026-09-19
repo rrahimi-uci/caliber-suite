@@ -658,16 +658,12 @@ class PlanExecutor:
                     return None
 
                 if cap.required_scopes and config is not None:
-                    from caliber.auth import scopes_for_user  # noqa: PLC0415
-
-                    have = scopes_for_user(config, plan.owner)
-                    missing_scopes = [
-                        scope for scope in cap.required_scopes if f"caliber.{scope}" not in have
-                    ]
-                    if missing_scopes:
+                    decision = self._capability_scope_decision(cap, owner=plan.owner, config=config)
+                    if not decision["satisfied"]:
+                        step.capability_scope_decision = decision
                         step.status = "failed"
                         step.error = "plan owner lacks required scope(s): " + ", ".join(
-                            sorted(missing_scopes)
+                            decision["missing_scopes"]
                         )
                         plan.status = "failed"
                         session.commit()
@@ -775,20 +771,20 @@ class PlanExecutor:
         # personally hold the capability's scope. Skipped when ``config`` is None
         # (internal/test callers can't resolve scopes; the route always supplies it).
         if cap is not None and cap.required_scopes and config is not None:
-            from caliber.auth import scopes_for_user  # noqa: PLC0415
-
-            have = scopes_for_user(config, owner)
-            missing = [s for s in cap.required_scopes if f"caliber.{s}" not in have]
-            if missing:
+            decision = self._capability_scope_decision(cap, owner=owner, config=config)
+            if not decision["satisfied"]:
                 self._finish_step(
                     session_factory,
                     plan_id,
                     step_id,
                     status="failed",
-                    error=f"plan owner lacks required scope(s): {', '.join(sorted(missing))}",
+                    error="plan owner lacks required scope(s): "
+                    + ", ".join(decision["missing_scopes"]),
                     plan_status="failed",
+                    scope_decision=decision,
                 )
                 return
+            self._record_scope_decision(session_factory, step_id, decision)
         ctx = CapabilityContext(
             session_factory=session_factory, config=config, actor=actor, project_id=project_id
         )
@@ -823,6 +819,51 @@ class PlanExecutor:
                 step.result = {"__job_kind__": handle.kind}
                 if handle.evidence:
                     step.evidence = dict(handle.evidence)
+            session.commit()
+
+    @staticmethod
+    def _capability_scope_decision(cap: Any, *, owner: str, config: Any) -> dict[str, Any]:
+        """The `required_scopes`-against-`scopes_for_user` decision for ``cap``.
+
+        `P2-E`: pulled out of the two call sites that already ran this check
+        live (`_plan_next_action`'s early-admission check and `_run_step`'s
+        own re-check immediately before dispatch) purely so both can persist
+        the exact same decision onto the step row (`capability_scope_
+        decision`) -- this does not change what is checked or against whom,
+        only makes the result inspectable after the fact.
+        """
+        from caliber.auth import scopes_for_user  # noqa: PLC0415
+        from caliber.resource_access import POLICY_VERSION  # noqa: PLC0415
+
+        required = sorted(cap.required_scopes) if cap is not None else []
+        if not required or config is None:
+            return {
+                "required_scopes": required,
+                "checked_scopes": None,
+                "checked_against": owner,
+                "missing_scopes": [],
+                "satisfied": True,
+                "policy_version": POLICY_VERSION,
+            }
+        have = scopes_for_user(config, owner)
+        missing = sorted(scope for scope in required if f"caliber.{scope}" not in have)
+        return {
+            "required_scopes": required,
+            "checked_scopes": sorted(have),
+            "checked_against": owner,
+            "missing_scopes": missing,
+            "satisfied": not missing,
+            "policy_version": POLICY_VERSION,
+        }
+
+    @staticmethod
+    def _record_scope_decision(
+        session_factory: Any, step_id: str, decision: dict[str, Any]
+    ) -> None:
+        with session_factory() as session:
+            step = session.get(CaliberAriaPlanStep, step_id)
+            if step is not None:
+                step.capability_scope_decision = decision
             session.commit()
 
     @staticmethod
@@ -906,6 +947,7 @@ class PlanExecutor:
         evidence: dict[str, Any] | None = None,
         error: str | None = None,
         plan_status: str | None = None,
+        scope_decision: dict[str, Any] | None = None,
     ) -> None:
         with session_factory() as session:
             step = session.get(CaliberAriaPlanStep, step_id)
@@ -917,6 +959,8 @@ class PlanExecutor:
                     step.evidence = evidence
                 if error is not None:
                     step.error = error
+                if scope_decision is not None:
+                    step.capability_scope_decision = scope_decision
             if plan_status is not None:
                 plan = session.get(CaliberAriaPlan, plan_id)
                 if plan is not None:

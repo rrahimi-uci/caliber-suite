@@ -1014,6 +1014,34 @@ class CaliberAriaPlan(Base):
     updated_at: Mapped[datetime] = mapped_column(
         DateTime, server_default=func.now(), onupdate=func.now()
     )
+    # `P2-E` (docs/workspace-plan.md section 16, item 7's residual scope): a
+    # first-class snapshot of the scope/role decision that first cleared this
+    # plan to execute, mirroring `CaliberWorkspaceReleaseDecision`'s
+    # `actor_role_snapshot`/`effective_scope_snapshot` shape one level up (a
+    # plan, not a release). Recorded once -- the first time
+    # `routes/aria_plans.py::execute_plan`/`poll_plan` successfully clears
+    # `require_project_access`'s `resource.execute` check for this plan
+    # (`authorization_recorded_at` is the write-once guard) -- not
+    # re-derived from here on later calls. `actor_role_snapshot` is `None` for
+    # a personal (`project_id is None`) plan, which has no project role to
+    # snapshot; `effective_scope_snapshot` is always recorded (a capability
+    # dispatch's own scope floor applies regardless of project scoping). This
+    # column is purely an auditable record of what first authorized the plan
+    # -- the live per-call check in `execute_plan`/`poll_plan` is unconditional
+    # and keeps running on every call, since a still-active plan's
+    # authorization can genuinely change between calls (a role edit, a
+    # membership change); re-deriving live is the safer default, same
+    # judgment `CaliberWorkspaceReleaseDecision` applies alongside its own
+    # fresh CAS checks.
+    actor_role_snapshot: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, nullable=True, default=None
+    )
+    effective_scope_snapshot: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, nullable=True, default=None
+    )
+    authorization_recorded_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=None
+    )
 
 
 class CaliberAriaPlanStep(Base):
@@ -1043,6 +1071,20 @@ class CaliberAriaPlanStep(Base):
     # confirm interaction instead of silently passing (self-correction).
     gate: Mapped[dict[str, Any] | None] = mapped_column(JSON, nullable=True, default=None)
     error: Mapped[str | None] = mapped_column(Text, nullable=True, default=None)
+    # `P2-E`: snapshot of the capability `required_scopes` decision the
+    # executor made immediately before dispatching this step's handler
+    # (`PlanExecutor._run_step`, mirrored a step earlier in
+    # `_plan_next_action` when that same check fails a step before it is ever
+    # selected to run) -- the step-level counterpart to
+    # `CaliberAriaPlan.effective_scope_snapshot` above. Shape: `{"required_
+    # scopes": [...], "checked_scopes": [...] | None, "checked_against":
+    # <plan owner>, "missing_scopes": [...], "satisfied": bool,
+    # "policy_version": ...}`. `None` for a step that has never reached a
+    # scope check (still pending/blocked, or failed earlier for an unrelated
+    # reason such as an input-resolution error).
+    capability_scope_decision: Mapped[dict[str, Any] | None] = mapped_column(
+        JSON, nullable=True, default=None
+    )
     # Lineage links to produced artifacts (all nullable).
     draft_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
     job_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)

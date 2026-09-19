@@ -4438,6 +4438,9 @@ class AriaPlanStepSchema(BaseModel):
     checkpoint_id: str | None = None
     created_at: datetime
     updated_at: datetime
+    # `P2-E`: the capability-scope decision the executor recorded immediately
+    # before dispatching this step (`None` until dispatch is reached).
+    capability_scope_decision: dict[str, Any] | None = None
 
 
 class AriaPlanSchema(BaseModel):
@@ -4459,6 +4462,12 @@ class AriaPlanSchema(BaseModel):
     updated_at: datetime
     # Populated by the detail/list routes (not stored on the row).
     step_count: int | None = None
+    # `P2-E`: the plan-level authorization snapshot, recorded once the first
+    # time `execute_plan`/`poll_plan` clears this plan to run. `None` until
+    # then (e.g. a draft/approved-but-never-executed plan).
+    actor_role_snapshot: dict[str, Any] | None = None
+    effective_scope_snapshot: dict[str, Any] | None = None
+    authorization_recorded_at: datetime | None = None
 
 
 class AriaPlanCreateRequest(BaseModel):
