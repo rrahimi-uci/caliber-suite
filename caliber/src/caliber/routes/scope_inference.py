@@ -129,6 +129,7 @@ _PROJECT_ACCESS_OFFLOADED_HELPERS = frozenset(
         "_list_revisions_sync",
         "_get_revision_sync",
         "_diff_revisions_sync",
+        "_create_snapshot_sync",
         "_list_tasks_sync",
         "_get_task_sync",
         "_claim_task_sync",

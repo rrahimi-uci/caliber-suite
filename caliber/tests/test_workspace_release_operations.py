@@ -383,7 +383,7 @@ def test_adapter_contract_and_registry_reject_invalid_values(db_session: Session
     assert environment is not None
     pin = db_session.query(CaliberWorkspaceRevisionResource).first()
     assert pin is not None
-    assert adapter.resolve(None, None, "declaration") == "declaration"
+    assert adapter.resolve(None, None, "declaration", None) == "declaration"
     assert adapter.snapshot(None, pin) is pin
     assert adapter.validate(None, pin, environment)["valid"] is True
     fallback = CaliberWorkspaceRevisionResource(

@@ -420,6 +420,50 @@ def test_revisions_diff_sends_base_query_param_and_decodes_change_sets() -> None
     assert diff.removed == []
 
 
+def test_revisions_snapshot_posts_the_explicit_pin_list_and_decodes_a_managed_revision() -> None:
+    seen: dict[str, Any] = {}
+    managed_revision = {
+        **_REVISION,
+        "revision_id": "WSR-managed-1",
+        "source_kind": "managed",
+        "manifest_sha256": None,
+        "source_bundle_sha256": None,
+        "resources": [
+            {
+                "resource_pin_id": "WSRR-managed-1",
+                "revision_id": "WSR-managed-1",
+                "resource_type": "prompt",
+                "logical_name": "support-agent",
+                "resource_id": "support-agent",
+                "version_ref": "3",
+                "content_sha256": "f" * 64,
+                "provider_ref": "prompts:/support-agent/3",
+                "purpose": "runtime",
+            }
+        ],
+    }
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path.rsplit("/caliber", 1)[-1]
+        seen["method"] = request.method
+        seen["body"] = jsonlib.loads(request.content)
+        return envelope(managed_revision)
+
+    resources = [{"resource_type": "prompt", "resource_id": "support-agent", "version_ref": "3"}]
+    with client_with(handler) as caliber:
+        revision = caliber.workspaces.revisions.snapshot("PRJ-1", resources=resources)
+
+    assert seen["method"] == "POST"
+    assert seen["path"] == "/projects/PRJ-1/revisions:snapshot"
+    assert seen["body"] == {"resources": resources}
+    assert isinstance(revision, WorkspaceRevision)
+    assert revision.revision_id == "WSR-managed-1"
+    assert revision.source_kind == "managed"
+    assert revision.manifest_sha256 is None
+    assert revision.source_bundle_sha256 is None
+    assert revision.resources[0].resource_type == "prompt"
+
+
 # --- forward compatibility ---------------------------------------------------
 
 

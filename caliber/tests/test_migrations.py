@@ -708,6 +708,137 @@ def test_0099_backfills_workspace_import_attempt_budget(
 
 
 @pytest.mark.slow
+def test_0111_backfills_git_source_kind_and_enforces_the_digest_check(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Upgrade-from-0110: an existing (necessarily Git-sourced) revision row
+    survives the new ``source_kind`` column unchanged, backfilled to
+    ``'git'`` with both digests intact (no behavior change for the only kind
+    that existed before this migration). After upgrading to head,
+    ``ck_workspace_revision_source_kind_digest`` rejects a ``'git'`` row
+    missing either digest, a ``'managed'`` row carrying either digest, and
+    ``ck_workspace_revision_source_kind`` rejects an unknown ``source_kind``
+    -- all enforced by the database itself, not only by application code. A
+    genuine ``'managed'`` row (both digests NULL) is representable."""
+    db_path = tmp_path / "workspace_revision_source_kind.db"
+    db_url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+
+    cfg = Config(str(ALEMBIC_INI))
+    monkeypatch.chdir(PROJECT_ROOT)
+    command.upgrade(cfg, "0110")
+
+    engine = create_engine(db_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_projects (project_id, tenant_id, name, owner) "
+                    "VALUES ('PRJ-0111', 'local', 'Revision source kind', '@owner')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_workspace_revisions "
+                    "(revision_id, project_id, revision_number, manifest, "
+                    "manifest_sha256, source_bundle_sha256, revision_sha256, "
+                    "status, created_by) VALUES "
+                    "('WSR-0111-git', 'PRJ-0111', 1, '{}', :manifest_sha256, "
+                    ":source_bundle_sha256, :revision_sha256, 'ready', '@owner')"
+                ),
+                {
+                    "manifest_sha256": "a" * 64,
+                    "source_bundle_sha256": "b" * 64,
+                    "revision_sha256": "c" * 64,
+                },
+            )
+
+        command.upgrade(cfg, "head")
+
+        with engine.connect() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT source_kind, manifest_sha256, source_bundle_sha256 "
+                    "FROM caliber_workspace_revisions WHERE revision_id = 'WSR-0111-git'"
+                )
+            ).one()
+            assert tuple(row) == ("git", "a" * 64, "b" * 64)
+
+        # A genuine managed revision (no Git commit, no source bundle) is
+        # representable: both digests NULL, source_kind = 'managed'.
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_workspace_revisions "
+                    "(revision_id, project_id, revision_number, source_kind, manifest, "
+                    "manifest_sha256, source_bundle_sha256, revision_sha256, "
+                    "status, created_by) VALUES "
+                    "('WSR-0111-managed', 'PRJ-0111', 2, 'managed', '{}', "
+                    "NULL, NULL, :revision_sha256, 'ready', '@owner')"
+                ),
+                {"revision_sha256": "d" * 64},
+            )
+        with engine.connect() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT source_kind, manifest_sha256, source_bundle_sha256 "
+                    "FROM caliber_workspace_revisions WHERE revision_id = 'WSR-0111-managed'"
+                )
+            ).one()
+            assert tuple(row) == ("managed", None, None)
+
+        # A 'git' row missing a digest violates the digest CHECK.
+        with engine.begin() as connection, pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_workspace_revisions "
+                    "(revision_id, project_id, revision_number, source_kind, manifest, "
+                    "manifest_sha256, source_bundle_sha256, revision_sha256, "
+                    "status, created_by) VALUES "
+                    "('WSR-0111-bad-git', 'PRJ-0111', 3, 'git', '{}', "
+                    "NULL, :source_bundle_sha256, :revision_sha256, 'ready', '@owner')"
+                ),
+                {"source_bundle_sha256": "b" * 64, "revision_sha256": "e" * 64},
+            )
+
+        # A 'managed' row carrying a digest also violates the digest CHECK.
+        with engine.begin() as connection, pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_workspace_revisions "
+                    "(revision_id, project_id, revision_number, source_kind, manifest, "
+                    "manifest_sha256, source_bundle_sha256, revision_sha256, "
+                    "status, created_by) VALUES "
+                    "('WSR-0111-bad-managed', 'PRJ-0111', 4, 'managed', '{}', "
+                    ":manifest_sha256, NULL, :revision_sha256, 'ready', '@owner')"
+                ),
+                {"manifest_sha256": "a" * 64, "revision_sha256": "f" * 64},
+            )
+
+        # An unknown source_kind violates the kind CHECK.
+        with engine.begin() as connection, pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_workspace_revisions "
+                    "(revision_id, project_id, revision_number, source_kind, manifest, "
+                    "manifest_sha256, source_bundle_sha256, revision_sha256, "
+                    "status, created_by) VALUES "
+                    "('WSR-0111-bad-kind', 'PRJ-0111', 5, 'unknown', '{}', "
+                    ":manifest_sha256, :source_bundle_sha256, :revision_sha256, "
+                    "'ready', '@owner')"
+                ),
+                {
+                    "manifest_sha256": "a" * 64,
+                    "source_bundle_sha256": "b" * 64,
+                    "revision_sha256": "g" * 64,
+                },
+            )
+    finally:
+        engine.dispose()
+        os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+@pytest.mark.slow
 def test_0106_preserves_job_sourced_tasks_and_enforces_exactly_one_source(
     tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:

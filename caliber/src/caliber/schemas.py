@@ -2542,9 +2542,17 @@ class WorkspaceRevisionSchema(BaseModel):
     revision_number: int
     source_id: str | None = None
     source_commit_sha: str | None = None
+    # `P4-C` (migration 0111): 'git' (the only kind before this field existed)
+    # or 'managed' (POST .../revisions:snapshot -- no Git commit/bundle).
+    source_kind: Literal["git", "managed"] = "git"
     manifest: dict[str, object] = Field(default_factory=dict)
-    manifest_sha256: str
-    source_bundle_sha256: str
+    # Git-import-only digests (the committed manifest file's digest, the
+    # uploaded bundle's digest); nullable because a 'managed' revision has
+    # neither -- see db/models.py::CaliberWorkspaceRevision's docstring and
+    # migration 0111's ck_workspace_revision_source_kind_digest constraint.
+    # revision_sha256 below remains the integrity anchor for both kinds.
+    manifest_sha256: str | None = None
+    source_bundle_sha256: str | None = None
     source_snapshot_file_id: str | None = None
     source_attestation: str
     revision_sha256: str
@@ -2572,6 +2580,32 @@ class WorkspaceRevisionDiffSchema(BaseModel):
     added: list[WorkspaceRevisionResourceSchema] = Field(default_factory=list)
     removed: list[WorkspaceRevisionResourceSchema] = Field(default_factory=list)
     changed: list[WorkspaceRevisionResourceSchema] = Field(default_factory=list)
+
+
+class WorkspaceRevisionSnapshotResourceRequest(BaseModel):
+    """One explicit ``{resource_type, resource_id, version_ref}`` pin.
+
+    Deliberately explicit rather than "snapshot whatever's current" -- see
+    ``routes/workspace.py::snapshot_revision``'s module docstring for why an
+    implicit resolve-to-current request would make the same snapshot request
+    produce different content depending on when/how fast it runs.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    resource_type: str = Field(min_length=1, max_length=64)
+    resource_id: str = Field(min_length=1, max_length=128)
+    version_ref: str = Field(min_length=1, max_length=256)
+    logical_name: str | None = Field(default=None, max_length=256)
+    purpose: str = Field(default="runtime", max_length=32)
+
+
+class WorkspaceRevisionSnapshotRequest(BaseModel):
+    """Body of ``POST /projects/{id}/revisions:snapshot``."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    resources: list[WorkspaceRevisionSnapshotResourceRequest] = Field(min_length=1, max_length=200)
 
 
 class WorkspaceChangeRequestCreateRequest(BaseModel):

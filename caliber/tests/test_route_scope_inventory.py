@@ -366,20 +366,21 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
     """Ratchet, matching this session's inventory-test style (e.g.
     `test_resource_inventory.py`'s distribution pin): `P1-D` closed
     `PROJECT_ACTIONS` over section 2.4's full 29-key target vocabulary, of
-    which 20 are wired to a live route's `require_project_access()`/
+    which 21 are wired to a live route's `require_project_access()`/
     `_require_project_action()`/`require_project_access_if_scoped()` call
     (12 after the earlier `P1-D`/`P1-F`/`P3-A` slices; `P4-C` adds
     `source.manage` and `revision.import`; `P2` isolation closure adds
     `resource.write.evidence` onto the real Test-set/Judge CRUD routes it
-    was deliberately deferred from at `P1-D`). The other 14 are reserved --
-    declared for a route family that does not exist yet (Change Requests,
-    version tags, releases/operations), or (`rework.update`) deliberately
-    not wired for reasons documented directly on that `PROJECT_ACTIONS`
-    entry (no `project_id` column yet). The legacy global routes retain
-    their platform-scope compatibility policy. A change to either side is a
-    real event (a route started/stopped enforcing an action, or the
-    registry gained/lost a reserved key) and must update this pin
-    deliberately, not drift past it silently.
+    was deliberately deferred from at `P1-D`; `P4-B`/`P4-C`'s managed-snapshot
+    route adds `revision.create`, previously reserved). The other 13 are
+    reserved -- declared for a route family that does not exist yet (Change
+    Requests, version tags, releases/operations), or (`rework.update`)
+    deliberately not wired for reasons documented directly on that
+    `PROJECT_ACTIONS` entry (no `project_id` column yet). The legacy global
+    routes retain their platform-scope compatibility policy. A change to
+    either side is a real event (a route started/stopped enforcing an
+    action, or the registry gained/lost a reserved key) and must update this
+    pin deliberately, not drift past it silently.
     """
     from caliber.resource_access import PROJECT_ACTIONS
     from caliber.routes.openapi import build_openapi_document
@@ -413,6 +414,9 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
         "source.manage",
         # `P4-C`: durable revision import routes.
         "revision.import",
+        # `P4-B`/`P4-C`: the managed-snapshot route (`POST
+        # .../revisions:snapshot`, routes/workspace.py::snapshot_revision).
+        "revision.create",
         # `P4-D`: Change Request lifecycle and review routes.
         "change_request.create",
         "change_request.update",
@@ -424,7 +428,6 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
     }
     assert set(PROJECT_ACTIONS) - live_actions == {
         "resource.approve",
-        "revision.create",
         "release.request",
         "release.evaluate",
         "release.quality_signoff",

@@ -2506,6 +2506,20 @@ class CaliberWorkspaceRevision(Base):
     bottom of this module rejects ORM updates after the row reaches ``ready``
     or ``invalid``; the service layer provides the same invariant for explicit
     lifecycle operations.
+
+    ``source_kind`` (`P4-C`, migration `0111`) discriminates the two ways a
+    revision's resource pins were produced: ``'git'`` (the only kind before
+    this column existed -- ``workspace_import_materializer.py`` pins
+    resources off an already-validated Git source snapshot) and ``'managed'``
+    (``routes/workspace.py::snapshot_revision`` pins resources by resolving
+    them live through a :class:`~caliber.workspace_release_adapters.WorkspaceResourceAdapter`,
+    with no Git commit or uploaded source bundle at all). ``manifest_sha256``/
+    ``source_bundle_sha256`` are Git-import concepts with no managed
+    equivalent, so they are nullable and the module-level CHECK constraint
+    below ties their nullability to ``source_kind`` rather than leaving a
+    managed revision to fabricate digests for fields that do not apply to it.
+    ``revision_sha256`` (still unconditionally required) is the single
+    content-integrity anchor for both kinds.
     """
 
     __tablename__ = "caliber_workspace_revisions"
@@ -2528,6 +2542,17 @@ class CaliberWorkspaceRevision(Base):
             "status IN ('validating', 'ready', 'invalid')",
             name="ck_workspace_revision_status",
         ),
+        CheckConstraint(
+            "source_kind IN ('git', 'managed')",
+            name="ck_workspace_revision_source_kind",
+        ),
+        CheckConstraint(
+            "(source_kind = 'git' AND manifest_sha256 IS NOT NULL "
+            "AND source_bundle_sha256 IS NOT NULL) "
+            "OR (source_kind = 'managed' AND manifest_sha256 IS NULL "
+            "AND source_bundle_sha256 IS NULL)",
+            name="ck_workspace_revision_source_kind_digest",
+        ),
     )
 
     revision_id: Mapped[str] = mapped_column(String(64), primary_key=True)
@@ -2539,9 +2564,10 @@ class CaliberWorkspaceRevision(Base):
         String(64), ForeignKey("caliber_workspace_sources.source_id"), nullable=True
     )
     source_commit_sha: Mapped[str | None] = mapped_column(String(128), nullable=True)
+    source_kind: Mapped[str] = mapped_column(String(16), nullable=False, default="git")
     manifest: Mapped[dict[str, Any]] = mapped_column(JSON, default=dict)
-    manifest_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
-    source_bundle_sha256: Mapped[str] = mapped_column(String(64), nullable=False)
+    manifest_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
+    source_bundle_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     source_snapshot_file_id: Mapped[str | None] = mapped_column(
         String(64), ForeignKey("caliber_workflow_files.file_id"), nullable=True
     )

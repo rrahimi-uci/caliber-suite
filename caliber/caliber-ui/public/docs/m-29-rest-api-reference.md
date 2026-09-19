@@ -104,7 +104,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Me (`me`) | `ga` | `1` | Typed SDK | `CaliberClient.whoami()`, `client.me.get()` | Identity and effective scopes for the current credential. |
 | Capabilities (`capabilities`) | `ga` | `1` | Typed SDK | `CaliberClient.capabilities()`, `client.capabilities_info.get()` | Feature flags and SDK stability tiers for the current deployment. |
 | Settings (`settings`) | `ga` | `3` | Typed SDK | `client.settings.runtime()`, `client.settings.llm()` | Runtime configuration summary and LLM credential status. |
-| Projects (`projects`) | `ga` | `80` | Typed SDK | `client.projects`, `client.projects.files`, `client.projects.rework_tasks` | Project records, project storage visibility, uploads, folders, downloads, and scoped rework-task recovery. |
+| Projects (`projects`) | `ga` | `81` | Typed SDK | `client.projects`, `client.projects.files`, `client.projects.rework_tasks` | Project records, project storage visibility, uploads, folders, downloads, and scoped rework-task recovery. |
 | Prompts (`prompts`) | `ga` | `22` | Typed SDK | `client.prompts` | Prompt registry, versions, and alias promotion. |
 | Skills (`skills`) | `ga` | `19` | Typed SDK | `client.skills` | Skill registry, render checks, selection tests, and versions. |
 | Tools (`tools`) | `ga` | `20` | Typed SDK | `client.tools` | Tool registry plus calibration job submission and polling. |
@@ -163,8 +163,8 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `385` |
-| Operations | `471` |
+| Route paths | `386` |
+| Operations | `472` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
@@ -192,7 +192,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Me (`me`)](#me-me) | `1` | `1` |
 | [Capabilities (`capabilities`)](#capabilities-capabilities) | `1` | `1` |
 | [Settings (`settings`)](#settings-settings) | `3` | `2` |
-| [Projects (`projects`)](#projects-projects) | `80` | `65` |
+| [Projects (`projects`)](#projects-projects) | `81` | `66` |
 | [Prompts (`prompts`)](#prompts-prompts) | `22` | `18` |
 | [Skills (`skills`)](#skills-skills) | `19` | `16` |
 | [Tools (`tools`)](#tools-tools) | `20` | `16` |
@@ -318,7 +318,7 @@ Supported management routes that belong to the stable public automation surface.
 
 #### Projects (`projects`)
 
-80 operation(s) across 65 route path(s).
+81 operation(s) across 66 route path(s).
 
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
@@ -384,6 +384,7 @@ Supported management routes that belong to the stable public automation surface.
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/revisions` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_revisions` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/revisions/{revision_id}` | project role (`read`) | `project_id`, `revision_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_revisions_revision_id` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/revisions/{revision_id}/diff` | project role (`read`) | `project_id`, `revision_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_revisions_revision_id_diff` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/revisions:snapshot` | project role (`revision.create`) | `project_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_revisions_snapshot`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks` | project role (`read`) | `project_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_rework_tasks` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks/{task_id}` | project role (`read`) | `project_id`, `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_projects_project_id_rework_tasks_task_id` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/projects/{project_id}/rework-tasks/{task_id}:claim` | project role (`rework.update`) | `project_id`, `task_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_projects_project_id_rework_tasks_task_id_claim` |
