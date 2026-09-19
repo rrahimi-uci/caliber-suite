@@ -224,10 +224,20 @@ def enqueue_workflow_calibration_run(
     about) another project's workflow or agent by id. `identity` is
     optional: the REST route (`create_run`) and the Aria capability
     (`assistant/capabilities.py::_workflow_calibrate`) both resolve a real
-    one; `assistant/service.py`'s older intent-plan dispatch path has no
-    identity/project-id concept at all yet (a larger, separately-deferred
-    gap -- item 5's remaining `assistant/service.py` plumbing), so it
-    still passes ``None`` and gets today's unscoped lookup, unchanged.
+    one. `assistant/service.py`'s legacy intent-plan dispatch path
+    (`AssistantService.execute_intent_plan` -> `_execute_workflow_
+    calibration`) *also* now threads a real per-turn `CaliberIdentity`
+    here -- `P2-M` (commit `ff390c39a731`, "thread identity through
+    assistant turns") gave `execute_intent_plan` an `identity` parameter
+    and forwarded it into this call site the same day `P2-K` named the gap,
+    but `P2-K`/`P2-L`'s own trailers and this docstring were never updated
+    to say so until this fix. `identity` stays optional only for direct/
+    internal callers with no per-request identity to resolve (e.g. tests
+    invoking this helper directly), which keep today's unscoped-lookup
+    compatibility behavior -- see
+    `caliber/tests/test_assistant_intent_plan_visibility.py` for the
+    end-to-end proof that a live request's identity reaches this helper
+    through the dispatch path, not just the direct REST route.
     """
     _validate_run_payload(payload, config=config)
     workflow = (
