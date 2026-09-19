@@ -16,10 +16,10 @@ from caliber.workspace_change_requests import (
 )
 
 
-def test_frozen_contract_has_one_initial_state_and_eighteen_edges() -> None:
+def test_frozen_contract_has_one_initial_state_and_fifteen_edges() -> None:
     assert INITIAL_STATE in STATES
-    assert len(STATES) == 8
-    assert len(TRANSITIONS) == 18
+    assert len(STATES) == 7
+    assert len(TRANSITIONS) == 15
     assert all(edge.source in STATES and edge.target in STATES for edge in TRANSITIONS)
 
 

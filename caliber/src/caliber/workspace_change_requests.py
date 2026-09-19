@@ -1,12 +1,21 @@
 """Change Request state-machine contract (`P0-B`, Phase 0 item 10).
 
 Section 3.2 of ``docs/workspace-plan.md`` ("The PR-like application
-lifecycle") already contains a fully-written Change Request design: base/head
-package identity, head-generation invalidation, reviewer eligibility,
-stale-base compare-and-set, SemVer reservation, and a Mermaid state diagram.
-None of it is implemented today -- there is no ``Workspace`` model, no
-``caliber_workspace_change_requests`` table, no route. Real implementation is
-Phase 4 (items 12-17 of the phased plan), not Phase 0.
+lifecycle") describes the Change Request design: base/head package identity,
+head-generation invalidation, reviewer eligibility, stale-base
+compare-and-set, SemVer reservation, and a Mermaid state diagram. Phase 4/5
+(items 12-17 of the phased plan) shipped the real implementation --
+``workspace_change_request_service.py``/``workspace_release_governance.py``
+-- as a deliberate simplification of the original draft this module first
+transcribed: the draft had QA entry mint a distinct ``qa_in_progress`` status
+and an immutable ``<version>-rc.<generation>`` candidate tag before quality
+sign-off; the shipped flow instead records the QA decision directly against
+the ``technically_approved`` head and lets the Change Request's own separate,
+explicit ``:accept`` route (`P4-D`) derive that decision and attempt the
+acceptance CAS. No Change Request is ever assigned ``qa_in_progress``. A later
+audit confirmed no caller or test depends on the unshipped step and updated
+both ``docs/workspace-plan.md`` and this fixture to transcribe the shipped
+15-edge design rather than the superseded 18-edge draft.
 
 Phase 0 item 10 asks to "freeze... contracts with model-based transition
 fixtures." This module is that fixture: the state diagram transcribed
@@ -14,11 +23,10 @@ verbatim as data, not as a database model or a route. It exists so:
 
 * this repo's own tests can already assert the frozen design is internally
   consistent (every state reachable, no transition to an undeclared state,
-  the two states the diagram sends to ``[*]`` really are terminal) --
-  before any of Phase 4's real code exists to check it against;
-* Phase 4's eventual real state machine has one source of truth to build
-  against and diff its own transition table against, rather than a second,
-  hand-copied version of the same diagram drifting from this one.
+  the two states the diagram sends to ``[*]`` really are terminal);
+* Phase 4's real state machine has one source of truth to build against and
+  diff its own transition table against, rather than a second, hand-copied
+  version of the same diagram drifting from this one.
 
 Do not add enforcement, persistence, or route wiring here. That is Phase 4's
 job. This module is intentionally inert data.
@@ -36,7 +44,6 @@ STATES: frozenset[str] = frozenset(
         "open",
         "changes_requested",
         "technically_approved",
-        "qa_in_progress",
         "out_of_date",
         "accepted",
         "closed",
@@ -67,8 +74,12 @@ class Transition:
 
 
 #: Every transition arrow in section 3.2's Mermaid diagram, verbatim, in the
-#: diagram's own order. 18 edges; `test_change_request_transitions.py` pins
-#: this count as a ratchet.
+#: diagram's own order. 15 edges; `test_change_request_transitions.py` pins
+#: this count as a ratchet. (The original draft had 18: entering QA moved to a
+#: distinct `qa_in_progress` state with three outgoing edges of its own. That
+#: state was never shipped -- see the module docstring -- and the diagram
+#: collapses `technically_approved -> qa_in_progress -> accepted` into one
+#: direct edge.)
 TRANSITIONS: tuple[Transition, ...] = (
     Transition("draft", "open", "submit"),
     Transition("open", "changes_requested", "Reviewer or QA no_go"),
@@ -78,10 +89,11 @@ TRANSITIONS: tuple[Transition, ...] = (
         "technically_approved", "changes_requested", "Reviewer withdraws via request_changes"
     ),
     Transition("technically_approved", "open", "satisfying Reviewer assignment removed"),
-    Transition("technically_approved", "qa_in_progress", "exact head applied to qa"),
-    Transition("qa_in_progress", "changes_requested", "machine gate or QA no_go"),
-    Transition("qa_in_progress", "accepted", "machine gate passes and QA go"),
-    Transition("qa_in_progress", "out_of_date", "QA go but base CAS is stale"),
+    Transition(
+        "technically_approved",
+        "accepted",
+        "QA go decision recorded, then change_request:accept wins the CAS",
+    ),
     Transition("open", "out_of_date", "accepted base moved"),
     Transition("technically_approved", "out_of_date", "accepted base moved"),
     Transition("out_of_date", "open", "new base and head generation"),

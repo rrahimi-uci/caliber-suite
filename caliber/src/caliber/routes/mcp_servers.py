@@ -63,6 +63,7 @@ from caliber.mcp_secrets import (
     sanitize_mcp_audit_details,
     sanitize_mcp_config,
 )
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     envelope_response_dict,
@@ -332,6 +333,21 @@ async def create_mcp_server(request: Request) -> JSONResponse:
                 status_code=409,
                 detail=f"MCP server {payload.name!r} already registered",
             )
+        # `P2-A` (isolation closure, item 1's "root routes to centralized
+        # authorization"): this route previously checked only the global
+        # `caliber.admin` scope, with no project-role check at all --
+        # `caliber.admin` is *not* an implicit project role
+        # (`resource_access.py::project_role`'s documented `P1-B` removal),
+        # so an admin with no real membership in a specific project could
+        # still register an MCP server scoped to that project just by
+        # switching its active project header. Same `resource.write.runtime`
+        # action `create_prompt`/`create_workflow`/`register_tool`/
+        # `create_skill`/`create_knowledge_base`/`create_openapi_integration`
+        # already use for this identical "root create" shape. A no-op when
+        # no project is active (a personal/global server).
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, "resource.write.runtime"
+        )
         discovered_names = {
             str(tool.get("name", "")).strip()
             for tool in payload.discovered_tools
@@ -425,6 +441,15 @@ async def update_mcp_server(request: Request) -> JSONResponse:
         server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
+        # `P2-A`: same `resource.write.runtime` role floor as
+        # `create_mcp_server` above, gated on the server's own project
+        # rather than the caller's active one -- `routes/skills.py::
+        # update_skill`, itself `SCOPE_ADMIN`-only, already establishes the
+        # precedent that an admin-gated mutation on a project-scoped
+        # resource still needs its own project-role check.
+        require_project_access_if_scoped(
+            session, identity, server.project_id, "resource.write.runtime"
+        )
         diff: dict[str, dict[str, object]] = {}
         for field in _UPDATABLE_FIELDS:
             if field not in changes:
@@ -524,6 +549,11 @@ async def delete_mcp_server(request: Request) -> JSONResponse:
         server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
+        # `P2-A`: same `resource.write.runtime` role floor as
+        # `create_mcp_server`/`update_mcp_server` above.
+        require_project_access_if_scoped(
+            session, identity, server.project_id, "resource.write.runtime"
+        )
         # Block deletion that would orphan a live workflow's MCP binding, rather
         # than silently breaking the next run (the console used to delete blind).
         referencing = _deployments_referencing_server(session, server_id)
@@ -567,6 +597,14 @@ async def test_connection(request: Request) -> JSONResponse:
         server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
+        # `P2-A`: this action reaches out to the server's configured
+        # transport and mutates its cached connection state -- the same
+        # "operate on a live resource" shape `resource.execute` already
+        # covers for workflow runs/evaluations/Aria plan execution, not a
+        # persisted-config write like `update_mcp_server`. A project viewer
+        # (visible via membership, not by role) must not be able to trigger
+        # outbound network calls on a project's registered server.
+        require_project_access_if_scoped(session, identity, server.project_id, "resource.execute")
 
         # Validate minimum configuration.
         config_errors: list[str] = []
@@ -639,6 +677,9 @@ async def discover_tools(request: Request) -> JSONResponse:
         server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
+        # `P2-A`: same `resource.execute` role floor as `test_connection`
+        # above -- another outbound-call action against a live resource.
+        require_project_access_if_scoped(session, identity, server.project_id, "resource.execute")
 
         try:
             tools = await discover_tools_via_gateway(_gateway_config(server))
@@ -712,6 +753,12 @@ async def update_tool_policy(request: Request) -> JSONResponse:
         server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
+        # `P2-A`: same `resource.write.runtime` role floor as
+        # `update_mcp_server` above -- a tool policy is persisted governance
+        # configuration on the server row, not a one-off execution.
+        require_project_access_if_scoped(
+            session, identity, server.project_id, "resource.write.runtime"
+        )
         known_names = {
             str(tool.get("name", "")).strip()
             for tool in (server.discovered_tools or [])
@@ -840,6 +887,10 @@ async def invoke_tool(request: Request) -> JSONResponse:
         server = _visible_server(session, server_id, identity)
         if server is None:
             raise HTTPException(status_code=404, detail=f"MCP server {server_id!r} not found")
+        # `P2-A`: same `resource.execute` role floor as `test_connection`/
+        # `discover_tools` above -- invoking a tool is this route family's
+        # clearest "operate on a live resource" action.
+        require_project_access_if_scoped(session, identity, server.project_id, "resource.execute")
         data = await _invoke_mcp_tool(server, tool_name, arguments)
     return JSONResponse({"data": data})
 
