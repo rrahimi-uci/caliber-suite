@@ -44,12 +44,31 @@ TIMEOUT = 5
 #: always the same: set CALIBER_TOKEN, or issue a token.
 UNAUTHENTICATED = 6
 
+#: A Change Request's head was reviewed and a reviewer asked for changes
+#: (``changes_requested``). Distinct from FAILURE because nothing about the
+#: command failed -- the review ran and the answer was "not this head";
+#: the fix is a new head generation (`workspace cr update`), not a retry.
+CHANGES_REQUESTED = 7
+
+#: A Change Request fell behind its accepted base (``out_of_date``) and needs
+#: `workspace cr rebase` before it can be reviewed further. Distinct from
+#: CHANGES_REQUESTED: no reviewer rejected anything, the ground moved.
+OUT_OF_DATE = 8
+
+#: An import job or release operation reached ``reconcile_required``: it will
+#: never advance on its own and needs an explicit `... reconcile`/`observe`
+#: call, not more waiting (that is TIMEOUT's job) and not a retry (FAILURE's).
+RECONCILE_REQUIRED = 9
+
 
 __all__ = [
     "AWAITING_HUMAN",
+    "CHANGES_REQUESTED",
     "FAILURE",
     "GATE_FAILED",
     "OK",
+    "OUT_OF_DATE",
+    "RECONCILE_REQUIRED",
     "TIMEOUT",
     "UNAUTHENTICATED",
     "USAGE",

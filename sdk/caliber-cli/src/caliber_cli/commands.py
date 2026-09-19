@@ -13,6 +13,12 @@ from typing import Any
 
 from caliber_sdk import CaliberClient
 from caliber_sdk.errors import CaliberAPIError
+from caliber_sdk.models import (
+    WorkspaceChangeRequest,
+    WorkspaceImportJob,
+    WorkspaceRelease,
+    WorkspaceReleaseOperationResult,
+)
 from caliber_sdk.waiters import WaitTimeout
 
 from caliber_cli import exits
@@ -429,6 +435,466 @@ def plugin_list(client: CaliberClient, args: argparse.Namespace, out: Printer) -
         out.error(f"{plugin.distribution or plugin.name} failed to load: {plugin.error}")
 
     return exits.FAILURE if broken else exits.OK
+
+
+# -- workspace: imports -----------------------------------------------------
+
+
+def workspace_import_create(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Start a bounded, digest-pinned source import and wait for it to land.
+
+    "Bounded" means the caller pins the exact commit and supplies the bundle
+    content the server imports against it, rather than the server resolving a
+    branch tip that could move between request and response. ``--idempotency-
+    key`` has no default for the same reason ``workflow run``'s does not: a
+    key this tool invented would differ on the caller's own retry.
+    """
+    try:
+        with open(args.bundle, "rb") as bundle_handle:
+            job = client.workspaces.imports.create(
+                args.project,
+                repository=args.repository,
+                commit_sha=args.commit_sha,
+                bundle=bundle_handle,
+                idempotency_key=args.idempotency_key,
+                filename=args.filename,
+            )
+    except OSError as error:
+        out.error(f"cannot read bundle {args.bundle!r}: {error.strerror or error}")
+        return exits.USAGE
+    out.note(f"started import {job.import_job_id}")
+
+    if args.no_wait:
+        out.data(job)
+        return exits.OK
+
+    try:
+        job = client.workspaces.imports.wait(args.project, job.import_job_id, timeout=args.timeout)
+    except WaitTimeout:
+        out.data(client.workspaces.imports.get(args.project, job.import_job_id))
+        out.error(f"import {job.import_job_id} did not finish within {args.timeout}s")
+        return exits.TIMEOUT
+
+    out.data(job)
+    return _import_job_exit(job)
+
+
+def workspace_import_status(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    job = client.workspaces.imports.get(args.project, args.job_id)
+    out.data(job)
+    if not job.is_terminal:
+        return exits.TIMEOUT
+    return _import_job_exit(job)
+
+
+def workspace_import_list(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    page = client.workspaces.imports.list(args.project, status=args.status)
+    out.table(
+        page.items,
+        columns=["import_job_id", "status", "repository", "commit_sha", "revision_id"],
+    )
+    if page.next_cursor and not out.as_json:
+        out.note(f"more results: --cursor {page.next_cursor}")
+    return exits.OK
+
+
+def workspace_import_reconcile(
+    client: CaliberClient, args: argparse.Namespace, out: Printer
+) -> int:
+    """Explicitly observe an import stuck in ``reconcile_required``.
+
+    Not a retry of the import: it re-checks what actually landed against what
+    the job expected and reports the observation, rather than forcing a
+    verdict the server cannot yet support.
+    """
+    out.data(client.workspaces.imports.reconcile(args.project, args.job_id))
+    return exits.OK
+
+
+def _import_job_exit(job: WorkspaceImportJob) -> int:
+    if job.status == "reconcile_required":
+        return exits.RECONCILE_REQUIRED
+    return exits.OK if job.status == "succeeded" else exits.FAILURE
+
+
+# -- workspace: packages (revisions) -----------------------------------------
+
+
+def workspace_package_list(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    page = client.workspaces.revisions.list(args.project, status=args.status)
+    out.table(page.items, columns=["revision_id", "revision_number", "status", "revision_sha256"])
+    if page.next_cursor and not out.as_json:
+        out.note(f"more results: --cursor {page.next_cursor}")
+    return exits.OK
+
+
+def workspace_package_show(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    out.data(client.workspaces.revisions.get(args.project, args.revision_id))
+    return exits.OK
+
+
+def workspace_package_diff(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    out.data(client.workspaces.revisions.diff(args.project, args.revision_id, base=args.base))
+    return exits.OK
+
+
+# -- workspace: Change Requests ----------------------------------------------
+
+
+def workspace_cr_list(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    page = client.workspaces.change_requests.list(
+        args.project,
+        status=args.status,
+        created_by=args.created_by,
+        reviewer_user_id=args.reviewer,
+    )
+    out.table(
+        page.items,
+        columns=["change_request_id", "title", "status", "current_head_revision_id"],
+    )
+    if page.next_cursor and not out.as_json:
+        out.note(f"more results: --cursor {page.next_cursor}")
+    return exits.OK
+
+
+def workspace_cr_show(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    change_request = client.workspaces.change_requests.get(args.project, args.change_request_id)
+    out.data(change_request)
+    return _change_request_exit(change_request)
+
+
+def workspace_cr_create(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Open a draft Change Request over a ready revision.
+
+    Stays ``draft`` until ``workspace cr submit`` -- creating one does not by
+    itself start review or claim ``--semantic-version``.
+    """
+    change_request = client.workspaces.change_requests.create(
+        args.project,
+        title=args.title,
+        head_revision_id=args.head_revision_id,
+        semantic_version=args.semantic_version,
+        description=args.description or "",
+        base_revision_id=args.base_revision_id,
+        reviewer_user_ids=args.reviewer or None,
+    )
+    out.data(change_request)
+    return _change_request_exit(change_request)
+
+
+def workspace_cr_submit(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    change_request = client.workspaces.change_requests.submit(
+        args.project, args.change_request_id, idempotency_key=args.idempotency_key
+    )
+    out.data(change_request)
+    return _change_request_exit(change_request)
+
+
+def workspace_cr_update(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Append a new ready revision as the request's next head generation.
+
+    This is the update path for a Change Request the way ``git push`` updates
+    a pull request: it appends a head generation, it never rewrites one.
+    """
+    change_request = client.workspaces.change_requests.update_head(
+        args.project,
+        args.change_request_id,
+        revision_id=args.revision_id,
+        expected_lock_version=args.expected_lock_version,
+        change_summary=args.change_summary or "",
+    )
+    out.data(change_request)
+    return _change_request_exit(change_request)
+
+
+def workspace_cr_rebase(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Bring an ``out_of_date`` request back onto the current accepted head."""
+    change_request = client.workspaces.change_requests.rebase(
+        args.project,
+        args.change_request_id,
+        revision_id=args.revision_id,
+        expected_lock_version=args.expected_lock_version,
+        change_summary=args.change_summary or "",
+        semantic_version=args.semantic_version,
+    )
+    out.data(change_request)
+    return _change_request_exit(change_request)
+
+
+def workspace_cr_review(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Record one reviewer's decision against a specific head.
+
+    Exits on the decision just recorded, not a re-fetched aggregate request
+    state -- the same choice ``gate_verdict_record`` makes for its own verdict.
+    """
+    review = client.workspaces.change_requests.submit_review(
+        args.project,
+        args.change_request_id,
+        head_id=args.head_id,
+        decision=args.decision,
+        rationale=args.rationale or "",
+    )
+    out.data(review)
+    return exits.CHANGES_REQUESTED if args.decision == "request_changes" else exits.OK
+
+
+def workspace_cr_close(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    change_request = client.workspaces.change_requests.close(
+        args.project,
+        args.change_request_id,
+        reason=args.reason,
+        expected_lock_version=args.expected_lock_version,
+    )
+    out.data(change_request)
+    return _change_request_exit(change_request)
+
+
+#: Statuses in which a Change Request is simply waiting on somebody's decision
+#: -- not rejected, not stale, not accepted. Maps onto AWAITING_HUMAN because
+#: that is exactly what it means: the command worked, and a person has to act.
+_CHANGE_REQUEST_PENDING_STATES = frozenset(
+    {"draft", "open", "technically_approved", "qa_in_progress"}
+)
+
+
+def _change_request_exit(change_request: WorkspaceChangeRequest) -> int:
+    status = change_request.status
+    if status == "accepted":
+        return exits.OK
+    if status == "changes_requested":
+        return exits.CHANGES_REQUESTED
+    if status == "out_of_date":
+        return exits.OUT_OF_DATE
+    if status in _CHANGE_REQUEST_PENDING_STATES:
+        return exits.AWAITING_HUMAN
+    return exits.FAILURE
+
+
+# -- workspace: releases ------------------------------------------------------
+
+
+def workspace_release_list(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    releases = client.workspaces.releases.list(
+        args.project, status=args.status, environment_id=args.environment_id
+    )
+    out.table(releases, columns=["release_id", "environment_id", "revision_id", "status"])
+    return exits.OK
+
+
+def workspace_release_status(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    release = client.workspaces.releases.get(args.project, args.release_id)
+    out.data(release)
+    return _release_exit(release)
+
+
+def workspace_release_create(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Capture immutable release coordinates before evaluation dispatch."""
+    release = client.workspaces.releases.create(
+        args.project,
+        revision_id=args.revision_id,
+        environment_id=args.environment_id,
+        environment_config_sha256=args.environment_config_sha256,
+        runtime_dependencies_sha256=args.runtime_dependencies_sha256,
+        policy_sha256=args.policy_sha256,
+        request_idempotency_key=args.request_idempotency_key,
+        change_request_id=args.change_request_id,
+        change_request_head_id=args.change_request_head_id,
+        version_tag_id=args.version_tag_id,
+        predecessor_release_id=args.predecessor_release_id,
+    )
+    out.data(release)
+    return _release_exit(release)
+
+
+def workspace_release_evaluate(
+    client: CaliberClient, args: argparse.Namespace, out: Printer
+) -> int:
+    """Request an evaluation attempt and, unless told otherwise, wait for it."""
+    evaluation = client.workspaces.releases.evaluate(
+        args.project,
+        args.release_id,
+        idempotency_key=args.idempotency_key,
+        evaluation_plan_sha256=args.evaluation_plan_sha256,
+        input_sha256=args.input_sha256,
+    )
+    out.note(f"requested evaluation {evaluation.evaluation_id}")
+
+    if args.no_wait:
+        out.data(evaluation)
+        return exits.OK
+
+    try:
+        evaluation = client.workspaces.releases.wait_for_evaluation(
+            args.project, args.release_id, evaluation.evaluation_id, timeout=args.timeout
+        )
+    except WaitTimeout:
+        out.data(
+            client.workspaces.releases.get_evaluation(
+                args.project, args.release_id, evaluation.evaluation_id
+            )
+        )
+        out.error(f"evaluation {evaluation.evaluation_id} did not finish within {args.timeout}s")
+        return exits.TIMEOUT
+
+    out.data(evaluation)
+    return exits.OK if evaluation.status == "succeeded" else exits.FAILURE
+
+
+def workspace_release_quality_signoff(
+    client: CaliberClient, args: argparse.Namespace, out: Printer
+) -> int:
+    """Record a QA go/no-go decision. Requires the Reviewer project role."""
+    decision = client.workspaces.releases.quality_signoff(
+        args.project,
+        args.release_id,
+        decision=args.decision,
+        gate_evidence_sha256=args.gate_evidence_sha256,
+        rationale=args.rationale or "",
+        change_request_head_id=args.change_request_head_id,
+    )
+    out.data(decision)
+    return exits.OK if args.decision == "go" else exits.GATE_FAILED
+
+
+def workspace_release_approve(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Record the final release go/no-go decision. Requires the Owner role."""
+    decision = client.workspaces.releases.approve(
+        args.project,
+        args.release_id,
+        decision=args.decision,
+        gate_evidence_sha256=args.gate_evidence_sha256,
+        rationale=args.rationale or "",
+        change_request_head_id=args.change_request_head_id,
+    )
+    out.data(decision)
+    return exits.OK if args.decision == "go" else exits.GATE_FAILED
+
+
+def workspace_release_versions(
+    client: CaliberClient, args: argparse.Namespace, out: Printer
+) -> int:
+    page = client.workspaces.version_tags.list(args.project)
+    out.table(page.items, columns=["tag_id", "tag", "revision_id", "kind", "created_at"])
+    if page.next_cursor and not out.as_json:
+        out.note(f"more results: --cursor {page.next_cursor}")
+    return exits.OK
+
+
+def workspace_release_apply(client: CaliberClient, args: argparse.Namespace, out: Printer) -> int:
+    """Prepare, execute, and (unless told otherwise) wait for an apply.
+
+    Three server calls, not one: preparing an operation is a distinct,
+    auditable compare-and-swap against the environment's lock version, and
+    executing it against the provider adapter is a second step that can fail
+    independently -- collapsing them would hide which one actually failed.
+    """
+    prepared = client.workspaces.release_operations.create(
+        args.project,
+        args.release_id,
+        kind="apply",
+        idempotency_key=args.idempotency_key,
+        expected_environment_lock_version=args.expected_environment_lock_version,
+        expected_current_release_id=args.expected_current_release_id,
+    )
+    result = client.workspaces.release_operations.apply(
+        args.project, args.release_id, prepared.operation.operation_id
+    )
+    return _finish_release_operation(client, args, out, result)
+
+
+def workspace_release_rollback(
+    client: CaliberClient, args: argparse.Namespace, out: Printer
+) -> int:
+    """Prepare, execute, and (unless told otherwise) wait for a rollback.
+
+    A rollback is the same operation machinery as an apply with
+    ``kind="rollback"`` and an explicit ``--target-release-id`` -- there is no
+    separate rollback state machine to drift from the apply path.
+    """
+    prepared = client.workspaces.release_operations.create(
+        args.project,
+        args.release_id,
+        kind="rollback",
+        idempotency_key=args.idempotency_key,
+        expected_environment_lock_version=args.expected_environment_lock_version,
+        expected_current_release_id=args.expected_current_release_id,
+        target_release_id=args.target_release_id,
+    )
+    result = client.workspaces.release_operations.apply(
+        args.project, args.release_id, prepared.operation.operation_id
+    )
+    return _finish_release_operation(client, args, out, result)
+
+
+def workspace_release_operation_status(
+    client: CaliberClient, args: argparse.Namespace, out: Printer
+) -> int:
+    result = client.workspaces.release_operations.get(
+        args.project, args.release_id, args.operation_id
+    )
+    out.data(result)
+    if not result.is_terminal:
+        return exits.TIMEOUT
+    return _release_operation_exit(result)
+
+
+def _finish_release_operation(
+    client: CaliberClient,
+    args: argparse.Namespace,
+    out: Printer,
+    result: WorkspaceReleaseOperationResult,
+) -> int:
+    """Report an operation :meth:`apply` already executed synchronously.
+
+    Unlike a workflow run's submit, ``apply()``/``observe()`` are not "fire
+    and forget": the provider adapter runs inline and the response already
+    carries a real, possibly-terminal status. ``--no-wait`` only skips
+    polling for a result that is *not yet known* -- it never overrides one
+    the call already returned, which would misreport a ``failed`` or
+    ``reconcile_required`` outcome as success.
+    """
+    if result.is_terminal:
+        out.data(result)
+        return _release_operation_exit(result)
+
+    if args.no_wait:
+        out.data(result)
+        return exits.OK
+
+    operation_id = result.operation.operation_id
+    try:
+        result = client.workspaces.release_operations.wait(
+            args.project, args.release_id, operation_id, timeout=args.timeout
+        )
+    except WaitTimeout:
+        out.data(
+            client.workspaces.release_operations.get(args.project, args.release_id, operation_id)
+        )
+        out.error(f"operation {operation_id} did not finish within {args.timeout}s")
+        return exits.TIMEOUT
+
+    out.data(result)
+    return _release_operation_exit(result)
+
+
+def _release_exit(release: WorkspaceRelease) -> int:
+    status = release.status
+    if status == "approved":
+        return exits.OK
+    if status == "blocked":
+        return exits.GATE_FAILED
+    if status in {"draft", "evaluating", "awaiting_quality_signoff", "awaiting_approval"}:
+        return exits.AWAITING_HUMAN
+    return exits.FAILURE
+
+
+def _release_operation_exit(result: WorkspaceReleaseOperationResult) -> int:
+    status = result.operation.status
+    if status == "applied":
+        return exits.OK
+    if status == "reconcile_required":
+        return exits.RECONCILE_REQUIRED
+    return exits.FAILURE
 
 
 # -- shared helpers --------------------------------------------------------
