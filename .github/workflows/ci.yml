@@ -197,6 +197,54 @@ jobs:
           if banned:
               sys.exit(f"caliber-sdk must not depend on the server runtime: {banned}")
           CHECK
+      - name: Assert the built wheel exposes the Workspace surface
+        # `docs/workspace-plan.md` (P6-C) calls this out as its own item,
+        # separate from the SDK surface work itself: every other check in this
+        # job (pytest, mypy) runs against the editable install, which reads
+        # straight from ``src/`` regardless of what the wheel actually
+        # contains. A build-config regression here -- a module the wheel's
+        # ``packages`` list stops covering, an export dropped from
+        # ``__all__`` -- would be invisible to all of them. Only installing
+        # the real wheel and importing the Workspace surface from it catches
+        # that. ``--no-deps`` reuses the runtime deps the install step above
+        # already resolved rather than re-touching the network for versions
+        # already satisfied.
+        run: |
+          uv pip install --system --force-reinstall --no-deps dist/*.whl
+          python - <<'CHECK'
+          import glob, sys, zipfile
+
+          from caliber_sdk import CaliberClient
+          from caliber_sdk.aio import AsyncCaliberClient
+          from caliber_sdk.models import (  # noqa: F401
+              WorkspaceChangeRequest,
+              WorkspaceImportJob,
+              WorkspaceRelease,
+              WorkspaceReleaseOperationResult,
+          )
+
+          wheel = sorted(glob.glob("dist/*.whl"))[-1]
+          names = zipfile.ZipFile(wheel).namelist()
+          for path in ("caliber_sdk/models/workspace.py", "caliber_sdk/aio/projects.py"):
+              if path not in names:
+                  sys.exit(f"{path} is missing from the built wheel")
+
+          client = CaliberClient(base_url="https://example.invalid", token="t")
+          sync_attrs = (
+              "source", "imports", "revisions", "change_requests",
+              "version_tags", "releases", "release_operations", "members",
+          )
+          for attr in sync_attrs:
+              if not hasattr(client.workspaces, attr):
+                  sys.exit(f"client.workspaces.{attr} is missing from the built wheel")
+
+          aclient = AsyncCaliberClient(base_url="https://example.invalid", token="t")
+          for attr in ("imports", "releases", "release_operations"):
+              if not hasattr(aclient.workspaces, attr):
+                  sys.exit(f"async client.workspaces.{attr} is missing from the built wheel")
+
+          print("Workspace surface present in the built wheel")
+          CHECK
 
 
   plugin-sdk:
