@@ -388,6 +388,15 @@ CLASS_EXAMPLES = {
     "EvaluationsAPI": MODULE_EXAMPLES["caliber_sdk.resources.quality"],
     "CookbooksAPI": "sdk/caliber-sdk/examples/agentic.py#install_ready_cookbook",
     "AriaAPI": MODULE_EXAMPLES["caliber_sdk.resources.operations"],
+    "ProjectChangeRequestsAPI": (
+        "sdk/caliber-sdk/examples/workspace_release.py#promote_a_reviewed_revision"
+    ),
+    "ProjectReleasesAPI": (
+        "sdk/caliber-sdk/examples/workspace_release.py#promote_a_reviewed_revision"
+    ),
+    "ProjectReleaseOperationsAPI": (
+        "sdk/caliber-sdk/examples/workspace_release.py#promote_a_reviewed_revision"
+    ),
 }
 
 MODULE_GROUPS = [
