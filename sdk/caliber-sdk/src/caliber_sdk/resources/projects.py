@@ -3,14 +3,17 @@
 Every other resource can be scoped to a project via the ``X-CALIBER-Project``
 header, which the client sets for you. This module manages the projects
 themselves, the files they hold, and (`P6-B`) membership/ownership, the
-Git-backed source binding, source-to-revision import/revision lifecycle,
-Change Request review flow, and environment release lifecycle:
+Git-backed source binding (plus, `P4-E`, its encrypted GitHub App
+connection), source-to-revision import/revision lifecycle, Change Request
+review flow, and environment release lifecycle:
 :class:`ProjectMembersAPI`, :class:`ProjectSourceAPI`,
-:class:`ProjectImportsAPI`, :class:`ProjectRevisionsAPI`,
-:class:`ProjectChangeRequestsAPI`, :class:`ProjectVersionTagsAPI`,
-:class:`ProjectReleasesAPI` and :class:`ProjectReleaseOperationsAPI`, exposed
-as ``ProjectsAPI.members``/``.source``/``.imports``/``.revisions``/
-``.change_requests``/``.version_tags``/``.releases``/``.release_operations``.
+:class:`ProjectSourceConnectionAPI`, :class:`ProjectImportsAPI`,
+:class:`ProjectRevisionsAPI`, :class:`ProjectChangeRequestsAPI`,
+:class:`ProjectVersionTagsAPI`, :class:`ProjectReleasesAPI` and
+:class:`ProjectReleaseOperationsAPI`, exposed as
+``ProjectsAPI.members``/``.source``/``.source_connection``/``.imports``/
+``.revisions``/``.change_requests``/``.version_tags``/``.releases``/
+``.release_operations``.
 ``ProjectsAPI``'s own ``list_members``/``add_member``/``update_member``/
 ``remove_member``/``transfer_ownership`` remain as flat delegates to
 ``.members`` -- a root convenience, not a second implementation.
@@ -49,6 +52,8 @@ from ..models.workspace import (
     WorkspaceRevisionResource,
     WorkspaceSource,
     WorkspaceSourceCapabilities,
+    WorkspaceSourceConnection,
+    WorkspaceSourceReconciliationResult,
     WorkspaceSourceState,
     WorkspaceVersionTag,
 )
@@ -76,6 +81,16 @@ def _decode_source_state(payload: Any) -> WorkspaceSourceState:
     source_payload = payload.get("source") if isinstance(payload, dict) else None
     state.source = decode(WorkspaceSource, source_payload) if source_payload is not None else None
     return state
+
+
+def _decode_connection_response(payload: Any) -> WorkspaceSourceConnection | None:
+    """Unwrap ``{"connection": {...} | None}`` -- the shared response shape
+    every ``/source/connection*`` route returns (mirrors
+    ``WorkspaceSourceConnectionResponse`` server-side)."""
+    connection_payload = payload.get("connection") if isinstance(payload, dict) else None
+    if connection_payload is None:
+        return None
+    return decode(WorkspaceSourceConnection, connection_payload)
 
 
 def _decode_import_reconciliation(payload: Any) -> WorkspaceImportReconciliation:
@@ -327,6 +342,88 @@ class ProjectSourceAPI(Resource):
         return decode(
             WorkspaceSourceCapabilities,
             self._get(f"/projects/{project_id}/source/capabilities", project=project_id),
+        )
+
+
+class ProjectSourceConnectionAPI(Resource):
+    """A project's encrypted GitHub App connection for its source binding
+    (`P4-E`).
+
+    Sibling to :class:`ProjectSourceAPI` rather than nested under it --
+    matching this SDK's flat-sibling convention for every other
+    project-scoped sub-resource (:class:`ProjectImportsAPI`,
+    :class:`ProjectRevisionsAPI`, ...) even where the server itself nests the
+    route path under ``/source``. Kept as its own class (not folded into
+    :class:`ProjectSourceAPI`) because the two already have their own
+    ``configure``/``reconcile`` methods with different shapes -- the source
+    binding's own verify-against-provider ``reconcile()`` is unrelated to a
+    connection's webhook-delivery ``reconcile_deliveries()``.
+
+    Every method here mirrors ``routes/workspace_source_connections.py``
+    exactly: ``configure()`` and ``revoke()`` write secret material straight
+    through the server's encrypted secret store, and every response --
+    including this class's own :class:`WorkspaceSourceConnection` model --
+    is a projection that cannot contain one.
+    """
+
+    def get(self, project_id: str) -> WorkspaceSourceConnection | None:
+        """The project's current connection, or ``None`` if unconfigured."""
+        return _decode_connection_response(
+            self._get(f"/projects/{project_id}/source/connection", project=project_id)
+        )
+
+    def configure(
+        self,
+        project_id: str,
+        *,
+        app_id: str,
+        installation_id: str,
+        private_key: str,
+        webhook_secret: str,
+        provider: str = "github",
+    ) -> WorkspaceSourceConnection | None:
+        """Bind (or replace) this project's GitHub App connection.
+
+        ``private_key``/``webhook_secret`` are write-only: accepted here,
+        stored through the server's encrypted secret store, and never
+        echoed back by any read -- including this call's own response.
+        """
+        body: dict[str, Any] = {
+            "provider": provider,
+            "app_id": app_id,
+            "installation_id": installation_id,
+            "private_key": private_key,
+            "webhook_secret": webhook_secret,
+        }
+        return _decode_connection_response(
+            self._put(
+                f"/projects/{project_id}/source/connection",
+                json=body,
+                project=project_id,
+            )
+        )
+
+    def revoke(self, project_id: str) -> WorkspaceSourceConnection | None:
+        """Revoke the project's connection (marks it ``status="revoked"``)."""
+        return _decode_connection_response(
+            self._post(f"/projects/{project_id}/source/connection:revoke", project=project_id)
+        )
+
+    def reconcile_deliveries(self, project_id: str) -> WorkspaceSourceReconciliationResult:
+        """Find and request redelivery of any webhook deliveries this
+        source's inbox is missing, using GitHub's own App-scoped delivery
+        log.
+
+        Never inserts anything into the inbox itself -- a requested
+        redelivery re-enters the same way a live delivery would
+        (``POST /webhooks/github``, which no SDK client calls directly).
+        """
+        return decode(
+            WorkspaceSourceReconciliationResult,
+            self._post(
+                f"/projects/{project_id}/source/connection:reconcile-deliveries",
+                project=project_id,
+            ),
         )
 
 
@@ -1377,6 +1474,7 @@ class ProjectsAPI(Resource):
         self.members = ProjectMembersAPI(transport)
         self.rework_tasks = ProjectReworkTasksAPI(transport)
         self.source = ProjectSourceAPI(transport)
+        self.source_connection = ProjectSourceConnectionAPI(transport)
         self.imports = ProjectImportsAPI(transport)
         self.revisions = ProjectRevisionsAPI(transport)
         self.change_requests = ProjectChangeRequestsAPI(transport)

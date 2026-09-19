@@ -115,6 +115,44 @@ class WorkspaceSourceCapabilities:
 
 
 @dataclass
+class WorkspaceSourceConnection:
+    """A project's configured GitHub App connection for its source binding
+    (`P4-E`).
+
+    Mirrors the server's own ``WorkspaceSourceConnectionSchema`` -- a
+    secret-free projection by construction. ``private_key``/``webhook_secret``
+    are accepted by :meth:`~caliber_sdk.resources.projects.ProjectSourceConnectionAPI.configure`
+    but never echoed back by any read: there is no field for either here
+    because the server response never contains one.
+    """
+
+    connection_id: str = ""
+    source_id: str = ""
+    project_id: str = ""
+    provider: str = ""
+    app_id: str = ""
+    installation_id: str = ""
+    status: str = ""
+    created_at: str | None = None
+    updated_at: str | None = None
+
+
+@dataclass
+class WorkspaceSourceReconciliationResult:
+    """Result of one webhook-delivery reconciliation pass against the bound
+    connection's GitHub App delivery log (`P4-E`).
+
+    ``missed_delivery_ids``/``redelivery_requested_ids`` carry
+    provider-assigned delivery guids (the same value GitHub sends as
+    ``X-GitHub-Delivery``) -- identifiers, not secret material.
+    """
+
+    checked: int = 0
+    missed_delivery_ids: list[str] = field(default_factory=list)
+    redelivery_requested_ids: list[str] = field(default_factory=list)
+
+
+@dataclass
 class WorkspaceImportReconciliation:
     """An explicit observation of an ambiguous local import snapshot."""
 
