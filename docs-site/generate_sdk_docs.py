@@ -397,6 +397,14 @@ CLASS_EXAMPLES = {
     "ProjectReleaseOperationsAPI": (
         "sdk/caliber-sdk/examples/workspace_release.py#promote_a_reviewed_revision"
     ),
+    "ProjectSourceConnectionAPI": (
+        "sdk/caliber-sdk/examples/workspace_github_source.py"
+        "#connect_github_source_and_import_on_push"
+    ),
+    "ProjectImportsAPI": (
+        "sdk/caliber-sdk/examples/workspace_github_source.py"
+        "#connect_github_source_and_import_on_push"
+    ),
 }
 
 MODULE_GROUPS = [

@@ -2177,6 +2177,12 @@ What the bound provider supports, without needing credentials.
 
 Durable source-to-revision import jobs for one project (`P6-B`).
 
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/workspace_github_source.py#connect_github_source_and_import_on_push
+```
+
 **Methods**
 
 ###### `list(project_id: str, *, status: str | None = None, limit: int | None = None, cursor: str | None = None) -> CursorPage[WorkspaceImportJob]`

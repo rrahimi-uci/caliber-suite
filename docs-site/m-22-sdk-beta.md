@@ -69,6 +69,63 @@ instances of "stopped is not finished" above: an evaluation or operation that
 lands on `reconcile_required` needs a caller to act
 (`release_operations.observe()`), not a longer timeout.
 
+## GitHub-backed Workspace import
+
+A revision starts as a commit, not a live CALIBER edit: CI validates the
+source and calls CALIBER's import API with a workspace-bound short-lived
+credential, and CALIBER never fetches the repository itself for a `push`-mode
+source. `source_connection` and `imports` are independent typed calls — a
+project can import without ever configuring a connection, and configuring one
+does not itself import anything:
+
+```python-example
+sdk/caliber-sdk/examples/workspace_github_source.py#connect_github_source_and_import_on_push
+```
+
+The calling repository's own CI performs the same `imports.create()` call
+this example makes, from a workflow like:
+
+```yaml
+# .github/workflows/caliber-import.yml
+name: CALIBER import
+
+on:
+  push:
+    branches: [main]
+
+jobs:
+  import:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Build the canonical workspace bundle
+        run: zip -r workspace.zip . -x '.git/*'
+
+      - name: Submit the import
+        env:
+          CALIBER_TOKEN: ${{ secrets.CALIBER_PROJECT_PAT }}
+        run: |
+          curl --fail-with-body -sS \
+            -X POST "$CALIBER_BASE_URL/projects/$CALIBER_PROJECT_ID/revision-imports" \
+            -H "Authorization: Bearer $CALIBER_TOKEN" \
+            -H "Idempotency-Key: push-${{ github.sha }}" \
+            -F "repository=${{ github.repository }}" \
+            -F "commit_sha=${{ github.sha }}" \
+            -F "bundle=@workspace.zip;type=application/zip"
+```
+
+`CALIBER_PROJECT_PAT` must be a **project-bound** PAT — `caliber.auth.create()`
+(see [Authentication](m-20-sdk-guide.md#authentication) in the SDK guide) accepts a `project_id` that binds
+the token to one project the issuer already holds a role in. A PAT bound to a
+different project, or an unbound PAT, is refused for this route specifically
+(`P1-E`), which is why CI import credentials should always be minted with
+`project_id` set rather than reused from a general-purpose token. The SDK
+example above does the equivalent of the `curl` step through
+`caliber.workspaces.imports.create()`, which is the multipart-aware,
+retry-safe way to submit the same bundle from a Python caller (a CI step, an
+internal tool) instead of raw `curl`.
+
 ## Compatibility and deprecations
 
 Two Workspace-era changes kept an older calling convention working rather than
