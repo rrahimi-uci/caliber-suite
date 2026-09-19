@@ -1,0 +1,1 @@
+{"t":"2026-09-19T14:58:26.652Z","severity":"INFO","logger":"httpx","message":"HTTP Request: GET https://api.github.com/repos/owner/repo \"HTTP/1.1 200 OK\""}
