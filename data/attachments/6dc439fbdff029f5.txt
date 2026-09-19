@@ -1,1 +1,0 @@
-{"t":"2026-09-19T09:54:05.617Z","severity":"INFO","logger":"caliber.observability.incidents","message":"incident INC-silenced is silenced until 2026-09-19T10:54:05.612776; recorded but not routed"}
