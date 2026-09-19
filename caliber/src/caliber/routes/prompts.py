@@ -1458,6 +1458,52 @@ async def create_prompt(request: Request) -> JSONResponse:
             is None
         ):
             raise HTTPException(status_code=404, detail=f"prompt {name!r} not found")
+        # `P2-G` (namespace collision): MLflow's Prompt Registry has no
+        # concept of "project" -- registering a version under a name that
+        # already exists there always lands on the SAME entity, regardless
+        # of who registered it first (verified against the actual client
+        # calls: `register_prompt_version` -> `register_prompt(name=...)`
+        # below, and `promoter.py`/`orchestrator/candidate.py`/the assistant
+        # publisher all call the identical MLflow API directly). The only
+        # place CALIBER records *which* project a name belongs to is this
+        # hidden target's own `project_id`, so that column -- not a raw
+        # MLflow lookup -- is the reliable signal for "does this collide
+        # with another project".
+        #
+        # The `get_visible` check just above already refuses (404) the
+        # common case where the target is invisible to this caller. But
+        # `get_visible` intentionally gives an admin identity (`SCOPE_ADMIN`)
+        # an unconditional bypass across every project, so an admin's
+        # `create_prompt` call could sail straight past that check and
+        # silently add a version onto *another* project's prompt entity --
+        # exactly the "two projects land in one interleaved MLflow entity"
+        # gap `docs/workspace-plan.md` section 16's `P2-G` row named as not
+        # yet delivered. Compare project ownership directly instead of
+        # relying on visibility alone, so this refusal holds regardless of
+        # the caller's own scopes.
+        #
+        # A target with no `project_id` at all (a personal/"My Library"
+        # target, or one created before project scoping existed) has no
+        # project to compare against, so it is deliberately *not* treated as
+        # a collision here -- same carve-out `create_prompt_version` already
+        # documents for this identical shape ("a no-op when the name has no
+        # hidden target at all ... since there is no project to gate
+        # against"). Only a *project-scoped* target whose project genuinely
+        # differs from the caller's active project is refused; the same
+        # project re-registering its own name (`project_id` matches) is
+        # unaffected.
+        if (
+            existing_target is not None
+            and existing_target.project_id is not None
+            and existing_target.project_id != identity.active_project_id
+        ):
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"prompt {name!r} is already registered to another project; "
+                    "prompt names are unique across all projects"
+                ),
+            )
         # `P2` (isolation closure): `resource.write.runtime`. A name that
         # already has a hidden target is gated on *that* target's project
         # (it keeps its original project regardless of the caller's current

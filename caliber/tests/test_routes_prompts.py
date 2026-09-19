@@ -2496,6 +2496,47 @@ def test_create_prompt_refuses_a_name_whose_target_belongs_to_another_project(
     assert calls["register_calls"] == []
 
 
+def test_create_prompt_refuses_a_genuinely_different_project_even_when_visible(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    """`P2-G`: unlike the invisible-target case above (404, refused by
+    ``get_visible``), this proves the *new* project-ownership comparison.
+    MLflow's Prompt Registry has one flat, global namespace -- a name
+    already claimed by one project must not silently accept a second
+    project's registration, or the two land in one interleaved MLflow
+    entity (verified against the actual client calls this module makes:
+    ``register_prompt_version`` always calls ``mlflow.genai.register_prompt(
+    name=...)``, which MLflow itself treats as "add a version" whenever the
+    name already exists).
+
+    ``db/scoping.py::apply_visibility_filter`` deliberately lets an admin
+    identity see every row regardless of project (so admins can inspect
+    every project) -- the default test client IS an admin (``@test``, see
+    ``conftest.py``), so the existing target stays fully *visible* to this
+    caller, unlike the 404 case above. It must still be refused: its
+    project (``P-hidden``) genuinely differs from the caller's active
+    project (``P-other``)."""
+    _insert_agent(
+        db_session,
+        agent_id="owned-prompt",
+        experiment_id="exp-owned-prompt",
+        visibility="project",
+        project_id="P-hidden",
+        optimizer_config={"source_type": "prompt_target", "model": None, "bound_to": None},
+    )
+    calls = _install_mlflow(monkeypatch)
+
+    resp = client.post(
+        PREFIX,
+        json={"name": "owned-prompt", "template": "goodbye"},
+        headers={"X-CALIBER-Project": "P-other"},
+    )
+    assert resp.status_code == 409
+    assert "owned-prompt" in resp.json()["detail"]
+    # No orphaned MLflow version: refused before the registry write.
+    assert calls["register_calls"] == []
+
+
 def test_get_prompt_hides_a_prompt_whose_target_belongs_to_another_project(
     client: TestClient, db_session: Session, monkeypatch
 ) -> None:
