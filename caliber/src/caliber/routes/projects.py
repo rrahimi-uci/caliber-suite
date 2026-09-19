@@ -18,8 +18,9 @@ from typing import Any, Literal, cast
 from sqlalchemy import and_, or_, select
 from sqlalchemy import update as sa_update
 from sqlalchemy.exc import IntegrityError
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse, Response
@@ -1191,7 +1192,7 @@ def _transition_environment_status(
 
 
 def _update_environment_policy(
-    session: Session,
+    factory: sessionmaker[Session],
     *,
     project_id: str,
     name: str,
@@ -1199,7 +1200,6 @@ def _update_environment_policy(
     policy_sha256: str,
     expected_lock_version: int,
     identity: CaliberIdentity,
-    decision: AccessDecision,
 ) -> WorkspaceEnvironmentSchema:
     """Update an environment's policy configuration under optimistic
     concurrency control.
@@ -1210,43 +1210,56 @@ def _update_environment_policy(
     `ProjectReleaseOperationsAPI`'s `expected_environment_lock_version`
     already reads, kept internally consistent rather than inventing a
     second concurrency mechanism for the same row.
+
+    Takes a session factory and opens its own session, run via
+    `run_in_threadpool` by the caller -- unlike this module's other
+    environment handlers (written before `tests/test_async_offload_ratchet.py`
+    existed), matching the newer pattern `workspace_releases.py`/
+    `workspace_release_operations.py` already use, rather than adding a
+    fourth blocking-inline handler to the ratchet's tracked total.
     """
-    row = _environment_for_project_or_404(session, project_id, name)
-    result = session.execute(
-        sa_update(CaliberWorkspaceEnvironment)
-        .where(
-            CaliberWorkspaceEnvironment.environment_id == row.environment_id,
-            CaliberWorkspaceEnvironment.lock_version == expected_lock_version,
+    with factory() as session:
+        _project, decision = require_project_access(
+            session, identity, project_id, "environment.manage"
         )
-        .values(
-            policy=policy,
-            policy_sha256=policy_sha256,
-            lock_version=CaliberWorkspaceEnvironment.lock_version + 1,
+        row = _environment_for_project_or_404(session, project_id, name)
+        result = session.execute(
+            sa_update(CaliberWorkspaceEnvironment)
+            .where(
+                CaliberWorkspaceEnvironment.environment_id == row.environment_id,
+                CaliberWorkspaceEnvironment.lock_version == expected_lock_version,
+            )
+            .values(
+                policy=policy,
+                policy_sha256=policy_sha256,
+                lock_version=CaliberWorkspaceEnvironment.lock_version + 1,
+            )
         )
-    )
-    if int(getattr(result, "rowcount", 0) or 0) != 1:
-        raise HTTPException(
-            status_code=409,
-            detail=(
-                f"environment {name!r} lock_version is stale (expected {expected_lock_version})"
-            ),
+        if int(getattr(result, "rowcount", 0) or 0) != 1:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"environment {name!r} lock_version is stale (expected {expected_lock_version})"
+                ),
+            )
+        # Keep the already-loaded ORM object in sync with the conditional
+        # update just applied above (a plain Core `update()` bypasses the
+        # ORM's own change tracking) -- `_environment_to_schema` below reads it.
+        row.policy = policy
+        row.policy_sha256 = policy_sha256
+        row.lock_version = expected_lock_version + 1
+        audit_record(
+            session,
+            actor=identity.user_id,
+            action="update_workspace_environment_policy",
+            entity_type="workspace_environment",
+            entity_id=row.environment_id,
+            details={"project_id": project_id, "name": name, "policy_sha256": policy_sha256},
         )
-    # Keep the already-loaded ORM object in sync with the conditional update
-    # just applied above (a plain Core `update()` bypasses the ORM's own
-    # change tracking) -- `_environment_to_schema` below reads it.
-    row.policy = policy
-    row.policy_sha256 = policy_sha256
-    row.lock_version = expected_lock_version + 1
-    audit_record(
-        session,
-        actor=identity.user_id,
-        action="update_workspace_environment_policy",
-        entity_type="workspace_environment",
-        entity_id=row.environment_id,
-        details={"project_id": project_id, "name": name, "policy_sha256": policy_sha256},
-    )
-    session.commit()
-    return _environment_to_schema(row, access_role=decision.role, permissions=decision.permissions)
+        session.commit()
+        return _environment_to_schema(
+            row, access_role=decision.role, permissions=decision.permissions
+        )
 
 
 async def update_project_environment(request: Request) -> JSONResponse:
@@ -1258,21 +1271,16 @@ async def update_project_environment(request: Request) -> JSONResponse:
     payload = WorkspaceEnvironmentUpdateRequest.model_validate(await parse_json_object(request))
     require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
-    factory = get_session_factory(request)
-    with factory() as session:
-        _project, decision = require_project_access(
-            session, identity, project_id, "environment.manage"
-        )
-        result = _update_environment_policy(
-            session,
-            project_id=project_id,
-            name=name,
-            policy=payload.policy,
-            policy_sha256=payload.policy_sha256,
-            expected_lock_version=payload.expected_lock_version,
-            identity=identity,
-            decision=decision,
-        )
+    result = await run_in_threadpool(
+        _update_environment_policy,
+        get_session_factory(request),
+        project_id=project_id,
+        name=name,
+        policy=payload.policy,
+        policy_sha256=payload.policy_sha256,
+        expected_lock_version=payload.expected_lock_version,
+        identity=identity,
+    )
     return envelope_response(result)
 
 
