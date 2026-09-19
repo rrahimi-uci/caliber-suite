@@ -1,0 +1,1 @@
+{"t":"2026-09-19T11:51:50.214Z","severity":"WARNING","logger":"caliber.routes.observability","message":"gateway usage search failed (boom); returning empty series"}

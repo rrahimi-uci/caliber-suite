@@ -1,3 +1,0 @@
-INFO     caliber.workspace_import_worker:workspace_import_worker.py:134 workspace-import worker started (interval=0.0s lease=300.0s worker=workspace-import-worker-2232-7f7d93dc3ad0)
-WARNING  caliber.workspace_import_worker:workspace_import_worker.py:148 workspace-import worker did not stop within 0.1s; cancelling
-INFO     caliber.workspace_import_worker:workspace_import_worker.py:156 workspace-import worker stopped
