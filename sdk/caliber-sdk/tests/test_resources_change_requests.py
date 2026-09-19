@@ -20,8 +20,10 @@ import json as jsonlib
 from typing import Any
 
 import httpx
+import pytest
 
 from caliber_sdk import CaliberClient
+from caliber_sdk.errors import CaliberConflictError
 from caliber_sdk.models.workspace import (
     WorkspaceChangeRequest,
     WorkspaceChangeRequestCheck,
@@ -234,6 +236,37 @@ def test_close_sends_reason_and_lock_version() -> None:
     assert seen["path"] == "/projects/PRJ-1/change-requests/WCR-1:close"
     assert seen["body"] == {"reason": "superseded", "expected_lock_version": 3}
     assert request.status == "closed"
+
+
+def test_accept_posts_no_client_supplied_evidence() -> None:
+    """`accept()` takes no QA-evidence argument at all -- the server derives
+    it itself from a durable release decision, never from anything this
+    client could send (see the server-side route's own docstring)."""
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        seen["path"] = request.url.path.rsplit("/caliber", 1)[-1]
+        seen["body"] = jsonlib.loads(request.content)
+        return envelope({**_CHANGE_REQUEST, "status": "accepted", "accepted_by": "user-1"})
+
+    with client_with(handler) as caliber:
+        request = caliber.workspaces.change_requests.accept("PRJ-1", "WCR-1")
+
+    assert seen["path"] == "/projects/PRJ-1/change-requests/WCR-1:accept"
+    assert seen["body"] == {}
+    assert request.status == "accepted"
+    assert request.accepted_by == "user-1"
+
+
+def test_accept_surfaces_a_409_when_no_qa_go_decision_exists() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(409, json={"detail": "qa_go_decision_required"})
+
+    with (
+        client_with(handler) as caliber,
+        pytest.raises(CaliberConflictError, match="qa_go_decision_required"),
+    ):
+        caliber.workspaces.change_requests.accept("PRJ-1", "WCR-1")
 
 
 # --- comments -----------------------------------------------------------------

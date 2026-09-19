@@ -395,6 +395,8 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
         "change_request.comment",
         "change_request.review",
         "change_request.manage",
+        # `P4-D`: the public acceptance route.
+        "change_request.accept",
     }
     assert set(PROJECT_ACTIONS) - live_actions == {
         "resource.write.evidence",

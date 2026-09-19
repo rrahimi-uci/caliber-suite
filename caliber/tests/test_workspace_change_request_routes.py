@@ -8,11 +8,13 @@ from sqlalchemy.orm import Session
 from starlette.exceptions import HTTPException
 from starlette.testclient import TestClient
 
+from caliber.auth import SCOPE_APPROVER, SCOPE_OPERATOR, CaliberIdentity
 from caliber.db.models import (
     CaliberProject,
     CaliberProjectMember,
     CaliberWorkspaceChangeRequest,
     CaliberWorkspaceChangeRequestHead,
+    CaliberWorkspaceEnvironment,
     CaliberWorkspaceRevision,
     CaliberWorkspaceSource,
     CaliberWorkspaceVersionClaim,
@@ -24,6 +26,11 @@ from caliber.workspace_change_request_service import (
     create_version_tag,
     record_check,
     record_external_attestation,
+)
+from caliber.workspace_release_governance import record_workspace_release_decision
+from caliber.workspace_release_service import (
+    RELEASE_AWAITING_QUALITY_SIGNOFF,
+    create_workspace_release,
 )
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
@@ -399,7 +406,9 @@ def test_source_provider_review_fails_closed_and_attestation_is_trusted_only(
 def test_acceptance_primitive_cas_moves_only_one_request(
     session_factory, db_session: Session
 ) -> None:
-    """The public API does not expose acceptance, but Phase 5 gets a tested CAS."""
+    """The CAS primitive itself, isolated from HTTP authorization and QA
+    evidence derivation (both covered by the ``:accept`` route tests below).
+    """
     project = CaliberProject(
         project_id="PRJ-cas",
         name="CAS project",
@@ -488,6 +497,340 @@ def test_acceptance_primitive_cas_moves_only_one_request(
         assert stale is not None and stale.status == "out_of_date"
     finally:
         final_session.close()
+
+
+# --- accept: qa evidence must come from a verified release decision, never a body ---
+
+
+def _qa_environment_id(db_session: Session, project_id: str) -> str:
+    return db_session.execute(
+        select(CaliberWorkspaceEnvironment.environment_id).where(
+            CaliberWorkspaceEnvironment.project_id == project_id,
+            CaliberWorkspaceEnvironment.environment_class == "qa",
+        )
+    ).scalar_one()
+
+
+def _record_qa_decision(
+    db_session: Session,
+    *,
+    project_id: str,
+    change_request_id: str,
+    head_id: str,
+    revision_id: str,
+    idempotency_key: str,
+    decision: str = "go",
+    reviewer_user_id: str = "@qa",
+) -> None:
+    """Seed a Phase-5 QA release + decision the accept route can verify.
+
+    ``reviewer_user_id`` is a distinct actor from the request/head/revision
+    authors ("@test") -- `record_workspace_release_decision`'s own
+    separation-of-duties check requires that. Idempotent on project
+    membership: callers that record more than one decision against the
+    same project (e.g. two competing Change Requests) share one "@qa"
+    membership row rather than colliding on the
+    ``(project_id, user_id)`` uniqueness constraint.
+    """
+    existing_member = db_session.execute(
+        select(CaliberProjectMember).where(
+            CaliberProjectMember.project_id == project_id,
+            CaliberProjectMember.user_id == reviewer_user_id,
+        )
+    ).scalar_one_or_none()
+    if existing_member is None:
+        db_session.add(
+            CaliberProjectMember(
+                member_id=f"PRJM-{reviewer_user_id.removeprefix('@')}-{idempotency_key}",
+                project_id=project_id,
+                user_id=reviewer_user_id,
+                role="reviewer",
+                status="active",
+                created_by="@test",
+            )
+        )
+        db_session.commit()
+    gate = "c" * 64
+    release = create_workspace_release(
+        db_session,
+        project_id=project_id,
+        revision_id=revision_id,
+        environment_id=_qa_environment_id(db_session, project_id),
+        environment_config_sha256="d" * 64,
+        runtime_dependencies_sha256="e" * 64,
+        policy_sha256="f" * 64,
+        request_idempotency_key=idempotency_key,
+        requested_by="@release-bot",
+        change_request_id=change_request_id,
+        change_request_head_id=head_id,
+    )
+    release.status = RELEASE_AWAITING_QUALITY_SIGNOFF
+    release.evaluation_evidence_sha256 = gate
+    db_session.flush()
+    record_workspace_release_decision(
+        db_session,
+        project_id=project_id,
+        workspace_release_id=release.release_id,
+        identity=CaliberIdentity(
+            user_id=reviewer_user_id,
+            scopes=frozenset({SCOPE_OPERATOR, SCOPE_APPROVER}),
+            credential_kind="session",
+            credential_id=f"session-{reviewer_user_id}",
+        ),
+        kind="quality",
+        decision=decision,
+        rationale="QA suite passed" if decision == "go" else "QA suite failed",
+        gate_evidence_sha256=gate,
+        change_request_head_id=head_id,
+    )
+    db_session.commit()
+
+
+def test_accept_route_succeeds_with_a_verified_qa_go_decision(
+    client: TestClient, db_session: Session, session_factory
+) -> None:
+    project_id = _create_project(client, "Accept: verified go")
+    _add_reviewer(db_session, project_id)
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"admin_users": "@test,@reviewer,@qa"}
+    )
+    _seed_revision(db_session, project_id, "WSR-101", "digest-a1")
+    request = _create_request(client, project_id, "WSR-101", version="9.0.0")
+    request_id = str(request["change_request_id"])
+    path = _change_request_path(project_id, request_id)
+
+    assert client.post(f"{path}:submit", json={}).status_code == 200
+    head_id = client.get(path).json()["data"]["current_head"]["head_id"]
+    approved = client.post(
+        f"{path}/reviews",
+        headers={"X-CALIBER-User": "@reviewer"},
+        json={"head_id": head_id, "decision": "approve"},
+    )
+    assert approved.status_code == 201, approved.text
+    assert client.get(path).json()["data"]["status"] == "technically_approved"
+
+    _record_qa_decision(
+        db_session,
+        project_id=project_id,
+        change_request_id=request_id,
+        head_id=head_id,
+        revision_id="WSR-101",
+        idempotency_key="accept-success",
+    )
+
+    response = client.post(f"{path}:accept")
+    assert response.status_code == 200, response.text
+    body = response.json()["data"]
+    assert body["status"] == "accepted"
+    assert body["accepted_by"] == "@test"
+
+    verify = session_factory()
+    try:
+        project = verify.get(CaliberProject, project_id)
+        assert project is not None and project.accepted_revision_id == "WSR-101"
+    finally:
+        verify.close()
+
+
+def test_accept_route_fails_closed_with_no_qa_decision(
+    client: TestClient, db_session: Session
+) -> None:
+    """No QA release/decision exists at all -- never falls back to trusting
+    a request body (the route doesn't even parse one)."""
+    project_id = _create_project(client, "Accept: no decision")
+    _add_reviewer(db_session, project_id)
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"admin_users": "@test,@reviewer,@qa"}
+    )
+    _seed_revision(db_session, project_id, "WSR-102", "digest-a2")
+    request = _create_request(client, project_id, "WSR-102", version="9.0.0")
+    path = _change_request_path(project_id, str(request["change_request_id"]))
+
+    assert client.post(f"{path}:submit", json={}).status_code == 200
+    head_id = client.get(path).json()["data"]["current_head"]["head_id"]
+    client.post(
+        f"{path}/reviews",
+        headers={"X-CALIBER-User": "@reviewer"},
+        json={"head_id": head_id, "decision": "approve"},
+    )
+    assert client.get(path).json()["data"]["status"] == "technically_approved"
+
+    response = client.post(f"{path}:accept")
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "qa_go_decision_required"
+
+    # A client-supplied body claiming success is ignored outright -- the
+    # route never parses a body for this endpoint at all.
+    forged = client.post(f"{path}:accept", json={"passed": True, "revision_sha256": "digest-a2"})
+    assert forged.status_code == 409, forged.text
+    assert forged.json()["detail"] == "qa_go_decision_required"
+
+
+def test_accept_route_fails_closed_with_only_a_no_go_decision(
+    client: TestClient, db_session: Session
+) -> None:
+    project_id = _create_project(client, "Accept: no-go")
+    _add_reviewer(db_session, project_id)
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"admin_users": "@test,@reviewer,@qa"}
+    )
+    _seed_revision(db_session, project_id, "WSR-103", "digest-a3")
+    request = _create_request(client, project_id, "WSR-103", version="9.0.0")
+    request_id = str(request["change_request_id"])
+    path = _change_request_path(project_id, request_id)
+
+    assert client.post(f"{path}:submit", json={}).status_code == 200
+    head_id = client.get(path).json()["data"]["current_head"]["head_id"]
+    client.post(
+        f"{path}/reviews",
+        headers={"X-CALIBER-User": "@reviewer"},
+        json={"head_id": head_id, "decision": "approve"},
+    )
+    assert client.get(path).json()["data"]["status"] == "technically_approved"
+
+    _record_qa_decision(
+        db_session,
+        project_id=project_id,
+        change_request_id=request_id,
+        head_id=head_id,
+        revision_id="WSR-103",
+        idempotency_key="accept-no-go",
+        decision="no_go",
+    )
+
+    response = client.post(f"{path}:accept")
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "qa_go_decision_required"
+
+
+def test_accept_route_ignores_a_go_decision_recorded_against_a_stale_head(
+    client: TestClient, db_session: Session
+) -> None:
+    """A `go` decision bound to a since-superseded head must not authorize
+    acceptance of a newer head -- a rebase/update-head always requires a
+    fresh QA pass, exactly like the CAS itself forces re-review after a
+    competing acceptance."""
+    project_id = _create_project(client, "Accept: stale head")
+    _add_reviewer(db_session, project_id)
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"admin_users": "@test,@reviewer,@qa"}
+    )
+    _seed_revision(db_session, project_id, "WSR-104", "digest-a4")
+    _seed_revision(db_session, project_id, "WSR-105", "digest-a5")
+    request = _create_request(client, project_id, "WSR-104", version="9.0.0")
+    request_id = str(request["change_request_id"])
+    path = _change_request_path(project_id, request_id)
+
+    assert client.post(f"{path}:submit", json={}).status_code == 200
+    first_head_id = client.get(path).json()["data"]["current_head"]["head_id"]
+    client.post(
+        f"{path}/reviews",
+        headers={"X-CALIBER-User": "@reviewer"},
+        json={"head_id": first_head_id, "decision": "approve"},
+    )
+    assert client.get(path).json()["data"]["status"] == "technically_approved"
+
+    _record_qa_decision(
+        db_session,
+        project_id=project_id,
+        change_request_id=request_id,
+        head_id=first_head_id,
+        revision_id="WSR-104",
+        idempotency_key="accept-stale-head",
+    )
+
+    # `update-head` only accepts a request in `open`/`changes_requested` --
+    # move it there first, matching the real lifecycle (a rebase never
+    # happens directly out of `technically_approved`).
+    client.post(
+        f"{path}/reviews",
+        headers={"X-CALIBER-User": "@reviewer"},
+        json={"head_id": first_head_id, "decision": "request_changes"},
+    )
+    lock_version = client.get(path).json()["data"]["lock_version"]
+    updated = client.post(
+        f"{path}:update-head",
+        json={
+            "revision_id": "WSR-105",
+            "change_summary": "supersede before QA re-runs",
+            "expected_lock_version": lock_version,
+        },
+    )
+    assert updated.status_code == 200, updated.text
+    second_head_id = updated.json()["data"]["current_head"]["head_id"]
+    assert second_head_id != first_head_id
+    client.post(
+        f"{path}/reviews",
+        headers={"X-CALIBER-User": "@reviewer"},
+        json={"head_id": second_head_id, "decision": "approve"},
+    )
+    assert client.get(path).json()["data"]["status"] == "technically_approved"
+
+    response = client.post(f"{path}:accept")
+    assert response.status_code == 409, response.text
+    assert response.json()["detail"] == "qa_go_decision_required"
+
+
+def test_accept_route_404s_for_an_unknown_change_request(client: TestClient) -> None:
+    project_id = _create_project(client, "Accept: unknown request")
+    response = client.post(f"{_change_request_path(project_id, 'WSCR-missing')}:accept")
+    assert response.status_code == 404, response.text
+    assert response.json()["detail"] == "change_request_not_found"
+
+
+def test_accept_route_marks_a_losing_racer_out_of_date(
+    client: TestClient, db_session: Session
+) -> None:
+    """Two Change Requests against the same never-yet-accepted project both
+    become QA-verified and technically approved; only the first `:accept`
+    call can win the CAS -- the second must observe the race and fail
+    closed, mirroring `test_acceptance_primitive_cas_moves_only_one_request`
+    but exercised through the public route end to end."""
+    project_id = _create_project(client, "Accept: losing racer")
+    _add_reviewer(db_session, project_id)
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"admin_users": "@test,@reviewer,@qa"}
+    )
+    _seed_revision(db_session, project_id, "WSR-106", "digest-a6")
+    _seed_revision(db_session, project_id, "WSR-107", "digest-a7")
+
+    paths = {}
+    for suffix, revision_id, digest, version in (
+        ("first", "WSR-106", "digest-a6", "9.0.0"),
+        ("second", "WSR-107", "digest-a7", "9.1.0"),
+    ):
+        request = _create_request(client, project_id, revision_id, version=version)
+        request_id = str(request["change_request_id"])
+        path = _change_request_path(project_id, request_id)
+        paths[suffix] = (path, request_id)
+        assert client.post(f"{path}:submit", json={}).status_code == 200
+        head_id = client.get(path).json()["data"]["current_head"]["head_id"]
+        client.post(
+            f"{path}/reviews",
+            headers={"X-CALIBER-User": "@reviewer"},
+            json={"head_id": head_id, "decision": "approve"},
+        )
+        assert client.get(path).json()["data"]["status"] == "technically_approved"
+        _record_qa_decision(
+            db_session,
+            project_id=project_id,
+            change_request_id=request_id,
+            head_id=head_id,
+            revision_id=revision_id,
+            idempotency_key=f"accept-race-{suffix}",
+        )
+
+    winner_path, _ = paths["first"]
+    loser_path, _ = paths["second"]
+
+    won = client.post(f"{winner_path}:accept")
+    assert won.status_code == 200, won.text
+    assert won.json()["data"]["status"] == "accepted"
+
+    lost = client.post(f"{loser_path}:accept")
+    assert lost.status_code == 409, lost.text
+    assert lost.json()["detail"] == "change_request_out_of_date"
+    assert client.get(loser_path).json()["data"]["status"] == "out_of_date"
 
 
 @pytest.mark.parametrize(

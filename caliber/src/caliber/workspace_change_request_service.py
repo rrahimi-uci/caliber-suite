@@ -6,8 +6,14 @@ so old comments, checks, reviews, and provider attestations remain auditable
 but cannot satisfy the current-head policy.
 
 Public routes in :mod:`caliber.routes.workspace_change_requests` use the
-service for all database work. The acceptance primitive is intentionally
-exported for Phase 5's QA release service, but no HTTP route calls it yet.
+service for all database work. The acceptance primitive (``accept_change_request``)
+is also reachable from that module's ``POST .../change-requests/{id}:accept``
+route (`P4-D`'s public acceptance route): the route derives ``qa_evidence``
+itself from a durably recorded, server-verified `CaliberWorkspaceReleaseDecision`
+row (Phase 5's QA release governance) bound to the exact Change Request head
+being accepted -- never from a caller-supplied claim -- before calling this
+function. See that route's own docstring for the full evidence-derivation
+reasoning.
 """
 
 from __future__ import annotations
@@ -1177,10 +1183,21 @@ def accept_change_request(
     actor: str,
     qa_evidence: dict[str, object],
 ) -> bool:
-    """Phase-5-only acceptance CAS; returns false after marking stale.
+    """Phase-5-gated acceptance CAS; returns false after marking stale.
 
-    This function is intentionally not reachable from an HTTP route in P4-D.
-    It requires explicit QA evidence and technical approval, then atomically
+    Reachable both directly (as Phase 5's QA release service and this
+    module's own tests call it) and from
+    :func:`caliber.routes.workspace_change_requests.accept_route` (`P4-D`'s
+    public acceptance route). ``qa_evidence`` is trusted as given -- this
+    function itself does not re-derive or re-verify it against any release
+    record; that verification is each caller's responsibility. The HTTP
+    route never forwards a caller-supplied body for this parameter; it
+    resolves ``qa_evidence`` itself from a durable, server-recorded QA `go`
+    decision bound to the exact head being accepted before calling this
+    function, so an HTTP caller cannot assert ``"passed": True`` without a
+    real QA decision having been recorded first.
+
+    Requires explicit QA evidence and technical approval, then atomically
     advances ``caliber_projects.accepted_revision_id``. A racing request loses
     the conditional update and is marked ``out_of_date`` without changing the
     accepted pointer.
