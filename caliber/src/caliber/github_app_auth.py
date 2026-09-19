@@ -83,6 +83,47 @@ def _parse_expires_at(value: object, *, now: float) -> float:
     return now + DEFAULT_TOKEN_TTL_SECONDS
 
 
+def mint_app_jwt(
+    *,
+    app_id_provider: Callable[[], str],
+    private_key_provider: PrivateKeyProvider,
+    clock: Callable[[], float] = time.time,
+) -> str:
+    """Mint a short-lived GitHub App JWT (``iss`` = app id, RS256).
+
+    This is the App's *own* bearer credential -- distinct from an
+    installation access token (:class:`GitHubAppInstallationTokenProvider`).
+    GitHub's few genuinely App-scoped (not installation-scoped) endpoints,
+    such as listing/redelivering the App's own webhook deliveries, take this
+    JWT directly as the ``Authorization: Bearer`` value; they are not
+    reachable through an installation token at all. Extracted as a
+    standalone function (rather than only living inside
+    ``GitHubAppInstallationTokenProvider``) so any caller that needs
+    App-level auth without also wanting the installation-token exchange can
+    mint one without constructing that heavier object.
+    """
+    app_id = _require(app_id_provider(), "GitHub App id")
+    private_key = _require(private_key_provider(), "GitHub App private key")
+    now = int(clock())
+    payload = {
+        "iat": now - JWT_CLOCK_SKEW_SECONDS,
+        "exp": now + JWT_TTL_SECONDS,
+        "iss": app_id,
+    }
+    try:
+        encoded = jwt.encode(payload, private_key, algorithm=JWT_ALGORITHM)
+    except (ValueError, TypeError, jwt.PyJWTError) as exc:
+        raise GitHubAppAuthError(
+            f"{GitHubAppAuthError.code}: GitHub App private key is invalid"
+        ) from exc
+    # PyJWT >=2 returns ``str``; guard anyway since this crosses a
+    # third-party API boundary and a version regression should fail closed
+    # rather than pass a non-string into an Authorization header.
+    if not isinstance(encoded, str):
+        encoded = encoded.decode("ascii")  # pragma: no cover - PyJWT<2 compatibility
+    return encoded
+
+
 @dataclass
 class GitHubAppInstallationTokenProvider:
     """Mints and caches a GitHub App installation access token on demand.
@@ -107,26 +148,11 @@ class GitHubAppInstallationTokenProvider:
     _cached_expires_at: float = field(default=0.0, init=False, repr=False)
 
     def _mint_jwt(self) -> str:
-        app_id = _require(self.app_id_provider(), "GitHub App id")
-        private_key = _require(self.private_key_provider(), "GitHub App private key")
-        now = int(self.clock())
-        payload = {
-            "iat": now - JWT_CLOCK_SKEW_SECONDS,
-            "exp": now + JWT_TTL_SECONDS,
-            "iss": app_id,
-        }
-        try:
-            encoded = jwt.encode(payload, private_key, algorithm=JWT_ALGORITHM)
-        except (ValueError, TypeError, jwt.PyJWTError) as exc:
-            raise GitHubAppAuthError(
-                f"{GitHubAppAuthError.code}: GitHub App private key is invalid"
-            ) from exc
-        # PyJWT >=2 returns ``str``; guard anyway since this crosses a
-        # third-party API boundary and a version regression should fail
-        # closed rather than pass a non-string into an Authorization header.
-        if not isinstance(encoded, str):
-            encoded = encoded.decode("ascii")  # pragma: no cover - PyJWT<2 compatibility
-        return encoded
+        return mint_app_jwt(
+            app_id_provider=self.app_id_provider,
+            private_key_provider=self.private_key_provider,
+            clock=self.clock,
+        )
 
     def token(self) -> str:
         """Return a valid installation access token, minting a fresh one if needed."""
@@ -175,4 +201,5 @@ __all__ = [
     "GitHubAppAuthError",
     "GitHubAppInstallationTokenProvider",
     "PrivateKeyProvider",
+    "mint_app_jwt",
 ]

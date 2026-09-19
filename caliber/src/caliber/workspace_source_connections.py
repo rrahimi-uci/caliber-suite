@@ -358,6 +358,29 @@ def resolve_webhook_secret(
     return webhook_secret.encode("utf-8")
 
 
+def resolve_private_key(
+    session: Session,
+    secret_store: SecretStore,
+    connection: CaliberWorkspaceSourceConnection,
+) -> str:
+    """Resolve only a connection's private key -- never its webhook secret.
+
+    Symmetric to :func:`resolve_webhook_secret`: minting a GitHub App JWT
+    (for the App-scoped admin endpoints webhook reconciliation uses, e.g.
+    listing/redelivering webhook deliveries) needs the private key but not
+    the webhook secret. Raises
+    :class:`WorkspaceSourceConnectionUnavailableError`, matching
+    :func:`resolve_credentials`'s fail-closed behavior.
+    """
+    private_key = secret_store.resolve(session, reference_name(connection.private_key_ref))
+    if not private_key:
+        raise WorkspaceSourceConnectionUnavailableError(
+            f"{WorkspaceSourceConnectionUnavailableError.code}: private key for "
+            f"connection {connection.connection_id!r} is unavailable"
+        )
+    return private_key
+
+
 __all__ = [
     "CONNECTION_ACTIVE",
     "CONNECTION_REVOKED",
@@ -371,6 +394,7 @@ __all__ = [
     "get_connection_by_installation",
     "private_key_secret_name",
     "resolve_credentials",
+    "resolve_private_key",
     "resolve_webhook_secret",
     "revoke_connection",
     "webhook_secret_secret_name",
