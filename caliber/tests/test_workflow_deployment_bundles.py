@@ -9,14 +9,17 @@ import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+from caliber.config import WorkflowStorageConfig
 from caliber.db.models import (
     CaliberEvalDataset,
     CaliberEvalDatasetExample,
     CaliberKnowledgeBase,
+    CaliberProject,
     CaliberSkill,
     CaliberWorkflow,
     CaliberWorkflowVersion,
 )
+from caliber.storage import LocalStorageBackend, WorkingDirectoryService
 from caliber.workflows import deployment_bundle as deployment_bundle_module
 from caliber.workflows.deployment_bundle import (
     build_deployment_bundle,
@@ -582,3 +585,198 @@ def test_bundle_hides_a_child_workflow_in_a_different_project(db_session: Sessio
     dependency = next(d for d in bundle["dependencies"] if d["kind"] == "subworkflow")
     assert dependency["status"] == "unresolved"
     assert "snapshot" not in dependency
+
+
+# ---------------------------------------------------------------------------
+# `P2-C` (docs/workspace-plan.md section 16 -- storage/file isolation): the
+# ``FileInputNode`` branch of ``build_deployment_bundle`` had the exact same
+# bare-lookup gap the knowledge-base and subworkflow branches above already
+# had fixed under `P2` item 5, just never closed for managed files: a
+# ``session.get(CaliberWorkflowFile, ref.file_id)`` with no tenant/project
+# check at all, so a manifest naming another project's real file_id/file_ref/
+# sha256/size (a "guessed ref") was reported "resolved" during deploy
+# preflight even though it belongs to a project this workflow has no
+# relationship with. ``ScopedManagedFileResolver.resolve_scoped_file``
+# (storage/service.py) still enforces the true boundary before any byte is
+# ever read at run time -- so this was never a content leak -- but it gave a
+# false "resolved" signal and a cross-project existence oracle. This mirrors
+# the check ``routes/workflows.py::_preflight_managed_file_node`` already
+# performs for the same node type on the import-preflight path.
+# ---------------------------------------------------------------------------
+
+
+def _file_input_manifest(workflow_id: str, file_ref: dict) -> dict:
+    data = make_manifest(workflow_id)
+    data["nodes"]["managed_source"] = {
+        "id": "managed_source",
+        "type": "file_input",
+        "file_ref": file_ref,
+    }
+    data["edges"] = [
+        {"id": "e0", "from": "start", "to": "managed_source", "map": {"msg": "path"}},
+        {"id": "e1", "from": "managed_source", "to": "agent", "map": {"text": "input"}},
+        {"id": "e2", "from": "agent", "to": "final", "map": {"final_output": "response"}},
+    ]
+    return data
+
+
+def _register_project_file(db_session: Session, tmp_path, *, project_id: str, owner: str):
+    storage_config = WorkflowStorageConfig(base_uri=f"file://{tmp_path}/{project_id}")
+    service = WorkingDirectoryService(LocalStorageBackend(storage_config.base_uri), storage_config)
+    return service.register_project_file(
+        db_session,
+        project_id=project_id,
+        kind="input",
+        filename="briefing.txt",
+        data=b"quarterly briefing",
+        media_type="text/plain",
+        actor=owner,
+    )
+
+
+def test_bundle_resolves_a_managed_file_in_its_own_project(db_session: Session, tmp_path) -> None:
+    project = CaliberProject(project_id="PRJ-file-visible", name="Visible", owner="@test")
+    workflow = CaliberWorkflow(
+        workflow_id="wf-file-visible",
+        project_id=project.project_id,
+        name="File visible",
+        owner="@test",
+    )
+    db_session.add_all([project, workflow])
+    record = _register_project_file(
+        db_session, tmp_path, project_id=project.project_id, owner="@test"
+    )
+    manifest_data = _file_input_manifest(workflow.workflow_id, record.to_api()["immutable_ref"])
+    version = CaliberWorkflowVersion(
+        version_id="wfv-file-visible",
+        workflow_id=workflow.workflow_id,
+        version_number=1,
+        status="draft",
+        manifest=manifest_data,
+        manifest_hash="",
+        created_by="@test",
+    )
+    db_session.add(version)
+    db_session.commit()
+
+    manifest = parse_manifest(manifest_data)
+    bundle = build_deployment_bundle(db_session, version, manifest, fake_resolver())
+    dependency = next(d for d in bundle["dependencies"] if d["kind"] == "managed_file")
+    assert dependency["status"] == "resolved"
+
+
+def test_bundle_hides_a_managed_file_in_a_different_project(db_session: Session, tmp_path) -> None:
+    """The guessed-ref-across-projects attack: a manifest pins the *real*
+    file_id/file_ref/sha256/size of a file that belongs to another project
+    (e.g. leaked, brute-forced, or copy-pasted from a shared template) --
+    without ever having had genuine access to it. The dependency must report
+    "unresolved" rather than confirming the foreign file's existence.
+    """
+    owner_project = CaliberProject(project_id="PRJ-file-owner", name="Owner", owner="@sarah")
+    attacker_workflow = CaliberWorkflow(
+        workflow_id="wf-file-hidden",
+        project_id="PRJ-file-attacker",
+        name="File hidden",
+        owner="@mallory",
+    )
+    db_session.add_all([owner_project, attacker_workflow])
+    # The real row lives in a project the attacker's workflow has no
+    # relationship with.
+    foreign_record = _register_project_file(
+        db_session, tmp_path, project_id=owner_project.project_id, owner="@sarah"
+    )
+    guessed_ref = dict(foreign_record.to_api()["immutable_ref"])
+    manifest_data = _file_input_manifest(attacker_workflow.workflow_id, guessed_ref)
+    version = CaliberWorkflowVersion(
+        version_id="wfv-file-hidden",
+        workflow_id=attacker_workflow.workflow_id,
+        version_number=1,
+        status="draft",
+        manifest=manifest_data,
+        manifest_hash="",
+        created_by="@mallory",
+    )
+    db_session.add(version)
+    db_session.commit()
+
+    manifest = parse_manifest(manifest_data)
+    bundle = build_deployment_bundle(db_session, version, manifest, fake_resolver())
+    dependency = next(d for d in bundle["dependencies"] if d["kind"] == "managed_file")
+    assert dependency["status"] == "unresolved"
+    assert "belongs to a different project" in dependency["detail"]
+
+
+def test_bundle_hides_a_managed_file_when_workflow_has_no_active_project(
+    db_session: Session, tmp_path
+) -> None:
+    """A personal (no-project) workflow can never resolve a project-scoped
+    managed file, guessed ref or not -- fail closed rather than defaulting
+    an absent project scope to "anything goes".
+    """
+    owner_project = CaliberProject(project_id="PRJ-file-owner-2", name="Owner", owner="@sarah")
+    personal_workflow = CaliberWorkflow(
+        workflow_id="wf-file-personal",
+        project_id=None,
+        name="Personal workflow",
+        owner="@mallory",
+    )
+    db_session.add_all([owner_project, personal_workflow])
+    foreign_record = _register_project_file(
+        db_session, tmp_path, project_id=owner_project.project_id, owner="@sarah"
+    )
+    guessed_ref = dict(foreign_record.to_api()["immutable_ref"])
+    manifest_data = _file_input_manifest(personal_workflow.workflow_id, guessed_ref)
+    version = CaliberWorkflowVersion(
+        version_id="wfv-file-personal",
+        workflow_id=personal_workflow.workflow_id,
+        version_number=1,
+        status="draft",
+        manifest=manifest_data,
+        manifest_hash="",
+        created_by="@mallory",
+    )
+    db_session.add(version)
+    db_session.commit()
+
+    manifest = parse_manifest(manifest_data)
+    bundle = build_deployment_bundle(db_session, version, manifest, fake_resolver())
+    dependency = next(d for d in bundle["dependencies"] if d["kind"] == "managed_file")
+    assert dependency["status"] == "unresolved"
+
+
+def test_bundle_hides_a_managed_file_with_an_unparseable_ref(db_session: Session, tmp_path) -> None:
+    """``ManagedFileReference`` only requires the ``caliber://`` prefix (see
+    ``manifest.py::ManagedFileReference._valid_managed_ref``); the fuller ref
+    grammar is enforced by ``parse_ref``. A malformed-but-prefixed ref must
+    fail closed to "unresolved" instead of raising out of bundle build.
+    """
+    project = CaliberProject(project_id="PRJ-file-malformed", name="Malformed", owner="@test")
+    workflow = CaliberWorkflow(
+        workflow_id="wf-file-malformed",
+        project_id=project.project_id,
+        name="File malformed",
+        owner="@test",
+    )
+    db_session.add_all([project, workflow])
+    record = _register_project_file(
+        db_session, tmp_path, project_id=project.project_id, owner="@test"
+    )
+    bad_ref = dict(record.to_api()["immutable_ref"])
+    bad_ref["file_ref"] = "caliber://not-a-real-resource-type/x"
+    manifest_data = _file_input_manifest(workflow.workflow_id, bad_ref)
+    version = CaliberWorkflowVersion(
+        version_id="wfv-file-malformed",
+        workflow_id=workflow.workflow_id,
+        version_number=1,
+        status="draft",
+        manifest=manifest_data,
+        manifest_hash="",
+        created_by="@test",
+    )
+    db_session.add(version)
+    db_session.commit()
+
+    manifest = parse_manifest(manifest_data)
+    bundle = build_deployment_bundle(db_session, version, manifest, fake_resolver())
+    dependency = next(d for d in bundle["dependencies"] if d["kind"] == "managed_file")
+    assert dependency["status"] == "unresolved"
