@@ -79,7 +79,24 @@ _ROUTES = Path(__file__).resolve().parents[1] / "src" / "caliber" / "routes"
 #: `routes/tools.py`, `routes/workflows.py`, and `routes/prompts.py`'s other
 #: two touched handlers) added its check to a session block the handler
 #: already opened, so it doesn't move this ratchet.
-_BASELINE = 257
+#:
+#: Bumped from 257 to 261, discovered while auditing this ratchet for `P2-A`
+#: (isolation closure, item 1's "root routes to centralized authorization"
+#: remainder): two of the four new handlers were already undocumented drift
+#: on `main` before this PR touched anything -- `routes/prompts.py::
+#: get_prompt_version`/`list_prompt_versions` gained a `get_visible` check
+#: inline via `with factory() as session` in the P2-N/P2-O prompt-version
+#: bare-lookup fix, without a matching bump here (confirmed by diffing this
+#: file's own blocking-handler scan against the exact commit that last set
+#: `_BASELINE = 257`). This PR did not cause that gap and doesn't attempt to
+#: convert those two handlers -- it folds the correction into the same bump
+#: rather than leaving the ratchet silently wrong. The other two are this
+#: PR's own: `routes/aria_plans.py::update_plan`/`approve_plan` now enforce
+#: `resource.execute` inline via `with factory() as session`, the identical
+#: shape the `254` bump above already used for this file's `execute_plan`/
+#: `poll_plan` siblings, for the same `scope_inference.py` AST-visibility
+#: reason given there.
+_BASELINE = 261
 
 _SESSION_MARKERS = ("with factory() as session", "with session_factory() as session")
 

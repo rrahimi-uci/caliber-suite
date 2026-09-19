@@ -296,6 +296,86 @@ def test_route_execute_and_poll_deny_a_project_viewer_but_allow_an_editor(
     assert executed.json()["data"]["plan"]["status"] in ("completed", "paused", "running")
 
 
+def test_route_update_and_approve_deny_a_project_viewer_but_allow_an_editor(
+    client: TestClient, db_session: Session
+) -> None:
+    """`P2-A` (isolation closure, item 1's "root routes to centralized
+    authorization"): `P2-E` wired the `resource.execute` role floor onto
+    `execute`/`poll` but left this same file's `update` (autonomy edit /
+    cancel) and `approve` routes on visibility-only checks -- so a plain
+    project `viewer` (visible via membership, not by role) could still
+    relax a teammate's plan autonomy, cancel it, or approve it for
+    execution. Same role floor, same action, now closing the sibling gap.
+    """
+    project_id = "P-aria-authz-update"
+    db_session.add(CaliberProject(project_id=project_id, name="aria authz update", owner="@test"))
+    db_session.add_all(
+        [
+            CaliberProjectMember(
+                member_id="M-aria-upd-viewer",
+                project_id=project_id,
+                user_id="@aria-upd-viewer",
+                role=ROLE_VIEWER,
+                created_by="@test",
+            ),
+            CaliberProjectMember(
+                member_id="M-aria-upd-editor",
+                project_id=project_id,
+                user_id="@aria-upd-editor",
+                role=ROLE_EDITOR,
+                created_by="@test",
+            ),
+        ]
+    )
+    db_session.commit()
+
+    created = client.post(
+        LIST_PATH,
+        json={"goal": "create a judge"},
+        headers={"X-CALIBER-Project": project_id},
+    )
+    assert created.status_code == 201, created.text
+    plan_id = created.json()["data"]["plan"]["plan_id"]
+    detail = DETAIL_PATH.replace("{plan_id}", plan_id)
+    approve = APPROVE_PATH.replace("{plan_id}", plan_id)
+    viewer_headers = {"X-CALIBER-User": "@aria-upd-viewer", "X-CALIBER-Project": project_id}
+    editor_headers = {"X-CALIBER-User": "@aria-upd-editor", "X-CALIBER-Project": project_id}
+
+    # A plain viewer is visible (project membership grants visibility) but not
+    # permitted to edit or approve -- the role floor, not the visibility
+    # filter, is what denies here.
+    denied_autonomy = client.patch(detail, json={"autonomy": "ask_each"}, headers=viewer_headers)
+    assert denied_autonomy.status_code == 403, denied_autonomy.text
+    denied_cancel = client.patch(detail, json={"status": "cancelled"}, headers=viewer_headers)
+    assert denied_cancel.status_code == 403, denied_cancel.text
+    denied_approve = client.post(approve, headers=viewer_headers)
+    assert denied_approve.status_code == 403, denied_approve.text
+
+    # An editor -- one of `resource.execute`'s permitted roles -- succeeds.
+    allowed_autonomy = client.patch(detail, json={"autonomy": "ask_each"}, headers=editor_headers)
+    assert allowed_autonomy.status_code == 200, allowed_autonomy.text
+    assert allowed_autonomy.json()["data"]["plan"]["autonomy"] == "ask_each"
+    allowed_approve = client.post(approve, headers=editor_headers)
+    assert allowed_approve.status_code == 200, allowed_approve.text
+    assert allowed_approve.json()["data"]["plan"]["status"] == "approved"
+
+
+def test_route_update_and_approve_still_work_for_an_unscoped_plan(client: TestClient) -> None:
+    """A personal (`project_id is None`) plan has no workspace to check a
+    role against -- the new check is a no-op, matching `execute`/`poll`'s
+    own unscoped behavior."""
+    created = client.post(LIST_PATH, json={"goal": "create a judge"})
+    assert created.status_code == 201, created.text
+    plan_id = created.json()["data"]["plan"]["plan_id"]
+
+    patched = client.patch(
+        DETAIL_PATH.replace("{plan_id}", plan_id), json={"autonomy": "ask_each"}
+    )
+    assert patched.status_code == 200, patched.text
+    approved = client.post(APPROVE_PATH.replace("{plan_id}", plan_id))
+    assert approved.status_code == 200, approved.text
+
+
 def test_route_execute_records_authorization_snapshot_once(
     client: TestClient, db_session: Session
 ) -> None:

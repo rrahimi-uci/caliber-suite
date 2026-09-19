@@ -1,12 +1,15 @@
 """Route-level proof for `P2` (isolation closure): `resource.write.runtime`
-(prompts/workflows/tools/skills) and `resource.write.evidence` (test sets/
-judges) are now wired onto the real CRUD routes for these resource families,
-closing the gap `docs/workspace-plan.md` section 16's `P1-D` row left open --
-those routes previously checked only a global platform scope
-(`caliber.operator`/`caliber.admin`), with no project-membership-role check
-at all, so any identity holding the right global scope could write into
-*any* project's prompts/workflows/tools/skills/test-sets/judges regardless
-of their actual role or membership in that project.
+(prompts/workflows/tools/skills, and now knowledge bases/OpenAPI
+integrations/LLM pricing -- `P2-A`'s own remaining "convert root routes by
+resource family to centralized authorization" scope) and `resource.write.
+evidence` (test sets/judges) are now wired onto the real CRUD routes for
+these resource families, closing the gap `docs/workspace-plan.md` section
+16's `P1-D` row left open -- those routes previously checked only a global
+platform scope (`caliber.operator`/`caliber.admin`), with no
+project-membership-role check at all, so any identity holding the right
+global scope could write into *any* project's prompts/workflows/tools/
+skills/test-sets/judges/knowledge-bases/OpenAPI-integrations/LLM-pricing
+rows regardless of their actual role or membership in that project.
 
 Follows `test_p1d_action_registry_wiring.py`'s established pattern and
 denial-shape split:
@@ -44,7 +47,7 @@ import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from caliber.db.models import CaliberProject, CaliberProjectMember
+from caliber.db.models import CaliberKnowledgeBase, CaliberProject, CaliberProjectMember
 from caliber.resource_access import ROLE_EDITOR, ROLE_REVIEWER, ROLE_VIEWER
 from caliber.routes.eval_datasets import DETAIL_PATH as DATASET_DETAIL_PATH
 from caliber.routes.eval_datasets import EXAMPLES_PATH
@@ -55,6 +58,13 @@ from caliber.routes.eval_datasets import REVISE_PATH as DATASET_REVISE_PATH
 from caliber.routes.eval_datasets import SUPERSEDE_PATH as DATASET_SUPERSEDE_PATH
 from caliber.routes.judges import DETAIL_PATH as JUDGE_DETAIL_PATH
 from caliber.routes.judges import LIST_PATH as JUDGE_LIST_PATH
+from caliber.routes.knowledge_bases import DETAIL_PATH as KB_DETAIL_PATH
+from caliber.routes.knowledge_bases import LIST_PATH as KB_LIST_PATH
+from caliber.routes.llm_pricing import DETAIL_PATH as PRICING_DETAIL_PATH
+from caliber.routes.llm_pricing import LIST_PATH as PRICING_LIST_PATH
+from caliber.routes.openapi_integrations import ARCHIVE_PATH as OPENAPI_ARCHIVE_PATH
+from caliber.routes.openapi_integrations import DETAIL_PATH as OPENAPI_DETAIL_PATH
+from caliber.routes.openapi_integrations import LIST_PATH as OPENAPI_LIST_PATH
 from caliber.routes.prompts import CREATE_PATH as PROMPT_CREATE_PATH
 from caliber.routes.prompts import DETAIL_PATH as PROMPT_DETAIL_PATH
 from caliber.routes.prompts import VERSION_PATH as PROMPT_VERSION_PATH
@@ -1219,5 +1229,438 @@ def test_update_judge_allows_a_project_editor(client: TestClient, db_session: Se
         JUDGE_DETAIL_PATH.replace("{judge_id}", judge_id),
         json={"description": "edited"},
         headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+# ---------------------------------------------------------------------------
+# knowledge_bases.py -- `resource.write.runtime` (`P2-A`)
+# ---------------------------------------------------------------------------
+
+_KB_CREATE_BODY = {
+    "name": "p2-wiring-kb",
+    "description": "P2-A wiring fixture",
+    "source_bucket": "p2-wiring-bucket",
+    "sources": [{"kind": "folder", "path": "docs/"}],
+    "chunking_strategy": "recursive",
+    "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+    "chunking_config": {"chunk_size": 120, "chunk_overlap": 20},
+}
+
+
+def test_create_knowledge_base_denies_an_admin_with_no_project_membership(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    _grant_admin(client, "@admin2")
+
+    resp = client.post(
+        KB_LIST_PATH,
+        json=_KB_CREATE_BODY,
+        headers={"X-CALIBER-User": "@admin2", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 404, resp.text
+    assert PROJECT_ID in resp.json()["detail"]
+
+
+def test_create_knowledge_base_denies_a_project_viewer(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_operator(client, "@viewer-user")
+
+    # The authorization check runs before any embedding/object-store work, so
+    # a viewer is refused without ever needing a real bucket wired up.
+    resp = client.post(
+        KB_LIST_PATH,
+        json=_KB_CREATE_BODY,
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_update_knowledge_base_denies_a_project_viewer(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    db_session.add(
+        CaliberKnowledgeBase(
+            knowledge_base_id="KB-p2-wiring-update",
+            name="p2-wiring-update-kb",
+            owner="@test",
+            project_id=PROJECT_ID,
+            visibility="project",
+            status="active",
+            source_bucket="p2-wiring-bucket",
+        )
+    )
+    db_session.commit()
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_operator(client, "@viewer-user")
+
+    resp = client.patch(
+        KB_DETAIL_PATH.replace("{knowledge_base_id}", "KB-p2-wiring-update"),
+        json={"description": "edited"},
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_update_knowledge_base_allows_a_project_editor(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    db_session.add(
+        CaliberKnowledgeBase(
+            knowledge_base_id="KB-p2-wiring-update2",
+            name="p2-wiring-update-kb2",
+            owner="@test",
+            project_id=PROJECT_ID,
+            visibility="project",
+            status="active",
+            source_bucket="p2-wiring-bucket",
+        )
+    )
+    db_session.commit()
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_operator(client, "@editor-user")
+
+    resp = client.patch(
+        KB_DETAIL_PATH.replace("{knowledge_base_id}", "KB-p2-wiring-update2"),
+        json={"description": "edited"},
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_delete_knowledge_base_denies_a_project_viewer(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    db_session.add(
+        CaliberKnowledgeBase(
+            knowledge_base_id="KB-p2-wiring-delete",
+            name="p2-wiring-delete-kb",
+            owner="@test",
+            project_id=PROJECT_ID,
+            visibility="project",
+            status="active",
+            source_bucket="p2-wiring-bucket",
+        )
+    )
+    db_session.commit()
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_operator(client, "@viewer-user")
+
+    resp = client.delete(
+        KB_DETAIL_PATH.replace("{knowledge_base_id}", "KB-p2-wiring-delete"),
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_delete_knowledge_base_allows_a_project_editor(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    db_session.add(
+        CaliberKnowledgeBase(
+            knowledge_base_id="KB-p2-wiring-delete2",
+            name="p2-wiring-delete-kb2",
+            owner="@test",
+            project_id=PROJECT_ID,
+            visibility="project",
+            status="active",
+            source_bucket="p2-wiring-bucket",
+        )
+    )
+    db_session.commit()
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_operator(client, "@editor-user")
+
+    resp = client.delete(
+        KB_DETAIL_PATH.replace("{knowledge_base_id}", "KB-p2-wiring-delete2"),
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+# ---------------------------------------------------------------------------
+# openapi_integrations.py -- `resource.write.runtime` (`P2-A`)
+# ---------------------------------------------------------------------------
+
+
+def test_create_openapi_integration_denies_an_admin_with_no_project_membership(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    _grant_admin(client, "@admin2")
+
+    resp = client.post(
+        OPENAPI_LIST_PATH,
+        json={"name": "p2-wiring-openapi"},
+        headers={"X-CALIBER-User": "@admin2", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 404, resp.text
+    assert PROJECT_ID in resp.json()["detail"]
+
+
+def test_create_openapi_integration_denies_a_project_viewer(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_operator(client, "@viewer-user")
+
+    resp = client.post(
+        OPENAPI_LIST_PATH,
+        json={"name": "p2-wiring-openapi"},
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_create_openapi_integration_allows_a_project_editor(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_operator(client, "@editor-user")
+
+    resp = client.post(
+        OPENAPI_LIST_PATH,
+        json={"name": "p2-wiring-openapi"},
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def test_create_openapi_integration_still_works_for_an_unscoped_integration(
+    client: TestClient,
+) -> None:
+    resp = client.post(OPENAPI_LIST_PATH, json={"name": "personal-openapi"})
+    assert resp.status_code == 201, resp.text
+
+
+def test_update_openapi_integration_denies_a_project_viewer(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    created = client.post(
+        OPENAPI_LIST_PATH,
+        json={"name": "p2-update-openapi"},
+        headers={"X-CALIBER-Project": PROJECT_ID},
+    )
+    assert created.status_code == 201, created.text
+    integration_id = created.json()["data"]["integration_id"]
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_operator(client, "@viewer-user")
+
+    resp = client.patch(
+        OPENAPI_DETAIL_PATH.replace("{integration_id}", integration_id),
+        json={"description": "edited"},
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_update_openapi_integration_allows_a_project_editor(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    created = client.post(
+        OPENAPI_LIST_PATH,
+        json={"name": "p2-update-openapi2"},
+        headers={"X-CALIBER-Project": PROJECT_ID},
+    )
+    assert created.status_code == 201, created.text
+    integration_id = created.json()["data"]["integration_id"]
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_operator(client, "@editor-user")
+
+    resp = client.patch(
+        OPENAPI_DETAIL_PATH.replace("{integration_id}", integration_id),
+        json={"description": "edited"},
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_archive_openapi_integration_denies_a_project_viewer(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    created = client.post(
+        OPENAPI_LIST_PATH,
+        json={"name": "p2-archive-openapi"},
+        headers={"X-CALIBER-Project": PROJECT_ID},
+    )
+    assert created.status_code == 201, created.text
+    integration_id = created.json()["data"]["integration_id"]
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_operator(client, "@viewer-user")
+
+    resp = client.post(
+        OPENAPI_ARCHIVE_PATH.replace("{integration_id}", integration_id),
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_archive_openapi_integration_allows_a_project_editor(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    created = client.post(
+        OPENAPI_LIST_PATH,
+        json={"name": "p2-archive-openapi2"},
+        headers={"X-CALIBER-Project": PROJECT_ID},
+    )
+    assert created.status_code == 201, created.text
+    integration_id = created.json()["data"]["integration_id"]
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_operator(client, "@editor-user")
+
+    resp = client.post(
+        OPENAPI_ARCHIVE_PATH.replace("{integration_id}", integration_id),
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+# ---------------------------------------------------------------------------
+# llm_pricing.py -- `resource.write.runtime` (`P2-A`)
+# ---------------------------------------------------------------------------
+
+_PRICING_BODY = {
+    "provider": "p2-wiring-provider",
+    "model_id": "p2-wiring-model",
+    "prompt_price": 0.001,
+    "completion_price": 0.002,
+}
+
+
+def test_create_pricing_denies_an_admin_with_no_project_membership(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    _grant_admin(client, "@admin2")
+
+    resp = client.post(
+        PRICING_LIST_PATH,
+        json=_PRICING_BODY,
+        headers={"X-CALIBER-User": "@admin2", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 404, resp.text
+    assert PROJECT_ID in resp.json()["detail"]
+
+
+def test_create_pricing_denies_a_project_viewer(client: TestClient, db_session: Session) -> None:
+    _seed_project(db_session)
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_operator(client, "@viewer-user")
+
+    resp = client.post(
+        PRICING_LIST_PATH,
+        json=_PRICING_BODY,
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_create_pricing_allows_a_project_editor(client: TestClient, db_session: Session) -> None:
+    _seed_project(db_session)
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_operator(client, "@editor-user")
+
+    resp = client.post(
+        PRICING_LIST_PATH,
+        json=_PRICING_BODY,
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def test_create_pricing_still_works_for_an_unscoped_pricing_row(client: TestClient) -> None:
+    resp = client.post(
+        PRICING_LIST_PATH,
+        json={
+            "provider": "personal-provider",
+            "model_id": "personal-model",
+            "prompt_price": 0.001,
+            "completion_price": 0.002,
+        },
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def test_update_pricing_denies_a_project_viewer_with_admin_scope(
+    client: TestClient, db_session: Session
+) -> None:
+    """`update_pricing` is `SCOPE_ADMIN`-only, but `caliber.admin` is *not*
+    an implicit project role (`resource_access.py::project_role`'s
+    documented `P1-B` removal) -- `routes/skills.py::update_skill`, itself
+    `SCOPE_ADMIN`-only, already establishes that an admin-gated mutation on
+    a project-scoped resource still needs its own `resource.write.runtime`
+    check. Grant `caliber.admin` here (the route's own scope floor) so the
+    request reaches the project-role check under test rather than being
+    refused earlier by the global-scope gate.
+    """
+    _seed_project(db_session)
+    created = client.post(
+        PRICING_LIST_PATH, json=_PRICING_BODY, headers={"X-CALIBER-Project": PROJECT_ID}
+    )
+    assert created.status_code == 201, created.text
+    pricing_id = created.json()["data"]["pricing_id"]
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_admin(client, "@viewer-user")
+
+    resp = client.patch(
+        PRICING_DETAIL_PATH.replace("{pricing_id}", pricing_id),
+        json={"prompt_price": 0.005},
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_update_pricing_allows_a_project_editor_with_admin_scope(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    created = client.post(
+        PRICING_LIST_PATH, json=_PRICING_BODY, headers={"X-CALIBER-Project": PROJECT_ID}
+    )
+    assert created.status_code == 201, created.text
+    pricing_id = created.json()["data"]["pricing_id"]
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_admin(client, "@editor-user")
+
+    resp = client.patch(
+        PRICING_DETAIL_PATH.replace("{pricing_id}", pricing_id),
+        json={"prompt_price": 0.005},
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_update_pricing_still_works_for_an_unscoped_pricing_row(
+    client: TestClient,
+) -> None:
+    created = client.post(
+        PRICING_LIST_PATH,
+        json={
+            "provider": "personal-provider-2",
+            "model_id": "personal-model-2",
+            "prompt_price": 0.001,
+            "completion_price": 0.002,
+        },
+    )
+    assert created.status_code == 201, created.text
+    pricing_id = created.json()["data"]["pricing_id"]
+
+    resp = client.patch(
+        PRICING_DETAIL_PATH.replace("{pricing_id}", pricing_id),
+        json={"prompt_price": 0.005},
     )
     assert resp.status_code == 200, resp.text
