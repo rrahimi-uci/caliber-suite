@@ -29,6 +29,7 @@ from examples.verification_queue import flag_and_verify
 from examples.workflow_bundle import clone_sealed_release
 from examples.workflow_deployment import promote_and_rollback, record_gate_verdict
 from examples.workflow_run import run_and_wait
+from examples.workspace_release import promote_a_reviewed_revision
 
 BASE = "https://caliber.test"
 
@@ -409,6 +410,131 @@ def test_cookbook_example_installs_a_ready_recipe_paused() -> None:
         result = install_ready_cookbook(caliber)
 
     assert result == {"installed": "02", "workflow_status": "paused"}
+
+
+# --- Workspace release example ---------------------------------------------
+
+
+def test_workspace_release_example_runs_the_full_governed_path() -> None:
+    """Change Request, evaluation, quality signoff, approval, and apply --
+    every step a separate, typed, auditable call."""
+    seen: list[str] = []
+
+    def responds_with(payload: Any) -> Any:
+        def handler(request: httpx.Request) -> Any:
+            seen.append(f"{request.method} {request.url.path.rsplit('/caliber', 1)[-1]}")
+            return payload
+
+        return handler
+
+    _operation = {
+        "operation_id": "WRO-1",
+        "project_id": "PRJ-1",
+        "workspace_release_id": "WRL-1",
+        "environment_id": "development",
+        "kind": "apply",
+        "idempotency_key": "apply-WRL-1",
+        "expected_environment_lock_version": 1,
+        "lock_version": 1,
+        "requested_by": "@you",
+        "observation_count": 0,
+    }
+    _evaluation = {
+        "evaluation_id": "WRE-1",
+        "project_id": "PRJ-1",
+        "workspace_release_id": "WRL-1",
+        "idempotency_key": "eval-WRL-1",
+        "evaluation_plan_sha256": "d" * 64,
+        "input_sha256": "e" * 64,
+        "status": "succeeded",
+        "attempt_number": 1,
+        "requested_by": "@you",
+    }
+    _decision = {
+        "workspace_release_id": "WRL-1",
+        "decision": "go",
+        "rationale": "",
+        "revision_sha256": "g" * 64,
+        "environment_config_sha256": "a" * 64,
+        "runtime_dependencies_sha256": "b" * 64,
+        "gate_evidence_sha256": "f" * 64,
+        "policy_sha256": "c" * 64,
+    }
+
+    caliber = stub_server(
+        {
+            "POST /projects/PRJ-1/change-requests": responds_with(
+                {
+                    "change_request_id": "WCR-1",
+                    "project_id": "PRJ-1",
+                    "current_head_revision_id": "WSR-1",
+                    "created_by": "@you",
+                    "title": "Tighten the intake prompt",
+                    "status": "draft",
+                    "lock_version": 1,
+                    "current_head": {"head_id": "WCH-1", "revision_id": "WSR-1"},
+                }
+            ),
+            "POST /projects/PRJ-1/change-requests/WCR-1:submit": responds_with(
+                {"change_request_id": "WCR-1", "project_id": "PRJ-1", "status": "open"}
+            ),
+            "POST /projects/PRJ-1/releases": responds_with(
+                {
+                    "release_id": "WRL-1",
+                    "project_id": "PRJ-1",
+                    "revision_id": "WSR-1",
+                    "environment_id": "development",
+                    "environment_config_sha256": "a" * 64,
+                    "runtime_dependencies_sha256": "b" * 64,
+                    "policy_sha256": "c" * 64,
+                    "request_idempotency_key": "release-WSR-1",
+                    "status": "draft",
+                    "requested_by": "@you",
+                    "lock_version": 1,
+                }
+            ),
+            "POST /projects/PRJ-1/releases/WRL-1/evaluate": responds_with(_evaluation),
+            "GET /projects/PRJ-1/releases/WRL-1/evaluations/WRE-1": responds_with(_evaluation),
+            "POST /projects/PRJ-1/releases/WRL-1/quality-signoff": responds_with(
+                {**_decision, "decision_id": "WRD-1", "kind": "quality", "decided_by": "@qa"}
+            ),
+            "POST /projects/PRJ-1/releases/WRL-1/approve": responds_with(
+                {**_decision, "decision_id": "WRD-2", "kind": "release", "decided_by": "@owner"}
+            ),
+            "POST /projects/PRJ-1/releases/WRL-1/operations": responds_with(
+                {"operation": {**_operation, "status": "prepared"}, "items": []}
+            ),
+            "POST /projects/PRJ-1/releases/WRL-1/operations/WRO-1:apply": responds_with(
+                {"operation": {**_operation, "status": "applied"}, "items": []}
+            ),
+            "GET /projects/PRJ-1/releases/WRL-1/operations/WRO-1": responds_with(
+                {"operation": {**_operation, "status": "applied"}, "items": []}
+            ),
+        }
+    )
+    with caliber:
+        result = promote_a_reviewed_revision(caliber)
+
+    assert result == {
+        "change_request_id": "WCR-1",
+        "release_id": "WRL-1",
+        "evaluation_status": "succeeded",
+        "approval_decision": "go",
+        "operation_status": "applied",
+    }
+    # Every governance stage is its own call -- none of them merged together.
+    assert seen == [
+        "POST /projects/PRJ-1/change-requests",
+        "POST /projects/PRJ-1/change-requests/WCR-1:submit",
+        "POST /projects/PRJ-1/releases",
+        "POST /projects/PRJ-1/releases/WRL-1/evaluate",
+        "GET /projects/PRJ-1/releases/WRL-1/evaluations/WRE-1",
+        "POST /projects/PRJ-1/releases/WRL-1/quality-signoff",
+        "POST /projects/PRJ-1/releases/WRL-1/approve",
+        "POST /projects/PRJ-1/releases/WRL-1/operations",
+        "POST /projects/PRJ-1/releases/WRL-1/operations/WRO-1:apply",
+        "GET /projects/PRJ-1/releases/WRL-1/operations/WRO-1",
+    ]
 
 
 # --- OpenAPI integration examples -----------------------------------------

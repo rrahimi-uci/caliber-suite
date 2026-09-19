@@ -2355,6 +2355,12 @@ request (``update_head``/``rebase``/``close``/``assign_reviewer``/
 field here (from a prior ``get()``/``list()`` call's ``.lock_version``),
 unlike :class:`ProjectSourceAPI`'s etag.
 
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/workspace_release.py#promote_a_reviewed_revision
+```
+
 **Methods**
 
 ###### `list(project_id: str, *, status: str | None = None, created_by: str | None = None, reviewer_user_id: str | None = None, semantic_version: str | None = None, limit: int | None = None, cursor: str | None = None) -> CursorPage[WorkspaceChangeRequest]`
@@ -2737,6 +2743,12 @@ immediate server-side sibling (release list/evidence/evaluations, see
 this release family, and there was no reason to introduce a third
 pagination style where two already coexist in shipped code.
 
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/workspace_release.py#promote_a_reviewed_revision
+```
+
 **Methods**
 
 ###### `list(project_id: str, release_id: str, *, limit: int | None = None, offset: int | None = None) -> list[WorkspaceReleaseOperation]`
@@ -2901,6 +2913,12 @@ coexist here, mirroring the server routes exactly: :meth:`create`/
 :meth:`quality_signoff`/:meth:`approve`/:meth:`break_glass_apply` are
 identity-specific governance decisions the server authorizes on role
 (Reviewer vs. Owner) and platform scope, not a single scope check.
+
+**Usage example**
+
+```python-example
+sdk/caliber-sdk/examples/workspace_release.py#promote_a_reviewed_revision
+```
 
 **Methods**
 

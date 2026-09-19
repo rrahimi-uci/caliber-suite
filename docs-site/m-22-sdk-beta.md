@@ -5,8 +5,9 @@
 
 The GA surfaces in the [SDK guide](m-20-sdk-guide.md) are stable: their paths
 and payload keys will not change without a deprecation. This page covers the
-thirteen **beta** surfaces — integrations, data, operations, and the agentic
-loop — which are complete and tested but whose shapes may still move.
+fourteen **beta** surfaces — integrations, data, operations, Workspace
+release governance, and the agentic loop — which are complete and tested but
+whose shapes may still move.
 
 Ask the deployment rather than assuming, because the tier is a property of the
 running server and not of the SDK version:
@@ -49,6 +50,24 @@ job = caliber.jobs.wait(job_id, timeout=600)
 if job.awaits_human:
     caliber.jobs.apply(job.job_id)     # the decision, made explicitly
 ```
+
+## Workspace release governance
+
+A Workspace revision moves from reviewed to live only through explicit,
+typed governance steps: open a Change Request, evaluate the release against
+pinned digests, record a quality decision and a separate approval decision,
+then apply it. No step writes to the live target directly — each transition
+is its own auditable call, and an indeterminate apply comes back labelled
+`reconcile_required` rather than reported as a silent success:
+
+```python-example
+sdk/caliber-sdk/examples/workspace_release.py#promote_a_reviewed_revision
+```
+
+`releases.wait_for_evaluation()` and `release_operations.wait()` are two more
+instances of "stopped is not finished" above: an evaluation or operation that
+lands on `reconcile_required` needs a caller to act
+(`release_operations.observe()`), not a longer timeout.
 
 ## The agentic loop
 
