@@ -15,7 +15,12 @@ from sqlalchemy import select
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.orm import Session
 
-from caliber.db.models import CaliberAgentConfig, CaliberIncident, CaliberVerificationItem
+from caliber.db.models import (
+    CaliberAgentConfig,
+    CaliberIncident,
+    CaliberReworkTask,
+    CaliberVerificationItem,
+)
 
 
 def _make_agent(session: Session, **overrides: object) -> CaliberAgentConfig:
@@ -221,3 +226,116 @@ def test_incident_notification_markers_track_open_and_resolution_independently(
     assert stored is not None
     assert stored.notified_at == now
     assert stored.resolved_notified_at == now
+
+
+# ---------------------------------------------------------------------------
+# CaliberReworkTask -- exactly-one-source (job_id XOR workspace_release_id)
+# ---------------------------------------------------------------------------
+#
+# These use raw FK values without creating the referenced job/agent/release/
+# project rows: the test engine never turns on SQLite's ``PRAGMA
+# foreign_keys``, so only the CHECK and UNIQUE constraints under test are
+# actually enforced here (consistent with the rest of this module -- see
+# ``test_verification_item_duplicate_self_fk``, which relies on the same
+# thing). A real end-to-end row -- with a real job/release behind it -- is
+# covered by ``test_routes_rework_tasks.py`` and
+# ``test_workspace_release_governance.py``.
+
+
+def _make_rework_task(session: Session, **overrides: object) -> CaliberReworkTask:
+    defaults: dict[str, object] = {
+        "task_id": "RWT-model-1",
+        "job_id": "RFN-model-1",
+        "workspace_release_id": None,
+        "agent_id": "support-agent",
+        "project_id": None,
+        "failure_kind": "machine_gate",
+        "reason": "regression gate failed",
+        "status": "open",
+        "created_by": "@system",
+    }
+    defaults.update(overrides)
+    task = CaliberReworkTask(**defaults)
+    session.add(task)
+    session.commit()
+    return task
+
+
+def test_rework_task_job_sourced_round_trip(db_session: Session) -> None:
+    task = _make_rework_task(db_session)
+    fetched = db_session.get(CaliberReworkTask, task.task_id)
+    assert fetched is not None
+    assert fetched.job_id == "RFN-model-1"
+    assert fetched.agent_id == "support-agent"
+    assert fetched.workspace_release_id is None
+    assert fetched.project_id is None
+
+
+def test_rework_task_release_sourced_round_trip(db_session: Session) -> None:
+    task = _make_rework_task(
+        db_session,
+        task_id="RWT-release-1",
+        job_id=None,
+        workspace_release_id="WSREL-model-1",
+        agent_id=None,
+        project_id="PRJ-model-1",
+        failure_kind="release_no_go",
+        reason="release rejected in QA",
+    )
+    fetched = db_session.get(CaliberReworkTask, task.task_id)
+    assert fetched is not None
+    assert fetched.job_id is None
+    assert fetched.agent_id is None
+    assert fetched.workspace_release_id == "WSREL-model-1"
+    assert fetched.project_id == "PRJ-model-1"
+    assert fetched.failure_kind == "release_no_go"
+
+
+def test_rework_task_exactly_one_source_check_rejects_both_sources_set(
+    db_session: Session,
+) -> None:
+    with pytest.raises(IntegrityError):
+        _make_rework_task(
+            db_session,
+            task_id="RWT-both-sources",
+            job_id="RFN-both-sources",
+            workspace_release_id="WSREL-both-sources",
+        )
+    db_session.rollback()
+
+
+def test_rework_task_exactly_one_source_check_rejects_neither_source_set(
+    db_session: Session,
+) -> None:
+    with pytest.raises(IntegrityError):
+        _make_rework_task(
+            db_session,
+            task_id="RWT-no-source",
+            job_id=None,
+            workspace_release_id=None,
+            agent_id=None,
+        )
+    db_session.rollback()
+
+
+def test_rework_task_workspace_release_id_is_unique(db_session: Session) -> None:
+    _make_rework_task(
+        db_session,
+        task_id="RWT-rel-a",
+        job_id=None,
+        workspace_release_id="WSREL-shared",
+        agent_id=None,
+        project_id="PRJ-model-1",
+        failure_kind="release_no_go",
+    )
+    with pytest.raises(IntegrityError):
+        _make_rework_task(
+            db_session,
+            task_id="RWT-rel-b",
+            job_id=None,
+            workspace_release_id="WSREL-shared",
+            agent_id=None,
+            project_id="PRJ-model-1",
+            failure_kind="release_no_go",
+        )
+    db_session.rollback()

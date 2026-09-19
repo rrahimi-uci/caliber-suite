@@ -18,6 +18,7 @@ import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
+from sqlalchemy.exc import IntegrityError
 
 from caliber.db import Base
 
@@ -593,6 +594,116 @@ def test_0099_backfills_workspace_import_attempt_budget(
                 )
             ).one()
             assert tuple(row) == (0, 3)
+    finally:
+        engine.dispose()
+        os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+@pytest.mark.slow
+def test_0106_preserves_job_sourced_tasks_and_enforces_exactly_one_source(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Upgrade-from-0105: an existing job-sourced ``caliber_rework_tasks`` row
+    survives the ``job_id``/``agent_id`` nullability change unchanged, the new
+    ``workspace_release_id``/``project_id`` columns land NULL on it (no
+    backfill -- see ``db/models.py::CaliberReworkTask``'s docstring), a
+    release-sourced row is now representable, and
+    ``ck_rework_task_exactly_one_source`` rejects a row with both sources or
+    neither, enforced by SQLite itself rather than only by the ORM."""
+    db_path = tmp_path / "rework_task_release_fk.db"
+    db_url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+
+    cfg = Config(str(ALEMBIC_INI))
+    monkeypatch.chdir(PROJECT_ROOT)
+    command.upgrade(cfg, "0105")
+
+    engine = create_engine(db_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_agent_config "
+                    "(agent_id, experiment_id, name, owner, artifact_types, "
+                    "eval_thresholds, optimizer_config, approval_policy) VALUES "
+                    "('agent-0106', 'exp-0106', 'Agent 0106', '@owner', '[]', '{}', '{}', '{}')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_verification_queue "
+                    "(item_id, agent_id, category, free_text, severity) VALUES "
+                    "('FB-0106', 'agent-0106', 'hallucination', 'looks off', 'critical')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_refinement_jobs "
+                    "(job_id, agent_id, primary_item_id, artifact_type, bundle_targets) "
+                    "VALUES ('RFN-0106', 'agent-0106', 'FB-0106', 'prompt', '[]')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_rework_tasks "
+                    "(task_id, job_id, agent_id, failure_kind, reason, status, created_by) "
+                    "VALUES ('RWT-0106', 'RFN-0106', 'agent-0106', 'machine_gate', "
+                    "'regression gate failed', 'open', '@system')"
+                )
+            )
+
+        command.upgrade(cfg, "head")
+
+        with engine.connect() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT job_id, agent_id, workspace_release_id, project_id, failure_kind "
+                    "FROM caliber_rework_tasks WHERE task_id = 'RWT-0106'"
+                )
+            ).one()
+            assert tuple(row) == ("RFN-0106", "agent-0106", None, None, "machine_gate")
+
+        with engine.begin() as connection, pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_rework_tasks "
+                    "(task_id, job_id, workspace_release_id, agent_id, failure_kind, "
+                    "reason, status, created_by) VALUES "
+                    "('RWT-0106-neither', NULL, NULL, NULL, 'release_no_go', 'x', 'open', "
+                    "'@system')"
+                )
+            )
+        with engine.begin() as connection, pytest.raises(IntegrityError):
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_rework_tasks "
+                    "(task_id, job_id, workspace_release_id, agent_id, failure_kind, "
+                    "reason, status, created_by) VALUES "
+                    "('RWT-0106-both', 'RFN-0106', 'WSREL-fake', 'agent-0106', "
+                    "'release_no_go', 'x', 'open', '@system')"
+                )
+            )
+
+        # A release-sourced row -- job_id/agent_id NULL, workspace_release_id/
+        # project_id set -- is now representable and satisfies the check.
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_rework_tasks "
+                    "(task_id, job_id, workspace_release_id, agent_id, project_id, "
+                    "failure_kind, reason, status, created_by) VALUES "
+                    "('RWT-0106-release', NULL, 'WSREL-0106', NULL, 'PRJ-0106', "
+                    "'release_no_go', 'release rejected', 'open', '@system')"
+                )
+            )
+        with engine.connect() as connection:
+            row = connection.execute(
+                text(
+                    "SELECT job_id, agent_id, workspace_release_id, project_id "
+                    "FROM caliber_rework_tasks WHERE task_id = 'RWT-0106-release'"
+                )
+            ).one()
+            assert tuple(row) == (None, None, "WSREL-0106", "PRJ-0106")
     finally:
         engine.dispose()
         os.environ.pop("CALIBER_DATABASE_URL", None)

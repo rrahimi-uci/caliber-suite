@@ -194,6 +194,35 @@ def _seed_project_task(
     session.commit()
 
 
+def _seed_release_project_task(
+    session: Session,
+    *,
+    project_id: str,
+    task_id: str,
+    workspace_release_id: str,
+    owner: str = "@test",
+) -> None:
+    """Seed a release-sourced task: no source agent, ``project_id`` set
+    directly (mirroring what ``workspace_release_governance.py`` writes)."""
+    session.add(CaliberProject(project_id=project_id, name=project_id, owner=owner))
+    session.flush()
+    session.add(
+        CaliberReworkTask(
+            task_id=task_id,
+            job_id=None,
+            workspace_release_id=workspace_release_id,
+            agent_id=None,
+            project_id=project_id,
+            failure_kind="release_no_go",
+            reason="release rejected in QA",
+            gate_evidence=None,
+            status="open",
+            created_by="@system",
+        )
+    )
+    session.commit()
+
+
 # ---------------------------------------------------------------------------
 # GET /rework-tasks, /rework-tasks/{id}
 # ---------------------------------------------------------------------------
@@ -383,6 +412,100 @@ def test_project_task_reassign_requires_project_admin_role(
     )
     assert owner_response.status_code == 200, owner_response.text
     assert owner_response.json()["data"]["status"] == "in_progress"
+
+
+def test_release_sourced_task_is_visible_through_its_own_project_id(
+    client: TestClient, db_session: Session
+) -> None:
+    """A release-sourced task has no source agent to join through, so it must
+    be reached via its own ``project_id`` instead -- proving
+    ``_project_task_statement``'s outer-join rewrite doesn't just preserve
+    the old agent-join path but actually covers the case it was added for."""
+    _seed_release_project_task(
+        db_session,
+        project_id="PRJ-release-a",
+        task_id="RWT-REL-A",
+        workspace_release_id="WSREL-A",
+    )
+    # A job-sourced task in a different project must not leak in.
+    _seed_project_task(
+        db_session,
+        project_id="PRJ-release-b",
+        task_id="RWT-JOB-B",
+        job_id="RFN-B",
+        agent_id="agent-b",
+        owner="@other",
+    )
+
+    listed = client.get(PROJECT_LIST_PATH.replace("{project_id}", "PRJ-release-a"))
+    assert listed.status_code == 200, listed.text
+    rows = listed.json()["data"]
+    assert [row["task_id"] for row in rows] == ["RWT-REL-A"]
+    assert rows[0]["agent_id"] is None
+    assert rows[0]["job_id"] is None
+    assert rows[0]["workspace_release_id"] == "WSREL-A"
+    assert rows[0]["failure_kind"] == "release_no_go"
+
+    detail = client.get(
+        PROJECT_DETAIL_PATH.replace("{project_id}", "PRJ-release-a").replace(
+            "{task_id}", "RWT-REL-A"
+        )
+    )
+    assert detail.status_code == 200, detail.text
+    assert detail.json()["data"]["workspace_release_id"] == "WSREL-A"
+
+    # The caller owns project A but has no membership in project B -- same
+    # project guard as the job-sourced case, hiding B before its task
+    # collection (which holds the unrelated job-sourced task) is queried.
+    hidden = client.get(PROJECT_LIST_PATH.replace("{project_id}", "PRJ-release-b"))
+    assert hidden.status_code == 404
+
+
+def test_release_sourced_task_can_be_claimed_and_resolved_without_an_agent(
+    client: TestClient, db_session: Session, app_config: CaliberConfig
+) -> None:
+    """Claim/resolve never read ``agent_id`` except to cross-check an optional
+    ``resolution_job_id`` -- so a release-sourced task (agent_id=None) works
+    through the existing lifecycle routes unmodified when no resolution job
+    is supplied."""
+    _seed_release_project_task(
+        db_session,
+        project_id="PRJ-release-a",
+        task_id="RWT-REL-A",
+        workspace_release_id="WSREL-A",
+    )
+    db_session.add(
+        CaliberProjectMember(
+            member_id="M-release-editor",
+            project_id="PRJ-release-a",
+            user_id=OPERATOR_A,
+            role=ROLE_EDITOR,
+            created_by="@test",
+        )
+    )
+    db_session.commit()
+    _operator_client(client, app_config)
+    headers = {"X-CALIBER-User": OPERATOR_A}
+
+    claimed = client.post(
+        PROJECT_CLAIM_PATH.replace("{project_id}", "PRJ-release-a").replace(
+            "{task_id}", "RWT-REL-A"
+        ),
+        headers=headers,
+    )
+    assert claimed.status_code == 200, claimed.text
+    assert claimed.json()["data"]["assigned_to"] == OPERATOR_A
+
+    resolved = client.post(
+        PROJECT_RESOLVE_PATH.replace("{project_id}", "PRJ-release-a").replace(
+            "{task_id}", "RWT-REL-A"
+        ),
+        json={"resolution_notes": "new revision approved and released"},
+        headers=headers,
+    )
+    assert resolved.status_code == 200, resolved.text
+    assert resolved.json()["data"]["status"] == "resolved"
+    assert resolved.json()["data"]["resolution_notes"] == "new revision approved and released"
 
 
 # ---------------------------------------------------------------------------
