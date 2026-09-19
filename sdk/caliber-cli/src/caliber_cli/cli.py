@@ -47,7 +47,8 @@ def build_parser() -> argparse.ArgumentParser:
         ),
         epilog=(
             "Exit codes: 0 ok, 1 failure, 2 usage, 3 awaiting a human decision, "
-            "4 gate said no, 5 timed out, 6 no usable credential."
+            "4 gate said no, 5 timed out, 6 no usable credential, 7 a reviewer "
+            "requested changes, 8 out of date with its base, 9 reconcile required."
         ),
     )
     parser.add_argument("--version", action="version", version=f"caliberctl {__version__}")
@@ -268,6 +269,333 @@ def build_parser() -> argparse.ArgumentParser:
     plugin = _group(subparsers, "plugin", "optimizers and third-party plugins")
     _add(plugin, "list", commands.plugin_list, "list optimizers and installed plugins")
 
+    # -- workspace -------------------------------------------------------------
+    # Every leaf below requires --project: the Workspace SDK resources are
+    # path-scoped by project ID, not header-scoped like most other resources,
+    # so there is no ambient default that would be safe to fall back to.
+    workspace = _group(
+        subparsers, "workspace", "Git-backed project lifecycle: import, package, review, release"
+    )
+
+    ws_import = _group(workspace, "import", "bounded source-to-revision import jobs")
+    import_create = _add(
+        ws_import,
+        "create",
+        commands.workspace_import_create,
+        "start a digest-pinned import and wait for it to land",
+        requires_project=True,
+    )
+    import_create.add_argument("--repository", required=True, help="the source repository")
+    import_create.add_argument(
+        "--commit-sha", required=True, dest="commit_sha", help="exact commit to import"
+    )
+    import_create.add_argument(
+        "--bundle", required=True, help="path to the source bundle to upload"
+    )
+    import_create.add_argument("--filename", default="bundle", help="bundle filename on the wire")
+    import_create.add_argument(
+        "--idempotency-key",
+        required=True,
+        dest="idempotency_key",
+        help="reuse across a retry of this exact import; a fresh key starts a new one",
+    )
+    import_create.add_argument(
+        "--no-wait", action="store_true", help="submit and exit without waiting"
+    )
+    import_create.add_argument(
+        "--timeout", type=float, default=900.0, help="seconds to wait (default 900)"
+    )
+
+    import_status = _add(
+        ws_import,
+        "status",
+        commands.workspace_import_status,
+        "show one import job",
+        requires_project=True,
+    )
+    import_status.add_argument("job_id")
+
+    import_list = _add(
+        ws_import, "list", commands.workspace_import_list, "list import jobs", requires_project=True
+    )
+    import_list.add_argument("--status")
+
+    import_reconcile = _add(
+        ws_import,
+        "reconcile",
+        commands.workspace_import_reconcile,
+        "observe an import stuck in reconcile_required",
+        requires_project=True,
+    )
+    import_reconcile.add_argument("job_id")
+
+    ws_package = _group(workspace, "package", "immutable application packages (revisions)")
+    package_list = _add(
+        ws_package, "list", commands.workspace_package_list, "list packages", requires_project=True
+    )
+    package_list.add_argument("--status")
+
+    package_show = _add(
+        ws_package,
+        "show",
+        commands.workspace_package_show,
+        "show one package",
+        requires_project=True,
+    )
+    package_show.add_argument("revision_id")
+
+    package_diff = _add(
+        ws_package,
+        "diff",
+        commands.workspace_package_diff,
+        "diff two packages by revision",
+        requires_project=True,
+    )
+    package_diff.add_argument("revision_id")
+    package_diff.add_argument("--base", required=True, help="the revision to diff from")
+
+    ws_cr = _group(workspace, "cr", "the Change Request review lifecycle")
+    cr_list = _add(
+        ws_cr, "list", commands.workspace_cr_list, "list Change Requests", requires_project=True
+    )
+    cr_list.add_argument("--status")
+    cr_list.add_argument("--created-by", dest="created_by")
+    cr_list.add_argument("--reviewer", help="filter to a reviewer's user ID")
+
+    cr_show = _add(
+        ws_cr,
+        "show",
+        commands.workspace_cr_show,
+        "show one Change Request",
+        requires_project=True,
+    )
+    cr_show.add_argument("change_request_id")
+
+    cr_create = _add(
+        ws_cr,
+        "create",
+        commands.workspace_cr_create,
+        "open a draft Change Request over a ready package",
+        requires_project=True,
+    )
+    cr_create.add_argument("--title", required=True)
+    cr_create.add_argument("--head-revision-id", required=True, dest="head_revision_id")
+    cr_create.add_argument("--semantic-version", required=True, dest="semantic_version")
+    cr_create.add_argument("--description")
+    cr_create.add_argument("--base-revision-id", dest="base_revision_id")
+    cr_create.add_argument("--reviewer", action="append", help="reviewer user ID, repeatable")
+
+    cr_submit = _add(
+        ws_cr,
+        "submit",
+        commands.workspace_cr_submit,
+        "move a draft to open for review",
+        requires_project=True,
+    )
+    cr_submit.add_argument("change_request_id")
+    cr_submit.add_argument("--idempotency-key", dest="idempotency_key")
+
+    cr_update = _add(
+        ws_cr,
+        "update",
+        commands.workspace_cr_update,
+        "append a new package as the request's next head generation",
+        requires_project=True,
+    )
+    cr_update.add_argument("change_request_id")
+    cr_update.add_argument("--revision-id", required=True, dest="revision_id")
+    cr_update.add_argument(
+        "--expected-lock-version", required=True, type=int, dest="expected_lock_version"
+    )
+    cr_update.add_argument("--change-summary", dest="change_summary")
+
+    cr_rebase = _add(
+        ws_cr,
+        "rebase",
+        commands.workspace_cr_rebase,
+        "bring an out-of-date request onto the current base",
+        requires_project=True,
+    )
+    cr_rebase.add_argument("change_request_id")
+    cr_rebase.add_argument("--revision-id", required=True, dest="revision_id")
+    cr_rebase.add_argument(
+        "--expected-lock-version", required=True, type=int, dest="expected_lock_version"
+    )
+    cr_rebase.add_argument("--change-summary", dest="change_summary")
+    cr_rebase.add_argument("--semantic-version", dest="semantic_version")
+
+    cr_review = _add(
+        ws_cr,
+        "review",
+        commands.workspace_cr_review,
+        "record one reviewer's decision on a head",
+        requires_project=True,
+    )
+    cr_review.add_argument("change_request_id")
+    cr_review.add_argument("--head-id", required=True, dest="head_id")
+    cr_review.add_argument("--decision", required=True, choices=["approve", "request_changes"])
+    cr_review.add_argument("--rationale")
+
+    cr_close = _add(
+        ws_cr,
+        "close",
+        commands.workspace_cr_close,
+        "close a Change Request",
+        requires_project=True,
+    )
+    cr_close.add_argument("change_request_id")
+    cr_close.add_argument("--reason", required=True)
+    cr_close.add_argument(
+        "--expected-lock-version", required=True, type=int, dest="expected_lock_version"
+    )
+
+    ws_release = _group(
+        workspace, "release", "environment release evaluation, decision, and apply/rollback"
+    )
+    release_list = _add(
+        ws_release, "list", commands.workspace_release_list, "list releases", requires_project=True
+    )
+    release_list.add_argument("--status")
+    release_list.add_argument("--environment-id", dest="environment_id")
+
+    release_status = _add(
+        ws_release,
+        "status",
+        commands.workspace_release_status,
+        "show one release",
+        requires_project=True,
+    )
+    release_status.add_argument("release_id")
+
+    _add(
+        ws_release,
+        "versions",
+        commands.workspace_release_versions,
+        "list a project's semantic-version history",
+        requires_project=True,
+    )
+
+    release_create = _add(
+        ws_release,
+        "create",
+        commands.workspace_release_create,
+        "capture immutable release coordinates before evaluation",
+        requires_project=True,
+    )
+    release_create.add_argument("--revision-id", required=True, dest="revision_id")
+    release_create.add_argument("--environment-id", required=True, dest="environment_id")
+    release_create.add_argument(
+        "--environment-config-sha256", required=True, dest="environment_config_sha256"
+    )
+    release_create.add_argument(
+        "--runtime-dependencies-sha256", required=True, dest="runtime_dependencies_sha256"
+    )
+    release_create.add_argument("--policy-sha256", required=True, dest="policy_sha256")
+    release_create.add_argument(
+        "--request-idempotency-key", required=True, dest="request_idempotency_key"
+    )
+    release_create.add_argument("--change-request-id", dest="change_request_id")
+    release_create.add_argument("--change-request-head-id", dest="change_request_head_id")
+    release_create.add_argument("--version-tag-id", dest="version_tag_id")
+    release_create.add_argument("--predecessor-release-id", dest="predecessor_release_id")
+
+    release_evaluate = _add(
+        ws_release,
+        "evaluate",
+        commands.workspace_release_evaluate,
+        "request an evaluation attempt and wait for it",
+        requires_project=True,
+    )
+    release_evaluate.add_argument("release_id")
+    release_evaluate.add_argument("--idempotency-key", required=True, dest="idempotency_key")
+    release_evaluate.add_argument(
+        "--evaluation-plan-sha256", required=True, dest="evaluation_plan_sha256"
+    )
+    release_evaluate.add_argument("--input-sha256", required=True, dest="input_sha256")
+    release_evaluate.add_argument("--no-wait", action="store_true")
+    release_evaluate.add_argument("--timeout", type=float, default=900.0)
+
+    release_signoff = _add(
+        ws_release,
+        "quality-signoff",
+        commands.workspace_release_quality_signoff,
+        "record a QA go/no-go decision",
+        requires_project=True,
+    )
+    release_signoff.add_argument("release_id")
+    release_signoff.add_argument("--decision", required=True, choices=["go", "no_go"])
+    release_signoff.add_argument(
+        "--gate-evidence-sha256", required=True, dest="gate_evidence_sha256"
+    )
+    release_signoff.add_argument("--rationale")
+    release_signoff.add_argument("--change-request-head-id", dest="change_request_head_id")
+
+    release_approve = _add(
+        ws_release,
+        "approve",
+        commands.workspace_release_approve,
+        "record the final release go/no-go decision",
+        requires_project=True,
+    )
+    release_approve.add_argument("release_id")
+    release_approve.add_argument("--decision", required=True, choices=["go", "no_go"])
+    release_approve.add_argument(
+        "--gate-evidence-sha256", required=True, dest="gate_evidence_sha256"
+    )
+    release_approve.add_argument("--rationale")
+    release_approve.add_argument("--change-request-head-id", dest="change_request_head_id")
+
+    release_apply = _add(
+        ws_release,
+        "apply",
+        commands.workspace_release_apply,
+        "apply an approved release",
+        requires_project=True,
+    )
+    release_apply.add_argument("release_id")
+    release_apply.add_argument(
+        "--expected-environment-lock-version",
+        required=True,
+        type=int,
+        dest="expected_environment_lock_version",
+    )
+    release_apply.add_argument("--expected-current-release-id", dest="expected_current_release_id")
+    release_apply.add_argument("--idempotency-key", required=True, dest="idempotency_key")
+    release_apply.add_argument("--no-wait", action="store_true")
+    release_apply.add_argument("--timeout", type=float, default=900.0)
+
+    release_rollback = _add(
+        ws_release,
+        "rollback",
+        commands.workspace_release_rollback,
+        "roll an environment back to a prior release",
+        requires_project=True,
+    )
+    release_rollback.add_argument("release_id")
+    release_rollback.add_argument("--target-release-id", required=True, dest="target_release_id")
+    release_rollback.add_argument(
+        "--expected-environment-lock-version",
+        required=True,
+        type=int,
+        dest="expected_environment_lock_version",
+    )
+    release_rollback.add_argument(
+        "--expected-current-release-id", dest="expected_current_release_id"
+    )
+    release_rollback.add_argument("--idempotency-key", required=True, dest="idempotency_key")
+    release_rollback.add_argument("--no-wait", action="store_true")
+    release_rollback.add_argument("--timeout", type=float, default=900.0)
+
+    release_operation_status = _add(
+        ws_release,
+        "operation-status",
+        commands.workspace_release_operation_status,
+        "show one apply/rollback operation",
+        requires_project=True,
+    )
+    release_operation_status.add_argument("release_id")
+    release_operation_status.add_argument("operation_id")
+
     return parser
 
 
@@ -298,7 +626,11 @@ def _add(
     ``$CALIBER_PROJECT``) rather than a path segment the server can check
     directly -- so an operator who forgot ``--project`` would otherwise get a
     silently unscoped ("My Library") write instead of a clear refusal (`P2`,
-    isolation closure item 8).
+    isolation closure item 8). Every ``workspace`` leaf also sets it, reads
+    included: there the project ID is a required path segment the SDK method
+    takes explicitly, and a missing ``--project`` would otherwise build a
+    literal ``/projects/None/...`` URL instead of failing with a clear usage
+    error.
     """
     parser = subparsers.add_parser(name, help=help_text, description=help_text)
     parser.set_defaults(handler=handler, parser=parser, requires_project=requires_project)
