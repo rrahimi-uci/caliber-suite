@@ -720,17 +720,17 @@ Supported but still moving route groups. Expect capability growth and narrower c
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/mcp-servers` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_mcp_servers` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers` | `caliber.admin` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}` | `caliber.admin` | `server_id` | `204`, `400`, `401`, `403`, `404` | `operationId`: `delete_mcp_servers_server_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers` | project role (`resource.write.runtime`) | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}` | project role (`resource.write.runtime`) | `server_id` | `204`, `400`, `401`, `403`, `404` | `operationId`: `delete_mcp_servers_server_id` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}` | any authenticated user | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_mcp_servers_server_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}` | `caliber.admin` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_mcp_servers_server_id`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/discover-tools` | `caliber.admin` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_discover_tools` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}` | project role (`resource.write.runtime`) | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_mcp_servers_server_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/discover-tools` | project role (`resource.execute`) | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_discover_tools` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/history` | any authenticated user | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_mcp_servers_server_id_history` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/invoke-tool` | `caliber.admin` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_invoke_tool`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/test-connection` | `caliber.admin` | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_test_connection` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/invoke-tool` | project role (`resource.execute`) | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_invoke_tool`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/test-connection` | project role (`resource.execute`) | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_test_connection` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools` | any authenticated user | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_mcp_servers_server_id_tools` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/calibrate` | `caliber.operator` | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_tools_tool_name_calibrate` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/policy` | `caliber.admin` | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_mcp_servers_server_id_tools_tool_name_policy`; request body documented in OpenAPI |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/policy` | project role (`resource.write.runtime`) | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_mcp_servers_server_id_tools_tool_name_policy`; request body documented in OpenAPI |
 | `PUT` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/test-cases` | `caliber.operator` | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `put_mcp_servers_server_id_tools_tool_name_test_cases`; request body documented in OpenAPI |
 
 #### OpenAPI Integrations (`openapi-integrations`)

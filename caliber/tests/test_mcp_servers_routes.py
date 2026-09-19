@@ -15,6 +15,7 @@ from starlette.testclient import TestClient
 from caliber.db.models import (
     CaliberAuditLog,
     CaliberMcpServer,
+    CaliberProject,
     CaliberWorkflowDeployment,
     CaliberWorkflowVersion,
 )
@@ -98,6 +99,15 @@ def test_mcp_server_visibility_applies_to_list_detail_and_tools(
 def test_mcp_server_create_uses_authenticated_project_context(
     client: TestClient, db_session: Session
 ) -> None:
+    # `P2-A`: `create_mcp_server` now calls `require_project_access_if_scoped`,
+    # which 404s "project not found" for a project id with no backing row --
+    # seed a real one, owned by the authenticated identity (`@test`, the
+    # default test user -- see `conftest.py`), so this stays a test of
+    # project-context persistence rather than tripping the new create-time
+    # check (the same fix `test_zip_import_persists_authenticated_project_
+    # context` already applies to `import_skill_package_zip`).
+    db_session.add(CaliberProject(project_id="P-created", name="P-created", owner="@test"))
+    db_session.commit()
     response = client.post(
         BASE,
         headers={"X-CALIBER-Project": "P-created"},
@@ -114,6 +124,16 @@ def test_mcp_server_create_uses_authenticated_project_context(
 def test_deleted_mcp_history_checks_snapshot_visibility(
     client: TestClient, db_session: Session
 ) -> None:
+    # `P2-A`: `delete_mcp_server` now calls `require_project_access_if_scoped`
+    # against the server's own project, which 404s "project not found" for a
+    # project id with no backing row -- seed a real one so this stays a test
+    # of history/snapshot visibility rather than tripping the new check.
+    # Owned by `@test` (the default test identity -- see `conftest.py`) so
+    # the plain, header-free delete below still passes the new project-role
+    # check; the server's own `owner` field stays `@owner`, matching what
+    # the later snapshot-visibility assertions below actually key off.
+    db_session.add(CaliberProject(project_id="P-owner", name="P-owner", owner="@test"))
+    db_session.commit()
     _seed(
         db_session,
         server_id="MCP-deleted-hidden",

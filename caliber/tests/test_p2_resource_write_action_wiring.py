@@ -49,6 +49,7 @@ from starlette.testclient import TestClient
 
 from caliber.db.models import CaliberKnowledgeBase, CaliberProject, CaliberProjectMember
 from caliber.resource_access import ROLE_EDITOR, ROLE_REVIEWER, ROLE_VIEWER
+from caliber.routes import mcp_servers as mcp_routes
 from caliber.routes.eval_datasets import DETAIL_PATH as DATASET_DETAIL_PATH
 from caliber.routes.eval_datasets import EXAMPLES_PATH
 from caliber.routes.eval_datasets import FROM_TRACE_PATH as DATASET_FROM_TRACE_PATH
@@ -62,6 +63,12 @@ from caliber.routes.knowledge_bases import DETAIL_PATH as KB_DETAIL_PATH
 from caliber.routes.knowledge_bases import LIST_PATH as KB_LIST_PATH
 from caliber.routes.llm_pricing import DETAIL_PATH as PRICING_DETAIL_PATH
 from caliber.routes.llm_pricing import LIST_PATH as PRICING_LIST_PATH
+from caliber.routes.mcp_servers import DETAIL_PATH as MCP_DETAIL_PATH
+from caliber.routes.mcp_servers import DISCOVER_PATH as MCP_DISCOVER_PATH
+from caliber.routes.mcp_servers import INVOKE_PATH as MCP_INVOKE_PATH
+from caliber.routes.mcp_servers import LIST_PATH as MCP_LIST_PATH
+from caliber.routes.mcp_servers import TEST_PATH as MCP_TEST_PATH
+from caliber.routes.mcp_servers import TOOL_POLICY_PATH as MCP_TOOL_POLICY_PATH
 from caliber.routes.openapi_integrations import ARCHIVE_PATH as OPENAPI_ARCHIVE_PATH
 from caliber.routes.openapi_integrations import DETAIL_PATH as OPENAPI_DETAIL_PATH
 from caliber.routes.openapi_integrations import LIST_PATH as OPENAPI_LIST_PATH
@@ -1662,5 +1669,323 @@ def test_update_pricing_still_works_for_an_unscoped_pricing_row(
     resp = client.patch(
         PRICING_DETAIL_PATH.replace("{pricing_id}", pricing_id),
         json={"prompt_price": 0.005},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+# ---------------------------------------------------------------------------
+# mcp_servers.py -- `resource.write.runtime` / `resource.execute` (`P2-A`)
+# ---------------------------------------------------------------------------
+#
+# `docs/workspace-plan.md`'s `P2-A` row named this file's entire admin-only
+# create/update/delete/test-connection/discover-tools/invoke-tool/update-
+# tool-policy surface as a deliberately-deferred gap: `CaliberMcpServer`
+# already carries `project_id`/`visibility`/owner (it *is* a
+# `db/resource_inventory.py::SCOPING_VISIBILITY` model, and its list/detail/
+# history routes already resolve through `apply_visibility_filter`/
+# `get_visible`), but every one of these seven routes previously checked
+# only the global `caliber.admin` scope, with no project-role check on the
+# resource's own project at all -- the identical `update_skill`/
+# `update_pricing` shape: `caliber.admin` is not an implicit project role
+# (`resource_access.py::project_role`'s documented `P1-B` removal), so a
+# project viewer (visible via membership, not by role) with `caliber.admin`
+# could still create/update/delete a server, or trigger a live
+# test-connection/discover-tools/invoke-tool/tool-policy action against one,
+# in any project they merely belong to.
+#
+# `create_mcp_server`/`update_mcp_server`/`delete_mcp_server`/
+# `update_tool_policy` use `resource.write.runtime` -- persisted-config
+# writes on the registry row itself, the same action `update_pricing`/
+# `update_knowledge_base` already use. `test_connection`/`discover_tools`/
+# `invoke_tool` use `resource.execute` instead -- each reaches out to the
+# server's live configured transport (a real outbound call, cached
+# connection-state side effects aside), the same "operate on a live
+# resource" shape `resource.execute` already covers for workflow runs/
+# evaluations/Aria plan execution.
+#
+# `save_mcp_tool_test_cases`/`calibrate_mcp_tool` (the `.../tools/{tool}/
+# test-cases` and `.../calibrate` routes) are deliberately left open here,
+# matching this same row's "child-mutation routes ... deliberately scoped
+# out to keep this slice to 'root routes'" precedent for
+# `knowledge_bases.py`/`openapi_integrations.py`'s own child-mutation
+# routes -- they are `SCOPE_OPERATOR`-gated tool sub-resources nested two
+# levels under the server root, not part of the named admin-only surface.
+
+_MCP_CREATE_BODY = {
+    "name": "p2-wiring-mcp",
+    "transport": "stdio",
+    "command": "npx mcp-server",
+    "discovered_tools": [{"name": "search", "description": "Search"}],
+}
+
+
+def _mock_mcp_gateway_ok(monkeypatch: pytest.MonkeyPatch) -> None:
+    """A minimal success-mocking gateway, matching `test_mcp_servers.py`'s
+    own `_mock_mcp_gateway` fixture -- the allow-path assertions below reach
+    a real `discover_tools_via_gateway`/`invoke_tool_via_gateway` call once
+    the project-role check under test lets the request through, and must
+    not attempt a real subprocess/network connection."""
+
+    async def _discover(server: object, *, timeout_seconds: float = 20.0) -> list[dict[str, Any]]:
+        return [{"name": "search", "description": "Search"}]
+
+    async def _invoke(
+        server: object, *, tool_name: str, arguments: dict[str, Any], timeout_seconds: float = 45.0
+    ) -> Any:
+        return {"ok": True}
+
+    monkeypatch.setattr(mcp_routes, "discover_tools_via_gateway", _discover)
+    monkeypatch.setattr(mcp_routes, "invoke_tool_via_gateway", _invoke)
+
+
+def _create_project_mcp_server(client: TestClient, name: str = "p2-scoped-mcp") -> str:
+    created = client.post(
+        MCP_LIST_PATH,
+        json={**_MCP_CREATE_BODY, "name": name},
+        headers={"X-CALIBER-Project": PROJECT_ID},
+    )
+    assert created.status_code == 201, created.text
+    return created.json()["data"]["server_id"]
+
+
+def test_create_mcp_server_denies_an_admin_with_no_project_membership(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    _grant_admin(client, "@admin2")
+
+    resp = client.post(
+        MCP_LIST_PATH,
+        json=_MCP_CREATE_BODY,
+        headers={"X-CALIBER-User": "@admin2", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 404, resp.text
+    assert PROJECT_ID in resp.json()["detail"]
+
+
+def test_create_mcp_server_denies_a_project_viewer(client: TestClient, db_session: Session) -> None:
+    _seed_project(db_session)
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_admin(client, "@viewer-user")
+
+    resp = client.post(
+        MCP_LIST_PATH,
+        json=_MCP_CREATE_BODY,
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_create_mcp_server_allows_a_project_editor(client: TestClient, db_session: Session) -> None:
+    _seed_project(db_session)
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_admin(client, "@editor-user")
+
+    resp = client.post(
+        MCP_LIST_PATH,
+        json=_MCP_CREATE_BODY,
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 201, resp.text
+
+
+def test_create_mcp_server_still_works_for_an_unscoped_server(client: TestClient) -> None:
+    resp = client.post(MCP_LIST_PATH, json={**_MCP_CREATE_BODY, "name": "personal-mcp"})
+    assert resp.status_code == 201, resp.text
+
+
+def test_update_mcp_server_denies_a_project_viewer(client: TestClient, db_session: Session) -> None:
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-update-mcp")
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_admin(client, "@viewer-user")
+
+    resp = client.patch(
+        MCP_DETAIL_PATH.replace("{server_id}", server_id),
+        json={"description": "edited"},
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_update_mcp_server_allows_a_project_editor(client: TestClient, db_session: Session) -> None:
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-update-mcp2")
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_admin(client, "@editor-user")
+
+    resp = client.patch(
+        MCP_DETAIL_PATH.replace("{server_id}", server_id),
+        json={"description": "edited"},
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_delete_mcp_server_denies_a_project_viewer(client: TestClient, db_session: Session) -> None:
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-delete-mcp")
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_admin(client, "@viewer-user")
+
+    resp = client.delete(
+        MCP_DETAIL_PATH.replace("{server_id}", server_id),
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_delete_mcp_server_allows_a_project_editor(client: TestClient, db_session: Session) -> None:
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-delete-mcp2")
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_admin(client, "@editor-user")
+
+    resp = client.delete(
+        MCP_DETAIL_PATH.replace("{server_id}", server_id),
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 204, resp.text
+
+
+def test_test_connection_denies_a_project_viewer(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_mcp_gateway_ok(monkeypatch)
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-test-conn-mcp")
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_admin(client, "@viewer-user")
+
+    resp = client.post(
+        MCP_TEST_PATH.replace("{server_id}", server_id),
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_test_connection_allows_a_project_editor(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_mcp_gateway_ok(monkeypatch)
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-test-conn-mcp2")
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_admin(client, "@editor-user")
+
+    resp = client.post(
+        MCP_TEST_PATH.replace("{server_id}", server_id),
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["success"] is True
+
+
+def test_discover_tools_denies_a_project_viewer(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_mcp_gateway_ok(monkeypatch)
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-discover-mcp")
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_admin(client, "@viewer-user")
+
+    resp = client.post(
+        MCP_DISCOVER_PATH.replace("{server_id}", server_id),
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_discover_tools_allows_a_project_editor(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_mcp_gateway_ok(monkeypatch)
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-discover-mcp2")
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_admin(client, "@editor-user")
+
+    resp = client.post(
+        MCP_DISCOVER_PATH.replace("{server_id}", server_id),
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_invoke_tool_denies_a_project_viewer(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_mcp_gateway_ok(monkeypatch)
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-invoke-mcp")
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_admin(client, "@viewer-user")
+
+    resp = client.post(
+        MCP_INVOKE_PATH.replace("{server_id}", server_id),
+        json={"tool_name": "search", "arguments": {}},
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_invoke_tool_allows_a_project_editor(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_mcp_gateway_ok(monkeypatch)
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-invoke-mcp2")
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_admin(client, "@editor-user")
+
+    resp = client.post(
+        MCP_INVOKE_PATH.replace("{server_id}", server_id),
+        json={"tool_name": "search", "arguments": {}},
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_update_tool_policy_denies_a_project_viewer(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-policy-mcp")
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_admin(client, "@viewer-user")
+
+    resp = client.patch(
+        MCP_TOOL_POLICY_PATH.replace("{server_id}", server_id).replace("{tool_name}", "search"),
+        json={"allowed": True, "side_effect_level": "read", "requires_approval": False},
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_update_tool_policy_allows_a_project_editor(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-policy-mcp2")
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_admin(client, "@editor-user")
+
+    resp = client.patch(
+        MCP_TOOL_POLICY_PATH.replace("{server_id}", server_id).replace("{tool_name}", "search"),
+        json={"allowed": True, "side_effect_level": "read", "requires_approval": False},
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_update_mcp_server_still_works_for_an_unscoped_server(client: TestClient) -> None:
+    created = client.post(MCP_LIST_PATH, json={**_MCP_CREATE_BODY, "name": "personal-mcp-2"})
+    assert created.status_code == 201, created.text
+    server_id = created.json()["data"]["server_id"]
+
+    resp = client.patch(
+        MCP_DETAIL_PATH.replace("{server_id}", server_id),
+        json={"description": "edited"},
     )
     assert resp.status_code == 200, resp.text
