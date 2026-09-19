@@ -71,6 +71,7 @@ from caliber.release_operations import (
     execute_prompt_alias_release,
     prepare_prompt_alias_release,
 )
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import get_session_factory, parse_json_object
 from caliber.schemas import (
     PromptBaselineRequest,
@@ -1457,6 +1458,20 @@ async def create_prompt(request: Request) -> JSONResponse:
             is None
         ):
             raise HTTPException(status_code=404, detail=f"prompt {name!r} not found")
+        # `P2` (isolation closure): `resource.write.runtime`. A name that
+        # already has a hidden target is gated on *that* target's project
+        # (it keeps its original project regardless of the caller's current
+        # active project -- see `ensure_prompt_target`'s own get-or-create
+        # note); a genuinely new name is gated on the project it is about to
+        # be provisioned into below. A no-op for an unscoped target/project.
+        require_project_access_if_scoped(
+            session,
+            identity,
+            existing_target.project_id
+            if existing_target is not None
+            else identity.active_project_id,
+            "resource.write.runtime",
+        )
 
     result = register_prompt_version(
         name=name,
@@ -1566,6 +1581,7 @@ async def create_prompt_version(request: Request) -> JSONResponse:
     Registers a new version of an existing prompt in MLflow.
     """
     require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     name = request.path_params["name"]
     body = await parse_json_object(request)
 
@@ -1596,6 +1612,21 @@ async def create_prompt_version(request: Request) -> JSONResponse:
     else:
         raise HTTPException(status_code=400, detail="'tags' must be a dict")
 
+    # `P2` (isolation closure): `resource.write.runtime`. A no-op when the
+    # name has no hidden target at all (a bare provider-only/legacy prompt,
+    # same carve-out `get_prompt` documents), since there is no project to
+    # gate against; existing tests prove today's global-scope-only behavior
+    # is preserved for that case.
+    factory = get_session_factory(request)
+    with factory() as session:
+        existing_target = session.get(CaliberAgentConfig, name)
+        require_project_access_if_scoped(
+            session,
+            identity,
+            existing_target.project_id if existing_target is not None else None,
+            "resource.write.runtime",
+        )
+
     result = register_prompt_version(
         name=name,
         template=template,
@@ -1617,9 +1648,24 @@ async def delete_prompt(request: Request) -> JSONResponse:
     remain, cascades (clear aliases → delete each version → delete the prompt).
     """
     actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
     clean_name = (request.path_params["name"] or "").strip()
     if not clean_name:
         raise HTTPException(status_code=400, detail="'name' is required")
+
+    # `P2` (isolation closure): `resource.write.runtime`, composed with the
+    # `SCOPE_ADMIN` global-scope floor above (kept -- this route is
+    # deliberately stricter than the section 2.4 baseline, unaffected by
+    # this addition). A no-op when the name has no hidden target.
+    factory = get_session_factory(request)
+    with factory() as session:
+        existing_target = session.get(CaliberAgentConfig, clean_name)
+        require_project_access_if_scoped(
+            session,
+            identity,
+            existing_target.project_id if existing_target is not None else None,
+            "resource.write.runtime",
+        )
 
     client = _build_mlflow_client()
     try:

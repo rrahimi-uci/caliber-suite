@@ -54,6 +54,7 @@ from caliber.ids import (
     new_workflow_id,
     new_workflow_version_id,
 )
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     envelope_response_dict,
@@ -573,6 +574,12 @@ async def create_workflow(request: Request) -> JSONResponse:
                 status_code=409,
                 detail=f"workflow name {payload.name!r} is already in use by {existing.workflow_id!r}",
             )
+        # `P2` (isolation closure): `resource.write.runtime` -- gate the
+        # project this new workflow is about to be created into. A no-op
+        # when no project is active (a personal/global workflow).
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, "resource.write.runtime"
+        )
         workflow_id = payload.workflow_id or new_workflow_id()
         if session.get(CaliberWorkflow, workflow_id) is not None:
             raise HTTPException(
@@ -633,6 +640,9 @@ async def update_workflow(request: Request) -> JSONResponse:
         )
         if workflow is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
+        require_project_access_if_scoped(
+            session, identity, workflow.project_id, "resource.write.runtime"
+        )
 
         if changes.get("status") == "archived":
             prod = (
@@ -1324,6 +1334,14 @@ async def import_workflow(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
+        # `P2` (isolation closure): `resource.write.runtime` -- gate the
+        # project this imported workflow is about to be created into, same
+        # as `create_workflow`. Checked before the (expensive) preflight
+        # below rather than after, so an unauthorized caller fails fast. A
+        # no-op when no project is active.
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, "resource.write.runtime"
+        )
         embedded_skills = (
             payload.deployment_bundle.get("skill_snapshots")
             if payload.deployment_bundle is not None
@@ -1489,6 +1507,9 @@ async def delete_workflow(request: Request) -> JSONResponse:
         )
         if workflow is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
+        require_project_access_if_scoped(
+            session, identity, workflow.project_id, "resource.write.runtime"
+        )
 
         prod = (
             session.execute(

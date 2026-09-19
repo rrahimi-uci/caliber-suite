@@ -48,6 +48,7 @@ from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.egress import EgressPolicy
 from caliber.ids import new_tool_id, new_tool_test_run_id
 from caliber.orchestrator import calibration_drain
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -436,6 +437,13 @@ async def register_tool(request: Request) -> JSONResponse:
                 status_code=409,
                 detail=f"tool {payload.name!r} version {payload.version!r} already registered",
             )
+        # `P2` (isolation closure): `resource.write.runtime`, composed with
+        # the `SCOPE_ADMIN` global-scope floor above. A no-op when no
+        # project is active (an org-wide tool, see the ``visibility``
+        # comment below).
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, "resource.write.runtime"
+        )
         tool = CaliberToolRegistry(
             tool_id=new_tool_id(),
             name=payload.name,
@@ -495,6 +503,7 @@ async def update_tool(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = ToolUpdateRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
         raise HTTPException(status_code=400, detail="request body must include at least one field")
@@ -502,6 +511,9 @@ async def update_tool(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         tool = _visible_tool_or_404(session, request, tool_id)
+        require_project_access_if_scoped(
+            session, identity, tool.project_id, "resource.write.runtime"
+        )
         diff: dict[str, dict[str, object]] = {}
         for field in _UPDATABLE_FIELDS:
             if field not in changes:
@@ -542,9 +554,13 @@ async def update_tool(request: Request) -> JSONResponse:
 async def archive_tool(request: Request) -> JSONResponse:
     tool_id = request.path_params["tool_id"]
     actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
     factory = get_session_factory(request)
     with factory() as session:
         tool = _visible_tool_or_404(session, request, tool_id)
+        require_project_access_if_scoped(
+            session, identity, tool.project_id, "resource.write.runtime"
+        )
         blocking = _referencing_deployments(session, tool.name)
         if blocking:
             raise HTTPException(

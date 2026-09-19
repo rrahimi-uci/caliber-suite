@@ -284,9 +284,30 @@ def test_known_dynamic_handlers_are_classified_dynamic_with_their_notes(
 ) -> None:
     doc = client.get(OPENAPI_URL).json()
 
+    promote_deployment = doc["paths"][
+        PREFIX + "/workflows/{workflow_id}/deployments/{alias}/promote"
+    ]["post"]["x-caliber-required-scope"]
+    assert promote_deployment["kind"] == "dynamic"
+    assert (
+        promote_deployment["note"]
+        == _DYNAMIC_SCOPE_NOTES["caliber.routes.workflow_deployments.promote_deployment"]
+    )
+
+
+def test_update_judge_is_now_classified_project_role_not_dynamic(client: TestClient) -> None:
+    """`P2` (isolation closure) added `resource.write.evidence` wiring to
+    `update_judge`; `infer_required_scope` checks project-access calls
+    before scope calls, so this handler's classification flipped from
+    `"dynamic"` (pre-`P2`) to `"project_role"`. The dynamic global-scope
+    requirement (`SCOPE_ADMIN` iff the request body includes `'status'`,
+    else `SCOPE_OPERATOR`) is still real and still enforced at runtime --
+    see `require_scopes` in the handler itself and
+    `test_p2_resource_write_action_wiring.py`'s route-level proof -- this
+    inventory just reports one classification per handler."""
+    doc = client.get(OPENAPI_URL).json()
+
     update_judge = doc["paths"][PREFIX + "/judges/{judge_id}"]["patch"]["x-caliber-required-scope"]
-    assert update_judge["kind"] == "dynamic"
-    assert update_judge["note"] == _DYNAMIC_SCOPE_NOTES["caliber.routes.judges.update_judge"]
+    assert update_judge == {"kind": "project_role", "action": "resource.write.evidence"}
 
 
 def test_openapi_document_scope_field_matches_a_fresh_inference(client: TestClient) -> None:
@@ -345,18 +366,20 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
     """Ratchet, matching this session's inventory-test style (e.g.
     `test_resource_inventory.py`'s distribution pin): `P1-D` closed
     `PROJECT_ACTIONS` over section 2.4's full 29-key target vocabulary, of
-    which 19 are wired to a live route's `require_project_access()`/
+    which 20 are wired to a live route's `require_project_access()`/
     `_require_project_action()`/`require_project_access_if_scoped()` call
     (12 after the earlier `P1-D`/`P1-F`/`P3-A` slices; `P4-C` adds
-    `source.manage` and `revision.import`). The other 15 are reserved --
+    `source.manage` and `revision.import`; `P2` isolation closure adds
+    `resource.write.evidence` onto the real Test-set/Judge CRUD routes it
+    was deliberately deferred from at `P1-D`). The other 14 are reserved --
     declared for a route family that does not exist yet (Change Requests,
-    version tags, releases/operations), or (`resource.write.evidence`)
-    deliberately not wired for reasons documented directly on that
-    `PROJECT_ACTIONS` entry (resource isolation). The legacy global routes
-    retain their platform-scope compatibility policy. A
-    change to either side is a real event (a route started/stopped enforcing an
-    action, or the registry gained/lost a reserved key) and must update
-    this pin deliberately, not drift past it silently.
+    version tags, releases/operations), or (`rework.update`) deliberately
+    not wired for reasons documented directly on that `PROJECT_ACTIONS`
+    entry (no `project_id` column yet). The legacy global routes retain
+    their platform-scope compatibility policy. A change to either side is a
+    real event (a route started/stopped enforcing an action, or the
+    registry gained/lost a reserved key) and must update this pin
+    deliberately, not drift past it silently.
     """
     from caliber.resource_access import PROJECT_ACTIONS
     from caliber.routes.openapi import build_openapi_document
@@ -379,6 +402,7 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
         "project.restore",
         "project.transfer_owner",
         "resource.write.runtime",
+        "resource.write.evidence",
         "resource.publish",
         "resource.execute",
         "feedback.submit",
@@ -399,7 +423,6 @@ def test_the_live_vs_reserved_action_partition_is_pinned() -> None:
         "change_request.accept",
     }
     assert set(PROJECT_ACTIONS) - live_actions == {
-        "resource.write.evidence",
         "resource.approve",
         "revision.create",
         "release.request",

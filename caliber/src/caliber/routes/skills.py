@@ -75,6 +75,7 @@ from caliber.ids import (
     new_skill_id,
     new_skill_test_run_id,
 )
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -419,6 +420,12 @@ async def create_skill(request: Request) -> JSONResponse:
                 status_code=409,
                 detail=(f"skill name {payload.name!r} is already in use by {existing.skill_id!r}"),
             )
+        # `P2` (isolation closure): `resource.write.runtime` -- gate the
+        # project this new skill is about to be created into. A no-op when
+        # no project is active (a personal/global skill).
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, "resource.write.runtime"
+        )
 
         skill = CaliberSkill(
             skill_id=new_skill_id(),
@@ -492,6 +499,7 @@ async def update_skill(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = SkillUpdateRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
 
     # ``exclude_unset`` distinguishes "field omitted" from "field
     # explicitly None" — only mutate the former.
@@ -504,6 +512,9 @@ async def update_skill(request: Request) -> JSONResponse:
         skill = session.get(CaliberSkill, skill_id)
         if skill is None:
             raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+        require_project_access_if_scoped(
+            session, identity, skill.project_id, "resource.write.runtime"
+        )
 
         # Capture pre-edit state so a content change can backfill the prior
         # version's snapshot before mutating (the diff loop edits in place).
@@ -748,6 +759,9 @@ async def import_skill_package(request: Request) -> JSONResponse:
                 status_code=409,
                 detail=(f"skill name {imported.name!r} is already in use by {existing.skill_id!r}"),
             )
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, "resource.write.runtime"
+        )
 
         skill = CaliberSkill(
             skill_id=new_skill_id(),
@@ -917,6 +931,28 @@ async def import_skill_package_zip(request: Request) -> JSONResponse:
                 status_code=400,
                 detail=f"skill names starting with {prefix!r} are reserved",
             )
+
+    # `P2` (isolation closure): `resource.write.runtime`, checked here --
+    # directly in the handler Starlette dispatches to, ahead of the
+    # background-thread worker below -- rather than inside
+    # `_persist_skill_package_zip`, matching this codebase's convention
+    # (see `scope_inference.py`'s module docstring) that a route's primary
+    # authorization call lives in the handler itself. A merge is gated on
+    # the existing row's own project (regardless of the caller's current
+    # active project); a fresh import/rename is gated on the project it is
+    # about to be created into, same as `create_skill`. A no-op when
+    # unscoped either way.
+    factory = get_session_factory(request)
+    with factory() as session:
+        existing = session.execute(
+            select(CaliberSkill).where(CaliberSkill.name == imported.name)
+        ).scalar_one_or_none()
+        require_project_access_if_scoped(
+            session,
+            identity,
+            existing.project_id if existing is not None else identity.active_project_id,
+            "resource.write.runtime",
+        )
 
     result, status_code = await run_in_threadpool(
         _persist_skill_package_zip,

@@ -9,7 +9,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from caliber.db.models import CaliberAuditLog, CaliberSkill
+from caliber.db.models import CaliberAuditLog, CaliberProject, CaliberSkill
 from caliber.routes.skills import IMPORT_PACKAGE_PATH, PACKAGE_PATH, PACKAGE_ZIP_PATH
 
 
@@ -204,6 +204,13 @@ def test_import_skill_package_creates_registry_row(
     client: TestClient,
     db_session: Session,
 ) -> None:
+    # `P2` (isolation closure): `import_skill_package` now calls
+    # `require_project_access_if_scoped`, which 404s "project not found" for
+    # a project id with no backing row -- seed a real one, owned by the
+    # importing identity, so this stays a test of the import itself rather
+    # than tripping the new create-time check.
+    db_session.add(CaliberProject(project_id="PRJ-import", name="PRJ-import", owner="@test"))
+    db_session.commit()
     response = client.post(
         IMPORT_PACKAGE_PATH,
         json={

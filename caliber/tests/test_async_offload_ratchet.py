@@ -64,7 +64,22 @@ _ROUTES = Path(__file__).resolve().parents[1] / "src" / "caliber" / "routes"
 #: authorization-call names, so offloading this one to `run_in_threadpool`
 #: would have carried no doc-generation benefit -- inline is simply this
 #: file's established shape, not a scope-inference workaround.
-_BASELINE = 255
+#:
+#: Bumped from 255 to 257: `P2` (isolation closure) wired
+#: `require_project_access_if_scoped` onto two handlers that previously did
+#: all their work without ever opening a session --
+#: `routes/prompts.py::create_prompt_version` (register a new prompt
+#: version; the check needs a session to look up the prompt's hidden
+#: `CaliberAgentConfig` target) and `routes/skills.py::import_skill_package_zip`
+#: (the check runs directly in the handler, ahead of the
+#: `run_in_threadpool`-offloaded persistence worker, matching this
+#: codebase's convention that a route's primary authorization call lives in
+#: the handler itself -- see `scope_inference.py`'s module docstring).
+#: Every other `P2` call site (`routes/eval_datasets.py`, `routes/judges.py`,
+#: `routes/tools.py`, `routes/workflows.py`, and `routes/prompts.py`'s other
+#: two touched handlers) added its check to a session block the handler
+#: already opened, so it doesn't move this ratchet.
+_BASELINE = 257
 
 _SESSION_MARKERS = ("with factory() as session", "with session_factory() as session")
 
