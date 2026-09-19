@@ -62,6 +62,9 @@ Every documented class and module-level function, with the module that defines i
 | [`AsyncJobsAPI`](#asyncjobsapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
 | [`AsyncMeAPI`](#asyncmeapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
 | [`AsyncProjectFilesAPI`](#asyncprojectfilesapi) | [`caliber_sdk.aio.projects`](#module-caliber_sdkaioprojects) |
+| [`AsyncProjectImportsAPI`](#asyncprojectimportsapi) | [`caliber_sdk.aio.projects`](#module-caliber_sdkaioprojects) |
+| [`AsyncProjectReleaseOperationsAPI`](#asyncprojectreleaseoperationsapi) | [`caliber_sdk.aio.projects`](#module-caliber_sdkaioprojects) |
+| [`AsyncProjectReleasesAPI`](#asyncprojectreleasesapi) | [`caliber_sdk.aio.projects`](#module-caliber_sdkaioprojects) |
 | [`AsyncProjectsAPI`](#asyncprojectsapi) | [`caliber_sdk.aio.projects`](#module-caliber_sdkaioprojects) |
 | [`AsyncRawAPI`](#asyncrawapi) | [`caliber_sdk.aio.client`](#module-caliber_sdkaioclient) |
 | [`AsyncTransport`](#asynctransport) | [`caliber_sdk.aio.transport`](#module-caliber_sdkaiotransport) |
@@ -13093,7 +13096,7 @@ sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
 
 **Public exports**
 
-`AsyncCaliberClient`, `AsyncProjectFilesAPI`, `AsyncProjectsAPI`, `AsyncTransport`, `AsyncWorkspacesAPI`, `wait_for`, `wait_for_terminal_state`
+`AsyncCaliberClient`, `AsyncProjectFilesAPI`, `AsyncProjectImportsAPI`, `AsyncProjectReleaseOperationsAPI`, `AsyncProjectReleasesAPI`, `AsyncProjectsAPI`, `AsyncTransport`, `AsyncWorkspacesAPI`, `wait_for`, `wait_for_terminal_state`
 
 ### Module `caliber_sdk.aio.client`
 
@@ -13613,7 +13616,7 @@ sdk/caliber-sdk/examples/workflow_run.py#run_and_wait
 
 **Public exports**
 
-`AsyncProjectFilesAPI`, `AsyncProjectsAPI`, `AsyncWorkspacesAPI`
+`AsyncProjectFilesAPI`, `AsyncProjectImportsAPI`, `AsyncProjectReleaseOperationsAPI`, `AsyncProjectReleasesAPI`, `AsyncProjectsAPI`, `AsyncWorkspacesAPI`
 
 #### Classes
 
@@ -13714,6 +13717,484 @@ Download raw file bytes without JSON envelope handling.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+##### `AsyncProjectImportsAPI`
+
+`class AsyncProjectImportsAPI()`
+
+Durable source-to-revision import jobs for one project (`P6-C`), awaited.
+
+Async parity for this resource -- unlike most of `P6-B`'s other grouped
+resources -- earns its complexity under :mod:`caliber_sdk.aio.client`'s
+own stated criteria: :meth:`wait` is exactly the "long-running work you
+poll" category that module names as where async changes the outcome.
+
+**Methods**
+
+###### `list(project_id: str, *, status: str | None = None, limit: int | None = None, cursor: str | None = None) -> CursorPage[WorkspaceImportJob]`
+
+Return the current collection of project imports, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `status` | keyword-only | `str | None` | `None` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `cursor` | keyword-only | `str | None` | `None` |
+
+**Returns:** `CursorPage[WorkspaceImportJob]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(project_id: str, job_id: str) -> WorkspaceImportJob`
+
+Fetch one record from the project imports surface identified by `project_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `job_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceImportJob`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(project_id: str, *, repository: str, commit_sha: str, bundle: bytes | BinaryIO, idempotency_key: str, filename: str = 'bundle') -> WorkspaceImportJob`
+
+Start an import. See the sync ``create``'s docstring for why
+``idempotency_key`` has no default.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `repository` | keyword-only | `str` | `—` |
+| `commit_sha` | keyword-only | `str` | `—` |
+| `bundle` | keyword-only | `bytes | BinaryIO` | `—` |
+| `idempotency_key` | keyword-only | `str` | `—` |
+| `filename` | keyword-only | `str` | `'bundle'` |
+
+**Returns:** `WorkspaceImportJob`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `reconcile(project_id: str, job_id: str) -> WorkspaceImportReconciliation`
+
+Explicitly observe an import stuck in ``reconcile_required``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `job_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceImportReconciliation`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `wait(project_id: str, job_id: str, *, timeout: float = 900.0, **options) -> WorkspaceImportJob`
+
+Poll until the import reaches a terminal state; see the sync
+``wait``'s docstring for why ``reconcile_required`` counts as one.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `job_id` | positional-or-keyword | `str` | `—` |
+| `timeout` | keyword-only | `float` | `900.0` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `WorkspaceImportJob`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
+
+##### `AsyncProjectReleasesAPI`
+
+`class AsyncProjectReleasesAPI()`
+
+The Workspace release evaluation/decision/approval lifecycle (`P5-F`),
+awaited.
+
+Async parity here earns its complexity two ways
+:mod:`caliber_sdk.aio.client` names: :meth:`wait_for_evaluation` is
+long-running work you poll, and awaiting many projects' releases
+concurrently is the same "forty workflow runs" case that module cites
+for :class:`AsyncWorkflowRunsAPI`.
+
+**Methods**
+
+###### `list(project_id: str, *, status: str | None = None, environment_id: str | None = None, limit: int | None = None, offset: int | None = None) -> list[WorkspaceRelease]`
+
+Return the current collection of project releases, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `status` | keyword-only | `str | None` | `None` |
+| `environment_id` | keyword-only | `str | None` | `None` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `offset` | keyword-only | `int | None` | `None` |
+
+**Returns:** `list[WorkspaceRelease]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(project_id: str, *, revision_id: str, environment_id: str, environment_config_sha256: str, runtime_dependencies_sha256: str, policy_sha256: str, request_idempotency_key: str, change_request_id: str | None = None, change_request_head_id: str | None = None, version_tag_id: str | None = None, predecessor_release_id: str | None = None) -> WorkspaceRelease`
+
+Create a new record on the project releases surface and return the server-normalized result.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `revision_id` | keyword-only | `str` | `—` |
+| `environment_id` | keyword-only | `str` | `—` |
+| `environment_config_sha256` | keyword-only | `str` | `—` |
+| `runtime_dependencies_sha256` | keyword-only | `str` | `—` |
+| `policy_sha256` | keyword-only | `str` | `—` |
+| `request_idempotency_key` | keyword-only | `str` | `—` |
+| `change_request_id` | keyword-only | `str | None` | `None` |
+| `change_request_head_id` | keyword-only | `str | None` | `None` |
+| `version_tag_id` | keyword-only | `str | None` | `None` |
+| `predecessor_release_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `WorkspaceRelease`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(project_id: str, release_id: str) -> WorkspaceRelease`
+
+Fetch one record from the project releases surface identified by `project_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceRelease`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_evidence(project_id: str, release_id: str, *, limit: int | None = None, offset: int | None = None) -> list[WorkspaceReleaseEvidence]`
+
+Operate on the project releases surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `offset` | keyword-only | `int | None` | `None` |
+
+**Returns:** `list[WorkspaceReleaseEvidence]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `evaluate(project_id: str, release_id: str, *, idempotency_key: str, evaluation_plan_sha256: str, input_sha256: str) -> WorkspaceReleaseEvaluation`
+
+Recompute the current release or evaluation verdict from the latest stored evidence.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `idempotency_key` | keyword-only | `str` | `—` |
+| `evaluation_plan_sha256` | keyword-only | `str` | `—` |
+| `input_sha256` | keyword-only | `str` | `—` |
+
+**Returns:** `WorkspaceReleaseEvaluation`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `list_evaluations(project_id: str, release_id: str, *, limit: int | None = None, offset: int | None = None) -> list[WorkspaceReleaseEvaluation]`
+
+Operate on the project releases surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `offset` | keyword-only | `int | None` | `None` |
+
+**Returns:** `list[WorkspaceReleaseEvaluation]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get_evaluation(project_id: str, release_id: str, evaluation_id: str) -> WorkspaceReleaseEvaluation`
+
+Operate on the project releases surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `evaluation_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceReleaseEvaluation`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `wait_for_evaluation(project_id: str, release_id: str, evaluation_id: str, *, timeout: float = 900.0, **options) -> WorkspaceReleaseEvaluation`
+
+Poll until the evaluation attempt reaches ``succeeded`` or ``failed``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `evaluation_id` | positional-or-keyword | `str` | `—` |
+| `timeout` | keyword-only | `float` | `900.0` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `WorkspaceReleaseEvaluation`
+
+**Raises:**
+
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
+
+###### `quality_signoff(project_id: str, release_id: str, *, decision: str, gate_evidence_sha256: str, rationale: str = '', change_request_head_id: str | None = None) -> WorkspaceReleaseDecision`
+
+Operate on the project releases surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `decision` | keyword-only | `str` | `—` |
+| `gate_evidence_sha256` | keyword-only | `str` | `—` |
+| `rationale` | keyword-only | `str` | `''` |
+| `change_request_head_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `WorkspaceReleaseDecision`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `approve(project_id: str, release_id: str, *, decision: str, gate_evidence_sha256: str, rationale: str = '', change_request_head_id: str | None = None) -> WorkspaceReleaseDecision`
+
+Operate on the project releases surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `decision` | keyword-only | `str` | `—` |
+| `gate_evidence_sha256` | keyword-only | `str` | `—` |
+| `rationale` | keyword-only | `str` | `''` |
+| `change_request_head_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `WorkspaceReleaseDecision`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `break_glass_apply(project_id: str, release_id: str, *, reason: str, incident_ref: str, authorization_ref: str, expires_at: str, gate_evidence_sha256: str, expected_current_release_id: str, expected_environment_lock_version: int, idempotency_key: str) -> WorkspaceBreakGlassApplyResult`
+
+Operate on the project releases surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `reason` | keyword-only | `str` | `—` |
+| `incident_ref` | keyword-only | `str` | `—` |
+| `authorization_ref` | keyword-only | `str` | `—` |
+| `expires_at` | keyword-only | `str` | `—` |
+| `gate_evidence_sha256` | keyword-only | `str` | `—` |
+| `expected_current_release_id` | keyword-only | `str` | `—` |
+| `expected_environment_lock_version` | keyword-only | `int` | `—` |
+| `idempotency_key` | keyword-only | `str` | `—` |
+
+**Returns:** `WorkspaceBreakGlassApplyResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+##### `AsyncProjectReleaseOperationsAPI`
+
+`class AsyncProjectReleaseOperationsAPI()`
+
+Durable apply/rollback intents against one release (`P5-C`), awaited.
+
+Async parity here earns its complexity the same way
+:class:`AsyncProjectReleasesAPI` does: :meth:`wait` is long-running work
+you poll.
+
+**Methods**
+
+###### `list(project_id: str, release_id: str, *, limit: int | None = None, offset: int | None = None) -> list[WorkspaceReleaseOperation]`
+
+Return the current collection of project release operations, applying any supported filters.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `limit` | keyword-only | `int | None` | `None` |
+| `offset` | keyword-only | `int | None` | `None` |
+
+**Returns:** `list[WorkspaceReleaseOperation]`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `get(project_id: str, release_id: str, operation_id: str) -> WorkspaceReleaseOperationResult`
+
+Fetch one record from the project release operations surface identified by `project_id`.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `operation_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceReleaseOperationResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `create(project_id: str, release_id: str, *, kind: str, idempotency_key: str, expected_environment_lock_version: int, expected_current_release_id: str | None = None, target_release_id: str | None = None) -> WorkspaceReleaseOperationResult`
+
+Create a new record on the project release operations surface and return the server-normalized result.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `kind` | keyword-only | `str` | `—` |
+| `idempotency_key` | keyword-only | `str` | `—` |
+| `expected_environment_lock_version` | keyword-only | `int` | `—` |
+| `expected_current_release_id` | keyword-only | `str | None` | `None` |
+| `target_release_id` | keyword-only | `str | None` | `None` |
+
+**Returns:** `WorkspaceReleaseOperationResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `apply(project_id: str, release_id: str, operation_id: str) -> WorkspaceReleaseOperationResult`
+
+Operate on the project release operations surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `operation_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceReleaseOperationResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `observe(project_id: str, release_id: str, operation_id: str) -> WorkspaceReleaseOperationResult`
+
+Operate on the project release operations surface with the supplied arguments and return the server response.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `operation_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceReleaseOperationResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `cancel_expired(project_id: str, release_id: str, operation_id: str) -> WorkspaceReleaseOperationResult`
+
+See the sync ``cancel_expired``'s docstring for why the literal
+path stays one f-string passed straight into ``self._post(``.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `operation_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceReleaseOperationResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `wait(project_id: str, release_id: str, operation_id: str, *, timeout: float = 900.0, **options) -> WorkspaceReleaseOperationResult`
+
+Poll until an apply or rollback operation reaches a terminal state;
+see the sync ``wait``'s docstring for why ``reconcile_required``
+counts as one.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `release_id` | positional-or-keyword | `str` | `—` |
+| `operation_id` | positional-or-keyword | `str` | `—` |
+| `timeout` | keyword-only | `float` | `900.0` |
+| `options` | var-keyword | `Any` | `—` |
+
+**Returns:** `WorkspaceReleaseOperationResult`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+- [`WaitFailed`](#waitfailed)
+- [`WaitTimeout`](#waittimeout)
+
 ##### `AsyncProjectsAPI`
 
 `class AsyncProjectsAPI(transport: AsyncTransport)`
@@ -13745,6 +14226,9 @@ Operate on the projects surface with the supplied arguments and return the serve
 | Attribute | Type | Notes |
 | --- | --- | --- |
 | `files` | [`AsyncProjectFilesAPI`](#asyncprojectfilesapi) | — |
+| `imports` | `AsyncProjectImportsAPI` | — |
+| `releases` | `AsyncProjectReleasesAPI` | Release candidates, waivers, signoff, and reports. |
+| `release_operations` | `AsyncProjectReleaseOperationsAPI` | — |
 
 **Methods**
 
