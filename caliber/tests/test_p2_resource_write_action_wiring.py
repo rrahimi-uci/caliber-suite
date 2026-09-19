@@ -120,13 +120,18 @@ class _FakeMlflowClient:
         return None
 
 
-def _install_fake_mlflow_prompt_registry(monkeypatch: pytest.MonkeyPatch) -> None:
+def _install_fake_mlflow_prompt_registry(
+    monkeypatch: pytest.MonkeyPatch,
+) -> list[dict[str, object]]:
     """A minimal fake ``mlflow.genai`` registry -- just enough for
     ``register_prompt_version``'s create/version-create calls and
     ``delete_prompt``'s ``MlflowClient`` lookup to succeed without a real
     MLflow server, matching ``test_routes_prompts.py``'s own
     ``_install_mlflow`` helper (kept local/minimal here since this file only
-    needs the create/delete paths, not the full prompt-listing surface)."""
+    needs the create/delete paths, not the full prompt-listing surface).
+
+    Returns the list of ``register_prompt`` call kwargs so a refused request
+    can assert it never reached MLflow (no orphaned version)."""
     calls: list[dict[str, object]] = []
 
     def register_prompt(**kwargs: object) -> object:
@@ -137,6 +142,7 @@ def _install_fake_mlflow_prompt_registry(monkeypatch: pytest.MonkeyPatch) -> Non
     mlflow_mod.genai = SimpleNamespace(register_prompt=register_prompt)
     mlflow_mod.MlflowClient = _FakeMlflowClient  # type: ignore[attr-defined]
     monkeypatch.setitem(__import__("sys").modules, "mlflow", mlflow_mod)
+    return calls
 
 
 # ---------------------------------------------------------------------------
@@ -200,6 +206,80 @@ def test_create_prompt_still_works_for_an_unscoped_prompt(
 
     resp = client.post(PROMPT_CREATE_PATH, json={"name": "personal-prompt", "template": "hello"})
     assert resp.status_code == 201, resp.text
+
+
+# `P2-G` (docs/workspace-plan.md section 16): the actual MLflow-side
+# namespace-collision refusal. MLflow's Prompt Registry has one flat, global
+# namespace -- registering a version under a name that already exists there
+# always lands on the SAME entity, whoever calls it. `create_prompt`'s
+# pre-existing check just above (`get_visible` -- proven 404 by
+# ``test_create_prompt_denies_an_admin_with_no_project_membership`` above for
+# a *new* name) only covers whether the caller can *see* an existing hidden
+# target; `db/scoping.py::apply_visibility_filter` deliberately gives an
+# admin identity an unconditional cross-project bypass of that same check
+# (so admins can inspect/manage every project), which would otherwise let an
+# admin acting on behalf of project B sail straight past project A's
+# ownership and silently add a version onto project A's own MLflow prompt
+# entity. The two tests below prove the *new*, separate project-ownership
+# comparison closes that gap without touching same-project re-registration.
+
+
+def test_create_prompt_refuses_a_cross_project_name_collision_even_for_an_admin(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    register_calls = _install_fake_mlflow_prompt_registry(monkeypatch)
+    _seed_project(db_session)
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_operator(client, "@editor-user")
+
+    # Project A (PROJECT_ID) claims the name first, as a real project editor.
+    first = client.post(
+        PROMPT_CREATE_PATH,
+        json={"name": "shared-name", "template": "hello"},
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert first.status_code == 201, first.text
+    assert len(register_calls) == 1
+
+    # The default test client is an admin (`DEFAULT_TEST_USER`, see
+    # ``conftest.py``'s ``app_config``) with no membership in either
+    # project. Admin visibility would let this request see project A's
+    # target just fine -- it must still be refused because the target
+    # belongs to a genuinely different project than the caller's active one.
+    collide = client.post(
+        PROMPT_CREATE_PATH,
+        json={"name": "shared-name", "template": "goodbye"},
+        headers={"X-CALIBER-Project": "P-a-different-project"},
+    )
+    assert collide.status_code == 409, collide.text
+    assert "shared-name" in collide.json()["detail"]
+    # No orphaned MLflow version: the refused attempt never reached the
+    # registry at all -- still exactly the one call from project A above.
+    assert len(register_calls) == 1
+
+
+def test_create_prompt_allows_the_same_project_to_reregister_its_own_name(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The new project-ownership check above must not block a project
+    re-registering/re-versioning its OWN existing name -- this is not a
+    collision, and must keep working exactly as before this change."""
+    register_calls = _install_fake_mlflow_prompt_registry(monkeypatch)
+    _seed_project(db_session)
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_operator(client, "@editor-user")
+    headers = {"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID}
+
+    first = client.post(
+        PROMPT_CREATE_PATH, json={"name": "own-name", "template": "v1"}, headers=headers
+    )
+    assert first.status_code == 201, first.text
+
+    again = client.post(
+        PROMPT_CREATE_PATH, json={"name": "own-name", "template": "v2"}, headers=headers
+    )
+    assert again.status_code == 201, again.text
+    assert len(register_calls) == 2
 
 
 def test_create_prompt_version_denies_a_project_viewer(
