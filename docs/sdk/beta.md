@@ -83,6 +83,56 @@ instances of "stopped is not finished" above: an evaluation or operation that
 lands on `reconcile_required` needs a caller to act
 (`release_operations.observe()`), not a longer timeout.
 
+## Compatibility and deprecations
+
+Two Workspace-era changes kept an older calling convention working rather than
+breaking it outright. Neither is beta — both are ordinary GA surfaces — but
+they belong here because a beta reader is the one most likely to still be
+calling the old shape.
+
+**`ProjectsAPI.update(status=...)` is deprecated in favor of `archive()`/
+`restore()`.** Project lifecycle used to be just another field on the same
+`PATCH` as `name`/`description`. It no longer is: the server now treats
+archiving and restoring as an Admin-only transition, separate from — and more
+restrictive than — an ordinary metadata edit, and records who made the change
+and when (`archived_at`/`archived_by` on the returned `Project`). Rather than
+have that authorization tightening surface as a confusing new failure mode for
+existing `update(status=...)` callers, the method still accepts `status`,
+still performs the transition (by delegating to `archive()`/`restore()`
+internally), and still returns the updated `Project`. It just also emits a
+`DeprecationWarning` telling you to call `archive()`/`restore()` directly:
+
+```python
+caliber.projects.update(project_id, status="archived")  # works, but warns
+caliber.projects.archive(project_id)                     # prefer this
+```
+
+Both sync and async clients behave identically here. Nothing in the code
+commits to a removal date — this is "call the explicit method now," not "this
+stops working on version X."
+
+**`project_scope()` is a compatibility alias for `workspace_scope()`, and
+`client.projects` is an alias for `client.workspaces`.** Both names predate
+the Workspace feature's own vocabulary. `workspace_scope()`/`library_scope()`
+and the `workspaces` resource are the names that match what the product
+actually calls these things now, and `library_scope()` in particular has no
+sensible `project_scope`-shaped equivalent (there is no "project" you are
+scoping to when you deliberately omit one). Rather than force every existing
+caller to rename in lockstep with the product renaming itself, the old names
+were kept as real aliases, not thin reimplementations:
+
+```python
+caliber.workspaces is caliber.projects   # True — one resource, two names
+```
+
+`client.workspaces` and `client.projects` are the same `ProjectsAPI` instance,
+so there is no second model tree or transport path for either name to drift
+out of sync with. `project_scope()` likewise just calls `workspace_scope()`
+under its own contextmanager. Code written against `.projects`/
+`project_scope()` keeps working unchanged; there's no warning on this one, and
+no stated plan to remove either alias — new code should just prefer the
+Workspace-named surface going forward.
+
 ## The agentic loop
 
 Aria takes an intent, proposes a plan, and executes it only once someone
