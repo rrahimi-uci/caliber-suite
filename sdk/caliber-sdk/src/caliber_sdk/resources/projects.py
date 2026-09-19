@@ -2,14 +2,18 @@
 
 Every other resource can be scoped to a project via the ``X-CALIBER-Project``
 header, which the client sets for you. This module manages the projects
-themselves, the files they hold, and (`P6-B`) the Git-backed source binding,
-source-to-revision import/revision lifecycle, Change Request review flow,
-and environment release lifecycle: :class:`ProjectSourceAPI`,
+themselves, the files they hold, and (`P6-B`) membership/ownership, the
+Git-backed source binding, source-to-revision import/revision lifecycle,
+Change Request review flow, and environment release lifecycle:
+:class:`ProjectMembersAPI`, :class:`ProjectSourceAPI`,
 :class:`ProjectImportsAPI`, :class:`ProjectRevisionsAPI`,
 :class:`ProjectChangeRequestsAPI`, :class:`ProjectVersionTagsAPI`,
 :class:`ProjectReleasesAPI` and :class:`ProjectReleaseOperationsAPI`, exposed
-as ``ProjectsAPI.source``/``.imports``/``.revisions``/``.change_requests``/
-``.version_tags``/``.releases``/``.release_operations``.
+as ``ProjectsAPI.members``/``.source``/``.imports``/``.revisions``/
+``.change_requests``/``.version_tags``/``.releases``/``.release_operations``.
+``ProjectsAPI``'s own ``list_members``/``add_member``/``update_member``/
+``remove_member``/``transfer_ownership`` remain as flat delegates to
+``.members`` -- a root convenience, not a second implementation.
 """
 
 from __future__ import annotations
@@ -1274,12 +1278,83 @@ class ProjectReworkTasksAPI(Resource):
         )
 
 
+class ProjectMembersAPI(Resource):
+    """A project's membership, role, and primary-ownership management (`P6-B`).
+
+    Exposed as ``ProjectsAPI.members``. The equivalent flat methods on
+    ``ProjectsAPI`` itself (``list_members``/``add_member``/
+    ``update_member``/``remove_member``/``transfer_ownership``) delegate to
+    this class -- a root convenience for the common case, not a second
+    implementation to keep in sync.
+    """
+
+    def list(self, project_id: str) -> _List[ProjectMember]:
+        """List active members and their effective project roles."""
+        payload = self._get(f"/projects/{project_id}/members", project=project_id)
+        if not isinstance(payload, dict):
+            return []
+        return decode_list(ProjectMember, payload.get("members"))
+
+    def add(self, project_id: str, user_id: str, *, role: str = "viewer") -> ProjectMember:
+        """Grant ``user_id`` a project role; only owners may manage members."""
+        return decode(
+            ProjectMember,
+            self._post(
+                f"/projects/{project_id}/members",
+                json={"user_id": user_id, "role": role},
+                project=project_id,
+            ),
+        )
+
+    def update(
+        self,
+        project_id: str,
+        user_id: str,
+        *,
+        role: str | None = None,
+        status: str | None = None,
+    ) -> ProjectMember:
+        """Change a member's role or active status."""
+        body: dict[str, Any] = {}
+        if role is not None:
+            body["role"] = role
+        if status is not None:
+            body["status"] = status
+        return decode(
+            ProjectMember,
+            self._patch(f"/projects/{project_id}/members/{user_id}", json=body, project=project_id),
+        )
+
+    def remove(self, project_id: str, user_id: str) -> bool:
+        """Deactivate a member; the project owner cannot be removed."""
+        payload = self._delete(f"/projects/{project_id}/members/{user_id}", project=project_id)
+        return isinstance(payload, dict) and payload.get("removed") is True
+
+    def transfer_ownership(self, project_id: str, new_owner_user_id: str) -> Project:
+        """Atomically move the primary-owner pointer to another active,
+        eligible ``owner``-role (Admin) member.
+
+        Only the current primary owner may call this; the target must
+        already hold the ``owner`` role (see :meth:`add`/:meth:`update`) and
+        pass a live scope-eligibility check.
+        """
+        return decode(
+            Project,
+            self._post(
+                f"/projects/{project_id}/transfer-ownership",
+                json={"new_owner_user_id": new_owner_user_id},
+                project=project_id,
+            ),
+        )
+
+
 class ProjectsAPI(Resource):
     """Projects, project access, and the file sub-resource."""
 
     def __init__(self, transport: Any) -> None:
         super().__init__(transport)
         self.files = ProjectFilesAPI(transport)
+        self.members = ProjectMembersAPI(transport)
         self.rework_tasks = ProjectReworkTasksAPI(transport)
         self.source = ProjectSourceAPI(transport)
         self.imports = ProjectImportsAPI(transport)
@@ -1357,39 +1432,16 @@ class ProjectsAPI(Resource):
         return decode(Project, self._post(f"/projects/{project_id}/restore", project=project_id))
 
     def transfer_ownership(self, project_id: str, new_owner_user_id: str) -> Project:
-        """Atomically move the primary-owner pointer to another active,
-        eligible ``owner``-role (Admin) member.
-
-        Only the current primary owner may call this; the target must
-        already hold the ``owner`` role (see ``add_member``/
-        ``update_member``) and pass a live scope-eligibility check.
-        """
-        return decode(
-            Project,
-            self._post(
-                f"/projects/{project_id}/transfer-ownership",
-                json={"new_owner_user_id": new_owner_user_id},
-                project=project_id,
-            ),
-        )
+        """Delegates to :meth:`ProjectMembersAPI.transfer_ownership` (``self.members``)."""
+        return self.members.transfer_ownership(project_id, new_owner_user_id)
 
     def list_members(self, project_id: str) -> _List[ProjectMember]:
-        """List active members and their effective project roles."""
-        payload = self._get(f"/projects/{project_id}/members", project=project_id)
-        if not isinstance(payload, dict):
-            return []
-        return decode_list(ProjectMember, payload.get("members"))
+        """Delegates to :meth:`ProjectMembersAPI.list` (``self.members``)."""
+        return self.members.list(project_id)
 
     def add_member(self, project_id: str, user_id: str, *, role: str = "viewer") -> ProjectMember:
-        """Grant ``user_id`` a project role; only owners may manage members."""
-        return decode(
-            ProjectMember,
-            self._post(
-                f"/projects/{project_id}/members",
-                json={"user_id": user_id, "role": role},
-                project=project_id,
-            ),
-        )
+        """Delegates to :meth:`ProjectMembersAPI.add` (``self.members``)."""
+        return self.members.add(project_id, user_id, role=role)
 
     def update_member(
         self,
@@ -1399,21 +1451,12 @@ class ProjectsAPI(Resource):
         role: str | None = None,
         status: str | None = None,
     ) -> ProjectMember:
-        """Change a member's role or active status."""
-        body: dict[str, Any] = {}
-        if role is not None:
-            body["role"] = role
-        if status is not None:
-            body["status"] = status
-        return decode(
-            ProjectMember,
-            self._patch(f"/projects/{project_id}/members/{user_id}", json=body, project=project_id),
-        )
+        """Delegates to :meth:`ProjectMembersAPI.update` (``self.members``)."""
+        return self.members.update(project_id, user_id, role=role, status=status)
 
     def remove_member(self, project_id: str, user_id: str) -> bool:
-        """Deactivate a member; the project owner cannot be removed."""
-        payload = self._delete(f"/projects/{project_id}/members/{user_id}", project=project_id)
-        return isinstance(payload, dict) and payload.get("removed") is True
+        """Delegates to :meth:`ProjectMembersAPI.remove` (``self.members``)."""
+        return self.members.remove(project_id, user_id)
 
     def storage(self) -> Any:
         """Where project files live, and what else the deployment supports."""
@@ -1455,6 +1498,7 @@ __all__ = [
     "ProjectChangeRequestsAPI",
     "ProjectFilesAPI",
     "ProjectImportsAPI",
+    "ProjectMembersAPI",
     "ProjectReleaseOperationsAPI",
     "ProjectReleasesAPI",
     "ProjectRevisionsAPI",
