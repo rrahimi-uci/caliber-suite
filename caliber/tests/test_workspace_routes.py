@@ -24,6 +24,7 @@ from caliber.db.models import (
     CaliberWorkspaceSource,
 )
 from caliber.routes import workspace as workspace_routes
+from caliber.routes.auth import TOKENS_PATH
 from caliber.storage import StorageError
 from caliber.workspace_sources import (
     WorkspaceSourceProviderError,
@@ -149,6 +150,26 @@ def _import(
         data={"repository": repository, "commit_sha": commit},
         files={"bundle": ("workspace.zip", bundle or _bundle(), "application/zip")},
     )
+
+
+def _issue_pat(client: TestClient, *, name: str, project_id: str | None = None) -> str:
+    payload: dict[str, object] = {"name": name}
+    if project_id is not None:
+        payload["project_id"] = project_id
+    response = client.post(TOKENS_PATH, json=payload)
+    assert response.status_code == 201, response.text
+    return response.json()["data"]["token"]
+
+
+def _as_pat(token: str) -> dict[str, str]:
+    """Headers for a PAT-authenticated request.
+
+    Clears ``X-CALIBER-User`` -- the fixture client sends it by default, and
+    without clearing it the request would authenticate by header rather than
+    by the token under test (mirrors ``test_personal_access_tokens.py``'s
+    ``_as_token``).
+    """
+    return {"Authorization": f"Bearer {token}", "X-CALIBER-User": ""}
 
 
 def test_source_lifecycle_is_secret_free_and_etag_protected(client: TestClient) -> None:
@@ -666,6 +687,124 @@ def test_import_list_uses_opaque_cursor_and_project_scope(client: TestClient) ->
     out_of_range = client.get(f"{PREFIX}/projects/{project_id}/revision-imports?limit=0")
     assert out_of_range.status_code == 400
     assert out_of_range.json()["detail"] == "limit_must_be_between_1_and_100"
+
+
+# --------------------------------------------------------------------------
+# CI-import project-bound PAT requirement (`P1-E`, workspace-plan.md 9.1:
+# "New CI import tokens must be project-bound").
+# --------------------------------------------------------------------------
+
+
+def test_project_bound_pat_imports_into_its_own_project(client: TestClient) -> None:
+    project_id = _create_project(client, "PAT own project import")
+    _activate_source(client, project_id)
+    token = _issue_pat(client, name="ci-bot", project_id=project_id)
+
+    bound_response = client.post(
+        f"{PREFIX}/projects/{project_id}/revision-imports",
+        headers={**_as_pat(token), "Idempotency-Key": "pat-own-project-bound"},
+        data={"repository": "owner/workspace-api", "commit_sha": "commit-bound"},
+        files={"bundle": ("workspace.zip", _bundle(), "application/zip")},
+    )
+    assert bound_response.status_code == 202, bound_response.text
+    assert bound_response.json()["data"]["status"] == "queued"
+
+
+def test_project_bound_pat_is_refused_importing_into_a_different_project(
+    client: TestClient,
+) -> None:
+    bound_project = _create_project(client, "PAT bound project")
+    other_project = _create_project(client, "PAT other project")
+    _activate_source(client, other_project)
+    token = _issue_pat(client, name="ci-bot-cross", project_id=bound_project)
+
+    response = client.post(
+        f"{PREFIX}/projects/{other_project}/revision-imports",
+        headers={**_as_pat(token), "Idempotency-Key": "pat-cross-project"},
+        data={"repository": "owner/workspace-api", "commit_sha": "commit-cross"},
+        files={"bundle": ("workspace.zip", _bundle(), "application/zip")},
+    )
+    assert response.status_code == 403, response.text
+    assert bound_project in response.json()["detail"]
+
+
+def test_unbound_pat_is_refused_for_import(client: TestClient) -> None:
+    """`P1-E`'s design ("New CI import tokens must be project-bound") reads
+    as: an unbound PAT may still do everything else `P1-E` already allows
+    it to do, but it is not a substitute for a project-bound one on the
+    CI-import surface specifically."""
+    project_id = _create_project(client, "PAT unbound import")
+    _activate_source(client, project_id)
+    token = _issue_pat(client, name="ci-bot-unbound")
+
+    response = client.post(
+        f"{PREFIX}/projects/{project_id}/revision-imports",
+        headers={**_as_pat(token), "Idempotency-Key": "pat-unbound"},
+        data={"repository": "owner/workspace-api", "commit_sha": "commit-unbound"},
+        files={"bundle": ("workspace.zip", _bundle(), "application/zip")},
+    )
+    assert response.status_code == 403, response.text
+    assert "no project binding" in response.json()["detail"]
+
+    # The same unbound token is unaffected everywhere else `P1-E` already
+    # covers -- e.g. a plain read -- confirming the new restriction is
+    # scoped to the import-mutation surface, not a blanket unbound-PAT ban.
+    read = client.get(f"{PREFIX}/projects/{project_id}/source", headers=_as_pat(token))
+    assert read.status_code == 200, read.text
+
+
+def test_session_authenticated_import_is_unaffected_by_the_pat_binding_requirement(
+    client: TestClient,
+) -> None:
+    project_id = _create_project(client, "Session import unaffected")
+    _activate_source(client, project_id)
+
+    response = _import(client, project_id, key="session-import")
+    assert response.status_code == 202, response.text
+
+
+def test_project_bound_pat_reconcile_is_refused_for_a_different_project(
+    client: TestClient, db_session: Session
+) -> None:
+    bound_project = _create_project(client, "PAT reconcile bound project")
+    other_project = _create_project(client, "PAT reconcile other project")
+    _activate_source(client, other_project)
+    response = _import(client, other_project, key="reconcile-cross")
+    job_id = response.json()["data"]["import_job_id"]
+    job = db_session.get(CaliberWorkspaceImportJob, job_id)
+    assert job is not None
+    job.status = "reconcile_required"
+    job.error_code = "worker_lost"
+    db_session.commit()
+
+    token = _issue_pat(client, name="ci-bot-reconcile-cross", project_id=bound_project)
+    reconcile = client.post(
+        f"{PREFIX}/projects/{other_project}/revision-imports/{job_id}:reconcile",
+        headers=_as_pat(token),
+    )
+    assert reconcile.status_code == 403, reconcile.text
+    assert bound_project in reconcile.json()["detail"]
+
+
+def test_project_bound_pat_reconciles_its_own_project(
+    client: TestClient, db_session: Session
+) -> None:
+    project_id = _create_project(client, "PAT reconcile own project")
+    _activate_source(client, project_id)
+    response = _import(client, project_id, key="reconcile-own")
+    job_id = response.json()["data"]["import_job_id"]
+    job = db_session.get(CaliberWorkspaceImportJob, job_id)
+    assert job is not None
+    job.status = "reconcile_required"
+    job.error_code = "worker_lost"
+    db_session.commit()
+
+    token = _issue_pat(client, name="ci-bot-reconcile-own", project_id=project_id)
+    reconcile = client.post(
+        f"{PREFIX}/projects/{project_id}/revision-imports/{job_id}:reconcile",
+        headers=_as_pat(token),
+    )
+    assert reconcile.status_code == 200, reconcile.text
 
 
 def test_import_reconcile_observes_snapshot_without_blind_retry(

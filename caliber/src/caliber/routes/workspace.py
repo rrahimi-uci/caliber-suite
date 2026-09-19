@@ -151,6 +151,55 @@ def _require_workspace_header(request: Request, project_id: str) -> None:
         raise HTTPException(status_code=400, detail="workspace_context_mismatch")
 
 
+def _require_project_bound_pat_for_import(identity: CaliberIdentity, project_id: str) -> None:
+    """Refuse a PAT-authenticated import unless the token is bound to `project_id`.
+
+    `P1-E` (docs/workspace-plan.md section 9.1) delivered the plumbing --
+    ``CaliberIdentity.credential_kind``/``credential_project_id`` and
+    ``auth.py::resolve_identity``'s central refusal of a project-bound PAT
+    naming a *different* project via the URL/header -- but explicitly left
+    "require project-bound PATs for CI import" unenforced (no CI-import route
+    existed yet). This is that route now (`P4-C`'s ``create_import``, plus
+    ``reconcile_import`` since it performs the same durable, project-scoped
+    import mutation on the same resource family).
+
+    Section 9.1's design: "New CI import tokens must be project-bound. A CI
+    actor is a dedicated automation user authenticated by a project-bound
+    PAT..." -- read together with section 4's workflow table, which allows
+    *either* "Developer" (an interactive session) *or* "CI automation user
+    with project-bound PAT" to package/pin. So the requirement is scoped to
+    the PAT credential kind specifically, not to every caller:
+
+    * A session (or trusted-header) caller is never touched here --
+      ``credential_kind != "pat"`` is a no-op, matching "Developer" access.
+    * A PAT bound to a *different* project is already refused (403) by
+      ``resolve_identity`` before this ever runs, since ``project_id`` is
+      always a path segment on the import routes. Re-checking here is a
+      harmless belt-and-suspenders match on the same condition.
+    * A PAT with **no** project binding is newly refused here: "New CI
+      import tokens must be project-bound" only makes sense as a real gate
+      if an unbound PAT cannot substitute for one. An unbound PAT remains
+      valid for every other route `P1-E` already covers (reads, non-import
+      writes); only this durable import-mutation surface now requires the
+      binding.
+    """
+    if identity.credential_kind != "pat":
+        return
+    if identity.credential_project_id != project_id:
+        if identity.credential_project_id is None:
+            detail = (
+                "workspace import requires a personal access token bound to "
+                f"project {project_id!r}; this token has no project binding"
+            )
+        else:
+            detail = (
+                f"this personal access token is bound to project "
+                f"{identity.credential_project_id!r} and cannot import into "
+                f"project {project_id!r}"
+            )
+        raise HTTPException(status_code=403, detail=detail)
+
+
 def _require_if_match(request_value: str | None, current: str) -> None:
     supplied = _etag_value(request_value)
     if supplied in {"*", current}:
@@ -1126,6 +1175,7 @@ async def create_import(request: Request) -> JSONResponse:
     _require_workspace_header(request, project_id)
     actor = require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
+    _require_project_bound_pat_for_import(identity, project_id)
     idempotency_key = request.headers.get("Idempotency-Key", "").strip()
     if not idempotency_key:
         raise HTTPException(status_code=400, detail="idempotency_key_required")
@@ -1221,6 +1271,7 @@ async def reconcile_import(request: Request) -> JSONResponse:
     _require_workspace_header(request, project_id)
     actor = require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
+    _require_project_bound_pat_for_import(identity, project_id)
     response = await run_in_threadpool(
         _reconcile_import_sync,
         get_session_factory(request),
