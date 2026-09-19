@@ -132,6 +132,18 @@ async def update_plan(request: Request) -> JSONResponse:
         raise HTTPException(status_code=404, detail=f"aria plan {plan_id!r} not found")
     if detail["plan"]["status"] != "draft":
         raise HTTPException(status_code=409, detail="only draft plans can be edited")
+    # `P2-A` (isolation closure, item 1's "root routes to centralized
+    # authorization"): visibility alone let any active project member --
+    # including a plain `viewer` -- relax a teammate's plan autonomy (the
+    # comment on the `set_autonomy` call below already calls that
+    # "security-relevant") or cancel their plan outright. Same
+    # `resource.execute` role floor `execute_plan`/`poll_plan` already
+    # enforce (`P2-E`) for the same plan resource; a personal
+    # (`project_id is None`) plan is unaffected.
+    project_id = detail["plan"].get("project_id")
+    if project_id is not None:
+        with factory() as session:
+            require_project_access(session, identity, project_id, "resource.execute")
 
     if "autonomy" in changes:
         # Relaxing the autonomy dial is security-relevant — route it through the
@@ -164,6 +176,13 @@ async def approve_plan(request: Request) -> JSONResponse:
         raise HTTPException(
             status_code=409, detail=f"plan is {detail['plan']['status']!r}, not draft"
         )
+    # `P2-A`: same `resource.execute` role floor as `update_plan` above --
+    # visibility alone let any active project member, including a plain
+    # `viewer`, approve a teammate's plan for execution.
+    project_id = detail["plan"].get("project_id")
+    if project_id is not None:
+        with factory() as session:
+            require_project_access(session, identity, project_id, "resource.execute")
     updated = _service.set_status(
         session_factory=factory, plan_id=plan_id, status="approved", actor=actor
     )

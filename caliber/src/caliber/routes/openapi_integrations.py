@@ -73,7 +73,7 @@ from caliber.integrations.openapi.tool_drafts import (
     build_tool_pack_name,
     pack_side_effect_level,
 )
-from caliber.resource_access import require_project_access
+from caliber.resource_access import require_project_access, require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     envelope_response_dict,
@@ -402,6 +402,18 @@ async def create_openapi_integration(request: Request) -> JSONResponse:
                     f"by {existing.integration_id!r}"
                 ),
             )
+        # `P2-A` (isolation closure, item 1's "root routes to centralized
+        # authorization"): this route previously checked only the global
+        # `caliber.admin`/`caliber.operator` scope, with no project-role
+        # check at all -- unlike its sibling `publish_openapi_tool_draft`
+        # below, which already gates on `require_project_access(...,
+        # "resource.publish")`. `resource.write.runtime` is the same action
+        # `create_prompt`/`create_workflow`/`register_tool`/`create_skill`
+        # already use for this identical "root create" shape. A no-op when
+        # no project is active (a personal/global integration).
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, "resource.write.runtime"
+        )
         row = CaliberOpenApiIntegration(
             integration_id=new_openapi_integration_id(),
             name=payload.name,
@@ -447,11 +459,18 @@ async def update_openapi_integration(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = OpenApiIntegrationUpdateRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_ADMIN, SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     integration_id = request.path_params["integration_id"]
     factory = get_session_factory(request)
     changes: dict[str, Any] = {}
     with factory() as session:
         row = _visible_integration_or_404(session, request, integration_id)
+        # `P2-A`: same `resource.write.runtime` role floor as `create_openapi_
+        # integration` above, gated on the row's own project rather than the
+        # caller's active one -- see that route's comment.
+        require_project_access_if_scoped(
+            session, identity, row.project_id, "resource.write.runtime"
+        )
         if payload.name is not None and payload.name != row.name:
             changes["name"] = {"from": row.name, "to": payload.name}
             row.name = payload.name
@@ -482,10 +501,16 @@ async def update_openapi_integration(request: Request) -> JSONResponse:
 
 async def archive_openapi_integration(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_ADMIN, SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     integration_id = request.path_params["integration_id"]
     factory = get_session_factory(request)
     with factory() as session:
         row = _visible_integration_or_404(session, request, integration_id)
+        # `P2-A`: same `resource.write.runtime` role floor as `create_openapi_
+        # integration`/`update_openapi_integration` above.
+        require_project_access_if_scoped(
+            session, identity, row.project_id, "resource.write.runtime"
+        )
         if row.status != "archived":
             row.status = "archived"
             audit_record(

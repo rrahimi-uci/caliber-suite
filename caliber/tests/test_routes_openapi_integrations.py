@@ -221,7 +221,17 @@ def test_create_openapi_integration_defaults_to_draft_user_visibility(client: Te
     assert data["project_id"] is None
 
 
-def test_create_openapi_integration_uses_active_project_when_present(client: TestClient) -> None:
+def test_create_openapi_integration_uses_active_project_when_present(
+    client: TestClient, db_session: Session
+) -> None:
+    # `P2-A`: `create_openapi_integration` now enforces `resource.write.
+    # runtime` via `require_project_access_if_scoped`, which needs a real
+    # project row to check a role against -- seed one owned by the default
+    # test user (matching `test_root_creation_scoping.py::test_create_
+    # workflow_under_active_project_is_project_scoped`'s identical setup for
+    # `create_workflow`, already gated the same way).
+    db_session.add(CaliberProject(project_id="PRJ-42", name="PRJ-42", owner="@test"))
+    db_session.commit()
     response = client.post(
         BASE,
         json={"name": "Ticketing", "description": "External ticket API"},
@@ -465,16 +475,20 @@ def test_publish_project_scoped_draft_requires_operator_scope_not_just_project_r
     negative case directly with a real, project-scoped integration and a
     real (non-admin) project editor."""
     project_id = "PRJ-openapi-publish-scope"
-    db_session.add(
-        CaliberProject(project_id=project_id, name="OpenAPI scope check", owner="@owner")
-    )
+    # `P2-A`: `create_openapi_integration`/`import_openapi_version`/
+    # `generate_openapi_tool_drafts` now enforce `resource.write.runtime`,
+    # which the default client ("@test") only still clears here because it
+    # is this project's owner -- unrelated to the actual behavior under
+    # test (a non-admin *editor*'s publish attempt, exercised separately
+    # below via the explicit "@viewer-editor" override).
+    db_session.add(CaliberProject(project_id=project_id, name="OpenAPI scope check", owner="@test"))
     db_session.add(
         CaliberProjectMember(
             member_id="M-openapi-editor",
             project_id=project_id,
             user_id="@viewer-editor",
             role=ROLE_EDITOR,
-            created_by="@owner",
+            created_by="@test",
         )
     )
     db_session.commit()

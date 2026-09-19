@@ -37,6 +37,7 @@ from caliber.db.models import CaliberLlmModelPricing
 from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.ids import new_llm_pricing_id
 from caliber.observability.mlflow_tracing import invalidate_pricing_cache
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -137,6 +138,19 @@ async def create_pricing(request: Request) -> JSONResponse:
                     f"({existing.pricing_id!r}) — edit it instead"
                 ),
             )
+        # `P2-A` (isolation closure, item 1's "root routes to centralized
+        # authorization"): this route previously checked only the global
+        # `caliber.operator` scope, with no project-role check at all --
+        # a project `viewer` (visible but not meant to write) could create
+        # a pricing row into any project they merely belong to. Same
+        # `resource.write.runtime` action `create_prompt`/`create_workflow`/
+        # `register_tool`/`create_skill`/`create_knowledge_base` already use
+        # for this identical "root create" shape. `update_pricing` gets the
+        # identical fix below. A no-op here when no project is active (a
+        # personal/global pricing row).
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, "resource.write.runtime"
+        )
         pricing = CaliberLlmModelPricing(
             pricing_id=new_llm_pricing_id(),
             provider=payload.provider,
@@ -171,6 +185,7 @@ async def update_pricing(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = LlmPricingUpdateRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_ADMIN])
+    identity = resolve_identity(request)
 
     changes = payload.model_dump(exclude_unset=True)
     if not changes:
@@ -178,9 +193,24 @@ async def update_pricing(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        pricing = session.get(CaliberLlmModelPricing, pricing_id)
+        # `P2-A`: this route previously used a bare `session.get` (no
+        # visibility check at all) plus a global `caliber.admin` scope, with
+        # no project-role check either. `caliber.admin` is *not* an implicit
+        # project role (`resource_access.py::project_role`'s documented
+        # `P1-B` removal) -- `routes/skills.py::update_skill`, itself
+        # `SCOPE_ADMIN`-only, already establishes the precedent that an
+        # admin-gated mutation on a project-scoped resource still needs its
+        # own `resource.write.runtime` check. Same fix here, plus swapping
+        # the bare lookup for `get_visible` so a guessed id can't leak
+        # another project's pricing row either.
+        pricing = get_visible(
+            session, CaliberLlmModelPricing, CaliberLlmModelPricing.pricing_id, pricing_id, identity
+        )
         if pricing is None:
             raise HTTPException(status_code=404, detail=f"pricing {pricing_id!r} not found")
+        require_project_access_if_scoped(
+            session, identity, pricing.project_id, "resource.write.runtime"
+        )
 
         diff: dict[str, dict[str, object]] = {}
         for field in _UPDATABLE_FIELDS:
