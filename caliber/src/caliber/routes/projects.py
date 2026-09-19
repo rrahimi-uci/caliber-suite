@@ -78,6 +78,7 @@ from caliber.schemas import (
     ProjectTransferOwnershipRequest,
     WorkspaceEnvironmentListSchema,
     WorkspaceEnvironmentSchema,
+    WorkspaceEnvironmentUpdateRequest,
 )
 from caliber.storage import (
     VISIBLE_STATUSES,
@@ -1189,6 +1190,92 @@ def _transition_environment_status(
     return _environment_to_schema(row, access_role=decision.role, permissions=decision.permissions)
 
 
+def _update_environment_policy(
+    session: Session,
+    *,
+    project_id: str,
+    name: str,
+    policy: dict[str, Any],
+    policy_sha256: str,
+    expected_lock_version: int,
+    identity: CaliberIdentity,
+    decision: AccessDecision,
+) -> WorkspaceEnvironmentSchema:
+    """Update an environment's policy configuration under optimistic
+    concurrency control.
+
+    Unlike `_transition_environment_status`'s conditional-on-status guard
+    (written before `lock_version` existed on this table), this CASes on
+    `lock_version` directly -- the same column
+    `ProjectReleaseOperationsAPI`'s `expected_environment_lock_version`
+    already reads, kept internally consistent rather than inventing a
+    second concurrency mechanism for the same row.
+    """
+    row = _environment_for_project_or_404(session, project_id, name)
+    result = session.execute(
+        sa_update(CaliberWorkspaceEnvironment)
+        .where(
+            CaliberWorkspaceEnvironment.environment_id == row.environment_id,
+            CaliberWorkspaceEnvironment.lock_version == expected_lock_version,
+        )
+        .values(
+            policy=policy,
+            policy_sha256=policy_sha256,
+            lock_version=CaliberWorkspaceEnvironment.lock_version + 1,
+        )
+    )
+    if int(getattr(result, "rowcount", 0) or 0) != 1:
+        raise HTTPException(
+            status_code=409,
+            detail=(
+                f"environment {name!r} lock_version is stale (expected {expected_lock_version})"
+            ),
+        )
+    # Keep the already-loaded ORM object in sync with the conditional update
+    # just applied above (a plain Core `update()` bypasses the ORM's own
+    # change tracking) -- `_environment_to_schema` below reads it.
+    row.policy = policy
+    row.policy_sha256 = policy_sha256
+    row.lock_version = expected_lock_version + 1
+    audit_record(
+        session,
+        actor=identity.user_id,
+        action="update_workspace_environment_policy",
+        entity_type="workspace_environment",
+        entity_id=row.environment_id,
+        details={"project_id": project_id, "name": name, "policy_sha256": policy_sha256},
+    )
+    session.commit()
+    return _environment_to_schema(row, access_role=decision.role, permissions=decision.permissions)
+
+
+async def update_project_environment(request: Request) -> JSONResponse:
+    """Update an environment's policy configuration (section 2.5's eventual
+    ETag-style concurrency target, delivered here via `lock_version` CAS
+    rather than an `If-Match` header -- see `_update_environment_policy`)."""
+    project_id = request.path_params["project_id"]
+    name = request.path_params["name"]
+    payload = WorkspaceEnvironmentUpdateRequest.model_validate(await parse_json_object(request))
+    require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    factory = get_session_factory(request)
+    with factory() as session:
+        _project, decision = require_project_access(
+            session, identity, project_id, "environment.manage"
+        )
+        result = _update_environment_policy(
+            session,
+            project_id=project_id,
+            name=name,
+            policy=payload.policy,
+            policy_sha256=payload.policy_sha256,
+            expected_lock_version=payload.expected_lock_version,
+            identity=identity,
+            decision=decision,
+        )
+    return envelope_response(result)
+
+
 async def enable_project_environment(request: Request) -> JSONResponse:
     project_id = request.path_params["project_id"]
     name = request.path_params["name"]
@@ -1422,6 +1509,7 @@ def register(app: Starlette) -> None:
     )
     app.routes.append(Route(ENVIRONMENTS_PATH, list_project_environments, methods=["GET"]))
     app.routes.append(Route(ENVIRONMENT_DETAIL_PATH, get_project_environment, methods=["GET"]))
+    app.routes.append(Route(ENVIRONMENT_DETAIL_PATH, update_project_environment, methods=["PATCH"]))
     app.routes.append(Route(ENVIRONMENT_ENABLE_PATH, enable_project_environment, methods=["POST"]))
     app.routes.append(
         Route(ENVIRONMENT_DISABLE_PATH, disable_project_environment, methods=["POST"])

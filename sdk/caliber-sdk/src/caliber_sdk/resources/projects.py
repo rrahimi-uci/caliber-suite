@@ -1475,6 +1475,41 @@ class ProjectsAPI(Resource):
             self._get(f"/projects/{project_id}/environments/{name}", project=project_id),
         )
 
+    def update_environment(
+        self,
+        project_id: str,
+        name: str,
+        *,
+        policy: dict[str, Any],
+        policy_sha256: str,
+        expected_lock_version: int,
+    ) -> WorkspaceEnvironment:
+        """Update an environment's policy configuration.
+
+        ``policy_sha256`` is a caller-supplied digest, trusted the same way
+        the release-lifecycle digests are (``environment_config_sha256``,
+        ``runtime_dependencies_sha256``, ...) -- the server stores it and
+        ``policy`` as given, it does not independently recompute or verify
+        the hash. ``expected_lock_version`` is a compare-and-swap against
+        this environment's own ``lock_version`` (from a prior
+        :meth:`get_environment`/:meth:`list_environments` call); a stale
+        value 409s rather than silently overwriting a change another caller
+        just made. Identity fields (``name``/``environment_class``/
+        ``promotion_order``) can never be changed here or anywhere else.
+        """
+        return decode(
+            WorkspaceEnvironment,
+            self._patch(
+                f"/projects/{project_id}/environments/{name}",
+                json={
+                    "policy": policy,
+                    "policy_sha256": policy_sha256,
+                    "expected_lock_version": expected_lock_version,
+                },
+                project=project_id,
+            ),
+        )
+
     def enable_environment(self, project_id: str, name: str) -> WorkspaceEnvironment:
         """Explicit lifecycle transition to ``"active"``; Admin-only."""
         return decode(
