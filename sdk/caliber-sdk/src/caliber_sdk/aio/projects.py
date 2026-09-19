@@ -215,6 +215,33 @@ class AsyncProjectsAPI(_AsyncResource):
             await self._get(f"/projects/{project_id}/environments/{name}", project=project_id),
         )
 
+    async def update_environment(
+        self,
+        project_id: str,
+        name: str,
+        *,
+        policy: dict[str, Any],
+        policy_sha256: str,
+        expected_lock_version: int,
+    ) -> WorkspaceEnvironment:
+        """Update an environment's policy configuration.
+
+        See :meth:`caliber_sdk.resources.projects.ProjectsAPI.update_environment`
+        for the CAS/digest semantics -- identical here, just awaited.
+        """
+        return decode(
+            WorkspaceEnvironment,
+            await self._patch(
+                f"/projects/{project_id}/environments/{name}",
+                json={
+                    "policy": policy,
+                    "policy_sha256": policy_sha256,
+                    "expected_lock_version": expected_lock_version,
+                },
+                project=project_id,
+            ),
+        )
+
     async def enable_environment(self, project_id: str, name: str) -> WorkspaceEnvironment:
         return decode(
             WorkspaceEnvironment,

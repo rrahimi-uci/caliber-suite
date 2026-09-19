@@ -3607,6 +3607,36 @@ Operate on the projects surface with the supplied arguments and return the serve
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `update_environment(project_id: str, name: str, *, policy: dict[str, Any], policy_sha256: str, expected_lock_version: int) -> WorkspaceEnvironment`
+
+Update an environment's policy configuration.
+
+``policy_sha256`` is a caller-supplied digest, trusted the same way
+the release-lifecycle digests are (``environment_config_sha256``,
+``runtime_dependencies_sha256``, ...) -- the server stores it and
+``policy`` as given, it does not independently recompute or verify
+the hash. ``expected_lock_version`` is a compare-and-swap against
+this environment's own ``lock_version`` (from a prior
+:meth:`get_environment`/:meth:`list_environments` call); a stale
+value 409s rather than silently overwriting a change another caller
+just made. Identity fields (``name``/``environment_class``/
+``promotion_order``) can never be changed here or anywhere else.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `name` | positional-or-keyword | `str` | `—` |
+| `policy` | keyword-only | `dict[str, Any]` | `—` |
+| `policy_sha256` | keyword-only | `str` | `—` |
+| `expected_lock_version` | keyword-only | `int` | `—` |
+
+**Returns:** [`WorkspaceEnvironment`](#workspaceenvironment)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `enable_environment(project_id: str, name: str) -> WorkspaceEnvironment`
 
 Explicit lifecycle transition to ``"active"``; Admin-only.
@@ -11237,6 +11267,12 @@ per-environment role in this MVP.
 | `environment_class` | `str` | `''` |
 | `promotion_order` | `int` | `0` |
 | `status` | `str` | `''` |
+| `recovery_policy_enabled` | `bool` | `False` |
+| `current_release_id` | `str | None` | `None` |
+| `pending_operation_id` | `str | None` | `None` |
+| `operation_state` | `str` | `'idle'` |
+| `policy_sha256` | `str` | `''` |
+| `lock_version` | `int` | `1` |
 | `created_by` | `str` | `''` |
 | `created_at` | `str | None` | `None` |
 | `updated_at` | `str | None` | `None` |
@@ -13925,6 +13961,28 @@ Operate on the projects surface with the supplied arguments and return the serve
 | --- | --- | --- | --- |
 | `project_id` | positional-or-keyword | `str` | `—` |
 | `name` | positional-or-keyword | `str` | `—` |
+
+**Returns:** [`WorkspaceEnvironment`](#workspaceenvironment)
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
+###### `update_environment(project_id: str, name: str, *, policy: dict[str, Any], policy_sha256: str, expected_lock_version: int) -> WorkspaceEnvironment`
+
+Update an environment's policy configuration.
+
+See :meth:`caliber_sdk.resources.projects.ProjectsAPI.update_environment`
+for the CAS/digest semantics -- identical here, just awaited.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `name` | positional-or-keyword | `str` | `—` |
+| `policy` | keyword-only | `dict[str, Any]` | `—` |
+| `policy_sha256` | keyword-only | `str` | `—` |
+| `expected_lock_version` | keyword-only | `int` | `—` |
 
 **Returns:** [`WorkspaceEnvironment`](#workspaceenvironment)
 

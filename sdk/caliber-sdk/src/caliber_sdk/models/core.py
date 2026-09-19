@@ -318,6 +318,12 @@ class WorkspaceEnvironment:
     environment_class: str = ""
     promotion_order: int = 0
     status: str = ""
+    recovery_policy_enabled: bool = False
+    current_release_id: str | None = None
+    pending_operation_id: str | None = None
+    operation_state: str = "idle"
+    policy_sha256: str = ""
+    lock_version: int = 1
     created_by: str = ""
     created_at: str | None = None
     updated_at: str | None = None

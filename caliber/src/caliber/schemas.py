@@ -2338,6 +2338,26 @@ class WorkspaceEnvironmentListSchema(BaseModel):
     environments: list[WorkspaceEnvironmentSchema] = Field(default_factory=list)
 
 
+class WorkspaceEnvironmentUpdateRequest(BaseModel):
+    """Body for updating an environment's policy configuration.
+
+    ``policy_sha256`` is a caller-supplied digest, trusted the same way
+    ``WorkspaceReleaseCreateRequest.environment_config_sha256``/
+    ``runtime_dependencies_sha256`` are -- the server stores it and the
+    accompanying ``policy`` object as given, it does not independently
+    recompute or verify the hash. ``expected_lock_version`` is a
+    compare-and-swap against this environment's own ``lock_version``, the
+    same column :func:`caliber.workspace_release_operations.prepare_workspace_release_operation`
+    already CAS-checks via ``expected_environment_lock_version``.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    policy: dict[str, Any] = Field(default_factory=dict)
+    policy_sha256: str = Field(min_length=64, max_length=64)
+    expected_lock_version: int = Field(ge=1)
+
+
 class WorkspaceSourceSchema(BaseModel):
     """Public, secret-free projection of a Workspace source binding (`P4-C`)."""
 

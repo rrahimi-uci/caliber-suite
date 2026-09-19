@@ -972,15 +972,98 @@ def test_environment_enable_requires_owner_role_not_just_operator_scope(
     assert resp.status_code == 403
 
 
-def test_environment_identity_fields_have_no_edit_route(proj_client: TestClient) -> None:
-    """Section 12.2's acceptance criterion: "environment identity fields
-    cannot be edited or deleted" -- there is no PATCH/PUT/DELETE route for
-    an environment at all in this slice, only the enable/disable lifecycle
-    transition."""
-    pid = _create(proj_client, "No edit route project")
-    for method in ("patch", "put", "delete"):
+def test_environment_put_delete_still_have_no_route(proj_client: TestClient) -> None:
+    """PUT/DELETE remain absent for an environment -- there is still no way
+    to replace or remove one. PATCH now exists (policy updates, below), but
+    that does not reopen "identity fields cannot be edited": see
+    ``test_patch_environment_rejects_identity_fields``."""
+    pid = _create(proj_client, "No put delete route project")
+    for method in ("put", "delete"):
         resp = getattr(proj_client, method)(f"{PREFIX}/projects/{pid}/environments/qa")
         assert resp.status_code == 405, (method, resp.text)
+
+
+def test_patch_environment_rejects_identity_fields(proj_client: TestClient) -> None:
+    """Section 12.2's acceptance criterion -- "environment identity fields
+    cannot be edited or deleted" -- still holds even though PATCH now
+    exists: ``WorkspaceEnvironmentUpdateRequest`` forbids extra fields, so
+    ``name``/``environment_class``/``promotion_order`` (never declared on
+    it) are rejected outright rather than silently ignored or accepted."""
+    pid = _create(proj_client, "Identity immutable project")
+    resp = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/environments/qa",
+        json={
+            "name": "renamed",
+            "policy": {},
+            "policy_sha256": "a" * 64,
+            "expected_lock_version": 1,
+        },
+    )
+    assert resp.status_code == 400, resp.text
+
+
+def test_update_project_environment_policy(proj_client: TestClient, db_session: Session) -> None:
+    pid = _create(proj_client, "Env policy project")
+    resp = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/environments/qa",
+        json={
+            "policy": {"max_concurrent_releases": 1},
+            "policy_sha256": "a" * 64,
+            "expected_lock_version": 1,
+        },
+    )
+    assert resp.status_code == 200, resp.text
+    data = resp.json()["data"]
+    assert data["policy_sha256"] == "a" * 64
+    assert data["lock_version"] == 2
+
+    # A second call, correctly quoting the *new* lock_version, succeeds again --
+    # proving the CAS field is genuinely read from the freshly written row, not
+    # a stale in-memory copy.
+    second = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/environments/qa",
+        json={"policy": {}, "policy_sha256": "b" * 64, "expected_lock_version": 2},
+    )
+    assert second.status_code == 200, second.text
+    assert second.json()["data"]["lock_version"] == 3
+
+    from caliber.db.models import CaliberAuditLog
+
+    action = (
+        db_session.query(CaliberAuditLog)
+        .filter(CaliberAuditLog.entity_type == "workspace_environment")
+        .filter(CaliberAuditLog.action == "update_workspace_environment_policy")
+        .first()
+    )
+    assert action is not None
+
+
+def test_update_project_environment_stale_lock_version_conflicts(proj_client: TestClient) -> None:
+    pid = _create(proj_client, "Env stale lock project")
+    resp = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/environments/qa",
+        json={"policy": {}, "policy_sha256": "c" * 64, "expected_lock_version": 99},
+    )
+    assert resp.status_code == 409, resp.text
+
+
+def test_update_project_environment_requires_operator_scope(proj_client: TestClient) -> None:
+    pid = _create(proj_client, "Env update scope project")
+    resp = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/environments/qa",
+        json={"policy": {}, "policy_sha256": "d" * 64, "expected_lock_version": 1},
+        headers={"X-CALIBER-User": "@viewer-only"},
+    )
+    assert resp.status_code == 403
+
+
+def test_update_project_environment_404_for_unknown_name(proj_client: TestClient) -> None:
+    pid = _create(proj_client, "Env update 404 project")
+    resp = proj_client.patch(
+        f"{PREFIX}/projects/{pid}/environments/nope",
+        json={"policy": {}, "policy_sha256": "e" * 64, "expected_lock_version": 1},
+    )
+    assert resp.status_code == 404
 
 
 def test_environments_are_hidden_for_a_project_the_caller_cannot_see(

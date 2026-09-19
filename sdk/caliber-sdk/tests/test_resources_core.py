@@ -386,6 +386,49 @@ def test_project_environments_list_get_enable_disable() -> None:
     ]
 
 
+def test_update_environment_sends_policy_digest_and_expected_lock_version() -> None:
+    seen: dict[str, Any] = {}
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        import json as _json
+
+        seen["method"] = request.method
+        seen["path"] = request.url.path.rsplit("/caliber", 1)[-1]
+        seen["json"] = _json.loads(request.content)
+        return envelope(
+            {
+                "environment_id": "WSE-1",
+                "project_id": "PRJ-1",
+                "name": "qa",
+                "environment_class": "qa",
+                "promotion_order": 20,
+                "status": "disabled",
+                "created_by": "@alice",
+                "policy_sha256": "a" * 64,
+                "lock_version": 2,
+            }
+        )
+
+    with client_with(handler) as caliber:
+        updated = caliber.projects.update_environment(
+            "PRJ-1",
+            "qa",
+            policy={"max_concurrent_releases": 1},
+            policy_sha256="a" * 64,
+            expected_lock_version=1,
+        )
+
+    assert seen["method"] == "PATCH"
+    assert seen["path"] == "/projects/PRJ-1/environments/qa"
+    assert seen["json"] == {
+        "policy": {"max_concurrent_releases": 1},
+        "policy_sha256": "a" * 64,
+        "expected_lock_version": 1,
+    }
+    assert updated.policy_sha256 == "a" * 64
+    assert updated.lock_version == 2
+
+
 def test_project_access_members_decode_and_mutate() -> None:
     seen: list[tuple[str, str, dict[str, Any] | None]] = []
 
