@@ -4590,19 +4590,25 @@ execution path. **This is the hard prerequisite for the QA role.**
    registered version; `get_prompt` and `list_prompts` both hide a name
    whose target belongs to another project while leaving a bare
    provider-only/legacy name (no target row at all) visible to everyone,
-   unchanged. **Not yet delivered:** the actual MLflow-side namespace
-   scheme -- two projects' `register_prompt` calls for the same name
-   still land in one MLflow entity, visible as one interleaved history in
-   MLflow's own native UI regardless of what CALIBER's routes now hide.
-   This needs a real product decision CALIBER cannot make alone: when two
-   projects register the same name, should CALIBER silently rewrite the
-   MLflow-side name (e.g. `{project_slug}__{name}`, making the name a
-   user sees differ from MLflow's own UI), refuse the second registration
-   outright, or something else -- each option trades off differently
-   against this route's own stated promise that a prompt is "visible from
-   both Caliber and the native MLflow UI." `CaliberReleaseOperation` has
-   no `project_id` at all (item 6's already-noted blocker) and stays
-   blocked on this same decision.
+   unchanged. **Now decided and implemented (see `P2-G`'s slice-table row):**
+   the product decision this item originally left open -- silently rewrite
+   the MLflow-side name, refuse the second registration outright, or
+   something else -- was resolved in favor of refusing the second
+   registration outright. `routes/prompts.py::create_prompt` refuses
+   (`409`) before its MLflow write whenever an existing target's
+   `project_id` genuinely differs from the caller's, even past the
+   admin-visibility bypass, so two projects' `register_prompt` calls can no
+   longer land in one interleaved MLflow entity in the first place.
+   **`CaliberReleaseOperation`'s own gap (item 6) is now technically
+   unblocked but not yet picked up:** it still has no `project_id` at all,
+   and its reads remain globally unscoped, but the rationale that used to
+   block it -- "prompts have no project binding to scope by" -- no longer
+   holds now that `P2-G` gives every prompt a hidden, project-scoped
+   `CaliberAgentConfig` target. A small, concrete, still-open follow-up:
+   add a `project_id` column (backfillable from the referenced prompt's
+   hidden target, mirroring `CaliberReworkTask`'s migration `0106`
+   backfill precedent) and scope its list/detail reads the same way every
+   other `SCOPING_VISIBILITY` model's reads already are.
 5. Make workflow compiler and runtime resolvers project- and revision-aware for
    prompts, tools, skills, KBs, datasets, and MCP bindings.
    **Delivered (partial, `P2-B`).** Slice 1: the compile/promote pipeline's
