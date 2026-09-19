@@ -127,6 +127,10 @@ _STABILITY: dict[str, str] = {
     "metrics": STABILITY_INTERNAL,
     "health": STABILITY_INTERNAL,
     "readiness": STABILITY_INTERNAL,
+    # GitHub's own webhook delivery target, not an SDK-client-facing
+    # resource -- no `caliber_sdk` consumer ever calls this, the same
+    # "not part of the public SDK contract" shape as health/readiness.
+    "webhooks": STABILITY_INTERNAL,
     "gate-verdicts": STABILITY_INTERNAL,
     "llm-pricing": STABILITY_INTERNAL,
     "system": STABILITY_INTERNAL,

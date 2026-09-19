@@ -23,10 +23,14 @@ from caliber.github_source_control import GitHubResponse
 from caliber.github_workspace_provider import (
     GitHubWorkspaceSourceProvider,
     build_github_source_control_provider,
+    build_webhook_verifier,
 )
 from caliber.ids import new_project_id, new_workspace_source_id
 from caliber.secret_store import SecretCipher, SecretStore, generate_key
-from caliber.workspace_source_connections import configure_connection
+from caliber.workspace_source_connections import (
+    configure_connection,
+    private_key_secret_name,
+)
 from caliber.workspace_sources import (
     WorkspaceSourceProviderError,
     WorkspaceSourceProviderUnavailableError,
@@ -307,8 +311,6 @@ def test_verify_fails_closed_when_the_connections_secret_material_is_unavailable
     # connection row itself still marked active -- proves ``verify()`` fails
     # closed on a connection whose credentials became unresolvable, not just
     # a missing connection row.
-    from caliber.workspace_source_connections import private_key_secret_name
-
     store.revoke(db_session, name=private_key_secret_name(connection.connection_id), actor="@admin")
     db_session.commit()
     provider = GitHubWorkspaceSourceProvider(session_factory=session_factory, secret_store=store)
@@ -326,3 +328,99 @@ def test_capabilities_reports_the_full_static_set(
 
     assert capabilities["status_publication"] is True
     assert capabilities["commit_tree_fetch"] is True
+
+
+# ---------------------------------------------------------------------------
+# build_webhook_verifier: minimal-privilege signature-only adapter
+# ---------------------------------------------------------------------------
+
+
+def test_build_webhook_verifier_can_verify_a_signed_payload(
+    db_session: Session, store: SecretStore
+) -> None:
+    import hashlib
+    import hmac
+    import json
+
+    project = _project(db_session)
+    source = _source(db_session, project)
+    connection = configure_connection(
+        db_session,
+        store,
+        source=source,
+        app_id="app-1",
+        installation_id="install-1",
+        private_key="unused-for-webhook-verification",
+        webhook_secret=WEBHOOK_SECRET_VALUE,
+        actor="@admin",
+    )
+    verifier = build_webhook_verifier(db_session, store, connection, host="github.com")
+    payload = json.dumps({"repository": {"full_name": "owner/repo"}, "action": "opened"}).encode()
+    signature = hmac.new(WEBHOOK_SECRET_VALUE.encode(), payload, hashlib.sha256).hexdigest()
+
+    event = verifier.verify_webhook(
+        "owner/repo",
+        {
+            "X-GitHub-Delivery": "delivery-1",
+            "X-GitHub-Event": "pull_request",
+            "X-Hub-Signature-256": f"sha256={signature}",
+        },
+        payload,
+    )
+
+    assert event.signature_verified is True
+    assert event.repository_id == "github:owner/repo"
+
+
+def test_build_webhook_verifier_never_resolves_the_private_key(
+    db_session: Session, store: SecretStore
+) -> None:
+    """The private-privilege claim, proven rather than assumed: revoke the
+    private key out of band and confirm the verifier still works."""
+    project = _project(db_session)
+    source = _source(db_session, project)
+    connection = configure_connection(
+        db_session,
+        store,
+        source=source,
+        app_id="app-1",
+        installation_id="install-1",
+        private_key="a-private-key-that-will-be-revoked",
+        webhook_secret=WEBHOOK_SECRET_VALUE,
+        actor="@admin",
+    )
+    store.revoke(db_session, name=private_key_secret_name(connection.connection_id), actor="@admin")
+
+    verifier = build_webhook_verifier(db_session, store, connection, host="github.com")
+
+    # Constructing the verifier succeeded despite the private key being
+    # unresolvable -- proof it was never touched.
+    assert verifier is not None
+
+
+def test_unused_transport_raises_if_ever_called_directly() -> None:
+    from caliber.github_workspace_provider import _UnusedTransport
+
+    with pytest.raises(RuntimeError, match="must not perform GitHub API requests"):
+        _UnusedTransport().request("GET", "/", headers={})
+
+
+def test_build_webhook_verifiers_transport_and_token_provider_are_never_invoked(
+    db_session: Session, store: SecretStore
+) -> None:
+    project = _project(db_session)
+    source = _source(db_session, project)
+    connection = configure_connection(
+        db_session,
+        store,
+        source=source,
+        app_id="app-1",
+        installation_id="install-1",
+        private_key=WEBHOOK_SECRET_VALUE,
+        webhook_secret=WEBHOOK_SECRET_VALUE,
+        actor="@admin",
+    )
+    verifier = build_webhook_verifier(db_session, store, connection, host="github.com")
+
+    with pytest.raises(RuntimeError, match="must not"):
+        verifier.publish_status("owner/repo", "a" * 40, state="success", description="x")

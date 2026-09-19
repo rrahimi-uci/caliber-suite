@@ -21,13 +21,16 @@ from caliber.ids import new_project_id, new_workspace_source_id
 from caliber.secret_store import SecretCipher, SecretStore, SecretStoreError, generate_key
 from caliber.workspace_source_connections import (
     WorkspaceSourceConnectionError,
+    WorkspaceSourceConnectionInstallationConflictError,
     WorkspaceSourceConnectionNotFoundError,
     WorkspaceSourceConnectionProviderMismatchError,
     WorkspaceSourceConnectionUnavailableError,
     configure_connection,
     get_connection,
+    get_connection_by_installation,
     private_key_secret_name,
     resolve_credentials,
+    resolve_webhook_secret,
     revoke_connection,
     webhook_secret_secret_name,
 )
@@ -58,6 +61,27 @@ def _source(
         provider_host="github.com",
         canonical_repository_id="github:owner/repo",
         display_path="owner/repo",
+        default_branch="main",
+        status="disabled",
+        created_by="@test",
+    )
+    session.add(source)
+    session.flush()
+    return source
+
+
+def _second_project_and_source(session: Session) -> CaliberWorkspaceSource:
+    """A distinct project+source pair (a source has at most one per project)."""
+    project = CaliberProject(project_id=new_project_id(), name="Connections 2", status="active")
+    session.add(project)
+    session.flush()
+    source = CaliberWorkspaceSource(
+        source_id=new_workspace_source_id(),
+        project_id=project.project_id,
+        provider="github",
+        provider_host="github.com",
+        canonical_repository_id="github:owner/other-repo",
+        display_path="owner/other-repo",
         default_branch="main",
         status="disabled",
         created_by="@test",
@@ -421,3 +445,272 @@ def test_revoke_connection_leaves_an_unrelated_source_connection_ref_untouched(
     assert revoked.connection_id == connection.connection_id
     assert revoked.status == "revoked"
     assert source.connection_ref == "some-other-connection-id"
+
+
+# ---------------------------------------------------------------------------
+# Installation-id uniqueness (P4-E slice 2: webhook-ingress candidate lookup)
+# ---------------------------------------------------------------------------
+
+
+def test_configure_connection_rejects_a_reused_installation_id(
+    db_session: Session, store: SecretStore
+) -> None:
+    project = _project(db_session)
+    source_a = _source(db_session, project)
+    configure_connection(
+        db_session,
+        store,
+        source=source_a,
+        app_id="app-a",
+        installation_id="shared-install",
+        private_key=PRIVATE_KEY_VALUE,
+        webhook_secret=WEBHOOK_SECRET_VALUE,
+        actor="@admin",
+    )
+    source_b = _second_project_and_source(db_session)
+
+    with pytest.raises(WorkspaceSourceConnectionInstallationConflictError):
+        configure_connection(
+            db_session,
+            store,
+            source=source_b,
+            app_id="app-b",
+            installation_id="shared-install",
+            private_key=PRIVATE_KEY_VALUE,
+            webhook_secret=WEBHOOK_SECRET_VALUE,
+            actor="@admin",
+        )
+    # The rejected attempt must not have left a partial connection row for
+    # source_b, and source_a's own connection must be unaffected.
+    assert get_connection(db_session, source_b.source_id) is None
+    assert get_connection(db_session, source_a.source_id) is not None
+
+
+def test_configure_connection_rotating_into_a_reused_installation_id_is_rejected(
+    db_session: Session, store: SecretStore
+) -> None:
+    """The conflict check also applies when *rotating* an existing connection."""
+    project = _project(db_session)
+    source_a = _source(db_session, project)
+    configure_connection(
+        db_session,
+        store,
+        source=source_a,
+        app_id="app-a",
+        installation_id="install-a",
+        private_key=PRIVATE_KEY_VALUE,
+        webhook_secret=WEBHOOK_SECRET_VALUE,
+        actor="@admin",
+    )
+    source_b = _second_project_and_source(db_session)
+    configure_connection(
+        db_session,
+        store,
+        source=source_b,
+        app_id="app-b",
+        installation_id="install-b",
+        private_key=PRIVATE_KEY_VALUE,
+        webhook_secret=WEBHOOK_SECRET_VALUE,
+        actor="@admin",
+    )
+
+    with pytest.raises(WorkspaceSourceConnectionInstallationConflictError):
+        configure_connection(
+            db_session,
+            store,
+            source=source_b,
+            app_id="app-b",
+            installation_id="install-a",
+            private_key=PRIVATE_KEY_VALUE,
+            webhook_secret=WEBHOOK_SECRET_VALUE,
+            actor="@admin",
+        )
+    # source_b's own connection must still be intact with its original
+    # installation id -- the rejected rotation must not have partially applied.
+    connection_b = get_connection(db_session, source_b.source_id)
+    assert connection_b is not None
+    assert connection_b.installation_id == "install-b"
+
+
+def test_configure_connection_re_rotating_the_same_installation_id_onto_itself_succeeds(
+    db_session: Session, store: SecretStore
+) -> None:
+    """Rotating a connection's other fields while keeping the same
+    installation_id must not trip the conflict check against itself."""
+    project = _project(db_session)
+    source = _source(db_session, project)
+    configure_connection(
+        db_session,
+        store,
+        source=source,
+        app_id="app-a",
+        installation_id="install-a",
+        private_key=PRIVATE_KEY_VALUE,
+        webhook_secret=WEBHOOK_SECRET_VALUE,
+        actor="@admin",
+    )
+
+    rotated = configure_connection(
+        db_session,
+        store,
+        source=source,
+        app_id="app-a-renamed",
+        installation_id="install-a",
+        private_key="rotated-key",
+        webhook_secret="rotated-secret",
+        actor="@admin",
+    )
+
+    assert rotated.app_id == "app-a-renamed"
+    assert rotated.installation_id == "install-a"
+
+
+def test_configure_connection_catches_a_racing_installation_conflict_at_flush_time(
+    db_session: Session, store: SecretStore, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Simulates two concurrent ``configure_connection`` calls both passing
+    the pre-check before either flushes: monkeypatch the pre-check to
+    report "no conflict" (as it would for a call that ran before the
+    racing write landed) while a real conflicting row already exists, so
+    the DB-level partial unique index is what actually catches it, exactly
+    as it would under a genuine race.
+    """
+    import caliber.workspace_source_connections as connections_module
+
+    project = _project(db_session)
+    source_a = _source(db_session, project)
+    configure_connection(
+        db_session,
+        store,
+        source=source_a,
+        app_id="app-a",
+        installation_id="shared-install",
+        private_key=PRIVATE_KEY_VALUE,
+        webhook_secret=WEBHOOK_SECRET_VALUE,
+        actor="@admin",
+    )
+    source_b = _second_project_and_source(db_session)
+    monkeypatch.setattr(connections_module, "get_connection_by_installation", lambda *a, **kw: None)
+
+    with pytest.raises(WorkspaceSourceConnectionInstallationConflictError):
+        configure_connection(
+            db_session,
+            store,
+            source=source_b,
+            app_id="app-b",
+            installation_id="shared-install",
+            private_key=PRIVATE_KEY_VALUE,
+            webhook_secret=WEBHOOK_SECRET_VALUE,
+            actor="@admin",
+        )
+
+
+def test_get_connection_by_installation_finds_only_the_active_claim(
+    db_session: Session, store: SecretStore
+) -> None:
+    project = _project(db_session)
+    source = _source(db_session, project)
+    connection = configure_connection(
+        db_session,
+        store,
+        source=source,
+        app_id="app-a",
+        installation_id="install-a",
+        private_key=PRIVATE_KEY_VALUE,
+        webhook_secret=WEBHOOK_SECRET_VALUE,
+        actor="@admin",
+    )
+
+    found = get_connection_by_installation(
+        db_session, provider="github", installation_id="install-a"
+    )
+    assert found is not None
+    assert found.connection_id == connection.connection_id
+
+    assert (
+        get_connection_by_installation(db_session, provider="github", installation_id="no-such-id")
+        is None
+    )
+
+    revoke_connection(db_session, store, source=source, actor="@admin")
+    assert (
+        get_connection_by_installation(db_session, provider="github", installation_id="install-a")
+        is None
+    )
+
+
+# ---------------------------------------------------------------------------
+# Minimal-privilege webhook-secret resolution
+# ---------------------------------------------------------------------------
+
+
+def test_resolve_webhook_secret_returns_only_the_webhook_secret(
+    db_session: Session, store: SecretStore
+) -> None:
+    project = _project(db_session)
+    source = _source(db_session, project)
+    connection = configure_connection(
+        db_session,
+        store,
+        source=source,
+        app_id="app-a",
+        installation_id="install-a",
+        private_key=PRIVATE_KEY_VALUE,
+        webhook_secret=WEBHOOK_SECRET_VALUE,
+        actor="@admin",
+    )
+
+    resolved = resolve_webhook_secret(db_session, store, connection)
+
+    assert resolved == WEBHOOK_SECRET_VALUE.encode("utf-8")
+
+
+def test_resolve_webhook_secret_fails_closed_when_revoked(
+    db_session: Session, store: SecretStore
+) -> None:
+    project = _project(db_session)
+    source = _source(db_session, project)
+    connection = configure_connection(
+        db_session,
+        store,
+        source=source,
+        app_id="app-a",
+        installation_id="install-a",
+        private_key=PRIVATE_KEY_VALUE,
+        webhook_secret=WEBHOOK_SECRET_VALUE,
+        actor="@admin",
+    )
+    store.revoke(
+        db_session, name=webhook_secret_secret_name(connection.connection_id), actor="@admin"
+    )
+
+    with pytest.raises(WorkspaceSourceConnectionUnavailableError):
+        resolve_webhook_secret(db_session, store, connection)
+
+
+def test_resolve_webhook_secret_never_touches_the_private_key(
+    db_session: Session, store: SecretStore
+) -> None:
+    """Proves the "minimal privilege" claim, not just the happy path.
+
+    Revoke the *private key* out of band (simulating it being unresolvable)
+    and confirm ``resolve_webhook_secret`` still succeeds -- it must never
+    read ``private_key_ref`` at all.
+    """
+    project = _project(db_session)
+    source = _source(db_session, project)
+    connection = configure_connection(
+        db_session,
+        store,
+        source=source,
+        app_id="app-a",
+        installation_id="install-a",
+        private_key=PRIVATE_KEY_VALUE,
+        webhook_secret=WEBHOOK_SECRET_VALUE,
+        actor="@admin",
+    )
+    store.revoke(db_session, name=private_key_secret_name(connection.connection_id), actor="@admin")
+
+    resolved = resolve_webhook_secret(db_session, store, connection)
+
+    assert resolved == WEBHOOK_SECRET_VALUE.encode("utf-8")

@@ -38,6 +38,7 @@ from caliber.db.models import CaliberWorkspaceSource, CaliberWorkspaceSourceConn
 from caliber.github_app_auth import GitHubAppAuthError, GitHubAppInstallationTokenProvider
 from caliber.github_http_transport import HTTPXGitHubTransport
 from caliber.github_source_control import (
+    GitHubResponse,
     GitHubSourceControlError,
     GitHubSourceControlProvider,
     GitHubTransport,
@@ -47,6 +48,7 @@ from caliber.workspace_source_connections import (
     WorkspaceSourceConnectionError,
     get_connection,
     resolve_credentials,
+    resolve_webhook_secret,
 )
 from caliber.workspace_source_control import SourceControlCapabilities
 from caliber.workspace_sources import (
@@ -127,6 +129,67 @@ def build_github_source_control_provider(
         capabilities=_FULL_CAPABILITIES,
     )
     return GitHubProviderBundle(adapter=adapter, token_provider=token_provider)
+
+
+class _UnusedTransport:
+    """A ``GitHubTransport`` that must never actually be called.
+
+    Used only by :func:`build_webhook_verifier`, whose whole point is to
+    verify an HMAC signature without ever making a GitHub API call. If
+    something changes upstream (e.g. ``verify_webhook`` starts needing a
+    live request), this fails loudly instead of silently degrading into a
+    real network call built from an unresolved private key.
+    """
+
+    def request(
+        self,
+        # Every parameter below is intentionally unused: this method exists
+        # only to satisfy GitHubTransport's structural signature exactly
+        # (see the class docstring) and always raises before touching any
+        # of them.
+        method: str,  # noqa: ARG002
+        path: str,  # noqa: ARG002
+        *,
+        headers: Mapping[str, str],  # noqa: ARG002
+        params: Mapping[str, str] | None = None,  # noqa: ARG002
+        json_body: Mapping[str, object] | None = None,  # noqa: ARG002
+    ) -> GitHubResponse:
+        raise RuntimeError("webhook signature verification must not perform GitHub API requests")
+
+
+def _unused_token_provider() -> str:
+    raise RuntimeError("webhook signature verification must not mint an installation token")
+
+
+def build_webhook_verifier(
+    session: Session,
+    secret_store: SecretStore,
+    connection: CaliberWorkspaceSourceConnection,
+    *,
+    host: str,
+) -> GitHubSourceControlProvider:
+    """Build a minimal adapter that can only verify webhook signatures.
+
+    Deliberately resolves and touches *only* the connection's webhook
+    secret -- never its private key. HMAC signature verification is pure
+    local computation; it needs no GitHub App JWT, no installation token,
+    and no network call. Webhook ingress may need to check several
+    candidate connections per inbound delivery (see
+    ``workspace_source_connections.get_connection_by_installation``), and
+    decrypting every candidate's private key just to reject most of them
+    would needlessly widen the blast radius of a single request. The
+    returned adapter's ``token_provider``/transport both raise if ever
+    invoked, so a future code change that accidentally tries to make a real
+    API call here fails loudly instead of silently.
+    """
+    webhook_secret = resolve_webhook_secret(session, secret_store, connection)
+    return GitHubSourceControlProvider(
+        _UnusedTransport(),
+        token_provider=_unused_token_provider,
+        webhook_secret_provider=lambda: webhook_secret,
+        host=host,
+        capabilities=_FULL_CAPABILITIES,
+    )
 
 
 class GitHubWorkspaceSourceProvider:
@@ -211,4 +274,5 @@ __all__ = [
     "GitHubProviderBundle",
     "GitHubWorkspaceSourceProvider",
     "build_github_source_control_provider",
+    "build_webhook_verifier",
 ]

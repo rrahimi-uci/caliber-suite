@@ -2422,6 +2422,14 @@ class CaliberWorkspaceSourceConnection(Base):
     plaintext columns. A source has at most one *active* connection; a
     revoked row is retained for audit rather than deleted, mirroring
     ``CaliberWorkspaceSourceActorLink``'s revocation shape.
+
+    A real GitHub App installation is also only ever legitimately bound to
+    one target, so ``(provider, installation_id)`` is unique across active
+    connections too -- this is the root fix for the webhook-ingress
+    candidate-lookup design (`P4-E` slice 2): an inbound webhook's untrusted
+    ``installation.id`` claim can resolve to at most one active connection,
+    and HMAC signature verification against that connection's own secret is
+    still what actually admits the delivery, never the lookup by itself.
     """
 
     __tablename__ = "caliber_workspace_source_connections"
@@ -2429,6 +2437,14 @@ class CaliberWorkspaceSourceConnection(Base):
         Index(
             "uq_workspace_source_connection_active",
             "source_id",
+            unique=True,
+            sqlite_where=text("status = 'active'"),
+            postgresql_where=text("status = 'active'"),
+        ),
+        Index(
+            "uq_workspace_source_connection_active_installation",
+            "provider",
+            "installation_id",
             unique=True,
             sqlite_where=text("status = 'active'"),
             postgresql_where=text("status = 'active'"),

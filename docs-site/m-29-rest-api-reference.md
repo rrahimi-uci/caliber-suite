@@ -152,6 +152,7 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Metrics (`metrics`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml's [[exclusion]] entries) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 | Readiness (`readiness`) | `internal` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
 | System (`system`) | `internal` | `11` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Webhooks (`webhooks`) | `internal` | `1` | No typed SDK | — | Internal route family. Use the served OpenAPI or raw HTTP only when you are intentionally working below the supported SDK contract. |
 
 ## Current route inventory
 
@@ -162,13 +163,13 @@ The served contract is route-table grounded and body-complete: paths and methods
 
 | Field | Value |
 | --- | --- |
-| Route paths | `383` |
-| Operations | `469` |
+| Route paths | `384` |
+| Operations | `470` |
 | Path coverage | `complete` |
 | Request bodies | `complete` |
 | GA families | `23` |
 | Beta families | `21` |
-| Internal families | `10` |
+| Internal families | `11` |
 
 ### Auth and scoping contract
 
@@ -249,6 +250,7 @@ Use these quick jumps when you already know the CALIBER subsystem and want the d
 | [Metrics (`metrics`)](#metrics-metrics) | `1` | `1` |
 | [Readiness (`readiness`)](#readiness-readiness) | `1` | `1` |
 | [System (`system`)](#system-system) | `11` | `11` |
+| [Webhooks (`webhooks`)](#webhooks-webhooks) | `1` | `1` |
 
 ### GA routes
 
@@ -1108,6 +1110,14 @@ Published for route-table completeness, but not part of the supported SDK contra
 | `GET` | `/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters` | `caliber.operator` | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_system_webhook_dead_letters` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters/{dead_letter_id}/acknowledge` | `caliber.operator` | `dead_letter_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_webhook_dead_letters_dead_letter_id_acknowledge`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/system/webhook-dead-letters/{dead_letter_id}/replay` | `caliber.operator` | `dead_letter_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_system_webhook_dead_letters_dead_letter_id_replay` |
+
+#### Webhooks (`webhooks`)
+
+1 operation(s) across 1 route path(s).
+
+| Method | Path | Required scope | Parameters | Responses | Details |
+| --- | --- | --- | --- | --- | --- |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/webhooks/github` | public — GitHub itself is the caller, with no CALIBER session/PAT to hold a scope check against -- the same 'external caller, own auth' shape as the services.py token gate above. Admission control here is HMAC signature verification against a stored connection's webhook secret (github_source_control.py::verify_webhook), performed in-handler, not the caller-identity scope system. | — | `400`, `401`, `403`, `404` | `operationId`: `post_webhooks_github` |
 
 ## Practical integration order
 

@@ -136,6 +136,58 @@ def get_working_dir_service(request: Request) -> WorkingDirectoryService:
     return service
 
 
+async def read_request_body(
+    request: Request,
+    *,
+    max_body_bytes: int | None = None,
+) -> bytes:
+    """Read the raw request body, optionally enforcing a byte ceiling.
+
+    Split out of :func:`parse_json_object` so a caller that needs the raw
+    bytes themselves (an HMAC signature check, for instance, which must
+    verify the exact bytes the sender signed -- re-serializing a parsed
+    JSON object would not reliably reproduce them) can reuse the same
+    streamed, authoritative size-limiting logic without going through JSON
+    parsing at all.
+
+    ``Content-Length`` is only a fast rejection; the streamed byte count is
+    authoritative so chunked or understated requests cannot bypass the
+    limit. Raises ``HTTPException(413)`` if the body exceeds
+    ``max_body_bytes``.
+    """
+    if max_body_bytes is not None and max_body_bytes < 1:
+        raise ValueError("max_body_bytes must be positive")
+
+    if max_body_bytes is None:
+        return await request.body()
+
+    declared = request.headers.get("Content-Length")
+    if declared is not None:
+        try:
+            declared_bytes = int(declared)
+        except ValueError:
+            declared_bytes = -1
+        if declared_bytes > max_body_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"request body exceeds {max_body_bytes} bytes",
+            )
+
+    buffered = bytearray()
+    async for chunk in request.stream():
+        if len(buffered) + len(chunk) > max_body_bytes:
+            raise HTTPException(
+                status_code=413,
+                detail=f"request body exceeds {max_body_bytes} bytes",
+            )
+        buffered.extend(chunk)
+    raw = bytes(buffered)
+    # Match Request.body()'s replay behavior for instrumentation or wrappers
+    # that legitimately inspect the already-consumed body later in the request.
+    request._body = raw
+    return raw
+
+
 async def parse_json_object(
     request: Request,
     *,
@@ -177,37 +229,7 @@ async def parse_json_object(
         400 on missing-but-required body, malformed JSON, or
         non-object root.
     """
-    if max_body_bytes is not None and max_body_bytes < 1:
-        raise ValueError("max_body_bytes must be positive")
-
-    raw: bytes
-    if max_body_bytes is None:
-        raw = await request.body()
-    else:
-        declared = request.headers.get("Content-Length")
-        if declared is not None:
-            try:
-                declared_bytes = int(declared)
-            except ValueError:
-                declared_bytes = -1
-            if declared_bytes > max_body_bytes:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"request body exceeds {max_body_bytes} bytes",
-                )
-
-        buffered = bytearray()
-        async for chunk in request.stream():
-            if len(buffered) + len(chunk) > max_body_bytes:
-                raise HTTPException(
-                    status_code=413,
-                    detail=f"request body exceeds {max_body_bytes} bytes",
-                )
-            buffered.extend(chunk)
-        raw = bytes(buffered)
-        # Match Request.body()'s replay behavior for instrumentation or wrappers
-        # that legitimately inspect the already-consumed body later in the request.
-        request._body = raw
+    raw = await read_request_body(request, max_body_bytes=max_body_bytes)
     if not raw:
         if allow_empty:
             return {}
@@ -231,6 +253,7 @@ __all__ = [
     "envelope_response",
     "get_session_factory",
     "parse_json_object",
+    "read_request_body",
 ]
 
 
