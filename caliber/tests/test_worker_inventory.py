@@ -28,6 +28,7 @@ _EXPECTED_WORKERS = [
     ("workflow_run_worker", "WorkflowRunWorker"),
     ("aria_plan_worker", "AriaPlanWorker"),
     ("knowledge_build_worker", "KnowledgeBaseWorker"),
+    ("workspace_import_worker", "WorkspaceImportWorker"),
     ("scheduler", "WorkflowSchedulerTask"),
 ]
 

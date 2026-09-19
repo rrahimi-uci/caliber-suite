@@ -113,6 +113,20 @@ _WORKER_NOTES: dict[str, WorkerNote] = {
         description="Delivers accepted outbound webhook events; retries into the dead-letter queue.",
         tables=("CaliberWebhookAcceptedEvent", "CaliberWebhookDeadLetter"),
     ),
+    "WorkspaceImportWorker": WorkerNote(
+        description=(
+            "Claims queued push-mode Workspace import jobs and materializes each into an "
+            "immutable WorkspaceRevision."
+        ),
+        tables=(
+            "CaliberWorkspaceImportJob",
+            "CaliberWorkspaceSource",
+            "CaliberWorkflowFile",
+            "CaliberWorkspaceRevision",
+            "CaliberWorkspaceRevisionResource",
+            "CaliberProject",
+        ),
+    ),
 }
 
 
