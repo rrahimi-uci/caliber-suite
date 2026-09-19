@@ -1545,6 +1545,25 @@ async def create_prompt(request: Request) -> JSONResponse:
     return JSONResponse({"data": result}, status_code=201)
 
 
+def _prompt_target_invisible(session: Session, name: str, identity: CaliberIdentity) -> bool:
+    """True when ``name`` has a hidden CALIBER-side runtime target that isn't
+    visible to ``identity``.
+
+    A name with no target row at all (a bare provider-only/legacy MLflow
+    prompt, with no CALIBER row and so no project owner) is never hidden --
+    the same carve-out documented on ``create_prompt``/``P2-G``. Shared by
+    every *lookup* route that would otherwise return MLflow-side prompt
+    content addressed only by its flat, unscoped registry name.
+    """
+    existing_target = session.get(CaliberAgentConfig, name)
+    if existing_target is None:
+        return False
+    return (
+        get_visible(session, CaliberAgentConfig, CaliberAgentConfig.agent_id, name, identity)
+        is None
+    )
+
+
 async def get_prompt(request: Request) -> JSONResponse:
     """``GET /caliber/prompts/{name}`` — load full prompt details.
 
@@ -1566,14 +1585,7 @@ async def get_prompt(request: Request) -> JSONResponse:
     # target at all (a bare provider-only/legacy prompt) is unaffected.
     factory = get_session_factory(request)
     with factory() as session:
-        existing_target = session.get(CaliberAgentConfig, name)
-        if (
-            existing_target is not None
-            and get_visible(
-                session, CaliberAgentConfig, CaliberAgentConfig.agent_id, name, identity
-            )
-            is None
-        ):
+        if _prompt_target_invisible(session, name, identity):
             raise HTTPException(
                 status_code=404, detail=f"prompt {name!r} not found for alias {alias!r}"
             )
@@ -1767,13 +1779,28 @@ async def list_prompt_versions(request: Request) -> JSONResponse:
     includes aliases that point to each version.
     """
     require_user(request)
+    identity = resolve_identity(request)
     name = request.path_params["name"]
+
+    # `P2-N`/`P2-O`: same disclosure this route's siblings (`get_prompt`,
+    # `create_prompt_version`, `delete_prompt`) already refuse -- a bare
+    # `_list_prompt_version_items` call went straight to MLflow's flat,
+    # unscoped namespace with no CALIBER-side project check at all, so any
+    # authenticated caller could enumerate another project's prompt version
+    # history (commit messages, aliases, MLflow source URIs) by guessing its
+    # name. A name with no hidden target at all is unaffected.
+    factory = get_session_factory(request)
+    with factory() as session:
+        if _prompt_target_invisible(session, name, identity):
+            raise HTTPException(status_code=404, detail=f"prompt {name!r} not found")
+
     return JSONResponse({"data": _list_prompt_version_items(name)})
 
 
 async def get_prompt_version(request: Request) -> JSONResponse:
     """``GET /caliber/prompts/{name}/versions/{version}`` — load full template for a specific version."""
     require_user(request)
+    identity = resolve_identity(request)
     name = request.path_params["name"]
     version_raw = request.path_params["version"]
 
@@ -1781,6 +1808,18 @@ async def get_prompt_version(request: Request) -> JSONResponse:
         version = int(version_raw)
     except Exception as exc:
         raise HTTPException(status_code=400, detail="'version' must be an integer") from exc
+
+    # `P2-N`/`P2-O`: this route returns the prompt's *full template body* for
+    # a specific version -- the same genuine disclosure `get_prompt` already
+    # refuses for the live alias, but this sibling endpoint had no CALIBER-
+    # side check at all, so a caller blocked from `GET /prompts/{name}` could
+    # still read the same content through `GET /prompts/{name}/versions/{v}`.
+    factory = get_session_factory(request)
+    with factory() as session:
+        if _prompt_target_invisible(session, name, identity):
+            raise HTTPException(
+                status_code=404, detail=f"prompt {name!r} version {version} not found"
+            )
 
     mlflow = _get_mlflow_module()
     if mlflow is None:
