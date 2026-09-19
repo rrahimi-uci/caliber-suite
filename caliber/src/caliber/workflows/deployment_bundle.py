@@ -34,6 +34,7 @@ from caliber.db.models import (
     CaliberWorkflowVersion,
 )
 from caliber.db.scoping import apply_visibility_filter, get_visible, synthetic_identity
+from caliber.storage import StorageError, parse_ref
 from caliber.workflows.compiler import compile_workflow
 from caliber.workflows.manifest import (
     AgentNode,
@@ -672,11 +673,37 @@ def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
                 )
             )
         elif isinstance(node, FileInputNode) and node.file_ref is not None:
+            # `P2-C` (isolation closure, storage/file isolation): this used a bare
+            # ``session.get`` keyed only on the manifest-supplied ``file_id`` --
+            # unlike the ``SubworkflowNode``/``McpResourceNode`` branches above,
+            # which scope through ``get_visible``/the bundle's own
+            # ``identity.active_project_id``. ``ScopedManagedFileResolver``
+            # (storage/service.py's ``resolve_scoped_file``) enforces the real
+            # tenant/project boundary before any byte is ever read at run time,
+            # so this never leaked file *contents* -- but it still let a
+            # manifest naming another project's ``file_id`` learn (via the
+            # ``resolved`` flag) whether a guessed file_id/file_ref/sha256/size
+            # combination exists in a different project, and reported a
+            # foreign-project pin as "resolved" during deploy preflight. Mirror
+            # ``routes/workflows.py::_preflight_managed_file_node``'s scope
+            # check so a foreign-project row can never resolve here either.
             ref = node.file_ref
             row = session.get(CaliberWorkflowFile, ref.file_id)
+            try:
+                parsed_ref = parse_ref(ref.file_ref)
+            except StorageError:
+                parsed_ref = None
+            in_project = (
+                identity.active_project_id is not None
+                and parsed_ref is not None
+                and parsed_ref.resource_type == "projects"
+                and parsed_ref.resource_id == identity.active_project_id
+            )
             resolved = bool(
-                row is not None
+                in_project
+                and row is not None
                 and row.deleted_at is None
+                and row.project_id == identity.active_project_id
                 and row.file_ref == ref.file_ref
                 and row.sha256 == ref.sha256
                 and row.size_bytes == ref.size_bytes
@@ -695,7 +722,8 @@ def build_deployment_bundle(  # noqa: PLR0912, PLR0915 - dependency inventory
                     snapshot=snapshot,
                     detail="File metadata and digest pinned; object bytes remain external."
                     if resolved
-                    else "Managed file metadata no longer matches the pinned reference.",
+                    else "Managed file metadata no longer matches the pinned reference, "
+                    "or belongs to a different project.",
                 )
             )
 
