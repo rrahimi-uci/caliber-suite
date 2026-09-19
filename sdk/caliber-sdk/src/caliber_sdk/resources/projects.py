@@ -926,6 +926,30 @@ class ProjectReleaseOperationsAPI(Resource):
             )
         )
 
+    def wait(
+        self,
+        project_id: str,
+        release_id: str,
+        operation_id: str,
+        *,
+        timeout: float = 900.0,
+        **options: Any,
+    ) -> WorkspaceReleaseOperationResult:
+        """Poll until an apply or rollback operation reaches a terminal state.
+
+        ``reconcile_required`` counts as terminal here for the same reason it
+        does for :meth:`ProjectImportsAPI.wait` -- it will never advance on
+        its own, so a caller who only waited for ``applied``/``failed``
+        would block until timeout on the one outcome that needs
+        :meth:`observe` called, not more waiting.
+        """
+        return wait_for(
+            lambda: self.get(project_id, release_id, operation_id),
+            is_done=lambda result: result.is_terminal,
+            timeout=timeout,
+            **options,
+        )
+
 
 class ProjectReleasesAPI(Resource):
     """The Workspace release evaluation/decision/approval lifecycle (`P5-F`).
@@ -1076,6 +1100,23 @@ class ProjectReleasesAPI(Resource):
                 f"/projects/{project_id}/releases/{release_id}/evaluations/{evaluation_id}",
                 project=project_id,
             ),
+        )
+
+    def wait_for_evaluation(
+        self,
+        project_id: str,
+        release_id: str,
+        evaluation_id: str,
+        *,
+        timeout: float = 900.0,
+        **options: Any,
+    ) -> WorkspaceReleaseEvaluation:
+        """Poll until the evaluation attempt reaches ``succeeded`` or ``failed``."""
+        return wait_for(
+            lambda: self.get_evaluation(project_id, release_id, evaluation_id),
+            is_done=lambda evaluation: evaluation.is_terminal,
+            timeout=timeout,
+            **options,
         )
 
     def quality_signoff(
