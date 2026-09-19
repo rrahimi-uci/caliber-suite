@@ -2499,6 +2499,31 @@ Close the underlying HTTP client or transport owned by this object.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
+###### `accept(project_id: str, change_request_id: str) -> WorkspaceChangeRequest`
+
+Accept a Change Request, advancing the project's accepted revision.
+
+Takes no QA-evidence argument by design: the server derives it
+itself from a durably recorded QA `go` decision bound to the
+request's current head (see
+``caliber.routes.workspace_change_requests``'s own docstring on the
+server side) rather than trusting anything this client could send.
+A `409` means either no qualifying QA decision exists yet for the
+current head, or a concurrent acceptance already advanced the
+project's accepted revision out from under this request.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `project_id` | positional-or-keyword | `str` | `—` |
+| `change_request_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `WorkspaceChangeRequest`
+
+**Raises:**
+
+- [`CaliberAPIError`](#caliberapierror)
+- [`CaliberTransportError`](#calibertransporterror)
+
 ###### `list_comments(project_id: str, change_request_id: str, *, limit: int | None = None, cursor: str | None = None) -> CursorPage[WorkspaceChangeRequestComment]`
 
 Operate on the project change requests surface with the supplied arguments and return the server response.

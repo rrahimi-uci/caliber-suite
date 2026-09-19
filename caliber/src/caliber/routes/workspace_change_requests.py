@@ -1,9 +1,26 @@
 """Workspace Change Request, review-history, and version-tag routes (`P4-D`).
 
 The HTTP surface exposes recoverable history and authorizes every operation in
-the same SQLAlchemy session that reads or mutates the project-scoped rows. The
-Phase-5 acceptance primitive is intentionally not routed here: QA release
-evidence does not exist yet.
+the same SQLAlchemy session that reads or mutates the project-scoped rows.
+
+``accept_route`` (``POST .../change-requests/{id}:accept``) is the public
+acceptance route: it wires
+:func:`caliber.workspace_change_request_service.accept_change_request`'s
+compare-and-swap up to HTTP. That function takes a caller-supplied
+``qa_evidence: dict[str, object]`` and trusts it as given -- fine for a
+direct Python call from a test or from Phase 5's own QA release service, but
+a real authorization hole if an HTTP caller could just POST
+``{"passed": true}``. ``accept_route`` never accepts (or even parses) a
+request body for this reason; ``_resolve_verified_qa_evidence`` derives
+``qa_evidence`` itself from a durable, server-recorded
+`CaliberWorkspaceReleaseDecision` row (`kind="quality"`, `decision="go"`,
+Phase 5's `workspace_release_governance.py::record_workspace_release_decision`)
+that is bound to the Change Request's *current* head
+(`change_request_head_id` equality) and *current* revision digest
+(`revision_sha256` equality) via a `CaliberWorkspaceRelease` in a
+`qa`-class environment for this Change Request. See
+``_resolve_verified_qa_evidence``'s own docstring for the exact query and
+the edge cases it was written to cover.
 """
 
 from __future__ import annotations
@@ -35,7 +52,10 @@ from caliber.db.models import (
     CaliberWorkspaceChangeRequestHead,
     CaliberWorkspaceChangeRequestReview,
     CaliberWorkspaceChangeRequestReviewer,
+    CaliberWorkspaceEnvironment,
     CaliberWorkspaceExternalReviewAttestation,
+    CaliberWorkspaceRelease,
+    CaliberWorkspaceReleaseDecision,
     CaliberWorkspaceVersionClaim,
     CaliberWorkspaceVersionTag,
 )
@@ -66,6 +86,7 @@ from caliber.schemas import (
     WorkspaceVersionTagSchema,
 )
 from caliber.workspace_change_request_service import (
+    accept_change_request,
     add_comment,
     assign_reviewer,
     close_change_request,
@@ -84,6 +105,7 @@ SUBMIT_PATH = DETAIL_PATH + ":submit"
 UPDATE_HEAD_PATH = DETAIL_PATH + ":update-head"
 REBASE_PATH = DETAIL_PATH + ":rebase"
 CLOSE_PATH = DETAIL_PATH + ":close"
+ACCEPT_PATH = DETAIL_PATH + ":accept"
 COMMENTS_PATH = DETAIL_PATH + "/comments"
 REVIEWERS_PATH = DETAIL_PATH + "/reviewers"
 REVIEWER_DETAIL_PATH = REVIEWERS_PATH + "/{user_id}"
@@ -638,6 +660,125 @@ def _close_sync(
         return _request_schema(session, row)
 
 
+def _resolve_verified_qa_evidence(
+    session: Session,
+    *,
+    project_id: str,
+    change_request_id: str,
+    head: CaliberWorkspaceChangeRequestHead,
+) -> dict[str, object]:
+    """Derive ``qa_evidence`` from a durable, server-verified QA decision.
+
+    Never trusts a caller-supplied claim of ``"passed": true`` -- see this
+    module's own docstring for the full reasoning. A qualifying decision is
+    a ``kind="quality"``/``decision="go"`` `CaliberWorkspaceReleaseDecision`
+    row that is:
+
+    * bound to *this exact* Change Request head (`change_request_head_id`
+      equality against the current head, not merely some past head of this
+      request);
+    * bound to *this exact* revision digest (`revision_sha256` equality
+      against the current head's digest, the same field
+      `accept_change_request` itself re-checks); and
+    * recorded against a `CaliberWorkspaceRelease` for this Change Request
+      whose environment is `qa`-class (Phase 5's QA gate, not a staging/
+      production release, and not a release for a different Change
+      Request that merely happens to touch the same project).
+
+    Edge cases this was written to handle:
+
+    * **Multiple releases/retries against the same head.** Nothing here
+      requires exactly one release or one decision -- `LIMIT 1` on any
+      matching row is sufficient. A failed QA attempt followed by a
+      passing retry (two separate `CaliberWorkspaceRelease` rows, two
+      separate decisions) qualifies via its `go` row.
+    * **A `no_go` decision existing alongside a later `go`.** Each
+      decision is scoped to one `workspace_release_id`
+      (`CaliberWorkspaceReleaseDecision`'s own
+      `(workspace_release_id, kind)` uniqueness), so a `no_go` recorded
+      against one release attempt never shadows a `go` recorded against a
+      different one for the same head -- the query only cares whether a
+      qualifying `go` row exists at all, not what else exists alongside
+      it.
+    * **An out-of-date (stale) head.** After a rebase, the Change
+      Request's current head is a new `head_id`/`revision_sha256` pair. A
+      decision recorded against the prior head fails both equality checks
+      and is correctly excluded, forcing a fresh QA pass on the rebased
+      head -- exactly like `accept_change_request`'s own base-revision CAS
+      already forces re-review after a competing acceptance.
+    * **No QA decision at all, or only a `no_go`.** Both fail closed with
+      a `409`, never falling back to trusting a request body.
+    """
+    decision = session.execute(
+        select(CaliberWorkspaceReleaseDecision)
+        .join(
+            CaliberWorkspaceRelease,
+            CaliberWorkspaceReleaseDecision.workspace_release_id
+            == CaliberWorkspaceRelease.release_id,
+        )
+        .join(
+            CaliberWorkspaceEnvironment,
+            CaliberWorkspaceRelease.environment_id == CaliberWorkspaceEnvironment.environment_id,
+        )
+        .where(
+            CaliberWorkspaceRelease.project_id == project_id,
+            CaliberWorkspaceRelease.change_request_id == change_request_id,
+            CaliberWorkspaceEnvironment.environment_class == "qa",
+            CaliberWorkspaceReleaseDecision.kind == "quality",
+            CaliberWorkspaceReleaseDecision.decision == "go",
+            CaliberWorkspaceReleaseDecision.change_request_head_id == head.head_id,
+            CaliberWorkspaceReleaseDecision.revision_sha256 == head.revision_sha256,
+        )
+        .order_by(CaliberWorkspaceReleaseDecision.created_at.desc())
+        .limit(1)
+    ).scalar_one_or_none()
+    if decision is None:
+        raise HTTPException(status_code=409, detail="qa_go_decision_required")
+    return {"passed": True, "revision_sha256": decision.revision_sha256}
+
+
+def _accept_sync(
+    factory: _Factory,
+    *,
+    project_id: str,
+    change_request_id: str,
+    identity: CaliberIdentity,
+    project_action: str,
+) -> WorkspaceChangeRequestSchema:
+    with factory() as session:
+        require_project_access(session, identity, project_id, project_action)
+        request = session.execute(
+            select(CaliberWorkspaceChangeRequest).where(
+                CaliberWorkspaceChangeRequest.project_id == project_id,
+                CaliberWorkspaceChangeRequest.change_request_id == change_request_id,
+            )
+        ).scalar_one_or_none()
+        if request is None:
+            raise HTTPException(status_code=404, detail="change_request_not_found")
+        head = session.execute(
+            select(CaliberWorkspaceChangeRequestHead).where(
+                CaliberWorkspaceChangeRequestHead.change_request_id == change_request_id,
+                CaliberWorkspaceChangeRequestHead.generation == request.head_generation,
+            )
+        ).scalar_one()
+        qa_evidence = _resolve_verified_qa_evidence(
+            session,
+            project_id=project_id,
+            change_request_id=change_request_id,
+            head=head,
+        )
+        accepted = accept_change_request(
+            session,
+            project_id=project_id,
+            change_request_id=change_request_id,
+            actor=identity.user_id,
+            qa_evidence=qa_evidence,
+        )
+        if not accepted:
+            raise HTTPException(status_code=409, detail="change_request_out_of_date")
+        return _request_schema(session, request)
+
+
 def _add_comment_sync(
     factory: _Factory,
     *,
@@ -912,6 +1053,32 @@ async def close_route(request: Request) -> JSONResponse:
     return envelope_response(schema)
 
 
+async def accept_route(request: Request) -> JSONResponse:
+    """Accept a Change Request, advancing the project's accepted revision.
+
+    Deliberately takes no request body: unlike `close`/`rebase`/etc., there
+    is nothing here for a caller to legitimately supply -- ``qa_evidence``
+    is derived entirely server-side by ``_resolve_verified_qa_evidence``
+    from a durably recorded QA decision (see this module's own docstring).
+    A client that could pass ``qa_evidence`` directly could simply assert
+    ``"passed": true`` with no real QA process behind it, which is exactly
+    the authorization hole this design avoids.
+    """
+    project_id = request.path_params["project_id"]
+    _require_workspace_header(request, project_id)
+    require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
+    schema = await run_in_threadpool(
+        _accept_sync,
+        get_session_factory(request),
+        project_id=project_id,
+        change_request_id=request.path_params["change_request_id"],
+        identity=identity,
+        project_action="change_request.accept",
+    )
+    return envelope_response(schema)
+
+
 async def _list_related_route(
     request: Request,
     kind: Literal["comments", "reviewers", "reviews", "attestations", "checks"],
@@ -1098,6 +1265,7 @@ def register(app: Starlette) -> None:
     app.routes.append(Route(UPDATE_HEAD_PATH, update_head_route, methods=["POST"]))
     app.routes.append(Route(REBASE_PATH, rebase_route, methods=["POST"]))
     app.routes.append(Route(CLOSE_PATH, close_route, methods=["POST"]))
+    app.routes.append(Route(ACCEPT_PATH, accept_route, methods=["POST"]))
     app.routes.append(Route(COMMENTS_PATH, list_comments_route, methods=["GET"]))
     app.routes.append(Route(COMMENTS_PATH, add_comment_route, methods=["POST"]))
     app.routes.append(Route(REVIEWERS_PATH, list_reviewers_route, methods=["GET"]))

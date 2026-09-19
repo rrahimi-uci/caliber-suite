@@ -149,6 +149,7 @@ _PROJECT_ACCESS_OFFLOADED_HELPERS = frozenset(
         "_remove_reviewer_sync",
         "_submit_review_sync",
         "_refresh_external_sync",
+        "_accept_sync",
     }
 )
 

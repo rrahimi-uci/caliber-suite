@@ -122,6 +122,14 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     "change_request.comment": frozenset({ROLE_OWNER, ROLE_EDITOR, ROLE_REVIEWER}),
     "change_request.review": frozenset({ROLE_OWNER, ROLE_EDITOR}),
     "change_request.manage": frozenset({ROLE_OWNER}),
+    # `P4-D` (public acceptance route): advancing
+    # `caliber_projects.accepted_revision_id` is the one irreversible-in-
+    # effect CAS in the Change Request lifecycle -- once accepted, the
+    # revision is live for every downstream consumer of "the accepted
+    # head". Owner-only, the same ceiling `release.approve` uses for the
+    # analogous final-approval action in the release lifecycle, rather than
+    # reusing `change_request.update`'s editor-inclusive set.
+    "change_request.accept": frozenset({ROLE_OWNER}),
     # `P1-F`: now wired -- `routes/projects.py`'s
     # `enable_project_environment`/`disable_project_environment` (the
     # explicit environment lifecycle transition Phase 1 item 10 names).
@@ -142,16 +150,17 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     # (`P5-B`) designs its real, separately-audited check.
 }
 
-#: `P1-B`/`P1-C`/`P1-D`/`P1-F`: a hand-bumped marker for
+#: `P1-B`/`P1-C`/`P1-D`/`P1-F`/`P4-D`: a hand-bumped marker for
 #: `AccessDecision.policy_version` (section 5.4). Bump this string whenever
 #: this module's decision policy changes in a way an auditor reading old
 #: decisions would need to know about (e.g. the admin-owner-bypass removal
 #: `P1-B` made, `P1-C` adding the archive/restore/transfer_owner actions,
 #: `P1-D` closing the full action registry and wiring
-#: `resource.execute`/`feedback.submit`, or `P1-F` narrowing an
-#: eligibility-lapsed owner to `editor`) -- not on every unrelated edit to
-#: this file.
-POLICY_VERSION: Final[str] = "p1f-2026-09-13"
+#: `resource.execute`/`feedback.submit`, `P1-F` narrowing an
+#: eligibility-lapsed owner to `editor`, or `P4-D` adding the owner-only
+#: `change_request.accept` action for the new public acceptance route) --
+#: not on every unrelated edit to this file.
+POLICY_VERSION: Final[str] = "p4d-2026-09-18"
 
 #: `P1-C` (section 2.4/19.1 item 4): granting the `owner` role (Admin) --
 #: whether via `add_project_member`/`update_project_member` or as the
