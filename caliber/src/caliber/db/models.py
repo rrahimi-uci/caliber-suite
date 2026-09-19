@@ -1279,7 +1279,15 @@ class CaliberWorkflow(Base):
     """Workflow Studio workflow root."""
 
     __tablename__ = "caliber_workflows"
-    __table_args__ = (Index("ix_workflows_project_visibility", "project_id", "visibility"),)
+    __table_args__ = (
+        # Global, not per-project: matches `routes/workflows.py::create_workflow`'s
+        # pre-existing app-level check (`CaliberWorkflow.name == payload.name` with
+        # no `project_id` filter) and the same "shared fleet-wide handle" precedent
+        # already ratified for `uq_skill_name`/`uq_judge_name`/etc (`P2-A` slice 10).
+        # This constraint is the DB-level backstop for that same, unchanged scope.
+        UniqueConstraint("name", name="uq_workflow_name"),
+        Index("ix_workflows_project_visibility", "project_id", "visibility"),
+    )
 
     # Multi-user project scoping: optional project_id scopes a row to a tenant (null = global).
     project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
@@ -1812,7 +1820,17 @@ class CaliberOpenApiIntegration(Base):
     __tablename__ = "caliber_openapi_integrations"
     __table_args__ = (
         Index("ix_openapi_integrations_status", "status"),
-        Index("ix_openapi_integrations_name", "name"),
+        # Global, not per-project: no app-level uniqueness check existed for this
+        # table before this constraint (unlike `caliber_workflows`, whose route
+        # already checked `name` globally). Structurally this model matches the
+        # `project_visibility`-composite-index family (`caliber_workflows`,
+        # `caliber_skills`) rather than the `owner_status`/`project_status`-pair
+        # family (`caliber_knowledge_bases`, `caliber_workflow_benchmark_reports`),
+        # so it follows that family's already-ratified global "shared fleet-wide
+        # handle" convention (`uq_skill_name` et al., `P2-A` slice 10) rather than
+        # inventing a new per-project scope. The old plain index on `name` is
+        # superseded by this constraint's own implicit index.
+        UniqueConstraint("name", name="uq_openapi_integration_name"),
         Index("ix_openapi_integrations_project_visibility", "project_id", "visibility"),
     )
 
@@ -3594,6 +3612,35 @@ class CaliberKnowledgeBase(Base):
     __table_args__ = (
         Index("ix_knowledge_bases_owner_status", "owner", "status"),
         Index("ix_knowledge_bases_project_status", "project_id", "status"),
+        # Per-(project, owner) uniqueness, not global: matches
+        # `knowledge/service.py::KnowledgeBaseService._assert_unique_name`'s
+        # pre-existing app-level check exactly, which scopes on `name` AND
+        # (`project_id == active_project_id` OR `project_id IS NULL` for the
+        # no-active-project/personal-library case) AND `owner == identity.user_id`.
+        # A plain `UniqueConstraint("project_id", "owner", "name")` would not
+        # reproduce that check's NULL-project branch: every SQL dialect treats
+        # each NULL as distinct from every other NULL, so two personal-library
+        # rows for the same owner/name would silently NOT collide. These two
+        # partial indexes split the app check's two branches explicitly so
+        # NULL-project rows still collide with each other, matching the
+        # `project_id IS NULL` branch precisely.
+        Index(
+            "uq_knowledge_base_project_owner_name",
+            "project_id",
+            "owner",
+            "name",
+            unique=True,
+            sqlite_where=text("project_id IS NOT NULL"),
+            postgresql_where=text("project_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_knowledge_base_owner_name_no_project",
+            "owner",
+            "name",
+            unique=True,
+            sqlite_where=text("project_id IS NULL"),
+            postgresql_where=text("project_id IS NULL"),
+        ),
     )
 
     project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)
@@ -3991,6 +4038,35 @@ class CaliberWorkflowBenchmarkReport(Base):
     __table_args__ = (
         Index("ix_wf_benchmark_reports_owner_status", "owner", "status"),
         Index("ix_wf_benchmark_reports_project_status", "project_id", "status"),
+        # No app-level name check existed for this table at all (unlike its
+        # structural sibling `caliber_knowledge_bases`, which shares this exact
+        # `owner_status`/`project_status` index-pair convention and already has
+        # a per-(project, owner) app-level check). There is no existing scope to
+        # preserve here, so this follows that sibling's convention rather than
+        # the separate global-name family (`caliber_workflows`,
+        # `caliber_openapi_integrations`, `caliber_skills`, ...), since the two
+        # index names above were clearly modeled directly on
+        # `ix_knowledge_bases_owner_status`/`ix_knowledge_bases_project_status`.
+        # Same NULL-bucketing rationale as `CaliberKnowledgeBase`: a plain
+        # `UniqueConstraint` would not make NULL-project rows collide with each
+        # other, so this uses the same pair of partial indexes.
+        Index(
+            "uq_wf_benchmark_report_project_owner_name",
+            "project_id",
+            "owner",
+            "name",
+            unique=True,
+            sqlite_where=text("project_id IS NOT NULL"),
+            postgresql_where=text("project_id IS NOT NULL"),
+        ),
+        Index(
+            "uq_wf_benchmark_report_owner_name_no_project",
+            "owner",
+            "name",
+            unique=True,
+            sqlite_where=text("project_id IS NULL"),
+            postgresql_where=text("project_id IS NULL"),
+        ),
     )
 
     project_id: Mapped[str | None] = mapped_column(String(64), nullable=True, default=None)

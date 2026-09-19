@@ -15,6 +15,8 @@ from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 import yaml
 from sqlalchemy import delete, select
+from sqlalchemy.exc import IntegrityError
+from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
@@ -349,6 +351,35 @@ async def list_workflow_benchmark_reports(request: Request) -> JSONResponse:
     return envelope_response(items)
 
 
+def _find_workflow_benchmark_report_name_conflict(
+    session: Session,
+    name: str,
+    *,
+    owner: str,
+    active_project_id: str | None,
+) -> CaliberWorkflowBenchmarkReport | None:
+    """Friendly pre-check only: the two partial unique indexes below are the
+    actual guarantee. Scoped the same way as this table's structural sibling
+    `caliber_knowledge_bases` (`knowledge/service.py::_assert_unique_name`):
+    per (project-or-no-project, owner, name).
+    `uq_wf_benchmark_report_project_owner_name`/
+    `uq_wf_benchmark_report_owner_name_no_project` are the actual race-safety
+    net, enforced by the caller's `IntegrityError` handler. A separate,
+    importable function so a test can monkeypatch it to simulate two
+    concurrent `create_workflow_benchmark_report` calls both passing this
+    check before either flushes.
+    """
+    stmt = select(CaliberWorkflowBenchmarkReport).where(
+        CaliberWorkflowBenchmarkReport.name == name,
+        CaliberWorkflowBenchmarkReport.owner == owner,
+    )
+    if active_project_id:
+        stmt = stmt.where(CaliberWorkflowBenchmarkReport.project_id == active_project_id)
+    else:
+        stmt = stmt.where(CaliberWorkflowBenchmarkReport.project_id.is_(None))
+    return session.execute(stmt).scalars().first()
+
+
 async def create_workflow_benchmark_report(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = WorkflowBenchmarkReportCreateRequest.model_validate(body)
@@ -362,6 +393,20 @@ async def create_workflow_benchmark_report(request: Request) -> JSONResponse:
                 status_code=409,
                 detail=f"workflow benchmark report id {report_id!r} already exists",
             )
+        existing_report = _find_workflow_benchmark_report_name_conflict(
+            session,
+            payload.name,
+            owner=actor,
+            active_project_id=identity.active_project_id,
+        )
+        if existing_report is not None:
+            raise HTTPException(
+                status_code=409,
+                detail=(
+                    f"workflow benchmark report name {payload.name!r} is already in use "
+                    f"by {existing_report.report_id!r}"
+                ),
+            )
         report = CaliberWorkflowBenchmarkReport(
             report_id=report_id,
             name=payload.name,
@@ -371,8 +416,15 @@ async def create_workflow_benchmark_report(request: Request) -> JSONResponse:
             status=payload.status,
             worksheet=payload.worksheet.model_dump(mode="json"),
         )
-        session.add(report)
-        session.flush()
+        try:
+            with session.begin_nested():
+                session.add(report)
+                session.flush()
+        except IntegrityError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=f"workflow benchmark report name {payload.name!r} is already in use",
+            ) from exc
         audit_record(
             session,
             actor=actor,
@@ -557,6 +609,22 @@ async def clear_workflow_session_memory(request: Request) -> JSONResponse:
     )
 
 
+def _find_workflow_name_conflict(session: Session, name: str) -> CaliberWorkflow | None:
+    """Friendly pre-check only: `uq_workflow_name` is the actual guarantee.
+
+    A separate, importable function (rather than inlined `select(...)`) so a
+    test can monkeypatch it to simulate two concurrent `create_workflow`
+    calls both passing this check before either flushes, the same way
+    `workspace_source_connections.py::get_connection_by_installation` is
+    monkeypatched in its own race test.
+    """
+    return (
+        session.execute(select(CaliberWorkflow).where(CaliberWorkflow.name == name))
+        .scalars()
+        .first()
+    )
+
+
 async def create_workflow(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = WorkflowCreateRequest.model_validate(body)
@@ -564,11 +632,7 @@ async def create_workflow(request: Request) -> JSONResponse:
     identity = resolve_identity(request)
     factory = get_session_factory(request)
     with factory() as session:
-        existing = (
-            session.execute(select(CaliberWorkflow).where(CaliberWorkflow.name == payload.name))
-            .scalars()
-            .first()
-        )
+        existing = _find_workflow_name_conflict(session, payload.name)
         if existing is not None:
             raise HTTPException(
                 status_code=409,
@@ -596,8 +660,20 @@ async def create_workflow(request: Request) -> JSONResponse:
             status="active",
             default_experiment_id=payload.default_experiment_id,
         )
-        session.add(workflow)
-        session.flush()
+        # The SELECT above is a friendly pre-check, not the race-safety net:
+        # two concurrent requests can both observe no conflict before either
+        # commits. `uq_workflow_name` is the actual guarantee; this translates
+        # its violation into the same 409 the pre-check raises, mirroring
+        # `workspace_source_connections.py::configure_connection`.
+        try:
+            with session.begin_nested():
+                session.add(workflow)
+                session.flush()
+        except IntegrityError as exc:
+            raise HTTPException(
+                status_code=409,
+                detail=f"workflow name {payload.name!r} is already in use",
+            ) from exc
         audit_record(
             session,
             actor=actor,

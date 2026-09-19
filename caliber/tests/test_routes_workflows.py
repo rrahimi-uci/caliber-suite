@@ -733,6 +733,108 @@ def test_list_workflow_benchmark_reports_rejects_bad_status(client: TestClient) 
     assert "expected one of" in response.json()["detail"]
 
 
+def _benchmark_report_payload(name: str) -> dict[str, object]:
+    return {
+        "name": name,
+        "status": "draft",
+        "worksheet": {
+            "product_name": "n8n",
+            "evaluator": "Ops reviewer",
+            "environment": "staging",
+            "summary": "",
+            "updated_at": "2026-06-15T12:00:00Z",
+            "scenarios": {},
+            "rubric": {},
+        },
+    }
+
+
+def test_create_workflow_benchmark_report_rejects_duplicate_name_in_same_scope(
+    client: TestClient,
+) -> None:
+    """Ordinary (non-raced) duplicate create: same owner, same (absent)
+    active project, same name. There was no app-level name check for this
+    table before this change -- this proves the new pre-check's friendly 409,
+    scoped like its structural sibling ``caliber_knowledge_bases``.
+    """
+    first = client.post(
+        f"{PREFIX}/workflow-benchmark-reports", json=_benchmark_report_payload("Q3 Bakeoff")
+    )
+    assert first.status_code == 201, first.text
+    first_id = first.json()["data"]["report_id"]
+
+    second = client.post(
+        f"{PREFIX}/workflow-benchmark-reports", json=_benchmark_report_payload("Q3 Bakeoff")
+    )
+    assert second.status_code == 409, second.text
+    assert "Q3 Bakeoff" in second.text
+    assert first_id in second.text
+
+
+def test_create_workflow_benchmark_report_rejects_duplicate_name_in_same_project(
+    client: TestClient,
+) -> None:
+    """Same scope check as above, but with an active project header set --
+    covers the pre-check's other branch (`project_id == active_project_id`
+    rather than `project_id IS NULL`)."""
+    headers = {"X-CALIBER-Project": "PRJ-bakeoff"}
+    first = client.post(
+        f"{PREFIX}/workflow-benchmark-reports",
+        json=_benchmark_report_payload("Project Bakeoff"),
+        headers=headers,
+    )
+    assert first.status_code == 201, first.text
+    first_id = first.json()["data"]["report_id"]
+
+    second = client.post(
+        f"{PREFIX}/workflow-benchmark-reports",
+        json=_benchmark_report_payload("Project Bakeoff"),
+        headers=headers,
+    )
+    assert second.status_code == 409, second.text
+    assert "Project Bakeoff" in second.text
+    assert first_id in second.text
+
+
+def test_create_workflow_benchmark_report_race_safety_net_catches_bypassed_duplicate(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    """Simulates two concurrent ``create_workflow_benchmark_report`` calls
+    both passing ``_find_workflow_benchmark_report_name_conflict`` before
+    either flushes: monkeypatch that check to report "no conflict" while a
+    real conflicting row already exists (inserted directly, bypassing the
+    route entirely), so ``uq_wf_benchmark_report_owner_name_no_project`` is
+    what actually catches it and the ``IntegrityError`` handler translates it
+    into the same friendly 409.
+    """
+    db_session.add(
+        CaliberWorkflowBenchmarkReport(
+            report_id="WBR-preexisting-race",
+            name="Race Bakeoff",
+            owner="@test",
+            project_id=None,
+            visibility="user",
+            status="draft",
+            worksheet={},
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        workflows_routes,
+        "_find_workflow_benchmark_report_name_conflict",
+        lambda session, name, *, owner, active_project_id: None,
+    )
+
+    response = client.post(
+        f"{PREFIX}/workflow-benchmark-reports", json=_benchmark_report_payload("Race Bakeoff")
+    )
+    assert response.status_code == 409, response.text
+    assert "Race Bakeoff" in response.text
+
+
 def test_create_workflow(client: TestClient) -> None:
     r = client.post(f"{PREFIX}/workflows", json={"name": "WF One", "owner": "@test"})
     assert r.status_code == 201
@@ -795,6 +897,41 @@ def test_create_duplicate_name_409(client: TestClient) -> None:
     client.post(f"{PREFIX}/workflows", json={"name": "Dup"})
     r = client.post(f"{PREFIX}/workflows", json={"name": "Dup"})
     assert r.status_code == 409
+
+
+def test_create_workflow_race_safety_net_catches_bypassed_duplicate(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch,
+) -> None:
+    """Simulates two concurrent ``create_workflow`` calls both passing
+    ``_find_workflow_name_conflict`` before either flushes: monkeypatch that
+    check to report "no conflict" while a real conflicting row already
+    exists (inserted directly, bypassing the route entirely), so
+    ``uq_workflow_name`` is what actually catches it and the
+    ``IntegrityError`` handler translates it into the same friendly 409 --
+    exactly as it would under a genuine race. Mirrors
+    ``test_workspace_source_connections.py::test_configure_connection_catches_a_racing_installation_conflict_at_flush_time``.
+    """
+    db_session.add(
+        CaliberWorkflow(
+            workflow_id="WF-preexisting-race",
+            name="Race Workflow",
+            owner="@test",
+            project_id=None,
+            visibility="user",
+            status="active",
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        workflows_routes, "_find_workflow_name_conflict", lambda session, name: None
+    )
+
+    response = client.post(f"{PREFIX}/workflows", json={"name": "Race Workflow"})
+    assert response.status_code == 409, response.text
+    assert "Race Workflow" in response.text
 
 
 def test_get_workflow(client: TestClient) -> None:

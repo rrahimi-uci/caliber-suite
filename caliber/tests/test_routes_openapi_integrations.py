@@ -13,6 +13,7 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
+import caliber.routes.openapi_integrations as openapi_integrations_routes
 from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberAuditLog,
@@ -230,6 +231,60 @@ def test_create_openapi_integration_uses_active_project_when_present(client: Tes
     data = response.json()["data"]
     assert data["visibility"] == "project"
     assert data["project_id"] == "PRJ-42"
+
+
+def test_create_openapi_integration_rejects_duplicate_name(client: TestClient) -> None:
+    """Ordinary (non-raced) duplicate create: `name` is a global handle
+    (same convention as `caliber_workflows`/`caliber_skills`), so a second
+    project's integration with the same name still conflicts. There was no
+    app-level name check for this table before this change.
+    """
+    first = _create_integration(client, name="Ticketing")
+    second = client.post(
+        BASE,
+        json={"name": "Ticketing", "description": "A different one"},
+        headers={"X-CALIBER-Project": "PRJ-other"},
+    )
+    assert second.status_code == 409, second.text
+    assert "Ticketing" in second.text
+    assert first["integration_id"] in second.text
+
+
+def test_create_openapi_integration_race_safety_net_catches_bypassed_duplicate(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Simulates two concurrent ``create_openapi_integration`` calls both
+    passing ``_find_openapi_integration_name_conflict`` before either
+    flushes: monkeypatch that check to report "no conflict" while a real
+    conflicting row already exists (inserted directly, bypassing the route
+    entirely), so ``uq_openapi_integration_name`` is what actually catches it
+    and the ``IntegrityError`` handler translates it into the same friendly
+    409. Mirrors
+    ``test_workspace_source_connections.py::test_configure_connection_catches_a_racing_installation_conflict_at_flush_time``.
+    """
+    db_session.add(
+        CaliberOpenApiIntegration(
+            integration_id="OAI-preexisting-race",
+            name="Race Integration",
+            owner="@test",
+            status="draft",
+            project_id=None,
+            visibility="user",
+        )
+    )
+    db_session.commit()
+
+    monkeypatch.setattr(
+        openapi_integrations_routes,
+        "_find_openapi_integration_name_conflict",
+        lambda session, name: None,
+    )
+
+    response = client.post(BASE, json={"name": "Race Integration", "description": ""})
+    assert response.status_code == 409, response.text
+    assert "Race Integration" in response.text
 
 
 def test_import_openapi_version_persists_normalized_version_and_operations(

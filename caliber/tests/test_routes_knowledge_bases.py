@@ -179,6 +179,109 @@ def test_create_knowledge_base_returns_503_when_embedding_runtime_is_blocked(
     assert "local embedding runtime blocked" in response.text
 
 
+def _wire_kb_create(client: TestClient, monkeypatch: pytest.MonkeyPatch, bucket: str):
+    """Wire a real, synchronous KB creation path: dummy embedder + a moto S3
+    bucket with one seeded document, matching the recipe every other
+    successful-create test in this file uses (see
+    ``test_knowledge_base_build_versions_query_and_rollback``).
+    """
+    monkeypatch.setattr(
+        knowledge_service,
+        "build_embedding_backend",
+        lambda model_id: _DummyEmbedder(model_id),
+    )
+    s3 = _wire_moto(client)
+    s3.create_bucket(Bucket=bucket)
+    _put_text(
+        s3,
+        bucket,
+        "docs/guide.md",
+        "# Product Guide\n\nDark mode applies consistently across linked tools.\n",
+        content_type="text/markdown",
+    )
+
+
+def _kb_create_payload(name: str, bucket: str) -> dict[str, object]:
+    return {
+        "name": name,
+        "description": "Baseline knowledge base",
+        "source_bucket": bucket,
+        "sources": [{"kind": "folder", "path": "docs/"}],
+        "chunking_strategy": "recursive",
+        "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+        "chunking_config": {"chunk_size": 120, "chunk_overlap": 20},
+    }
+
+
+@mock_aws
+def test_create_knowledge_base_rejects_duplicate_name_in_same_scope(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Ordinary (non-raced) duplicate create: the pre-existing
+    ``_assert_unique_name`` app-level check still produces its historical
+    friendly 409 -- unchanged behavior, now also backed by
+    ``uq_knowledge_base_owner_name_no_project`` at the DB level.
+    """
+    bucket = "kb-dup-bucket"
+    _wire_kb_create(client, monkeypatch, bucket)
+
+    first = client.post(KB, json=_kb_create_payload("Support Docs", bucket))
+    assert first.status_code == 201, first.text
+    first_id = first.json()["data"]["knowledge_base"]["knowledge_base_id"]
+
+    second = client.post(KB, json=_kb_create_payload("Support Docs", bucket))
+    assert second.status_code == 409, second.text
+    assert "Support Docs" in second.text
+    assert first_id in second.text
+
+
+@mock_aws
+def test_create_knowledge_base_race_safety_net_catches_bypassed_duplicate(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Simulates two concurrent ``create_knowledge_base`` calls both passing
+    ``_assert_unique_name`` before either flushes: monkeypatch that check to
+    report "no conflict" while a real conflicting row already exists
+    (inserted directly, bypassing the route entirely), so the DB-level
+    partial unique index (``uq_knowledge_base_owner_name_no_project``) is
+    what actually catches it and the ``IntegrityError`` handler translates it
+    into the same friendly 409 -- exactly as it would under a genuine race.
+    Mirrors
+    ``test_workspace_source_connections.py::test_configure_connection_catches_a_racing_installation_conflict_at_flush_time``.
+    """
+    from caliber.db.models import CaliberKnowledgeBase
+
+    bucket = "kb-race-bucket"
+    _wire_kb_create(client, monkeypatch, bucket)
+
+    session_factory = client.app.state.session_factory
+    with session_factory() as session:
+        session.add(
+            CaliberKnowledgeBase(
+                knowledge_base_id="KB-preexisting-race",
+                name="Race Docs",
+                owner="@test",
+                project_id=None,
+                visibility="user",
+                status="active",
+                source_bucket=bucket,
+            )
+        )
+        session.commit()
+
+    monkeypatch.setattr(
+        knowledge_service.KnowledgeBaseService,
+        "_assert_unique_name",
+        lambda self, *args, **kwargs: None,
+    )
+
+    response = client.post(KB, json=_kb_create_payload("Race Docs", bucket))
+    assert response.status_code == 409, response.text
+    assert "Race Docs" in response.text
+
+
 @mock_aws
 def test_create_version_returns_503_when_embedding_runtime_is_blocked(
     client: TestClient,

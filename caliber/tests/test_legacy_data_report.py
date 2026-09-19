@@ -17,7 +17,7 @@ from caliber.db.legacy_data_report import (
     legacy_null_report,
     orphan_project_id_report,
 )
-from caliber.db.models import CaliberProject, CaliberSkill, CaliberWorkflow
+from caliber.db.models import CaliberKnowledgeBase, CaliberProject, CaliberSkill, CaliberWorkflow
 
 
 def _skill(session: Session, **overrides: object) -> CaliberSkill:
@@ -47,6 +47,20 @@ def _workflow(session: Session, **overrides: object) -> CaliberWorkflow:
     return row
 
 
+def _knowledge_base(session: Session, **overrides: object) -> CaliberKnowledgeBase:
+    defaults: dict[str, object] = {
+        "knowledge_base_id": "KB-report0001",
+        "name": "report-kb",
+        "owner": "@sarah",
+        "source_bucket": "report-bucket",
+    }
+    defaults.update(overrides)
+    row = CaliberKnowledgeBase(**defaults)
+    session.add(row)
+    session.commit()
+    return row
+
+
 def test_legacy_null_report_counts_null_project_id_rows(db_session: Session) -> None:
     _skill(db_session, skill_id="SK-r1", name="skill-a", project_id=None)
     _skill(db_session, skill_id="SK-r2", name="skill-b", project_id="P-1")
@@ -68,21 +82,36 @@ def test_legacy_null_report_omits_models_with_no_rows(db_session: Session) -> No
 
 
 def test_duplicate_name_report_finds_the_same_name_across_projects(db_session: Session) -> None:
-    """`CaliberWorkflow.name` has no DB-level unique constraint (only an
-    application-level check in `create_workflow`) -- exactly the case this
-    report exists to surface directly-inserted or pre-Phase-2 collisions
-    for."""
-    _workflow(db_session, workflow_id="WF-r1", name="dup-name", project_id="P-1")
-    _workflow(db_session, workflow_id="WF-r2", name="dup-name", project_id="P-2")
-    _workflow(db_session, workflow_id="WF-r3", name="dup-name", project_id=None)
-    _workflow(db_session, workflow_id="WF-r4", name="unique-name", project_id="P-1")
+    """`CaliberKnowledgeBase.name` is unique only per (project-or-no-project,
+    owner) (`uq_knowledge_base_project_owner_name` /
+    `uq_knowledge_base_owner_name_no_project`, `P2-A` slice 11) -- a
+    same-name collision across *different owners* is still a real,
+    DB-permitted case this report exists to surface (directly-inserted or
+    pre-Phase-2 collisions, or simply two different people naming their own
+    knowledge base the same thing)."""
+    _knowledge_base(
+        db_session, knowledge_base_id="KB-r1", name="dup-name", owner="@sarah", project_id="P-1"
+    )
+    _knowledge_base(
+        db_session, knowledge_base_id="KB-r2", name="dup-name", owner="@mark", project_id="P-2"
+    )
+    _knowledge_base(
+        db_session, knowledge_base_id="KB-r3", name="dup-name", owner="@erin", project_id=None
+    )
+    _knowledge_base(
+        db_session,
+        knowledge_base_id="KB-r4",
+        name="unique-name",
+        owner="@sarah",
+        project_id="P-1",
+    )
 
     findings = duplicate_name_report(db_session)
-    workflow_findings = [f for f in findings if f.model == "CaliberWorkflow"]
-    assert workflow_findings == [
+    kb_findings = [f for f in findings if f.model == "CaliberKnowledgeBase"]
+    assert kb_findings == [
         DuplicateNameFinding(
-            model="CaliberWorkflow",
-            table="caliber_workflows",
+            model="CaliberKnowledgeBase",
+            table="caliber_knowledge_bases",
             name="dup-name",
             project_ids=("P-1", "P-2", None),
         )
@@ -92,8 +121,8 @@ def test_duplicate_name_report_finds_the_same_name_across_projects(db_session: S
 def test_duplicate_name_report_ignores_a_name_used_in_only_one_project(
     db_session: Session,
 ) -> None:
-    _workflow(db_session, workflow_id="WF-r5", name="only-here", project_id="P-1")
-    findings = [f for f in duplicate_name_report(db_session) if f.model == "CaliberWorkflow"]
+    _knowledge_base(db_session, knowledge_base_id="KB-r5", name="only-here", project_id="P-1")
+    findings = [f for f in duplicate_name_report(db_session) if f.model == "CaliberKnowledgeBase"]
     assert findings == []
 
 
@@ -105,6 +134,19 @@ def test_duplicate_name_report_skips_a_model_with_a_global_unique_name(
     this model should never appear in the report even with rows present."""
     _skill(db_session, skill_id="SK-r10", name="only-skill", project_id="P-1")
     findings = [f for f in duplicate_name_report(db_session) if f.model == "CaliberSkill"]
+    assert findings == []
+
+
+def test_duplicate_name_report_skips_caliber_workflow_since_p2a_slice_11(
+    db_session: Session,
+) -> None:
+    """`CaliberWorkflow.name` gained a DB-level global unique constraint
+    (`uq_workflow_name`, `P2-A` slice 11, matching `create_workflow`'s
+    pre-existing app-level check) -- like `CaliberSkill` above, a real
+    cross-project duplicate is now impossible, so this model should never
+    appear in the report even with rows present."""
+    _workflow(db_session, workflow_id="WF-r10", name="only-workflow", project_id="P-1")
+    findings = [f for f in duplicate_name_report(db_session) if f.model == "CaliberWorkflow"]
     assert findings == []
 
 

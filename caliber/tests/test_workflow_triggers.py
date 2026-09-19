@@ -89,11 +89,20 @@ def _seed_deployed(
     workflow_id: str,
     trigger: dict | None,
     alias: str = "prod",
+    name: str | None = None,
 ) -> None:
     manifest = make_manifest(workflow_id)
     if trigger is not None:
         manifest["nodes"]["start"]["trigger"] = trigger
-    session.add(CaliberWorkflow(workflow_id=workflow_id, name="WF", owner="@t", status="active"))
+    # `caliber_workflows.name` is globally unique (`uq_workflow_name`, `P2-A`
+    # slice 11): default to a name derived from `workflow_id` so two calls in
+    # the same test (different workflow_ids, e.g. `cron_off`/`cron_nomatch`)
+    # don't collide on the literal default that predates that constraint.
+    session.add(
+        CaliberWorkflow(
+            workflow_id=workflow_id, name=name or f"WF-{workflow_id}", owner="@t", status="active"
+        )
+    )
     session.add(
         CaliberWorkflowVersion(
             version_id=f"{workflow_id}-v1",
