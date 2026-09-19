@@ -125,12 +125,16 @@ job_test_smoke() {
     --no-cov -q
 }
 
-# The PostgreSQL half of tests/test_migrations.py's dialect coverage (see that
-# file's module docstring and docs/workspace-plan.md section 15.2). job_test_smoke
-# above already runs the whole file, but CALIBER_TEST_POSTGRES_URL is unset there
-# so the two dialect-parametrized cases' "postgresql" variant just skips -- this
-# job is what actually supplies a live server, the same way CI's
-# "Migration parity (PostgreSQL)" job does with a service container.
+# The PostgreSQL half of tests/test_migrations.py's and
+# tests/test_workspace_revision_allocation_concurrency.py's dialect coverage (see
+# tests/dialect_helpers.py and that latter file's module docstring). job_test_smoke
+# above already runs test_migrations.py (its "postgresql" cases just skip there,
+# same reason as below); test_workspace_revision_allocation_concurrency.py's SQLite
+# case instead runs as part of the full suite (job_test), same as every other test
+# file not named explicitly in a smoke/targeted job. Either way,
+# CALIBER_TEST_POSTGRES_URL is unset everywhere except here, so this job is what
+# actually supplies a live server for both files' "postgresql" cases, the same way
+# CI's "Migration parity (PostgreSQL)" job does with a service container.
 job_migration_parity_postgres() {
   cd "$CALIBER_DIR" || return 1
   command -v docker >/dev/null 2>&1 || {
@@ -162,7 +166,9 @@ job_migration_parity_postgres() {
     status=1
   else
     CALIBER_TEST_POSTGRES_URL="postgresql+psycopg://caliber:caliber@localhost:${port}/caliber_migration_admin" \
-      "$VENV_PY" -m pytest tests/test_migrations.py -k postgresql --no-cov -q
+      "$VENV_PY" -m pytest tests/test_migrations.py \
+        tests/test_workspace_revision_allocation_concurrency.py \
+        -k postgresql --no-cov -q
     status=$?
   fi
   docker rm -f "$container" >/dev/null 2>&1
