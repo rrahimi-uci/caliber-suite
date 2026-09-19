@@ -29,6 +29,7 @@ from examples.verification_queue import flag_and_verify
 from examples.workflow_bundle import clone_sealed_release
 from examples.workflow_deployment import promote_and_rollback, record_gate_verdict
 from examples.workflow_run import run_and_wait
+from examples.workspace_github_source import connect_github_source_and_import_on_push
 from examples.workspace_release import promote_a_reviewed_revision
 
 BASE = "https://caliber.test"
@@ -534,6 +535,92 @@ def test_workspace_release_example_runs_the_full_governed_path() -> None:
         "POST /projects/PRJ-1/releases/WRL-1/operations",
         "POST /projects/PRJ-1/releases/WRL-1/operations/WRO-1:apply",
         "GET /projects/PRJ-1/releases/WRL-1/operations/WRO-1",
+    ]
+
+
+# --- GitHub-backed Workspace source example ---------------------------------
+
+
+def test_github_source_example_configures_then_imports_on_push() -> None:
+    """Connection setup and the push import are two independent typed calls --
+    the same distinction the example's own docstring makes."""
+    seen: list[str] = []
+
+    def responds_with(payload: Any, *, status_code: int = 200) -> Any:
+        def handler(request: httpx.Request) -> Any:
+            seen.append(f"{request.method} {request.url.path.rsplit('/caliber', 1)[-1]}")
+            return httpx.Response(status_code, json={"data": payload})
+
+        return handler
+
+    caliber = stub_server(
+        {
+            "PUT /projects/PRJ-1/source/connection": responds_with(
+                {
+                    "connection": {
+                        "connection_id": "WSC-1",
+                        "source_id": "SRC-1",
+                        "project_id": "PRJ-1",
+                        "provider": "github",
+                        "app_id": "123456",
+                        "installation_id": "789012",
+                        "status": "active",
+                        "created_at": "2026-01-01T00:00:00Z",
+                        "updated_at": "2026-01-01T00:00:00Z",
+                    }
+                }
+            ),
+            "POST /projects/PRJ-1/revision-imports": responds_with(
+                {
+                    "import_job_id": "WSI-1",
+                    "project_id": "PRJ-1",
+                    "source_id": "SRC-1",
+                    "repository": "octo-org/mortgage-underwriting",
+                    "commit_sha": "a" * 40,
+                    "status": "queued",
+                    "idempotency_key": f"push-{'a' * 40}",
+                    "attempt_count": 1,
+                    "max_attempts": 5,
+                    "created_by": "@ci",
+                },
+                status_code=202,
+            ),
+            # The waiter always re-reads the job rather than trusting the
+            # create() response, so a single already-terminal GET is enough --
+            # no sleep, no second poll.
+            "GET /projects/PRJ-1/revision-imports/WSI-1": responds_with(
+                {
+                    "import_job_id": "WSI-1",
+                    "project_id": "PRJ-1",
+                    "source_id": "SRC-1",
+                    "repository": "octo-org/mortgage-underwriting",
+                    "commit_sha": "a" * 40,
+                    "status": "succeeded",
+                    "revision_id": "WSR-1",
+                    "idempotency_key": f"push-{'a' * 40}",
+                    "attempt_count": 1,
+                    "max_attempts": 5,
+                    "created_by": "@ci",
+                }
+            ),
+        }
+    )
+    with caliber:
+        result = connect_github_source_and_import_on_push(caliber)
+
+    assert result == {
+        "connection_id": "WSC-1",
+        "connection_status": "active",
+        "import_job_id": "WSI-1",
+        "import_status": "succeeded",
+        "revision_id": "WSR-1",
+    }
+    # Configuring the connection and submitting the import are independent
+    # typed calls -- neither is folded into the other.
+    assert seen == [
+        "PUT /projects/PRJ-1/source/connection",
+        "POST /projects/PRJ-1/revision-imports",
+        "GET /projects/PRJ-1/revision-imports/WSI-1",
     ]
 
 
