@@ -7,75 +7,183 @@ bug that's silent in normal development and painful in production.
 
 This is the only test that exercises Alembic; route tests use ``create_all``
 directly for speed.
+
+Dialect coverage (``docs/workspace-plan.md`` section 15.2): every test here
+runs against SQLite unconditionally. Two tests additionally run in
+``DIALECTS``-parametrized form -- ``test_alembic_upgrade_head_matches_metadata``
+(fresh-install + full upgrade chain + ORM-metadata parity) and
+``test_0093_backfills_slug_source_mode_and_four_environments_per_project``
+(upgrade-from-preceding-revision with real data, `P1-A`'s own migration) --
+also against a real PostgreSQL server when ``CALIBER_TEST_POSTGRES_URL`` is
+set. That env var is set only by the "Migration parity (PostgreSQL)" CI job
+(``.github/workflows/ci.yml``), which is the one deliberate, narrowly-scoped
+exception to this repo's otherwise-offline test policy: every other test in
+this file, and every test outside this file, stays SQLite/offline.
 """
 
 from __future__ import annotations
 
 import os
+import uuid
+import warnings
+from collections.abc import Iterator
+from contextlib import contextmanager
 from pathlib import Path
 
 import pytest
 from alembic import command
 from alembic.config import Config
 from sqlalchemy import create_engine, inspect, text
-from sqlalchemy.exc import IntegrityError
+from sqlalchemy.engine import make_url
+from sqlalchemy.exc import IntegrityError, SAWarning
 
 from caliber.db import Base
+from caliber.db_url import normalize_database_url
 
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 ALEMBIC_INI = PROJECT_ROOT / "alembic.ini"
 
+# See the module docstring. Unset (empty string) everywhere except the
+# dedicated CI job, so every PostgreSQL-parametrized case below is skipped by
+# default rather than failing on a socket nobody offered.
+POSTGRES_TEST_URL = os.environ.get("CALIBER_TEST_POSTGRES_URL", "").strip()
+
+DIALECTS = [
+    pytest.param("sqlite", id="sqlite"),
+    pytest.param(
+        "postgresql",
+        id="postgresql",
+        marks=pytest.mark.skipif(
+            not POSTGRES_TEST_URL,
+            reason="CALIBER_TEST_POSTGRES_URL is not set (see the "
+            "'Migration parity (PostgreSQL)' CI job)",
+        ),
+    ),
+]
+
+
+@contextmanager
+def _dialect_database_url(dialect: str, tmp_path: Path, name: str) -> Iterator[str]:
+    """Yield an isolated, empty database URL for ``dialect``.
+
+    SQLite: a fresh file under ``tmp_path`` -- this file's established
+    pattern, unchanged. PostgreSQL: a throwaway database created on the
+    shared CI service (``CALIBER_TEST_POSTGRES_URL`` is an *admin* connection
+    string -- any reachable database on that server, used only to run
+    ``CREATE DATABASE``/``DROP DATABASE``) and dropped again once the test
+    finishes, so multiple PostgreSQL-parametrized tests sharing one live
+    server in the same CI job never collide.
+    """
+    if dialect == "sqlite":
+        yield f"sqlite:///{tmp_path / f'{name}.db'}"
+        return
+
+    assert dialect == "postgresql"
+    admin_url = normalize_database_url(POSTGRES_TEST_URL)
+    db_name = f"caliber_test_{name}_{uuid.uuid4().hex[:12]}"
+    admin_engine = create_engine(admin_url, isolation_level="AUTOCOMMIT")
+    try:
+        with admin_engine.connect() as connection:
+            connection.execute(text(f'CREATE DATABASE "{db_name}"'))
+        try:
+            # str(URL) masks the password (renders "***"); this URL is used to
+            # open a real connection, so the password must round-trip intact.
+            yield make_url(admin_url).set(database=db_name).render_as_string(hide_password=False)
+        finally:
+            with admin_engine.connect() as connection:
+                connection.execute(
+                    text(
+                        "SELECT pg_terminate_backend(pid) FROM pg_stat_activity "
+                        "WHERE datname = :name AND pid <> pg_backend_pid()"
+                    ),
+                    {"name": db_name},
+                )
+                connection.execute(text(f'DROP DATABASE IF EXISTS "{db_name}"'))
+    finally:
+        admin_engine.dispose()
+
+
+# Columns a migration adds via raw, dialect-gated DDL (``op.execute``, not
+# ``op.add_column`` with a typed ``sa.Column``) rather than through the ORM,
+# so they deliberately never appear in ``Base.metadata`` and would otherwise
+# look like drift. Currently just ``0060``'s Postgres-only pgvector column
+# (its own docstring: "Postgres-only ... On SQLite this whole migration is a
+# no-op"; ``caliber.knowledge.pgvector_ann`` reads/writes it via raw SQL by
+# design). Reflecting it also emits an ``SAWarning`` ("did not recognize type
+# 'vector'") since SQLAlchemy has no built-in mapping for the pgvector type;
+# that warning is expected and suppressed alongside the exclusion below.
+_UNMANAGED_COLUMNS: dict[str, set[str]] = {
+    "caliber_knowledge_base_chunks": {"embedding_vec"},
+}
+
 
 @pytest.mark.slow
+@pytest.mark.parametrize("dialect", DIALECTS)
 def test_alembic_upgrade_head_matches_metadata(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
-    db_path = tmp_path / "alembic_test.db"
-    db_url = f"sqlite:///{db_path}"
-    monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+    with _dialect_database_url(dialect, tmp_path, "alembic_test") as db_url:
+        monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
 
-    cfg = Config(str(ALEMBIC_INI))
-    # alembic.ini paths are relative to the ini file; make sure CWD matches so
-    # script_location = src/caliber/db/migrations resolves.
-    monkeypatch.chdir(PROJECT_ROOT)
-    command.upgrade(cfg, "head")
+        cfg = Config(str(ALEMBIC_INI))
+        # alembic.ini paths are relative to the ini file; make sure CWD matches so
+        # script_location = src/caliber/db/migrations resolves.
+        monkeypatch.chdir(PROJECT_ROOT)
+        command.upgrade(cfg, "head")
 
-    # Now compare the tables created by the migration to the model metadata.
-    # Caliber's alembic version table is namespaced (``caliber_alembic_version``)
-    # so it can coexist with MLflow's default ``alembic_version`` on the shared
-    # production backend store — exclude both names here for symmetry with how
-    # migrations are run in production.
-    engine = create_engine(db_url)
-    inspector = inspect(engine)
-    db_tables = set(inspector.get_table_names()) - {"alembic_version", "caliber_alembic_version"}
-    model_tables = set(Base.metadata.tables.keys())
+        # Now compare the tables created by the migration to the model metadata.
+        # Caliber's alembic version table is namespaced (``caliber_alembic_version``)
+        # so it can coexist with MLflow's default ``alembic_version`` on the shared
+        # production backend store — exclude both names here for symmetry with how
+        # migrations are run in production.
+        engine = create_engine(db_url)
+        inspector = inspect(engine)
+        db_tables = set(inspector.get_table_names()) - {
+            "alembic_version",
+            "caliber_alembic_version",
+        }
+        model_tables = set(Base.metadata.tables.keys())
 
-    assert db_tables == model_tables, (
-        f"migration ↔ model drift: only in DB: {db_tables - model_tables}, "
-        f"only in models: {model_tables - db_tables}"
-    )
-
-    # Spot-check column presence for each table — full type comparison is
-    # brittle across SQLAlchemy versions, but column names should match.
-    for table_name in model_tables:
-        db_columns = {col["name"] for col in inspector.get_columns(table_name)}
-        model_columns = {col.name for col in Base.metadata.tables[table_name].columns}
-        assert db_columns == model_columns, (
-            f"column drift in {table_name}: "
-            f"only in DB: {db_columns - model_columns}, "
-            f"only in models: {model_columns - db_columns}"
+        assert db_tables == model_tables, (
+            f"migration ↔ model drift ({dialect}): only in DB: {db_tables - model_tables}, "
+            f"only in models: {model_tables - db_tables}"
         )
 
-    incident_indexes = {
-        index["name"]: index for index in inspector.get_indexes("caliber_incidents")
-    }
-    open_index = incident_indexes["uq_caliber_incidents_open_objective"]
-    assert bool(open_index["unique"])
-    assert "status = 'open'" in str(open_index["dialect_options"]["sqlite_where"])
+        # Spot-check column presence for each table — full type comparison is
+        # brittle across SQLAlchemy versions, but column names should match.
+        for table_name in model_tables:
+            with warnings.catch_warnings():
+                warnings.simplefilter("ignore", category=SAWarning)
+                db_columns = {col["name"] for col in inspector.get_columns(table_name)}
+            db_columns -= _UNMANAGED_COLUMNS.get(table_name, set())
+            model_columns = {col.name for col in Base.metadata.tables[table_name].columns}
+            assert db_columns == model_columns, (
+                f"column drift in {table_name} ({dialect}): "
+                f"only in DB: {db_columns - model_columns}, "
+                f"only in models: {model_columns - db_columns}"
+            )
 
-    engine.dispose()
-    # Clean up the env var the monkeypatch set, just in case parallel tests share state.
-    os.environ.pop("CALIBER_DATABASE_URL", None)
+        incident_indexes = {
+            index["name"]: index for index in inspector.get_indexes("caliber_incidents")
+        }
+        open_index = incident_indexes["uq_caliber_incidents_open_objective"]
+        assert bool(open_index["unique"])
+        # Each dialect reflects its own partial-index predicate key
+        # (models.py declares both `sqlite_where` and `postgresql_where`
+        # identically on this index).
+        where_key = "sqlite_where" if dialect == "sqlite" else "postgresql_where"
+        where_clause = str(open_index["dialect_options"][where_key])
+        if dialect == "sqlite":
+            assert "status = 'open'" in where_clause
+        else:
+            # PostgreSQL reflects the partial-index predicate back with
+            # explicit type casts (e.g. ``(status)::text = 'open'::text``)
+            # rather than the literal source text SQLite preserves.
+            assert "status" in where_clause and "'open'" in where_clause
+
+        engine.dispose()
+        # Clean up the env var the monkeypatch set, just in case parallel tests share state.
+        os.environ.pop("CALIBER_DATABASE_URL", None)
 
 
 @pytest.mark.slow
@@ -381,64 +489,64 @@ def test_skill_snapshot_migration_backfills_only_missing_current_versions(
 
 
 @pytest.mark.slow
+@pytest.mark.parametrize("dialect", DIALECTS)
 def test_0093_backfills_slug_source_mode_and_four_environments_per_project(
-    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    dialect: str, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     """`P1-A`'s backfill: every pre-existing project gets a derived,
     tenant-unique slug, a default source mode, and its four fixed
     environment rows -- additively, with no data loss. Two projects whose
     names slugify identically ("Demo" / "demo!") must not collide."""
-    db_path = tmp_path / "workspace_environments.db"
-    db_url = f"sqlite:///{db_path}"
-    monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
-    monkeypatch.chdir(PROJECT_ROOT)
-    cfg = Config(str(ALEMBIC_INI))
-    command.upgrade(cfg, "0092")
+    with _dialect_database_url(dialect, tmp_path, "workspace_environments") as db_url:
+        monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+        monkeypatch.chdir(PROJECT_ROOT)
+        cfg = Config(str(ALEMBIC_INI))
+        command.upgrade(cfg, "0092")
 
-    engine = create_engine(db_url)
-    try:
-        with engine.begin() as connection:
-            connection.execute(
-                text(
-                    "INSERT INTO caliber_projects (project_id, tenant_id, name, owner) VALUES "
-                    "(:id1, 'local', 'Demo', 'alice'), "
-                    "(:id2, 'local', 'demo!', 'bob')"
-                ),
-                {"id1": "PRJ-demo-1", "id2": "PRJ-demo-2"},
-            )
-
-        command.upgrade(cfg, "0093")
-
-        with engine.connect() as connection:
-            projects = {
-                row.project_id: (row.slug, row.source_mode)
-                for row in connection.execute(
-                    text("SELECT project_id, slug, source_mode FROM caliber_projects")
-                )
-            }
-            assert projects == {
-                "PRJ-demo-1": ("demo", "caliber_managed"),
-                "PRJ-demo-2": ("demo-2", "caliber_managed"),
-            }
-
-            for project_id in ("PRJ-demo-1", "PRJ-demo-2"):
-                environments = connection.execute(
+        engine = create_engine(db_url)
+        try:
+            with engine.begin() as connection:
+                connection.execute(
                     text(
-                        "SELECT name, environment_class, promotion_order, status "
-                        "FROM caliber_workspace_environments "
-                        "WHERE project_id = :project_id ORDER BY promotion_order"
+                        "INSERT INTO caliber_projects (project_id, tenant_id, name, owner) VALUES "
+                        "(:id1, 'local', 'Demo', 'alice'), "
+                        "(:id2, 'local', 'demo!', 'bob')"
                     ),
-                    {"project_id": project_id},
-                ).fetchall()
-                assert [tuple(row) for row in environments] == [
-                    ("dev", "development", 10, "active"),
-                    ("qa", "qa", 20, "disabled"),
-                    ("staging", "staging", 30, "disabled"),
-                    ("prod", "production", 40, "disabled"),
-                ]
-    finally:
-        engine.dispose()
-        os.environ.pop("CALIBER_DATABASE_URL", None)
+                    {"id1": "PRJ-demo-1", "id2": "PRJ-demo-2"},
+                )
+
+            command.upgrade(cfg, "0093")
+
+            with engine.connect() as connection:
+                projects = {
+                    row.project_id: (row.slug, row.source_mode)
+                    for row in connection.execute(
+                        text("SELECT project_id, slug, source_mode FROM caliber_projects")
+                    )
+                }
+                assert projects == {
+                    "PRJ-demo-1": ("demo", "caliber_managed"),
+                    "PRJ-demo-2": ("demo-2", "caliber_managed"),
+                }
+
+                for project_id in ("PRJ-demo-1", "PRJ-demo-2"):
+                    environments = connection.execute(
+                        text(
+                            "SELECT name, environment_class, promotion_order, status "
+                            "FROM caliber_workspace_environments "
+                            "WHERE project_id = :project_id ORDER BY promotion_order"
+                        ),
+                        {"project_id": project_id},
+                    ).fetchall()
+                    assert [tuple(row) for row in environments] == [
+                        ("dev", "development", 10, "active"),
+                        ("qa", "qa", 20, "disabled"),
+                        ("staging", "staging", 30, "disabled"),
+                        ("prod", "production", 40, "disabled"),
+                    ]
+        finally:
+            engine.dispose()
+            os.environ.pop("CALIBER_DATABASE_URL", None)
 
 
 #: `0095` (Phase 2 item 3): every index that migration adds, keyed by the
