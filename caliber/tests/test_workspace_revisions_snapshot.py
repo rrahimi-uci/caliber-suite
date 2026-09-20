@@ -3,8 +3,8 @@
 Mirrors ``test_workspace_routes.py``'s route-test style (a real ``client``
 fixture wired to ``server.py::create_app``, so ``app.state.
 workspace_resource_adapter_registry`` already carries the real ``workflow``/
-``prompt``/``tool``/``judge`` adapters exactly as production does) and
-``test_routes_prompts.py``'s mlflow-stub pattern
+``prompt``/``tool``/``judge``/``skill`` adapters exactly as production does)
+and ``test_routes_prompts.py``'s mlflow-stub pattern
 (``monkeypatch.setitem(sys.modules, "mlflow", ...)`` -- offline and
 deterministic, no real MLflow Prompt Registry network I/O).
 """
@@ -163,12 +163,14 @@ def test_snapshot_a_different_version_produces_a_distinct_revision(
 
 def test_snapshot_refuses_resource_type_with_no_registered_adapter(client: TestClient) -> None:
     project_id = _create_project(client)
-    # `skill` remains one of the still-unregistered follow-up resource types
-    # named by docs/workspace-plan.md's `P4-C` row (`tool` and `judge` each
-    # gained a real adapter in earlier slices, so neither can stand in for
-    # "unregistered" anymore).
+    # `eval_dataset` remains one of the still-unregistered follow-up resource
+    # types named by docs/workspace-plan.md's `P4-C` row (`tool`, `judge`, and
+    # `skill` each gained a real adapter in earlier slices, so none of them
+    # can stand in for "unregistered" anymore).
     body = {
-        "resources": [{"resource_type": "skill", "resource_id": "some-skill", "version_ref": "1"}]
+        "resources": [
+            {"resource_type": "eval_dataset", "resource_id": "some-dataset", "version_ref": "1"}
+        ]
     }
     response = client.post(f"{PREFIX}/projects/{project_id}/revisions:snapshot", json=body)
     assert response.status_code == 409
