@@ -1,4 +1,0 @@
-WARNING  caliber.events.webhooks:webhooks.py:1090 webhook POST failed, retrying: url=https://x.example/hook event='approval.promoted' attempt=1/4 err=connection refused
-WARNING  caliber.events.webhooks:webhooks.py:1090 webhook POST failed, retrying: url=https://x.example/hook event='approval.promoted' attempt=2/4 err=connection refused
-WARNING  caliber.events.webhooks:webhooks.py:1090 webhook POST failed, retrying: url=https://x.example/hook event='approval.promoted' attempt=3/4 err=connection refused
-ERROR    caliber.events.webhooks:webhooks.py:1103 webhook delivery exhausted, dead-lettering: url=https://x.example/hook event='approval.promoted' err=connection refused
