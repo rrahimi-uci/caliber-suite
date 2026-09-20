@@ -23,6 +23,7 @@ from sqlalchemy.orm import Session
 
 from caliber.audit import record as audit_record
 from caliber.db.models import (
+    CaliberAgentConfig,
     CaliberApprovalRequest,
     CaliberRefinementJob,
     CaliberReleaseOperation,
@@ -136,6 +137,16 @@ def prepare_prompt_alias_release(
             )
         return existing
 
+    # `P2-R` (isolation closure, item 6): derive the operation's project
+    # binding from the released prompt's own hidden runtime target
+    # (`CaliberAgentConfig`, keyed by `agent_id == name` -- see
+    # `prompt_targets.py`), the same source migration `0112`'s backfill
+    # reads. `None` when no target exists (a bare provider-only/legacy
+    # prompt, or a personal "My Library" one) -- the same "no target =
+    # personal/global" carve-out applied elsewhere for this identical shape.
+    target = session.get(CaliberAgentConfig, name)
+    project_id = target.project_id if target is not None else None
+
     row = CaliberReleaseOperation(
         operation_id=operation_id,
         operation_type=operation_type,
@@ -150,6 +161,7 @@ def prepare_prompt_alias_release(
         evidence=dict(evidence or {}),
         approval_id=approval_id,
         status="prepared",
+        project_id=project_id,
     )
     session.add(row)
     try:
@@ -383,6 +395,7 @@ def reconcile_prompt_alias_releases(
 def serialize_release_operation(row: CaliberReleaseOperation) -> dict[str, Any]:
     return {
         "operation_id": row.operation_id,
+        "project_id": row.project_id,
         "operation_type": row.operation_type,
         "resource_type": row.resource_type,
         "resource_name": row.resource_name,

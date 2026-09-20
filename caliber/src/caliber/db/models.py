@@ -512,6 +512,22 @@ class CaliberReleaseOperation(Base):
     provider changed its alias therefore leaves an operator-visible ``applying``
     operation with the exact before/after versions needed for reconciliation,
     rather than an unrecorded production change.
+
+    `P2-R` (docs/workspace-plan.md Phase 2 item 6): ``project_id`` is a bare,
+    nullable project binding -- no ``visibility``/owner column, the same
+    ``project_only`` shape :class:`CaliberWorkspaceReleaseOperation` already
+    uses (confirmed by ``db/resource_inventory.py``'s own classification).
+    This is a derived, historical record of an external provider mutation,
+    not a first-class owned resource with its own sharing tiers, so the full
+    3-tier visibility model would be the wrong fit here. Populated at
+    creation time (:func:`caliber.release_operations.prepare_prompt_alias_release`)
+    from the released prompt's hidden runtime target
+    (:class:`CaliberAgentConfig`, keyed by ``agent_id == resource_name`` --
+    see :mod:`caliber.prompt_targets`); ``NULL`` when that prompt has no
+    target (a bare provider-only/legacy prompt, or a personal "My Library"
+    one), mirroring the same "no target = personal/global" carve-out
+    ``prompt_targets.py``/``get_prompt``/``list_prompts`` already apply.
+    Existing rows were backfilled the same way by migration ``0112``.
     """
 
     __tablename__ = "caliber_release_operations"
@@ -524,11 +540,15 @@ class CaliberReleaseOperation(Base):
             "resource_name",
             "target_name",
         ),
+        Index("ix_release_operations_project_id", "project_id"),
     )
 
     operation_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     runtime_lineage_id: Mapped[str | None] = mapped_column(
         String(64), ForeignKey("caliber_workspace_runtime_lineage.lineage_id"), nullable=True
+    )
+    project_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=True, default=None
     )
     operation_type: Mapped[str] = mapped_column(String(16))  # promote | rollback
     resource_type: Mapped[str] = mapped_column(String(32))

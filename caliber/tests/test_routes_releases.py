@@ -6,8 +6,11 @@ from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from caliber.db.models import (
+    CaliberAgentConfig,
     CaliberAuditLog,
     CaliberKnowledgeBase,
+    CaliberProject,
+    CaliberProjectMember,
     CaliberReleaseOperation,
     CaliberWorkflowDeployment,
 )
@@ -16,6 +19,51 @@ from caliber.release_operations import prepare_prompt_alias_release
 TIMELINE = "/ajax-api/2.0/mlflow/caliber/releases/timeline"
 LIVE = "/ajax-api/2.0/mlflow/caliber/releases/live"
 OPERATIONS = "/ajax-api/2.0/mlflow/caliber/releases/operations"
+
+# --- `P2-R` (isolation closure, item 6): a project-scoped
+# `CaliberReleaseOperation` (a prompt release whose name has a hidden,
+# project-bound `CaliberAgentConfig` target, `P2-G`) previously had no
+# `project_id` at all -- every operator could list, retry, or abandon every
+# project's prompt release history via a guessed operation id. -----------
+
+_STRANGER = {"X-CALIBER-User": "@stranger"}
+
+
+def _grant_stranger_operator_scope(client: TestClient) -> None:
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"operator_users": "@stranger"}
+    )
+
+
+def _seed_scoped_prompt_target(
+    session: Session, *, prompt_name: str, project_id: str, owner: str = "@owner"
+) -> None:
+    session.add(
+        CaliberAgentConfig(
+            agent_id=prompt_name,
+            experiment_id=f"exp-{prompt_name}",
+            name=prompt_name,
+            owner=owner,
+            project_id=project_id,
+            visibility="project",
+            optimizer_config={"source_type": "prompt_target", "model": None, "bound_to": None},
+        )
+    )
+    session.commit()
+
+
+def _seed_project_member(session: Session, *, project_id: str, user_id: str) -> None:
+    session.add(CaliberProject(project_id=project_id, name=project_id, owner="@owner"))
+    session.add(
+        CaliberProjectMember(
+            member_id=f"M-{project_id}-{user_id.lstrip('@')}",
+            project_id=project_id,
+            user_id=user_id,
+            role="viewer",
+            created_by="@owner",
+        )
+    )
+    session.commit()
 
 
 def _audit(session: Session, action: str, entity_type: str, entity_id: str) -> None:
@@ -220,3 +268,144 @@ def test_applying_release_refuses_blind_retry(client: TestClient, db_session: Se
 
     assert response.status_code == 409
     assert "reconciliation" not in response.text.lower() or "only prepared" in response.text.lower()
+
+
+def test_release_operations_list_hides_a_project_scoped_operation_from_a_non_member(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_scoped_prompt_target(db_session, prompt_name="p-hidden", project_id="P-hidden")
+    prepare_prompt_alias_release(
+        db_session,
+        name="p-hidden",
+        alias="prod",
+        version_before=None,
+        version_after=1,
+        actor="@owner",
+    )
+    _grant_stranger_operator_scope(client)
+
+    # No active project at all.
+    resp = client.get(OPERATIONS, headers=_STRANGER)
+    assert resp.status_code == 200, resp.text
+    assert "p-hidden" not in {row["resource_name"] for row in resp.json()["data"]}
+
+    # Setting the header alone (no real membership row) must not unlock it
+    # either -- the same membership check apply_visibility_filter's own
+    # "project" tier performs, not a bare project_id string match.
+    resp = client.get(OPERATIONS, headers={**_STRANGER, "X-CALIBER-Project": "P-hidden"})
+    assert resp.status_code == 200, resp.text
+    assert "p-hidden" not in {row["resource_name"] for row in resp.json()["data"]}
+
+
+def test_release_operations_list_shows_it_to_an_active_project_member(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_scoped_prompt_target(db_session, prompt_name="p-member", project_id="P-member")
+    prepare_prompt_alias_release(
+        db_session,
+        name="p-member",
+        alias="prod",
+        version_before=None,
+        version_after=1,
+        actor="@owner",
+    )
+    _seed_project_member(db_session, project_id="P-member", user_id="@stranger")
+    _grant_stranger_operator_scope(client)
+
+    resp = client.get(OPERATIONS, headers={**_STRANGER, "X-CALIBER-Project": "P-member"})
+    assert resp.status_code == 200, resp.text
+    rows = {row["resource_name"]: row for row in resp.json()["data"]}
+    assert "p-member" in rows
+    assert rows["p-member"]["project_id"] == "P-member"
+
+
+def test_release_operations_list_always_shows_a_projectless_operation(
+    client: TestClient, db_session: Session
+) -> None:
+    """A bare provider-only/legacy prompt (no hidden target at all) has no
+    project to scope by -- stays visible to everyone, mirroring the same
+    "no target = personal/global" carve-out ``prompt_targets.py`` applies."""
+    prepare_prompt_alias_release(
+        db_session,
+        name="p-bare",
+        alias="prod",
+        version_before=None,
+        version_after=1,
+        actor="@owner",
+    )
+    _grant_stranger_operator_scope(client)
+
+    resp = client.get(OPERATIONS, headers=_STRANGER)
+    assert resp.status_code == 200, resp.text
+    rows = {row["resource_name"]: row for row in resp.json()["data"]}
+    assert rows["p-bare"]["project_id"] is None
+
+
+def test_admin_still_sees_every_projects_operations(
+    client: TestClient, db_session: Session
+) -> None:
+    """The default test client is an admin -- the unconditional cross-project
+    bypass every other read in this module already grants must still apply."""
+    _seed_scoped_prompt_target(db_session, prompt_name="p-admin-visible", project_id="P-admin")
+    prepare_prompt_alias_release(
+        db_session,
+        name="p-admin-visible",
+        alias="prod",
+        version_before=None,
+        version_after=1,
+        actor="@owner",
+    )
+
+    resp = client.get(OPERATIONS)
+    assert resp.status_code == 200, resp.text
+    assert "p-admin-visible" in {row["resource_name"] for row in resp.json()["data"]}
+
+
+def test_resolve_release_operation_refuses_a_stranger_for_another_projects_operation(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_scoped_prompt_target(db_session, prompt_name="p-hidden-resolve", project_id="P-hidden")
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="p-hidden-resolve",
+        alias="prod",
+        version_before=1,
+        version_after=2,
+        actor="@owner",
+    )
+    _grant_stranger_operator_scope(client)
+
+    resp = client.post(
+        f"{OPERATIONS}/{operation.operation_id}/resolve",
+        json={"action": "abandon", "reason": "not my project"},
+        headers=_STRANGER,
+    )
+    assert resp.status_code == 404, resp.text
+
+    db_session.expire_all()
+    row = db_session.get(CaliberReleaseOperation, operation.operation_id)
+    assert row is not None and row.status == "prepared"  # untouched by the refused attempt
+
+
+def test_resolve_release_operation_allows_an_active_project_member(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_scoped_prompt_target(db_session, prompt_name="p-member-resolve", project_id="P-member")
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="p-member-resolve",
+        alias="prod",
+        version_before=1,
+        version_after=2,
+        actor="@owner",
+    )
+    _seed_project_member(db_session, project_id="P-member", user_id="@stranger")
+    _grant_stranger_operator_scope(client)
+
+    resp = client.post(
+        f"{OPERATIONS}/{operation.operation_id}/resolve",
+        json={"action": "abandon", "reason": "operator verified no provider call"},
+        headers={**_STRANGER, "X-CALIBER-Project": "P-member"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert resp.json()["data"]["status"] == "failed"

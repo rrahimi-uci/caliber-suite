@@ -21,7 +21,7 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import select
+from sqlalchemy import ColumnElement, and_, exists, or_, select
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
@@ -41,6 +41,7 @@ from caliber.auth import (
 from caliber.db.models import (
     CaliberAuditLog,
     CaliberKnowledgeBase,
+    CaliberProjectMember,
     CaliberReleaseCandidate,
     CaliberReleaseOperation,
     CaliberReleaseReportJob,
@@ -127,6 +128,48 @@ def _visible_ids(session: Any, model: type, pk: Any, identity: CaliberIdentity) 
     """
     stmt = apply_visibility_filter(select(pk), model, identity, identity.active_project_id)
     return set(session.execute(stmt).scalars().all())
+
+
+def _scope_release_operations(stmt: Any, identity: CaliberIdentity) -> Any:
+    """Restrict a ``CaliberReleaseOperation`` query to what ``identity`` may see.
+
+    `P2-R` (isolation closure, item 6): the row has no ``visibility``/owner
+    column of its own -- it's a derived, historical record of an external
+    provider mutation, not a first-class owned resource, the same
+    ``project_only`` shape ``CaliberWorkspaceReleaseOperation`` already uses
+    (confirmed by ``db/resource_inventory.py``'s classification). This can't
+    reuse :func:`caliber.db.scoping.apply_visibility_filter` directly --
+    that helper hard-requires a ``visibility`` column plus a resolvable
+    owner/``created_by`` column, neither of which this table has -- so the
+    equivalent "project" tier is re-derived here by hand: a ``NULL``
+    ``project_id`` (the released prompt had no hidden target -- a bare
+    provider-only/legacy prompt, or a personal "My Library" one) stays
+    visible to everyone, mirroring the same "no target = personal/global"
+    carve-out ``prompt_targets.py``/``get_prompt``/``list_prompts`` already
+    apply; a non-null ``project_id`` is visible only to an active member of
+    that exact project (the caller's current ``X-CALIBER-Project``), the
+    same membership check ``apply_visibility_filter``'s own project tier
+    performs. Admins keep the same unconditional bypass every other read in
+    this module already grants (``_scope_timeline_rows``/``_visible_ids``).
+    """
+    if identity.has_scope(SCOPE_ADMIN):
+        return stmt
+    project_id = identity.active_project_id
+    conditions: list[ColumnElement[bool]] = [CaliberReleaseOperation.project_id.is_(None)]
+    if project_id:
+        conditions.append(
+            and_(
+                CaliberReleaseOperation.project_id == project_id,
+                exists(
+                    select(CaliberProjectMember.member_id).where(
+                        CaliberProjectMember.project_id == project_id,
+                        CaliberProjectMember.user_id == identity.user_id,
+                        CaliberProjectMember.status == "active",
+                    )
+                ),
+            )
+        )
+    return stmt.where(or_(*conditions))
 
 
 def _evaluate_candidate(candidate: CaliberReleaseCandidate) -> None:
@@ -606,6 +649,7 @@ def _kb_live_entry(
 def _load_release_operations(
     factory: Any,
     *,
+    identity: CaliberIdentity,
     status: str,
     limit: int,
 ) -> list[dict[str, Any]]:
@@ -614,6 +658,7 @@ def _load_release_operations(
         stmt = select(CaliberReleaseOperation).order_by(CaliberReleaseOperation.created_at.desc())
         if status:
             stmt = stmt.where(CaliberReleaseOperation.status == status)
+        stmt = _scope_release_operations(stmt, identity)
         rows = session.execute(stmt.limit(limit)).scalars().all()
         return [serialize_release_operation(row) for row in rows]
 
@@ -635,14 +680,28 @@ def _reconcile_release_operations(
 def _resolve_prepared_release_operation(
     factory: Any,
     *,
+    identity: CaliberIdentity,
     action: str,
     operation_id: str,
     actor: str,
     reason: str,
 ) -> dict[str, object]:
-    """Resolve a prepared intent outside the async route's event-loop thread."""
+    """Resolve a prepared intent outside the async route's event-loop thread.
+
+    `P2-R`: a bare ``session.get`` previously let any operator retry/abandon
+    another project's prompt release by guessing its operation id. Re-queried
+    through :func:`_scope_release_operations`, the same "re-fetch by id
+    through the visibility filter" idiom :func:`caliber.db.scoping.get_visible`
+    uses elsewhere, so an out-of-scope id 404s exactly like a missing one.
+    """
     with factory() as session:
-        row = session.get(CaliberReleaseOperation, operation_id)
+        stmt = _scope_release_operations(
+            select(CaliberReleaseOperation).where(
+                CaliberReleaseOperation.operation_id == operation_id
+            ),
+            identity,
+        )
+        row = session.execute(stmt).scalars().first()
         if row is None:
             raise HTTPException(
                 status_code=404, detail=f"release operation {operation_id!r} not found"
@@ -809,6 +868,7 @@ async def live(request: Request) -> JSONResponse:
 async def release_operations(request: Request) -> JSONResponse:
     """List durable release intents, including incomplete external effects."""
     require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     raw_limit = request.query_params.get("limit", "100")
     try:
         limit = max(1, min(int(raw_limit), 500))
@@ -819,6 +879,7 @@ async def release_operations(request: Request) -> JSONResponse:
     data = await run_in_threadpool(
         _load_release_operations,
         factory,
+        identity=identity,
         status=status,
         limit=limit,
     )
@@ -826,7 +887,18 @@ async def release_operations(request: Request) -> JSONResponse:
 
 
 async def reconcile_release_operations(request: Request) -> JSONResponse:
-    """Observe provider aliases and settle incomplete prompt release intents."""
+    """Observe provider aliases and settle incomplete prompt release intents.
+
+    Deliberately unscoped by project (unlike ``release_operations``/
+    ``resolve_release_operation``, `P2-R`): reconciliation is a global
+    maintenance sweep over every incomplete external effect, not a lookup
+    keyed to a specific operation or project -- restricting it to the
+    caller's own active project would leave other projects' incomplete
+    provider mutations unreconciled whenever an operator runs it. It does
+    return every reconciled row's full projectless-and-project-bound mix in
+    its response, a known residual noted here rather than silently swept
+    under this ticket's own list/detail scoping.
+    """
     require_scopes(request, [SCOPE_OPERATOR])
     from caliber.routes import prompts as prompt_routes  # noqa: PLC0415
 
@@ -847,6 +919,7 @@ async def resolve_release_operation(request: Request) -> JSONResponse:
     safe operation.
     """
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     body = await parse_json_object(request)
     action = str(body.get("action") or "").strip().casefold()
     operation_id = request.path_params["operation_id"]
@@ -854,6 +927,7 @@ async def resolve_release_operation(request: Request) -> JSONResponse:
     data = await run_in_threadpool(
         _resolve_prepared_release_operation,
         factory,
+        identity=identity,
         action=action,
         operation_id=operation_id,
         actor=actor,

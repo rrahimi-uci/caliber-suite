@@ -36,7 +36,10 @@ _EXPECTED_COUNTS = {
     # subordinate immutable rows. Their release/operation parent supplies the
     # project authorization boundary, just as source-provider delivery rows
     # and change-request audit rows do.
-    SCOPING_UNSCOPED: 51,
+    # -1 (`P2-R`): CaliberReleaseOperation gained a direct, nullable
+    # project_id (backfilled from the released prompt's hidden
+    # CaliberAgentConfig target) and moves to project_only -- see below.
+    SCOPING_UNSCOPED: 50,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.
@@ -84,7 +87,10 @@ _EXPECTED_COUNTS = {
     # tier -- same shape as its sibling CaliberWorkspaceSourceActorLink
     # above, correctly project_only, confirmed by direct look. It carries
     # only secret-store references, never credential material itself.
-    SCOPING_PROJECT_ONLY: 24,
+    # +1 (`P2-R`): CaliberReleaseOperation, see SCOPING_UNSCOPED above --
+    # same project_only shape as its newer sibling
+    # CaliberWorkspaceReleaseOperation, confirmed by direct look.
+    SCOPING_PROJECT_ONLY: 25,
 }
 
 

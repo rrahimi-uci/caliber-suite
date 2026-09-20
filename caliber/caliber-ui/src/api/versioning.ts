@@ -89,6 +89,11 @@ export type ReleaseOperationStatus =
 
 export interface ReleaseOperation {
   operation_id: string;
+  // `P2-R`: the project the released prompt's hidden runtime target belongs
+  // to, if any. `null` for a bare provider-only/legacy prompt with no
+  // target (the same "no target = personal/global" carve-out prompts use
+  // elsewhere) -- not an indication the field is unsupported.
+  project_id?: string | null;
   operation_type: "promote" | "rollback";
   resource_type: string;
   resource_name: string;
