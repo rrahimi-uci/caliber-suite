@@ -992,3 +992,112 @@ def test_0112_backfills_release_operation_project_id_from_prompt_target(
     finally:
         engine.dispose()
         os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+@pytest.mark.slow
+def test_0113_backfills_verification_item_project_id_from_agent(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Upgrade-from-0112 (`P2-Q`, docs/workspace-plan.md's own row): a
+    pre-existing verification item whose ``agent_id`` (``NOT NULL``,
+    FK-constrained -- every row has one) matches a project-scoped
+    ``caliber_agent_config`` row backfills that agent's ``project_id``; one
+    whose agent has no project (a personal/global agent) backfills ``NULL``
+    -- the same "no target = personal/global" carve-out ``prompt_targets.py``
+    already applies elsewhere. The migration's own index lands as declared,
+    and downgrading past it cleanly drops the column (a re-upgrade restores
+    it, recomputing the identical backfill)."""
+    db_path = tmp_path / "verification_item_project_scoping.db"
+    db_url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+
+    cfg = Config(str(ALEMBIC_INI))
+    monkeypatch.chdir(PROJECT_ROOT)
+    command.upgrade(cfg, "0112")
+
+    engine = create_engine(db_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_projects (project_id, tenant_id, name, owner) "
+                    "VALUES ('PRJ-0113', 'local', 'Verification Item Scoping', '@owner')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_agent_config "
+                    "(agent_id, experiment_id, name, owner, project_id, visibility, "
+                    "artifact_types, eval_thresholds, optimizer_config, approval_policy) "
+                    "VALUES ('scoped-agent', 'exp-0113-scoped', 'scoped-agent', '@owner', "
+                    "'PRJ-0113', 'project', '[\"prompt\"]', '{}', '{}', '{}')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_agent_config "
+                    "(agent_id, experiment_id, name, owner, project_id, visibility, "
+                    "artifact_types, eval_thresholds, optimizer_config, approval_policy) "
+                    "VALUES ('bare-agent', 'exp-0113-bare', 'bare-agent', '@owner', "
+                    "NULL, 'public', '[\"prompt\"]', '{}', '{}', '{}')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_verification_queue "
+                    "(item_id, agent_id, category, free_text, severity, status, priority) "
+                    "VALUES ('FB-0113-scoped', 'scoped-agent', 'hallucination', "
+                    "'test', 'standard', 'pending', 0)"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_verification_queue "
+                    "(item_id, agent_id, category, free_text, severity, status, priority) "
+                    "VALUES ('FB-0113-bare', 'bare-agent', 'hallucination', "
+                    "'test', 'standard', 'pending', 0)"
+                )
+            )
+
+        command.upgrade(cfg, "head")
+
+        with engine.connect() as connection:
+            rows = {
+                row.item_id: row.project_id
+                for row in connection.execute(
+                    text(
+                        "SELECT item_id, project_id FROM caliber_verification_queue "
+                        "WHERE item_id IN ('FB-0113-scoped', 'FB-0113-bare')"
+                    )
+                )
+            }
+            assert rows == {"FB-0113-scoped": "PRJ-0113", "FB-0113-bare": None}
+
+        inspector = inspect(engine)
+        indexes = {ix["name"]: ix for ix in inspector.get_indexes("caliber_verification_queue")}
+        assert "ix_verification_queue_project_id" in indexes
+        assert indexes["ix_verification_queue_project_id"]["column_names"] == ["project_id"]
+
+        # Downgrade removes the column cleanly...
+        command.downgrade(cfg, "0112")
+        columns = {col["name"] for col in inspect(engine).get_columns("caliber_verification_queue")}
+        assert "project_id" not in columns
+
+        # ...and a re-upgrade restores it, recomputing the same backfill.
+        command.upgrade(cfg, "head")
+        columns = {col["name"] for col in inspect(engine).get_columns("caliber_verification_queue")}
+        assert "project_id" in columns
+        with engine.connect() as connection:
+            rows = {
+                row.item_id: row.project_id
+                for row in connection.execute(
+                    text(
+                        "SELECT item_id, project_id FROM caliber_verification_queue "
+                        "WHERE item_id IN ('FB-0113-scoped', 'FB-0113-bare')"
+                    )
+                )
+            }
+            assert rows == {"FB-0113-scoped": "PRJ-0113", "FB-0113-bare": None}
+    finally:
+        engine.dispose()
+        os.environ.pop("CALIBER_DATABASE_URL", None)

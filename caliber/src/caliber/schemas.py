@@ -137,6 +137,7 @@ class VerificationItemSchema(BaseModel):
 
     item_id: str
     agent_id: str
+    project_id: str | None
     assessment_id: str | None
     trace_id: str | None
     experiment_id: str | None

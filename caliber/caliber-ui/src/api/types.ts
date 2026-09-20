@@ -222,6 +222,10 @@ export type Severity = "critical" | "standard";
 export interface VerificationItem {
   item_id: string;
   agent_id: string;
+  // `P2-Q`: the project the item's agent belongs to, if any. `null` for a
+  // personal/global agent (the same "no target = personal/global" carve-out
+  // prompts use elsewhere) -- not an indication the field is unsupported.
+  project_id?: string | null;
   assessment_id: string | null;
   trace_id: string | null;
   experiment_id: string | null;
