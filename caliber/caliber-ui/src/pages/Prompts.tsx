@@ -41,6 +41,8 @@ import { useViewMode } from "@/hooks/useViewMode";
 import type {
   AgentConfig,
   EvalDataset,
+  JobStage,
+  JobStatus,
   PromptBindPayload,
   PromptCalibrationOptions,
   PromptCalibrationScorerOption,
@@ -5838,6 +5840,53 @@ const TERMINAL_OPERATION_STATUSES = new Set([
   "cancelled",
 ]);
 
+const JOB_STATUSES = new Set<JobStatus>([
+  "queued",
+  "running",
+  "candidate_ready",
+  "applied",
+  "completed",
+  "rejected",
+  "failed",
+  "cancelled",
+]);
+
+const JOB_STAGES = new Set<JobStage>([
+  "triage",
+  "evidence",
+  "diagnosis",
+  "candidate",
+  "eval",
+  "done",
+]);
+
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+/**
+ * Runtime guard for a `RefinementJob` surfaced via the assistant-intent
+ * execution result (`executed.result.job`). Unlike the dedicated job-listing
+ * endpoints, this value arrives inside a loosely-typed intent-execution
+ * payload with no typed API client method backing it -- so a compile-time
+ * cast alone can't catch a shape the run list/badges don't actually support.
+ * Checks the fields those surfaces read (job_id, status, current_stage,
+ * created_at, error_message) rather than trusting an unchecked cast.
+ */
+function isAssistantRefinementJob(value: unknown): value is RefinementJob {
+  if (!isRecord(value)) return false;
+  return (
+    typeof value.job_id === "string" &&
+    value.job_id.length > 0 &&
+    typeof value.status === "string" &&
+    JOB_STATUSES.has(value.status as JobStatus) &&
+    typeof value.current_stage === "string" &&
+    JOB_STAGES.has(value.current_stage as JobStage) &&
+    typeof value.created_at === "string" &&
+    (value.error_message === null || typeof value.error_message === "string")
+  );
+}
+
 const ASSISTANT_OPTIMIZATION_SESSION_KEY_PREFIX =
   "caliber.prompts.optimization.assistantSession";
 
@@ -6405,19 +6454,11 @@ export function PromptOptimizationTab({
       setAssistantOperationStatus(immediateStatus);
 
       const job = executed.result?.job;
-      if (
-        job &&
-        typeof job === "object" &&
-        typeof (job as { job_id?: unknown }).job_id === "string"
-      ) {
-        const typedJob = job as unknown as RefinementJob;
-        setActiveRunJobId(typedJob.job_id);
-        setActiveRun(typedJob);
+      if (isAssistantRefinementJob(job)) {
+        setActiveRunJobId(job.job_id);
+        setActiveRun(job);
         setRuns((prev) =>
-          [
-            typedJob,
-            ...prev.filter((row) => row.job_id !== typedJob.job_id),
-          ].slice(0, 12),
+          [job, ...prev.filter((row) => row.job_id !== job.job_id)].slice(0, 12),
         );
 
         if (selectedPrompt) {
@@ -6444,6 +6485,14 @@ export function PromptOptimizationTab({
             notes: notes.trim() || null,
           });
         }
+      } else if (job) {
+        // The intent execution returned a `job`, but its shape doesn't match
+        // what the run list/badges depend on -- skip it rather than push a
+        // malformed entry that would render `undefined` fields at runtime.
+        console.warn(
+          "caliber: assistant-intent execution returned a malformed refinement job",
+          job,
+        );
       }
     } catch (err) {
       setAssistantIntentError(
@@ -6465,12 +6514,28 @@ export function PromptOptimizationTab({
     selectedPrompt,
   ]);
 
+  // Stable identity for the operation currently being polled. Keying the
+  // effect below off this (rather than off `assistantOperationStatus` itself)
+  // is the fix for a self-resetting interval: the poll tick below calls
+  // `setAssistantOperationStatus(latest)` with a fresh object every 2s, so a
+  // dependency on the object itself tore the effect down and rebuilt the
+  // timer on every single tick instead of running one stable interval.
+  // Mirrors the job-poll effect right below, which keys off the stable
+  // `activeRunJobId` rather than the run state its own tick mutates.
+  const assistantOperationId = assistantOperationStatus?.operation_id ?? null;
+  // Latest status snapshot, read from a ref (not a dependency) so the
+  // "already terminal, don't bother polling" check below sees the current
+  // value without retriggering the effect on every status update.
+  const assistantOperationStatusRef = useRef(assistantOperationStatus);
+  assistantOperationStatusRef.current = assistantOperationStatus;
+
   useEffect(() => {
-    if (!assistantSessionId || !assistantOperationStatus?.operation_id) {
-      return;
+    if (!assistantSessionId || !assistantOperationId) {
+      return undefined;
     }
-    if (TERMINAL_OPERATION_STATUSES.has(assistantOperationStatus.status)) {
-      return;
+    const initialStatus = assistantOperationStatusRef.current?.status;
+    if (initialStatus && TERMINAL_OPERATION_STATUSES.has(initialStatus)) {
+      return undefined;
     }
 
     let cancelled = false;
@@ -6479,7 +6544,7 @@ export function PromptOptimizationTab({
         try {
           const latest = await caliberApi.getAssistantOperation(
             assistantSessionId,
-            assistantOperationStatus.operation_id,
+            assistantOperationId,
           );
           if (cancelled) return;
           setAssistantOperationStatus(latest);
@@ -6496,7 +6561,7 @@ export function PromptOptimizationTab({
       cancelled = true;
       window.clearInterval(intervalId);
     };
-  }, [assistantOperationStatus, assistantSessionId]);
+  }, [assistantOperationId, assistantSessionId]);
 
   useEffect(() => {
     // When the parent controls the agent (shared scope), it owns the default.

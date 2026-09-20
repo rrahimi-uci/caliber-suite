@@ -3112,14 +3112,19 @@ export function WorkflowEditor(): JSX.Element {
 
   // Flush a still-dirty draft when leaving the editor (SPA navigation / unmount).
   // beforeunload doesn't fire on in-app route changes, so this is what actually
-  // closes the "clicked a sidebar link mid-edit" data-loss gap. Fire-and-forget.
+  // closes the "clicked a sidebar link mid-edit" data-loss gap. Fire-and-forget --
+  // the component is unmounting, so on failure we can only surface a toast
+  // (module-level, not React state) rather than setState on a gone component.
   useEffect(
     () => () => {
       const s = autosaveSnapshotRef.current;
       if (s.dirty && !s.published && s.versionId && s.manifest) {
         void caliberApi
           .updateWorkflowVersion(s.versionId, s.manifest, s.hash)
-          .catch(() => undefined);
+          .catch((err: unknown) => {
+            const detail = err instanceof Error ? err.message : String(err);
+            showToast.error(`Save failed: ${detail}`);
+          });
       }
     },
     [],

@@ -2449,35 +2449,47 @@ function PlaygroundTab({
               </button>
             </div>
             <div className="divide-y divide-zinc-100 max-h-48 overflow-y-auto">
-              {invocationHistory.map((entry, i) => (
-                <div
-                  key={`${entry.tool}-${entry.timestamp}-${i}`}
-                  className="px-4 py-2.5 flex items-center justify-between text-xs cursor-pointer hover:bg-zinc-50"
-                  onClick={() => {
-                    const tool = tools.find((t) => t.name === entry.tool);
-                    if (tool) {
-                      setActiveTool(tool);
-                      setToolArgs(entry.args);
-                      setInvocationResult(entry.result);
-                    }
-                  }}
-                >
-                  <div className="flex items-center gap-2">
-                    <span
-                      className={`w-1.5 h-1.5 rounded-full ${entry.result.success ? "bg-emerald-500" : "bg-red-500"}`}
-                    />
-                    <span className="font-mono text-zinc-800">
-                      {entry.tool}
-                    </span>
+              {invocationHistory.map((entry, i) => {
+                const openHistoryEntry = () => {
+                  const tool = tools.find((t) => t.name === entry.tool);
+                  if (tool) {
+                    setActiveTool(tool);
+                    setToolArgs(entry.args);
+                    setInvocationResult(entry.result);
+                  }
+                };
+                return (
+                  <div
+                    key={`${entry.tool}-${entry.timestamp}-${i}`}
+                    data-testid={`invocation-history-row-${i}`}
+                    role="button"
+                    tabIndex={0}
+                    className="px-4 py-2.5 flex items-center justify-between text-xs cursor-pointer hover:bg-zinc-50 focus:outline-none focus:ring-1 focus:ring-inset focus:ring-caliber-500/30"
+                    onClick={openHistoryEntry}
+                    onKeyDown={(event) => {
+                      if (event.key === "Enter" || event.key === " ") {
+                        event.preventDefault();
+                        openHistoryEntry();
+                      }
+                    }}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span
+                        className={`w-1.5 h-1.5 rounded-full ${entry.result.success ? "bg-emerald-500" : "bg-red-500"}`}
+                      />
+                      <span className="font-mono text-zinc-800">
+                        {entry.tool}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-2 text-zinc-400">
+                      <span>{entry.result.duration_ms}ms</span>
+                      <span>
+                        {new Date(entry.timestamp).toLocaleTimeString()}
+                      </span>
+                    </div>
                   </div>
-                  <div className="flex items-center gap-2 text-zinc-400">
-                    <span>{entry.result.duration_ms}ms</span>
-                    <span>
-                      {new Date(entry.timestamp).toLocaleTimeString()}
-                    </span>
-                  </div>
-                </div>
-              ))}
+                );
+              })}
             </div>
           </div>
         )}

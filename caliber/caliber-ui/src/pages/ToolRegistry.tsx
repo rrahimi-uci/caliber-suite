@@ -1691,6 +1691,7 @@ function ToolRunsStage({
   const [viewedRunId, setViewedRunId] = useState<string | null>(null);
   const [viewedDetail, setViewedDetail] = useState<ToolTestRunDetail | null>(null);
   const [viewedLoading, setViewedLoading] = useState(false);
+  const [viewedDetailError, setViewedDetailError] = useState<string | null>(null);
   const [baselineDetail, setBaselineDetail] = useState<ToolTestRunDetail | null>(null);
   const [pinning, setPinning] = useState(false);
   const [pinError, setPinError] = useState<string | null>(null);
@@ -1725,17 +1726,24 @@ function ToolRunsStage({
   useEffect(() => {
     if (!viewedRunId) {
       setViewedDetail(null);
+      setViewedDetailError(null);
       return;
     }
     let cancelled = false;
     setViewedLoading(true);
+    setViewedDetailError(null);
     void caliberApi
       .getToolTestRun(viewedRunId)
       .then((detail) => {
         if (!cancelled) setViewedDetail(detail);
       })
-      .catch(() => {
-        if (!cancelled) setViewedDetail(null);
+      .catch((err: unknown) => {
+        if (cancelled) return;
+        // A fetch failure must not look like "no such run" -- surface it
+        // distinctly, the same way `pinError` surfaces a failed pin rather
+        // than silently no-op'ing.
+        setViewedDetail(null);
+        setViewedDetailError(apiErrorText(err, "Failed to load run results"));
       })
       .finally(() => {
         if (!cancelled) setViewedLoading(false);
@@ -1893,7 +1901,14 @@ function ToolRunsStage({
             )}
           </div>
 
-          {viewedLoading || viewedDetail == null ? (
+          {viewedDetailError ? (
+            <div
+              data-testid="tool-run-results-error"
+              className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700"
+            >
+              Couldn't load this run's results: {viewedDetailError}
+            </div>
+          ) : viewedLoading || viewedDetail == null ? (
             <div className="text-xs text-zinc-400 animate-pulse">Loading results…</div>
           ) : (
             <div className="space-y-2">
