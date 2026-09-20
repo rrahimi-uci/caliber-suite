@@ -124,6 +124,12 @@ def test_the_envelope_and_error_shapes_are_documented(client: TestClient) -> Non
     schemas = client.get(OPENAPI_URL).json()["components"]["schemas"]
     assert schemas["Envelope"]["required"] == ["data"]
     assert set(schemas["Error"]["required"]) == {"detail", "status_code"}
+    # `reason_code` (Phase 0 item 6) is documented but deliberately *not*
+    # required: it is additive and only some migrated routes set it, so
+    # marking it required would make every unmigrated route's response
+    # non-conformant with its own declared schema.
+    assert "reason_code" in schemas["Error"]["properties"]
+    assert schemas["Error"]["properties"]["reason_code"]["type"] == "string"
     assert "errors" in schemas["ValidationError"]["properties"]
     # validation_error_handler (routes/_errors.py) always emits `errors`,
     # never omits the key -- the documented schema must say so too, or an

@@ -60,6 +60,7 @@ from caliber.routes._deps import (
     get_working_dir_service,
     parse_json_object,
 )
+from caliber.routes._errors import CaliberHTTPException
 from caliber.schemas import (
     WorkspaceImportJobListSchema,
     WorkspaceImportJobSchema,
@@ -1131,21 +1132,27 @@ def _create_snapshot_sync(
             try:
                 adapter = adapter_registry.require(entry.resource_type)
             except WorkspaceReleaseAdapterUnavailableError as exc:
-                raise HTTPException(
-                    status_code=409, detail=f"resource_type_adapter_unavailable: {exc}"
+                raise CaliberHTTPException(
+                    status_code=409,
+                    detail=f"resource_type_adapter_unavailable: {exc}",
+                    reason_code="resource_type_adapter_unavailable",
                 ) from exc
             declaration = {"resource_id": entry.resource_id, "version_ref": entry.version_ref}
             try:
                 resolved = adapter.resolve(session, project, declaration, identity)
             except WorkspaceReleaseAdapterError as exc:
-                raise HTTPException(
-                    status_code=409, detail=f"resource_resolve_failed: {exc}"
+                raise CaliberHTTPException(
+                    status_code=409,
+                    detail=f"resource_resolve_failed: {exc}",
+                    reason_code="resource_resolve_failed",
                 ) from exc
             try:
                 pin = adapter.snapshot(session, resolved)
             except WorkspaceReleaseAdapterError as exc:
-                raise HTTPException(
-                    status_code=409, detail=f"resource_snapshot_failed: {exc}"
+                raise CaliberHTTPException(
+                    status_code=409,
+                    detail=f"resource_snapshot_failed: {exc}",
+                    reason_code="resource_snapshot_failed",
                 ) from exc
             if not isinstance(pin, SnapshotPin):
                 raise HTTPException(
