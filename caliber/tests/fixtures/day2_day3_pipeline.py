@@ -131,7 +131,36 @@ def seed_agent(
 ) -> CaliberAgentConfig:
     """Register the Day 1 seed fixture's agent, mirroring
     ``tests/test_day1_seed_fixture.py::_seed_agent`` (kept here too since the
-    pipeline driver needs an agent row to exist before seeding the job)."""
+    pipeline driver needs an agent row to exist before seeding the job).
+
+    Get-or-update, not create-only: when ``agent_id`` already has a row --
+    e.g. the hidden prompt target ``caliber.prompt_targets.ensure_prompt_target``
+    auto-provisions the moment a prompt is created through ``POST /prompts``
+    (``agent_id == prompt name``) -- this reuses that row instead of
+    inserting a second one and violating its primary key. This is what lets
+    the two-week-alpha Playwright E2E seed
+    (``scripts/two_week_alpha_e2e_seed.py``) create the fixture's prompt
+    through the real HTTP API *first* (so it gets a genuine MLflow-registered
+    v1 target), then drive this same pipeline against that prompt's
+    already-provisioned ``agent_id`` -- only the fields the pipeline itself
+    needs (eval thresholds, the ``"prompt"`` artifact type) are touched;
+    identity/ownership/the hidden-target marker are left alone. Every
+    existing caller (the pytest test, the Day 2 demo script) always starts
+    from a fresh, empty DB with no pre-existing row for its ``agent_id``, so
+    this is a no-op behavior change for them -- ``session.get`` returns
+    ``None`` and the create path below runs exactly as before.
+    """
+    existing = session.get(CaliberAgentConfig, agent_id)
+    if existing is not None:
+        if "prompt" not in existing.artifact_types:
+            existing.artifact_types = [*existing.artifact_types, "prompt"]
+        existing.eval_thresholds = {
+            "min_aggregate_score": 0.80,
+            "max_regression_delta": 0.05,
+            **(existing.eval_thresholds or {}),
+        }
+        session.flush()
+        return existing
     agent = CaliberAgentConfig(
         agent_id=agent_id,
         # Derived from agent_id (not a fixed literal) so two independent
