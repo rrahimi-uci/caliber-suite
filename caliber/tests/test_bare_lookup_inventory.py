@@ -292,14 +292,19 @@ def test_bare_lookup_call_site_count_is_pinned() -> None:
     law -- it's that a change gets *noticed and looked at*, not silently
     absorbed into a bigger or smaller total kind-by-kind without anyone
     confirming it's still safe.
+
+    `admin_only` -> `gated` for `verification.create_verification_item_record`
+    reflects `P2-Q` slice 2 (#417), landed on `main` after this checker was
+    first written: its `identity is not None` branch now routes through
+    `get_visible` instead of a bare admin-gated lookup.
     """
     from collections import Counter
 
     findings = bare_lookup_inventory()
     counts = Counter(f.kind for f in findings)
     assert counts == {
-        "gated": 8,
-        "admin_only": 7,
+        "gated": 9,
+        "admin_only": 6,
         "existence_only": 3,
         "role_gated_own_project": 1,
         "reviewed": 5,
