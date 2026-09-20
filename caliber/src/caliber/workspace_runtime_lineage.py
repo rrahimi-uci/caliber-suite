@@ -23,10 +23,15 @@ from caliber.db.models import (
     CaliberWorkspaceRevision,
     CaliberWorkspaceRuntimeLineage,
 )
+from caliber.deployment_environments import DEVELOPMENT
 from caliber.ids import new_workspace_release_evidence_id, new_workspace_runtime_lineage_id
 
 _DIGEST_RE = re.compile(r"^[0-9a-f]{64}$")
 _CONSUMER_KINDS = frozenset({"run", "evidence", "provider_operation"})
+
+#: Tag-suffix spellings of the mutable ``latest`` alias used by several
+#: provider/registry conventions (e.g. ``my-model:latest``, ``gpt-4-latest``).
+_MUTABLE_MODEL_ALIAS_SUFFIXES = (":latest", "-latest")
 
 
 class RuntimeLineageError(RuntimeError):
@@ -140,6 +145,54 @@ def _eligibility(
     )
 
 
+def _looks_like_mutable_model_alias(model_id: str) -> bool:
+    """Narrow, documented heuristic for "this model_id is a moving target".
+
+    docs/workspace-plan.md section 9.2 requires a runtime model dependency to
+    pin an immutable model/deployment snapshot for QA, staging, and
+    production: "Mutable aliases such as ``latest`` are invalid" there. This
+    only recognizes the literal alias ``latest`` (case-insensitive, ignoring
+    surrounding whitespace) and the ``:latest``/``-latest`` tag-suffix
+    convention used by container registries and several model-hosting APIs
+    (e.g. ``my-model:latest``, ``gpt-4-latest``). It deliberately does not
+    attempt to enumerate every provider's own mutable-alias vocabulary (a
+    provider-specific ``default``/``stable``/``preview`` tag, for example) --
+    that would require provider-specific knowledge this module does not have,
+    and is exactly the kind of provider integration the plan defers (see the
+    P4-B closure note next to this function's caller). Callers that want a
+    stronger guarantee for a specific provider should pin a fully-qualified,
+    versioned identifier before calling ``create_runtime_lineage``.
+    """
+
+    normalized = model_id.strip().casefold()
+    if not normalized:
+        return False
+    return normalized == "latest" or normalized.endswith(_MUTABLE_MODEL_ALIAS_SUFFIXES)
+
+
+def _require_pinned_model_id(
+    model_id: str | None, environment: CaliberWorkspaceEnvironment
+) -> None:
+    """Reject a mutable-alias-shaped ``model_id`` outside the dev environment.
+
+    P4-B (docs/workspace-plan.md section 9.2): runtime model dependencies must
+    be pinned immutable identifiers for QA, staging, and production. ``dev``
+    is deliberately exempt -- the plan's alias policy names only "QA, staging
+    and production" -- and a caller that declares no model dependency at all
+    (``model_id=None``) is untouched: this policy narrows what a *declared*
+    model_id may look like, it does not make declaring one mandatory.
+    """
+
+    if model_id is None or environment.environment_class == DEVELOPMENT:
+        return
+    if _looks_like_mutable_model_alias(model_id):
+        raise RuntimeLineageError(
+            f"runtime model_id {model_id!r} looks like a mutable alias and is not "
+            f"permitted for the {environment.name!r} environment; pin an immutable "
+            "model/deployment snapshot instead"
+        )
+
+
 def create_runtime_lineage(
     session: Session,
     *,
@@ -173,6 +226,7 @@ def create_runtime_lineage(
         revision_id=revision_id,
         environment_id=environment_id,
     )
+    _require_pinned_model_id(model_id, environment)
     config_digest = _digest(
         config_sha256 or release.environment_config_sha256,
         "config_sha256",

@@ -82,6 +82,72 @@ def _seed(
     return release, environment
 
 
+def _seed_for_environment(
+    session: Session,
+    *,
+    name: str,
+    environment_class: str,
+    promotion_order: int,
+) -> tuple[CaliberWorkspaceRelease, CaliberWorkspaceEnvironment]:
+    """Seed an independent project/environment/revision/release triple.
+
+    ``_seed`` above is pinned to the module-level ``dev`` fixture that most
+    tests in this file share. The P4-B model-alias-policy tests need real,
+    fully-wired coordinates (so ``create_runtime_lineage`` accepts them) for
+    ``qa``/``staging``/``prod`` environments too, so this seeds its own
+    project per call rather than trying to graft a second environment onto
+    the shared ``PROJECT_ID``.
+    """
+
+    project_id = f"PRJ-p4b-{name}"
+    environment_id = f"WSE-p4b-{name}"
+    revision_id = f"WSR-p4b-{name}"
+    project = CaliberProject(
+        project_id=project_id, name=f"P4-B {name} workspace", owner="developer"
+    )
+    environment = CaliberWorkspaceEnvironment(
+        environment_id=environment_id,
+        project_id=project_id,
+        name=name,
+        environment_class=environment_class,
+        promotion_order=promotion_order,
+        status="active",
+        created_by="developer",
+    )
+    revision = CaliberWorkspaceRevision(
+        revision_id=revision_id,
+        project_id=project_id,
+        revision_number=1,
+        source_id=None,
+        source_commit_sha=None,
+        manifest={"apiVersion": "caliber/v1alpha1"},
+        manifest_sha256=HEX,
+        source_bundle_sha256=HEX,
+        source_snapshot_file_id=None,
+        source_attestation="caller_attested",
+        revision_sha256=HEX,
+        status="ready",
+        created_by="developer",
+    )
+    session.add_all([project, environment, revision])
+    session.flush()
+    release = create_workspace_release(
+        session,
+        project_id=project_id,
+        revision_id=revision_id,
+        environment_id=environment_id,
+        environment_config_sha256=HEX,
+        runtime_dependencies_sha256=HEX,
+        policy_sha256=HEX,
+        request_idempotency_key=f"release-p4b-{name}",
+        requested_by="developer",
+    )
+    release.status = "approved"
+    environment.current_release_id = release.release_id
+    session.flush()
+    return release, environment
+
+
 def test_reconstruct_lineage_returns_one_joined_provenance_projection(db_session: Session) -> None:
     release, _environment = _seed(db_session)
     lineage = create_runtime_lineage(
@@ -561,3 +627,141 @@ def test_require_rejects_mutated_release_revision_and_environment_state(
         require_runtime_lineage(
             db_session, lineage.lineage_id, consumer_kind="run", consumer_id="WR-mutation-checks"
         )
+
+
+_PROTECTED_ENVIRONMENTS = pytest.mark.parametrize(
+    ("name", "environment_class", "promotion_order"),
+    [
+        ("qa", "qa", 20),
+        ("staging", "staging", 30),
+        ("prod", "production", 40),
+    ],
+)
+
+_MUTABLE_ALIAS_SHAPES = pytest.mark.parametrize(
+    "alias",
+    ["latest", "LATEST", " latest ", "my-model:latest", "my-model-latest"],
+)
+
+
+@_PROTECTED_ENVIRONMENTS
+@_MUTABLE_ALIAS_SHAPES
+def test_mutable_model_alias_rejected_in_protected_environments(
+    db_session: Session,
+    name: str,
+    environment_class: str,
+    promotion_order: int,
+    alias: str,
+) -> None:
+    """P4-B: `latest`-shaped model_id values fail closed for qa/staging/prod."""
+
+    release, _environment = _seed_for_environment(
+        db_session, name=name, environment_class=environment_class, promotion_order=promotion_order
+    )
+    with pytest.raises(RuntimeLineageError, match="mutable alias"):
+        create_runtime_lineage(
+            db_session,
+            project_id=release.project_id,
+            workspace_release_id=release.release_id,
+            revision_id=release.revision_id,
+            environment_id=release.environment_id,
+            consumer_kind="run",
+            consumer_id=f"WR-alias-{name}-{alias!r}",
+            model_id=alias,
+        )
+
+
+@_MUTABLE_ALIAS_SHAPES
+def test_mutable_model_alias_allowed_in_dev(db_session: Session, alias: str) -> None:
+    """P4-B: the alias policy is scoped to qa/staging/prod, never dev."""
+
+    release, _environment = _seed(db_session)
+    lineage = create_runtime_lineage(
+        db_session,
+        project_id=PROJECT_ID,
+        workspace_release_id=release.release_id,
+        revision_id=REVISION_ID,
+        environment_id=ENVIRONMENT_ID,
+        consumer_kind="run",
+        consumer_id=f"WR-dev-alias-{alias!r}",
+        model_id=alias,
+    )
+    assert lineage.model_id == alias
+
+
+@_PROTECTED_ENVIRONMENTS
+def test_pinned_model_id_allowed_in_protected_environments(
+    db_session: Session, name: str, environment_class: str, promotion_order: int
+) -> None:
+    """P4-B: a genuinely pinned, snapshot-suffixed model_id is unaffected."""
+
+    release, _environment = _seed_for_environment(
+        db_session, name=name, environment_class=environment_class, promotion_order=promotion_order
+    )
+    lineage = create_runtime_lineage(
+        db_session,
+        project_id=release.project_id,
+        workspace_release_id=release.release_id,
+        revision_id=release.revision_id,
+        environment_id=release.environment_id,
+        consumer_kind="run",
+        consumer_id=f"WR-pinned-{name}",
+        model_id="gpt-4-2024-08-06",
+    )
+    assert lineage.model_id == "gpt-4-2024-08-06"
+
+
+@_PROTECTED_ENVIRONMENTS
+def test_blank_model_id_is_not_treated_as_a_mutable_alias(
+    db_session: Session, name: str, environment_class: str, promotion_order: int
+) -> None:
+    """P4-B: an empty/whitespace-only model_id is not flagged as an alias.
+
+    It is also not a pinned identifier -- this only documents that the
+    heuristic does not misfire on a blank string, not that a blank model_id
+    is a meaningful declaration.
+    """
+
+    release, _environment = _seed_for_environment(
+        db_session, name=name, environment_class=environment_class, promotion_order=promotion_order
+    )
+    lineage = create_runtime_lineage(
+        db_session,
+        project_id=release.project_id,
+        workspace_release_id=release.release_id,
+        revision_id=release.revision_id,
+        environment_id=release.environment_id,
+        consumer_kind="run",
+        consumer_id=f"WR-blank-{name}",
+        model_id="   ",
+    )
+    assert lineage.model_id == "   "
+
+
+@pytest.mark.parametrize(
+    ("name", "environment_class", "promotion_order"),
+    [
+        ("dev", "development", 10),
+        ("qa", "qa", 20),
+        ("staging", "staging", 30),
+        ("prod", "production", 40),
+    ],
+)
+def test_model_id_none_is_unaffected_in_every_environment(
+    db_session: Session, name: str, environment_class: str, promotion_order: int
+) -> None:
+    """P4-B: declaring no model dependency (`model_id=None`) stays optional."""
+
+    release, _environment = _seed_for_environment(
+        db_session, name=name, environment_class=environment_class, promotion_order=promotion_order
+    )
+    lineage = create_runtime_lineage(
+        db_session,
+        project_id=release.project_id,
+        workspace_release_id=release.release_id,
+        revision_id=release.revision_id,
+        environment_id=release.environment_id,
+        consumer_kind="run",
+        consumer_id=f"WR-none-{name}",
+    )
+    assert lineage.model_id is None
