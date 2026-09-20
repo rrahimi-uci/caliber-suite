@@ -5,7 +5,14 @@ UI and its supporting APIs, conducted per-persona and per-journey against the
 code on `main` at commit `70c4e82345`.
 
 **Re-verified:** 2026-09-06 against `ff6d18c414`; ledger and census refreshed
-2026-09-07 against `722b9f92ed`. The whole of Wave 1 has now merged — all four
+2026-09-07 against `722b9f92ed`; re-verified again 2026-09-20 against
+`7ae0e67aefb0`, after a large volume of unrelated feature work (a Workspace
+multi-tenant release-governance epic, a "two-week alpha" journey feature) and
+`#430`'s five-bug-fix pass merged — no ledger row's merge status changed and
+the only census figure that moved is page weight (§15.1); §15.2 notes why the
+five bug fixes are outside this audit's own tracked scope, and §7.2 notes what
+the new Diagnosis tab does and does not change about the four open loops. The
+whole of Wave 1 has now merged — all four
 "silent wrong object" Critical items, plus UX-05, UX-06, UX-07, UX-15, and the
 structural census that makes §15.1's counts re-runnable. **§15.2's ledger states
 which packages have merged and which are still open, and is the only place in
@@ -1898,6 +1905,32 @@ flowchart LR
   class A1,B2,C2,C3,D2 broken
 ```
 
+**What changed since `722b9f92ed`: none of these four.** The "two-week alpha"
+epic added a fifth mechanism in this window — a verification queue (`GET
+/verification-queue`, absent from `722b9f92ed` entirely) that flags a trace,
+and a `RefinementJob` pipeline (`triage → evidence → diagnosis → candidate →
+eval → done`) that diagnoses it — and gave it its first UI:
+`PromptDiagnosisTab.tsx`, wired into `Prompts.tsx` as a new "Diagnosis"
+stage. It renders a flagged item's own reason (`free_text`, trace/session/
+artifact refs) and its linked job's stage via the previously-unwired
+`PipelineProgress` component, then hands off to the existing Calibration
+tab's candidate/eval/Apply flow — exactly the render-the-signal-that-already-
+exists pattern §7.1 recommends generally, applied to a signal that did not
+exist at the last audit pass, so it is not one of §7.1's thirteen cases
+either. It does not touch **L1**: the `optimizer_config.dataset_id` defect in
+§5.1.2 lives in `PromptRunsStage`, a different code path from
+`PromptDiagnosisTab`, and is unchanged in this diff. It adds no global
+signal — `Sidebar.tsx`'s `badgeKey` is still typed as the single literal
+`"plans"` (§7.3, re-verified) — so a flagged item stays invisible until
+someone already knows to open that prompt's Workspace and click Diagnosis;
+and the tab fetches once per mount rather than polling, so it is a snapshot,
+not a fix for §5.1.3's "loses its status the moment you look away." **L2–L4**
+(evaluation evidence, judge trust, KB calibration) are on different pages
+entirely and untouched. Net: a real, previously-absent rendering of a
+previously-uncomputed signal, at the point of one specific decision — genuine
+progress in the pattern §7.1 describes — but it closes none of the four loops
+in this diagram, and the "4 of 4" count in §1's table is unchanged.
+
 ### 7.3 Nothing tells a human that something needs them
 
 **The entire product has exactly one attention badge**: paused Aria plans,
@@ -2840,6 +2873,44 @@ The four heaviest pages are now `KnowledgeBases.tsx` 9,050 · `Prompts.tsx`
 8,297 · `WorkflowEditor.tsx` 5,321 · `WorkflowDetail.tsx` 4,817, so UX-20's
 target has grown slightly rather than shrunk.
 
+Re-run against `7ae0e67aefb0` on 2026-09-20, the census script — and all nine
+commands below, independently re-run — again finds exactly one figure moved
+since `722b9f92ed`: page weight.
+
+```
+$ npm run ux:census -- --diff ../../docs/ux/baseline-ff6d18c414.json
+Total page lines: 56624 -> 57192 (+568)
+```
+
+That is +265 lines since the `722b9f92ed` figure of 56,927. Routes (33
+addressable, 32 distinct, 9 detail), `PageHeader` adoption (18 of 34),
+breadcrumb adoption (1 of 34), unrouted pages (`Overview.tsx`,
+`SkillWizard.tsx`, `ToolWizard.tsx`), duplicated workflow helpers (22 —
+same 22 names, unchanged), and mutating `caliberApi` call sites (132) are all
+identical to `722b9f92ed`: confirmed both by the census script's own diff
+(which reports only rows that changed, and reported only page weight) and by
+a direct field-by-field comparison of the committed `ff6d18c414` baseline
+JSON against a fresh `--json` run. None of Wave 2–4 (UX-08 through UX-21) has
+a PR yet, so §15.2's ledger is unchanged.
+
+The growth is entirely two merged, non-audit changes, not a Wave delivery:
+the "two-week alpha" epic's new Diagnosis tab (`#425`) and the five-bug-fix
+pass (`#430`; see §15.2's note on why neither is tracked on this ledger). Per
+file: `Prompts.tsx` 8,297 → 8,412 (+115 — the new `PromptDiagnosisTab` wiring
+and "Diagnosis" stage from `#425`, plus `#430`'s `isAssistantRefinementJob`
+runtime guard and its self-resetting-poll fix, both landing in the same
+file), `McpServers.tsx` 3,518 → 3,530 (+12 — `#430`'s keyboard handling on
+the invocation-history row), `SkillWizard.tsx` 1,415 → 1,463 (+48) and
+`ToolRegistry.tsx` 2,353 → 2,368 (+15 — `#430`'s two swallowed-fetch-error
+fixes), and `WorkflowEditor.tsx` 5,321 → 5,326 (+5 — `#430`'s unmount-flush
+save-failure toast). `WorkflowDetail.tsx` and `KnowledgeBases.tsx` are
+unchanged (no diff against `722b9f92ed` at all). The remaining +65/+5 lines
+(`Administration.tsx`, `ToolWizard.tsx`) predate both changes (`#297`,
+`#299`) and are unrelated to either. The four heaviest pages keep their
+`722b9f92ed` rank — `KnowledgeBases.tsx` 9,050 · `Prompts.tsx` 8,412 ·
+`WorkflowEditor.tsx` 5,326 · `WorkflowDetail.tsx` 4,817 — so UX-20's target
+has grown again, by the same amounts as the rest of this paragraph.
+
 Run all nine from the repository root. They are in a fenced block rather than
 a table column because a Markdown table needs `|` escaped, and a command you
 have to un-escape before running is not a reproducible command.
@@ -2928,6 +2999,30 @@ wc -l src/pages/*.tsx | sort -rn | head -5
 | **UX-21** | Complete wayfinding | Open | 4 · G4 | M | — |
 
 ¹ Has a named remainder — see the table below.
+
+**Not on this ledger, on purpose.** `#430` (merged 2026-09-20) fixed five
+independently-discovered frontend bugs: a silent unmount-save data loss in
+`WorkflowEditor.tsx`, a keyboard-inaccessible invocation-history row in
+`McpServers.tsx`, an unchecked `RefinementJob` cast and a self-resetting
+`setInterval` poll in `Prompts.tsx`, and two swallowed fetch failures in
+`SkillWizard.tsx`/`ToolRegistry.tsx` (§15.1 has the line-level breakdown).
+Checked against every row above, none is the same defect, or a subset of one:
+UX-01's published-version guard is about `patchManifest` mutating state on an
+immutable version (§5.2.1), not about the unmount-flush's own error handling
+— §5.2.7's "Keep" verdict on the autosave/unmount-flush pattern praises the
+mechanism's existence without examining its failure path, so the defect was
+simply never looked at, not misclassified. No ledger item concerns keyboard
+access on `McpServers.tsx`, and this audit's own evidence boundary explicitly
+excludes assistive-technology and keyboard-only testing (top of document) —
+this bug sits outside that boundary by construction. The cast and the poll
+are both inside the assistant-intent `RefinementJob` execution path in
+`Prompts.tsx`, a region this audit describes only as one of two pollers that
+lose status on tab switch (§5.1.3) — a different property from an interval
+that tears itself down and recreates itself on every tick. No ledger item
+discusses `SkillWizard.tsx` or `ToolRegistry.tsx` error-state rendering at
+all. All five were found by a general code-quality review, not by this
+document's persona/journey method; they are recorded here only so a reader
+does not wonder whether they are silently already covered by an existing row.
 
 The **Status** column is about *merge state only* — **Landed** means merged to
 `main`, **In review** means a PR is open, **Open** means no PR exists. It says
