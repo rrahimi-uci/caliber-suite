@@ -40,12 +40,14 @@ against that model before returning content -- an adapter that only checks
 on the target row can mean "public" (open to everyone) or "personal to one
 specific owner" (`P4-B`/`P4-C` fixed exactly this gap for the prompt adapter,
 the same disclosure `P2-N`/`P2-O` already closed for the prompt *lookup*
-routes). :class:`FakeWorkspaceResourceAdapter` and
-:class:`~caliber.workspace_release_workflow_adapter.WorkflowWorkspaceResourceAdapter`
-still ignore ``identity`` in ``resolve()`` -- that method is an unused
-placeholder for both today (see the workflow adapter's own module
-docstring: "Not called anywhere yet"), not a resource this Protocol
-addition has already audited for a real visibility model of its own.
+routes). Every real adapter now checks ``identity`` against its own
+visibility model from ``resolve()`` -- `prompt`/`tool`/`judge`/
+`eval_dataset`/`mcp_server`/`skill`/`workflow`, the last (`workflow`) closing
+the managed-snapshot epic's own follow-up list (`P4-B`/`P4-C`'s rows).
+Only :class:`FakeWorkspaceResourceAdapter` still ignores ``identity`` in
+``resolve()`` -- it is a deterministic test double with no visibility model
+of its own to check, not a real resource this Protocol addition left
+unaudited.
 """
 
 from __future__ import annotations
@@ -105,11 +107,12 @@ class SnapshotPin:
     :class:`~caliber.db.models.CaliberWorkspaceRevisionResource` row
     generically from this shape rather than special-casing each resource
     type's own ``snapshot()`` return value. Only an adapter whose
-    ``snapshot()`` returns this type can participate in a managed snapshot --
-    :class:`~caliber.workspace_release_workflow_adapter.WorkflowWorkspaceResourceAdapter`'s
-    ``snapshot()`` still returns its input unchanged (its own documented
-    placeholder), so ``workflow`` is not snapshot-eligible yet; the route
-    fails closed on that rather than guessing at a shape.
+    ``snapshot()`` returns this type can participate in a managed snapshot;
+    the route fails closed (rather than guessing at a shape) for any
+    resource type whose adapter does not. Every MVP resource type's adapter
+    now returns this type -- `prompt`/`tool`/`judge`/`eval_dataset`/
+    `mcp_server`/`skill`/`workflow` -- closing the managed-snapshot epic's
+    own follow-up list (`P4-B`/`P4-C`'s rows).
     """
 
     resource_id: str
