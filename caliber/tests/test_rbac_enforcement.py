@@ -496,15 +496,19 @@ def test_admin_user_passes_every_write_auth_gate(
     assert response.status_code not in (401, 403), response.text
 
 
-def test_operator_can_apply_but_cannot_register_agents(
+def test_operator_can_apply_but_cannot_delete_agents(
     rbac_client: TestClient, seeded_db: Session
 ) -> None:
     """An operator clears an operator-scoped write (Apply) but not an
-    admin-scoped one (agent CRUD).
+    admin-scoped one (agent delete).
 
     Spot-check that the cross-scope boundary is real — the parametrized
     table above covers anonymous + viewer; this pins the operator/admin
-    split too.
+    split too. Agent *register*/*update* moved to Developer scope
+    (`docs/workspace-plan.md` section 19.2 — "authoring an agent is
+    authoring"), proven by `tests/test_agent_registration_developer_scope.py`;
+    `delete_agent` is the one agent-family route section 2.5.2 keeps
+    Admin-only, so it's the one still-admin-scoped write left to pin here.
     """
     _ = seeded_db
     # Operator applying a candidate_ready job (operator-scoped write) → 200.
@@ -515,15 +519,9 @@ def test_operator_can_apply_but_cannot_register_agents(
     )
     assert response.status_code == 200
 
-    # Same operator on an admin-scoped write (agent register) → 403.
-    response = rbac_client.post(
-        "/ajax-api/2.0/mlflow/caliber/agents",
-        json={
-            "agent_id": "new-agent",
-            "experiment_id": "exp-new",
-            "name": "x",
-            "owner": "@x",
-        },
+    # Same operator on an admin-scoped write (agent delete) → 403.
+    response = rbac_client.delete(
+        "/ajax-api/2.0/mlflow/caliber/agents/agent",
         headers={"X-CALIBER-User": _OPERATOR_USER},
     )
     assert response.status_code == 403
