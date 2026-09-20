@@ -1,0 +1,7 @@
+{
+  "agent_id": "intake-classifier-day1-seed",
+  "category": "classification_accuracy",
+  "severity": "standard",
+  "free_text": "Classifier returned needs_review=false for a ticket that reports both a billing dispute and a page crash (compound issue); operator review caught the missed needs_review signal. The golden eval set's ambiguous/edge cases (P07-P09) already cover this exact pattern -- a few-shot rewrite that cites those worked examples should fix it without a full prompt rewrite, which is why this seed job pins the DSPyBootstrapFewShot optimizer explicitly rather than relying on automatic selection.",
+  "artifact_type_hint": "prompt"
+}
