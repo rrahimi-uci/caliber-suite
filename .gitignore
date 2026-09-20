@@ -38,3 +38,7 @@ docs-site/tests/
 sdk/**/.venv-sdk/
 sdk/**/dist/
 sdk/**/*.egg-info/
+
+# Local debug output from the Playwright MCP browser tool (console logs,
+# page snapshots) -- not test fixtures, never meant to be committed.
+.playwright-mcp/
