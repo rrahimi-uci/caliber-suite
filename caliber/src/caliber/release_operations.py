@@ -367,10 +367,28 @@ def reconcile_prompt_alias_releases(
                     entity_id=job.job_id,
                     details={"operation_id": row.operation_id, "outcome": "applied"},
                 )
-        elif row.version_before is not None and observed == row.version_before:
+        elif observed == row.version_before:
+            # Covers both the ordinary "provider still resolves the recorded
+            # pre-release version" case and the first-promotion case, where
+            # ``version_before`` is ``None`` because the alias didn't exist
+            # before this operation. ``version_after`` is always a concrete
+            # int (never ``None``), so ``observed is None`` can never also
+            # satisfy the ``observed == row.version_after`` branch above --
+            # there's no ambiguity between "applied" and "never applied" to
+            # collapse here. The real resolver (``_load_prompt_release_info``)
+            # returns ``None`` only when it has positively confirmed there is
+            # no prompt at the alias (``allow_missing=True``); it *raises* on
+            # a genuine provider failure instead of returning ``None``, so a
+            # ``None`` observation is never an "unknown" cold start -- it's a
+            # confirmed absence, exactly as determinable as any other
+            # before/after comparison in this function.
             row.status = "failed"
             row.active_lock = None
-            row.last_error = "provider still resolves the recorded pre-release version"
+            row.last_error = (
+                "provider still resolves the recorded pre-release version"
+                if row.version_before is not None
+                else "provider still has no prompt at this alias; the first promotion never applied"
+            )
             if job is not None and job.status == "applying":
                 job.status = "candidate_ready"
                 job.current_stage = "done"

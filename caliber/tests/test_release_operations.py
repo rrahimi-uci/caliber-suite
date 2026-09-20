@@ -460,9 +460,24 @@ def test_reconciler_settles_observed_target_and_flags_unknown_state(db_session: 
     assert "unexpected version 99" in (unresolved.last_error or "")
 
 
-def test_reconciler_does_not_treat_unknown_cold_start_as_absent_alias(
+def test_reconciler_resolves_a_first_promotion_that_never_applied_as_failed(
     db_session: Session,
 ) -> None:
+    """A first-promotion whose provider call never took effect must self-heal
+    to ``failed`` (retryable), not get stuck in ``reconcile_required``.
+
+    ``version_before`` is ``None`` here because the alias didn't exist before
+    this operation (the common first-promotion case). The real resolver
+    (``routes/prompts.py::_load_prompt_release_info``) returns ``None`` only
+    when it has positively confirmed there is no prompt at the alias
+    (``allow_missing=True``) -- it *raises* on a genuine provider failure
+    instead of ever returning ``None`` -- so an observed ``None`` here is a
+    confirmed "still doesn't exist", exactly as determinable as the ordinary
+    version_before/version_after comparison. Before the fix, this fell into
+    the same bucket as a genuinely ambiguous observation and required manual
+    operator intervention to unstick (this exact test previously asserted
+    ``reconcile_required`` here, pinning that gap).
+    """
     operation = prepare_prompt_alias_release(
         db_session,
         name="p-cold-start",
@@ -474,15 +489,53 @@ def test_reconciler_does_not_treat_unknown_cold_start_as_absent_alias(
     operation.status = "applying"
     db_session.commit()
 
-    reconcile_prompt_alias_releases(
+    rows = reconcile_prompt_alias_releases(
         db_session,
         resolve_alias=lambda _name, _alias: None,
+    )
+    assert rows == [operation]
+    db_session.expire_all()
+    resolved = db_session.get(CaliberReleaseOperation, operation.operation_id)
+    assert resolved is not None
+    assert resolved.status == "failed"
+    assert resolved.active_lock is None
+    assert "never applied" in (resolved.last_error or "")
+
+
+def test_reconciler_still_flags_an_ambiguous_first_promotion_as_reconcile_required(
+    db_session: Session,
+) -> None:
+    """The fix above must not broaden the "failed" bucket beyond the exact
+    ``observed == version_before`` match.
+
+    Here the provider resolves to some *other* concrete version -- matching
+    neither the pre-mutation state (``None``) nor the requested
+    ``version_after`` -- so the outcome genuinely cannot be determined
+    automatically and must stay ``reconcile_required`` (fail-closed), the
+    same as the non-first-promotion ambiguous case covered by
+    ``test_reconciler_settles_observed_target_and_flags_unknown_state``.
+    """
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="p-cold-start-ambiguous",
+        alias="prod",
+        version_before=None,
+        version_after=1,
+        actor="@operator",
+    )
+    operation.status = "applying"
+    db_session.commit()
+
+    reconcile_prompt_alias_releases(
+        db_session,
+        resolve_alias=lambda _name, _alias: {"version": 7},
     )
     db_session.expire_all()
     unresolved = db_session.get(CaliberReleaseOperation, operation.operation_id)
     assert unresolved is not None
     assert unresolved.status == "reconcile_required"
-    assert unresolved.active_lock == "prompt:p-cold-start:prod"
+    assert unresolved.active_lock == "prompt:p-cold-start-ambiguous:prod"
+    assert "unexpected version 7" in (unresolved.last_error or "")
 
 
 def test_release_operation_id_is_idempotent_but_not_retargetable(db_session: Session) -> None:

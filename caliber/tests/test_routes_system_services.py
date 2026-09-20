@@ -173,6 +173,27 @@ def test_silencing_an_unknown_incident_is_404(client) -> None:
     assert response.status_code == 404, response.text
 
 
+def test_incidents_history_rejects_non_integer_limit(client: TestClient) -> None:
+    """A malformed ``limit`` must 400, not crash with an unhandled ``ValueError``.
+
+    ``server.py``'s registered exception handlers only translate ``HTTPException``
+    and pydantic ``ValidationError`` -- a bare ``ValueError`` from ``int(...)``
+    would otherwise surface as an opaque 500, unlike every sibling route
+    (``routes/system_effects.py``'s ``list_system_effects``/``list_dead_letters``)
+    that already guards this exact query param.
+    """
+    response = client.get("/ajax-api/2.0/mlflow/caliber/system/incidents", params={"limit": "abc"})
+    assert response.status_code == 400, response.text
+    assert "limit" in response.json()["detail"]
+
+
+def test_incidents_history_accepts_a_valid_limit(client: TestClient) -> None:
+    """Companion to the malformed-limit test: a valid integer must still work."""
+    response = client.get("/ajax-api/2.0/mlflow/caliber/system/incidents", params={"limit": "5"})
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["incidents"] == []
+
+
 @pytest.mark.parametrize(
     ("action", "body", "changed_fields"),
     [
