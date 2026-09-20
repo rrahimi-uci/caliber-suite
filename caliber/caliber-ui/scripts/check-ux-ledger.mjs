@@ -1,7 +1,7 @@
 /**
  * Verify §15.2's ledger against git history.
  *
- * The ledger in `ux-analysis-report.md` claims, per work package, whether its
+ * The ledger in `docs/ux-analysis-report.md` claims, per work package, whether its
  * PR has merged. That claim went stale five times in one review cycle: each
  * correction of one sentence left an adjacent one contradicting it, and a
  * reviewer had to catch every round. Hand-maintained facts that are also
@@ -164,7 +164,7 @@ function main(argv) {
   const repoRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../..");
   let rows;
   try {
-    rows = parseLedger(readFileSync(resolve(repoRoot, "ux-analysis-report.md"), "utf8"));
+    rows = parseLedger(readFileSync(resolve(repoRoot, "docs/ux-analysis-report.md"), "utf8"));
   } catch (error) {
     // A structural change to the report is a real failure, not a crash: report
     // it in the same voice as a drift finding so it is equally actionable.

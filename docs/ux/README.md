@@ -1,6 +1,6 @@
 # UX evidence
 
-Artifacts backing `ux-analysis-report.md`. Everything here is generated or
+Artifacts backing `docs/ux-analysis-report.md`. Everything here is generated or
 hand-written evidence, not plan text — the plan lives in the report.
 
 ## Structural census
