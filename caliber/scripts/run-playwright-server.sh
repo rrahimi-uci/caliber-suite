@@ -365,6 +365,29 @@ run_owner_bootstrap() {
     echo ">> legacy caliber.demo seed not present; continuing with empty test fixture"
   fi
 
+  # Seed the two-week-alpha journey's fixture (a flagged trace + the
+  # intake-classifier prompt at a real, candidate_ready refinement job -- see
+  # scripts/two_week_alpha_e2e_seed.py and
+  # docs/reports/two-week-alpha-day9-decision.md) here, BEFORE the dev server
+  # (./scripts/run-dev.sh) is spawned below -- not after it reports healthy.
+  # An earlier version seeded via HTTP once the server's health endpoint was
+  # already green, which raced Playwright's own independent poll of that same
+  # endpoint: Playwright could start driving the browser before the seed
+  # script (login + prompt creation + the real DSPy pipeline) finished,
+  # observing an empty prompt registry. Seeding here, before anything is
+  # listening on the port at all, makes that race structurally impossible.
+  # Applying migrations ourselves first (mirroring run-dev.sh's own
+  # ``alembic upgrade head`` below) is required. The schema this produces is
+  # guaranteed identical (tests/test_migrations.py enforces it -- see
+  # src/caliber/db/models.py's own module docstring), so run-dev.sh's own
+  # migration step afterward is a harmless no-op already at head.
+  if [[ "${CALIBER_E2E_SEED_ALPHA_JOURNEY:-1}" != "0" ]]; then
+    echo ">> applying caliber migrations for the two-week-alpha E2E seed"
+    "$VENV_DIR/bin/alembic" upgrade head
+    echo ">> seeding two-week-alpha journey fixture for Playwright"
+    "$VENV_DIR/bin/python" scripts/two_week_alpha_e2e_seed.py
+  fi
+
   if [[ "${CALIBER_SKIP_KNOWLEDGE_WARMUP:-0}" != "1" ]]; then
     echo ">> prewarming MiniLM knowledge embedding model for Playwright"
     "$VENV_DIR/bin/python" - <<'PY'
@@ -481,6 +504,40 @@ trap cleanup EXIT INT TERM
 
 export CALIBER_DATABASE_URL="$(normalize_postgres_driver_url "${CALIBER_DATABASE_URL:-sqlite:///$DB_FILE}")"
 export MLFLOW_BACKEND_STORE_URI="$(normalize_postgres_driver_url "${MLFLOW_BACKEND_STORE_URI:-$CALIBER_DATABASE_URL}")"
+# ``caliber.db.session.create_engine_from_config`` already extends CALIBER's
+# own SQLite connections to a 30s busy-timeout (its own comment: "the
+# default 5s busy-timeout still triggers spurious 'database table is
+# locked' errors in CI... 30s costs nothing"). MLflow's tracking/registry
+# store builds its OWN, separate SQLAlchemy engine straight from
+# ``MLFLOW_BACKEND_STORE_URI`` and does not share that extended timeout --
+# confirmed the hard way running this journey's Apply step, which failed
+# with `sqlite3.OperationalError: database is locked` on an
+# ``INSERT INTO registered_model_tags`` (an MLflow-owned table) while this
+# server's own background workers (refinement/workflow-run/knowledge
+# pollers, each on their own 2-60s interval) were mid-write against the
+# same WAL-mode file. SQLite's ``busy_timeout`` is a per-connection PRAGMA,
+# not a persistent file property, so it cannot be set once and inherited --
+# but SQLAlchemy's pysqlite dialect *does* read a ``timeout`` query
+# parameter straight off a ``sqlite:///`` URL and applies it as
+# ``PRAGMA busy_timeout`` on every connection it opens (verified directly:
+# ``create_engine("sqlite:///x.db?timeout=30")`` reports
+# ``PRAGMA busy_timeout`` = 30000). Appending it here means MLflow's own
+# engine gets the same generous timeout CALIBER's own connections already
+# have, with no code change to MLflow itself.
+if [[ "$MLFLOW_BACKEND_STORE_URI" == sqlite:///* && "$MLFLOW_BACKEND_STORE_URI" != *"?"* ]]; then
+  export MLFLOW_BACKEND_STORE_URI="${MLFLOW_BACKEND_STORE_URI}?timeout=30"
+fi
+# ``mlflow.genai.register_prompt``/``set_prompt_alias`` (called from CALIBER's
+# own route handlers, in-process, not over HTTP) are CLIENT-side calls that
+# resolve their target via ``mlflow.get_tracking_uri()``, a separate global
+# from whatever the ``mlflow server --backend-store-uri`` CLI flag alone
+# configures for the server's own request handlers. Setting it explicitly
+# here (inherited by ./scripts/run-dev.sh's ``mlflow server`` subprocess
+# through the OS environment, not just Python's in-process ``os.environ``)
+# is what makes the ``?timeout=30`` above actually reach every in-process
+# ``mlflow.genai.*`` call CALIBER itself makes, not only a freshly
+# `create_engine`'d one.
+export MLFLOW_TRACKING_URI="$MLFLOW_BACKEND_STORE_URI"
 export MINIO_ROOT_USER="${MINIO_ROOT_USER:-minioadmin}"
 export MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-minioadmin}"
 export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-$MINIO_ROOT_USER}"
@@ -488,6 +545,21 @@ export AWS_SECRET_ACCESS_KEY="${AWS_SECRET_ACCESS_KEY:-$MINIO_ROOT_PASSWORD}"
 export MLFLOW_S3_ENDPOINT_URL="${MLFLOW_S3_ENDPOINT_URL:-http://127.0.0.1:9000}"
 export MLFLOW_ARTIFACT_ROOT="${MLFLOW_ARTIFACT_ROOT:-s3://mlflow/mlruns}"
 
+# ``fake`` (the app default -- see ``CaliberConfig.promoter_provider``) never
+# touches ``caliber.release_operations`` at all, so an Apply click driven
+# through this server would never exercise the real intent-first release
+# state machine (commit "applying" before the provider call, settle
+# "applied"/"reconcile_required" after) the two-week-alpha journey's Apply
+# step exists to prove -- see docs/reports/two-week-alpha-day4-5-decision.md
+# and -day9-decision.md. ``mlflow`` drives that state machine for real,
+# against this same disposable local backend store (no live server, no
+# network) -- exactly like every prompt-creation call in this E2E suite
+# already does today regardless of this setting (``register_prompt_version``
+# always calls real ``mlflow.genai`` directly; only Apply's own promotion
+# path is gated by ``promoter_provider``). No existing Playwright spec
+# exercises Apply/rollback, so this default change is safe for the rest of
+# the E2E suite.
+export CALIBER_PROMOTER_PROVIDER="${CALIBER_PROMOTER_PROVIDER:-mlflow}"
 export CALIBER_AUTH_MODE="${CALIBER_AUTH_MODE:-session}"
 export CALIBER_AUTH_SESSION_COOKIE_SECURE="${CALIBER_AUTH_SESSION_COOKIE_SECURE:-false}"
 export CALIBER_APPROVAL_ALLOW_SELF_APPROVAL="${CALIBER_APPROVAL_ALLOW_SELF_APPROVAL:-true}"

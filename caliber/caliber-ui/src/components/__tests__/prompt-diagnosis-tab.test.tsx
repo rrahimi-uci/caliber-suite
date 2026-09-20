@@ -176,6 +176,43 @@ describe("PromptDiagnosisTab", () => {
     expect(onOpenCalibration).toHaveBeenCalledTimes(1);
   });
 
+  it("requests status=all so an already-verified item with a linked job stays visible", async () => {
+    // Regression test for a real cross-slice bug the Day 9 Playwright journey
+    // caught: `GET /verification-queue` defaults to `status=pending`
+    // server-side when no `status` query param is sent
+    // (`routes/verification.py::list_items`), so a component that fetched
+    // with only `agent_id` (as this one originally did) would never see a
+    // `status="verified"` item -- exactly the state the Day 1 seed fixture
+    // seeds (`seed_flagged_job`) and exactly the state this tab's own module
+    // docstring says is a normal case ("a freshly-verified item with no job
+    // yet is an expected, not broken, state" -- implying a *verified* item
+    // with a linked job is squarely in scope). This test mocks the
+    // MSW handler to reproduce that real default-filter behavior (unlike
+    // every other test in this file, which returns its fixture regardless of
+    // query params) so a regression back to omitting `status` fails loudly.
+    server.use(
+      http.get(`${API_BASE}/verification-queue`, ({ request }) => {
+        const status = new URL(request.url).searchParams.get("status") ?? "pending";
+        const item = verificationItem({ status: "verified" });
+        return HttpResponse.json(
+          envelope(status === "all" || status === "verified" ? [item] : []),
+        );
+      }),
+      http.get(`${API_BASE}/jobs`, () =>
+        HttpResponse.json(envelope([refinementJob()])),
+      ),
+    );
+
+    render(
+      <PromptDiagnosisTab prompt={prompt} onOpenCalibration={vi.fn()} />,
+    );
+
+    expect(
+      await screen.findByTestId("diagnosis-item-detail"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("diagnosis-linked-job")).toBeInTheDocument();
+  });
+
   it("falls back to a no-job message when no job is linked to the item", async () => {
     server.use(
       http.get(`${API_BASE}/verification-queue`, () =>

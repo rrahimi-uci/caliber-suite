@@ -82,7 +82,19 @@ export function PromptDiagnosisTab({
       setLoadError(null);
       try {
         const [itemList, jobList] = await Promise.all([
-          caliberApi.listVerificationItems({ agent_id: agentId }, signal),
+          // `status: "all"` -- without it, `GET /verification-queue`
+          // defaults to `status=pending` server-side
+          // (`routes/verification.py::list_items`), which would make this
+          // tab permanently blind to exactly the items it exists to show a
+          // diagnosis for once they've been verified (or dismissed / marked
+          // duplicate): this is a diagnosis/history view scoped by agent,
+          // not a pending-only action queue -- a verified item with a
+          // linked job (this component's own primary case, per the module
+          // docstring) must stay visible after verification.
+          caliberApi.listVerificationItems(
+            { agent_id: agentId, status: "all" },
+            signal,
+          ),
           caliberApi.listJobs({ agent_id: agentId }, signal),
         ]);
         if (signal?.aborted) return;

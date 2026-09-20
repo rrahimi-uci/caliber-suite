@@ -274,7 +274,13 @@ export interface VerificationBatchResult {
 }
 
 export interface VerificationListFilters {
-  status?: VerificationStatus;
+  /**
+   * ``"all"`` is a real, backend-supported sentinel
+   * (`routes/verification.py::list_items`'s own `status != "all"` check)
+   * that bypasses the default `status=pending`-only filter -- not just
+   * `VerificationStatus` values are valid here.
+   */
+  status?: VerificationStatus | "all";
   severity?: Severity;
   agent_id?: string;
 }
