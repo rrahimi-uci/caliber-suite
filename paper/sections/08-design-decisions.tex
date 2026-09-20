@@ -110,3 +110,12 @@ the specific failure mode where a control plane becomes theatre. A reader who
 believes a partial ladder still beats none has a defensible position; we simply
 made the other call, and \secref{sec:future} treats the full ladder as the highest
 priority remaining work.
+
+A separate, later initiative has since built environment-scoped promotion for a
+different product: \sys's multi-tenant ``Workspace'' subsystem implements four
+fixed environments with \code{promotion\_order}, requester/reviewer approval
+routing through Change Requests, and per-environment release state, as its own
+module with its own service (\code{workspace\_release\_operations.py}) rather than
+a change to the path this paper describes. It does not resolve D9: the scope
+decision and its cost above are unchanged for \sys's single-tenant v1 product, and
+the two mechanisms share no code.

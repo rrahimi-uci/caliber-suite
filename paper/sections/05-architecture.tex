@@ -221,7 +221,7 @@ guarantee would be wrong in both directions at once.
 
 The \statLoopsW{} loops divide into two groups by arbitration discipline, and
 \figref{fig:execution} draws them differently because conflating them is an
-operational hazard. Five are \emph{durably arbitrated}: claim-based consumers
+operational hazard. Six are \emph{durably arbitrated}: claim-based consumers
 compete for rows atomically, so replicating the process is safe at any worker
 count. Four are correct by a different argument: the workflow scheduler is
 idempotent by a minute-bucketed key backed by a unique partial index, which makes

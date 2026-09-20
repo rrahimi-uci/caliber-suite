@@ -265,7 +265,7 @@ CaliberError
 ├── CaliberConfigError        the client was built with unusable configuration
 ├── CaliberTransportError     no HTTP response at all (DNS, refused, timeout)
 └── CaliberAPIError           the server answered with a non-2xx
-    ├── CaliberValidationError    400 with a structured field list
+    ├── CaliberValidationError    400 or 422 with a structured field list
     ├── CaliberAuthenticationError 401
     ├── CaliberPermissionError     403
     ├── CaliberNotFoundError       404

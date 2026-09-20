@@ -53,7 +53,7 @@ possible reading of a successful result. So the models say which is which:
 | `Job` | `is_terminal` | the job will do no more work, ever |
 | `Job` | `awaits_human` | `candidate_ready`, `awaiting_approval`, `paused` |
 | `AriaPlan` | `needs_you` | `paused` — a question is outstanding |
-| `WorkflowRun` | `is_terminal` | succeeded, failed, or cancelled |
+| `WorkflowRun` | `is_terminal` | any state in `TERMINAL_RUN_STATES` (`sdk/caliber-sdk/src/caliber_sdk/models/workflows.py`) |
 
 `jobs.wait()` and `aria.wait_for_plan()` both return as soon as their subject
 stops for a person. Check the property, act on it, and call the waiter again if
