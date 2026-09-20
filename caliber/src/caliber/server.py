@@ -77,7 +77,9 @@ from caliber.workflows.runtime import bind_sandbox_config
 from caliber.workflows.tools import bind_module_allowlist
 from caliber.workspace_import_worker import WorkspaceImportWorker
 from caliber.workspace_release_adapters import WorkspaceResourceAdapterRegistry
+from caliber.workspace_release_eval_dataset_adapter import EvalDatasetWorkspaceResourceAdapter
 from caliber.workspace_release_judge_adapter import JudgeWorkspaceResourceAdapter
+from caliber.workspace_release_mcp_server_adapter import McpServerWorkspaceResourceAdapter
 from caliber.workspace_release_prompt_adapter import PromptWorkspaceResourceAdapter
 from caliber.workspace_release_skill_adapter import SkillWorkspaceResourceAdapter
 from caliber.workspace_release_tool_adapter import ToolWorkspaceResourceAdapter
@@ -503,14 +505,23 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     # why a tool has nothing to actually rotate), a CALIBER judge
     # (same-database resolve/snapshot plus a content-integrity release check
     # -- see workspace_release_judge_adapter.py's module docstring for why a
-    # judge has no external target to promote either), and a CALIBER skill
+    # judge has no external target to promote either), a CALIBER skill
     # (visibility-checked live row + immutable internal version-history
     # resolve/snapshot, plus the same content-integrity release check as
     # tool/judge -- see workspace_release_skill_adapter.py's module docstring
-    # for why a skill is a genuinely fourth resource shape). Every other
-    # resource type is left unregistered, so a release/snapshot operation
-    # against one fails closed with "no adapter registered" rather than
-    # silently doing nothing (see workspace_release_operations.py's and
+    # for why a skill is a genuinely fourth resource shape), a CALIBER eval
+    # dataset (a collection resource -- resolve/snapshot reconstructs the
+    # example set "as of" an explicit pinned version and content-addresses
+    # the reconstructed set, plus the same same-database verification release
+    # shape as tool/judge -- see workspace_release_eval_dataset_adapter.py's
+    # module docstring), and a CALIBER MCP server (same "single mutable row,
+    # no version history" shape as a judge, plus a content-drift-checked
+    # release check over its connection config, discovered tool catalog, and
+    # tool policy -- see workspace_release_mcp_server_adapter.py's module
+    # docstring). Every other resource type is left unregistered, so a
+    # release/snapshot operation against one fails closed with "no adapter
+    # registered" rather than silently doing nothing (see
+    # workspace_release_operations.py's and
     # routes/workspace.py::snapshot_revision's own module docstrings).
     workspace_resource_adapter_registry = WorkspaceResourceAdapterRegistry(
         {
@@ -519,6 +530,8 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             "tool": ToolWorkspaceResourceAdapter(),
             "judge": JudgeWorkspaceResourceAdapter(),
             "skill": SkillWorkspaceResourceAdapter(),
+            "eval_dataset": EvalDatasetWorkspaceResourceAdapter(),
+            "mcp_server": McpServerWorkspaceResourceAdapter(),
         }
     )
     worker = RefinementWorker(
