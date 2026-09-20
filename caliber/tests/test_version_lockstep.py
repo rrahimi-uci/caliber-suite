@@ -4,7 +4,7 @@ Phase 5.5 of sdk-completeness-plan.md asks for a "server/SDK compatibility
 matrix, published and tested." There is no historical matrix to publish yet
 (see sdk/caliber-sdk/VERSIONING.md's "Server / SDK compatibility" section) --
 ``caliber``, ``caliber-sdk``, ``caliber-cli``, and ``caliber-plugin-sdk`` are
-released in lockstep from this one repository, all currently ``0.1.0.dev0``.
+released in lockstep from this one repository, all currently ``0.1.0a1``.
 That lockstep claim is exactly the kind of thing that silently rots the
 moment one package's version is bumped and another is forgotten, so it is a
 test rather than only a sentence in a doc: each package declares its version

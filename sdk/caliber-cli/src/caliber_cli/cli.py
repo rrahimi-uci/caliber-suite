@@ -35,7 +35,7 @@ from caliber_cli.output import Printer
 
 Handler = Callable[[CaliberClient, argparse.Namespace, Printer], int]
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0a1"
 
 
 def build_parser() -> argparse.ArgumentParser:

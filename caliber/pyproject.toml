@@ -1,6 +1,6 @@
 [project]
 name = "caliber-suite"
-version = "0.1.0.dev0"
+version = "0.1.0a1"
 description = "MLflow-integrated control plane for governed AI-agent lifecycles."
 readme = "README.md"
 license = { file = "LICENSE" }
@@ -66,6 +66,12 @@ dependencies = [
     "httpx>=0.27,<1",
     # Standards-compliant validation for the no-code Data Transform node.
     "jsonschema>=4.22,<5",
+    # The README's documented entrypoint (`uvicorn caliber.server:create_app
+    # --factory ...`) has always run on uvicorn pulled in transitively through
+    # the mcp/sse-starlette chain. Declare it explicitly so that entrypoint
+    # keeps working if an unrelated dependency bump ever drops the transitive
+    # pull, rather than continuing to work by luck.
+    "uvicorn>=0.34,<1",
 ]
 
 [project.optional-dependencies]
