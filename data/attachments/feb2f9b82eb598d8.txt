@@ -1,0 +1,1 @@
+{"t":"2026-09-20T23:20:54.183Z","severity":"ERROR","logger":"caliber.assistant.openai_engine","message":"OpenAI API error: rate limited"}
