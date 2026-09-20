@@ -81,6 +81,7 @@ from caliber.workspace_release_eval_dataset_adapter import EvalDatasetWorkspaceR
 from caliber.workspace_release_judge_adapter import JudgeWorkspaceResourceAdapter
 from caliber.workspace_release_mcp_server_adapter import McpServerWorkspaceResourceAdapter
 from caliber.workspace_release_prompt_adapter import PromptWorkspaceResourceAdapter
+from caliber.workspace_release_skill_adapter import SkillWorkspaceResourceAdapter
 from caliber.workspace_release_tool_adapter import ToolWorkspaceResourceAdapter
 from caliber.workspace_release_workflow_adapter import WorkflowWorkspaceResourceAdapter
 from caliber.workspace_sources import WorkspaceSourceProviderRegistry
@@ -504,7 +505,11 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     # why a tool has nothing to actually rotate), a CALIBER judge
     # (same-database resolve/snapshot plus a content-integrity release check
     # -- see workspace_release_judge_adapter.py's module docstring for why a
-    # judge has no external target to promote either), a CALIBER eval
+    # judge has no external target to promote either), a CALIBER skill
+    # (visibility-checked live row + immutable internal version-history
+    # resolve/snapshot, plus the same content-integrity release check as
+    # tool/judge -- see workspace_release_skill_adapter.py's module docstring
+    # for why a skill is a genuinely fourth resource shape), a CALIBER eval
     # dataset (a collection resource -- resolve/snapshot reconstructs the
     # example set "as of" an explicit pinned version and content-addresses
     # the reconstructed set, plus the same same-database verification release
@@ -524,6 +529,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             "prompt": PromptWorkspaceResourceAdapter(),
             "tool": ToolWorkspaceResourceAdapter(),
             "judge": JudgeWorkspaceResourceAdapter(),
+            "skill": SkillWorkspaceResourceAdapter(),
             "eval_dataset": EvalDatasetWorkspaceResourceAdapter(),
             "mcp_server": McpServerWorkspaceResourceAdapter(),
         }
