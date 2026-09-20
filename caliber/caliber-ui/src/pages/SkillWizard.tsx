@@ -674,10 +674,14 @@ function ComposabilityStep({
   form,
   onChange,
   existingSkills,
+  existingSkillsError,
+  onRetryExistingSkills,
 }: {
   form: WizardFormData;
   onChange: (patch: Partial<WizardFormData>) => void;
   existingSkills: Skill[];
+  existingSkillsError?: string | null;
+  onRetryExistingSkills?: () => void;
 }): JSX.Element {
   const [depInput, setDepInput] = useState("");
   const availableDeps = existingSkills
@@ -722,6 +726,26 @@ function ComposabilityStep({
           title="Depends on"
           subtitle="Skills this skill composes with. They'll be loaded together."
         />
+        {existingSkillsError && (
+          <div
+            data-testid="skill-wiz-deps-error"
+            className="rounded-xl border border-red-200 bg-red-50 p-3"
+          >
+            <p className="text-sm text-red-600">
+              Couldn't load existing skills: {existingSkillsError}
+            </p>
+            {onRetryExistingSkills && (
+              <button
+                type="button"
+                data-testid="skill-wiz-deps-retry"
+                onClick={onRetryExistingSkills}
+                className="mt-1 text-xs font-medium text-red-700 underline hover:text-red-900"
+              >
+                Retry
+              </button>
+            )}
+          </div>
+        )}
         <div className="relative">
           <Input
             data-testid="skill-wiz-dep-input"
@@ -1227,13 +1251,29 @@ export function SkillWizard({ onClose }: { onClose: () => void }): JSX.Element {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [existingSkills, setExistingSkills] = useState<Skill[]>([]);
+  const [existingSkillsError, setExistingSkillsError] = useState<string | null>(null);
 
   // Load existing skills for composability autocomplete
+  const loadExistingSkills = useCallback((signal?: AbortSignal) => {
+    setExistingSkillsError(null);
+    caliberApi
+      .listSkills({ status: "active" }, signal)
+      .then(setExistingSkills)
+      .catch((err: unknown) => {
+        // An aborted request (unmount cleanup) isn't a real failure -- only
+        // a genuine fetch error should flip the picker into an error state.
+        if (signal?.aborted) return;
+        setExistingSkillsError(
+          err instanceof Error ? err.message : "Failed to load existing skills.",
+        );
+      });
+  }, []);
+
   useEffect(() => {
     const ac = new AbortController();
-    caliberApi.listSkills({ status: "active" }, ac.signal).then(setExistingSkills).catch(() => {});
+    loadExistingSkills(ac.signal);
     return () => ac.abort();
-  }, []);
+  }, [loadExistingSkills]);
 
   const onChange = useCallback(
     (patch: Partial<WizardFormData>) => setForm((prev) => ({ ...prev, ...patch })),
@@ -1358,7 +1398,15 @@ export function SkillWizard({ onClose }: { onClose: () => void }): JSX.Element {
       <div className="min-h-[400px]">
         {step === 0 && <IdentityStep form={form} onChange={onChange} />}
         {step === 1 && <ContentStep form={form} onChange={onChange} />}
-        {step === 2 && <ComposabilityStep form={form} onChange={onChange} existingSkills={existingSkills} />}
+        {step === 2 && (
+          <ComposabilityStep
+            form={form}
+            onChange={onChange}
+            existingSkills={existingSkills}
+            existingSkillsError={existingSkillsError}
+            onRetryExistingSkills={() => loadExistingSkills()}
+          />
+        )}
         {step === 3 && <TriggerTestingStep form={form} onChange={onChange} />}
         {step === 4 && <ReviewStep form={form} />}
       </div>

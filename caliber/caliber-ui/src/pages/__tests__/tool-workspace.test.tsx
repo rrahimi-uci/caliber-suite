@@ -294,6 +294,27 @@ describe("ToolWorkspace", () => {
     expect(within(comparison).getByText(/1 regression/)).toBeInTheDocument();
   });
 
+  it("Test Runs: a failed getToolTestRun fetch shows a distinguishable error, not an eternal loading state", async () => {
+    // Regression: `getToolTestRun(viewedRunId).catch(() => setViewedDetail(null))`
+    // made a network failure indistinguishable from "no such run" -- in
+    // practice worse, since `viewedLoading || viewedDetail == null` stayed
+    // true forever, so the UI was stuck showing "Loading results…" rather
+    // than ever surfacing the failure. Sibling error paths in this same
+    // workspace (`pinError`) do surface distinct error text.
+    mockApi.listToolTestRuns.mockResolvedValue([summary()]);
+    mockApi.getToolTestRun.mockRejectedValue(
+      new Error("results store unavailable"),
+    );
+
+    renderRegistry();
+    await openWorkspace();
+    await userEvent.click(screen.getByRole("button", { name: "Test Runs" }));
+
+    const errorBanner = await screen.findByTestId("tool-run-results-error");
+    expect(errorBanner).toHaveTextContent("results store unavailable");
+    expect(screen.queryByText("Loading results…")).not.toBeInTheDocument();
+  });
+
   it("Publish stage exposes deprecate/archive + where-used", async () => {
     renderRegistry();
     await openWorkspace();

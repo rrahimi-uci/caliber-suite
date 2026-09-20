@@ -305,6 +305,46 @@ describe("SkillWizard", () => {
       await userEvent.type(toolsInput, "Bash(python:*) WebFetch");
       expect(toolsInput.value).toBe("Bash(python:*) WebFetch");
     });
+
+    it("shows a distinguishable error (not an empty picker) when loading existing skills fails, with a working retry", async () => {
+      // Regression: a failed `listSkills` fetch was swallowed
+      // (`.catch(() => {})`), so the "depends on" picker rendered as an
+      // empty list -- indistinguishable from "no skills exist yet," with no
+      // error state or retry, unlike the wizard's own `submit()` path which
+      // does surface errors via `submitError`.
+      let skillsCalls = 0;
+      server.use(
+        http.get(`${API_BASE}/skills`, () => {
+          skillsCalls += 1;
+          if (skillsCalls === 1) {
+            return HttpResponse.json(
+              { detail: "skills service unavailable" },
+              { status: 500 },
+            );
+          }
+          return HttpResponse.json(
+            envelope([makeSkill({ name: "base-reasoning" })]),
+          );
+        }),
+      );
+
+      await goToComposabilityStep();
+
+      expect(await screen.findByTestId("skill-wiz-deps-error")).toHaveTextContent(
+        "skills service unavailable",
+      );
+
+      await userEvent.click(screen.getByTestId("skill-wiz-deps-retry"));
+
+      await waitFor(() =>
+        expect(screen.queryByTestId("skill-wiz-deps-error")).not.toBeInTheDocument(),
+      );
+      expect(skillsCalls).toBeGreaterThanOrEqual(2);
+
+      // Retry succeeded: the picker now has real data, provable by opening it.
+      await userEvent.type(screen.getByTestId("skill-wiz-dep-input"), "base");
+      expect(await screen.findByText("base-reasoning")).toBeInTheDocument();
+    });
   });
 
   describe("Step 4: Trigger Testing", () => {

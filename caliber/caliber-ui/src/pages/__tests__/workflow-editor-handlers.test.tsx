@@ -488,6 +488,44 @@ describe("WorkflowEditor handler branches", () => {
     expect(screen.getByTestId("editor-save-status")).toHaveTextContent("Unsaved");
   });
 
+  it("toasts an error when the unmount flush-save of a still-dirty draft fails", async () => {
+    // Regression: navigating away (SPA route change / unmount) with an edit
+    // still dirty and mid-debounce triggers a fire-and-forget flush save in
+    // the editor's unmount cleanup. That save used to swallow failures
+    // entirely (`.catch(() => undefined)`), silently discarding the edit with
+    // no toast, no console log, nothing. The debounced autosave path already
+    // reports failures; the unmount-flush path must too.
+    let patchCalls = 0;
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion({ status: "draft" }))),
+      ),
+      http.patch(`${API_BASE}/workflow-versions/WFV-1`, () => {
+        patchCalls += 1;
+        return HttpResponse.json({ detail: "manifest hash is stale" }, { status: 409 });
+      }),
+    );
+    const user = userEvent.setup();
+    const { unmount } = renderEditor();
+    expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("editor-view-code"));
+    await user.click(screen.getByTestId("code-apply"));
+    expect(screen.getByTestId("editor-save-status")).toHaveTextContent("Unsaved");
+
+    // Unmount immediately -- well inside the 1500ms autosave debounce window --
+    // so the only save attempt is the unmount-flush effect's, not the
+    // debounced autosave timer (whose own cleanup cancels it on unmount).
+    unmount();
+
+    await waitFor(() => expect(patchCalls).toBeGreaterThan(0));
+    await waitFor(() =>
+      expect(showToast.error).toHaveBeenCalledWith("Save failed: manifest hash is stale"),
+    );
+    // Exactly one save attempt: the debounced autosave never fired.
+    expect(patchCalls).toBe(1);
+  });
+
   it("restores a published version as a fresh draft from the read-only banner", async () => {
     let restoreRequested = false;
     server.use(

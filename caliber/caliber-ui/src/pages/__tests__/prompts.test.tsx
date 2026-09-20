@@ -1762,6 +1762,833 @@ describe("Prompts", () => {
     expect(executedPayload).toEqual({ plan_id: "plan-opt-001", confirm: true });
   });
 
+  it("skips a malformed assistant-intent job instead of trusting an unchecked cast", async () => {
+    // Regression: the execute-plan result's `job` was only checked for a
+    // string `job_id` before being force-cast to `RefinementJob` and pushed
+    // into run-list state. If the backend ever drops/renames a field the run
+    // list or status badges read (here: `status` holding a value outside the
+    // known JobStatus enum), the UI would silently render `undefined`.
+    // The fix validates the shape and skips it (with a console warning)
+    // rather than casting through it.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    server.use(
+      http.get(`${API_BASE}/prompts/calibration/options`, () =>
+        HttpResponse.json(
+          envelope({
+            optimizers: ["MetaPrompt", "MIPROv2"],
+            default_optimizer: "MetaPrompt",
+            scorers: [
+              {
+                name: "helpfulness",
+                label: "Helpfulness",
+                description: "Rates whether the response is helpful.",
+                requires_config: false,
+                provider: "mlflow",
+                category: "core",
+                available: true,
+                unavailable_reason: null,
+                install_command: null,
+                config_template: null,
+              },
+            ],
+            default_scorers: ["helpfulness"],
+            default_gate: {
+              min_aggregate_score: 0.85,
+              max_regression_delta: 0.02,
+            },
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              dataset_id: "eds-opt-assistant",
+              name: "Assistant Calibration Dataset",
+              description: "Dataset for assistant-guided calibration tests",
+              owner: "@test",
+              tags: ["prompt-calibration"],
+              status: "active",
+              version: 1,
+              created_at: "2025-01-01T00:00:00Z",
+              updated_at: "2025-01-01T00:00:00Z",
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/jobs`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/assistant/sessions`, () =>
+        HttpResponse.json(
+          envelope({
+            session_id: "asst-opt-002",
+            title: "Prompt calibration workbench",
+            goal: "Intent planning",
+            status: "active",
+            metadata_: {},
+            created_at: "2025-01-01T00:00:00Z",
+            updated_at: "2025-01-01T00:00:00Z",
+          }),
+          { status: 201 },
+        ),
+      ),
+      http.get(`${API_BASE}/assistant/sessions/:sessionId/plans/latest`, () =>
+        HttpResponse.json({ error: "not found" }, { status: 404 }),
+      ),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/intent/resolve`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              mode: "intent_plan",
+              intent: {
+                name: "run_prompt_optimization",
+                confidence: 0.96,
+                rationale:
+                  "User asks to calibrate prompt with explicit metrics and dataset.",
+              },
+              alternatives: [],
+              slots: [
+                {
+                  name: "agent_id",
+                  value: "support-agent",
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.9,
+                  needs_confirmation: false,
+                },
+              ],
+              assumptions: ["Use existing prompt alias @prod."],
+              questions: [],
+              evidence: ["Calibrate", "dataset", "scorers"],
+            }),
+          ),
+      ),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/plans`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              mode: "intent_plan",
+              plan_id: "plan-opt-002",
+              intent: {
+                name: "run_prompt_optimization",
+                confidence: 0.98,
+                rationale: "All required calibration slots are present.",
+              },
+              actions: [
+                {
+                  action: "run_prompt_optimization",
+                  description:
+                    "Create calibration verification item and queue job.",
+                  status: "ready",
+                },
+              ],
+              slots: [
+                {
+                  name: "agent_id",
+                  value: "support-agent",
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.96,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "eval_dataset_id",
+                  value: "eds-opt-assistant",
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.94,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "optimizer_type",
+                  value: "MIPROv2",
+                  required: true,
+                  source: "default",
+                  confidence: 0.92,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "scorers",
+                  value: [{ name: "helpfulness", weight: 2 }],
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.88,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "gate.min_aggregate_score",
+                  value: 0.91,
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.86,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "gate.max_regression_delta",
+                  value: 0.01,
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.85,
+                  needs_confirmation: false,
+                },
+              ],
+              missing_slots: [],
+              assumptions: ["Use default prompt alias @prod"],
+              questions: [],
+              ready: true,
+              requires_confirmation: true,
+            }),
+          ),
+      ),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/plans/execute`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              operation_id: "op-opt-002",
+              plan_id: "plan-opt-002",
+              intent_name: "run_prompt_optimization",
+              status: "completed",
+              executed_action: "run_prompt_optimization",
+              result: {
+                result_type: "optimization_run",
+                status: "completed",
+                summary: "Queued prompt calibration run.",
+                trace_id: "trace-opt-assistant-2",
+                correlation_id: "acorr-opt-assistant-2",
+                warnings: [],
+                // Malformed: `status` isn't a known JobStatus (e.g. the
+                // field got renamed/dropped upstream). The guard must reject
+                // this shape rather than cast through it.
+                job: {
+                  job_id: "opt-job-assistant-malformed",
+                  agent_id: "support-agent",
+                  workflow_id: null,
+                  primary_item_id: "item-opt-assistant-002",
+                  mlflow_run_id: null,
+                  artifact_type: "prompt",
+                  optimizer_type: "MIPROv2",
+                  status: "not_a_real_status",
+                  current_stage: "triage",
+                  attempt_count: 0,
+                  error_message: null,
+                  total_tokens: 0,
+                  cost_usd: 0,
+                  bundle_targets: [],
+                  bundle_expansion_count: 1,
+                  diagnosis: null,
+                  candidate: null,
+                  eval_results: null,
+                  created_at: "2025-01-01T00:00:00Z",
+                  updated_at: "2025-01-01T00:00:00Z",
+                },
+              },
+              run: null,
+            }),
+          ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await openWorkspaceStage(user, "Calibration");
+    expect(
+      await screen.findByText("Assistant-Guided Calibration"),
+    ).toBeInTheDocument();
+
+    await user.type(
+      screen.getByLabelText("Assistant intent request"),
+      "Calibrate support-agent using the assistant dataset with MIPROv2 and strict gate.",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Analyze Intent" }));
+    expect(
+      await screen.findByText("run_prompt_optimization"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Build Plan" }));
+    expect(await screen.findByText("plan-opt-002")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Execute Confirmed Plan" }),
+    );
+
+    // The operation itself still surfaces -- only the malformed job is
+    // skipped, not the whole execution result.
+    expect(await screen.findByText("op-opt-002")).toBeInTheDocument();
+    expect(
+      await screen.findByText("Queued prompt calibration run."),
+    ).toBeInTheDocument();
+
+    // The malformed job never entered run-list/active-run state.
+    expect(
+      screen.queryByText("opt-job-assistant-malformed"),
+    ).not.toBeInTheDocument();
+
+    await waitFor(() => expect(warnSpy).toHaveBeenCalled());
+    expect(warnSpy.mock.calls[0]?.[0]).toContain(
+      "malformed refinement job",
+    );
+
+    warnSpy.mockRestore();
+  });
+
+  it("accepts a valid assistant-intent job that carries a failure message", async () => {
+    // Companion to the malformed-job test above: `error_message` being a
+    // non-null *string* (a job that previously failed) is a valid shape,
+    // not a malformed one -- the guard must accept it rather than reject
+    // every job that isn't `error_message: null`.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    server.use(
+      http.get(`${API_BASE}/prompts/calibration/options`, () =>
+        HttpResponse.json(
+          envelope({
+            optimizers: ["MetaPrompt", "MIPROv2"],
+            default_optimizer: "MetaPrompt",
+            scorers: [
+              {
+                name: "helpfulness",
+                label: "Helpfulness",
+                description: "Rates whether the response is helpful.",
+                requires_config: false,
+                provider: "mlflow",
+                category: "core",
+                available: true,
+                unavailable_reason: null,
+                install_command: null,
+                config_template: null,
+              },
+            ],
+            default_scorers: ["helpfulness"],
+            default_gate: {
+              min_aggregate_score: 0.85,
+              max_regression_delta: 0.02,
+            },
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              dataset_id: "eds-opt-assistant",
+              name: "Assistant Calibration Dataset",
+              description: "Dataset for assistant-guided calibration tests",
+              owner: "@test",
+              tags: ["prompt-calibration"],
+              status: "active",
+              version: 1,
+              created_at: "2025-01-01T00:00:00Z",
+              updated_at: "2025-01-01T00:00:00Z",
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/jobs`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/assistant/sessions`, () =>
+        HttpResponse.json(
+          envelope({
+            session_id: "asst-opt-004",
+            title: "Prompt calibration workbench",
+            goal: "Intent planning",
+            status: "active",
+            metadata_: {},
+            created_at: "2025-01-01T00:00:00Z",
+            updated_at: "2025-01-01T00:00:00Z",
+          }),
+          { status: 201 },
+        ),
+      ),
+      http.get(`${API_BASE}/assistant/sessions/:sessionId/plans/latest`, () =>
+        HttpResponse.json({ error: "not found" }, { status: 404 }),
+      ),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/intent/resolve`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              mode: "intent_plan",
+              intent: {
+                name: "run_prompt_optimization",
+                confidence: 0.96,
+                rationale:
+                  "User asks to calibrate prompt with explicit metrics and dataset.",
+              },
+              alternatives: [],
+              slots: [
+                {
+                  name: "agent_id",
+                  value: "support-agent",
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.9,
+                  needs_confirmation: false,
+                },
+              ],
+              assumptions: ["Use existing prompt alias @prod."],
+              questions: [],
+              evidence: ["Calibrate", "dataset", "scorers"],
+            }),
+          ),
+      ),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/plans`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              mode: "intent_plan",
+              plan_id: "plan-opt-004",
+              intent: {
+                name: "run_prompt_optimization",
+                confidence: 0.98,
+                rationale: "All required calibration slots are present.",
+              },
+              actions: [
+                {
+                  action: "run_prompt_optimization",
+                  description:
+                    "Create calibration verification item and queue job.",
+                  status: "ready",
+                },
+              ],
+              slots: [
+                {
+                  name: "agent_id",
+                  value: "support-agent",
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.96,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "eval_dataset_id",
+                  value: "eds-opt-assistant",
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.94,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "optimizer_type",
+                  value: "MIPROv2",
+                  required: true,
+                  source: "default",
+                  confidence: 0.92,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "scorers",
+                  value: [{ name: "helpfulness", weight: 2 }],
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.88,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "gate.min_aggregate_score",
+                  value: 0.91,
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.86,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "gate.max_regression_delta",
+                  value: 0.01,
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.85,
+                  needs_confirmation: false,
+                },
+              ],
+              missing_slots: [],
+              assumptions: ["Use default prompt alias @prod"],
+              questions: [],
+              ready: true,
+              requires_confirmation: true,
+            }),
+          ),
+      ),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/plans/execute`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              operation_id: "op-opt-004",
+              plan_id: "plan-opt-004",
+              intent_name: "run_prompt_optimization",
+              status: "completed",
+              executed_action: "run_prompt_optimization",
+              result: {
+                result_type: "optimization_run",
+                status: "completed",
+                summary: "Queued prompt calibration run.",
+                warnings: [],
+                job: {
+                  job_id: "opt-job-assistant-004",
+                  agent_id: "support-agent",
+                  workflow_id: null,
+                  primary_item_id: "item-opt-assistant-004",
+                  mlflow_run_id: null,
+                  artifact_type: "prompt",
+                  optimizer_type: "MIPROv2",
+                  status: "failed",
+                  current_stage: "candidate",
+                  attempt_count: 1,
+                  // The field under test: a non-null *string*, not the
+                  // `null` every other fixture in this file uses.
+                  error_message: "optimizer timed out after 3 attempts",
+                  total_tokens: 120,
+                  cost_usd: 0.02,
+                  bundle_targets: [],
+                  bundle_expansion_count: 1,
+                  diagnosis: null,
+                  candidate: null,
+                  eval_results: null,
+                  created_at: "2025-01-01T00:00:00Z",
+                  updated_at: "2025-01-01T00:00:00Z",
+                },
+              },
+              run: null,
+            }),
+          ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await openWorkspaceStage(user, "Calibration");
+    expect(
+      await screen.findByText("Assistant-Guided Calibration"),
+    ).toBeInTheDocument();
+
+    await user.type(
+      screen.getByLabelText("Assistant intent request"),
+      "Calibrate support-agent using the assistant dataset with MIPROv2 and strict gate.",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Analyze Intent" }));
+    expect(
+      await screen.findByText("run_prompt_optimization"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Build Plan" }));
+    expect(await screen.findByText("plan-opt-004")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Execute Confirmed Plan" }),
+    );
+
+    // Accepted, not skipped: the job_id renders and no malformed-shape
+    // warning was logged.
+    expect(
+      await screen.findByText("opt-job-assistant-004"),
+    ).toBeInTheDocument();
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
+  it("polls a running assistant operation on one stable interval instead of resetting it every tick", async () => {
+    // Regression: the poll effect depended on `assistantOperationStatus`
+    // itself, but the interval's own tick called
+    // `setAssistantOperationStatus(latest)` with a brand-new object every
+    // 2s -- so the effect tore its interval down and recreated it on every
+    // single tick instead of running one stable timer. Assert directly on
+    // `setInterval`/`clearInterval` call counts across several real ticks:
+    // recreation would show up as extra `setInterval` calls even though the
+    // network poll cadence itself looks unchanged.
+    let operationPolls = 0;
+    server.use(
+      http.get(`${API_BASE}/prompts/calibration/options`, () =>
+        HttpResponse.json(
+          envelope({
+            optimizers: ["MetaPrompt", "MIPROv2"],
+            default_optimizer: "MetaPrompt",
+            scorers: [
+              {
+                name: "helpfulness",
+                label: "Helpfulness",
+                description: "Rates whether the response is helpful.",
+                requires_config: false,
+                provider: "mlflow",
+                category: "core",
+                available: true,
+                unavailable_reason: null,
+                install_command: null,
+                config_template: null,
+              },
+            ],
+            default_scorers: ["helpfulness"],
+            default_gate: {
+              min_aggregate_score: 0.85,
+              max_regression_delta: 0.02,
+            },
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              dataset_id: "eds-opt-assistant",
+              name: "Assistant Calibration Dataset",
+              description: "Dataset for assistant-guided calibration tests",
+              owner: "@test",
+              tags: ["prompt-calibration"],
+              status: "active",
+              version: 1,
+              created_at: "2025-01-01T00:00:00Z",
+              updated_at: "2025-01-01T00:00:00Z",
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/jobs`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/assistant/sessions`, () =>
+        HttpResponse.json(
+          envelope({
+            session_id: "asst-opt-003",
+            title: "Prompt calibration workbench",
+            goal: "Intent planning",
+            status: "active",
+            metadata_: {},
+            created_at: "2025-01-01T00:00:00Z",
+            updated_at: "2025-01-01T00:00:00Z",
+          }),
+          { status: 201 },
+        ),
+      ),
+      http.get(`${API_BASE}/assistant/sessions/:sessionId/plans/latest`, () =>
+        HttpResponse.json({ error: "not found" }, { status: 404 }),
+      ),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/intent/resolve`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              mode: "intent_plan",
+              intent: {
+                name: "run_prompt_optimization",
+                confidence: 0.96,
+                rationale:
+                  "User asks to calibrate prompt with explicit metrics and dataset.",
+              },
+              alternatives: [],
+              slots: [
+                {
+                  name: "agent_id",
+                  value: "support-agent",
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.9,
+                  needs_confirmation: false,
+                },
+              ],
+              assumptions: ["Use existing prompt alias @prod."],
+              questions: [],
+              evidence: ["Calibrate", "dataset", "scorers"],
+            }),
+          ),
+      ),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/plans`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              mode: "intent_plan",
+              plan_id: "plan-opt-003",
+              intent: {
+                name: "run_prompt_optimization",
+                confidence: 0.98,
+                rationale: "All required calibration slots are present.",
+              },
+              actions: [
+                {
+                  action: "run_prompt_optimization",
+                  description:
+                    "Create calibration verification item and queue job.",
+                  status: "ready",
+                },
+              ],
+              slots: [
+                {
+                  name: "agent_id",
+                  value: "support-agent",
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.96,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "eval_dataset_id",
+                  value: "eds-opt-assistant",
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.94,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "optimizer_type",
+                  value: "MIPROv2",
+                  required: true,
+                  source: "default",
+                  confidence: 0.92,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "scorers",
+                  value: [{ name: "helpfulness", weight: 2 }],
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.88,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "gate.min_aggregate_score",
+                  value: 0.91,
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.86,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "gate.max_regression_delta",
+                  value: 0.01,
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.85,
+                  needs_confirmation: false,
+                },
+              ],
+              missing_slots: [],
+              assumptions: ["Use default prompt alias @prod"],
+              questions: [],
+              ready: true,
+              requires_confirmation: true,
+            }),
+          ),
+      ),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/plans/execute`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              operation_id: "op-opt-003",
+              plan_id: "plan-opt-003",
+              intent_name: "run_prompt_optimization",
+              // Non-terminal: this is what actually starts the poll effect's
+              // interval below (an already-terminal status never would).
+              status: "running",
+              executed_action: "run_prompt_optimization",
+              result: {
+                result_type: "optimization_run",
+                status: "running",
+                summary: "Prompt calibration run in progress.",
+                warnings: [],
+                // No `job` -- keeps the *other* (job-poll) interval effect
+                // from also starting, so the setInterval/clearInterval spy
+                // counts below reflect only the operation-poll effect.
+              },
+              run: null,
+            }),
+          ),
+      ),
+      http.get(
+        `${API_BASE}/assistant/sessions/:sessionId/operations/op-opt-003`,
+        () => {
+          operationPolls += 1;
+          return HttpResponse.json(
+            envelope({
+              operation_id: "op-opt-003",
+              session_id: "asst-opt-003",
+              plan_id: "plan-opt-003",
+              intent_name: "run_prompt_optimization",
+              status: "running",
+              created_at: "2025-01-01T00:00:00Z",
+              updated_at: "2025-01-01T00:00:00Z",
+              result: {
+                result_type: "optimization_run",
+                status: "running",
+                summary: "Prompt calibration run in progress.",
+                warnings: [],
+              },
+              run: null,
+            }),
+          );
+        },
+      ),
+    );
+
+    const setIntervalSpy = vi.spyOn(window, "setInterval");
+    const clearIntervalSpy = vi.spyOn(window, "clearInterval");
+    // Testing Library's own `waitFor`/`findBy*` poll via `setInterval` too
+    // (default 50ms), on the same global `window.setInterval` we're spying
+    // on. Isolate our effect's calls by its exact 2000ms poll delay so the
+    // test harness's own internal polling doesn't count as noise.
+    const pollIntervalCalls = () =>
+      setIntervalSpy.mock.calls
+        .map((call, i) => ({ delayMs: call[1], id: setIntervalSpy.mock.results[i]?.value }))
+        .filter((call) => call.delayMs === 2000);
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await openWorkspaceStage(user, "Calibration");
+    expect(
+      await screen.findByText("Assistant-Guided Calibration"),
+    ).toBeInTheDocument();
+
+    await user.type(
+      screen.getByLabelText("Assistant intent request"),
+      "Calibrate support-agent using the assistant dataset with MIPROv2 and strict gate.",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Analyze Intent" }));
+    expect(
+      await screen.findByText("run_prompt_optimization"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Build Plan" }));
+    expect(await screen.findByText("plan-opt-003")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Execute Confirmed Plan" }),
+    );
+    expect(await screen.findByText("op-opt-003")).toBeInTheDocument();
+
+    // The interval is created once, synchronously, when the poll effect's
+    // dependency (the operation id) first becomes non-null.
+    await waitFor(() => expect(pollIntervalCalls()).toHaveLength(1));
+    const ourIntervalId = pollIntervalCalls()[0]?.id;
+
+    // Wait out two real poll ticks (2s each). Each tick's
+    // `setAssistantOperationStatus(latest)` call is exactly the state update
+    // that used to retrigger the effect and recreate the interval.
+    await waitFor(() => expect(operationPolls).toBeGreaterThanOrEqual(2), {
+      timeout: 6000,
+      interval: 250,
+    });
+
+    // Still exactly one 2000ms interval ever created, and it was never the
+    // target of a `clearInterval` call -- the status stayed non-terminal
+    // throughout, so a single stable timer is the only thing that should
+    // have been running.
+    expect(pollIntervalCalls()).toHaveLength(1);
+    expect(clearIntervalSpy.mock.calls.some((call) => call[0] === ourIntervalId)).toBe(
+      false,
+    );
+
+    setIntervalSpy.mockRestore();
+    clearIntervalSpy.mockRestore();
+  }, 20000);
+
   it("restores latest assistant plan automatically when reopening calibration", async () => {
     let createSessionCalls = 0;
     let latestPlanCalls = 0;

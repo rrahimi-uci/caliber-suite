@@ -471,6 +471,111 @@ describe("McpServers", () => {
     );
   });
 
+  it("makes an invocation-history row keyboard reachable and activatable via Enter", async () => {
+    // Regression: the row was a bare `<div onClick>` -- no role="button",
+    // no tabIndex, no onKeyDown, so it wasn't even Tab-reachable let alone
+    // activatable by keyboard. This mirrors `ListRow`'s own contract
+    // (role="button" + tabIndex={0} + Enter/Space onKeyDown).
+    let invokeBody: Record<string, unknown> | null = null;
+    const discoveredTools = baseServer().discovered_tools;
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([baseServer()])),
+      ),
+      http.get(`${API_BASE}/mcp-servers/MCP-1/tools`, () =>
+        HttpResponse.json(
+          envelope({
+            server_id: "MCP-1",
+            tools: discoveredTools.map((tool) => ({
+              ...tool,
+              classified: true,
+              policy: {
+                allowed: true,
+                side_effect_level: "read",
+                requires_approval: false,
+                rate_limit_per_minute: null,
+              },
+            })),
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/mcp-servers/MCP-1/discover-tools`, () =>
+        HttpResponse.json(
+          envelope({
+            server_id: "MCP-1",
+            tools: discoveredTools,
+            tool_count: discoveredTools.length,
+            discovered_at: NOW,
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/mcp-servers/MCP-1/test-connection`, () =>
+        HttpResponse.json(
+          envelope({
+            server_id: "MCP-1",
+            success: true,
+            error: null,
+            tools: discoveredTools,
+          }),
+        ),
+      ),
+      http.post(
+        `${API_BASE}/mcp-servers/MCP-1/invoke-tool`,
+        async ({ request }) => {
+          invokeBody = (await request.json()) as Record<string, unknown>;
+          return HttpResponse.json(
+            envelope({
+              server_id: "MCP-1",
+              tool_name: "search_docs",
+              success: true,
+              error: null,
+              result: { results: ["doc-1"] },
+              duration_ms: 7,
+            }),
+          );
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "MCP Servers" });
+
+    await user.click(screen.getByRole("button", { name: "Playground" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Test Connection" }),
+    );
+    expect(
+      await screen.findByText("Connection Successful"),
+    ).toBeInTheDocument();
+
+    const toolLabel = await screen.findByText("search_docs");
+    const toolButton = toolLabel.closest("button") as HTMLButtonElement;
+    await user.click(toolButton);
+    await user.type(screen.getByPlaceholderText("query"), "refund");
+    await user.click(screen.getByRole("button", { name: "Invoke Tool" }));
+    expect(await screen.findByText("Success")).toBeInTheDocument();
+    expect(invokeBody).toMatchObject({ tool_name: "search_docs" });
+
+    // Re-selecting the tool clears the active args/result so we can tell
+    // whether activating the history row (rather than a stray re-render)
+    // is what restores them.
+    await user.click(toolButton);
+    expect(screen.queryByText("Success")).not.toBeInTheDocument();
+    expect(screen.getByPlaceholderText("query")).toHaveValue("");
+
+    const historyRow = await screen.findByTestId("invocation-history-row-0");
+    expect(historyRow).toHaveAttribute("role", "button");
+    expect(historyRow).toHaveAttribute("tabindex", "0");
+
+    historyRow.focus();
+    expect(historyRow).toHaveFocus();
+    fireEvent.keyDown(historyRow, { key: "Enter" });
+
+    expect(await screen.findByText("Success")).toBeInTheDocument();
+    expect(screen.getByPlaceholderText("query")).toHaveValue("refund");
+  });
+
   it("shows an empty playground state when no MCP servers are registered", async () => {
     server.use(
       http.get(`${API_BASE}/mcp-servers`, () =>
