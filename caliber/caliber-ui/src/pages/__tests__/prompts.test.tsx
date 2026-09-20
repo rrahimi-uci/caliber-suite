@@ -2036,6 +2036,264 @@ describe("Prompts", () => {
     warnSpy.mockRestore();
   });
 
+  it("accepts a valid assistant-intent job that carries a failure message", async () => {
+    // Companion to the malformed-job test above: `error_message` being a
+    // non-null *string* (a job that previously failed) is a valid shape,
+    // not a malformed one -- the guard must accept it rather than reject
+    // every job that isn't `error_message: null`.
+    const warnSpy = vi.spyOn(console, "warn").mockImplementation(() => {});
+    server.use(
+      http.get(`${API_BASE}/prompts/calibration/options`, () =>
+        HttpResponse.json(
+          envelope({
+            optimizers: ["MetaPrompt", "MIPROv2"],
+            default_optimizer: "MetaPrompt",
+            scorers: [
+              {
+                name: "helpfulness",
+                label: "Helpfulness",
+                description: "Rates whether the response is helpful.",
+                requires_config: false,
+                provider: "mlflow",
+                category: "core",
+                available: true,
+                unavailable_reason: null,
+                install_command: null,
+                config_template: null,
+              },
+            ],
+            default_scorers: ["helpfulness"],
+            default_gate: {
+              min_aggregate_score: 0.85,
+              max_regression_delta: 0.02,
+            },
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              dataset_id: "eds-opt-assistant",
+              name: "Assistant Calibration Dataset",
+              description: "Dataset for assistant-guided calibration tests",
+              owner: "@test",
+              tags: ["prompt-calibration"],
+              status: "active",
+              version: 1,
+              created_at: "2025-01-01T00:00:00Z",
+              updated_at: "2025-01-01T00:00:00Z",
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/jobs`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/assistant/sessions`, () =>
+        HttpResponse.json(
+          envelope({
+            session_id: "asst-opt-004",
+            title: "Prompt calibration workbench",
+            goal: "Intent planning",
+            status: "active",
+            metadata_: {},
+            created_at: "2025-01-01T00:00:00Z",
+            updated_at: "2025-01-01T00:00:00Z",
+          }),
+          { status: 201 },
+        ),
+      ),
+      http.get(`${API_BASE}/assistant/sessions/:sessionId/plans/latest`, () =>
+        HttpResponse.json({ error: "not found" }, { status: 404 }),
+      ),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/intent/resolve`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              mode: "intent_plan",
+              intent: {
+                name: "run_prompt_optimization",
+                confidence: 0.96,
+                rationale:
+                  "User asks to calibrate prompt with explicit metrics and dataset.",
+              },
+              alternatives: [],
+              slots: [
+                {
+                  name: "agent_id",
+                  value: "support-agent",
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.9,
+                  needs_confirmation: false,
+                },
+              ],
+              assumptions: ["Use existing prompt alias @prod."],
+              questions: [],
+              evidence: ["Calibrate", "dataset", "scorers"],
+            }),
+          ),
+      ),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/plans`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              mode: "intent_plan",
+              plan_id: "plan-opt-004",
+              intent: {
+                name: "run_prompt_optimization",
+                confidence: 0.98,
+                rationale: "All required calibration slots are present.",
+              },
+              actions: [
+                {
+                  action: "run_prompt_optimization",
+                  description:
+                    "Create calibration verification item and queue job.",
+                  status: "ready",
+                },
+              ],
+              slots: [
+                {
+                  name: "agent_id",
+                  value: "support-agent",
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.96,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "eval_dataset_id",
+                  value: "eds-opt-assistant",
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.94,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "optimizer_type",
+                  value: "MIPROv2",
+                  required: true,
+                  source: "default",
+                  confidence: 0.92,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "scorers",
+                  value: [{ name: "helpfulness", weight: 2 }],
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.88,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "gate.min_aggregate_score",
+                  value: 0.91,
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.86,
+                  needs_confirmation: false,
+                },
+                {
+                  name: "gate.max_regression_delta",
+                  value: 0.01,
+                  required: true,
+                  source: "inferred",
+                  confidence: 0.85,
+                  needs_confirmation: false,
+                },
+              ],
+              missing_slots: [],
+              assumptions: ["Use default prompt alias @prod"],
+              questions: [],
+              ready: true,
+              requires_confirmation: true,
+            }),
+          ),
+      ),
+      http.post(
+        `${API_BASE}/assistant/sessions/:sessionId/plans/execute`,
+        () =>
+          HttpResponse.json(
+            envelope({
+              operation_id: "op-opt-004",
+              plan_id: "plan-opt-004",
+              intent_name: "run_prompt_optimization",
+              status: "completed",
+              executed_action: "run_prompt_optimization",
+              result: {
+                result_type: "optimization_run",
+                status: "completed",
+                summary: "Queued prompt calibration run.",
+                warnings: [],
+                job: {
+                  job_id: "opt-job-assistant-004",
+                  agent_id: "support-agent",
+                  workflow_id: null,
+                  primary_item_id: "item-opt-assistant-004",
+                  mlflow_run_id: null,
+                  artifact_type: "prompt",
+                  optimizer_type: "MIPROv2",
+                  status: "failed",
+                  current_stage: "candidate",
+                  attempt_count: 1,
+                  // The field under test: a non-null *string*, not the
+                  // `null` every other fixture in this file uses.
+                  error_message: "optimizer timed out after 3 attempts",
+                  total_tokens: 120,
+                  cost_usd: 0.02,
+                  bundle_targets: [],
+                  bundle_expansion_count: 1,
+                  diagnosis: null,
+                  candidate: null,
+                  eval_results: null,
+                  created_at: "2025-01-01T00:00:00Z",
+                  updated_at: "2025-01-01T00:00:00Z",
+                },
+              },
+              run: null,
+            }),
+          ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await openWorkspaceStage(user, "Calibration");
+    expect(
+      await screen.findByText("Assistant-Guided Calibration"),
+    ).toBeInTheDocument();
+
+    await user.type(
+      screen.getByLabelText("Assistant intent request"),
+      "Calibrate support-agent using the assistant dataset with MIPROv2 and strict gate.",
+    );
+
+    await user.click(screen.getByRole("button", { name: "Analyze Intent" }));
+    expect(
+      await screen.findByText("run_prompt_optimization"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Build Plan" }));
+    expect(await screen.findByText("plan-opt-004")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", { name: "Execute Confirmed Plan" }),
+    );
+
+    // Accepted, not skipped: the job_id renders and no malformed-shape
+    // warning was logged.
+    expect(
+      await screen.findByText("opt-job-assistant-004"),
+    ).toBeInTheDocument();
+    expect(warnSpy).not.toHaveBeenCalled();
+
+    warnSpy.mockRestore();
+  });
+
   it("polls a running assistant operation on one stable interval instead of resetting it every tick", async () => {
     // Regression: the poll effect depended on `assistantOperationStatus`
     // itself, but the interval's own tick called
