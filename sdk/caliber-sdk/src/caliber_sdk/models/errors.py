@@ -33,23 +33,28 @@ class FieldError:
 
 @dataclass(frozen=True)
 class ErrorBody:
-    """``{"detail", "status_code"}``, plus ``errors`` when present."""
+    """``{"detail", "status_code"}``, plus ``errors`` and/or ``reason_code`` when present."""
 
     detail: str = ""
     status_code: int = 0
     errors: list[FieldError] = field(default_factory=list)
+    #: Stable, machine-readable failure code (Phase 0 item 6). ``None`` when
+    #: the response did not include one -- most routes still don't.
+    reason_code: str | None = None
 
     @classmethod
     def from_payload(cls, payload: Any) -> ErrorBody:
         if not isinstance(payload, dict):
             return cls()
         raw_errors = payload.get("errors")
+        raw_reason_code = payload.get("reason_code")
         return cls(
             detail=str(payload.get("detail") or ""),
             status_code=int(payload.get("status_code") or 0),
             errors=[FieldError.from_payload(item) for item in raw_errors]
             if isinstance(raw_errors, list)
             else [],
+            reason_code=raw_reason_code if isinstance(raw_reason_code, str) else None,
         )
 
 

@@ -223,6 +223,17 @@ def _components() -> dict[str, Any]:
                 "properties": {
                     "detail": {"type": "string"},
                     "status_code": {"type": "integer"},
+                    "reason_code": {
+                        "type": "string",
+                        "description": (
+                            "Stable, machine-readable failure code a caller can "
+                            "switch on instead of parsing `detail` (Phase 0 item "
+                            "6, docs/workspace-plan.md section 13.6). Optional: "
+                            "only present for routes that have migrated to raise "
+                            "`caliber.routes._errors.CaliberHTTPException` with an "
+                            "explicit `reason_code`; most routes still omit it."
+                        ),
+                    },
                 },
                 "required": ["detail", "status_code"],
             },

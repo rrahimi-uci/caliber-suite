@@ -271,6 +271,7 @@ client<span class="tok-punctuation">.</span>projects<span class="tok-punctuation
     ├── CaliberPermissionError     403
     ├── CaliberNotFoundError       404
     ├── CaliberConflictError       409
+    ├── CaliberPreconditionError   412 (stale ETag / compare-and-set)
     ├── CaliberRateLimitError      429
     └── CaliberServerError         5xx</code></pre>
 <p><code>CaliberTransportError</code> is separate from <code>CaliberAPIError</code> because there is no server verdict to inspect — and because retrying is often right in one case and wrong in the other.</p>
@@ -290,6 +291,22 @@ instructions: instructions must reference at least one evaluation variable</code
   <span class="tok-punctuation">]</span>
 <span class="tok-punctuation">}</span></code></pre>
 <p><code>loc</code> is a <em>path</em>, not a field name — it is a list because the failure may sit inside a nested object, as in <code>["manifest", "nodes", 0, "tool_ref"]</code>. That is why <code>CaliberValidationError.errors</code> hands you the list unchanged, and why its <code>__str__</code> joins the path with dots rather than printing only the last segment.</p>
+<p>Some routes additionally set a machine-readable <code>reason_code</code> alongside <code>detail</code>, so a caller can switch on a stable string instead of parsing the human-readable message:</p>
+<pre class="language-json"><code class="language-json"><span class="tok-punctuation">{</span>
+  <span class="tok-key">"detail"</span><span class="tok-punctuation">:</span> <span class="tok-string">"resource_type_adapter_unavailable: no adapter registered for 'widget'"</span><span class="tok-punctuation">,</span>
+  <span class="tok-key">"status_code"</span><span class="tok-punctuation">:</span> <span class="tok-number">409</span><span class="tok-punctuation">,</span>
+  <span class="tok-key">"reason_code"</span><span class="tok-punctuation">:</span> <span class="tok-string">"resource_type_adapter_unavailable"</span>
+<span class="tok-punctuation">}</span></code></pre>
+<p><code>reason_code</code> is optional and additive — most routes have not been migrated to set it yet, so <code>CaliberAPIError.reason_code</code> is <code>None</code> for those, and a caller must not assume it is always populated:</p>
+<pre class="language-python"><code class="language-python"><span class="tok-keyword">try</span><span class="tok-punctuation">:</span>
+    caliber<span class="tok-punctuation">.</span>workspaces<span class="tok-punctuation">.</span>revisions<span class="tok-punctuation">.</span><span class="tok-function">snapshot</span><span class="tok-punctuation">(</span>project_id<span class="tok-punctuation">,</span> resources<span class="tok-operator">=</span><span class="tok-punctuation">[</span><span class="tok-punctuation">.</span><span class="tok-punctuation">.</span><span class="tok-punctuation">.</span><span class="tok-punctuation">]</span><span class="tok-punctuation">)</span>
+<span class="tok-keyword">except</span> CaliberAPIError <span class="tok-keyword">as</span> exc<span class="tok-punctuation">:</span>
+    <span class="tok-keyword">if</span> exc<span class="tok-punctuation">.</span>reason_code <span class="tok-operator">=</span><span class="tok-operator">=</span> <span class="tok-string">"resource_type_adapter_unavailable"</span><span class="tok-punctuation">:</span>
+        <span class="tok-punctuation">.</span><span class="tok-punctuation">.</span><span class="tok-punctuation">.</span>  <span class="tok-comment"># handle this one case specifically</span>
+    <span class="tok-keyword">elif</span> exc<span class="tok-punctuation">.</span>reason_code <span class="tok-keyword">is</span> <span class="tok-keyword">not</span> <span class="tok-null">None</span><span class="tok-punctuation">:</span>
+        <span class="tok-punctuation">.</span><span class="tok-punctuation">.</span><span class="tok-punctuation">.</span>  <span class="tok-comment"># some other migrated, named failure</span>
+    <span class="tok-keyword">else</span><span class="tok-punctuation">:</span>
+        <span class="tok-keyword">raise</span>  <span class="tok-comment"># not yet a stable code -- fall back to detail/status_code</span></code></pre>
 <h2 id="anything-not-yet-modelled">Anything not yet modelled<a class="anchor" href="#anything-not-yet-modelled" aria-hidden="true" tabindex="-1">#</a></h2>
 <p><code>client.raw</code> reaches any endpoint under <code>/ajax-api/2.0/mlflow/caliber</code>:</p>
 <pre class="language-python"><code class="language-python">caliber<span class="tok-punctuation">.</span>raw<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"/observability/traces"</span><span class="tok-punctuation">)</span>

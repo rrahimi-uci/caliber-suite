@@ -179,7 +179,11 @@ def test_snapshot_refuses_resource_type_with_no_registered_adapter(client: TestC
     }
     response = client.post(f"{PREFIX}/projects/{project_id}/revisions:snapshot", json=body)
     assert response.status_code == 409
-    assert "resource_type_adapter_unavailable" in response.json()["detail"]
+    payload = response.json()
+    assert "resource_type_adapter_unavailable" in payload["detail"]
+    # Phase 0 item 6: this route is migrated to also set the machine-readable
+    # `reason_code`, so a caller can switch on it instead of parsing `detail`.
+    assert payload["reason_code"] == "resource_type_adapter_unavailable"
 
 
 def test_snapshot_refuses_an_adapter_whose_snapshot_is_not_content_addressed(
@@ -251,7 +255,9 @@ def test_snapshot_refuses_a_missing_prompt_version(
         json=_snapshot_body(resource_id="ghost", version_ref="9"),
     )
     assert response.status_code == 409
-    assert "resource_resolve_failed" in response.json()["detail"]
+    payload = response.json()
+    assert "resource_resolve_failed" in payload["detail"]
+    assert payload["reason_code"] == "resource_resolve_failed"
 
 
 def test_snapshot_refuses_a_prompt_bound_to_a_different_project(
@@ -310,8 +316,9 @@ def test_snapshot_refuses_a_prompt_bound_to_a_different_project(
         json=_snapshot_body(resource_id="owned-elsewhere", version_ref="1"),
     )
     assert response.status_code == 409, response.text
-    assert "resource_resolve_failed" in response.json()["detail"]
-    assert "resource_resolve_failed" in response.json()["detail"]
+    payload = response.json()
+    assert "resource_resolve_failed" in payload["detail"]
+    assert payload["reason_code"] == "resource_resolve_failed"
 
 
 def test_snapshot_requires_operator_scope_and_matching_project_header(
@@ -433,7 +440,9 @@ def test_snapshot_refuses_a_missing_tool_version(client: TestClient) -> None:
         json=_tool_snapshot_body(resource_id="ghost", version_ref="9"),
     )
     assert response.status_code == 409
-    assert "resource_resolve_failed" in response.json()["detail"]
+    payload = response.json()
+    assert "resource_resolve_failed" in payload["detail"]
+    assert payload["reason_code"] == "resource_resolve_failed"
 
 
 def test_snapshot_refuses_a_tool_bound_to_a_different_project(
@@ -473,4 +482,6 @@ def test_snapshot_refuses_a_tool_bound_to_a_different_project(
         json=_tool_snapshot_body(resource_id="owned-elsewhere", version_ref="1"),
     )
     assert response.status_code == 409, response.text
-    assert "resource_resolve_failed" in response.json()["detail"]
+    payload = response.json()
+    assert "resource_resolve_failed" in payload["detail"]
+    assert payload["reason_code"] == "resource_resolve_failed"

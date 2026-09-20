@@ -8,6 +8,13 @@ never parse a response body themselves.
 Every exception carries the status, the server's detail, and the request
 context. That last part is what makes a failure in someone else's CI log
 actionable rather than "the SDK raised".
+
+Some routes additionally set a machine-readable ``reason_code`` alongside
+``detail`` (Phase 0 item 6, ``docs/workspace-plan.md`` section 13.6) --
+a stable string a caller can switch on instead of parsing the human-readable
+``detail``. It is optional and additive: most routes still omit it, in which
+case :attr:`CaliberAPIError.reason_code` is simply ``None`` and callers keep
+working exactly as before.
 """
 
 from __future__ import annotations
@@ -67,6 +74,7 @@ class CaliberAPIError(CaliberError):
         url: str | None = None,
         request_id: str | None = None,
         payload: Any = None,
+        reason_code: str | None = None,
     ) -> None:
         super().__init__(message)
         self.status_code = status_code
@@ -77,12 +85,19 @@ class CaliberAPIError(CaliberError):
         #: The decoded body, when there was one. Kept so a caller can read
         #: fields this SDK does not model rather than being blocked by it.
         self.payload = payload
+        #: Stable, machine-readable failure code from the server's envelope
+        #: (Phase 0 item 6). ``None`` when the route that raised this has not
+        #: been migrated to set it yet -- most haven't -- so callers must not
+        #: assume it is always populated.
+        self.reason_code = reason_code
 
     def __str__(self) -> str:
         location = f"{self.method} {self.url}" if self.method and self.url else ""
         parts = [f"[{self.status_code}]", super().__str__()]
         if location:
             parts.append(f"({location})")
+        if self.reason_code:
+            parts.append(f"reason_code={self.reason_code}")
         if self.request_id:
             parts.append(f"request_id={self.request_id}")
         return " ".join(part for part in parts if part)
@@ -106,6 +121,19 @@ class CaliberNotFoundError(CaliberAPIError):
 
 class CaliberConflictError(CaliberAPIError):
     """409 — the request conflicts with current state (duplicate name, etc.)."""
+
+
+class CaliberPreconditionError(CaliberAPIError):
+    """412 — a stale precondition (e.g. ``If-Match``/ETag) failed.
+
+    Section 13.6's target design (``docs/workspace-plan.md``) reserves ``412``
+    for a stale ETag / compare-and-set precondition, distinct from ``409``'s
+    "valid request, but conflicts with current state" -- the caller must
+    re-read the current resource and retry with a fresh precondition rather
+    than simply resubmitting the same request. Carries ``reason_code`` when
+    the server sets one so a caller can distinguish *which* precondition
+    failed without parsing ``detail``.
+    """
 
 
 class CaliberValidationError(CaliberAPIError):
@@ -152,6 +180,7 @@ _BY_STATUS: dict[int, type[CaliberAPIError]] = {
     403: CaliberPermissionError,
     404: CaliberNotFoundError,
     409: CaliberConflictError,
+    412: CaliberPreconditionError,
     429: CaliberRateLimitError,
 }
 
@@ -171,10 +200,13 @@ def error_for_response(
     usable exception rather than a KeyError inside the SDK.
     """
     detail: str | None = None
+    reason_code: str | None = None
     structured: list[dict[str, Any]] = []
     if isinstance(payload, dict):
         raw_detail = payload.get("detail")
         detail = raw_detail if isinstance(raw_detail, str) else None
+        raw_reason_code = payload.get("reason_code")
+        reason_code = raw_reason_code if isinstance(raw_reason_code, str) else None
         raw_errors = payload.get("errors")
         if isinstance(raw_errors, list):
             structured = [item for item in raw_errors if isinstance(item, dict)]
@@ -187,6 +219,7 @@ def error_for_response(
         "url": url,
         "request_id": request_id,
         "payload": payload,
+        "reason_code": reason_code,
     }
 
     if status_code == 400 and structured:
@@ -210,6 +243,7 @@ __all__ = [
     "CaliberError",
     "CaliberNotFoundError",
     "CaliberPermissionError",
+    "CaliberPreconditionError",
     "CaliberRateLimitError",
     "CaliberServerError",
     "CaliberTransportError",

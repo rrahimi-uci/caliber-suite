@@ -238,10 +238,15 @@ def test_documented_error_payloads_match_what_the_server_actually_sends() -> Non
     ]
     assert envelopes, "no documented error envelope carries the server's `detail` key"
 
+    # `reason_code` (Phase 0 item 6) is a real, optional key on the envelope
+    # -- routes/_errors.py::CaliberHTTPException sets it explicitly, unlike
+    # the old fictional `error_code`/`message`/`fields` shape this test's own
+    # docstring recounts fixing.
+    allowed_keys = {"detail", "status_code", "errors", "reason_code"}
     for envelope in envelopes:
-        assert set(envelope) <= {"detail", "status_code", "errors"}, (
+        assert set(envelope) <= allowed_keys, (
             f"documented error envelope has keys the server does not send: "
-            f"{sorted(set(envelope) - {'detail', 'status_code', 'errors'})}"
+            f"{sorted(set(envelope) - allowed_keys)}"
         )
         for item in envelope.get("errors", []):
             assert set(item) == {"loc", "msg", "type"}, (

@@ -93,6 +93,7 @@ Every documented class and module-level function, with the module that defines i
 | [`CaliberError`](#calibererror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
 | [`CaliberNotFoundError`](#calibernotfounderror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
 | [`CaliberPermissionError`](#caliberpermissionerror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
+| [`CaliberPreconditionError`](#caliberpreconditionerror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
 | [`CaliberRateLimitError`](#caliberratelimiterror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
 | [`CaliberServerError`](#caliberservererror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
 | [`CaliberTransportError`](#calibertransporterror) | [`caliber_sdk.errors`](#module-caliber_sdkerrors) |
@@ -336,7 +337,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`API_PREFIX`, `ENV_BASE_URL`, `ENV_PROJECT`, `ENV_TOKEN`, `ENV_USER`, `FAILURE_STATES`, `TERMINAL_STATES`, `UNSET_PROJECT`, `AuthProvider`, `CaliberAPIError`, `CaliberAuthenticationError`, `CaliberClient`, `CaliberConfigError`, `CaliberConflictError`, `CaliberDecodeError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `ErrorBody`, `FieldError`, `NoAuth`, `Page`, `RawAPI`, `Response`, `Stability`, `TokenAuth`, `Transport`, `TrustedHeaderAuth`, `UnsetProjectType`, `WaitFailed`, `WaitTimeout`, `WorkflowRunFailed`, `__version__`, `wait_for`, `wait_for_terminal_state`
+`API_PREFIX`, `ENV_BASE_URL`, `ENV_PROJECT`, `ENV_TOKEN`, `ENV_USER`, `FAILURE_STATES`, `TERMINAL_STATES`, `UNSET_PROJECT`, `AuthProvider`, `CaliberAPIError`, `CaliberAuthenticationError`, `CaliberClient`, `CaliberConfigError`, `CaliberConflictError`, `CaliberDecodeError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberPreconditionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `ErrorBody`, `FieldError`, `NoAuth`, `Page`, `RawAPI`, `Response`, `Stability`, `TokenAuth`, `Transport`, `TrustedHeaderAuth`, `UnsetProjectType`, `WaitFailed`, `WaitTimeout`, `WorkflowRunFailed`, `__version__`, `wait_for`, `wait_for_terminal_state`
 
 **Module constants**
 
@@ -1226,7 +1227,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`CaliberAPIError`, `CaliberAuthenticationError`, `CaliberConfigError`, `CaliberConflictError`, `CaliberDecodeError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `error_for_response`
+`CaliberAPIError`, `CaliberAuthenticationError`, `CaliberConfigError`, `CaliberConflictError`, `CaliberDecodeError`, `CaliberError`, `CaliberNotFoundError`, `CaliberPermissionError`, `CaliberPreconditionError`, `CaliberRateLimitError`, `CaliberServerError`, `CaliberTransportError`, `CaliberValidationError`, `error_for_response`
 
 #### Functions
 
@@ -1318,7 +1319,7 @@ Operate on the caliber decode error surface with the supplied arguments and retu
 
 ##### `CaliberAPIError`
 
-`class CaliberAPIError(message: str, *, status_code: int, detail: str | None = None, method: str | None = None, url: str | None = None, request_id: str | None = None, payload = None)`
+`class CaliberAPIError(message: str, *, status_code: int, detail: str | None = None, method: str | None = None, url: str | None = None, request_id: str | None = None, payload = None, reason_code: str | None = None)`
 
 **Bases:** [`CaliberError`](#calibererror)
 
@@ -1326,7 +1327,7 @@ The server returned a non-2xx response.
 
 **Constructor**
 
-###### `__init__(message: str, *, status_code: int, detail: str | None = None, method: str | None = None, url: str | None = None, request_id: str | None = None, payload = None) -> None`
+###### `__init__(message: str, *, status_code: int, detail: str | None = None, method: str | None = None, url: str | None = None, request_id: str | None = None, payload = None, reason_code: str | None = None) -> None`
 
 Operate on the caliber a p i error surface with the supplied arguments and return the server response.
 
@@ -1339,6 +1340,7 @@ Operate on the caliber a p i error surface with the supplied arguments and retur
 | `url` | keyword-only | `str | None` | `None` |
 | `request_id` | keyword-only | `str | None` | `None` |
 | `payload` | keyword-only | `Any` | `None` |
+| `reason_code` | keyword-only | `str | None` | `None` |
 
 **Returns:** `None`
 
@@ -1352,6 +1354,7 @@ Operate on the caliber a p i error surface with the supplied arguments and retur
 | `url` | `Any` | — |
 | `request_id` | `Any` | — |
 | `payload` | `Any` | — |
+| `reason_code` | `Any` | — |
 
 ##### `CaliberAuthenticationError`
 
@@ -1387,6 +1390,22 @@ user, deliberately: distinguishing the two would let a caller enumerate ids.
 **Bases:** [`CaliberAPIError`](#caliberapierror)
 
 409 — the request conflicts with current state (duplicate name, etc.).
+
+##### `CaliberPreconditionError`
+
+`class CaliberPreconditionError()`
+
+**Bases:** [`CaliberAPIError`](#caliberapierror)
+
+412 — a stale precondition (e.g. ``If-Match``/ETag) failed.
+
+Section 13.6's target design (``docs/workspace-plan.md``) reserves ``412``
+for a stale ETag / compare-and-set precondition, distinct from ``409``'s
+"valid request, but conflicts with current state" -- the caller must
+re-read the current resource and retry with a fresh precondition rather
+than simply resubmitting the same request. Carries ``reason_code`` when
+the server sets one so a caller can distinguish *which* precondition
+failed without parsing ``detail``.
 
 ##### `CaliberValidationError`
 
@@ -13143,7 +13162,7 @@ Operate on the field error surface with the supplied arguments and return the se
 
 `class ErrorBody()`
 
-``{"detail", "status_code"}``, plus ``errors`` when present.
+``{"detail", "status_code"}``, plus ``errors`` and/or ``reason_code`` when present.
 
 **Dataclass fields**
 
@@ -13152,6 +13171,7 @@ Operate on the field error surface with the supplied arguments and return the se
 | `detail` | `str` | `''` |
 | `status_code` | `int` | `0` |
 | `errors` | [`list[FieldError]`](#fielderror) | `field(default_factory=list)` |
+| `reason_code` | `str | None` | `None` |
 
 **Methods**
 

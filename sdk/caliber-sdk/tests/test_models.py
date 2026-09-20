@@ -47,6 +47,33 @@ def test_error_body_defaults_a_whole_body_error() -> None:
     assert body.errors[0].field == "<body>"
 
 
+def test_error_body_parses_reason_code_when_present() -> None:
+    """Phase 0 item 6: a migrated route's envelope adds `reason_code`
+    alongside `detail`; `ErrorBody` must surface it without requiring a
+    caller to reach into the raw payload."""
+    body = ErrorBody.from_payload(
+        {
+            "detail": "resource_type_adapter_unavailable: no adapter for 'widget'",
+            "status_code": 409,
+            "reason_code": "resource_type_adapter_unavailable",
+        }
+    )
+    assert body.reason_code == "resource_type_adapter_unavailable"
+
+
+def test_error_body_defaults_reason_code_to_none_when_absent_or_malformed() -> None:
+    """Most routes have not migrated yet and omit `reason_code` entirely;
+    a non-string value (a proxy/gateway body shape this SDK does not own)
+    must degrade to `None` rather than raising."""
+    assert ErrorBody.from_payload({"detail": "bad", "status_code": 400}).reason_code is None
+    assert (
+        ErrorBody.from_payload(
+            {"detail": "bad", "status_code": 400, "reason_code": 123}
+        ).reason_code
+        is None
+    )
+
+
 #: Every model dataclass that carries an `extra` field, and the exact
 #: field order that existed the last time each was checked. A
 #: `@dataclass` field's declaration position is also its positional-

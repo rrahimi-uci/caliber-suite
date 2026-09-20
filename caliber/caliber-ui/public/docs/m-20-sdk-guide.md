@@ -257,6 +257,7 @@ CaliberError
     ├── CaliberPermissionError     403
     ├── CaliberNotFoundError       404
     ├── CaliberConflictError       409
+    ├── CaliberPreconditionError   412 (stale ETag / compare-and-set)
     ├── CaliberRateLimitError      429
     └── CaliberServerError         5xx
 ```
@@ -293,6 +294,34 @@ the typed error object:
 inside a nested object, as in `["manifest", "nodes", 0, "tool_ref"]`. That is why
 `CaliberValidationError.errors` hands you the list unchanged, and why its
 `__str__` joins the path with dots rather than printing only the last segment.
+
+Some routes additionally set a machine-readable `reason_code` alongside
+`detail`, so a caller can switch on a stable string instead of parsing the
+human-readable message:
+
+```json
+{
+  "detail": "resource_type_adapter_unavailable: no adapter registered for 'widget'",
+  "status_code": 409,
+  "reason_code": "resource_type_adapter_unavailable"
+}
+```
+
+`reason_code` is optional and additive — most routes have not been migrated
+to set it yet, so `CaliberAPIError.reason_code` is `None` for those, and a
+caller must not assume it is always populated:
+
+```python
+try:
+    caliber.workspaces.revisions.snapshot(project_id, resources=[...])
+except CaliberAPIError as exc:
+    if exc.reason_code == "resource_type_adapter_unavailable":
+        ...  # handle this one case specifically
+    elif exc.reason_code is not None:
+        ...  # some other migrated, named failure
+    else:
+        raise  # not yet a stable code -- fall back to detail/status_code
+```
 
 ## Anything not yet modelled
 

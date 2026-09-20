@@ -10,7 +10,9 @@ from caliber_sdk import (
     CaliberAPIError,
     CaliberAuthenticationError,
     CaliberConfigError,
+    CaliberConflictError,
     CaliberNotFoundError,
+    CaliberPreconditionError,
     CaliberServerError,
     CaliberTransportError,
     CaliberValidationError,
@@ -64,6 +66,8 @@ def test_a_body_with_data_plus_other_keys_is_not_unwrapped() -> None:
     [
         (401, CaliberAuthenticationError),
         (404, CaliberNotFoundError),
+        (409, CaliberConflictError),
+        (412, CaliberPreconditionError),
         (500, CaliberServerError),
     ],
 )
@@ -77,7 +81,48 @@ def test_error_statuses_become_typed_exceptions(
         transport.get("/prompts")
     assert caught.value.status_code == status
     assert caught.value.detail == "nope"
+    assert caught.value.reason_code is None
     assert "GET" in str(caught.value)
+
+
+def test_a_reason_code_in_the_error_body_becomes_a_typed_attribute() -> None:
+    """Phase 0 item 6: a migrated route's envelope adds `reason_code`
+    alongside `detail`; the SDK must surface it on the raised exception so a
+    caller can switch on it instead of parsing `detail`."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            409,
+            json={
+                "detail": "resource_type_adapter_unavailable: no adapter for 'widget'",
+                "status_code": 409,
+                "reason_code": "resource_type_adapter_unavailable",
+            },
+        )
+
+    with (
+        transport_with(handler, max_retries=0) as transport,
+        pytest.raises(CaliberConflictError) as caught,
+    ):
+        transport.get("/projects/p/revisions:snapshot")
+    assert caught.value.reason_code == "resource_type_adapter_unavailable"
+    assert "reason_code=resource_type_adapter_unavailable" in str(caught.value)
+
+
+def test_a_non_string_reason_code_degrades_to_none() -> None:
+    """A malformed/foreign body (e.g. a proxy) must not raise a decode error."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            409, json={"detail": "nope", "status_code": 409, "reason_code": 123}
+        )
+
+    with (
+        transport_with(handler, max_retries=0) as transport,
+        pytest.raises(CaliberConflictError) as caught,
+    ):
+        transport.get("/prompts")
+    assert caught.value.reason_code is None
 
 
 def test_structured_validation_errors_name_their_fields() -> None:
