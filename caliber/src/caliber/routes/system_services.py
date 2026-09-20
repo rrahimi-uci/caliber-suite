@@ -380,7 +380,10 @@ async def get_incidents(request: Request) -> JSONResponse:
     The question ``/system/slo`` cannot answer: what happened *before* now.
     """
     require_user(request)
-    limit = int(request.query_params.get("limit", "50") or 50)
+    try:
+        limit = int(request.query_params.get("limit", "50") or 50)
+    except ValueError as exc:
+        raise HTTPException(status_code=400, detail="'limit' must be an integer") from exc
     status = request.query_params.get("status") or None
     factory = get_session_factory(request)
     with factory() as session:

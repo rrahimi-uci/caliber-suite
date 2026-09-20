@@ -116,7 +116,16 @@ _ROUTES = Path(__file__).resolve().parents[1] / "src" / "caliber" / "routes"
 #: `update_openapi_tool_draft`/`preview_openapi_tool_draft`) added its check to
 #: a session block (or a handler body) already counted, so it doesn't move
 #: this ratchet.
-_BASELINE = 263
+#:
+#: Lowered from 263 to 262: `routes/workflow_versions.py::preview_run_route`
+#: converted to the identical `asyncio.to_thread` pattern its sibling
+#: `run_version_route` already used -- it was calling `run_preview()`
+#: (which drives `caliber.workflows.runtime.execute()`, including real
+#: synchronous webhook/LLM provider calls) directly on the event loop. The
+#: `require_scopes` check stayed in the handler's own body (not the new
+#: `_run_workflow_preview_sync` helper) for the same `scope_inference.py`
+#: AST-visibility reason the `257`/`261`/`263` bumps above document.
+_BASELINE = 262
 
 _SESSION_MARKERS = ("with factory() as session", "with session_factory() as session")
 

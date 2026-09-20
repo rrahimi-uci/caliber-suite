@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
+import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
@@ -1168,6 +1169,84 @@ def test_preview_run_with_inline_manifest_override(client: TestClient) -> None:
     assert manifest_data["manifest_mode"] == "snapshot"
     assert manifest_data["manifest_hash"] == compute_manifest_hash(override)
     assert manifest_data["manifest"] == override
+
+
+@pytest.mark.asyncio
+async def test_preview_run_does_not_block_other_requests_while_executing(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A slow workflow execution must not freeze every other concurrent
+    request on the single ASGI event loop.
+
+    Before ``preview_run_route`` moved its call to ``run_preview`` onto
+    ``asyncio.to_thread`` (mirroring ``run_version_route``'s existing
+    pattern), this ``async def`` route drove ``run_preview`` -- which can
+    make real synchronous outbound HTTP calls via a webhook node or an LLM
+    provider call -- directly on the event loop, so one slow preview request
+    stalled *every* other in-flight request on the same worker (health
+    checks included) for as long as the slowest node took.
+    """
+    import asyncio
+    import threading
+
+    import httpx
+
+    from caliber.routes.health import HEALTH_PATH
+
+    _wid, vid, _ = _support_workflow(client)
+
+    entered = threading.Event()
+    release = threading.Event()
+
+    def _hanging_run_preview(*_args: object, **_kwargs: object) -> dict[str, object]:
+        entered.set()
+        release.wait(timeout=5.0)
+        return {
+            "workflow_run_id": "WFR-hanging-preview",
+            "preview": True,
+            "status": "completed",
+            "output": "",
+        }
+
+    monkeypatch.setattr(workflow_versions_routes, "run_preview", _hanging_run_preview)
+
+    transport = httpx.ASGITransport(app=client.app)
+    try:
+        async with httpx.AsyncClient(
+            transport=transport,
+            base_url="http://testserver",
+            headers=dict(client.headers),
+        ) as async_client:
+            slow_task = asyncio.ensure_future(
+                async_client.post(
+                    f"{PREFIX}/workflow-versions/{vid}/preview-run",
+                    json={"input": "hello"},
+                )
+            )
+
+            loop = asyncio.get_running_loop()
+            deadline = loop.time() + 5.0
+            while not entered.is_set() and loop.time() < deadline:
+                await asyncio.sleep(0.01)
+            assert entered.is_set(), "the slow preview request never reached run_preview"
+
+            # While the slow request is still blocked inside run_preview, an
+            # unrelated fast request must complete quickly -- proof the event
+            # loop kept serving other requests instead of freezing behind it.
+            started = loop.time()
+            fast_response = await asyncio.wait_for(async_client.get(HEALTH_PATH), timeout=2.0)
+            elapsed = loop.time() - started
+            assert fast_response.status_code == 200
+            assert elapsed < 2.0, (
+                f"health check took {elapsed:.2f}s -- the event loop was blocked "
+                "behind the slow preview-run request"
+            )
+
+            release.set()
+            slow_response = await slow_task
+            assert slow_response.status_code == 200
+    finally:
+        release.set()
 
 
 def test_run_version_records_persisted_run_with_steps(client: TestClient) -> None:

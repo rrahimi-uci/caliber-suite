@@ -778,27 +778,69 @@ async def publish_version_route(request: Request) -> JSONResponse:
 
 
 async def preview_run_route(request: Request) -> JSONResponse:
+    """Compile and execute a version in preview mode (tools sandboxed).
+
+    The actual execution runs off the event loop via ``asyncio.to_thread``
+    (mirroring ``run_version_route`` below): ``run_preview`` drives
+    ``caliber.workflows.runtime.execute()``, which can make real synchronous
+    outbound calls (an HTTP webhook sender, or an LLM provider call), and
+    running that inline on this ``async def`` handler would stall every other
+    concurrent request on the same worker -- health checks included -- for as
+    long as the slowest node takes.
+    """
     version_id = request.path_params["version_id"]
     body = await parse_json_object(request)
     payload = PreviewRunRequest.model_validate(body)
+    # Kept in the handler's own body (not the offloaded helper) so
+    # routes/scope_inference.py's AST-based required-scope inference -- which
+    # reads only the route handler's own function body -- still sees it and
+    # the generated REST API reference keeps showing `operator scope` instead
+    # of silently regressing to "any authenticated user".
     require_scopes(request, [SCOPE_OPERATOR])
     config = request.app.state.config
     factory = get_session_factory(request)
-    with factory() as session:
-        version = _get_version_or_404(session, version_id, request=request)
-        try:
-            result = run_preview(
-                session,
-                version,
-                _input_to_text(payload.input),
-                session_id=payload.session_id,
-                config=config,
-                manifest_override=payload.manifest,
-            )
-        except (CompileError, WorkflowManifestError, ValueError, RuntimeError) as exc:
-            raise HTTPException(status_code=400, detail=f"cannot preview: {exc}") from exc
+    try:
+        result = await asyncio.to_thread(
+            _run_workflow_preview_sync,
+            factory,
+            version_id,
+            payload,
+            config,
+            # Passed explicitly: this runs off-thread, and the version must
+            # still be resolved through the caller's visibility rather than
+            # unscoped -- the same reason run_version_route below passes it
+            # to its own offloaded helper.
+            request,
+        )
+    except (CompileError, WorkflowManifestError, ValueError, RuntimeError) as exc:
+        raise HTTPException(status_code=400, detail=f"cannot preview: {exc}") from exc
     metrics.record_workflow_preview(str(result.get("status", "error")))
     return envelope_response_dict(result)
+
+
+def _run_workflow_preview_sync(
+    factory: Any,
+    version_id: str,
+    payload: PreviewRunRequest,
+    config: Any,
+    request: Request,
+) -> dict[str, Any]:
+    """Off-thread body of ``preview_run_route``.
+
+    Opens and uses its session entirely within this worker thread -- never
+    shares a SQLAlchemy session across the thread boundary -- matching
+    ``_run_workflow_version_sync`` below.
+    """
+    with factory() as session:
+        version = _get_version_or_404(session, version_id, request=request)
+        return run_preview(
+            session,
+            version,
+            _input_to_text(payload.input),
+            session_id=payload.session_id,
+            config=config,
+            manifest_override=payload.manifest,
+        )
 
 
 async def run_version_route(request: Request) -> JSONResponse:
