@@ -53,6 +53,13 @@ single-tenant topology is hardened, operated, recovered, and accepted. A
 controlled-pilot tag is not a v1 release; it is evidence for the remaining v1
 work.
 
+`docs/two-week-alpha-plan.md` proposed a lighter, earlier checkpoint alongside
+this milestone; its Days 1–9 executed against current `main`, with Day 10
+(cutting the actual release tag) left to the repo owner (see
+`docs/reports/two-week-alpha-day10-decision.md`). Per that plan's own
+"Relationship to the existing roadmap" section, this is evidence feeding M1's
+discovery exit criterion below — it does not replace or shorten M1–M6.
+
 ## v1.0.0 MVP boundary and critical path
 
 `v1.0.0` is an enterprise-usable **single-tenant** product, not a feature

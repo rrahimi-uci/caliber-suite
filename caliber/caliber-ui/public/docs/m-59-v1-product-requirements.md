@@ -160,6 +160,7 @@ milestones as follows:
 | External release consistency | Known non-transactional boundary | #152 and #137 must prove settlement, rollback, or operator reconciliation. |
 | Performance envelope | Unknown until measured | #131 and #134 must publish the supported workload; #132 is conditional on measurement. |
 | Deployment/upgrade | Missing v1 artifact | #157 and #158 must provide an operator-owned reference deployment and observed rollback boundary. |
+| Two-week alpha checkpoint | Proposal executed, Days 1–9 | `docs/two-week-alpha-plan.md`'s Days 1–9 ran against current `main` as evidence feeding M1's discovery exit criterion; Day 10 (the release tag) is left to the repo owner. It does not change this PRD's supported v1 journey, scope, or milestones. |
 
 ## Approval and change control
 

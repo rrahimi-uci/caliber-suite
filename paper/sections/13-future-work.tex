@@ -19,7 +19,11 @@ compatibility tests. Because the current prompt record is a born-approved proven
 anchor, this is a rebuild of the approval path rather than the enabling of a flag
 (D9). The interesting design question is whether stages should be a first-class
 dimension of the \livetarget{} or a separate axis --- the former is simpler and the
-latter composes better with per-family release idioms.
+latter composes better with per-family release idioms. A separate, later,
+multi-tenant ``Workspace'' initiative has since built environment-scoped
+promotion with approval routing as its own distinct subsystem; it targets a
+different, multi-tenant product rather than the single-tenant path described
+here, so this item remains open work for \emph{this} path, not resolved by it.
 
 \para{Capability interfaces over the asset families.} \secref{sec:arch:claim}
 identifies the design \sys should have had: a thin base contract every \gasset{}

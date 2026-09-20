@@ -93,8 +93,9 @@ operator-supplied backend (\figref{fig:trust}) \\
 a \code{dev}\arrowto\code{staging}\arrowto\code{prod} ladder &
 the ladder needs approval routing, requester/approver separation and per-stage
 config; a half-built one is a false assurance &
-no staging rehearsal, and a future multi-environment mode must rebuild the
-pending-approval path \\
+no staging rehearsal, and a multi-environment mode in \emph{this} path must
+still rebuild the pending-approval path (a separate Workspace subsystem has
+since built exactly that, on its own) \\
 
 \zebra
 \chip{draw=cbControl, fill=cbControlBg, text=cbControl}{D10} & Same-origin SPA served by the backend &

@@ -63,7 +63,10 @@ The browser layer includes a separate Cookbook configuration that starts a migra
 isolated database and rejects adapters containing direct request, endpoint, database,
 or manifest-seeding shortcuts.  Its executable journeys cover skill authoring and
 trigger tests, all-sixteen catalog visibility plus installation of every example as
-a separate paused draft, and review-queue creation.  The local CI mirror terminates the detached
+a separate paused draft, review-queue creation, and, added this session, the seeded
+two-week-alpha journey (\code{two-week-alpha-journey.spec.ts}, trace through
+diagnosis, candidate, evaluation, apply, and release/rollback) and the Workspace
+import-to-promotion journey (\code{workspace-journey.spec.ts}).  The local CI mirror terminates the detached
 MLflow/uvicorn process group before deleting its state so a passing browser run does
 not leave a listener or database behind.
 

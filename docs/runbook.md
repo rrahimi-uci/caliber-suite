@@ -51,7 +51,7 @@ flowchart LR
     TRI -->|effects owed?| E["/caliber/system/effects\n/caliber/system/webhook-dead-letters"]:::ctrl
 
     H --> DB[(Metadata DB)]:::store
-    Q --> LOOPS[Nine in-process loops]:::async
+    Q --> LOOPS[Ten in-process loops]:::async
     R --> MLF[MLflow Prompt Registry]:::ext
     E --> EXT[Outbound webhooks\nand external effects]:::ext
 
@@ -327,6 +327,7 @@ one number for "the queue".
 | Janitor | — | An idempotent sweep | Idempotent |
 | AriaPlan | — | Polls plans parked on settled jobs; takes no claim | At-least-once resume |
 | ReleaseReconciler | — | Periodic; observes aliases for `applying` / `reconcile_required` rows | Idempotent; never guesses about `prepared` |
+| WorkspaceImport | claim + heartbeat | Lease expiry moves the job to `reconcile_required`; an operator must call `retry_failed_import_job` — not auto-requeued | At-most-once per attempt; a retry is safe via digest-checked replay |
 
 External effects are a **separate question from job delivery**. The effect ledger
 records an `in_progress` external call whose outcome after a crash is *indeterminate* —

@@ -16,7 +16,7 @@ loop does not have, not one we did not measure.}
 \label{tab:loops}
 \small
 \setlength{\tabcolsep}{4.5pt}
-\renewcommand{\arraystretch}{1.18}
+\renewcommand{\arraystretch}{0.94}
 \begin{tabular}{@{}L{2.30cm}L{1.62cm}L{3.10cm}L{3.30cm}@{}}
 \toprule
 \theadrow
@@ -67,6 +67,11 @@ at-least-once resume \\
 none needed: the next tick re-observes the alias, and a row it cannot settle
 from the recorded before/after versions is left for a human &
 idempotent convergence; \code{prepared} rows are never touched \\
+
+\textbf{Workspace\-Import} & claim + heartbeat &
+lease expiry marks the job for reconciliation, not requeued automatically &
+at-most-once per attempt; a retry safely replays the already-committed
+revision \\
 
 \bottomrule
 \end{tabular}
