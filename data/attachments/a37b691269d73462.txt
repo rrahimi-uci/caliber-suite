@@ -1,2 +1,0 @@
-Bootstrapped 4 full traces after 4 examples for up to 1 rounds, amounting to 4 attempts.
-Bootstrapped 4 full traces after 4 examples for up to 1 rounds, amounting to 4 attempts.

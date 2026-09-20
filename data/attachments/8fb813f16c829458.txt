@@ -1,1 +1,0 @@
-WARNING  caliber.trace_client:trace_client.py:102 trace fetch failed for T1 (tracking server down); skipping trace evidence
