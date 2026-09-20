@@ -493,10 +493,10 @@ Supported management routes that belong to the stable public automation surface.
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/agents` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/agents` | `caliber.admin` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_agents`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}` | `caliber.admin` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_agents_agent_id` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/agents` | project role (`resource.write.runtime`) | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_agents`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}` | project role (`resource.write.runtime`) | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_agents_agent_id` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}` | any authenticated user | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents_agent_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}` | `caliber.admin` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_agents_agent_id`; request body documented in OpenAPI |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}` | project role (`resource.write.runtime`) | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_agents_agent_id`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}/checkpoints` | any authenticated user | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents_agent_id_checkpoints` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}/experiment` | any authenticated user | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_agents_agent_id_experiment` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/agents/{agent_id}/rollback` | `caliber.operator` | `agent_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_agents_agent_id_rollback`; request body documented in OpenAPI |
