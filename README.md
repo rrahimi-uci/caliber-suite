@@ -371,7 +371,11 @@ The workflow promotion state machine remains active for quality and graded-execu
 human-approval policy ships disabled. Prompt
 approval governance is not merely disabled: the current prompt record is a born-approved provenance anchor,
 so a future multi-environment mode must rebuild a pending/approve/reject path and requester/approver
-distinction. The current constants show the relevant seams; changing them alone is not a supported activation:
+distinction. A separate, later, multi-tenant "Workspace" initiative has since implemented
+environment-scoped promotion (four fixed `dev`/`qa`/`staging`/`prod` environments with approval routing)
+as its own distinct subsystem — it targets a different, multi-tenant product rather than this single-tenant
+path, so the single-environment scope decision described here is unchanged. The current constants show the
+relevant seams; changing them alone is not a supported activation:
 
 - **Frontend:** flip `SINGLE_ENVIRONMENT` in [`caliber/caliber-ui/src/lib/environment.ts`](caliber/caliber-ui/src/lib/environment.ts).
 - **Backend:** workflow aliases are defined around `GATED_ALIASES` in [`caliber/src/caliber/workflows/promoter.py`](caliber/src/caliber/workflows/promoter.py); prompt discovery aliases live in [`caliber/src/caliber/routes/prompts.py`](caliber/src/caliber/routes/prompts.py). A real activation also needs configuration, migrations, authorization, and compatibility tests.
