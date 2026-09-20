@@ -2,17 +2,23 @@
 
 The agent record is the linchpin everything else hangs off: a verification
 item belongs to an agent, a refinement job runs on an agent, an approval
-applies to an agent's artifact. Register-and-pause are the two operator
-levers that keep CALIBER's pipeline scope correct over time.
+applies to an agent's artifact.
 
-* ``POST /caliber/agents`` — register a new agent (typically once per
-  agent at deploy time, via an infra script).
-* ``PATCH /caliber/agents/{agent_id}`` — partial update; the
-  ``enabled`` field is the pause/resume toggle the worker reads when
-  deciding whether to claim a queued job for this agent.
+* ``POST /caliber/agents`` — register a new agent. `docs/workspace-plan.md`
+  section 19.2 ratifies this as a Developer (``caliber.operator``) action,
+  not Admin-only — "authoring an agent is authoring".
+* ``PATCH /caliber/agents/{agent_id}`` — partial update; also a Developer
+  action, except the ``enabled`` field — the pause/resume toggle the worker
+  reads when deciding whether to claim a queued job for this agent — which
+  stays ``caliber.admin``-gated as this resource's release/activate lever
+  (section 2.5.2).
 * ``DELETE /caliber/agents/{agent_id}`` — remove an agent and cascade
   its dependent verification/refinement/approval/checkpoint/regression
-  rows in one transaction.
+  rows in one transaction. Stays ``caliber.admin``-only.
+
+Every mutating route also composes a ``resource.write.runtime`` project-role
+check (``caliber/resource_access.py``) on top of its global-scope floor,
+same shape as every other runtime resource family's CRUD routes.
 
 Every write goes through ``audit_record`` in the same transaction as the
 mutation, mirroring the convention used by the verification-queue endpoints.
@@ -28,7 +34,7 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_ADMIN, require_scopes, require_user, resolve_identity
+from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes, require_user, resolve_identity
 from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
@@ -40,6 +46,7 @@ from caliber.db.models import (
 )
 from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.prompt_targets import is_hidden_prompt_target
+from caliber.resource_access import require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -132,10 +139,15 @@ async def register_agent(request: Request) -> JSONResponse:
     409 if the ``agent_id`` already exists — registration is a one-shot
     operation; further changes go through ``PATCH``. The ``experiment_id``
     column also has a unique constraint, so re-using one is also a 409.
+
+    `docs/workspace-plan.md` section 19.2 ratifies agent registration as a
+    Developer action ("authoring an agent is authoring"), so the global-scope
+    floor is `SCOPE_OPERATOR`, not `SCOPE_ADMIN` (an admin identity still
+    qualifies -- `caliber.admin` implies `caliber.operator`, section 2.3).
     """
     body = await parse_json_object(request)
     payload = AgentRegisterRequest.model_validate(body)
-    actor = require_scopes(request, [SCOPE_ADMIN])
+    actor = require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
 
     factory = get_session_factory(request)
@@ -163,6 +175,15 @@ async def register_agent(request: Request) -> JSONResponse:
                     f"agent {existing_experiment.agent_id!r}"
                 ),
             )
+
+        # `resource.write.runtime`, composed with the `SCOPE_OPERATOR`
+        # global-scope floor above -- the same project-role check every other
+        # runtime family's create route already uses (P2 isolation closure),
+        # now extended to Agent. A no-op when no project is active (an
+        # org-wide/personal agent, see the ``visibility`` comment below).
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, "resource.write.runtime"
+        )
 
         agent = CaliberAgentConfig(
             agent_id=payload.agent_id,
@@ -241,17 +262,28 @@ async def update_agent(request: Request) -> JSONResponse:
     The audit row records the diff (which fields changed and to what) so
     the operator history is recoverable from the audit log alone — handy
     when investigating "who paused this agent last Friday?"
+
+    `docs/workspace-plan.md` section 2.5.2 ratifies ordinary agent edits as a
+    Developer action, same as registration, but keeps `enabled` -- the
+    pause/resume lever the worker reads, this resource's "release/activate"
+    analogue -- on the stricter `SCOPE_ADMIN` ceiling every other family's
+    release/activate action uses. Which floor applies is decided from the
+    fields actually being changed, before either is enforced.
     """
     agent_id = request.path_params["agent_id"]
     body = await parse_json_object(request)
     payload = AgentUpdateRequest.model_validate(body)
-    actor = require_scopes(request, [SCOPE_ADMIN])
-    identity = resolve_identity(request)
 
     # Pydantic ``exclude_unset=True`` is the difference between "field omitted
     # from the request" and "field explicitly set to its default value." We
-    # only want to mutate the former.
+    # only want to mutate the former. Computed before the scope check below
+    # because the required scope itself depends on whether ``enabled`` is
+    # one of the fields being changed.
     changes = payload.model_dump(exclude_unset=True)
+    required_scope = SCOPE_ADMIN if "enabled" in changes else SCOPE_OPERATOR
+    actor = require_scopes(request, [required_scope])
+    identity = resolve_identity(request)
+
     if not changes:
         raise HTTPException(status_code=400, detail="request body must include at least one field")
 
@@ -282,6 +314,14 @@ async def update_agent(request: Request) -> JSONResponse:
         )
         if agent is None:
             raise HTTPException(status_code=404, detail=f"agent {agent_id!r} not found")
+
+        # `resource.write.runtime`, composed with the global-scope floor
+        # above -- the same project-role check every other runtime family's
+        # edit route already uses (P2 isolation closure), now extended to
+        # Agent. A no-op when the agent has no project (personal/global).
+        require_project_access_if_scoped(
+            session, identity, agent.project_id, "resource.write.runtime"
+        )
 
         diff: dict[str, dict[str, object]] = {}
         for field in _UPDATABLE_FIELDS:
@@ -322,6 +362,10 @@ async def delete_agent(request: Request) -> JSONResponse:
     the same cascade ``delete_workflow`` runs for its fleet agents.
 
     Returns the deleted ``agent_id``; 404 if the agent doesn't exist.
+
+    Stays `SCOPE_ADMIN`-only -- section 2.5.2 keeps delete Admin-only for
+    every runtime family, agent registration's widening to Developer (this
+    route's sibling create/edit routes) only covers create and edit.
     """
     agent_id = request.path_params["agent_id"]
     actor = require_scopes(request, [SCOPE_ADMIN])
@@ -339,6 +383,14 @@ async def delete_agent(request: Request) -> JSONResponse:
         if agent is None:
             raise HTTPException(status_code=404, detail=f"agent {agent_id!r} not found")
         agent_name = agent.name
+
+        # `resource.write.runtime`, composed with the `SCOPE_ADMIN`
+        # global-scope floor above (kept -- deliberately stricter, same shape
+        # as `delete_prompt`). Extends the P2 isolation-closure project-role
+        # check to Agent's delete path, which this family never had.
+        require_project_access_if_scoped(
+            session, identity, agent.project_id, "resource.write.runtime"
+        )
 
         # Rollback checkpoints and regression runs reference an approval row;
         # clear them before the approval requests they hang off of.

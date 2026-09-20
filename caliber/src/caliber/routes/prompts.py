@@ -511,6 +511,7 @@ def enqueue_prompt_optimization_run(  # noqa: PLR0912, PLR0915 - sequential vali
     item = CaliberVerificationItem(
         item_id=new_item_id(),
         agent_id=payload.agent_id,
+        project_id=target.project_id,
         category="prompt_optimization",
         free_text=(
             f"Manual prompt optimization run for {payload.agent_id} "

@@ -135,6 +135,11 @@ class VerificationItem:
 
     item_id: str = ""
     agent_id: str = ""
+    # `P2-Q`: the project the item's agent belongs to, if any. ``None`` for a
+    # personal/global agent (the same "no target = personal/global"
+    # carve-out prompts use elsewhere) -- not an indication the field is
+    # unsupported by the server.
+    project_id: str | None = None
     assessment_id: str | None = None
     trace_id: str | None = None
     experiment_id: str | None = None

@@ -1382,6 +1382,7 @@ async def calibrate_skill(request: Request) -> JSONResponse:
         item = CaliberVerificationItem(
             item_id=new_item_id(),
             agent_id=target.agent_id,
+            project_id=target.project_id,
             category="skill_calibration",
             free_text=(payload.notes or f"Manual skill calibration run for {skill.name}"),
             severity="standard",

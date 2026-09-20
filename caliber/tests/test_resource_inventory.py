@@ -39,7 +39,10 @@ _EXPECTED_COUNTS = {
     # -1 (`P2-R`): CaliberReleaseOperation gained a direct, nullable
     # project_id (backfilled from the released prompt's hidden
     # CaliberAgentConfig target) and moves to project_only -- see below.
-    SCOPING_UNSCOPED: 50,
+    # -1 (`P2-Q`): CaliberVerificationItem gained a direct, nullable
+    # project_id (backfilled from its own agent_id's CaliberAgentConfig
+    # target) and moves to project_only -- see below.
+    SCOPING_UNSCOPED: 49,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.
@@ -90,7 +93,11 @@ _EXPECTED_COUNTS = {
     # +1 (`P2-R`): CaliberReleaseOperation, see SCOPING_UNSCOPED above --
     # same project_only shape as its newer sibling
     # CaliberWorkspaceReleaseOperation, confirmed by direct look.
-    SCOPING_PROJECT_ONLY: 25,
+    # +1 (`P2-Q`): CaliberVerificationItem, see SCOPING_UNSCOPED above --
+    # same project_only shape as its sibling CaliberReleaseOperation,
+    # confirmed by direct look. It carries only a bare project_id derived
+    # from its own agent_id's target, no visibility/owner column.
+    SCOPING_PROJECT_ONLY: 26,
 }
 
 

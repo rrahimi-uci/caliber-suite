@@ -4239,6 +4239,7 @@ class AssistantService:
             item = CaliberVerificationItem(
                 item_id=new_item_id(),
                 agent_id=clean_prompt_name,
+                project_id=agent.project_id,
                 session_id=session_id,
                 category="prompt_promotion",
                 free_text=(
