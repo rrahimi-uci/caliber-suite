@@ -181,10 +181,11 @@ beyond the one missing tab.
   `caliberApi.ts` predates this change and already names several other
   static importers).
 * **Full suite with coverage**: `npm run test:coverage` (CI's own command,
-  `.github/workflows/ci.yml`'s "UI (test + build)" job) -- run against this
-  branch; see the PR's validation-commands section for the exact pass/fail
-  result and coverage numbers against the repo's ratcheted thresholds
-  (lines 89% / statements 87% / functions 87% / branches 78%).
+  `.github/workflows/ci.yml`'s "UI (test + build)" job) -- 144 test files,
+  2313 tests, all passing, no failures. Coverage against the repo's
+  ratcheted thresholds (lines 89% / statements 87% / functions 87% /
+  branches 78%): statements 88.97%, branches 80.9%, functions 89.25%, lines
+  90.6% -- all above threshold.
 * **Manual dev-server check**: not performed against a live backend in this
   slice -- the component-test suite above exercises the real request/response
   shapes (`VerificationItem`, `RefinementJob`, including a `candidate_ready`
