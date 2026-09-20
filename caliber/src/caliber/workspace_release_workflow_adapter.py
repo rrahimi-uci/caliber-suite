@@ -20,9 +20,10 @@ a second connection writing while the caller's transaction is open
 deadlocks on SQLite's single-writer lock, and sharing the transaction is
 also more correct for a same-database provider regardless of engine).
 
-Pin field convention this adapter establishes (nothing writes
-:class:`~caliber.db.models.CaliberWorkspaceRevisionResource` rows in
-production yet -- see docs/workspace-plan.md's `P5-E` row):
+Pin field convention this adapter establishes (`P4-B`/`P4-C`'s managed-
+snapshot epic's seventh and final slice made ``resolve()``/``snapshot()``
+real against this exact convention, rather than inventing a new one --
+see this module's ``resolve()``/``snapshot()`` docstrings below):
 
 * ``resource_id`` -- the workflow's ``workflow_id``.
 * ``version_ref`` -- the ``version_id`` the revision pinned.
@@ -51,11 +52,13 @@ from __future__ import annotations
 
 import logging
 from collections.abc import Mapping
+from dataclasses import dataclass
 from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 
+from caliber.auth import CaliberIdentity
 from caliber.config import CaliberConfig
 from caliber.db.models import (
     CaliberWorkflow,
@@ -64,17 +67,26 @@ from caliber.db.models import (
     CaliberWorkspaceEnvironment,
     CaliberWorkspaceRevisionResource,
 )
-from caliber.workflows.manifest import parse_manifest
+from caliber.db.scoping import get_visible
+from caliber.workflows.manifest import compute_manifest_hash, parse_manifest
 from caliber.workflows.promoter import AliasPreflightError, rotate_alias_to_version
 from caliber.workspace_release_adapters import (
     PreparedAction,
     ProviderOutcome,
+    SnapshotPin,
     WorkspaceReleaseAdapterError,
 )
 
 logger = logging.getLogger(__name__)
 
 _TARGET_REF_PREFIX = "workflow:"
+
+#: Bumped whenever this adapter's resolution/snapshot strategy changes in a
+#: way that would make an old pin's ``resolution.adapter_version`` stop
+#: describing how it was produced -- the same convention every sibling
+#: adapter's own ``*_ADAPTER_VERSION`` constant establishes (e.g.
+#: ``workspace_release_skill_adapter.py::SKILL_ADAPTER_VERSION``).
+WORKFLOW_ADAPTER_VERSION = "workspace-release-workflow-adapter/1"
 
 
 def _target_ref(workflow_id: str, alias: str) -> str:
@@ -88,6 +100,19 @@ def _parse_target_ref(target_ref: str) -> tuple[str, str]:
     if not workflow_id or not alias:
         raise WorkspaceReleaseAdapterError(f"malformed workflow target_ref {target_ref!r}")
     return workflow_id, alias
+
+
+@dataclass(frozen=True)
+class ResolvedWorkflowVersion:
+    """One immutable, published ``caliber_workflow_versions`` row, loaded and
+    visibility-checked against its live parent ``CaliberWorkflow``."""
+
+    workflow_id: str
+    name: str
+    version_id: str
+    version_number: int
+    manifest: dict[str, Any]
+    provider_ref: str
 
 
 class WorkflowWorkspaceResourceAdapter:
@@ -105,32 +130,140 @@ class WorkflowWorkspaceResourceAdapter:
         self._actor = actor
 
     # -- resolve / snapshot ---------------------------------------------
-    # `routes/workspace.py::snapshot_revision` (`P4-C`) is this Protocol's
-    # first real caller for any resource_type, but a "workflow" pin always
-    # fails here today: that route's declaration shape is generic
-    # (`resource_id`/`version_ref`), and this method still expects its own
-    # pre-existing `workflow_id` key, so it never reaches -- let alone
-    # returns -- real content. `_identity` is accordingly unused: this
-    # adapter's `resolve()` has no real caller to authorize against yet, the
-    # same reason `snapshot()` right below is still a placeholder.
+    # `P4-B`/`P4-C`'s managed-snapshot epic's seventh and final slice: the
+    # last of the epic's follow-up list to move off the placeholder that just
+    # returned `resolve()`'s own input unchanged (see docs/workspace-plan.md's
+    # `P4-B` row). This mirrors `SkillWorkspaceResourceAdapter`'s exact shape,
+    # the closest structural precedent: a workflow is *also* both a mutable
+    # parent row (`CaliberWorkflow` -- identity, ownership, 3-tier
+    # `project`/`user`/`public` visibility) and a real, internal, immutable,
+    # numbered content history (`CaliberWorkflowVersion` -- unlike a skill
+    # version, published rows are already documented elsewhere as immutable,
+    # see `routes/workflow_versions.py`'s own module docstring: "Published
+    # versions are immutable"). `resolve()` is accordingly two lookups
+    # against the same database: a `get_visible` 3-tier visibility check
+    # against the live `CaliberWorkflow` row (the same non-negotiable fix
+    # `prompt`'s own PR #393 needed as a follow-up, applied here from the
+    # start -- see `workspace_release_adapters.py`'s module docstring), then
+    # an exact `(workflow_id, version_id)` read against
+    # `caliber_workflow_versions` for the pinned version's manifest.
+    #
+    # Unlike every sibling adapter's `version_ref` (an integer version
+    # number, or a content-digest/`"current"` sentinel for a resource with no
+    # numbered history), this adapter's own pre-existing, already-relied-upon
+    # convention (`apply_release`/`validate`/`prepare_release` below, and
+    # `P5-E`'s alias-rotation machinery) is that `version_ref`/`provider_ref`
+    # carry the workflow version's own `version_id` primary key, not its
+    # `version_number` -- `rotate_alias_to_version` takes a `version_id`
+    # directly, and `validate()`/`prepare_release()` already read
+    # `pin.version_ref` as one. `resolve()`/`snapshot()` reuse that exact
+    # convention rather than inventing a numbered scheme of their own, so a
+    # pin this method produces plugs into the release path with no
+    # translation step.
 
     def resolve(
-        self, session: object, _workspace: object, declaration: object, _identity: object
-    ) -> CaliberWorkflow:
-        # The Protocol types `session` as `object` so this module need not be
-        # imported wherever the Protocol is (see workspace_release_adapters's
-        # module docstring); every real caller passes a live Session.
-        assert isinstance(session, Session)
-        workflow_id = declaration.get("workflow_id") if isinstance(declaration, Mapping) else None
-        if not workflow_id:
-            raise WorkspaceReleaseAdapterError("workflow declaration requires 'workflow_id'")
-        workflow = session.get(CaliberWorkflow, str(workflow_id))
-        if workflow is None:
-            raise WorkspaceReleaseAdapterError(f"workflow {workflow_id!r} not found")
-        return workflow
+        self, session: object, _workspace: object, declaration: object, identity: object
+    ) -> ResolvedWorkflowVersion:
+        """Load one exact, published workflow version through the live
+        workflow's own 3-tier visibility model.
 
-    def snapshot(self, _session: object, resolved_pin: object) -> object:
-        return resolved_pin
+        ``declaration`` carries ``resource_id`` (the workflow's
+        ``workflow_id``) and ``version_ref`` (the exact
+        ``caliber_workflow_versions.version_id`` this pin targets -- never an
+        alias, mirroring every sibling adapter's explicit-version-only
+        reproducibility stance: resolving an alias like ``"prod"`` would make
+        the same snapshot request produce different content depending on
+        when it runs). Only a **published** version is snapshot-eligible: a
+        draft's ``manifest`` can still be edited in place
+        (``routes/workflow_versions.py::update_version``), so pinning one
+        would not actually be content-addressed -- a later edit would
+        silently invalidate the digest this method's own ``snapshot()``
+        computed without changing the pin itself.
+        """
+        assert isinstance(session, Session)
+        assert isinstance(identity, CaliberIdentity)
+        if not isinstance(declaration, Mapping):
+            raise WorkspaceReleaseAdapterError("workflow declaration must be a mapping")
+        workflow_id = declaration.get("resource_id") or declaration.get("workflow_id")
+        version_id = declaration.get("version_ref") or declaration.get("version_id")
+        if not workflow_id or not version_id:
+            raise WorkspaceReleaseAdapterError(
+                "workflow declaration requires 'resource_id' and 'version_ref'"
+            )
+        workflow_id = str(workflow_id)
+        version_id = str(version_id)
+
+        workflow = get_visible(
+            session, CaliberWorkflow, CaliberWorkflow.workflow_id, workflow_id, identity
+        )
+        if workflow is None:
+            # Matches `routes/workflows.py::get_workflow`'s own "not found"
+            # 404 for both a genuinely missing workflow and one that exists
+            # but is not visible to this caller -- never distinguishing the
+            # two, so this can't be used to probe for another user's
+            # workflow ids.
+            raise WorkspaceReleaseAdapterError(
+                f"workflow {workflow_id!r} not found or not visible to the caller"
+            )
+
+        version = (
+            session.execute(
+                select(CaliberWorkflowVersion).where(
+                    CaliberWorkflowVersion.workflow_id == workflow_id,
+                    CaliberWorkflowVersion.version_id == version_id,
+                )
+            )
+            .scalars()
+            .first()
+        )
+        if version is None:
+            raise WorkspaceReleaseAdapterError(
+                f"workflow {workflow_id!r} has no recorded version {version_id!r}"
+            )
+        if version.status != "published":
+            raise WorkspaceReleaseAdapterError(
+                f"workflow {workflow_id!r} version {version_id!r} is "
+                f"{version.status!r}; only a published version can be snapshotted "
+                "(a draft's manifest can still be edited in place)"
+            )
+
+        return ResolvedWorkflowVersion(
+            workflow_id=workflow.workflow_id,
+            name=workflow.name,
+            version_id=version.version_id,
+            version_number=version.version_number,
+            manifest=version.manifest,
+            provider_ref=f"caliber-workflow-version:/{workflow_id}/{version_id}",
+        )
+
+    def snapshot(self, _session: object, resolved_pin: object) -> SnapshotPin:
+        """Compute a genuine content digest over the version's manifest --
+        the compiled node graph that determines what the workflow actually
+        does when deployed/run -- reusing
+        :func:`caliber.workflows.manifest.compute_manifest_hash`, the same
+        canonical hashing routine every workflow route already uses for a
+        version's own ``manifest_hash`` column
+        (``routes/workflows.py::import_workflow``,
+        ``routes/workflow_versions.py::_insert_version_with_retry``/
+        ``update_version``), rather than inventing a second, adapter-local
+        hashing convention for the same content.
+        """
+        if not isinstance(resolved_pin, ResolvedWorkflowVersion):
+            raise WorkspaceReleaseAdapterError(
+                "workflow snapshot requires a resolved workflow version"
+            )
+        content_sha256 = compute_manifest_hash(resolved_pin.manifest)
+        return SnapshotPin(
+            resource_id=resolved_pin.workflow_id,
+            version_ref=resolved_pin.version_id,
+            content_sha256=content_sha256,
+            provider_ref=resolved_pin.provider_ref,
+            resolution={
+                "strategy": "live_resource_adapter",
+                "adapter_version": WORKFLOW_ADAPTER_VERSION,
+                "version_number": resolved_pin.version_number,
+            },
+        )
 
     # -- validate ----------------------------------------------------------
     # Not called by workspace_release_operations.py today (nothing in that
@@ -343,4 +476,8 @@ class WorkflowWorkspaceResourceAdapter:
         )
 
 
-__all__ = ["WorkflowWorkspaceResourceAdapter"]
+__all__ = [
+    "WORKFLOW_ADAPTER_VERSION",
+    "ResolvedWorkflowVersion",
+    "WorkflowWorkspaceResourceAdapter",
+]

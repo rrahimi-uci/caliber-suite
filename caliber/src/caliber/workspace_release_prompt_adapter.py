@@ -226,9 +226,11 @@ class PromptWorkspaceResourceAdapter:
     def snapshot(self, _session: object, resolved_pin: object) -> SnapshotPin:
         """Compute a genuine content digest over the loaded template.
 
-        Unlike ``WorkflowWorkspaceResourceAdapter.snapshot()`` (still an
-        explicit placeholder that returns its input unchanged -- see that
-        module's docstring), this is real: the returned digest is what a
+        This was the first real (non-placeholder) ``snapshot()`` in the
+        managed-snapshot epic (`P4-B`/`P4-C` slice 1); every other MVP
+        resource type's adapter, including ``workflow``'s own -- the epic's
+        last, closed in a later slice -- now returns a genuine
+        :class:`SnapshotPin` the same way. The returned digest is what a
         caller diffing two revisions or verifying a release actually
         authenticates against.
         """

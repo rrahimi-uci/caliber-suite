@@ -695,6 +695,14 @@ async def sync_dataset_to_mlflow(request: Request) -> JSONResponse:
         )
         if dataset is None:
             raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
+        # `P2-P` (isolation closure): `resource.write.evidence` -- syncing to
+        # MLflow persists the dataset's example set as external evidence, the
+        # same evidence-write class as `create_example`/`restore_dataset_version`
+        # above. Checked before the MLflow write below (see the docstring/
+        # comment note above), same ordering `create_prompt` established.
+        require_project_access_if_scoped(
+            session, identity, dataset.project_id, "resource.write.evidence"
+        )
 
         rows = (
             session.execute(

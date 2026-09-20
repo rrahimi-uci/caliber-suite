@@ -185,11 +185,13 @@ def test_snapshot_refuses_resource_type_with_no_registered_adapter(client: TestC
 def test_snapshot_refuses_an_adapter_whose_snapshot_is_not_content_addressed(
     client: TestClient,
 ) -> None:
-    """``workflow`` is registered (`P5-E`) but its own ``snapshot()`` is still
-    the documented placeholder -- prove the route fails closed on *any*
-    adapter that does not return a :class:`SnapshotPin`, not only a missing
-    one, using a directly-registered fake to isolate that check from the
-    real ``workflow`` adapter's unrelated declaration-shape mismatch."""
+    """Every registered resource type's adapter now returns a real
+    :class:`SnapshotPin` (``workflow`` closed the managed-snapshot epic's own
+    follow-up list last -- see ``docs/workspace-plan.md``'s `P4-B`/`P4-C`
+    rows), so this proves the route's own defense-in-depth check on a
+    directly-registered fake adapter that deliberately does not return one,
+    rather than relying on any real adapter happening to still be a
+    placeholder."""
     project_id = _create_project(client)
     registry = client.app.state.workspace_resource_adapter_registry
     registry.register(FakeWorkspaceResourceAdapter(resource_type="widget"), replace=True)

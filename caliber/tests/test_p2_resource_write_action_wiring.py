@@ -48,6 +48,7 @@ from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from caliber.db.models import CaliberKnowledgeBase, CaliberProject, CaliberProjectMember
+from caliber.eval.dataset_sync import FakeDatasetSyncClient
 from caliber.resource_access import ROLE_EDITOR, ROLE_REVIEWER, ROLE_VIEWER
 from caliber.routes import mcp_servers as mcp_routes
 from caliber.routes.eval_datasets import DETAIL_PATH as DATASET_DETAIL_PATH
@@ -57,6 +58,7 @@ from caliber.routes.eval_datasets import LIST_PATH as DATASET_LIST_PATH
 from caliber.routes.eval_datasets import RESTORE_PATH as DATASET_RESTORE_PATH
 from caliber.routes.eval_datasets import REVISE_PATH as DATASET_REVISE_PATH
 from caliber.routes.eval_datasets import SUPERSEDE_PATH as DATASET_SUPERSEDE_PATH
+from caliber.routes.eval_datasets import SYNC_PATH as DATASET_SYNC_PATH
 from caliber.routes.judges import DETAIL_PATH as JUDGE_DETAIL_PATH
 from caliber.routes.judges import LIST_PATH as JUDGE_LIST_PATH
 from caliber.routes.knowledge_bases import DETAIL_PATH as KB_DETAIL_PATH
@@ -68,7 +70,9 @@ from caliber.routes.mcp_servers import DISCOVER_PATH as MCP_DISCOVER_PATH
 from caliber.routes.mcp_servers import INVOKE_PATH as MCP_INVOKE_PATH
 from caliber.routes.mcp_servers import LIST_PATH as MCP_LIST_PATH
 from caliber.routes.mcp_servers import TEST_PATH as MCP_TEST_PATH
+from caliber.routes.mcp_servers import TOOL_CALIBRATE_PATH as MCP_TOOL_CALIBRATE_PATH
 from caliber.routes.mcp_servers import TOOL_POLICY_PATH as MCP_TOOL_POLICY_PATH
+from caliber.routes.mcp_servers import TOOL_TEST_CASES_PATH as MCP_TOOL_TEST_CASES_PATH
 from caliber.routes.openapi_integrations import ARCHIVE_PATH as OPENAPI_ARCHIVE_PATH
 from caliber.routes.openapi_integrations import DETAIL_PATH as OPENAPI_DETAIL_PATH
 from caliber.routes.openapi_integrations import LIST_PATH as OPENAPI_LIST_PATH
@@ -1144,6 +1148,58 @@ def test_restore_dataset_version_allows_a_project_editor(
     assert resp.status_code == 200, resp.text
 
 
+def test_sync_dataset_to_mlflow_denies_a_project_viewer(
+    client: TestClient, db_session: Session
+) -> None:
+    """`P2-P`'s own row named this exact gap: `sync_dataset_to_mlflow` is an
+    MLflow export/sync action, not a create/update/delete of the CALIBER row
+    itself, so it was left out of that slice's otherwise-complete
+    `resource.write.evidence` wiring for this file. Same evidence-write
+    class as `create_example`/`restore_dataset_version` above -- syncing
+    persists the dataset's example set as external MLflow evidence."""
+    _seed_project(db_session)
+    dataset_id = _create_project_dataset(client)
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_operator(client, "@viewer-user")
+    fake = FakeDatasetSyncClient()
+    client.app.state.dataset_sync_client = fake
+
+    try:
+        resp = client.post(
+            DATASET_SYNC_PATH.replace("{dataset_id}", dataset_id),
+            headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+        )
+    finally:
+        client.app.state.dataset_sync_client = None
+
+    assert resp.status_code == 403, resp.text
+    # The refusal happens before the MLflow write -- same ordering
+    # `create_prompt`/`P2-I`'s own visibility fix for this route established.
+    assert fake.calls == []
+
+
+def test_sync_dataset_to_mlflow_allows_a_project_editor(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    dataset_id = _create_project_dataset(client)
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_operator(client, "@editor-user")
+    fake = FakeDatasetSyncClient()
+    client.app.state.dataset_sync_client = fake
+
+    try:
+        resp = client.post(
+            DATASET_SYNC_PATH.replace("{dataset_id}", dataset_id),
+            headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+        )
+    finally:
+        client.app.state.dataset_sync_client = None
+
+    assert resp.status_code == 200, resp.text
+    assert len(fake.calls) == 1
+
+
 # ---------------------------------------------------------------------------
 # judges.py -- `resource.write.evidence`
 # ---------------------------------------------------------------------------
@@ -1704,12 +1760,16 @@ def test_update_pricing_still_works_for_an_unscoped_pricing_row(
 # evaluations/Aria plan execution.
 #
 # `save_mcp_tool_test_cases`/`calibrate_mcp_tool` (the `.../tools/{tool}/
-# test-cases` and `.../calibrate` routes) are deliberately left open here,
-# matching this same row's "child-mutation routes ... deliberately scoped
-# out to keep this slice to 'root routes'" precedent for
-# `knowledge_bases.py`/`openapi_integrations.py`'s own child-mutation
-# routes -- they are `SCOPE_OPERATOR`-gated tool sub-resources nested two
-# levels under the server root, not part of the named admin-only surface.
+# test-cases` and `.../calibrate` routes) were the one child-mutation gap
+# this slice (PR #402) named concretely and deliberately deferred, matching
+# the "child-mutation routes ... deliberately scoped out to keep this slice
+# to 'root routes'" precedent for `knowledge_bases.py`/
+# `openapi_integrations.py`'s own child-mutation routes closed by slice 14.
+# Now closed too: `save_mcp_tool_test_cases` persists governance config on
+# the server row (`resource.write.runtime`, same as `update_tool_policy`);
+# `calibrate_mcp_tool` fires the same live-invocation loop `invoke_tool`
+# uses (`resource.execute`, matching `calibrate_knowledge_base`'s own
+# classification).
 
 _MCP_CREATE_BODY = {
     "name": "p2-wiring-mcp",
@@ -1974,6 +2034,91 @@ def test_update_tool_policy_allows_a_project_editor(
     resp = client.patch(
         MCP_TOOL_POLICY_PATH.replace("{server_id}", server_id).replace("{tool_name}", "search"),
         json={"allowed": True, "side_effect_level": "read", "requires_approval": False},
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_save_mcp_tool_test_cases_denies_a_project_viewer(
+    client: TestClient, db_session: Session
+) -> None:
+    """Closes the child-mutation gap PR #402/slice 13 named concretely and
+    deliberately deferred: `save_mcp_tool_test_cases` previously checked
+    only `SCOPE_OPERATOR`, with no project-role check at all."""
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-test-cases-mcp")
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_operator(client, "@viewer-user")
+
+    resp = client.put(
+        MCP_TOOL_TEST_CASES_PATH.replace("{server_id}", server_id).replace("{tool_name}", "search"),
+        json={"test_cases": [{"name": "basic", "input": {"q": "x"}}]},
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_save_mcp_tool_test_cases_allows_a_project_editor(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-test-cases-mcp2")
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_operator(client, "@editor-user")
+
+    resp = client.put(
+        MCP_TOOL_TEST_CASES_PATH.replace("{server_id}", server_id).replace("{tool_name}", "search"),
+        json={"test_cases": [{"name": "basic", "input": {"q": "x"}}]},
+        headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 200, resp.text
+
+
+def test_calibrate_mcp_tool_denies_a_project_viewer(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Closes the same child-mutation gap for `calibrate_mcp_tool`, which
+    fires the same live-invocation loop `invoke_tool` uses -- `resource.
+    execute`, matching `calibrate_knowledge_base`'s own classification."""
+    _mock_mcp_gateway_ok(monkeypatch)
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-calibrate-mcp")
+    # Saved as the project's owner (`@test`, the default identity) so the
+    # denial below is proven purely by the viewer's role, not by the
+    # absence of saved cases (`calibrate_mcp_tool` 400s with none saved).
+    saved = client.put(
+        MCP_TOOL_TEST_CASES_PATH.replace("{server_id}", server_id).replace("{tool_name}", "search"),
+        json={"test_cases": [{"name": "basic", "input": {"q": "x"}}]},
+        headers={"X-CALIBER-Project": PROJECT_ID},
+    )
+    assert saved.status_code == 200, saved.text
+    _add_member(db_session, "@viewer-user", ROLE_VIEWER)
+    _grant_operator(client, "@viewer-user")
+
+    resp = client.post(
+        MCP_TOOL_CALIBRATE_PATH.replace("{server_id}", server_id).replace("{tool_name}", "search"),
+        headers={"X-CALIBER-User": "@viewer-user", "X-CALIBER-Project": PROJECT_ID},
+    )
+    assert resp.status_code == 403, resp.text
+
+
+def test_calibrate_mcp_tool_allows_a_project_editor(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _mock_mcp_gateway_ok(monkeypatch)
+    _seed_project(db_session)
+    server_id = _create_project_mcp_server(client, name="p2-calibrate-mcp2")
+    saved = client.put(
+        MCP_TOOL_TEST_CASES_PATH.replace("{server_id}", server_id).replace("{tool_name}", "search"),
+        json={"test_cases": [{"name": "basic", "input": {"q": "x"}}]},
+        headers={"X-CALIBER-Project": PROJECT_ID},
+    )
+    assert saved.status_code == 200, saved.text
+    _add_member(db_session, "@editor-user", ROLE_EDITOR)
+    _grant_operator(client, "@editor-user")
+
+    resp = client.post(
+        MCP_TOOL_CALIBRATE_PATH.replace("{server_id}", server_id).replace("{tool_name}", "search"),
         headers={"X-CALIBER-User": "@editor-user", "X-CALIBER-Project": PROJECT_ID},
     )
     assert resp.status_code == 200, resp.text
