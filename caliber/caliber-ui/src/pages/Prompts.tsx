@@ -33,6 +33,7 @@ import { SearchInput } from "@/components/SearchInput";
 import { FilterSelect } from "@/components/FilterSelect";
 import { ViewToggle } from "@/components/ViewToggle";
 import { CalibrationStep, StepConnector } from "@/components/CalibrationStep";
+import { PromptDiagnosisTab } from "@/components/PromptDiagnosisTab";
 import { VersionPanel } from "@/components/versioning/VersionPanel";
 import { makePromptVersionAdapter } from "@/components/versioning/adapters";
 import { useApiQuery } from "@/hooks/useApiQuery";
@@ -127,6 +128,21 @@ const WORKSPACE_STAGES: PageTab[] = [
     ),
   },
   {
+    key: "diagnosis",
+    label: "Diagnosis",
+    icon: (
+      <svg
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        strokeWidth="1.75"
+      >
+        <circle cx="11" cy="11" r="7" />
+        <path d="M21 21l-4.35-4.35" />
+      </svg>
+    ),
+  },
+  {
     key: "calibration",
     label: "Calibration",
     icon: (
@@ -163,6 +179,7 @@ type WorkspaceStage =
   | "playground"
   | "test-sets"
   | "runs"
+  | "diagnosis"
   | "calibration"
   | "bind";
 
@@ -1787,6 +1804,13 @@ function PromptWorkspace({
           prompt={prompt}
           workspace={workspace}
           onAfterRun={() => void refreshWorkspace()}
+        />
+      )}
+
+      {stage === "diagnosis" && prompt && (
+        <PromptDiagnosisTab
+          prompt={prompt}
+          onOpenCalibration={() => setStage("calibration")}
         />
       )}
 
