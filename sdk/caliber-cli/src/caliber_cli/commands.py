@@ -114,7 +114,22 @@ def workflow_run(client: CaliberClient, args: argparse.Namespace, out: Printer) 
     the one mutating call the SDK will not retry on its own, and a key this tool
     invented would be different on the caller's retry — which is the opposite of
     what the key is for.
+
+    ``--alias`` and ``--version-id`` together is refused here rather than left
+    to argparse: ``--workflow-id``/``--version-id`` is an argparse mutually
+    exclusive group, but ``--alias`` sits outside it (its help text says it
+    "requires --workflow-id"), so argparse alone does not stop a caller from
+    also passing ``--alias`` alongside ``--version-id``. Silently dropping it
+    server-side -- ``submit`` accepts a specific version and has no alias
+    concept to apply it to -- would look like the flag was honored when it was
+    ignored.
     """
+    if args.version_id and args.alias:
+        out.error(
+            "--alias requires --workflow-id and cannot be combined with "
+            "--version-id (a specific version has no alias to run)"
+        )
+        return exits.USAGE
     run = client.workflows.runs.submit(
         workflow_id=args.workflow_id,
         workflow_version_id=args.version_id,

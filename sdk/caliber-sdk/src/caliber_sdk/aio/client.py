@@ -42,6 +42,7 @@ from ..models._decode import decode, decode_list
 from ..models.core import Capabilities, Identity, WorkflowRunCapabilities
 from ..models.operations import Job
 from ..models.workflows import FAILED_RUN_STATES, WorkflowRun
+from ..resources.system import CapabilitiesAPI
 from ..resources.workflows import WorkflowRunFailed
 from ._base import _AsyncResource
 from .projects import AsyncProjectsAPI
@@ -204,6 +205,15 @@ class AsyncCapabilitiesAPI(_AsyncResource):
         if isinstance(payload, dict):
             capabilities.workflow_runs = decode(
                 WorkflowRunCapabilities, payload.get("workflow_runs")
+            )
+            # Same nested decode the sync ``CapabilitiesAPI.get()`` does --
+            # reused rather than duplicated so the two paths cannot drift.
+            # Before this, ``capabilities.extensibility`` stayed a raw dict on
+            # the async path, and ``.extensibility.optimizers`` raised
+            # AttributeError instead of returning typed
+            # RegisteredOptimizer/OptimizerPlugin instances.
+            capabilities.extensibility = CapabilitiesAPI._decode_extensibility(
+                payload.get("extensibility")
             )
         return capabilities
 

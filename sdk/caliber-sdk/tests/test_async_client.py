@@ -218,6 +218,76 @@ def test_the_envelope_is_unwrapped_only_when_the_body_is_exactly_one_data_key() 
     assert run(main())["openapi"] == "3.0.3"
 
 
+# --- capabilities -----------------------------------------------------------
+
+
+def test_capabilities_decodes_the_extensibility_block_the_same_as_the_sync_client() -> None:
+    """Regression test: the sync ``CapabilitiesAPI.get()`` decodes the nested
+    ``extensibility`` block into typed ``RegisteredOptimizer``/``OptimizerPlugin``
+    dataclasses (see ``test_resources_core.py``'s
+    ``test_capabilities_decodes_the_extensibility_block_two_levels_down``), but
+    the async override only re-decoded ``workflow_runs`` and left
+    ``extensibility`` as a raw, undecoded dict. Any async caller doing
+    ``(await client.capabilities_info.get()).extensibility.optimizers`` got
+    ``AttributeError: 'dict' object has no attribute 'optimizers'`` instead of
+    a list of ``RegisteredOptimizer``. This exercises exactly that
+    attribute-access pattern -- before the fix, the second assertion below
+    raises ``AttributeError`` rather than failing an equality check.
+    """
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope(
+            {
+                "extensibility": {
+                    "allowlist_env_var": "CALIBER_PLUGIN_ALLOWLIST",
+                    "optimizers": [
+                        {"name": "MetaPrompt", "artifact_types": ["prompt"], "source": "builtin"},
+                        {
+                            "name": "AcmeOptimizer",
+                            "artifact_types": ["prompt", "skill"],
+                            "source": "plugin",
+                            "distribution": "acme-caliber-optimizers",
+                        },
+                    ],
+                    "plugins": [
+                        {
+                            "name": "acme",
+                            "distribution": "acme-caliber-optimizers",
+                            "allowlisted": True,
+                        }
+                    ],
+                }
+            }
+        )
+
+    async def main() -> Any:
+        async with client_with(handler) as caliber:
+            return await caliber.capabilities_info.get()
+
+    capabilities = run(main())
+    extensibility = capabilities.extensibility
+    assert [item.name for item in extensibility.optimizers] == ["MetaPrompt", "AcmeOptimizer"]
+    assert not extensibility.optimizer("MetaPrompt").is_third_party
+    assert extensibility.optimizer("AcmeOptimizer").is_third_party
+    assert extensibility.plugins[0].is_active
+
+
+def test_a_server_without_the_extensibility_block_decodes_to_an_empty_one_async() -> None:
+    """An older server predates the field; that is not an error on the async
+    path either (parity with the sync client's equivalent test)."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope({"sync_workflow_version_run": True})
+
+    async def main() -> Any:
+        async with client_with(handler) as caliber:
+            return await caliber.capabilities_info.get()
+
+    extensibility = run(main()).extensibility
+    assert extensibility.optimizers == []
+    assert extensibility.allowlist_env_var == "CALIBER_PLUGIN_ALLOWLIST"
+
+
 # --- concurrency ----------------------------------------------------------
 
 

@@ -181,6 +181,15 @@ _BY_STATUS: dict[int, type[CaliberAPIError]] = {
     404: CaliberNotFoundError,
     409: CaliberConflictError,
     412: CaliberPreconditionError,
+    # 422 is domain validation, the same as 400 -- CALIBER raises it directly
+    # (e.g. ``caliber/src/caliber/routes/workflow_versions.py``'s "unparseable
+    # manifest" check) and FastAPI's own automatic request-validation failures
+    # also default to 422. Both represent "the request was rejected as
+    # invalid," so they map to the same exception type as 400. Left unmapped,
+    # a 422 fell through to a bare CaliberAPIError, losing the distinction a
+    # caller could otherwise use to tell "rejected as invalid" apart from
+    # every other 4xx.
+    422: CaliberValidationError,
     429: CaliberRateLimitError,
 }
 

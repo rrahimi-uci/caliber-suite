@@ -68,6 +68,14 @@ def test_a_body_with_data_plus_other_keys_is_not_unwrapped() -> None:
         (404, CaliberNotFoundError),
         (409, CaliberConflictError),
         (412, CaliberPreconditionError),
+        # 422 is domain validation, the same as 400 (CALIBER raises it
+        # directly, e.g. ``routes/workflow_versions.py``'s "unparseable
+        # manifest" check, and FastAPI's own automatic request-validation
+        # failures default to it too). Regression test: 422 was entirely
+        # unmapped in ``_BY_STATUS`` and fell through to a bare
+        # ``CaliberAPIError``, losing the type a caller would otherwise use
+        # to distinguish "rejected as invalid" from every other 4xx.
+        (422, CaliberValidationError),
         (500, CaliberServerError),
     ],
 )
@@ -140,6 +148,53 @@ def test_structured_validation_errors_name_their_fields() -> None:
         transport.post("/prompts", json={})
     assert caught.value.errors[0]["msg"] == "field required"
     # The field *and* the server's reason, not just the path.
+    assert "body.name: field required" in str(caught.value)
+
+
+def test_a_422_with_no_structured_errors_still_decodes_to_a_validation_error() -> None:
+    """The one confirmed real 422 call site
+    (``caliber/src/caliber/routes/workflow_versions.py``'s "unparseable
+    manifest" check) raises a bare ``HTTPException(422, detail=...)`` -- no
+    ``errors`` list, same basic ``{detail, status_code}`` shape as any other
+    typed 4xx. That must still decode to ``CaliberValidationError`` (with an
+    empty ``errors`` list) rather than requiring a structured body."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            422,
+            json={
+                "detail": "stage proposed an unparseable manifest: ...",
+                "status_code": 422,
+            },
+        )
+
+    with (
+        transport_with(handler, max_retries=0) as transport,
+        pytest.raises(CaliberValidationError) as caught,
+    ):
+        transport.post("/workflow-versions/WFV-1/publish")
+    assert caught.value.errors == []
+    assert "unparseable manifest" in str(caught.value)
+
+
+def test_a_422_with_structured_errors_names_their_fields_like_a_400_does() -> None:
+    """FastAPI's own automatic request-validation failures also default to
+    422; when a route's structured-validation body happens to carry an
+    ``errors`` list at 422, it is surfaced exactly like it is at 400."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return httpx.Response(
+            422,
+            json={
+                "detail": "request body validation failed",
+                "status_code": 422,
+                "errors": [{"loc": ["body", "name"], "msg": "field required", "type": "missing"}],
+            },
+        )
+
+    with transport_with(handler) as transport, pytest.raises(CaliberValidationError) as caught:
+        transport.post("/prompts", json={})
+    assert caught.value.errors[0]["msg"] == "field required"
     assert "body.name: field required" in str(caught.value)
 
 

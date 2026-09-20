@@ -9,7 +9,7 @@ import httpx
 import pytest
 from conftest import body_of
 
-from caliber_cli import exits
+from caliber_cli import commands, exits
 from caliber_cli.cli import build_parser, main
 
 
@@ -73,24 +73,69 @@ def test_an_applied_job_exits_ok(stub: Any) -> None:
     assert run(["job", "wait", "RFN-1", "--timeout", "5"]) == exits.OK
 
 
-def test_a_no_go_signoff_exits_gate_failed(stub: Any) -> None:
+def test_a_no_go_signoff_exits_gate_failed_and_sends_the_servers_spelling(stub: Any) -> None:
     """The command worked and the answer was "do not ship".
 
     Distinct from FAILURE so a caller does not retry a decision.
+
+    Regression test: the server's schema (``ReleaseSignoffRequest.decision``,
+    ``caliber/src/caliber/schemas.py``) only accepts ``^(go|no_go)$`` --
+    underscore, matching every other decision field in the server and this
+    same CLI's own workspace-release commands. ``--decision`` used to declare
+    ``choices=["go", "no-go"]`` (hyphen), so ``caliberctl release sign
+    --decision no-go`` built a request the server would reject with a
+    validation error -- the flag argparse itself offered could never
+    succeed. This asserts against the real request body sent to the server,
+    not just the stub's canned response, so a regression back to the
+    hyphenated choice would be caught here even if a stub still answered
+    with a plausible-looking 200.
     """
-    run = stub({"POST /releases/candidates/RC-1/signoffs": {"signoff_id": "S-1"}})
+    sent: dict[str, Any] = {}
+
+    def record(request: httpx.Request) -> Any:
+        sent.update(body_of(request) or {})
+        return {"signoff_id": "S-1"}
+
+    run = stub({"POST /releases/candidates/RC-1/signoffs": record})
     code = run(
         [
             "release",
             "sign",
             "RC-1",
             "--decision",
-            "no-go",
+            "no_go",
             "--rationale",
             "regression on the refunds set",
         ]
     )
     assert code == exits.GATE_FAILED
+    assert sent == {"decision": "no_go", "rationale": "regression on the refunds set"}
+
+
+def test_the_hyphenated_no_go_spelling_is_rejected_by_argparse(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The old, broken spelling is refused before any request is built.
+
+    ``--decision no-go`` must not silently succeed by falling back to some
+    other behavior -- it is not a value the server ever accepted, so argparse
+    should reject it as a usage error rather than let it through.
+    """
+    with pytest.raises(SystemExit) as caught:
+        main(
+            [
+                "release",
+                "sign",
+                "RC-1",
+                "--decision",
+                "no-go",
+                "--rationale",
+                "regression on the refunds set",
+            ]
+        )
+    assert caught.value.code == exits.USAGE
+    _, err = out_err(capsys)
+    assert "no-go" in err
 
 
 def test_a_go_signoff_exits_ok_and_sends_the_rationale(stub: Any) -> None:
@@ -139,6 +184,31 @@ def test_a_missing_credential_exits_usage_before_any_request(
     assert main(["whoami"]) == exits.USAGE
     _, err = out_err(capsys)
     assert "CALIBER_BASE_URL" in err
+
+
+def test_an_unexpected_exception_exits_failure_with_a_stated_message_not_a_traceback(
+    stub: Any, monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression test for the module docstring's promised "one error
+    boundary": ``_dispatch`` only caught ``CaliberAPIError``,
+    ``CaliberTransportError``, and ``KeyboardInterrupt`` -- so a bug elsewhere
+    in the call chain (a decode error, a stray ``ValueError``/``KeyError``)
+    propagated as a raw Python traceback and Python's own default exit code
+    instead of the documented clean ``out.error(...)`` + ``exits.FAILURE``.
+    This injects a handler that raises a plain, genuinely unexpected
+    exception -- not one of the SDK's typed errors -- and asserts the CLI
+    still exits cleanly rather than letting the exception escape ``main()``.
+    """
+
+    def broken_handler(client: Any, args: Any, out: Any) -> int:
+        raise ValueError("boom: something this tool did not anticipate")
+
+    monkeypatch.setattr(commands, "whoami", broken_handler)
+    run = stub({})
+    assert run(["whoami"]) == exits.FAILURE
+    _, err = out_err(capsys)
+    assert "boom: something this tool did not anticipate" in err
+    assert "Traceback" not in err
 
 
 # --- nothing prompts ------------------------------------------------------
@@ -330,6 +400,75 @@ def test_submitting_requires_a_target(capsys: pytest.CaptureFixture[str]) -> Non
     with pytest.raises(SystemExit) as caught:
         main(["workflow", "run"])
     assert caught.value.code == exits.USAGE
+
+
+def test_alias_combined_with_version_id_is_refused_rather_than_silently_dropped(
+    stub: Any, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """Regression test: ``--alias``'s help text says it "requires
+    --workflow-id", but ``--workflow-id``/``--version-id`` is an argparse
+    mutually exclusive group that ``--alias`` sits outside of -- nothing
+    stopped a caller from also passing ``--alias`` alongside ``--version-id``.
+    ``submit`` has no alias concept for a specific version to apply, so the
+    flag was silently ignored server-side instead of the CLI refusing the
+    nonsensical combination. No request should be sent.
+    """
+    calls: list[str] = []
+
+    def record(request: httpx.Request) -> Any:
+        calls.append("submitted")
+        return {"workflow_run_id": "RUN-1", "status": "queued"}
+
+    run = stub({"POST /workflow-runs": record})
+    code = run(
+        [
+            "--project",
+            "PRJ-1",
+            "workflow",
+            "run",
+            "--version-id",
+            "WFV-1",
+            "--alias",
+            "prod",
+        ]
+    )
+    assert code == exits.USAGE
+    assert calls == [], "a run was submitted despite the nonsensical --alias + --version-id"
+    _, err = out_err(capsys)
+    assert "--alias" in err
+    assert "--version-id" in err
+
+
+def test_alias_alone_with_workflow_id_is_still_accepted(stub: Any) -> None:
+    """The refusal is specific to combining ``--alias`` with ``--version-id``;
+    ``--alias``'s actual, documented use (with ``--workflow-id``) still
+    works."""
+    sent: dict[str, Any] = {}
+
+    def record(request: httpx.Request) -> Any:
+        sent.update(body_of(request) or {})
+        return {"workflow_run_id": "RUN-1", "status": "succeeded"}
+
+    run = stub(
+        {
+            "POST /workflow-runs": record,
+            "GET /workflow-runs/RUN-1": {"workflow_run_id": "RUN-1", "status": "succeeded"},
+        }
+    )
+    code = run(
+        [
+            "--project",
+            "PRJ-1",
+            "workflow",
+            "run",
+            "--workflow-id",
+            "WF-1",
+            "--alias",
+            "prod",
+        ]
+    )
+    assert code == exits.OK
+    assert sent["alias"] == "prod"
 
 
 def test_no_wait_returns_the_queued_run_without_polling(stub: Any) -> None:
