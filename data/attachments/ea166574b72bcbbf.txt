@@ -1,0 +1,12 @@
+
+Published-site verification
+======================================================================
+
+  base: https://example.test/site/
+
+ ! (root)                          unreachable
+ ! m-00-layered-architecture.html  unreachable
+ ! m-19-runbook.html               unreachable
+ ! overview-video.html             unreachable
+ ! media/caliber-overview.mp4      unreachable
+ ! tests/                          unreachable
