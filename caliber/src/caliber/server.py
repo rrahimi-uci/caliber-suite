@@ -78,6 +78,7 @@ from caliber.workflows.tools import bind_module_allowlist
 from caliber.workspace_import_worker import WorkspaceImportWorker
 from caliber.workspace_release_adapters import WorkspaceResourceAdapterRegistry
 from caliber.workspace_release_judge_adapter import JudgeWorkspaceResourceAdapter
+from caliber.workspace_release_mcp_server_adapter import McpServerWorkspaceResourceAdapter
 from caliber.workspace_release_prompt_adapter import PromptWorkspaceResourceAdapter
 from caliber.workspace_release_tool_adapter import ToolWorkspaceResourceAdapter
 from caliber.workspace_release_workflow_adapter import WorkflowWorkspaceResourceAdapter
@@ -492,20 +493,24 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     )
     promoter = build_promoter(resolved.promoter_provider)
     event_bus = build_event_bus(resolved, session_factory=session_factory)
-    # `P5-E`/`P4-C`: four resource types have a real (non-fake) adapter today
+    # `P5-E`/`P4-C`: five resource types have a real (non-fake) adapter today
     # -- a Workflow Studio workflow (alias-rotation release deploys), a
     # CALIBER prompt (MLflow Prompt Registry resolve/snapshot for `POST
     # .../revisions:snapshot`, plus alias-promotion release deploys), a
     # CALIBER registered tool (registry-row resolve/snapshot for the same
     # snapshot route, plus content-drift-checked verification release
     # deploys -- see workspace_release_tool_adapter.py's module docstring for
-    # why a tool has nothing to actually rotate), and a CALIBER judge
+    # why a tool has nothing to actually rotate), a CALIBER judge
     # (same-database resolve/snapshot plus a content-integrity release check
     # -- see workspace_release_judge_adapter.py's module docstring for why a
-    # judge has no external target to promote either). Every other resource
-    # type is left unregistered, so a release/snapshot operation against one
-    # fails closed with "no adapter registered" rather than silently doing
-    # nothing (see workspace_release_operations.py's and
+    # judge has no external target to promote either), and a CALIBER MCP
+    # server (same "single mutable row, no version history" shape as a
+    # judge, plus a content-drift-checked release check over its connection
+    # config, discovered tool catalog, and tool policy -- see
+    # workspace_release_mcp_server_adapter.py's module docstring). Every
+    # other resource type is left unregistered, so a release/snapshot
+    # operation against one fails closed with "no adapter registered" rather
+    # than silently doing nothing (see workspace_release_operations.py's and
     # routes/workspace.py::snapshot_revision's own module docstrings).
     workspace_resource_adapter_registry = WorkspaceResourceAdapterRegistry(
         {
@@ -513,6 +518,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             "prompt": PromptWorkspaceResourceAdapter(),
             "tool": ToolWorkspaceResourceAdapter(),
             "judge": JudgeWorkspaceResourceAdapter(),
+            "mcp_server": McpServerWorkspaceResourceAdapter(),
         }
     )
     worker = RefinementWorker(
