@@ -216,7 +216,7 @@ _REVIEWED_BARE_LOOKUPS: dict[str, str] = {
         "does not and should not auto-clear it -- recorded here by hand "
         "instead."
     ),
-    "caliber.routes.workflow_versions._run_workflow_version_sync:862": (
+    "caliber.routes.workflow_versions._run_workflow_version_sync:904": (
         "The parent workflow was already authorized a few lines above via "
         "`_get_version_or_404(session, version_id, request=request)`, which "
         "calls `_deps.py::scoped_child_or_404` -- itself gated on this exact "
