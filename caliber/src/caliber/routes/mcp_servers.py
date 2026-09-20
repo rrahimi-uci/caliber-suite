@@ -923,6 +923,14 @@ async def save_mcp_tool_test_cases(request: Request) -> JSONResponse:
                 status_code=404,
                 detail=f"tool {tool_name!r} not found on MCP server {server_id!r}",
             )
+        # `P2-A` (closing the child-mutation gap PR #402/slice 13 named
+        # concretely and deliberately deferred): saved test cases are
+        # persisted governance configuration on the server row, the same
+        # `resource.write.runtime` shape `update_tool_policy` already uses,
+        # not a one-off execution.
+        require_project_access_if_scoped(
+            session, identity, server.project_id, "resource.write.runtime"
+        )
         all_cases = dict(server.tool_test_cases or {})
         all_cases[tool_name] = cases
         server.tool_test_cases = all_cases
@@ -964,6 +972,12 @@ async def calibrate_mcp_tool(request: Request) -> JSONResponse:
                 status_code=404,
                 detail=f"tool {tool_name!r} not found on MCP server {server_id!r}",
             )
+        # `P2-A` (closing the child-mutation gap PR #402/slice 13 named
+        # concretely and deliberately deferred): calibration runs every
+        # saved case through the same live-invocation path `invoke_tool`
+        # uses, the same "operate on a live resource" `resource.execute`
+        # shape, matching `calibrate_knowledge_base`'s own classification.
+        require_project_access_if_scoped(session, identity, server.project_id, "resource.execute")
         policy = _effective_policy(server, tool_name)
         if bool(policy.get("requires_approval")):
             raise HTTPException(
