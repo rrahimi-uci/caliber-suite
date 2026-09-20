@@ -163,13 +163,18 @@ def test_snapshot_a_different_version_produces_a_distinct_revision(
 
 def test_snapshot_refuses_resource_type_with_no_registered_adapter(client: TestClient) -> None:
     project_id = _create_project(client)
-    # `eval_dataset` remains one of the still-unregistered follow-up resource
-    # types named by docs/workspace-plan.md's `P4-C` row (`tool`, `judge`, and
-    # `skill` each gained a real adapter in earlier slices, so none of them
-    # can stand in for "unregistered" anymore).
+    # `knowledge_base` is a real `db/resource_inventory.py::SCOPING_VISIBILITY`
+    # model with no managed-snapshot adapter at all -- every resource type the
+    # `P4-C` row's follow-up list ever named (`tool`, `judge`, `skill`,
+    # `eval_dataset`, `mcp_server`) has since gained a real adapter across
+    # earlier slices, so none of them can stand in for "unregistered" anymore.
     body = {
         "resources": [
-            {"resource_type": "eval_dataset", "resource_id": "some-dataset", "version_ref": "1"}
+            {
+                "resource_type": "knowledge_base",
+                "resource_id": "some-kb",
+                "version_ref": "1",
+            }
         ]
     }
     response = client.post(f"{PREFIX}/projects/{project_id}/revisions:snapshot", json=body)
