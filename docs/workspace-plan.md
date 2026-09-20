@@ -564,7 +564,7 @@ one cell and only "create" was actually checked:
 | **Skill** | operator | **admin** | **admin** (same action as edit) | admin | **Create only** |
 | **Tool** | **admin** | **admin** | n/a | admin | **No** — operator can test/calibrate an already-registered tool, not register or edit one |
 | Knowledge base | operator | operator | operator | operator | Yes — including release |
-| Agent | admin | admin | n/a | admin | No — admin-gated |
+| Agent | operator⁴ | operator⁴ (**admin** for `enabled`) | n/a — `enabled` toggle: admin | admin | Yes for create/edit (not the `enabled` toggle or delete) |
 | MCP server | admin | admin | admin | admin | Partly — operator only for test-case authoring/calibration on an already-registered server |
 | OpenAPI integration | operator² | operator² | **project-role `resource.publish`³**, admin fallback for an org-wide integration | admin (archive) | Yes for create/edit/import/draft; release depends on project role, not global scope |
 | **Test set / eval dataset** | operator | **operator for example content; admin for the dataset record itself** (rename, describe, tag, archive) | n/a | admin (folded into edit — no separate delete route) | Partly — content yes, dataset metadata no |
@@ -597,6 +597,15 @@ falls back to a hard `caliber.admin` check when the integration has no
 `project_id`. "Release: `caliber.admin`" described the fallback path, not the
 common one.
 
+⁴ `register_agent` and `update_agent` (for every field except `enabled`) call
+`require_scopes(request, [SCOPE_OPERATOR])`, each composed with a
+`require_project_access_if_scoped(..., "resource.write.runtime")` project-role
+check (`owner`/`editor`) — the same P2-isolation-closure pattern already
+wired onto prompts/workflows/tools/skills, now extended to Agent. `enabled`
+(the pause/resume lever the worker reads) and `delete_agent` both stay
+`require_scopes(request, [SCOPE_ADMIN])`, matching section 2.5.2's own
+per-action breakdown.
+
 Four facts in that table are the reason this document argues what it does:
 
 1. **A Developer can release a prompt or a workflow today.** `resource.publish`
@@ -609,12 +618,14 @@ Four facts in that table are the reason this document argues what it does:
    `caliber.operator`, while release-candidate signoff requires
    `caliber.admin`. The project-level `resource.approve` action is not consumed
    by those approval routes.
-3. **Agent registration is admin-only.** `register_agent`, `update_agent` and
-   `delete_agent` all require `caliber.admin`, so a Developer cannot create the
-   record that prompts, jobs and approvals hang off. That is either a deliberate
-   guard worth keeping or an accident worth fixing, and Phase 0 should decide
-   which — but the target table above assumes it becomes a Developer action,
-   since authoring an agent is authoring.
+3. **Agent registration is now a Developer action.** `register_agent` and
+   `update_agent` require `caliber.operator`, not `caliber.admin`, so a
+   Developer can create and edit the record that prompts, jobs and approvals
+   hang off — the target table above's assumption, since authoring an agent is
+   authoring. `update_agent`'s `enabled` field and `delete_agent` remain
+   `caliber.admin`-only, per section 2.5.2's own per-action breakdown (see
+   section 19.2 for the ratified decision and footnote 4 above for the
+   implementation).
 4. **Create-then-stranded was a repeated pattern, not one family's quirk —
    and one instance of it has since closed.** Skill and Tool still let a
    Developer create the resource and then require `caliber.admin` for every
@@ -5607,7 +5618,7 @@ running system — flagged explicitly rather than implied.
 | Is a provider model version bump a release? | **Decided:** Yes | Highest-value missing control |
 | Gate per axis or on a composite? | **Decided:** Per failure-mode axis | A composite masks single-axis regressions |
 | `refinement_max_iterations` | **Decided:** Set above `0` deliberately and define escalation | At `0` there is neither automation nor escalation |
-| Is agent registration a Developer or an Admin action? | **Decided, implementation pending:** Developer — authoring an agent is authoring. `register_agent`/`update_agent`/`delete_agent` remain `caliber.admin`-gated in code today; this ratifies the target policy without changing that. Widening the scope is a separate, small follow-up (the same confirm-before-touching-a-real-gate shape as PR #279's fixes), not bundled into this documentation pass | It is `caliber.admin` today (section 2.5.3); changing it moves a guard |
+| Is agent registration a Developer or an Admin action? | **Decided and implemented:** Developer — authoring an agent is authoring. `register_agent` (create) and `update_agent` (edit) now require `caliber.operator`, not `caliber.admin`, matching section 2.5.2's target table; both also compose the `resource.write.runtime` project-role check (P2 isolation closure, extended to the Agent family, which had never received it). `update_agent`'s `enabled` field — the pause/resume lever, this resource's release/activate analogue — keeps the `caliber.admin` ceiling, and `delete_agent` stays `caliber.admin`-only, both per section 2.5.2's own per-action breakdown | Was `caliber.admin` for all three routes (section 2.5.3); now split per section 2.5.2 — proven by `tests/test_agent_registration_developer_scope.py` and `tests/test_route_scope_inventory.py` |
 | Should `release.apply` exist for families with no release? | **Decided:** No — the adapter returns a typed refusal | Prevents a release plan silently skipping a required dependency |
 | Which asset families are in the controlled pilot? | **Decided:** One workflow and its prompt, tool and test-set dependencies | Limits cross-provider release risk |
 | Should job creation require a pending Verify decision, or stay parallel to it? | **Decided and shipped in `P3-B`: stays parallel.** Require it only once the ingestion poller exists | Blocking today's four job-creation paths on a not-yet-built poller would stall the refinement path entirely; making Verify optional first was the safe order |

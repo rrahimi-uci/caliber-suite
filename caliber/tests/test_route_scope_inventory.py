@@ -257,12 +257,53 @@ def test_apply_job_requires_operator_scope(client: TestClient) -> None:
     }
 
 
-def test_register_agent_requires_admin_scope(client: TestClient) -> None:
+def test_register_agent_is_project_role_not_admin_scope(client: TestClient) -> None:
+    """`docs/workspace-plan.md` section 19.2 ratifies agent registration as a
+    Developer action: `register_agent`'s global-scope floor moved from
+    `SCOPE_ADMIN` to `SCOPE_OPERATOR`, and it now also composes a
+    `resource.write.runtime` project-role check (P2 isolation closure,
+    extended to the Agent family). `infer_required_scope` checks
+    project-access calls before scope calls (same precedence
+    `test_update_judge_is_now_classified_project_role_not_dynamic` pins for
+    `update_judge`), so this handler classifies as `"project_role"`; the
+    underlying `SCOPE_OPERATOR` global floor is still real and enforced at
+    runtime -- see `require_scopes` in the handler itself and
+    `test_p2_resource_write_action_wiring.py`'s route-level proof."""
     doc = client.get(OPENAPI_URL).json()
     operation = doc["paths"][PREFIX + "/agents"]["post"]
     assert operation["x-caliber-required-scope"] == {
-        "kind": "scope",
-        "scopes": ["SCOPE_ADMIN"],
+        "kind": "project_role",
+        "action": "resource.write.runtime",
+    }
+
+
+def test_update_agent_is_project_role_not_dynamic(client: TestClient) -> None:
+    """`update_agent`'s scope floor is dynamic at runtime (`SCOPE_ADMIN` iff
+    the request body includes `'enabled'` -- this resource's release/activate
+    lever, section 2.5.2 -- else `SCOPE_OPERATOR`), same shape as
+    `update_judge`'s `'status'` split. It also now composes a
+    `resource.write.runtime` project-role check, so it classifies as
+    `"project_role"`, not `"dynamic"`, by the same call-precedence rule."""
+    doc = client.get(OPENAPI_URL).json()
+    operation = doc["paths"][PREFIX + "/agents/{agent_id}"]["patch"]
+    assert operation["x-caliber-required-scope"] == {
+        "kind": "project_role",
+        "action": "resource.write.runtime",
+    }
+
+
+def test_delete_agent_is_project_role_composed_with_admin_scope(client: TestClient) -> None:
+    """`delete_agent` stays `SCOPE_ADMIN`-only (section 2.5.2 keeps delete
+    Admin-only for every runtime family) but now also composes the same
+    `resource.write.runtime` project-role check, same "kept -- deliberately
+    stricter" shape as `delete_prompt`. Classifies as `"project_role"` by the
+    same call-precedence rule; the `SCOPE_ADMIN` floor is still real and
+    enforced at runtime -- see `require_scopes` in the handler itself."""
+    doc = client.get(OPENAPI_URL).json()
+    operation = doc["paths"][PREFIX + "/agents/{agent_id}"]["delete"]
+    assert operation["x-caliber-required-scope"] == {
+        "kind": "project_role",
+        "action": "resource.write.runtime",
     }
 
 
