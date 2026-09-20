@@ -7,7 +7,7 @@ overview and the design specs under ``caliber-suite/`` for the full reference.
 
 from __future__ import annotations
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0a1"
 
 from caliber.resolver import PromptResolutionError, PromptResolver, ResolvedPrompt
 

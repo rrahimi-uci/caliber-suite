@@ -7,7 +7,7 @@ but are versioned independently.
 
 ## Where this stands today
 
-`caliber-sdk` is **`0.1.0.dev0`**, `Development Status :: 3 - Alpha`. Every public
+`caliber-sdk` is **`0.1.0a1`**, `Development Status :: 3 - Alpha`. Every public
 symbol can still change without a deprecation cycle until 1.0.0 ships — the
 cycle described below is a policy this project is *building toward*, and the
 two aliases in `client.py` (`capabilities_api`, `datasets`) are the first
@@ -23,7 +23,7 @@ symbols actually governed by it.
   to upgrade for a `ga`-only caller.
 - **PATCH** — bug fixes that do not change a documented contract.
 
-**`caliber-sdk` graduates from `0.1.0.dev0`/Alpha to `1.0.0` only when two
+**`caliber-sdk` graduates from `0.1.0a1`/Alpha to `1.0.0` only when two
 things are both true**: 100% addressable API coverage (already true) and an
 interface-quality bar — typed request models, uniform idempotency, typed SSE
 frames, no dead exports — that is not yet met. Shipping 1.0.0 before then
@@ -77,7 +77,7 @@ Current aliases and their removal release:
 There is no compatibility *matrix* to publish yet in the traditional sense —
 `caliber` (the server) and `caliber-sdk` are developed in this one repository,
 released in lockstep, and both currently sit at the same pre-1.0 version
-(`0.1.0.dev0`). A matrix of past version pairs would have exactly one row and
+(`0.1.0a1`). A matrix of past version pairs would have exactly one row and
 would go stale the moment either package's version scheme diverges, which is
 worse than no matrix at all.
 

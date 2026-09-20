@@ -51,7 +51,7 @@ from .waiters import (
     wait_for_terminal_state,
 )
 
-__version__ = "0.1.0.dev0"
+__version__ = "0.1.0a1"
 
 __all__ = [
     "API_PREFIX",

@@ -343,7 +343,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 | Name | Value |
 | --- | --- |
-| `__version__` | `'0.1.0.dev0'` |
+| `__version__` | `'0.1.0a1'` |
 
 ### Module `caliber_sdk.client`
 
