@@ -274,6 +274,7 @@ def enqueue_workflow_calibration_run(
     item = CaliberVerificationItem(
         item_id=new_item_id(),
         agent_id=payload.agent_id,
+        project_id=agent.project_id,
         workflow_id=workflow_id,
         category="workflow_calibration",
         free_text=f"Workflow calibration requested for {workflow.name}.",
