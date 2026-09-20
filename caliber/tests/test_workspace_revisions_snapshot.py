@@ -20,7 +20,12 @@ import pytest
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
-from caliber.db.models import CaliberAgentConfig, CaliberProject, CaliberProjectMember
+from caliber.db.models import (
+    CaliberAgentConfig,
+    CaliberProject,
+    CaliberProjectMember,
+    CaliberToolRegistry,
+)
 from caliber.workspace_release_adapters import FakeWorkspaceResourceAdapter
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
@@ -157,8 +162,11 @@ def test_snapshot_a_different_version_produces_a_distinct_revision(
 
 def test_snapshot_refuses_resource_type_with_no_registered_adapter(client: TestClient) -> None:
     project_id = _create_project(client)
+    # `judge` remains one of the still-unregistered follow-up resource types
+    # named by docs/workspace-plan.md's `P4-C` row (`tool` gained a real
+    # adapter in this slice, so it can no longer stand in for "unregistered").
     body = {
-        "resources": [{"resource_type": "tool", "resource_id": "some-tool", "version_ref": "1"}]
+        "resources": [{"resource_type": "judge", "resource_id": "some-judge", "version_ref": "1"}]
     }
     response = client.post(f"{PREFIX}/projects/{project_id}/revisions:snapshot", json=body)
     assert response.status_code == 409
@@ -315,3 +323,143 @@ def test_snapshot_requires_operator_scope_and_matching_project_header(
         json=body,
     )
     assert forbidden.status_code == 403
+
+
+# -- tool resource type (slice 2 of the managed-snapshot epic) --------------
+
+
+def _seed_tool(
+    session: Session,
+    *,
+    tool_id: str,
+    name: str,
+    version: str = "1",
+    project_id: str | None,
+    owner: str = "@test",
+    visibility: str | None = None,
+) -> CaliberToolRegistry:
+    tool = CaliberToolRegistry(
+        tool_id=tool_id,
+        name=name,
+        version=version,
+        description="a test tool",
+        module_path="caliber.tools.example",
+        callable_name="run",
+        execution_backend="python_callable",
+        side_effect_level="read",
+        owner=owner,
+        project_id=project_id,
+        visibility=visibility or ("project" if project_id else "user"),
+        status="active",
+    )
+    session.add(tool)
+    session.commit()
+    return tool
+
+
+def _tool_snapshot_body(**overrides: object) -> dict[str, object]:
+    resource: dict[str, object] = {
+        "resource_type": "tool",
+        "resource_id": "search-tool",
+        "version_ref": "1",
+    }
+    resource.update(overrides)
+    return {"resources": [resource]}
+
+
+def test_snapshot_pins_a_live_tool_and_is_idempotent_by_content(
+    client: TestClient, db_session: Session
+) -> None:
+    project_id = _create_project(client)
+    _seed_tool(db_session, tool_id="TOOL-snap-1", name="search-tool", project_id=project_id)
+    body = _tool_snapshot_body()
+
+    first = client.post(f"{PREFIX}/projects/{project_id}/revisions:snapshot", json=body)
+    assert first.status_code == 201, first.text
+    data = first.json()["data"]
+    assert data["source_kind"] == "managed"
+    assert len(data["resources"]) == 1
+    pin = data["resources"][0]
+    assert pin["resource_type"] == "tool"
+    assert pin["resource_id"] == "search-tool"
+    assert pin["version_ref"] == "1"
+    assert pin["provider_ref"] == "caliber-tool-registry:/TOOL-snap-1"
+    assert pin["resolution"]["strategy"] == "live_resource_adapter"
+
+    # Idempotent by content, same as the prompt resource type above.
+    second = client.post(f"{PREFIX}/projects/{project_id}/revisions:snapshot", json=body)
+    assert second.status_code == 201, second.text
+    assert second.json()["data"]["revision_id"] == data["revision_id"]
+
+
+def test_snapshot_a_different_tool_version_produces_a_distinct_revision(
+    client: TestClient, db_session: Session
+) -> None:
+    project_id = _create_project(client)
+    _seed_tool(
+        db_session, tool_id="TOOL-snap-2a", name="search-tool", version="1", project_id=project_id
+    )
+    _seed_tool(
+        db_session, tool_id="TOOL-snap-2b", name="search-tool", version="2", project_id=project_id
+    )
+    first = client.post(
+        f"{PREFIX}/projects/{project_id}/revisions:snapshot",
+        json=_tool_snapshot_body(version_ref="1"),
+    )
+    second = client.post(
+        f"{PREFIX}/projects/{project_id}/revisions:snapshot",
+        json=_tool_snapshot_body(version_ref="2"),
+    )
+    assert first.status_code == 201, first.text
+    assert second.status_code == 201, second.text
+    assert first.json()["data"]["revision_id"] != second.json()["data"]["revision_id"]
+
+
+def test_snapshot_refuses_a_missing_tool_version(client: TestClient) -> None:
+    project_id = _create_project(client)
+    response = client.post(
+        f"{PREFIX}/projects/{project_id}/revisions:snapshot",
+        json=_tool_snapshot_body(resource_id="ghost", version_ref="9"),
+    )
+    assert response.status_code == 409
+    assert "resource_resolve_failed" in response.json()["detail"]
+
+
+def test_snapshot_refuses_a_tool_bound_to_a_different_project(
+    client: TestClient, db_session: Session
+) -> None:
+    """Mirrors ``test_snapshot_refuses_a_prompt_bound_to_a_different_project``:
+    the default test identity is a platform admin and bypasses visibility, so
+    this uses a genuinely non-admin caller (operator scope + editor role on
+    the *calling* project) who is neither a member of the *other* project nor
+    the tool's owner."""
+    project_id = _create_project(client, "Snapshot tool owner")
+    other_project_id = _create_project(client, "Snapshot tool other")
+    _seed_tool(
+        db_session,
+        tool_id="TOOL-snap-cross",
+        name="owned-elsewhere",
+        project_id=other_project_id,
+        owner="@test",
+    )
+    db_session.add(
+        CaliberProjectMember(
+            member_id="PM-snapshot-tool-operator",
+            project_id=project_id,
+            user_id="@snapshot-tool-operator",
+            role="editor",
+            status="active",
+            created_by="@test",
+        )
+    )
+    db_session.commit()
+    client.app.state.config = client.app.state.config.model_copy(
+        update={"operator_users": "@snapshot-tool-operator"}
+    )
+    response = client.post(
+        f"{PREFIX}/projects/{project_id}/revisions:snapshot",
+        headers={"X-CALIBER-User": "@snapshot-tool-operator", "X-CALIBER-Project": project_id},
+        json=_tool_snapshot_body(resource_id="owned-elsewhere", version_ref="1"),
+    )
+    assert response.status_code == 409, response.text
+    assert "resource_resolve_failed" in response.json()["detail"]
