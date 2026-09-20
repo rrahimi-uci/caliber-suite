@@ -5697,10 +5697,14 @@ Workspace is an implemented capability only when all of the following are true:
   resource versions;
 - rollback uses a new operation to restore the exact prior release or reports
   precise unrecoverable items, without mutating the original release approval;
-- `CaliberClient` and `AsyncCaliberClient` expose the complete typed resource
-  tree including cursor-paged Change Request/check/review/version history,
-  rework, release evidence and release operations; all workspace-bound calls
-  enforce URL/header equality, every
+- `CaliberClient` exposes the complete typed resource tree including
+  cursor-paged Change Request/check/review/version history, rework, release
+  evidence and release operations; `AsyncCaliberClient` mirrors it for the
+  operations async changes the outcome for (imports, release evaluation, and
+  release operations, each with a `wait()`), per section 13.2's own stated
+  design and `P6-C`'s "deliberate correction to the plan's own 'async parity'
+  phrasing" — the remaining resources stay reachable from async callers via
+  `client.raw`; all workspace-bound calls enforce URL/header equality, every
   external effect requires a caller-owned idempotency key, and the OpenAPI
   parity gate reports no untyped GA operation;
 - REST, SDK, CLI, OpenAPI, generated docs and migration tests agree on the
