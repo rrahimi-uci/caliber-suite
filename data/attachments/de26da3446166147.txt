@@ -1,0 +1,1 @@
+{"t":"2026-09-20T04:37:23.672Z","severity":"WARNING","logger":"caliber.observability.logging","message":"S3 log sink unavailable; continuing with stderr only: missing optional s3 dependency"}
