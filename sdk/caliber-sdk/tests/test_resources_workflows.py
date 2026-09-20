@@ -9,6 +9,7 @@ import pytest
 
 from caliber_sdk import CaliberClient, WorkflowRunFailed
 from caliber_sdk.models import WorkflowRun, decode
+from caliber_sdk.models.workflows import FAILED_RUN_STATES, TERMINAL_RUN_STATES
 
 BASE = "https://caliber.test"
 
@@ -123,6 +124,70 @@ def test_run_terminal_and_success_are_distinct() -> None:
     assert decode(WorkflowRun, {"status": "cancelled"}).is_terminal
     assert not decode(WorkflowRun, {"status": "cancelled"}).succeeded
     assert not decode(WorkflowRun, {"status": "running"}).is_terminal
+
+
+def test_a_completed_run_is_terminal_and_counts_as_success() -> None:
+    """Regression test: the server's own status vocabulary
+    (``caliber/src/caliber/workflows/run_state.py``'s ``TERMINAL_RUN_STATUSES``,
+    and ``CaliberWorkflowRun.status``'s default) reports ``"completed"`` as a
+    real terminal status, but :data:`TERMINAL_RUN_STATES` omitted it -- so
+    ``WorkflowRun.is_terminal`` stayed ``False`` for a run that had, in fact,
+    already stopped. ``WorkflowRun.succeeded`` already special-cased
+    ``"completed"`` (as does ``caliberctl``'s own ``workflow_run`` command),
+    which is exactly the evidence this was a gap rather than intentional.
+    """
+    run = decode(WorkflowRun, {"status": "completed"})
+    assert run.is_terminal
+    assert run.succeeded
+    assert "completed" not in FAILED_RUN_STATES
+
+
+def test_an_expired_run_is_terminal_and_counts_as_failure() -> None:
+    """Regression test: ``RUN_STATUS_EXPIRED`` (``"expired"``) is one of the
+    server's four real terminal statuses
+    (``caliber/src/caliber/workflows/run_state.py``'s ``TERMINAL_RUN_STATUSES``)
+    -- set when a run's lease lapses
+    (``caliber/src/caliber/orchestrator/workflow_run_worker.py``) -- but it was
+    entirely absent from both :data:`TERMINAL_RUN_STATES` and
+    :data:`FAILED_RUN_STATES`, even though it is not a success.
+    """
+    run = decode(WorkflowRun, {"status": "expired"})
+    assert run.is_terminal
+    assert not run.succeeded
+    assert "expired" in FAILED_RUN_STATES
+    assert "expired" in TERMINAL_RUN_STATES
+
+
+def test_waiting_on_a_run_that_reports_completed_returns_promptly() -> None:
+    """Regression test for the ``wait()`` consequence of the ``is_terminal``
+    gap: before this fix, a run that finished with status ``"completed"`` was
+    never seen as done by ``is_done=lambda item: item.is_terminal``, so
+    ``wait()`` polled for the *entire* timeout budget and then raised
+    :class:`~caliber_sdk.waiters.WaitTimeout` even though the run had already
+    succeeded. This asserts the call returns as soon as ``"completed"`` is
+    observed (well under a timeout an unfixed version would have to exhaust)
+    rather than merely that it eventually returns -- so a regression that
+    reintroduces the missing status is caught by a slow test, not a hang
+    (or a flaky one that happens to be fast under load). Asserting the exact
+    poll count, not just that the call returned, is what makes this
+    structural: a build where ``is_terminal`` stayed ``False`` for
+    ``"completed"`` would keep polling every ~0.001s for the full 30s budget
+    -- tens of thousands of calls -- rather than stopping at 3.
+    """
+    states = iter(["queued", "running", "completed"])
+    call_count = 0
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        nonlocal call_count
+        call_count += 1
+        return envelope({"workflow_run_id": "WR-1", "status": next(states)})
+
+    with client_with(handler) as caliber:
+        run = caliber.workflows.runs.wait("WR-1", interval=0.001, max_interval=0.001, timeout=30)
+
+    assert run.status == "completed"
+    assert run.succeeded
+    assert call_count == 3, "wait() kept polling past the run reporting 'completed'"
 
 
 def test_waiting_on_a_run_raises_on_failure_by_default() -> None:

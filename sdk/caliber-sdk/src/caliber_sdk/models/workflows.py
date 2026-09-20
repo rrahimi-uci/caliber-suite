@@ -6,9 +6,39 @@ from dataclasses import dataclass, field
 from typing import Any
 
 #: Run states that mean the work has stopped.
-TERMINAL_RUN_STATES = frozenset({"succeeded", "failed", "cancelled", "canceled", "timed_out"})
-#: Terminal states that did not succeed.
-FAILED_RUN_STATES = frozenset({"failed", "cancelled", "canceled", "timed_out"})
+#:
+#: The server's authoritative vocabulary for a workflow run's ``status``
+#: (``caliber/src/caliber/workflows/run_state.py``) is
+#: ``{queued, running, waiting_approval, waiting_event, completed, failed,
+#: cancelled, expired}``, with ``{completed, failed, cancelled, expired}`` as
+#: its own ``TERMINAL_RUN_STATUSES``. ``"completed"`` and ``"expired"`` were
+#: both missing here even though the server can report either one: a run's
+#: default status (``CaliberWorkflowRun.status`` defaults to ``"completed"``
+#: in ``caliber/src/caliber/db/models.py``) and the outcome of a run whose
+#: lease lapsed (``RUN_STATUS_EXPIRED``, set by
+#: ``caliber/src/caliber/orchestrator/workflow_run_worker.py``) would each
+#: poll forever in :meth:`WorkflowRunsAPI.wait`/`AsyncWorkflowRunsAPI.wait`
+#: until :class:`~caliber_sdk.waiters.WaitTimeout`, even though the run had
+#: already stopped. ``"succeeded"``, ``"canceled"`` (single L), and
+#: ``"timed_out"`` are kept for backward compatibility even though they are
+#: not values the current server emits for this field -- being lenient about
+#: recognizing a terminal state costs nothing, and removing them would be a
+#: breaking change for any caller relying on them today. ``"error"`` is added
+#: for the same reason it is already a terminal/failure spelling in the
+#: sibling ``CalibrationJob.is_terminal`` (``models/assets.py``) and
+#: ``Evaluation.is_terminal`` (``models/quality.py``) sets, and in this
+#: package's own generic ``waiters.FAILURE_STATES`` -- the interpreter-level
+#: "error" outcome is normalized to ``RUN_STATUS_FAILED`` before it is
+#: persisted as a run's ``status`` today (see
+#: ``RUNTIME_RESULT_TO_RUN_STATUS`` in the same server module), so the server
+#: does not currently emit it here either, but recognizing it is free and
+#: keeps this set consistent with the rest of the SDK's vocabulary.
+TERMINAL_RUN_STATES = frozenset(
+    {"succeeded", "completed", "failed", "cancelled", "canceled", "timed_out", "expired", "error"}
+)
+#: Terminal states that did not succeed -- i.e. :data:`TERMINAL_RUN_STATES`
+#: minus the success spellings (``"succeeded"``, ``"completed"``).
+FAILED_RUN_STATES = frozenset({"failed", "cancelled", "canceled", "timed_out", "expired", "error"})
 
 
 @dataclass

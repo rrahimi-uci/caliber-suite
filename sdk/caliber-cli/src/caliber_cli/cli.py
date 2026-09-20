@@ -214,7 +214,7 @@ def build_parser() -> argparse.ArgumentParser:
 
     sign = _add(release, "sign", commands.release_sign, "record a go / no-go decision")
     sign.add_argument("candidate_id")
-    sign.add_argument("--decision", choices=["go", "no-go"], required=True)
+    sign.add_argument("--decision", choices=["go", "no_go"], required=True)
     sign.add_argument(
         "--rationale",
         required=True,
@@ -709,6 +709,19 @@ def _dispatch(handler: Handler, args: argparse.Namespace, out: Printer) -> int:
         return exits.FAILURE
     except KeyboardInterrupt:
         out.error("interrupted")
+        return exits.FAILURE
+    except Exception as error:
+        # The module docstring's third case: a bug in this tool or a caller's
+        # environment, not an API or transport failure. Without this, anything
+        # not already listed above (a decode bug, a stray ValueError/KeyError
+        # somewhere in the call chain) propagated as a raw Python traceback
+        # with Python's default exit code, contradicting the "exactly once, as
+        # a stated message and a meaningful exit code" contract this module's
+        # own docstring promises. ``KeyboardInterrupt`` and ``SystemExit`` stay
+        # excluded: both derive from ``BaseException``, not ``Exception``, so
+        # a bare ``except Exception`` already leaves them alone without
+        # needing to say so.
+        out.error(f"unexpected error: {type(error).__name__}: {error}")
         return exits.FAILURE
 
 
