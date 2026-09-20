@@ -97,13 +97,39 @@ class CaliberVerificationItem(Base):
     submitted directly via ``POST /caliber/verification-queue`` for operator
     feedback that isn't tied to a specific trace. ``assessment_id`` is the
     natural dedup key — its unique constraint makes poller retries idempotent.
+
+    `P2-Q` (docs/workspace-plan.md's own row, closed here): ``project_id`` is
+    a bare, nullable project binding -- no ``visibility``/owner column, the
+    same ``project_only`` shape :class:`CaliberReleaseOperation` uses (`P2-R`)
+    and :class:`CaliberWorkspaceReleaseOperation` uses natively (confirmed by
+    ``db/resource_inventory.py``'s own classification). This is a derived
+    triage-queue row, not a first-class owned resource with its own sharing
+    tiers, so the full 3-tier visibility model would be the wrong fit here.
+    Populated at creation time from ``agent_id``'s own
+    :class:`CaliberAgentConfig` row (``agent_id`` is ``NOT NULL`` and
+    FK-constrained, so every item already has one) -- every one of today's
+    four job-creation paths (``routes/prompts.py``, ``routes/skills.py``,
+    ``routes/workflow_calibration.py``, ``assistant/service.py``'s promotion
+    proposal) and the manual ``POST /verification-queue`` route already
+    resolve that agent through an identity-scoped lookup before referencing
+    it, so its ``project_id`` is a safe, non-bypassable source. ``NULL`` when
+    the agent itself has no project (a personal/global agent), mirroring the
+    same "no target = personal/global" carve-out ``prompt_targets.py``
+    already applies elsewhere. Existing rows were backfilled the same way by
+    migration ``0113``.
     """
 
     __tablename__ = "caliber_verification_queue"
-    __table_args__ = (UniqueConstraint("assessment_id", name="uq_verification_assessment_id"),)
+    __table_args__ = (
+        UniqueConstraint("assessment_id", name="uq_verification_assessment_id"),
+        Index("ix_verification_queue_project_id", "project_id"),
+    )
 
     item_id: Mapped[str] = mapped_column(String(64), primary_key=True)
     agent_id: Mapped[str] = mapped_column(String(64), ForeignKey("caliber_agent_config.agent_id"))
+    project_id: Mapped[str | None] = mapped_column(
+        String(64), ForeignKey("caliber_projects.project_id"), nullable=True, default=None
+    )
 
     # MLflow linkage — all nullable because operator-submitted feedback has no trace.
     assessment_id: Mapped[str | None] = mapped_column(String(64), nullable=True)
