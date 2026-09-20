@@ -889,3 +889,106 @@ def test_0106_preserves_job_sourced_tasks_and_enforces_exactly_one_source(
     finally:
         engine.dispose()
         os.environ.pop("CALIBER_DATABASE_URL", None)
+
+
+@pytest.mark.slow
+def test_0112_backfills_release_operation_project_id_from_prompt_target(
+    tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Upgrade-from-0111 (`P2-R`, docs/workspace-plan.md Phase 2 item 6): a
+    pre-existing prompt release operation whose ``resource_name`` matches a
+    hidden ``caliber_agent_config`` prompt target (`P2-G`) backfills that
+    target's ``project_id``; one whose ``resource_name`` has no matching
+    target (a bare provider-only/legacy prompt) backfills ``NULL`` -- the
+    same "no target = personal/global" carve-out ``prompt_targets.py``
+    already applies elsewhere. The migration's own index lands as declared,
+    and downgrading past it cleanly drops the column (a re-upgrade restores
+    it, recomputing the identical backfill)."""
+    db_path = tmp_path / "release_operation_project_scoping.db"
+    db_url = f"sqlite:///{db_path}"
+    monkeypatch.setenv("CALIBER_DATABASE_URL", db_url)
+
+    cfg = Config(str(ALEMBIC_INI))
+    monkeypatch.chdir(PROJECT_ROOT)
+    command.upgrade(cfg, "0111")
+
+    engine = create_engine(db_url)
+    try:
+        with engine.begin() as connection:
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_projects (project_id, tenant_id, name, owner) "
+                    "VALUES ('PRJ-0112', 'local', 'Release Op Scoping', '@owner')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_agent_config "
+                    "(agent_id, experiment_id, name, owner, project_id, visibility, "
+                    "artifact_types, eval_thresholds, optimizer_config, approval_policy) "
+                    "VALUES ('scoped-prompt', 'exp-0112', 'scoped-prompt', '@owner', "
+                    "'PRJ-0112', 'project', '[\"prompt\"]', '{}', "
+                    "'{\"source_type\": \"prompt_target\"}', '{}')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_release_operations "
+                    "(operation_id, operation_type, resource_type, resource_name, "
+                    "target_name, active_lock, version_after, actor) VALUES "
+                    "('RELOP-0112-scoped', 'promote', 'prompt', 'scoped-prompt', "
+                    "'prod', 'prompt:scoped-prompt:prod', 2, '@operator')"
+                )
+            )
+            connection.execute(
+                text(
+                    "INSERT INTO caliber_release_operations "
+                    "(operation_id, operation_type, resource_type, resource_name, "
+                    "target_name, active_lock, version_after, actor) VALUES "
+                    "('RELOP-0112-bare', 'promote', 'prompt', 'bare-prompt', "
+                    "'prod', 'prompt:bare-prompt:prod', 1, '@operator')"
+                )
+            )
+
+        command.upgrade(cfg, "head")
+
+        with engine.connect() as connection:
+            rows = {
+                row.operation_id: row.project_id
+                for row in connection.execute(
+                    text(
+                        "SELECT operation_id, project_id FROM caliber_release_operations "
+                        "WHERE operation_id IN ('RELOP-0112-scoped', 'RELOP-0112-bare')"
+                    )
+                )
+            }
+            assert rows == {"RELOP-0112-scoped": "PRJ-0112", "RELOP-0112-bare": None}
+
+        inspector = inspect(engine)
+        indexes = {ix["name"]: ix for ix in inspector.get_indexes("caliber_release_operations")}
+        assert "ix_release_operations_project_id" in indexes
+        assert indexes["ix_release_operations_project_id"]["column_names"] == ["project_id"]
+
+        # Downgrade removes the column cleanly...
+        command.downgrade(cfg, "0111")
+        columns = {col["name"] for col in inspect(engine).get_columns("caliber_release_operations")}
+        assert "project_id" not in columns
+
+        # ...and a re-upgrade restores it, recomputing the same backfill.
+        command.upgrade(cfg, "head")
+        columns = {col["name"] for col in inspect(engine).get_columns("caliber_release_operations")}
+        assert "project_id" in columns
+        with engine.connect() as connection:
+            rows = {
+                row.operation_id: row.project_id
+                for row in connection.execute(
+                    text(
+                        "SELECT operation_id, project_id FROM caliber_release_operations "
+                        "WHERE operation_id IN ('RELOP-0112-scoped', 'RELOP-0112-bare')"
+                    )
+                )
+            }
+            assert rows == {"RELOP-0112-scoped": "PRJ-0112", "RELOP-0112-bare": None}
+    finally:
+        engine.dispose()
+        os.environ.pop("CALIBER_DATABASE_URL", None)

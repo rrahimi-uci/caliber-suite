@@ -166,6 +166,58 @@ def test_prompt_release_intent_is_committed_before_provider_effect(
     assert {"prepare_prompt_release", "promote_prompt"} <= actions
 
 
+def test_prepare_derives_project_id_from_the_prompts_hidden_target(
+    db_session: Session,
+) -> None:
+    """`P2-R`: a project-scoped hidden prompt target (`P2-G`'s
+    ``CaliberAgentConfig`` row, keyed by ``agent_id == prompt_name``) supplies
+    the new operation's ``project_id`` going forward."""
+    db_session.add(
+        CaliberAgentConfig(
+            agent_id="scoped-prompt",
+            experiment_id="exp-scoped-prompt",
+            name="scoped-prompt",
+            owner="@owner",
+            project_id="PRJ-scoped",
+            visibility="project",
+            optimizer_config={"source_type": "prompt_target", "model": None, "bound_to": None},
+        )
+    )
+    db_session.commit()
+
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="scoped-prompt",
+        alias="prod",
+        version_before=None,
+        version_after=1,
+        actor="@operator",
+    )
+
+    assert operation.project_id == "PRJ-scoped"
+    assert serialize_release_operation(operation)["project_id"] == "PRJ-scoped"
+
+
+def test_prepare_leaves_project_id_null_when_the_prompt_has_no_target(
+    db_session: Session,
+) -> None:
+    """A bare provider-only/legacy prompt (no ``CaliberAgentConfig`` row at
+    all) has no target to derive a project from -- the same
+    "no target = personal/global" carve-out ``prompt_targets.py`` already
+    applies elsewhere."""
+    operation = prepare_prompt_alias_release(
+        db_session,
+        name="bare-prompt",
+        alias="prod",
+        version_before=None,
+        version_after=1,
+        actor="@operator",
+    )
+
+    assert operation.project_id is None
+    assert serialize_release_operation(operation)["project_id"] is None
+
+
 def test_provider_error_leaves_reconciliation_obligation(db_session: Session) -> None:
     operation = prepare_prompt_alias_release(
         db_session,
@@ -514,8 +566,20 @@ def test_prepare_recovers_an_exact_request_after_an_insert_race() -> None:
         target_name="prod",
         version_after=5,
     )
+    # `session.get` is now called for two different models: the
+    # `CaliberReleaseOperation` existence/race-recovery checks (positional,
+    # via the queue below) and `P2-R`'s new `CaliberAgentConfig` hidden-target
+    # lookup (dispatched by model instead -- this test has no target, so it
+    # always resolves to `None`, i.e. an unscoped/personal release).
+    release_operation_lookups = iter([None, concurrent])
+
+    def _session_get(model: object, _pk: object) -> object:
+        if model is CaliberAgentConfig:
+            return None
+        return next(release_operation_lookups)
+
     session = Mock()
-    session.get.side_effect = [None, concurrent]
+    session.get.side_effect = _session_get
     session.commit.side_effect = IntegrityError("duplicate", {}, RuntimeError("raced insert"))
 
     result = prepare_prompt_alias_release(
