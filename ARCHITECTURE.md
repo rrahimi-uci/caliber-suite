@@ -22,7 +22,7 @@
 | **What it reuses** | MLflow Experiments, Traces, Assessments, Prompt Registry, Artifact Store, `genai.evaluate`, `genai.make_judge`, `genai.datasets` — CALIBER does not rebuild them. |
 | **Where it runs** | Standalone CALIBER ASGI service; integrates with MLflow over HTTP through `MLFLOW_TRACKING_URI`. Embedded `mlflow.app` is unsupported as a product or developer path. |
 | **Source of truth** | Relational metadata is authoritative for the control plane; object storage owns file bytes; MLflow owns prompt versions and traces. |
-| **Work model** | Bounded validation and many durable database mutations run inline; explicitly queued or long-running work uses up to nine in-process loops. All are gated by `background_tasks_enabled`; three also have independent enable flags. No separate worker tier. |
+| **Work model** | Bounded validation and many durable database mutations run inline; explicitly queued or long-running work uses up to ten in-process loops. All are gated by `background_tasks_enabled`; four also have independent enable flags. No separate worker tier. |
 | **Trust model** | Four RBAC scopes — `viewer` / `operator` / `approver` / `admin` — plus route-specific CSRF, rate limiting, visibility filters, service admission, and governed HTTP/MCP execution policy. Coverage is path-specific, not a repository-wide isolation guarantee. |
 
 ---
@@ -257,7 +257,7 @@ not necessarily a distinct worker stage, table, or row:
 
 | Concept | What it leaves behind |
 | --- | --- |
-| Signal | Verification item — the queue entry an operator confirms is real via `POST /verification-queue/{id}/verify` for a manually-flagged concern. The prompt/skill/workflow job-creation paths below still self-stamp their own item `verified` inline rather than routing through it — see `docs/workspace-plan.md` section 2.2 |
+| Signal | Verification item — the queue entry an operator confirms is real via `POST /verification-queue/{id}/verify` for a manually-flagged concern. The prompt/skill/workflow job-creation paths below still self-stamp their own item `verified` inline rather than routing through it |
 | Evidence | Refinement job with assembled trace evidence |
 | Candidate | Diagnosis + candidate artifact, produced by the policy-selected optimizer |
 | Measurement | Job, regression, or evaluation records with scores and an enforced candidate-advancement gate decision; a separate per-version gate-verdict row, where written, is advisory release evidence |
@@ -291,8 +291,10 @@ flowchart LR
 Verify has a live route (`POST /verification-queue/{id}/verify`) for a
 manually-flagged concern, but the prompt-optimization path pictured here still
 creates and self-verifies its own item in one step — Verify is not yet a
-second human's click on *this* path. See `docs/workspace-plan.md` section 2.2
-for the full account and what closing that gap requires.
+second human's click on *this* path. Closing that gap means routing
+prompt-optimization job creation through the same verify route the
+manually-flagged path already uses, rather than self-stamping the item
+`verified` inline.
 
 Other asset families reuse the chain but **not** its full guarantees — a workflow
 is measured by manifest replay, a tool by a revision-fenced deterministic suite,
@@ -456,19 +458,20 @@ flowchart TB
 ## 6 · Execution model — where the work actually happens
 
 Bounded validation and many durable database mutations run inline in request
-handlers. Explicitly queued or long-running work is handled by up to nine
+handlers. Explicitly queued or long-running work is handled by up to ten
 in-process loops. The loops are **not uniform**: several queue consumers use
 atomic claims, while pollers and sweepers have path-specific concurrency
 semantics. All configured loops share the `background_tasks_enabled` lifecycle gate.
-`WorkflowRunWorker`, `KnowledgeBaseWorker`, and `WorkflowScheduler` additionally
-have independent enable flags; `AriaPlanWorker` does not.
+`WorkflowRunWorker`, `KnowledgeBaseWorker`, `WorkflowScheduler`, and
+`WorkspaceImportWorker` additionally have independent enable flags; `AriaPlanWorker`
+does not.
 
 ```mermaid
 flowchart TB
     REQ["<b>Request path</b><br/>predominantly async route callables<br/><i>sync ORM · selected work offloaded</i>"]:::ctrl
     Q[("<b>Durable queues</b><br/>status columns on<br/>relational rows")]:::store
 
-    subgraph LOOPS["UP TO 9 BACKGROUND LOOPS"]
+    subgraph LOOPS["UP TO 10 BACKGROUND LOOPS"]
       direction TB
       subgraph WA[" "]
         direction LR
@@ -485,7 +488,8 @@ flowchart TB
         w7["<b>Janitor</b><br/>reaps stale jobs on<br/>heartbeat timeout<br/><i>idempotent sweep</i>"]:::async
         w8["<b>WebhookDispatcher</b><br/>delivery · settlement<br/>dead letters<br/><i>claim</i>"]:::async
         w9["<b>ReleaseReconciler</b><br/>settles incomplete prompt-alias<br/>release intents<br/><i>idempotent sweep</i>"]:::async
-        w5 --- w6 --- w7 --- w8 --- w9
+        w10["<b>WorkspaceImportWorker</b><br/>claims queued Workspace<br/>source imports<br/><i>claim + heartbeat · optional</i>"]:::async
+        w5 --- w6 --- w7 --- w8 --- w9 --- w10
       end
       WA --- WB
     end
@@ -495,7 +499,7 @@ flowchart TB
     LOOPS -->|"status transitions · timeline events"| Q
     LOOPS -->|"SSE live events"| REQ
 
-    linkStyle 0,1,2,3,4,5,6 stroke:transparent,stroke-width:0px
+    linkStyle 0,1,2,3,4,5,6,7 stroke:transparent,stroke-width:0px
     style WA fill:none,stroke:none
     style WB fill:none,stroke:none
 
@@ -514,7 +518,7 @@ Three consequences worth stating plainly:
   async. Selected blocking work is explicitly sent through `run_in_threadpool`
   or `asyncio.to_thread`; there is no async ORM.
 - **Every process runs its own full set of loops, and some limits are per-process.**
-  `mlflow server` defaults to four gunicorn workers, so all nine loops exist four
+  `mlflow server` defaults to four gunicorn workers, so all ten loops exist four
   times over. That is safe where arbitration is durable — the claim-based consumers
   compete for rows atomically, and the cron scheduler is idempotent by a
   minute-bucketed key backed by a unique partial index, so duplicate fires are
