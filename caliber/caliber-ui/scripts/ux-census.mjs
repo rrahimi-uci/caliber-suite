@@ -2,7 +2,7 @@
  * UX census — the re-runnable source of the structural counts the UX
  * remediation plan is measured against.
  *
- * `ux-analysis-report.md` §11 proposes navigation changes and §9.5 proposes
+ * `docs/ux-analysis-report.md` §11 proposes navigation changes and §9.5 proposes
  * deletions, both resting on counts (routes, destinations, page weight,
  * duplicated helpers, breadcrumb and PageHeader adoption). §14.1 rule 2 and
  * §14.5 both forbid acting on those numbers as prose: they have to be
