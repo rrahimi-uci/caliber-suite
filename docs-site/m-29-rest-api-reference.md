@@ -637,7 +637,7 @@ Supported management routes that belong to the stable public automation surface.
 | `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/{example_id}/revise` | project role (`resource.write.evidence`) | `dataset_id`, `example_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_examples_example_id_revise`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/examples/{example_id}/supersede` | project role (`resource.write.evidence`) | `dataset_id`, `example_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_examples_example_id_supersede`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/restore` | project role (`resource.write.evidence`) | `dataset_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_restore`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/sync` | `caliber.operator` | `dataset_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_sync`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/eval-datasets/{dataset_id}/sync` | project role (`resource.write.evidence`) | `dataset_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_eval_datasets_dataset_id_sync`; request body documented in OpenAPI |
 
 #### Evaluations (`evaluations`)
 
@@ -729,9 +729,9 @@ Supported but still moving route groups. Expect capability growth and narrower c
 | `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/invoke-tool` | project role (`resource.execute`) | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_invoke_tool`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/test-connection` | project role (`resource.execute`) | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_test_connection` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools` | any authenticated user | `server_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_mcp_servers_server_id_tools` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/calibrate` | `caliber.operator` | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_tools_tool_name_calibrate` |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/calibrate` | project role (`resource.execute`) | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_mcp_servers_server_id_tools_tool_name_calibrate` |
 | `PATCH` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/policy` | project role (`resource.write.runtime`) | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_mcp_servers_server_id_tools_tool_name_policy`; request body documented in OpenAPI |
-| `PUT` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/test-cases` | `caliber.operator` | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `put_mcp_servers_server_id_tools_tool_name_test_cases`; request body documented in OpenAPI |
+| `PUT` | `/ajax-api/2.0/mlflow/caliber/mcp-servers/{server_id}/tools/{tool_name}/test-cases` | project role (`resource.write.runtime`) | `server_id`, `tool_name` | `200`, `400`, `401`, `403`, `404` | `operationId`: `put_mcp_servers_server_id_tools_tool_name_test_cases`; request body documented in OpenAPI |
 
 #### OpenAPI Integrations (`openapi-integrations`)
 

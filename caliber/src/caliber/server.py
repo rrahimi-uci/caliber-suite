@@ -495,9 +495,14 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     )
     promoter = build_promoter(resolved.promoter_provider)
     event_bus = build_event_bus(resolved, session_factory=session_factory)
-    # `P5-E`/`P4-C`: five resource types have a real (non-fake) adapter today
-    # -- a Workflow Studio workflow (alias-rotation release deploys), a
-    # CALIBER prompt (MLflow Prompt Registry resolve/snapshot for `POST
+    # `P5-E`/`P4-C`: seven resource types have a real (non-fake) adapter
+    # today -- a Workflow Studio workflow (alias-rotation release deploys,
+    # plus visibility-checked live row + immutable published-version-history
+    # resolve/snapshot for the same `POST .../revisions:snapshot` route --
+    # see workspace_release_workflow_adapter.py's module docstring for why
+    # this is the same shape a skill's own adapter established, closing the
+    # managed-snapshot epic's own follow-up list), a CALIBER prompt (MLflow
+    # Prompt Registry resolve/snapshot for `POST
     # .../revisions:snapshot`, plus alias-promotion release deploys), a
     # CALIBER registered tool (registry-row resolve/snapshot for the same
     # snapshot route, plus content-drift-checked verification release
