@@ -105,7 +105,7 @@ jobs:
 
           echo "::warning::no successful CI run on main had an allure-report-html artifact; /tests/ will be absent"
           rmdir docs-site/tests 2>/dev/null || true
-      - uses: actions/configure-pages@v5
+      - uses: actions/configure-pages@v6
         with:
           enablement: true
       - uses: actions/upload-pages-artifact@v5
