@@ -14,7 +14,7 @@ caliberctl workflow run --workflow-id WF-123 --input '{"claim_id": "C-1"}'
 ## Exit codes are the interface
 
 A CLI that only ever exits 0 or 1 forces every caller to parse its output. This
-one has six codes, and the third is the reason there are more than two:
+one has ten codes, and the third is the reason there are more than two:
 
 | Code | Meaning |
 | --- | --- |
@@ -25,6 +25,9 @@ one has six codes, and the third is the reason there are more than two:
 | `4` | A quality gate said no. The command worked; the answer was no. |
 | `5` | The wait deadline passed with the work still in progress. |
 | `6` | No usable credential. |
+| `7` | A Change Request reviewer asked for changes (`changes_requested`). The fix is a new head, not a retry. |
+| `8` | A Change Request fell behind its accepted base (`out_of_date`) and needs `workspace cr rebase`. |
+| `9` | An import job or release operation landed on `reconcile_required`; it needs an explicit reconcile/observe call, not more waiting. |
 
 CALIBER stops and asks people things: a refinement job produces a candidate and
 waits, an Aria plan pauses on a question, a release candidate sits unsigned. None
@@ -45,11 +48,12 @@ esac
 
 ## `--json` means only JSON
 
-In `--json` mode stdout carries JSON and nothing else. Progress notes, warnings,
-and errors all go to stderr, so this works with no filtering step:
+In `--json` mode stdout carries JSON and nothing else. `--json` is a global
+flag, so it goes before the command. Progress notes, warnings, and errors all
+go to stderr, so this works with no filtering step:
 
 ```bash
-TOKEN=$(caliberctl token create ci --json | jq -r .token)
+TOKEN=$(caliberctl --json token create ci | jq -r .token)
 ```
 
 ## Nothing prompts
@@ -80,6 +84,7 @@ caliberctl token revoke PAT-9 --yes      # revokes
 | `prompt list \| show` | Governed prompts and their live versions. |
 | `service show \| publish \| unpublish` | Publish a workflow as an HTTP service, or withdraw it. |
 | `plugin list` | Optimizers, and plugins installed but not enabled. |
+| `workspace import \| package \| cr \| release` | Git-backed Workspace lifecycle: import jobs, revision packages, Change Request review, and environment releases. Every leaf requires `--project`. |
 
 ### Notes on specific commands
 
@@ -135,10 +140,11 @@ process list.
 
 `--project`/`$CALIBER_PROJECT` is **required** for commands that write into a
 project's scope but have no other way to name one (`workflow run`,
-`cookbook install`, `service publish`, `gate-verdict record`): omitting it
-refuses with a usage error rather than silently writing an unscoped ("My
-Library") row. Read-only commands and ones that take an explicit resource id
-are unaffected.
+`cookbook install`, `service publish`, `gate-verdict record`), and for every
+`workspace` subcommand, reads included, because the project id is a path
+segment there: omitting it refuses with a usage error rather than silently
+writing an unscoped ("My Library") row. Other read-only commands and ones
+that take an explicit resource id are unaffected.
 
 ## Development
 

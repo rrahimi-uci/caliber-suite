@@ -68,7 +68,7 @@ started.
 
 Verify both:
 
-- liveness: `/health`
+- liveness: `/ajax-api/2.0/mlflow/caliber/health`
 - readiness: `/ajax-api/2.0/mlflow/caliber/readiness`
 
 The readiness endpoint is the meaningful one for operator decisions.

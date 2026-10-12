@@ -24,7 +24,7 @@ an exit code.
 ### Exit codes are the interface
 
 A CLI for CI jobs that only ever exits 0 or 1 forces every caller to parse its
-output. This one has six codes:
+output. This one has ten codes:
 
 | Code | Meaning |
 | --- | --- |
@@ -35,6 +35,9 @@ output. This one has six codes:
 | `4` | A quality gate said no. The command worked; the answer was no. |
 | `5` | The wait deadline passed with the work still in progress. |
 | `6` | No usable credential. |
+| `7` | A Change Request reviewer asked for changes (`changes_requested`). The fix is a new head, not a retry. |
+| `8` | A Change Request fell behind its accepted base (`out_of_date`) and needs `workspace cr rebase`. |
+| `9` | An import job or release operation landed on `reconcile_required`; it needs an explicit reconcile/observe call, not more waiting. |
 
 Code 3 is why the others exist. CALIBER stops and asks people things — a
 refinement job produces a candidate and waits, an Aria plan pauses on a question,
@@ -97,6 +100,7 @@ caliberctl token revoke PAT-9 --yes   # revokes
 | `prompt list \| show` | Governed prompts and the registry coordinate each resolves to. |
 | `service show \| publish \| unpublish` | A workflow's external HTTP service. |
 | `plugin list` | Optimizers, and plugins installed but not enabled. |
+| `workspace import \| package \| cr \| release` | Git-backed Workspace lifecycle: import jobs, revision packages, Change Request review, and environment releases. Every leaf requires `--project`. |
 
 Choices worth knowing about:
 
@@ -176,8 +180,9 @@ runs = await asyncio.gather(*(
 ### What it covers, and what it does not
 
 `AsyncCaliberClient` gives you the transport, `raw`, async waiters, and the typed
-surfaces where async changes the outcome: `me`, `capabilities_info`, `workflows`
-(runs), `jobs`, and `events`.
+surfaces where async changes the outcome: `me`, `capabilities_info`,
+`projects`/`workspaces` (membership, files, imports, releases, release
+operations), `workflows` (runs), `jobs`, and `events`.
 
 It does **not** mirror all twenty-odd typed resource modules, and that is a
 decision rather than an omission. Two hand-written copies of the same resource

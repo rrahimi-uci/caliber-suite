@@ -36,7 +36,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 
 | Family | Representative routes | Notes |
 | --- | --- | --- |
-| Prompts | `GET/POST /prompts`, `GET/PATCH /prompts/{id}`, alias and release paths | Authoring and release are deliberately separate |
+| Prompts | `GET/POST /prompts`, `GET/DELETE /prompts/{name}`, `GET/POST /prompts/{name}/versions`, alias and release paths | Authoring and release are deliberately separate |
 | Skills | `GET/POST /skills`, `POST /skills/{id}/test-render`, `POST /skills/{id}/calibrate` | Packaging, tests, baseline, and calibration live here |
 | Tools | `GET/POST /tools`, test/calibration routes | Deterministic test and calibration flows |
 | Workflows | `GET/POST /workflows`, `GET/POST /workflows/{id}/versions`, `POST /workflow-versions/{version_id}/run` | Registry, version lifecycle, execution, and deployment are split across route families |

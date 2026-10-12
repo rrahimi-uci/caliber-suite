@@ -135,7 +135,7 @@ quality story.
 | Responsibility | Owner | Notes |
 | --- | --- | --- |
 | Verification-item ingress | `routes/prompts.py`, `routes/skills.py`, `routes/workflow_calibration.py`, `assistant/service.py` | Feature-specific entry points create already-verified items and queued refinement jobs directly — unchanged by the row below. |
-| Manually-flagged Stage ① Verify | `routes/verification.py` + `CaliberVerificationItem` | `/verification-queue` list/get/create/verify/dismiss/duplicate/batch for a concern raised separately from an already-running job. Verifying does not create a refinement job — see `docs/workspace-plan.md` section 2.2. |
+| Manually-flagged Stage ① Verify | `routes/verification.py` + `CaliberVerificationItem` | `/verification-queue` list/get/create/verify/dismiss/duplicate/batch for a concern raised separately from an already-running job. Verifying does not create a refinement job. |
 | Curated human-review queues | `routes/review_queues.py` + `CaliberReviewQueue` (migration 0054), FE `ReviewQueues.tsx` | Dedicated CRUD, the workflow `review_queue_enqueue` component, submit/writeback, and provenance-bearing alignment export. |
 | Authored judges | `routes/judges.py` + `CaliberJudge` (migration 0053), FE `Judges.tsx` | `/test-run` and `/alignment`; Human Alignment imports completed binary queue labels rather than requiring transcription. |
 | Release signoff | `routes/releases.py`, `CaliberReleaseCandidate`, `CaliberReleaseSignoff`, `CaliberReleaseReportJob`, FE `Releases.tsx` | Server-computed criteria/blockers, accountable waivers, required rollback target, immutable go/no-go snapshot, and durable Allure-compatible evidence. |
@@ -351,6 +351,7 @@ promotion:
 - `GET /jobs/{job_id}`
 - `GET /jobs/{job_id}/targets`
 - `POST /jobs/{job_id}/apply`
+- `POST /jobs/{job_id}/request-changes`
 
 A separate set of routes governs runtime QA for live workflow executions, where
 the unit of control is a paused run rather than an artifact:
@@ -397,9 +398,9 @@ from the surface the client still anticipates:
   `/verification-queue/{id}/verify`, `/verification-queue/{id}/dismiss`,
   `/verification-queue/{id}/duplicate`, and `/verification-queue/batch`
   endpoints are now served for real by `routes/verification.py` — this was a
-  frontend-only stub until `P3-B` (`docs/workspace-plan.md` section 16) wired
-  it. Verifying an item there does not create a `CaliberRefinementJob`; that
-  remains adapter-shaped work for a later phase, deliberately deferred rather
+  frontend-only stub until `P3-B` wired it. Verifying an item there does not
+  create a `CaliberRefinementJob`; that remains adapter-shaped work for a later
+  phase, deliberately deferred rather
   than half-built. It also does not change the row above: the four
   feature-specific entry points still create their own already-verified item
   inline, so the generic route only reaches a manually-flagged concern, not
@@ -586,12 +587,12 @@ place. The primary extension points are:
 Set against those seams are the constraints the QA plan currently accepts, stated
 plainly so that future work can weigh them deliberately:
 
-- The generic `/verification-queue` contract still appears in the frontend client
-  and test mocks with no matching backend route. The curated-review surface that
-  did ship is the dedicated `/review-queues` module (`routes/review_queues.py`,
-  `CaliberReviewQueue`/`CaliberReviewItem`, migration 0054) — the
-  `/verification-queue` client methods are the vestigial ones, not the queue
-  feature as a whole.
+- The generic `/verification-queue` contract is served by `routes/verification.py`,
+  but verifying an item there still does not enqueue a `CaliberRefinementJob`. The
+  curated-review surface is the dedicated `/review-queues` module
+  (`routes/review_queues.py`, `CaliberReviewQueue`/`CaliberReviewItem`, migration
+  0054); the feature-specific calibration routes remain the path that creates
+  refinement jobs.
 - The normalized assessment client and runtime-lock schema clearly prepare for a
   feedback-poller path, but a standalone co-located poller implementation is not
   as obvious as the newer modules in this checkout.

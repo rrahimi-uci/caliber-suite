@@ -154,6 +154,7 @@ server records:
 - `GET /mcp-servers`
 - `POST /mcp-servers`
 - `GET /mcp-servers/{server_id}`
+- `GET /mcp-servers/{server_id}/history`
 - `PATCH /mcp-servers/{server_id}`
 - `DELETE /mcp-servers/{server_id}` — guarded: returns 409 when the server is
   still referenced by an active deployment, and snapshots the full server

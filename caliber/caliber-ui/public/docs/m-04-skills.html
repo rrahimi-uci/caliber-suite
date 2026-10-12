@@ -135,7 +135,7 @@
 <p>The first area covers registry and lifecycle operations on the canonical row:</p>
 <ul><li><code>GET /skills</code></li><li><code>POST /skills</code></li><li><code>GET /skills/{skill_id}</code></li><li><code>PATCH /skills/{skill_id}</code></li><li><code>GET /skills/{skill_id}/versions</code></li><li><code>POST /skills/{skill_id}/rollback</code></li></ul>
 <p>The second area handles packaging in the OpenAI-compatible format:</p>
-<ul><li><code>POST /skills/import-package</code></li><li><code>GET /skills/{skill_id}/package</code></li><li><code>GET /skills/{skill_id}/package.zip</code></li></ul>
+<ul><li><code>POST /skills/import-package</code></li><li><code>POST /skills/import-package.zip</code></li><li><code>GET /skills/{skill_id}/package</code></li><li><code>GET /skills/{skill_id}/package.zip</code></li></ul>
 <p>The third area covers testing and durable run history:</p>
 <ul><li><code>POST /skills/{skill_id}/test-render</code></li><li><code>POST /skills/{skill_id}/test-selection</code></li><li><code>POST /skills/test-runs</code></li><li><code>GET /skills/test-runs</code></li><li><code>GET /skills/test-runs/{test_run_id}</code></li></ul>
 <p>The fourth area manages workspace state and calibration:</p>

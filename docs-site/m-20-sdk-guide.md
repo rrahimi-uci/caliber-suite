@@ -113,8 +113,7 @@ client.projects.update_member(project.project_id, "@bob", role="reviewer")
 The four project roles are `owner`, `editor`, `reviewer`, and `viewer`. Only an
 owner can add, update, or remove members. `remove_member()` deactivates the
 membership and returns `True` when the server confirms the removal. The async
-client intentionally keeps a narrower typed surface; use its raw transport for
-these membership routes until an async project resource is added.
+client exposes the same four membership methods on `AsyncCaliberClient.projects`.
 
 ## Authentication
 
@@ -251,6 +250,7 @@ result, not an error in the call.
 CaliberError
 ├── CaliberConfigError        the client was built with unusable configuration
 ├── CaliberTransportError     no HTTP response at all (DNS, refused, timeout)
+├── CaliberDecodeError        a 2xx payload had the wrong shape (strict decoding only)
 └── CaliberAPIError           the server answered with a non-2xx
     ├── CaliberValidationError    400 or 422 with a structured field list
     ├── CaliberAuthenticationError 401

@@ -19,7 +19,7 @@ tags:
 
 The GA surfaces in the [SDK guide](guide.md) are stable: their paths
 and payload keys will not change without a deprecation. This page covers the
-fourteen **beta** surfaces — integrations, data, operations, Workspace
+**beta** surfaces — integrations, data, operations, Workspace
 release governance, and the agentic loop — which are complete and tested but
 whose shapes may still move.
 
@@ -129,7 +129,7 @@ jobs:
             -F "bundle=@workspace.zip;type=application/zip"
 ```
 
-`CALIBER_PROJECT_PAT` must be a **project-bound** PAT — `caliber.auth.create()`
+`CALIBER_PROJECT_PAT` must be a **project-bound** PAT — `caliber.auth.tokens.create()`
 (see [Authentication](guide.md#authentication) in the SDK guide) accepts a `project_id` that binds
 the token to one project the issuer already holds a role in. A PAT bound to a
 different project, or an unbound PAT, is refused for this route specifically
@@ -239,7 +239,7 @@ connection attempt succeeded, which is a fact about the past. If you need to
 know whether a server is up *now*, probe it:
 
 ```python
-if not caliber.mcp_servers.test_connection(server_id)["ok"]:
+if not caliber.mcp_servers.test_connection(server_id)["success"]:
     ...
 ```
 

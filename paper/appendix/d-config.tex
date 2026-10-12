@@ -21,13 +21,16 @@ support on the other is a configuration error waiting to happen
 (\figref{fig:topologies}).
 
 \para{Background work is gated at two levels.} A master switch enables the loop
-lifecycle; three loops additionally have independent enable flags, and one does not.
+lifecycle; four loops --- the workflow-run, knowledge-build, and workspace-import
+workers and the scheduler --- additionally have independent enable flags; the other
+six do not.
 Disabling the master switch leaves a deployment that serves requests and accumulates
 queued work indefinitely --- which is the correct behaviour for a read-only replica
 and a silent failure for anything else.
 
 \para{Rate limits are per process.} The failed-login throttle and the API rate limiter
-are in-memory token buckets (\secref{sec:exec}). With \mlflow{}'s default of four
+are in-memory, per-process limiters --- a sliding-window counter and a token bucket
+respectively (\secref{sec:exec}). With \mlflow{}'s default of four
 gunicorn workers, a configured limit of $L$ yields an effective ceiling near $4L$.
 Size the configured value as $L/W$ for $W$ workers, or pin a single worker.
 

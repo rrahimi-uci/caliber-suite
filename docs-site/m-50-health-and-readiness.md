@@ -11,7 +11,7 @@ runtime is up but not actually usable.
 
 | Signal | What it answers | Use it for |
 | --- | --- | --- |
-| `/health` | Is the service process alive? | liveness and coarse orchestration checks |
+| `/ajax-api/2.0/mlflow/caliber/health` | Is the service process alive? | liveness and coarse orchestration checks |
 | `/ajax-api/2.0/mlflow/caliber/readiness` | Is the runtime usable with its dependencies? | operator go/no-go decisions |
 | traces, logs, metrics, incidents | What happened and why? | diagnosis and recovery |
 

@@ -354,7 +354,7 @@ judge's name and are compared run-over-run like any other scorer.
 A run's `predict_target` selects *what* is scored. The default `llm` produces a
 generic completion; `prompt` and `skill` instead render the **artifact itself**
 (a registered prompt version's template, or a skill's content) as the system
-instruction via the gate's `build_default_predict_fn_factory`, so the thing under
+instruction via `eval/predict.py`'s `build_default_predict_fn_factory`, so the thing under
 test is the real asset, not a neutral completion. `workflow` compiles the version
 **once** (the same `caliber.workflows.promoter` `build_plan` + `build_executor`
 seam the preview/run paths use) and then executes that plan per example in

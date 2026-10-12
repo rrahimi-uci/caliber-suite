@@ -301,7 +301,7 @@ follow that rule and are worth sizing for:
   (`routes/auth.py`) and the API `RateLimiter` (`rate_limit.py`) are token/attempt
   buckets behind a thread lock, not shared state, so their effective ceiling
   scales with the worker count. Size the configured limits accordingly, or pin the
-  server to one worker (`MLFLOW_WORKERS=1` for `scripts/run-dev.sh`, `--workers 1`
+  server to one worker (`MLFLOW_WORKERS=1` for `caliber/scripts/run-dev.sh`, `--workers 1`
   otherwise). See [the layered architecture](m-00-layered-architecture.md) for the same
   point at the platform tier.
 

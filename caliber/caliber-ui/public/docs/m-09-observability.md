@@ -349,8 +349,9 @@ The authentication and authorization behavior is straightforward:
 
 - Trace list, trace detail, feedback, experiment list, monitoring charts, and
   SSE all require an authenticated user.
-- The Prometheus exposition endpoint at `GET /metrics` is intentionally
-  unauthenticated today, matching the current deployment assumptions.
+- The Prometheus exposition endpoint at `GET /metrics` is open by default so
+  existing scrape configs keep working; setting `CALIBER_METRICS_TOKEN_ENV` to a
+  secret source makes it require `Authorization: Bearer <token>`.
 - Feedback entries are attributed to the authenticated actor and stored in
   MLflow as human assessments.
 
