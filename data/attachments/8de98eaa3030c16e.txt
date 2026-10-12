@@ -1,2 +1,0 @@
-WARNING  caliber.extensibility.registry:registry.py:266 optimizer plugin broken-plugin failed to load: RuntimeError: plugin blew up on import
-WARNING  caliber.extensibility.registry:registry.py:266 optimizer plugin broken-plugin failed to load: RuntimeError: plugin blew up on import
