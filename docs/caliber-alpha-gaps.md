@@ -61,7 +61,7 @@ authorization, install, or release-process fix, sized from one line to a few hun
 | Id | Blocker | Why it blocks | Size |
 | --- | --- | --- | --- |
 | [P0-1](#p0-1) | Apply, prompt promote and prompt rollback have **no project authorization**. Any operator can change another project's live prompt. Any signed-in user can read every project's candidates. | Breaks the project/role model on the alpha's single core mutation. `[exec]` | S–M |
-| [P0-2](#p0-2) | **Apply deadlocks itself** when CALIBER and MLflow share one SQLite file. That is the default of `run-dev.sh` and of the alpha E2E harness. The existing docs misattribute this to "worker contention". | The alpha's only E2E proof fails on its default harness. `[exec]` | S |
+| [P0-2](#p0-2) | **Apply deadlocks itself** when CALIBER and MLflow share one SQLite file. That is the default of `run-dev.sh` and of the alpha E2E harness. The existing docs misattribute this to "worker contention". | The alpha's only E2E proof fails on its default harness. `[exec]` | M (S with the documented fallback) |
 | [P0-3](#p0-3) | The **default `fake` promoter** makes Apply return "applied" and write `promote` audit rows while nothing changes in MLflow. | A false release success on the documented native path. `[exec]` | S |
 | [P0-4](#p0-4) | **Simulated evaluation evidence is presented as real.** Every run reports canned scores of 0.94 vs 0.88 on "120 examples", whatever the dataset. These numbers are persisted into gate, audit and approval records with no provider marker. | The product's purpose is evidence-gated release. `[exec]` | S–M |
 | [P0-5](#p0-5) | **No documented install path works as written.** The native paths never migrate the DB, and the bootstrap admin gets only viewer scope. The wheel has no migrate command. The docker path is unverified end to end. | A second person cannot install the alpha. `[exec]` | M |
@@ -241,7 +241,6 @@ Status legend:
 ### P0-1
 
 - **Gap:** Project authorization is missing on the release path (Apply, request-changes, job reads, prompt promote/rollback, prompt test-run list)
-
 - **Category:** Authorization / project isolation.
 - **Current state:**
   - `routes/jobs.py`:
@@ -296,7 +295,6 @@ Status legend:
 ### P0-2
 
 - **Gap:** Apply deadlocks itself when CALIBER and MLflow share one SQLite file, and the docs blame worker contention
-
 - **Category:** Correctness / transaction design / dev defaults.
 - **Current state:**
   - `apply_job` claims the job with an **uncommitted** `UPDATE … SET status='applying'` and flushes a `CaliberApprovalRequest`. Still inside that open write transaction, it calls `apply_candidate → promote_bundle → MLflowPromoter.promote → mlflow.genai.register_prompt` (`routes/jobs.py:328-372`, commit at 390).
@@ -308,17 +306,21 @@ Status legend:
   - Starting CALIBER with both stores on one SQLite file is refused or loudly warned.
   - The docs state the real cause.
 - **Evidence (`[exec]`, three reviewers):**
-  - Shared file with **all background loops off**: 502 `database is locked` after 21.1 s, on 4 of 4 attempts.
+  - Shared file on a live server: 502 `database is locked` after 20.5–20.7 s, on 4 of 4 attempts.
+  - Shared file with **all background loops off**: the same 502 after 21.1 s. This rules out worker contention as the cause.
   - A standalone probe registering a prompt inside an uncommitted CALIBER transaction failed after 20.7 s with the identical error. With the transaction committed first, it succeeded in 0.0 s.
   - MLflow on its own SQLite file: Apply 200 in 3.4 s.
-  - The alpha spec fails at Apply on the shared file (3 runs by two reviewers). It passes on separate files with 1 or 4 server workers, and on PostgreSQL.
+  - The alpha spec fails at Apply on the shared file (4 runs by three reviewers). It passes on separate files with 1 or 4 server workers, and on PostgreSQL.
 - **Why it matters:** This is the alpha's only end-to-end proof and the `make dev` path. Any single-file SQLite install with a real promoter can never release.
 - **Recommended fix:**
   1. **Code (intent-first Apply):**
      - Commit the `candidate_ready → applying` claim and the approval row before invoking the promoter, mirroring `release_operations.prepare_prompt_alias_release`.
      - On a promoter error, run a compensating transaction back to `candidate_ready`, with an audit row for the failed attempt.
      - Leave jobs whose release operation is `applying` or `reconcile_required` to the reconciler.
+     - Committing the claim first opens a new crash window: a process that dies between the commit and the promoter call leaves the job `applying` with no release operation, and nothing sweeps that today (the reconciler scans operations, not jobs). Add a janitor rule that reverts such a job to `candidate_ready` once its heartbeat is older than the stale threshold, and add `applying` to `_VALID_STATUSES` in `routes/jobs.py` so the state is at least listable.
      - Preserve the 409 for a concurrent second Apply.
+
+     If (1) cannot land in time, the minimal acceptable alternative is (2) + (3) + (4) alone: the self-deadlock then cannot occur on any documented path, and the open-transaction defect is recorded as a P2 follow-up.
   2. **Defaults:** default `MLFLOW_BACKEND_STORE_URI` to a separate SQLite file in `run-dev.sh`, `run-playwright-server.sh`, and the `caliber/Makefile` `tracking-server` target.
   3. **Guard:** in `create_app`, when the CALIBER DB URL and the MLflow tracking or backend URI resolve to the same SQLite file, fail startup with an actionable message. A warning is acceptable only if (1) has landed.
   4. **Docs:** correct the Day 9 report, the release notes and the spec header comment (`two-week-alpha-journey.spec.ts:33-40`).
@@ -330,9 +332,10 @@ Status legend:
   - `caliber/caliber-ui/e2e/two-week-alpha-journey.spec.ts`
 - **Dependencies:** None. Land before or with [P0-3](#p0-3). Otherwise flipping the default promoter to `mlflow` turns a false success into a 100% failure on the SQLite dev path.
 - **Acceptance criteria:**
-  - [ ] A pytest using a real `mlflow.genai` on a temp SQLite file **shared** with the CALIBER engine applies a `candidate_ready` job: 200, new version live.
+  - [ ] A pytest using a real `mlflow.genai` on a temp SQLite file **shared** with the CALIBER engine applies a `candidate_ready` job: 200, new version live. (Under the fallback, this criterion is replaced by the startup refusal below plus a P2 entry for the open transaction.)
   - [ ] A concurrent second Apply returns 409.
   - [ ] An injected promoter failure leaves the job `candidate_ready` with an audit row.
+  - [ ] A job left `applying` with no release operation and a stale heartbeat is reverted to `candidate_ready` by the janitor (pytest).
   - [ ] `npx playwright test e2e/two-week-alpha-journey.spec.ts` passes on the harness defaults (SQLite).
   - [ ] Startup with both stores on the same SQLite file produces the documented error (unit test).
   - [ ] No doc attributes the failure to background workers.
@@ -340,7 +343,6 @@ Status legend:
 ### P0-3
 
 - **Gap:** The default `fake` promoter makes Apply report a release that never happened
-
 - **Category:** Release truthfulness / defaults.
 - **Current state:**
   - `promoter_provider` and `artifact_store_provider` default to `"fake"` (`config.py:467-495`). README (`README.md:183-192`) and `docs/operate/local-bring-up.md:56-65` do not set them. Compose does (`deploy/caliber/compose.yaml:177-179`).
@@ -377,7 +379,6 @@ Status legend:
 ### P0-4
 
 - **Gap:** Simulated evaluation evidence is persisted and displayed as if it were real
-
 - **Category:** Evidence trustworthiness.
 - **Current state:**
   - `eval_provider` defaults to `fake` (`config.py:477-478`).
@@ -415,7 +416,6 @@ Status legend:
 ### P0-5
 
 - **Gap:** No documented install path works as written, and none is verified end to end
-
 - **Category:** Installation / onboarding / packaging.
 - **Current state:**
   - `create_app` never migrates; there is no `alembic` or `create_all` in `server.py`.
@@ -471,7 +471,6 @@ Status legend:
 ### P0-6
 
 - **Gap:** The alpha journey has no automated proof
-
 - **Category:** CI / release evidence.
 - **Current state:**
   - `caliber/caliber-ui/e2e/two-week-alpha-journey.spec.ts` runs only via `test-all.sh:78`. No workflow references it.
@@ -500,7 +499,6 @@ Status legend:
 ### P0-7
 
 - **Gap:** No release has been cut
-
 - **Category:** Release / versioning.
 - **Current state:**
   - The only tag is `caliber-v0.0.1`, at version `0.1.0.dev0`. Its GitHub Release has no assets, is not a prerelease, and is marked **Latest**.
@@ -551,7 +549,6 @@ deferral.
 ### P1-01
 
 - **Gap:** Project-bound PATs are only enforced on routes that call `resolve_identity`
-
 - **Current state:** The binding check runs in `resolve_identity` (`auth.py:350-450`). `require_user`/`require_scopes` don't run it.
 - **Expected:** A token bound to project P never acts outside P.
 - **Evidence:** `[exec]` A PAT bound to project B applied project A's job with `X-CALIBER-Project: A`, and got 200.
@@ -569,7 +566,6 @@ deferral.
 ### P1-02
 
 - **Gap:** Audit gaps on core authoring and credential actions
-
 - **Current state:** These actions write no audit row:
   - `POST /prompts` and `POST /prompts/{name}/versions` (`routes/prompts.py` ~1411, ~1635)
   - `PATCH /settings/llm`
@@ -591,7 +587,6 @@ deferral.
 ### P1-03
 
 - **Gap:** Health and readiness report healthy on an unmigrated database
-
 - **Current state:** DB checks are `SELECT 1` (`observability/readiness.py:147-152`, `routes/health.py`).
 - **Expected:** Readiness is `ready:false` with a required `schema` blocker when `caliber_alembic_version` is missing or behind the packaged head.
 - **Evidence:** `[exec]` Empty DB: `/readiness` `ready:true, blockers:[]` while every API route returned 500.
@@ -605,7 +600,6 @@ deferral.
 ### P1-04
 
 - **Gap:** An unreachable MLflow hangs writes for about 8 minutes, and the UI says nothing
-
 - **Current state:** `server.py:440` sets `MLFLOW_HTTP_REQUEST_TIMEOUT=15` but keeps MLflow's default retries. `ProviderBanner` swallows the 503 that readiness returns.
 - **Expected:** MLflow-dependent writes fail within about 30–45 s with a clear 503, and the banner shows readiness blockers.
 - **Evidence:** `[exec]` With MLflow stopped: `POST /prompts` → 502 after about 8 min. Apply → 502 after about 8.5 min, and the job correctly returned to `candidate_ready`. After restart, a retry succeeded in 0.1 s.
@@ -623,7 +617,6 @@ deferral.
 ### P1-05
 
 - **Gap:** The SPA health indicator always says "API or database unreachable"
-
 - **Current state:** `getHealth` (`caliber-ui/src/api/caliberApi.ts:979-983`) unwraps `{data}`, but `/health` returns a bare body (`routes/health.py:49-56`). The MSW mock adds an envelope (`src/test/handlers.ts:1148-1150`), which hides the mismatch.
 - **Expected:** The indicator is green on a 200 and red on a 503.
 - **Evidence:** `[exec]` Playwright against a real server: the indicator stayed "unreachable" throughout while `/health` returned 200.
@@ -642,7 +635,6 @@ deferral.
 ### P1-06
 
 - **Gap:** Administration "Store / rotate secret" returns 405
-
 - **Current state:** `putSecret` sends `POST /secrets` (`caliberApi.ts:1343-1349`). The server registers only `PUT /secrets/{name}` (`routes/secrets.py:192-195`).
 - **Expected:** The UI reaches `PUT /secrets/{name}`.
 - **Evidence:** `[exec]` `POST /secrets` → 405. This was the only unmatched call among the 375 UI calls checked against the 479 live routes.
@@ -657,7 +649,6 @@ deferral.
 ### P1-07
 
 - **Gap:** No UI to create, list or revoke personal access tokens
-
 - **Current state:** `GET/POST /auth/tokens`, `DELETE /auth/tokens/{id}` and `/rotate` exist (`routes/auth.py:657-660`). No UI calls them, and `caliberctl` has no login.
 - **Expected:** A signed-in user can issue a scoped token (shown once), list it, and revoke or rotate it.
 - **Evidence:** `[exec]` `POST /auth/tokens` with a session cookie returns 201, and the token then works on `/me`. No UI path exists.
@@ -674,7 +665,6 @@ deferral.
 ### P1-08
 
 - **Gap:** Login reports every failure as "Invalid username or password"
-
 - **Current state:** `Login.tsx:157-163` maps all errors except 429 to "invalid credentials", including network errors, 5xx and 503.
 - **Expected:**
   - 401 shows invalid credentials.
@@ -692,7 +682,6 @@ deferral.
 ### P1-09
 
 - **Gap:** Getting from `fake` to a real evaluation is undiscoverable
-
 - **Current state:**
   - The Settings LLM form writes a key into process env and shows "Configured", but `llm_provider` stays `fake`, so evaluations still return 400. Providers are built at startup (`server.py:486-495`).
   - Nothing tells the user to restart with `CALIBER_LLM_PROVIDER=openai`.
@@ -717,7 +706,6 @@ deferral.
 ### P1-10
 
 - **Gap:** Scope and maturity are not labelled, and two non-working governance surfaces look real
-
 - **Current state:**
   - **Nav.** 21 nav entries with no maturity badge. The nav opens with Workflows, Cookbooks, Agents and Plans ahead of Prompts (`components/Sidebar.tsx:198-262`).
   - **Docs chips.** Docs render a GA chip for knowledge bases, object store and assistant, whose API tags are beta or internal (`routes/openapi.py:101-125`).
@@ -751,7 +739,6 @@ deferral.
 ### P1-11
 
 - **Gap:** "Ask Aria" is on every page and always fails on the default install, and empty plans "complete"
-
 - **Current state:**
   - `assistant_engine=auto` resolves to `openai` with no key (`config.py:1043-1051`). Every turn returns 201 with content `An error occurred: OpenAIError`.
   - The TopBar toggle is unconditional (`TopBar.tsx:87-97`).
@@ -778,7 +765,6 @@ deferral.
 ### P1-12
 
 - **Gap:** Knowledge-base create accepts builds that cannot run without an object store
-
 - **Current state:**
   - KB sources must be S3 (`knowledge/schemas.py:119-131`).
   - On the default install, `POST /knowledge-bases` returned 201 after about 82 s, then the build failed with `NoCredentialsError`.
@@ -800,7 +786,6 @@ deferral.
 ### P1-13
 
 - **Gap:** Releases "What's live now" never shows prompts
-
 - **Current state:**
   - `/releases/live` returns only workflows and KBs (`routes/releases.py:788-865`; its docstring admits it).
   - The UI says "Nothing deployed yet in your visible projects" right after a prompt Apply (`Releases.tsx:455-457`).
@@ -819,7 +804,6 @@ deferral.
 ### P1-14
 
 - **Gap:** A released prompt version cannot be traced to its evidence, dataset version or approver
-
 - **Current state:**
   - MLflow versions get only the `caliber.approval_id` and `caliber.artifact_type` tags (`promoter.py:175-178`).
   - Bundle-path release evidence lacks `job_id` (`promoter.py:203-207`).
@@ -843,7 +827,6 @@ deferral.
 ### P1-15
 
 - **Gap:** Alpha documentation overclaims, and backup docs omit the prompt registry
-
 - **Current state:**
   - **Supported journey.** The README "Supported v1 journey" starts from a production trace → flagged assessment → verify. There is no feedback poller (`MLflowAssessmentClientImpl` has no caller), no UI flag action, and verify creates no job (`routes/verification.py:413`). The `post_feedback` docstring still claims polling.
   - **Missing statements.** The docs don't say:
@@ -882,7 +865,6 @@ deferral.
 ### P1-16
 
 - **Gap:** There is no regression barrier before `main`
-
 - **Current state:**
   - PRs run only `test-smoke` (106 tests) and the PG migration parity job.
   - The full suite, the 90% coverage gate, the SDK↔API parity test (`test_sdk_api_coverage.py`), `test_sdk_against_server.py` and the bare-lookup inventory run only after merge.
@@ -906,7 +888,6 @@ deferral.
 ### P1-17
 
 - **Gap:** The release artifact and the docker stack are never booted by CI
-
 - **Current state:**
   - The `package` job builds and inspects the wheel but never installs or boots it. `test_routes_static.py:315` is skipped in CI.
   - The compose job builds only the MLflow image, and only when `deploy/**` changes.
@@ -928,7 +909,6 @@ deferral.
 ### P1-18
 
 - **Gap:** SDK and CLI install instructions point at PyPI, and the CLI depends on an unpinned, unclaimed `caliber-sdk`
-
 - **Current state:**
   - `docs/sdk/guide.md:51`, `docs/sdk/cli.md:27` and `sdk/*/README.md` say `pip install caliber-sdk` / `caliber-cli`. Every name returns 404.
   - `sdk/caliber-cli/pyproject.toml` has `dependencies = ["caliber-sdk"]`.
@@ -952,7 +932,6 @@ deferral.
 ### P1-19
 
 - **Gap:** The SDK's core-journey methods are never run against a real server
-
 - **Current state:** `prompts.create`, `create_calibration_run`, `evaluations.create/wait`, `jobs.apply` and `prompts.rollback` are tested only with `httpx.MockTransport`. `test_sdk_against_server.py` covers only `eval_datasets.create` from this journey.
 - **Expected:** One in-process test drives the journey through the sync SDK.
 - **Evidence:** `[exec]` A grep over the SDK and server tests.
@@ -1123,7 +1102,7 @@ prioritization.
 | --- | --- | --- | --- |
 | Reject / request changes / quality review in the review dialog | API and SDK only | Add buttons that call the existing routes; gate them on operator scope | `pages/Prompts.tsx`, `caliberApi.ts` |
 | Separation of duties on Apply | `approved_by=actor`; no author check | Record `triggered_by`; enforce `actor != triggered_by` behind a flag | `routes/jobs.py`, model + migration |
-| Assistant `prompt_alias` pre-effect failure strands the job in `applying` | Reproduced with a probe | Revert the job on `ReleaseMutationNotStartedError`; reconciler settles stray `applying` | `release_operations.py`, `routes/jobs.py` |
+| Assistant `prompt_alias` pre-effect failure strands the job in `applying` with a `failed` operation | Reproduced with a probe | Revert the job on `ReleaseMutationNotStartedError`; extend the P0-2 janitor rule to jobs whose operation already settled `failed` | `release_operations.py`, `routes/jobs.py` |
 | `test-render` renders a demo template for non-live prompts | `routes/prompts.py:2198-2210` | Render the latest version or return 409 | `routes/prompts.py` |
 | Prompt Runs tab is assistant-judged in the browser | `Prompts.tsx:4440-4520` | Label it "assistant-judged smoke test"; move it server-side later | `pages/Prompts.tsx` |
 | Calibration jobs never get an MLflow run | Fake `experiment_id` | Resolve or create a per-prompt experiment | `prompt_targets.py`, `orchestrator/worker.py` |
