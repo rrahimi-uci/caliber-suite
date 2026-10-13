@@ -23,7 +23,13 @@ import caliber.routes.quality_reviews as quality_reviews_module
 _GATES = {"load_visible_job", "scope_jobs_to_visible_agents"}
 
 #: ``module.function`` -> why it may touch a job without calling the gate itself.
-_ALLOWED: dict[str, str] = {}
+_ALLOWED: dict[str, str] = {
+    "jobs._revert_unstarted_apply": (
+        "internal compensation for a failed Apply; its only caller is apply_job, "
+        "which has already passed load_visible_job(..., action=ACTION_APPLY) for "
+        "this same job id before anything was claimed"
+    ),
+}
 
 
 def _touches_jobs(function: ast.AST) -> bool:
