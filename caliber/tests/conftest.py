@@ -470,6 +470,32 @@ def app_config(tmp_path: Path) -> CaliberConfig:
     )
 
 
+def stamp_schema_at_head(eng: Engine) -> None:
+    """Record the packaged migration head, as ``caliber-migrate`` would.
+
+    Fixtures build the schema with ``create_all``, which writes no version row.
+    ``/readiness`` now blocks on an unmigrated database (alpha gap P1-03), so a test
+    database that stands in for a migrated one must say so.
+    """
+    from sqlalchemy import Column, MetaData, String, Table, insert
+
+    from caliber.db.migrate import VERSION_TABLE, head_revision
+
+    table = Table(VERSION_TABLE, MetaData(), Column("version_num", String(32), primary_key=True))
+    table.create(eng, checkfirst=True)
+    with eng.begin() as conn:
+        conn.execute(table.delete())
+        conn.execute(insert(table).values(version_num=head_revision()))
+
+
+def drop_schema_stamp(eng: Engine) -> None:
+    from sqlalchemy import Column, MetaData, String, Table
+
+    from caliber.db.migrate import VERSION_TABLE
+
+    Table(VERSION_TABLE, MetaData(), Column("version_num", String(32))).drop(eng, checkfirst=True)
+
+
 @pytest.fixture
 def engine(app_config: CaliberConfig) -> Iterator[Engine]:
     """Build the engine and create all tables from the model metadata.
@@ -480,9 +506,11 @@ def engine(app_config: CaliberConfig) -> Iterator[Engine]:
     """
     eng = create_engine_from_config(app_config)
     Base.metadata.create_all(eng)
+    stamp_schema_at_head(eng)
     try:
         yield eng
     finally:
+        drop_schema_stamp(eng)
         Base.metadata.drop_all(eng)
         eng.dispose()
 
