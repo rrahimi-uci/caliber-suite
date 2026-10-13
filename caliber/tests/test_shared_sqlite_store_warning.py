@@ -7,16 +7,33 @@ says so instead of staying silent.
 
 from __future__ import annotations
 
-import logging
 from pathlib import Path
 
 import pytest
 
+from caliber import server
 from caliber.config import CaliberConfig
 from caliber.db_url import shared_sqlite_store, sqlite_file_path
 from caliber.server import _warn_if_sqlite_store_is_shared
 
 _TMP = Path("/tmp")
+
+
+def _capture_warnings(monkeypatch: pytest.MonkeyPatch) -> list[str]:
+    """Collect what ``server.logger.warning`` is called with.
+
+    Patching the call, like ``tests/test_server.py`` does, rather than using
+    ``caplog``: another test earlier in a serial run can leave the ``caliber`` logger
+    or the root handlers in a state where ``caplog`` sees nothing, which is exactly how
+    these tests passed alone and failed in CI's full run.
+    """
+    messages: list[str] = []
+
+    def _warning(message: str, *args: object, **_kwargs: object) -> None:
+        messages.append(message % args if args else message)
+
+    monkeypatch.setattr(server.logger, "warning", _warning)
+    return messages
 
 
 @pytest.mark.parametrize(
@@ -48,44 +65,47 @@ def test_shared_store_detects_the_same_file_however_it_is_spelled() -> None:
 
 
 def test_warns_when_an_mlflow_env_var_points_at_the_same_file(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    messages = _capture_warnings(monkeypatch)
     monkeypatch.setenv("MLFLOW_TRACKING_URI", "sqlite:////tmp/shared.db")
-    with caplog.at_level(logging.WARNING, logger="caliber"):
-        _warn_if_sqlite_store_is_shared("sqlite+pysqlite:////tmp/shared.db")
-    messages = [r.getMessage() for r in caplog.records]
-    assert any("share one SQLite file" in m and "shared.db" in m for m in messages)
+
+    _warn_if_sqlite_store_is_shared("sqlite+pysqlite:////tmp/shared.db")
+
+    assert len(messages) == 1
+    assert "share one SQLite file" in messages[0]
+    assert str((_TMP / "shared.db").resolve()) in messages[0]
 
 
 @pytest.mark.parametrize("env", ["MLFLOW_REGISTRY_URI", "MLFLOW_BACKEND_STORE_URI"])
-def test_every_mlflow_store_variable_is_checked(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, env: str
-) -> None:
+def test_every_mlflow_store_variable_is_checked(monkeypatch: pytest.MonkeyPatch, env: str) -> None:
+    messages = _capture_warnings(monkeypatch)
     monkeypatch.delenv("MLFLOW_TRACKING_URI", raising=False)
     monkeypatch.setenv(env, "sqlite:////tmp/shared.db")
-    with caplog.at_level(logging.WARNING, logger="caliber"):
-        _warn_if_sqlite_store_is_shared("sqlite:////tmp/shared.db")
-    assert any("share one SQLite file" in r.getMessage() for r in caplog.records)
+
+    _warn_if_sqlite_store_is_shared("sqlite:////tmp/shared.db")
+
+    assert any("share one SQLite file" in m for m in messages)
 
 
 def test_no_warning_for_separate_files_or_a_remote_mlflow(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture
+    monkeypatch: pytest.MonkeyPatch,
 ) -> None:
+    messages = _capture_warnings(monkeypatch)
     for name in ("MLFLOW_TRACKING_URI", "MLFLOW_REGISTRY_URI", "MLFLOW_BACKEND_STORE_URI"):
         monkeypatch.delenv(name, raising=False)
     monkeypatch.setenv("MLFLOW_TRACKING_URI", "http://127.0.0.1:5000")
-    with caplog.at_level(logging.WARNING, logger="caliber"):
-        _warn_if_sqlite_store_is_shared("sqlite:////tmp/caliber.db")
-        monkeypatch.setenv("MLFLOW_TRACKING_URI", "sqlite:////tmp/mlflow.db")
-        _warn_if_sqlite_store_is_shared("sqlite:////tmp/caliber.db")
-    assert not any("share one SQLite file" in r.getMessage() for r in caplog.records)
+    _warn_if_sqlite_store_is_shared("sqlite:////tmp/caliber.db")
+    monkeypatch.setenv("MLFLOW_TRACKING_URI", "sqlite:////tmp/mlflow.db")
+    _warn_if_sqlite_store_is_shared("sqlite:////tmp/caliber.db")
+
+    assert not any("share one SQLite file" in m for m in messages)
 
 
-def test_create_app_emits_the_warning(
-    monkeypatch: pytest.MonkeyPatch, caplog: pytest.LogCaptureFixture, tmp_path: Path
-) -> None:
+def test_create_app_emits_the_warning(monkeypatch: pytest.MonkeyPatch, tmp_path: Path) -> None:
     from caliber.server import create_app
 
+    messages = _capture_warnings(monkeypatch)
     db = tmp_path / "both.db"
     monkeypatch.setenv("MLFLOW_TRACKING_URI", f"sqlite:///{db}")
     config = CaliberConfig.load(
@@ -95,7 +115,8 @@ def test_create_app_emits_the_warning(
             "CALIBER_BACKGROUND_TASKS_ENABLED": "false",
         }
     )
-    with caplog.at_level(logging.WARNING, logger="caliber"):
-        app = create_app(config=config)
+
+    app = create_app(config=config)
     app.state.engine.dispose()
-    assert any("share one SQLite file" in r.getMessage() for r in caplog.records)
+
+    assert any("share one SQLite file" in m for m in messages)
