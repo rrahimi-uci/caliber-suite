@@ -33,6 +33,12 @@ cut or released.
 None of the blockers requires new product capability. Each is a correctness, honesty,
 authorization, install, or release-process fix, sized from one line to a few hundred.
 
+The alpha has two tiers ([§2.2](#22-scope-decision)). The **core** tier is the prompt
+lifecycle, where every blocker sits. The **extended** tier (skills, tools, workflows and
+knowledge bases) is built and passes its tests; what it lacks is proof, prerequisites
+and labelling, which [§6](#6-p1--required-for-a-credible-usable-alpha) covers as P1
+items P1-20 to P1-24.
+
 ## How to use this document
 
 - **Audience.** An engineering agent or maintainer closing alpha gaps one PR at a time.
@@ -108,12 +114,14 @@ sync Python SDK, do the following with an audit trail and honest failure reporti
 4. Review the candidate and explicitly apply it to the live MLflow alias.
 5. See what is live and why.
 6. Roll it back.
+7. Do the equivalent for a skill, a tool and a workflow (the extended tier), and, where
+   an object store is configured, build and query a knowledge base.
 
 ### 2.2 Scope decision
 
 | Area | Alpha status | Rationale |
 | --- | --- | --- |
-| Prompts (author, version, promote, rollback) | **IN** | The core journey. |
+| Prompts (author, version, promote, rollback) | **IN (core)** | The core journey. |
 | Test sets (eval datasets) | **IN** | Evidence input. |
 | Evaluations (scorecards) with a real LLM | **IN** | Fails closed without a key (honest). Needs docs ([P1-09](#p1-09)). |
 | Calibration of prompts (MetaPrompt, GEPA) | **IN** | Produces the candidate. DSPy is reachable only through the seeded fixture, so it is not a user option. |
@@ -124,8 +132,11 @@ sync Python SDK, do the following with an audit trail and honest failure reporti
 | `caliberctl` | **IN (read/ops verbs only)** | Missing apply and rollback verbs are P2; the SDK covers them. |
 | Release-candidate "signoff factory" (Releases page, top) | **LABEL as record-only** | A GO signoff changes nothing `[exec]`. |
 | Workspace / Change Requests / environment promotion | **LABEL experimental (API/SDK/CLI)** | No UI. Release evaluation never executes on a live server `[exec]`. |
-| Skills, tools, MCP, workflows, OpenAPI integrations, object store, cookbooks | **LABEL preview** | Work offline in tests and live checks, but are not on the alpha journey. |
-| Knowledge bases | **LABEL preview, fail fast without an object store** | Needs S3/MinIO and the torch extra. |
+| Skills (author, render test, calibrate, apply as new version, rollback) | **IN (extended)** | Works offline; shares the prompt job/promoter/release machinery, so P0-1 and P0-4 cover it. Needs proof and docs ([P1-20](#p1-20)). |
+| Tools and the subprocess sandbox | **IN (extended, trusted authors)** | Works offline; registration is admin-only. The sandbox is a process boundary, not isolation, and the alpha must say so ([P1-21](#p1-21)). |
+| Workflows (design, validate, preview, publish, run, deploy, promote, rollback) | **IN (extended)** | Works live with the fake executor; 1,545 tests. Needs CI proof, runtime-queue docs, node prerequisites and honest calibration ([P1-22](#p1-22)). |
+| Knowledge bases and the object-store console | **IN (extended, infrastructure-gated)** | Requires an S3/MinIO bucket, the `knowledge-local` extra and (for ANN) PostgreSQL. Must fail fast without them ([P1-12](#p1-12), [P1-23](#p1-23)). |
+| MCP servers, OpenAPI integrations, cookbooks | **LABEL preview** | Work in tests and live checks, but need external servers or are convenience surfaces. |
 | Aria assistant and plans | **HIDE unless an engine is configured**, otherwise LABEL | Every reply is `OpenAIError` on the default install `[exec]`. |
 | Memory (mem0) | **OUT** (already off; clean 503) | — |
 | Flagged trace → verification → refinement | **OUT for alpha (document)** | No poller, no UI flag action, and verify creates no job. |
@@ -137,7 +148,9 @@ sync Python SDK, do the following with an audit trail and honest failure reporti
 | Database | **PostgreSQL** (supported). SQLite only with a **separate** MLflow store; supported for evaluation and demo after [P0-2](#p0-2). |
 | MLflow | A separate vanilla `mlflow server` (≥ 3.15) over HTTP. Embedded `mlflow server --app-name caliber` is unsupported (existing docs position). |
 | Install paths | (a) Release wheels + native `mlflow server` (no Docker); (b) docker compose stack (`make start`). Exactly one must be verified end to end by script before tagging ([P0-5](#p0-5)). |
-| Providers | `promoter`/`artifact_store` = `mlflow` by default. `eval`/`llm` may be `fake` **only when visibly marked simulated** ([P0-4](#p0-4)). Real evaluation requires an OpenAI key. |
+| Providers | `promoter`/`artifact_store` = `mlflow` by default. `eval`/`llm` may be `fake` **only when visibly marked simulated** ([P0-4](#p0-4)). Real evaluation requires an OpenAI key. The workflow executor is the fake executor whenever the LLM is fake, and must be marked the same way ([P1-22](#p1-22)). |
+| Object store | Required only for knowledge bases and the object-store console: the docker stack's MinIO (fixed in #453) or any S3 endpoint. Not required for the core tier, skills, tools or workflows without knowledge nodes. |
+| Extras | Knowledge bases need the `knowledge-local` extra (torch, sentence-transformers) and a one-time embedding-model download, or a pre-cached model. The alpha install page must say so ([P1-23](#p1-23)). |
 
 ### 2.4 Explicit non-goals for the alpha
 
@@ -152,7 +165,8 @@ These are listed so that no one spends alpha time on them:
 - Container image publication
 - Async SDK parity
 - Workspace release execution
-- pgvector/AGE production paths
+- Apache AGE graph retrieval and pgvector ANN as required paths (both stay optional flags)
+- Workflow agent nodes against a real LLM as a CI gate (fake executor proves the mechanics)
 - Trace-to-refinement automation
 - A rehearsed disaster recovery
 - Upgrade guarantees from `caliber-v0.0.1`
@@ -205,8 +219,12 @@ Status legend:
 | Alpha journey E2E spec in CI | ⛔ | Only `e2e/cookbooks` runs, on push to `main` only | IN | [P0-6](#p0-6) |
 | Required status checks on `main` | ⛔ | `required_status_checks` → 404 | IN | [P1-16](#p1-16) |
 | Tag / prerelease / changelog | ⛔ | Only `caliber-v0.0.1` (no assets, marked Latest) | IN | [P0-7](#p0-7) |
-| Skills, tools, MCP, workflows, OpenAPI integrations, cookbooks | ✅ (tests + live) | 4,242 family tests pass; workflow author→run→deploy live | label | [P1-10](#p1-10) |
-| Knowledge bases | ❌ on default install | 201, then build `NoCredentialsError` after ~82 s | label | [P1-12](#p1-12) |
+| Skills: CRUD, render, package, calibrate, rollback-as-new-version | ✅ (tests + live) | 341 tests pass; live create 201, render 200; `routes/skills.py:1346` enqueues the shared refinement job | IN (ext.) | [P1-20](#p1-20) |
+| Tools: registry, test runs, deterministic calibration, sandbox | ✅ (tests) / ⚠️ (trust) | 281 tests pass; registration admin-only (`routes/tools.py:421,505`); sandbox is a subprocess, not isolation (`config.py:1138-1151`); 16 seeded demo/memory tools `active` | IN (ext.) | [P1-21](#p1-21) |
+| Workflows: author → validate → compile → preview → publish → run → deploy | ✅ (live, fake executor) | 1,545 tests; all steps 200/201 live; approvals `configuration_required` without the run queue (`routes/capabilities.py:111`) | IN (ext.) | [P1-22](#p1-22) |
+| Workflow calibration (manifest replay) | ⚠️ | Structural scorer and `min_overall_delta=0.0` by default (`orchestrator/workflow_stages.py:595-599`); unlabelled | IN (ext.) | [P1-22](#p1-22) |
+| Knowledge bases: ingest, build, activate, query, rollback | ❌ on default install; ☑️ with an object store (tests) | 343 tests (fakes for pgvector/AGE); live default install: 201, then build `NoCredentialsError` after ~82 s | IN (ext., gated) | [P1-12](#p1-12), [P1-23](#p1-23) |
+| MCP servers, OpenAPI integrations, cookbooks | ✅ (tests + live) | 336 / 135 / 47 tests pass; MCP needs reachable servers (loopback blocked) | label | [P1-10](#p1-10) |
 | Aria chat / plans | ❌ on default install | Replies are `OpenAIError`; a 0-step plan "completes" | hide/label | [P1-11](#p1-11) |
 | Workspace releases | ❌ on live server | Evaluation stays `queued` (no executor) | label | [P1-10](#p1-10) |
 | Release-candidate signoff | ⚠️ (no effect) | Self-signoff GO 201; timeline and operations empty | label | [P1-10](#p1-10) |
@@ -233,6 +251,10 @@ Status legend:
 | CJ-12 | The same journey through the sync SDK | ⚠️ Methods exist; untested against a server. The first PAT needs curl. | P1-07, P1-19, P1-18 |
 | CJ-13 | Two projects stay isolated | ❌ Jobs, alias promote/rollback and test-run list leak or mutate across projects `[exec]` | P0-1, P1-01 |
 | CJ-14 | Alpha journey proven automatically on the tagged commit | ❌ Spec not in CI; fails on its default harness `[exec]` | P0-6, P0-2 |
+| CJ-15 | Author a skill, test-render it, calibrate, review, apply as a new version, roll back | ⚠️ Each step works by API `[exec]`/tests; no browser spec, no CI, same evidence and authorization gaps as prompts | P0-1, P0-4, P1-20 |
+| CJ-16 | Register a tool, run its tests, baseline a suite, calibrate, use it in a workflow | ⚠️ Works by tests and live API; trust boundary undocumented; no spec | P1-21 |
+| CJ-17 | Design a workflow, preview, publish, run, deploy to `dev`, promote through the gated alias, roll back | ✅ Live with the fake executor `[exec]`; specs exist but run only locally; runtime approvals need an undocumented setting | P1-22 |
+| CJ-18 | Create a knowledge base from a bucket, build, activate, query, roll back a version | ❌ on the default install `[exec]`; unverified on the docker stack | P1-12, P1-23 |
 
 ---
 
@@ -724,7 +746,7 @@ deferral.
   - **Signoff factory.** The release-candidate signoff factory sits at the top of the Releases page, and a GO signoff changes nothing (`Releases.tsx:428`, `routes/releases.py:419-487`).
   - **Workspace releases.** Workspace releases are fully exposed through API, SDK, CLI (`caliberctl workspace …`, 900 s default wait) and docs, but nothing in `src/` executes release evaluations: `claim_/complete_workspace_release_evaluation` have no runtime caller.
 - **Expected:**
-  - Non-MVA areas carry a consistent "Preview" badge in the nav and page header, and the nav leads with the core journey.
+  - Preview areas (MCP, OpenAPI integrations, cookbooks, Aria, Workspace, the signoff factory) carry a consistent "Preview" badge in the nav and page header. Extended-tier areas carry no badge once their P1 items close, and the nav leads with the core journey (Prompts, Test Sets, Evaluations, Releases) followed by Skills, Tools, Workflows and Knowledge Bases.
   - Docs chips match the API tiers.
   - The Releases signoff block is removed or bannered "Record-only. Does not deploy or roll back anything".
   - `caliberctl workspace` and the docs say "Experimental — release evaluation has no executor in this build".
@@ -792,7 +814,7 @@ deferral.
   - Probe the bucket (`head_bucket`) before persisting a run.
   - Reuse the object-store status query on the KB page.
 - **Files:** `knowledge/service.py`, `routes/knowledge_bases.py`, `pages/KnowledgeBases.tsx`.
-- **Deps:** [P1-10](#p1-10).
+- **Deps:** [P1-10](#p1-10). Part of the knowledge-base support item [P1-23](#p1-23).
 - **Acceptance:**
   - [ ] A route test with no credentials: 503 with a named reason, and no KB row or run is created.
   - [ ] Vitest: the offline banner renders and Create is disabled.
@@ -964,6 +986,141 @@ deferral.
   - [ ] The test passes offline.
   - [ ] Renaming a calibration-run payload key breaks it.
 
+### P1-20
+
+- **Gap:** Skills are in the alpha but have no journey proof, no CI spec and no task docs
+- **Category:** Extended tier / proof.
+- **Current state:**
+  - Skill CRUD, render tests, versioning and packaging work offline: 341 tests pass, and a live `POST /skills` and `POST /skills/{id}/test-render` returned 201/200 on the default install.
+  - Skill calibration (`routes/skills.py:1346`) enqueues the same `CaliberRefinementJob` as prompts, so [P0-1](#p0-1) (job authorization) and [P0-4](#p0-4) (simulated evidence) apply to skills once fixed. Rollback restores a snapshot as a new version (`artifact_capabilities.py:111`).
+  - No Playwright spec covers a skill journey (`caliber/caliber-ui/e2e/` has none), and no CI job would run it. `docs/use/skills.md` is a link page without a step-by-step journey.
+  - The SDK journey test in [P1-19](#p1-19) covers prompts only.
+- **Expected alpha state:** Author a skill → render test → test set → calibrate (SkillMetaPrompt or GEPA) → review with badged evidence → Apply (new version) → roll back, through the UI and the sync SDK, proven by a spec in CI.
+- **Evidence:** `[exec]` Live API steps and the 341-test run. `[read]` `routes/skills.py:1346`, `artifact_capabilities.py:103-116`, the e2e directory listing.
+- **Why it matters:** An area marked supported must have the same proof as the core journey, or it is a preview with a different label.
+- **Recommended fix:**
+  1. Add `e2e/skill-journey.spec.ts` (create → render → calibrate with fake providers and the opt-in → badge → Apply → rollback) to the `alpha-journey` CI job from [P0-6](#p0-6).
+  2. Extend the [P1-19](#p1-19) SDK test with the skill equivalents (`skills.create`, `skills.calibrate`, `jobs.apply`, `skills.rollback`).
+  3. Add a two-project isolation test for skill calibration jobs and `POST /skills/{id}/rollback`, using the [P0-1](#p0-1) helpers.
+  4. Turn `docs/use/skills.md` into the step-by-step journey and link it from `alpha-install.md`.
+- **Priority:** P1. Supported-tier proof; no new capability.
+- **Files:** `caliber/caliber-ui/e2e/skill-journey.spec.ts` (new), `.github/workflows/ci.yml`, `caliber/tests/test_sdk_against_server.py`, `caliber/tests/test_routes_skills*.py`, `docs/use/skills.md`.
+- **Dependencies:** [P0-1](#p0-1), [P0-4](#p0-4), [P0-6](#p0-6).
+- **Acceptance criteria:**
+  - [ ] The skill spec is green in the `alpha-journey` check.
+  - [ ] A non-member operator gets 404 on skill calibration Apply and on skill rollback (pytest).
+  - [ ] The SDK test drives the skill journey offline.
+  - [ ] The docs page maps every step to an existing UI action.
+
+### P1-21
+
+- **Gap:** Tools are in the alpha without a stated trust boundary, a journey proof, or honest built-in tool listing
+- **Category:** Extended tier / security statement / proof.
+- **Current state:**
+  - Registry, test runs, fixture suites and deterministic calibration work: 281 tests pass. Create, update and archive require `caliber.admin` (`routes/tools.py:421,505`).
+  - The built-in sandbox is a subprocess with `python -I`, an empty environment and a process-group kill. The config text says it is not a container, VM or seccomp boundary (`config.py:1138-1151`), and readiness warns "registered tool modules are unrestricted" when `CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST` is empty. A probe confirmed `open`, `import` and dunder access are blocked, but no full escape attempt was made.
+  - A fresh install lists 16 seeded demo and memory tools as `active`, including `sandbox_python` (external action) and `memory_*` tools that return error dicts while memory is disabled.
+  - No Playwright spec covers tools.
+- **Expected alpha state:**
+  - Docs state that tool authors are trusted and the sandbox is a process boundary, and the alpha install page sets or explains the module allowlist.
+  - Register → test run → baseline → calibrate → use in a workflow is proven by a spec in CI.
+  - Seeded tools are marked built-in, and memory tools are marked unavailable while memory is off.
+- **Evidence:** `[exec]` 281 tests; live `GET /tools` on a fresh install; the sandbox probe. `[read]` `config.py:1138-1151`, `workflows/memory_tools.py:43-70`.
+- **Why it matters:** A supported tool registry that executes code must say who it trusts. Unlabelled demo tools confuse the first Tools page view.
+- **Recommended fix:**
+  1. Add a "Trust boundary" section to `docs/use/tools.md` and a line in `alpha-install.md` about `CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST`.
+  2. Add `e2e/tool-journey.spec.ts` to the `alpha-journey` job.
+  3. Add `availability` and `reason` to tool list rows for memory tools when `memory_enabled` is false, and a built-in badge in `ToolRegistry.tsx`.
+- **Priority:** P1.
+- **Files:** `docs/use/tools.md`, `docs/start/alpha-install.md`, `caliber/caliber-ui/e2e/tool-journey.spec.ts` (new), `routes/tools.py`, `workflows/demo_tools.py`, `caliber-ui/src/pages/ToolRegistry.tsx`.
+- **Dependencies:** [P0-6](#p0-6), [P0-5](#p0-5).
+- **Acceptance criteria:**
+  - [ ] The tools docs page states the trust boundary and the allowlist.
+  - [ ] The tool spec is green in CI.
+  - [ ] With memory disabled, the tools list marks `memory_*` tools unavailable (route test), and the UI renders the built-in badge (Vitest).
+
+### P1-22
+
+- **Gap:** Workflows are in the alpha but their proof runs only locally, runtime approvals need an undocumented setting, node prerequisites are invisible, and workflow calibration evidence is unlabelled
+- **Category:** Extended tier / proof / honesty.
+- **Current state:**
+  - The live journey works on the default install: create → version → validate → compile → preview → publish → run → promote to `dev`, all 200/201, using the fake executor that is selected whenever the LLM provider is fake (`workflows/promoter.py:286`). 1,545 tests pass.
+  - The browser specs `build-workflows.spec.ts`, `workflow-studio.spec.ts` and `knowledge-bases.spec.ts` exist and are wired to `npm run test:e2e:workflow-platform` (`caliber/caliber-ui/package.json:28`), but no CI job runs them.
+  - `/capabilities.workflow_runs.approval_readiness.status` is `configuration_required` unless `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED` is set (`routes/capabilities.py:111`, `config.py:569`). `run-dev.sh` sets it; the install docs do not mention it.
+  - All 31 node types are listed without a prerequisite or maturity field. `external_app` is fail-closed by its allowlist, knowledge nodes need an object store, `mcp_resource` needs a reachable MCP server, and agent nodes need a real LLM.
+  - Workflow calibration (`run_workflow_eval`) defaults to the structural scorer and `min_overall_delta=0.0` (`orchestrator/workflow_stages.py:595-599`). Nothing marks those results as structural or simulated.
+  - `python_code` nodes are authorable by operators; preview refuses them and a published run blocks `import`, but this is a containment boundary, not isolation.
+- **Expected alpha state:**
+  - The workflow journey, including promotion through the gated alias and rollback, runs in CI with the fake executor.
+  - `alpha-install.md` documents the run queue and approval settings and what changes when they are off.
+  - The palette shows "needs configuration" or "needs a real LLM" on nodes whose prerequisites are unmet.
+  - Workflow calibration results carry the same `provider`/`simulated` marker as [P0-4](#p0-4), and the review UI badges them.
+  - The same trusted-author statement as [P1-21](#p1-21) covers `python_code`.
+- **Evidence:** `[exec]` The live journey and the test counts. `[read]` the cited lines.
+- **Why it matters:** Workflows are the first nav group and the largest surface. Shipping them as supported without CI proof or prerequisite labels would reproduce the prompt-path blind spots.
+- **Recommended fix:**
+  1. Add a CI job (or extend `alpha-journey`) that runs `npm run test:e2e:workflow-platform` minus the knowledge-base spec (which moves to [P1-23](#p1-23)), with `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED=true`, plus a backend test for promote → gated alias → rollback (`test_e2e_workflow_pipeline.py` already covers this; keep it in the PR gate from [P1-16](#p1-16)).
+  2. Add `requires` (object store, MCP server, real LLM, allowlist) to catalog entries in `workflows/component_catalog.py` and render it in the palette and inspector.
+  3. Stamp `simulated`/`scorer` into workflow calibration results and badge them.
+  4. Document the runtime settings and the `python_code` trust statement.
+- **Priority:** P1.
+- **Files:** `.github/workflows/ci.yml`, `workflows/component_catalog.py`, `caliber-ui/src/components/workflows/*`, `orchestrator/workflow_stages.py`, `docs/use/workflows.md`, `docs/start/alpha-install.md`.
+- **Dependencies:** [P0-4](#p0-4) (marker), [P0-6](#p0-6) (job scaffolding), [P1-21](#p1-21) (trust statement).
+- **Acceptance criteria:**
+  - [ ] `build-workflows.spec.ts` and `workflow-studio.spec.ts` are green in CI on PRs touching the backend or UI.
+  - [ ] A catalog test asserts every component declares `requires`, and the palette renders the badge for unmet prerequisites (Vitest).
+  - [ ] A workflow calibration run under the fake executor returns results with `simulated: true` (pytest) and the UI badges them.
+  - [ ] The install page documents `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED` and the approval behaviour.
+
+### P1-23
+
+- **Gap:** Knowledge bases are in the alpha only with explicit prerequisites, and nothing verifies them end to end on the stack that provides those prerequisites
+- **Category:** Extended tier / infrastructure gating / proof.
+- **Current state:**
+  - Sources must be an S3 bucket (`knowledge/schemas.py:119-131`), the object-store client defaults to `http://localhost:9000`, embeddings need the `knowledge-local` extra and a Hugging Face model download on first use, pgvector ANN is an opt-in flag, and Apache AGE is optional. pgvector and AGE are tested only against fakes; the CI PostgreSQL job runs migration parity only (`ci.yml:436-449`).
+  - On the default install, create returned 201 after about 82 s and the build failed with `NoCredentialsError` ([P1-12](#p1-12)). `GET /knowledge-bases/options` reported every embedding model `available: true` without checking that `sentence_transformers` is importable.
+  - `knowledge-bases.spec.ts` exists but runs only locally. The docker stack now has a working MinIO (#453), but no one has run the KB journey on it, and CI never starts that stack.
+  - Docs mark the KB page GA while the API tier is beta ([P1-10](#p1-10)).
+- **Expected alpha state:**
+  - `alpha-install.md` lists the KB prerequisites (object store, `knowledge-local` extra, model download or pre-cache, PostgreSQL for ANN) and the docker-stack path that satisfies them.
+  - Create → ingest → build → activate → query → version rollback is verified once on the docker stack and recorded, and runs in a CI job with MinIO and PostgreSQL services (fake embeddings are acceptable if marked simulated).
+  - Options report embedding availability truthfully, and create fails fast without an object store ([P1-12](#p1-12)).
+- **Evidence:** `[exec]` The default-install failure and the options response. `[read]` the cited files and `ci.yml`.
+- **Why it matters:** Knowledge storage is the one extended area whose prerequisites are outside the base install. Without a verified path it will be the first thing a tester reports as broken.
+- **Recommended fix:**
+  1. Document prerequisites in `alpha-install.md` and `docs/use/knowledge-bases.md`.
+  2. Add `find_spec("sentence_transformers")` to `local_embedding_block_reason` so options are honest.
+  3. Run the journey on the docker stack once; record the commands and result in the release PR.
+  4. Add a CI job (the scheduled compose job from [P1-17](#p1-17) is the natural host) that starts MinIO and PostgreSQL services and runs `knowledge-bases.spec.ts`, or a pytest equivalent, with a fake embedding provider marked simulated.
+- **Priority:** P1. Required for the knowledge-base support claim; the fail-fast half is [P1-12](#p1-12).
+- **Files:** `docs/start/alpha-install.md`, `docs/use/knowledge-bases.md`, `runtime_advisories.py` or `knowledge/service.py`, `.github/workflows/ci.yml`.
+- **Dependencies:** #453 (merged), [P0-5](#p0-5), [P1-12](#p1-12), [P1-17](#p1-17).
+- **Acceptance criteria:**
+  - [ ] With `sentence_transformers` absent, options report `available: false` with a reason naming the extra (unit test).
+  - [ ] The KB journey result on the docker stack is recorded in the release PR.
+  - [ ] A CI job with MinIO and PostgreSQL services runs the KB spec or its pytest equivalent and is green.
+  - [ ] The docs list every prerequisite before the first KB step.
+
+### P1-24
+
+- **Gap:** The extended families' mutating routes have not been probed for project isolation or audit coverage
+- **Category:** Authorization / audit / verification debt.
+- **Current state:**
+  - The two-project, two-user probes that found [P0-1](#p0-1) covered prompts, jobs, test sets, judges, evaluations, projects, members and verification items. They did not cover skill, tool, workflow or knowledge-base routes.
+  - What is known by reading: tool registration is global admin-only; workflow calibration resolves visibility with `get_visible` (`routes/workflow_calibration.py:244`); skill calibration goes through the shared jobs table, which [P0-1](#p0-1) fixes; the security review flagged `routes/gate_verdicts.py:74` (an operator can upsert a verdict for any artifact key) and the file-upload routes as unverified leads.
+  - Audit coverage for skill, tool and workflow create, publish, promote and rollback was not inventoried.
+- **Expected alpha state:** Each extended family has isolation tests on its list, get, mutate, calibrate, apply and rollback routes, modelled on the [P0-1](#p0-1) tests, and an audit row on every content-changing action.
+- **Evidence:** The S1 probe scope and its unverified-leads list; `[read]` the cited lines.
+- **Why it matters:** Promoting these families to supported extends the project/role promise to them. The prompt path shows that unverified scoping is where the worst defects were.
+- **Recommended fix:** Add `caliber/tests/test_extended_family_isolation.py` using the existing `_STRANGER` pattern from `test_routes_prompts.py`, covering skills, tools, workflows (versions, runs, deployments, calibration), knowledge bases and gate verdicts. Fix what it finds with the [P0-1](#p0-1) helpers. Inventory audit actions per family and fill gaps the way [P1-02](#p1-02) does for prompts.
+- **Priority:** P1. Verification work with a bounded scope; any confirmed cross-project mutation found by it is treated as P0.
+- **Files:** `caliber/tests/test_extended_family_isolation.py` (new), the affected route modules.
+- **Dependencies:** [P0-1](#p0-1).
+- **Acceptance criteria:**
+  - [ ] The isolation test file exists and passes, with a non-member asserted to get 404 on every mutating route of each extended family.
+  - [ ] Any failure it exposed is fixed in the same or a linked PR.
+  - [ ] Each family's create, publish/promote and rollback actions write an audit row (route tests).
+
 ---
 
 ## 7. Execution plan
@@ -985,7 +1142,11 @@ validation, self-review). Slices in the same wave can run in parallel.
 | 3 | User-path journey spec + `alpha-journey` CI job | P0-6 | Needs waves 1–2. |
 | 3 | PR gating + required checks | P1-16 | After `alpha-journey` exists. |
 | 3 | Wheel boot smoke + scheduled compose smoke | P1-17 | Reuses the verify script. |
+| 2 | Extended-family isolation and audit sweep | P1-24 | Uses the P0-1 helpers; confirmed cross-project writes become P0. |
 | 4 | Scope labelling, Releases cleanup, Workspace/CLI labels | P1-10, P1-13 | |
+| 4 | Skill and tool journeys: specs, docs, trust statement, built-in tool labels | P1-20, P1-21 | After `alpha-journey` exists. |
+| 4 | Workflow support: CI specs, runtime settings docs, node prerequisites, calibration marker | P1-22 | |
+| 5 | Knowledge-base support: prerequisites docs, docker-stack run, MinIO+Postgres CI job | P1-23 | Hosted by the scheduled compose job from P1-17. |
 | 4 | Aria gating + KB fail-fast | P1-11, P1-12 | |
 | 4 | MLflow outage behaviour | P1-04 | |
 | 4 | Lineage + SDK journey test + PAT UI + Settings provider panel | P1-14, P1-19, P1-07, P1-09 (UI) | |
@@ -1052,6 +1213,14 @@ ticked with linked evidence.
 - [ ] **P1-13, P1-14** closed. Releases shows the live prompt, and a released version links to its job, evidence, dataset version and applier.
 - [ ] **P1-15** closed. The README journey, scope note, known limitations and backup page match actual behaviour.
 
+### Extended tier
+
+- [ ] **P1-24** closed. Isolation and audit tests exist for skills, tools, workflows, knowledge bases and gate verdicts, and every cross-project write they found is fixed.
+- [ ] **P1-20** closed. The skill journey spec is green in CI, and the SDK drives it.
+- [ ] **P1-21** closed. The tool trust boundary is documented, the tool journey spec is green, and seeded tools are labelled.
+- [ ] **P1-22** closed. The workflow specs are green in CI, runtime settings are documented, node prerequisites are visible, and workflow calibration evidence is marked.
+- [ ] **P1-23** closed. Knowledge-base prerequisites are documented, the journey ran on the docker stack, and a MinIO+PostgreSQL CI job is green.
+
 ### Release cut
 
 - [ ] **P1-18** closed. The SDK/CLI docs install from release assets, and the CLI pins `caliber-sdk`.
@@ -1060,7 +1229,7 @@ ticked with linked evidence.
   - The `0.1.0a1` changelog section is dated.
   - `docs/operate/releasing.md` was followed.
   - `caliber-v0.0.1` is no longer "Latest".
-- [ ] **Post-tag check.** Someone other than the author of the release PR installed from the downloaded assets with only `alpha-install.md`, completed CJ-1 through CJ-10, and recorded the result on the release.
+- [ ] **Post-tag check.** Someone other than the author of the release PR installed from the downloaded assets with only `alpha-install.md`, completed CJ-1 through CJ-10 and CJ-15 through CJ-17 (CJ-18 on the docker stack), and recorded the result on the release.
 
 ---
 
@@ -1104,10 +1273,14 @@ prioritization.
 - **Reject and request-changes in the review dialog, P1 → P2.** The governance reviewer rated it P1. Downgraded: the review modal plus explicit Apply meets the alpha journey, and not applying is a valid outcome. Kept as P2.
 - **Aria 0-step plans, folded into P1-11.** If Aria is hidden by default, that part becomes P2.
 
-### 9.4 Removed or deferred as unsupported or out of minimal scope
+### 9.4 Scope broadened by owner decision (2026-10-13)
+
+The first draft kept skills, tools, workflows and knowledge bases as preview. The repository owner asked for them in the alpha. They were added as an **extended tier** rather than folded into the core, because their blockers differ: the core tier has correctness and honesty defects; the extended tier has proof, prerequisite and labelling gaps. The additions are P1-20 to P1-24, CJ-15 to CJ-18, the §2.3 object-store and extras rows, and the §8 "Extended tier" block. No P0 was added: none of the extended families has a reproduced correctness defect on its own path, and the shared defects (job authorization, simulated evidence) are already P0-1 and P0-4. Knowledge bases carry the most risk, since their prerequisites live outside the base install; dropping them back to preview removes only P1-23.
+
+### 9.5 Removed or deferred as unsupported or out of minimal scope
 
 - **Removed as stale.** The Day 10 claim that "uvicorn is undeclared" is resolved: the wheel declares `uvicorn>=0.34,<1`.
-- **Not alpha requirements** (listed in §2.4): a two-person rule, CSRF on by default, provider-key persistence in the secret store, PyPI publication, release automation, async SDK parity, CLI apply/rollback verbs, Workspace release execution, pgvector/AGE live coverage, and trace-to-refinement automation.
+- **Not alpha requirements** (listed in §2.4): a two-person rule, CSRF on by default, provider-key persistence in the secret store, PyPI publication, release automation, async SDK parity, CLI apply/rollback verbs, Workspace release execution, Apache AGE and pgvector as required paths, and trace-to-refinement automation.
 - **Unverified leads**, kept out of the gap list and recorded below:
   - A real-LLM stage longer than the 300 s janitor threshold may be reaped while still running, because heartbeats fire only between stages.
   - The first boot of a fresh wheel took 67–81 s.
@@ -1144,7 +1317,7 @@ prioritization.
 | Stale packaging text; `log_sink` defaults to `s3` | Boot warning | Fix comments and links; default to `stderr` | `caliber/pyproject.toml`, `config.py` |
 | Tag-triggered release workflow, GHCR images, Dependabot for docker/npm/sdk | Absent | Add `release.yml`; extend Dependabot | `.github/` |
 | UI: job poll swallows errors; workspace selector state; first-run checklist; eval progress UX; session-expiry notice; dead `target_alias` type | Various | See the individual UI fixes | `caliber-ui/src` |
-| Families: built-in tool badges, readiness for object-store browser and assistant, KB embedding availability, OpenAPI import sources, per-node maturity | Various | Small honesty fixes | families |
+| Families: readiness checks for the object-store browser and the assistant engine, OpenAPI import-source list | Various | Small honesty fixes (built-in tool badges, KB embedding availability and node prerequisites moved to P1-21/22/23) | families |
 | Tests: `MLflowPromoter.rollback` integration test, vitest retry reporting, SDK coverage floors, upgrade test from the alpha DB, opt-in live-provider smoke | — | Add after the tag | `caliber/tests`, `sdk/*` |
 | Verification queue `verify` → refinement job; UI "Flag for refinement" on traces | Documented deferral | Wire through the calibration adapter | `routes/verification.py`, `pages/Observability.tsx` |
 | Route/MSW contract test (UI calls vs live route table) | Absent; would have caught P1-05 and P1-06 | Add with the wave-1 UI fixes if cheap | `caliber/tests` or `caliber-ui/scripts` |
