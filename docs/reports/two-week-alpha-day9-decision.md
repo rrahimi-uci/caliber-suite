@@ -196,6 +196,22 @@ route, not a mock.
 
 ## A verified, pre-existing SQLite concurrency limitation (not a bug in this journey)
 
+> **Correction (2026-10-13): the cause below was wrong, and this was a bug in
+> Apply.** The failure was attributed to MLflow's write racing this server's
+> periodic background workers. A later review (`docs/caliber-alpha-gaps.md`,
+> P0-2) reproduced it with every background loop disabled, and isolated the real
+> cause: `POST /jobs/{id}/apply` claimed the job and added the approval row in an
+> *uncommitted* write transaction and then called the promoter, and the
+> promoter registers the new prompt version through MLflow's own engine. On a
+> SQLite file shared by CALIBER and MLflow that engine waited on **this request's
+> own write lock** until its busy timeout expired, so Apply failed every time on
+> that file (the observed 5/5), while PostgreSQL never hit it because row locks
+> do not block MLflow's inserts. Apply now commits its claim before the promoter
+> runs, and `tests/test_apply_shared_sqlite_store.py` reproduces the shared-file
+> shape with the real MLflow registry. The conclusion below that this is "not a
+> defect in the Apply/release code" is superseded; the investigation is kept as
+> the historical record of what was observed.
+
 With both problems above fixed, the journey ran end to end through
 Diagnosis and Calibration correctly every time, but Apply itself failed
 reproducibly (5 consecutive runs) with:

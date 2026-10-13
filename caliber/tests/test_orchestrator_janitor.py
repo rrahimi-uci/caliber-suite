@@ -344,3 +344,152 @@ async def test_start_twice_raises(session_factory: sessionmaker) -> None:  # typ
             await janitor.start()
     finally:
         await janitor.stop()
+
+
+# ---------------------------------------------------------------------------
+# Jobs stranded in ``applying`` (alpha gap P0-2)
+#
+# Apply commits its claim (candidate_ready -> applying) before it calls the
+# promoter. A process that dies in that window leaves a job nothing else would
+# touch: the release reconciler scans release operations and none exists yet.
+# ---------------------------------------------------------------------------
+
+_APPLYING_STALE = 600.0
+
+
+def _seed_applying_job(
+    session: Session, *, job_id: str, age_seconds: float, with_operation: bool = False
+) -> None:
+    from caliber.db.models import CaliberApprovalRequest, CaliberReleaseOperation
+
+    _seed_job(
+        session,
+        job_id=job_id,
+        status="applying",
+        stage="done",
+        updated_at_offset_seconds=age_seconds,
+    )
+    session.add(
+        CaliberApprovalRequest(
+            approval_id=f"AP-{job_id}",
+            job_id=job_id,
+            agent_id="agent",
+            status="approved",
+            eval_results={},
+            candidate_snapshot={"content": "x"},
+            approved_by="@op",
+        )
+    )
+    session.flush()
+    if with_operation:
+        session.add(
+            CaliberReleaseOperation(
+                operation_id=f"REL-{job_id}",
+                operation_type="promote",
+                resource_type="prompt",
+                resource_name="agent",
+                target_name="prod",
+                version_after=2,
+                actor="@op",
+                approval_id=f"AP-{job_id}",
+                status="applying",
+            )
+        )
+    session.commit()
+
+
+def _janitor(session_factory: sessionmaker) -> JanitorTask:  # type: ignore[type-arg]
+    return JanitorTask(session_factory, applying_stale_seconds=_APPLYING_STALE)
+
+
+def test_reverts_a_job_stranded_in_applying_with_no_release_operation(
+    session_factory: sessionmaker,  # type: ignore[type-arg]
+    db_session: Session,
+) -> None:
+    _seed_agent_and_item(db_session)
+    _seed_applying_job(db_session, job_id="RFN-STRANDED", age_seconds=3600)
+
+    _janitor(session_factory)._tick()
+
+    db_session.expire_all()
+    job = db_session.get(CaliberRefinementJob, "RFN-STRANDED")
+    assert job is not None
+    assert job.status == "candidate_ready"
+    audit = (
+        db_session.query(CaliberAuditLog)
+        .filter(CaliberAuditLog.action == "revert_stale_applying")
+        .one()
+    )
+    assert audit.entity_id == "RFN-STRANDED"
+    assert audit.actor == "caliber.janitor"
+    assert audit.details["applying_stale_seconds"] == int(_APPLYING_STALE)
+
+
+def test_leaves_a_recent_applying_job_alone(
+    session_factory: sessionmaker,  # type: ignore[type-arg]
+    db_session: Session,
+) -> None:
+    """A live Apply spends its time inside a provider call, so a young
+    ``applying`` row must never be touched."""
+    _seed_agent_and_item(db_session)
+    _seed_applying_job(db_session, job_id="RFN-LIVE", age_seconds=30)
+
+    _janitor(session_factory)._tick()
+
+    db_session.expire_all()
+    job = db_session.get(CaliberRefinementJob, "RFN-LIVE")
+    assert job is not None and job.status == "applying"
+    assert db_session.query(CaliberAuditLog).count() == 0
+
+
+def test_never_touches_an_applying_job_that_has_a_release_operation(
+    session_factory: sessionmaker,  # type: ignore[type-arg]
+    db_session: Session,
+) -> None:
+    """The reconciler owns a job whose release operation exists: the provider
+    outcome may be indeterminate, and reverting here could mask a real release."""
+    _seed_agent_and_item(db_session)
+    _seed_applying_job(db_session, job_id="RFN-HAS-OP", age_seconds=7200, with_operation=True)
+
+    _janitor(session_factory)._tick()
+
+    db_session.expire_all()
+    job = db_session.get(CaliberRefinementJob, "RFN-HAS-OP")
+    assert job is not None and job.status == "applying"
+    assert (
+        db_session.query(CaliberAuditLog)
+        .filter(CaliberAuditLog.action == "revert_stale_applying")
+        .count()
+        == 0
+    )
+
+
+def test_applying_sweep_is_idempotent_and_only_reverts_the_stranded_ones(
+    session_factory: sessionmaker,  # type: ignore[type-arg]
+    db_session: Session,
+) -> None:
+    _seed_agent_and_item(db_session)
+    _seed_applying_job(db_session, job_id="RFN-A1", age_seconds=3600)
+    _seed_applying_job(db_session, job_id="RFN-A2", age_seconds=3600, with_operation=True)
+    _seed_applying_job(db_session, job_id="RFN-A3", age_seconds=10)
+
+    janitor = _janitor(session_factory)
+    janitor._tick()
+    janitor._tick()
+
+    db_session.expire_all()
+    statuses = {
+        row.job_id: row.status
+        for row in db_session.query(CaliberRefinementJob).order_by(CaliberRefinementJob.job_id)
+    }
+    assert statuses == {
+        "RFN-A1": "candidate_ready",
+        "RFN-A2": "applying",
+        "RFN-A3": "applying",
+    }
+    assert (
+        db_session.query(CaliberAuditLog)
+        .filter(CaliberAuditLog.action == "revert_stale_applying")
+        .count()
+        == 1
+    )

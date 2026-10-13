@@ -314,7 +314,7 @@ Status legend:
   - [x] Viewer member gets 403 on the alias and rollback routes.
   - [x] Non-member `GET /prompts/test-runs` excludes the other project's runs.
   - [x] A regression net covers refinement jobs (`test_job_route_gate_ratchet.py`, see fix step 6).
-  - [ ] The two-week alpha spec still passes in the browser. The backing pytest pipelines pass; the browser spec cannot pass on its default SQLite harness until [P0-2](#p0-2) lands, so it is re-verified there and in [P0-6](#p0-6).
+  - [x] The two-week alpha spec still passes in the browser: it passed on the default SQLite harness with the P0-1 gates and the P0-2 Apply fix together (see [P0-2](#p0-2)).
 
   Behavior changes to know about: a `caliber.admin` who is not a member of a project can still read its jobs but can no longer apply them or promote or roll back its prompts, because admin is deliberately not an implicit project member (`resource_access.project_role`). The same applies to every other role-gated project action.
 
@@ -333,19 +333,21 @@ Status legend:
   - Starting CALIBER with both stores on one SQLite file is refused or loudly warned.
   - The docs state the real cause.
 - **Evidence (`[exec]`, three reviewers):**
-  - Shared file with **all background loops off**: 502 `database is locked` after 21.1 s, on 4 of 4 attempts.
+  - Shared file on a live server: 502 `database is locked` after 20.5–20.7 s, on 4 of 4 attempts.
+  - Shared file with **all background loops off**: the same 502 after 21.1 s. This rules out worker contention as the cause.
   - A standalone probe registering a prompt inside an uncommitted CALIBER transaction failed after 20.7 s with the identical error. With the transaction committed first, it succeeded in 0.0 s.
   - MLflow on its own SQLite file: Apply 200 in 3.4 s.
-  - The alpha spec fails at Apply on the shared file (3 runs by two reviewers). It passes on separate files with 1 or 4 server workers, and on PostgreSQL.
+  - The alpha spec fails at Apply on the shared file (4 runs by three reviewers). It passes on separate files with 1 or 4 server workers, and on PostgreSQL.
 - **Why it matters:** This is the alpha's only end-to-end proof and the `make dev` path. Any single-file SQLite install with a real promoter can never release.
 - **Recommended fix:**
   1. **Code (intent-first Apply):**
      - Commit the `candidate_ready → applying` claim and the approval row before invoking the promoter, mirroring `release_operations.prepare_prompt_alias_release`.
      - On a promoter error, run a compensating transaction back to `candidate_ready`, with an audit row for the failed attempt.
      - Leave jobs whose release operation is `applying` or `reconcile_required` to the reconciler.
+     - Committing the claim first opens a new crash window: a process that dies between the commit and the promoter call leaves the job `applying` with no release operation, and nothing sweeps that today (the reconciler scans operations, not jobs). Add a janitor rule that reverts such a job to `candidate_ready` once it has sat unchanged past a stale window, and add `applying` to `_VALID_STATUSES` in `routes/jobs.py` so the state is at least listable.
      - Preserve the 409 for a concurrent second Apply.
-  2. **Defaults:** default `MLFLOW_BACKEND_STORE_URI` to a separate SQLite file in `run-dev.sh`, `run-playwright-server.sh`, and the `caliber/Makefile` `tracking-server` target.
-  3. **Guard:** in `create_app`, when the CALIBER DB URL and the MLflow tracking or backend URI resolve to the same SQLite file, fail startup with an actionable message. A warning is acceptable only if (1) has landed.
+  2. **Defaults:** default `MLFLOW_BACKEND_STORE_URI` to a separate SQLite file in `run-dev.sh`, `run-playwright-server.sh`, and the `caliber/Makefile` `tracking-server` target. *Not done, deliberately:* once (1) landed, a shared file works (proved by the real-MLflow test below), and moving the store would orphan the prompts in every existing dev checkout for no remaining benefit.
+  3. **Guard:** in `create_app`, when the CALIBER DB URL and the MLflow tracking or backend URI resolve to the same SQLite file, fail startup with an actionable message. A warning is acceptable only if (1) has landed. *Implemented as a warning*, since (1) has landed: refusing would break `make dev`, which works.
   4. **Docs:** correct the Day 9 report, the release notes and the spec header comment (`two-week-alpha-journey.spec.ts:33-40`).
 - **Priority:** P0. The single alpha proof fails on its own default, and the root cause is a code defect documented as an environment limit.
 - **Files:**
@@ -354,13 +356,15 @@ Status legend:
   - `docs/reports/two-week-alpha-day9-decision.md`, `docs/reports/two-week-alpha-release-notes.md`
   - `caliber/caliber-ui/e2e/two-week-alpha-journey.spec.ts`
 - **Dependencies:** None. Land before or with [P0-3](#p0-3). Otherwise flipping the default promoter to `mlflow` turns a false success into a 100% failure on the SQLite dev path.
+- **Status: implemented.** Code: `routes/jobs.py` (claim and approval committed before the promoter, `_revert_unstarted_apply`, `applying` accepted as a status filter), `orchestrator/janitor.py` (stale-`applying` sweep), `server.py` + `db_url.py` (shared-file warning). Tests: `tests/test_apply_shared_sqlite_store.py` (real MLflow on one shared SQLite file, in a subprocess), six new cases in `tests/test_routes_jobs_apply.py`, four in `tests/test_orchestrator_janitor.py`, `tests/test_shared_sqlite_store_warning.py`. The shared-file test fails against the old Apply (502, "database is locked") and passes against the fix.
 - **Acceptance criteria:**
-  - [ ] A pytest using a real `mlflow.genai` on a temp SQLite file **shared** with the CALIBER engine applies a `candidate_ready` job: 200, new version live.
-  - [ ] A concurrent second Apply returns 409.
-  - [ ] An injected promoter failure leaves the job `candidate_ready` with an audit row.
-  - [ ] `npx playwright test e2e/two-week-alpha-journey.spec.ts` passes on the harness defaults (SQLite).
-  - [ ] Startup with both stores on the same SQLite file produces the documented error (unit test).
-  - [ ] No doc attributes the failure to background workers.
+  - [x] A pytest using a real `mlflow.genai` on a temp SQLite file **shared** with the CALIBER engine applies a `candidate_ready` job: 200, new version live.
+  - [x] A second Apply of the same job returns 409 (asserted in the shared-file test and the existing apply tests).
+  - [x] An injected promoter failure leaves the job `candidate_ready` with an `apply_failed` audit row and no orphaned approval, and the job can be applied again.
+  - [x] A job left `applying` with no release operation and a stale `updated_at` is reverted to `candidate_ready` by the janitor; a job with a release operation, or a recent one, is never touched.
+  - [x] `npx playwright test e2e/two-week-alpha-journey.spec.ts` passes on the harness defaults (SQLite): 1 passed (2.3 s test, 1.6 min including server bootstrap). It failed at Apply on every earlier run on this harness.
+  - [x] Startup with both stores on the same SQLite file warns (unit tests, including through `create_app`). The plan asked for a refusal; see fix step 3.
+  - [x] No doc attributes the failure to background workers (Day 9 report, release notes and spec header carry dated corrections).
 
 ### P0-3
 
@@ -1185,9 +1189,9 @@ ticked with linked evidence.
 
 ### Security and correctness
 
-- [ ] **P0-1** closed. A non-member gets 404 and a viewer gets 403 on every job, alias, rollback and test-run route, and a regression test guards the job routes. Implemented; this box closes when the browser spec criterion above is re-verified under P0-2.
+- [x] **P0-1** closed. A non-member gets 404 and a viewer gets 403 on every job, alias, rollback and test-run route, and a regression test guards the job routes.
 - [ ] **P1-01** closed. Project-bound PATs cannot act outside their project on any route.
-- [ ] **P0-2** closed. Apply succeeds with CALIBER and MLflow on the same SQLite file in a test, or the same-file configuration is refused at startup. The Day 9 attribution is corrected.
+- [x] **P0-2** closed. Apply succeeds with CALIBER and MLflow on the same SQLite file in a test and in the browser journey, and the Day 9 attribution is corrected.
 - [ ] **P0-3** closed. With no provider env, Apply moves the real MLflow alias. No audit row claims a release that did not occur.
 - [ ] **P0-4** closed. Simulated eval results carry `provider` and `simulated` everywhere they are persisted, report true example counts, and show a non-dismissible badge in the review dialog.
 - [ ] **P1-02** closed. Prompt create, version, delete, Settings key change and trace feedback are audited.

@@ -35,6 +35,7 @@ from caliber.audit import configure_redactor
 from caliber.config import CaliberConfig
 from caliber.csrf import CSRFMiddleware, build_token_manager
 from caliber.db.session import create_engine_from_config, sessionmaker_from_engine
+from caliber.db_url import shared_sqlite_store
 from caliber.egress import EgressPolicy
 from caliber.eval.provider import EvalProvider
 from caliber.eval.provider import build_provider as build_eval_provider
@@ -117,6 +118,35 @@ def _resolve_assistant_engine_name(configured: str) -> str:
     if os.environ.get("ANTHROPIC_API_KEY"):
         return "anthropic"
     return "openai"
+
+
+#: MLflow environment variables that can point its store at a SQLite file.
+_MLFLOW_STORE_ENV_VARS = ("MLFLOW_TRACKING_URI", "MLFLOW_REGISTRY_URI", "MLFLOW_BACKEND_STORE_URI")
+
+
+def _warn_if_sqlite_store_is_shared(database_url: str) -> None:
+    """Warn when CALIBER's database and an MLflow store are the same SQLite file.
+
+    ``scripts/run-dev.sh`` and the browser-test harness do this on purpose, and it
+    works: Apply commits before it calls MLflow, so the two engines no longer wait
+    on each other during a release. SQLite still allows only one writer at a time,
+    so any *other* long write on either side makes the other wait for its busy
+    timeout. That is fine for local development and a bad surprise anywhere
+    shared, hence a warning rather than a refusal.
+    """
+
+    shared = shared_sqlite_store(
+        database_url, *(os.environ.get(name) for name in _MLFLOW_STORE_ENV_VARS)
+    )
+    if shared is None:
+        return
+    logger.warning(
+        "CALIBER's database and an MLflow store share one SQLite file (%s). That is supported "
+        "for local development, but SQLite allows a single writer, so concurrent CALIBER and "
+        "MLflow writes can wait on each other until the busy timeout. Use separate files, or "
+        "PostgreSQL, for anything shared.",
+        shared,
+    )
 
 
 def _warn_if_unsupported_python() -> None:
@@ -431,6 +461,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     )
     _warn_if_unsupported_python()
     _warn_if_known_vulnerable_dependencies()
+    _warn_if_sqlite_store_is_shared(resolved.database_url)
 
     # Bound MLflow HTTP calls so a hung tracking server can't freeze
     # request handlers. ``mlflow.search_traces`` reads this env var on
