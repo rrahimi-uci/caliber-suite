@@ -149,6 +149,31 @@ def _warn_if_sqlite_store_is_shared(database_url: str) -> None:
     )
 
 
+def _require_simulated_opt_in(config: CaliberConfig) -> None:
+    """Refuse to boot with a ``fake`` promoter or artifact store unless opted in.
+
+    Those providers simulate a release: Apply would return ``applied`` and write
+    ``promote`` audit rows while the MLflow registry is unchanged (alpha gap
+    P0-3). They stay available for tests, demos and the browser-test harness, but
+    only when the operator says so explicitly.
+    """
+    simulated = [
+        f"CALIBER_{name.upper()}=fake"
+        for name, value in (
+            ("promoter_provider", config.promoter_provider),
+            ("artifact_store_provider", config.artifact_store_provider),
+        )
+        if value.strip().lower() == "fake"
+    ]
+    if simulated and not config.allow_simulated_providers:
+        raise ValueError(
+            f"{' and '.join(simulated)} simulate releases: Apply would report success while "
+            "the MLflow registry is unchanged. Use the default (`mlflow`), or set "
+            "CALIBER_ALLOW_SIMULATED_PROVIDERS=true to run a simulation deliberately "
+            "(tests, demos)."
+        )
+
+
 def _warn_if_unsupported_python() -> None:
     """Log once when CALIBER runs outside the validated Python matrix.
 
@@ -514,6 +539,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     # standalone exported tools. Bound once so every one of those paths egresses
     # under the operator's policy rather than the safe-but-generic default.
     bind_openapi_egress_policy(EgressPolicy.from_config(resolved))
+    _require_simulated_opt_in(resolved)
     llm_provider = build_provider(resolved)
     artifact_store = build_store(
         resolved.artifact_store_provider,

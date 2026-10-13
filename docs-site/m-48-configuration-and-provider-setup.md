@@ -14,6 +14,7 @@ and event backend.
 | App ports and local bring-up | `CALIBER_PORT`, `MLFLOW_PORT`, `MLFLOW_GATEWAY_PORT` | [Local bring-up](m-32-local-bring-up.md) |
 | Metadata database | `CALIBER_DATABASE_URL` | [Platform](m-01-platform.md) |
 | LLM provider and gateway | `CALIBER_LLM_PROVIDER`, `CALIBER_LLM_BASE_URL` | [Gateways](m-10-gateways.md) |
+| Release path (promoter, artifact store) | `CALIBER_PROMOTER_PROVIDER`, `CALIBER_ARTIFACT_STORE_PROVIDER`, `CALIBER_ALLOW_SIMULATED_PROVIDERS` | [Refinement loop](m-00-refinement-loop.md) |
 | Object store | `CALIBER_OBJECT_STORE_*` | [Object store](m-07-object-store.md) |
 | Workflow file storage | `CALIBER_WORKFLOW_STORAGE_*` | [Storage and state](m-49-storage-and-state.md) |
 | Event backend | `CALIBER_WORKFLOW_RUN_EVENT_BACKEND` | [Workflows architecture](m-06-workflows.md) |

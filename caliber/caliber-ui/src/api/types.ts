@@ -874,6 +874,8 @@ export interface JobApplyResult {
   job_id: string;
   status: string;
   promotion?: Record<string, unknown>;
+  /** True when the server's fake promoter handled the apply: nothing was released. */
+  simulated?: boolean;
 }
 
 /* -------------------------------------------------------------------------- */

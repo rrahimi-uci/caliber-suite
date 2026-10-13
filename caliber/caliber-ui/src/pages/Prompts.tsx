@@ -18,6 +18,7 @@ import { Link } from "react-router-dom";
 import { caliberApi } from "@/api/caliberApi";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FilterBar } from "@/components/FilterBar";
+import { applySuccessMessage } from "@/lib/applyMessage";
 import { LIVE_ALIAS, SINGLE_ENVIRONMENT } from "@/lib/environment";
 import {
   diffLines,
@@ -6708,7 +6709,12 @@ export function PromptOptimizationTab({
         const artifactRef = readString(result.promotion?.artifact_ref);
         setReviewRun(null);
         setRunSuccess(
-          `Candidate applied. ${SINGLE_ENVIRONMENT ? "The promoted prompt version is now live." : `@${selectedPromptAlias} now points to the promoted prompt version.`}${artifactRef ? ` Artifact: ${artifactRef}.` : ""}`,
+          applySuccessMessage({
+            simulated: result.simulated,
+            artifactRef,
+            singleEnvironment: SINGLE_ENVIRONMENT,
+            alias: selectedPromptAlias,
+          }),
         );
         await refreshRuns();
       } catch (err) {
