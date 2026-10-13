@@ -46,8 +46,8 @@ VENV_PY="$CALIBER_DIR/.venv/bin/python"
 # fails here the same way it would there.
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
-ALL_JOBS=(lint type-check test-smoke migration-parity-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package alpha-install security sdk plugin-sdk cli)
-FAST_SKIP=(test compatibility integration cookbook-ui-only package alpha-install)
+ALL_JOBS=(lint type-check test-smoke migration-parity-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package alpha-install alpha-journey security sdk plugin-sdk cli)
+FAST_SKIP=(test compatibility integration cookbook-ui-only package alpha-install alpha-journey)
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -310,6 +310,20 @@ job_compose() {
     --profile app \
     --profile nats \
     config --quiet
+}
+
+# The alpha journey (alpha gap P0-6): the seeded and the user-path browser specs against an
+# isolated server with the shipped defaults. The same npm script the CI job runs.
+job_alpha_journey() {
+  cd "$UI_DIR" || return 1
+  npx playwright install chromium || return 1
+  npm run test:e2e:alpha
+  local status=$?
+  CALIBER_E2E_TMP_ROOT="$CALIBER_DIR/.tmp/alpha-journey" \
+    MLFLOW_PORT="${CALIBER_ALPHA_E2E_PORT:-5170}" \
+    bash "$CALIBER_DIR/scripts/run-playwright-server.sh" --force-cleanup || status=1
+  rm -rf "$CALIBER_DIR/.tmp/alpha-journey" "$UI_DIR/test-results"
+  return "$status"
 }
 
 # Executes docs/start/alpha-install.md against freshly built wheels in a scratch directory.
@@ -576,6 +590,7 @@ main() {
       compose) run_job compose job_compose ;;
       package) run_job package job_package ;;
       alpha-install) run_job alpha-install job_alpha_install ;;
+      alpha-journey) run_job alpha-journey job_alpha_journey ;;
       security) run_job security job_security ;;
       sdk) run_job sdk job_sdk ;;
       plugin-sdk) run_job plugin-sdk job_plugin_sdk ;;

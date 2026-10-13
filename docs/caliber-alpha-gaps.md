@@ -495,7 +495,7 @@ Status legend:
   - [x] From an installed wheel with no repo checkout, `caliber-migrate` brings an empty SQLite DB to the Alembic head (pytest runs it from an unrelated directory; the script runs the installed wheel and asserts the checkout is not on the import path).
   - [x] Following `alpha-install.md` verbatim (scripted), `/auth/session` shows `is_admin: true` for the bootstrap user.
   - [x] In that session, `POST /projects` and `POST /prompts` return 2xx, and `/readiness` `simulated` contains at most `llm`, `eval`. The prompt is also read back from the native MLflow registry.
-  - [ ] The script runs green in CI (the `Alpha install (wheels, no checkout)` job; see the PR for the run).
+  - [x] The script runs green in CI: the `Alpha install (wheels, no checkout)` job passed on PR #461 in 2 min 16 s and is a required gate in the ledger.
   - [x] Every onboarding page lists the migration step before uvicorn (asserted by `test_alpha_install_contract.py`).
   - [x] `make setup` on Python 3.13 or newer exits with an actionable message before creating a venv (tested with a stub interpreter).
   - [ ] The docker stack journey result is recorded in the release PR ([P0-7](#p0-7)).
@@ -523,11 +523,12 @@ Status legend:
 - **Priority:** P0. Without it the alpha has no automated evidence that its one promise works on the tagged commit.
 - **Files:** `.github/workflows/ci.yml`, `caliber/caliber-ui/e2e/`, `caliber/caliber-ui/package.json`, `caliber/scripts/run-playwright-server.sh`.
 - **Dependencies:** [P0-2](#p0-2), or Postgres in the job. [P0-4](#p0-4) for the badge assertion.
+- **Status: implemented; the first green run on `main` and the tag-commit run are tracked below.** Code: `caliber-ui/e2e/user-prompt-journey.spec.ts` (new), `caliber-ui/playwright.alpha.config.ts` (new, own port and state directory), `npm run test:e2e:alpha`, the `alpha-journey` job in `.github/workflows/ci.yml`, its entry in `REQUIRED_GATES` and the ledger `needs`, and `job_alpha_journey` in `scripts/ci-local.sh`. The user-path spec creates a prompt in the UI (live as v1), saves a 3-example test set, starts a MetaPrompt calibration from the Calibration stage, checks the review dialog (simulated badge and "3 evaluation examples"), applies, asserts v2 is the `prod` version in the registry, rolls back, and asserts v1. One step uses the API: the Test Sets stage generates cases through the Aria assistant, which needs a real LLM (see [P1-09](#p1-09)).
 - **Acceptance criteria:**
-  - [ ] The `alpha-journey` check runs on qualifying PRs and on `main`, and is green.
-  - [ ] Temporarily making `/jobs/{id}/apply` return 500 makes it fail (verified once in the PR).
-  - [ ] It is listed in the gate ledger.
-  - [ ] It is green on the tag commit.
+  - [ ] The `alpha-journey` check runs on qualifying PRs and on `main`, and is green. It runs on every PR (the ledger treats a skipped gate as not run); the PR carries the first run, `main` the second.
+  - [x] Temporarily making `/jobs/{id}/apply` return 500 makes it fail: verified locally, both specs failed at the review/apply step; with the original code both pass. (An earlier attempt passed only because the injected line landed inside the handler's docstring, which is why the check was repeated.)
+  - [x] It is listed in the gate ledger (`REQUIRED_GATES` and the `gate-ledger` job's `needs`, with `test_ci_gate_ledger_contract.py` keeping the names consistent).
+  - [ ] It is green on the tag commit ([P0-7](#p0-7)).
 
 ### P0-7
 
@@ -730,10 +731,12 @@ deferral.
   - Nothing tells the user to restart with `CALIBER_LLM_PROVIDER=openai`.
   - On the compose stack (eval=mlflow, LLM fake), calibration fails at eval with the developer-facing "no predict_fn … register one via MLflowEvalProvider.register_predict_fn".
   - The quickstart never says evaluation needs an LLM key.
+  - The prompt Workspace's Test Sets stage builds cases by asking the Aria assistant, so "Generate Test Cases" fails on the default fake LLM with "LLM did not return a valid JSON array. Try again." (`Prompts.tsx:4994`). A new offline user cannot build a test set on that stage; the API, or the dataset pages, can. The P0-6 journey spec creates its test set by API for this reason. `[exec]`
 - **Expected:**
   - Docs give the exact env for real evaluation.
   - Settings shows each subsystem's active provider and a restart notice.
   - The compose-path calibration error names the missing configuration.
+  - Generating test cases without a configured LLM says so ("test-case generation needs a real LLM provider") and points to adding cases by hand.
 - **Evidence:** `[exec]` `PATCH /settings/llm` → 200 `llm_provider:"fake"`, after which evaluation still returns 400. `[exec]` The compose-style providers produced the `no predict_fn` failure.
 - **Why:** The alpha is unusable for its purpose without a working path to real evaluation.
 - **Fix:**
@@ -745,6 +748,7 @@ deferral.
 - **Acceptance:**
   - [ ] Settings shows per-subsystem providers and the restart notice when `fake` (Vitest).
   - [ ] Compose-style calibration without an LLM fails with the user-facing message (pytest).
+  - [ ] Generating test cases on the fake LLM shows the configuration message, not "did not return a valid JSON array" (Vitest).
 
 ### P1-10
 
