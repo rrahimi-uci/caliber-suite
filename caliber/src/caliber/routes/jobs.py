@@ -467,6 +467,10 @@ async def apply_job(request: Request) -> JSONResponse:
         session.commit()
         approval_id = approval.approval_id
 
+        # A ``fake`` promoter (explicitly opted into) records a promotion without
+        # touching the registry. Say so in the audit rows and the response so a
+        # simulated release can never be mistaken for a real one.
+        simulated = bool(getattr(promoter, "is_simulated", False))
         try:
             outcome = apply_candidate(
                 session,
@@ -475,6 +479,7 @@ async def apply_job(request: Request) -> JSONResponse:
                 promoter=promoter,
                 actor=actor,
                 terminal_status="applied",
+                extra_audit={"simulated": True} if simulated else None,
             )
 
             audit_record(
@@ -487,6 +492,7 @@ async def apply_job(request: Request) -> JSONResponse:
                     "approval_id": approval_id,
                     "artifact_ref": outcome.promotion.get("artifact_ref"),
                     "checkpoint_ids": outcome.checkpoint_ids,
+                    "simulated": simulated,
                 },
             )
             session.commit()
@@ -503,6 +509,7 @@ async def apply_job(request: Request) -> JSONResponse:
             "job_id": job.job_id,
             "status": job.status,
             "promotion": outcome.promotion,
+            "simulated": simulated,
         }
 
     metrics.record_promotion(agent_id=agent_id, artifact_type=artifact_type)

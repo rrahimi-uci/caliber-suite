@@ -395,13 +395,14 @@ Status legend:
   - `caliber/tests/conftest.py`, `caliber/scripts/run-playwright-server.sh`
   - `.env.example`, `README.md`
 - **Dependencies:** [P0-2](#p0-2). Share one opt-in flag with [P0-4](#p0-4).
+- **Status: implemented.** Code: `config.py` (defaults `mlflow`, new `allow_simulated_providers`), `server.py` (`_require_simulated_opt_in`), `promoter.py` (`FakePromoter.is_simulated`), `routes/jobs.py` (`simulated` in the response and the `apply_candidate` and `promote` audit rows), `caliber-ui` (`lib/applyMessage.ts`, `Prompts.tsx`), `tests/conftest.py` (the suite opts in, in its one config hook), `.env.example`, config docs and changelog. Tests: `tests/test_simulated_provider_guard.py` (7), two Apply cases in `tests/test_routes_jobs_apply.py`, the shared-store subprocess test now runs on the shipped defaults, and UI unit and flow tests for the message.
 - **Acceptance criteria:**
-  - [ ] Booting with no provider env, `/readiness` `simulated` does not contain `promoter` or `artifact_store`.
-  - [ ] With no provider env, Apply creates version N+1 and moves `@prod`, or fails with an actionable error.
-  - [ ] With `fake` + opt-in, the Apply response and the audit details carry `simulated: true`, and the UI text does not say "live" (Vitest).
-  - [ ] With `promoter_provider=fake` and no opt-in, startup fails with a message naming the flag (unit test).
-  - [ ] A default boot (no provider env, no opt-in) still starts, with the LLM and evaluation simulated and marked per [P0-4](#p0-4).
-  - [ ] Full backend suite and E2E green.
+  - [x] Booting with no provider env, `/readiness` `simulated` does not contain `promoter` or `artifact_store`.
+  - [x] With no provider env, Apply creates version N+1 and moves `@prod`: the real-MLflow subprocess test runs with no provider variables and asserts a new live version and `simulated: false`.
+  - [x] With `fake` + opt-in, the Apply response and the audit details carry `simulated: true`, and the UI text does not say "live" (Vitest, helper and component flow).
+  - [x] With `promoter_provider=fake` and no opt-in, startup fails with a message naming the flag (unit test, for the promoter, the artifact store, and both in any case).
+  - [x] A default boot (no provider env, no opt-in) still starts (the LLM and evaluation stay simulated and are marked under [P0-4](#p0-4)).
+  - [x] Full backend suite and E2E green: 7,947 passed (9 load flakes under 6 parallel workers, all passing on rerun: 75 passed), and the two-week alpha browser journey passes on the default SQLite harness with the new defaults.
 
 ### P0-4
 
@@ -1192,7 +1193,7 @@ ticked with linked evidence.
 - [x] **P0-1** closed. A non-member gets 404 and a viewer gets 403 on every job, alias, rollback and test-run route, and a regression test guards the job routes.
 - [ ] **P1-01** closed. Project-bound PATs cannot act outside their project on any route.
 - [x] **P0-2** closed. Apply succeeds with CALIBER and MLflow on the same SQLite file in a test and in the browser journey, and the Day 9 attribution is corrected.
-- [ ] **P0-3** closed. With no provider env, Apply moves the real MLflow alias. No audit row claims a release that did not occur.
+- [x] **P0-3** closed. With no provider env, Apply moves the real MLflow alias. No audit row claims a release that did not occur.
 - [ ] **P0-4** closed. Simulated eval results carry `provider` and `simulated` everywhere they are persisted, report true example counts, and show a non-dismissible badge in the review dialog.
 - [ ] **P1-02** closed. Prompt create, version, delete, Settings key change and trace feedback are audited.
 

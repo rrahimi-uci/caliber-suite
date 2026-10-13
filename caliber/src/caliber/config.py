@@ -465,12 +465,12 @@ class CaliberConfig(BaseModel):
     )
 
     artifact_store_provider: str = Field(
-        default="fake",
+        default="mlflow",
         description=(
-            "Which ArtifactStore implementation to construct. ``mlflow`` reads "
-            "active prompts from the MLflow Prompt Registry via the ``@prod`` "
-            "alias convention; ``fake`` returns nothing (safe default so the "
-            "server boots without a registry configured)."
+            "Which ArtifactStore implementation to construct. ``mlflow`` (the "
+            "default) reads active prompts from the MLflow Prompt Registry via "
+            "the ``@prod`` alias convention; ``fake`` returns nothing and is "
+            "refused at startup unless CALIBER_ALLOW_SIMULATED_PROVIDERS=true."
         ),
     )
 
@@ -484,13 +484,25 @@ class CaliberConfig(BaseModel):
     )
 
     promoter_provider: str = Field(
-        default="fake",
+        default="mlflow",
         description=(
-            "Which Promoter to construct on approve. ``mlflow`` registers a "
-            "new prompt version and rotates the ``@prod`` alias; ``fake`` "
-            "records the promotion in-memory and returns a synthetic ref. "
-            "Default is ``fake`` so the server boots without an MLflow "
-            "Prompt Registry write path configured."
+            "Which Promoter to construct on approve. ``mlflow`` (the default) "
+            "registers a new prompt version and rotates the ``@prod`` alias, "
+            "the same registry prompt authoring already writes to. ``fake`` "
+            "records the promotion in memory and returns a synthetic ref, so an "
+            "Apply would report success while nothing was released; it is "
+            "refused at startup unless CALIBER_ALLOW_SIMULATED_PROVIDERS=true, "
+            "and every Apply it handles is marked ``simulated``."
+        ),
+    )
+
+    allow_simulated_providers: bool = Field(
+        default=False,
+        description=(
+            "Permit the ``fake`` promoter and ``fake`` artifact store, which "
+            "simulate a release instead of performing one. Off by default so a "
+            "first install cannot report a release that never happened; tests, "
+            "demos and the browser-test harness opt in explicitly."
         ),
     )
 
@@ -1826,6 +1838,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     ("CALIBER_ARTIFACT_STORE_PROVIDER", "artifact_store_provider", str),
     ("CALIBER_EVAL_PROVIDER", "eval_provider", str),
     ("CALIBER_PROMOTER_PROVIDER", "promoter_provider", str),
+    ("CALIBER_ALLOW_SIMULATED_PROVIDERS", "allow_simulated_providers", _flag),
     ("CALIBER_JANITOR_INTERVAL_SECONDS", "janitor_interval_seconds", float),
     ("CALIBER_JANITOR_STALE_THRESHOLD_SECONDS", "janitor_stale_threshold_seconds", float),
     ("CALIBER_WORKFLOW_RUN_RETENTION_DAYS", "workflow_run_retention_days", float),

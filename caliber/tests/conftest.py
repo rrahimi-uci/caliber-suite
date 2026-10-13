@@ -286,6 +286,15 @@ def _default_tests_to_trusted_header_auth(monkeypatch: pytest.MonkeyPatch) -> It
         # os.environ rather than special-casing one of them.
         merged = dict(environ) if environ is not None else dict(os.environ)
         merged.setdefault("CALIBER_AUTH_MODE", "trusted_header")
+        # Shipped defaults are the real ``mlflow`` promoter and artifact store, and a
+        # ``fake`` one is refused at startup without an explicit opt-in (alpha gap
+        # P0-3: a fake promoter reports "applied" while the registry is unchanged).
+        # The suite is offline and asserts the pipeline, not the registry, so it
+        # opts in here, in the one place it is meant to. A test's own environ wins,
+        # which is how tests/test_simulated_provider_guard.py covers the refusal.
+        merged.setdefault("CALIBER_PROMOTER_PROVIDER", "fake")
+        merged.setdefault("CALIBER_ARTIFACT_STORE_PROVIDER", "fake")
+        merged.setdefault("CALIBER_ALLOW_SIMULATED_PROVIDERS", "true")
         return original(merged)
 
     monkeypatch.setattr(CaliberConfig, "load", staticmethod(_load))

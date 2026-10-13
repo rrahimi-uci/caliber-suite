@@ -55,7 +55,9 @@ _SCRIPT = textwrap.dedent(
             "CALIBER_DATABASE_URL": f"sqlite+pysqlite:///{db}",
             "CALIBER_AUTH_MODE": "trusted_header",
             "CALIBER_ADMIN_USERS": "@admin",
-            "CALIBER_PROMOTER_PROVIDER": "mlflow",
+            # No promoter or artifact-store variable on purpose: this process runs outside
+            # the test config hook, so it exercises the shipped defaults (the real MLflow
+            # providers) exactly as a first install does (alpha gap P0-3).
             "CALIBER_BACKGROUND_TASKS_ENABLED": "false",
         }
     )
@@ -115,6 +117,7 @@ _SCRIPT = textwrap.dedent(
 
     headers = {"X-CALIBER-User": "@admin"}
     out = {}
+    out["promoter_is_simulated"] = bool(getattr(app.state.promoter, "is_simulated", False))
     with TestClient(app, headers=headers) as client:
         started = time.time()
         resp = client.post("/ajax-api/2.0/mlflow/caliber/jobs/RFN-SHARED/apply", json={})
@@ -154,7 +157,10 @@ def _run(tmp_path: Path) -> dict[str, object]:
 def test_apply_succeeds_when_caliber_and_mlflow_share_one_sqlite_file(tmp_path: Path) -> None:
     result = _run(tmp_path)
 
+    # With no provider variables the release path is the real MLflow one.
+    assert result["promoter_is_simulated"] is False, result
     assert result["apply_status"] == 200, result
+    assert result["apply_body"]["data"]["simulated"] is False, result  # type: ignore[index]
     # The old behavior spent ~21 s in MLflow's busy timeout and then failed with
     # "database is locked"; a healthy Apply is a few seconds at most.
     assert float(result["apply_seconds"]) < 15, result  # type: ignore[arg-type]

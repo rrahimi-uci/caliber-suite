@@ -22,7 +22,7 @@ from __future__ import annotations
 import logging
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
-from typing import Any, Protocol
+from typing import Any, ClassVar, Protocol
 
 from caliber.release_operations import (
     ReleaseOperationConflictError,
@@ -414,6 +414,10 @@ class FakePromoter:
     :class:`PromotionResult`. Tests can override the return value or wire
     a callable that simulates a transient failure.
     """
+
+    #: Read through ``CompositePromoter`` and by the Apply route so a release this
+    #: promoter handles is reported (response, audit, UI) as simulated.
+    is_simulated: ClassVar[bool] = True
 
     result: PromotionResult | None = None
     fail_with: PromoterError | None = None

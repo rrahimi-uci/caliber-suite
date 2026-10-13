@@ -29,6 +29,7 @@ then move into the deeper runtime docs when you need subsystem detail.
 | Local ports and launch | `CALIBER_PORT`, `MLFLOW_PORT`, `MLFLOW_GATEWAY_PORT` | bringing up the local suite |
 | Core runtime | `CALIBER_DATABASE_URL`, `CALIBER_LOG_SINK` | wiring the control plane and logging |
 | LLM provider and gateway | `CALIBER_LLM_PROVIDER`, `CALIBER_LLM_BASE_URL` | choosing provider routing |
+| Release path | `CALIBER_PROMOTER_PROVIDER`, `CALIBER_ARTIFACT_STORE_PROVIDER`, `CALIBER_ALLOW_SIMULATED_PROVIDERS` | choosing whether Apply performs a real MLflow release (the default) |
 | Object store | `CALIBER_OBJECT_STORE_*` | uploads, extraction, previews, log mirroring |
 | Workflow storage | `CALIBER_WORKFLOW_STORAGE_*` | run workspaces, limits, retention, signed URLs |
 | Event backend | `CALIBER_WORKFLOW_RUN_EVENT_BACKEND` | workflow queue and runtime eventing |
@@ -62,6 +63,9 @@ then move into the deeper runtime docs when you need subsystem detail.
 | `CALIBER_MEMORY_LLM_MODEL` | memory extraction model; inherits the Luna default |
 | `CALIBER_LLM_BASE_URL` | override the OpenAI-compatible base URL |
 | `CALIBER_GATEWAY_URI` | discover an MLflow AI Gateway surface |
+| `CALIBER_PROMOTER_PROVIDER` | `mlflow` (default) registers a new prompt version and moves the live alias on Apply; `fake` only simulates and needs the opt-in below |
+| `CALIBER_ARTIFACT_STORE_PROVIDER` | `mlflow` (default) reads prompts from the registry; `fake` needs the opt-in below |
+| `CALIBER_ALLOW_SIMULATED_PROVIDERS` | set `true` to permit a `fake` promoter or artifact store (tests, demos); every simulated Apply is marked `simulated` |
 
 The assistant uses the same OpenAI default through `CALIBER_ASSISTANT_MODEL`
 and `CALIBER_ASSISTANT_REASONING`. Explicit per-asset and per-call selections

@@ -7,6 +7,28 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Apply no longer deadlocks against MLflow on a shared SQLite file.** `POST /jobs/{id}/apply`
+  held its claim and approval row in an uncommitted write transaction across the call that
+  registers the new prompt version, and MLflow does that through its own engine; on one SQLite
+  file shared by CALIBER and MLflow (the `run-dev.sh` and browser-harness default) the second
+  engine waited on the first until its busy timeout, so Apply failed every time. The claim and
+  approval are now committed before the promoter runs. A failure before any release operation
+  exists reverts the job to `candidate_ready`, withdraws the unused approval and writes an
+  `apply_failed` audit row; once an operation exists the reconciler owns the job. The janitor
+  returns a job stranded in `applying` with no operation to `candidate_ready`. Startup warns when
+  CALIBER and MLflow share a SQLite file. Jobs can be filtered with `status=applying`.
+- **Apply no longer reports a release that never happened.** The promoter and artifact-store providers
+  defaulted to `fake`, so on a default install Apply returned `applied` and wrote `promote` audit
+  rows while the MLflow registry was unchanged. They now default to `mlflow`, the registry prompt
+  authoring already writes to. A `fake` promoter or artifact store is refused at startup unless
+  `CALIBER_ALLOW_SIMULATED_PROVIDERS=true`, and every Apply it handles is marked `simulated` in the
+  response, the `apply_candidate` and `promote` audit rows, and the UI, which no longer says the
+  version is live. `/readiness` therefore lists only the LLM and evaluation providers as simulated by
+  default. **Upgrade note:** a deployment that relied on the implicit `fake` promoter must set
+  `CALIBER_PROMOTER_PROVIDER=mlflow` (now the default) or opt in explicitly.
+
 ### Security
 
 - **Project authorization on the release path.** Refinement-job list, detail, targets, Apply,

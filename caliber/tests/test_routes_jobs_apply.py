@@ -598,3 +598,65 @@ def test_the_jobs_list_accepts_the_applying_status_filter(
     response = client.get("/ajax-api/2.0/mlflow/caliber/jobs?status=applying")
     assert response.status_code == 200
     assert [row["job_id"] for row in response.json()["data"]] == ["RFN-A"]
+
+
+# ---------------------------------------------------------------------------
+# A simulated release is labelled (alpha gap P0-3)
+#
+# The ``fake`` promoter (only reachable with CALIBER_ALLOW_SIMULATED_PROVIDERS)
+# records a promotion without touching the registry. The response and both audit
+# rows must say so; a real promoter must never be reported as simulated.
+# ---------------------------------------------------------------------------
+
+
+def test_apply_with_the_fake_promoter_is_marked_simulated_everywhere(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_candidate_ready_job(db_session)
+
+    response = client.post(APPLY_PATH.format(job_id="RFN-A"))
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["simulated"] is True
+    db_session.expire_all()
+    audit = {
+        row.action: row.details
+        for row in db_session.query(CaliberAuditLog).filter(
+            CaliberAuditLog.action.in_(["apply_candidate", "promote"])
+        )
+    }
+    assert audit["apply_candidate"]["simulated"] is True
+    assert audit["promote"]["simulated"] is True
+
+
+def test_apply_with_a_real_promoter_is_not_marked_simulated(
+    client: TestClient, db_session: Session
+) -> None:
+    from datetime import datetime, timezone
+
+    from caliber.promoter import PromotionRequest, PromotionResult
+
+    class RegistryPromoter:
+        """Stands in for MLflowPromoter: a promoter that performs the release."""
+
+        def promote(self, request: PromotionRequest) -> PromotionResult:
+            return PromotionResult(
+                artifact_ref=f"prompts:/{request.agent_id}/2",
+                rotated_at=datetime.now(timezone.utc),
+                details={"alias": "prod", "version": 2},
+            )
+
+    _seed_candidate_ready_job(db_session)
+    client.app.state.promoter = RegistryPromoter()  # type: ignore[attr-defined]
+
+    response = client.post(APPLY_PATH.format(job_id="RFN-A"))
+
+    assert response.status_code == 200, response.text
+    assert response.json()["data"]["simulated"] is False
+    db_session.expire_all()
+    audit = (
+        db_session.query(CaliberAuditLog).filter(CaliberAuditLog.action == "apply_candidate").one()
+    )
+    assert audit.details["simulated"] is False
+    promote = db_session.query(CaliberAuditLog).filter(CaliberAuditLog.action == "promote").one()
+    assert "simulated" not in promote.details
