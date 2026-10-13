@@ -11,6 +11,11 @@ window.DOCS_DATA = {
           "newtab": false
         },
         {
+          "href": "m-60-alpha-install.html",
+          "label": "Alpha install",
+          "newtab": false
+        },
+        {
           "href": "m-37-five-minute-quickstart.html",
           "label": "5-minute quickstart",
           "newtab": false
@@ -1160,6 +1165,32 @@ window.DOCS_DATA = {
       "version_applicability": "current main branch docs contract",
       "tags": [
         "quickstart",
+        "onboarding",
+        "setup"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-60-alpha-install.html",
+      "label": "Alpha install",
+      "section": "Start here",
+      "section_id": "start",
+      "summary": "From the release wheels to a logged-in administrator who can create a project and a prompt: install, migrate, start MLflow, configure roles and providers, verify.",
+      "audience": [
+        "developer",
+        "operator"
+      ],
+      "doc_type": "tutorial",
+      "prerequisites": [
+        "Python 3.10, 3.11 or 3.12 and the three CALIBER wheels (release assets or a source checkout)"
+      ],
+      "stability": "beta",
+      "reviewed_on": "2026-10-13",
+      "version_applicability": "0.1.0a1 alpha",
+      "tags": [
+        "install",
+        "alpha",
         "onboarding",
         "setup"
       ],

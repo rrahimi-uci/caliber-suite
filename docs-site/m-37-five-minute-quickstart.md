@@ -10,6 +10,7 @@ you decide which deeper guide you need.
 
 | Goal | Start here | Then go to |
 | --- | --- | --- |
+| Install the alpha from wheels (no checkout, no Docker) | [Alpha install](m-60-alpha-install.md) | [Local bring-up](m-32-local-bring-up.md) |
 | Run CALIBER locally | `make setup`, `make start` | [Local bring-up](m-32-local-bring-up.md) |
 | Verify a shared deployment | open the UI and check readiness | [Choose your CALIBER path](m-30-choose-your-path.md) |
 | Make the first Python call | [SDK guide](m-20-sdk-guide.md) | [Auth and project scoping](m-31-auth-and-project-scoping.md) |
@@ -29,6 +30,9 @@ Then verify:
 - CALIBER UI loads at `http://127.0.0.1:5001/caliber/`
 - the readiness surface responds
 - you can log in and reach the product shell
+
+`make start` runs the database migration for you. If you run CALIBER natively instead, run
+`caliber-migrate` before `uvicorn` (see [Alpha install](m-60-alpha-install.md)).
 
 Use [Local bring-up](m-32-local-bring-up.md) if you need the operator path
 instead of the shortest happy-path summary.

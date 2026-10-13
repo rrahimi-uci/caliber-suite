@@ -46,8 +46,8 @@ VENV_PY="$CALIBER_DIR/.venv/bin/python"
 # fails here the same way it would there.
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
-ALL_JOBS=(lint type-check test-smoke migration-parity-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package security sdk plugin-sdk cli)
-FAST_SKIP=(test compatibility integration cookbook-ui-only package)
+ALL_JOBS=(lint type-check test-smoke migration-parity-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package alpha-install security sdk plugin-sdk cli)
+FAST_SKIP=(test compatibility integration cookbook-ui-only package alpha-install)
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
 red() { printf '\033[31m%s\033[0m\n' "$*"; }
@@ -312,6 +312,12 @@ job_compose() {
     config --quiet
 }
 
+# Executes docs/start/alpha-install.md against freshly built wheels in a scratch directory.
+job_alpha_install() {
+  cd "$REPO_ROOT" || return 1
+  scripts/verify-alpha-install.sh --python "${ALPHA_INSTALL_PYTHON:-python3}"
+}
+
 # Builds the wheel and asserts the SPA is inside it — the check that catches a
 # packaging change that would ship an empty UI.
 job_package() {
@@ -569,6 +575,7 @@ main() {
       cookbook-ui-only) run_job cookbook-ui-only job_cookbook_ui_only ;;
       compose) run_job compose job_compose ;;
       package) run_job package job_package ;;
+      alpha-install) run_job alpha-install job_alpha_install ;;
       security) run_job security job_security ;;
       sdk) run_job sdk job_sdk ;;
       plugin-sdk) run_job plugin-sdk job_plugin_sdk ;;

@@ -172,6 +172,8 @@ flowchart TB
 
 ## 🚀 Quickstart
 
+> **Installing the alpha from wheels, with no checkout and no Docker?** Use [Alpha install](docs/start/alpha-install.md). It is the one install path that a script verifies end to end.
+
 ```bash
 # ── Backing services (terminal 1, from the repo root) ──
 # Starts vanilla MLflow and its Postgres/MinIO dependencies, but not the
@@ -186,7 +188,9 @@ cd caliber
 python -m venv .venv && source .venv/bin/activate
 pip install -e ".[dev,s3,postgres]"
 export CALIBER_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
+caliber-migrate   # creates or upgrades the tables; the server never does
 export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export CALIBER_ADMIN_USERS=admin CALIBER_OPERATOR_USERS=admin CALIBER_APPROVER_USERS=admin
 export CALIBER_AUTH_SESSION_COOKIE_SECURE=false
 export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true
 uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001
@@ -202,7 +206,7 @@ npm run dev
 
 The supported local development path keeps CALIBER separate from its backing services. Compose runs
 Postgres, MinIO, and vanilla MLflow; Uvicorn serves CALIBER on `:5001`; and Vite proxies `/ajax-api/*`
-to that CALIBER process by default. The insecure bootstrap flags above are loopback-only convenience
+to that CALIBER process by default. `caliber-migrate` creates the tables (the server never does), and the three role variables decide what the first login may do: with them empty, `admin` signs in as a viewer and cannot create a project. The insecure bootstrap flags above are loopback-only convenience
 settings: change the first-boot password immediately and never carry them into a network-reachable deployment.
 
 🔗 Open the native-development UI at **`http://127.0.0.1:5001/caliber/`**.

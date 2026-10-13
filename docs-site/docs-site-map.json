@@ -95,6 +95,12 @@
       "summary": "Start from the product overview, quickstart, and documentation paths."
     },
     {
+      "href": "m-60-alpha-install.html",
+      "label": "Alpha install",
+      "section": "start",
+      "nav_order": 14
+    },
+    {
       "href": "m-37-five-minute-quickstart.html",
       "label": "5-minute quickstart",
       "section": "start",

@@ -1067,6 +1067,25 @@ jobs:
           path: caliber/dist/
           retention-days: 7
 
+  alpha-install:
+    name: Alpha install (wheels, no checkout)
+    runs-on: ubuntu-latest
+    needs: [lint]
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      # Executes docs/start/alpha-install.md: builds the three wheels, installs them into a
+      # fresh venv away from the checkout, runs caliber-migrate, starts a native MLflow and
+      # CALIBER, then asserts readiness, an admin login, project and prompt creation, and a
+      # real registry write. The page and this script are kept aligned by
+      # tests/test_alpha_install_contract.py.
+      - name: Install from wheels and verify
+        working-directory: .
+        run: scripts/verify-alpha-install.sh --python python3
+
   security:
     name: Security scan
     runs-on: ubuntu-latest
@@ -1124,6 +1143,7 @@ jobs:
       - ui
       - compose
       - package
+      - alpha-install
       - security
     permissions:
       contents: read

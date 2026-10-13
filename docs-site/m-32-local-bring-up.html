@@ -91,7 +91,7 @@
         </header>
 <p>This page is the operator-first path for starting CALIBER locally and verifying that the runtime is healthy before you use deeper feature or architecture docs.</p>
 <h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
-<div class="table-wrap"><table><thead><tr><th>Path</th><th>Use when</th><th>Entry point</th></tr></thead><tbody><tr><td>Full suite</td><td>You want the complete local stack around CALIBER</td><td><code>make setup</code>, <code>make start</code></td></tr><tr><td>Standalone dev</td><td>You want the shortest supported CALIBER edit/test loop inside <code>caliber/</code></td><td><code>docker compose ... --profile app up -d mlflow</code>, then <code>uvicorn caliber.server:create_app --factory --reload --port 5001</code></td></tr><tr><td>Readiness check</td><td>You want to confirm dependency posture after boot</td><td><code>GET /ajax-api/2.0/mlflow/caliber/readiness</code></td></tr><tr><td>Recovery path</td><td>You need failure handling, not first boot</td><td><a href="m-19-runbook.html">Operations runbook</a></td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Path</th><th>Use when</th><th>Entry point</th></tr></thead><tbody><tr><td>Full suite</td><td>You want the complete local stack around CALIBER</td><td><code>make setup</code>, <code>make start</code></td></tr><tr><td>Standalone dev</td><td>You want the shortest supported CALIBER edit/test loop inside <code>caliber/</code></td><td><code>docker compose ... --profile app up -d mlflow</code>, then <code>caliber-migrate</code>, then <code>uvicorn caliber.server:create_app --factory --reload --port 5001</code></td></tr><tr><td>Readiness check</td><td>You want to confirm dependency posture after boot</td><td><code>GET /ajax-api/2.0/mlflow/caliber/readiness</code></td></tr><tr><td>Recovery path</td><td>You need failure handling, not first boot</td><td><a href="m-19-runbook.html">Operations runbook</a></td></tr></tbody></table></div>
 <h2 id="1-full-suite-path">1. Full suite path<a class="anchor" href="#1-full-suite-path" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Use the full suite when you want the local product as it is usually demonstrated: CALIBER, MLflow, storage, and the surrounding services together.</p>
 <pre class="language-bash"><code class="language-bash">make setup
@@ -105,7 +105,9 @@ make start</code></pre>
 cd caliber
 make install
 export CALIBER_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
+caliber-migrate   # creates or upgrades the tables; the server never does
 export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export CALIBER_ADMIN_USERS=admin CALIBER_OPERATOR_USERS=admin CALIBER_APPROVER_USERS=admin
 export CALIBER_AUTH_SESSION_COOKIE_SECURE=false
 export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true
 uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001</code></pre>
@@ -113,6 +115,7 @@ uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 500
 <pre class="language-bash"><code class="language-bash">cd caliber/caliber-ui
 npm install
 npm run dev</code></pre>
+<p><code>caliber-migrate</code> must run before the first start and after upgrades; the server never creates its own tables. The role variables decide what the first login may do. For an install from wheels with no checkout, use <a href="m-60-alpha-install.html">Alpha install</a>.</p>
 <p>Vite proxies API calls to the standalone CALIBER process on <code>:5001</code> by default. The insecure bootstrap flags are for trusted loopback use only; change the first-boot password immediately and never use them for a network-reachable deployment.</p>
 <h2 id="3-health-and-readiness">3. Health and readiness<a class="anchor" href="#3-health-and-readiness" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>After either path, do not assume the runtime is usable just because the process started.</p>

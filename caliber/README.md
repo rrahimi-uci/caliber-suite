@@ -75,6 +75,8 @@ cd caliber-suite
 python -m pip install -e "./caliber"
 ```
 
+**Trying the alpha without a checkout?** Follow [Alpha install](../docs/start/alpha-install.md): wheels, `caliber-migrate`, a native MLflow server, and the role and provider settings, with a script that verifies each step.
+
 For supported local development, start backing services and vanilla MLflow first, then run CALIBER separately:
 
 ```bash
@@ -84,7 +86,9 @@ docker compose -f deploy/compose.yaml --profile app up -d mlflow
 
 # From caliber/: run standalone CALIBER with backend reload enabled.
 export CALIBER_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
+caliber-migrate   # creates or upgrades the tables; the server never does
 export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export CALIBER_ADMIN_USERS=admin CALIBER_OPERATOR_USERS=admin CALIBER_APPROVER_USERS=admin
 export CALIBER_AUTH_SESSION_COOKIE_SECURE=false
 export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true
 uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001

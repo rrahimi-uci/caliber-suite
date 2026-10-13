@@ -11,7 +11,7 @@ that the runtime is healthy before you use deeper feature or architecture docs.
 | Path | Use when | Entry point |
 | --- | --- | --- |
 | Full suite | You want the complete local stack around CALIBER | `make setup`, `make start` |
-| Standalone dev | You want the shortest supported CALIBER edit/test loop inside `caliber/` | `docker compose ... --profile app up -d mlflow`, then `uvicorn caliber.server:create_app --factory --reload --port 5001` |
+| Standalone dev | You want the shortest supported CALIBER edit/test loop inside `caliber/` | `docker compose ... --profile app up -d mlflow`, then `caliber-migrate`, then `uvicorn caliber.server:create_app --factory --reload --port 5001` |
 | Readiness check | You want to confirm dependency posture after boot | `GET /ajax-api/2.0/mlflow/caliber/readiness` |
 | Recovery path | You need failure handling, not first boot | [Operations runbook](m-19-runbook.md) |
 
@@ -43,7 +43,9 @@ docker compose -f deploy/compose.yaml --profile app up -d mlflow
 cd caliber
 make install
 export CALIBER_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
+caliber-migrate   # creates or upgrades the tables; the server never does
 export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export CALIBER_ADMIN_USERS=admin CALIBER_OPERATOR_USERS=admin CALIBER_APPROVER_USERS=admin
 export CALIBER_AUTH_SESSION_COOKIE_SECURE=false
 export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true
 uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001
@@ -56,6 +58,10 @@ cd caliber/caliber-ui
 npm install
 npm run dev
 ```
+
+`caliber-migrate` must run before the first start and after upgrades; the server never creates
+its own tables. The role variables decide what the first login may do. For an install from wheels
+with no checkout, use [Alpha install](m-60-alpha-install.md).
 
 Vite proxies API calls to the standalone CALIBER process on `:5001` by default.
 The insecure bootstrap flags are for trusted loopback use only; change the

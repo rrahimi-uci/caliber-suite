@@ -46,6 +46,7 @@ REQUIRED_GATES = (
     "UI (test + build)",
     "Compose merged-config validation",
     "Wheel build (with bundled SPA)",
+    "Alpha install (wheels, no checkout)",
     "Security scan",
 )
 

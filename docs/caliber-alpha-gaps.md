@@ -490,14 +490,15 @@ Status legend:
   - `docs/start/alpha-install.md` (new), `docs/start/five-minute-quickstart.md`, `docs/operate/local-bring-up.md`, `docs/operate/configuration-and-provider-setup.md`
   - `.env.example`, root `Makefile`, `scripts/verify-alpha-install.sh` (new)
 - **Dependencies:** #453 (merged). Provider defaults from [P0-3](#p0-3).
+- **Status: implemented in code and docs; the CI run and the Docker stack journey are tracked below.** Code: `db/migrate.py` and the `caliber-migrate` console script (`pyproject.toml`), `server.py` (`_warn_if_nobody_can_log_in`, `_error_if_no_role_lists`), root `Makefile` (`PYTHON` override and the 3.10-3.12 guard in `check`). Docs: `docs/start/alpha-install.md` (registered in the docs site), plus the migration and role steps in `README.md`, `caliber/README.md`, `docs/operate/local-bring-up.md`, the quickstart and the configuration page, and a corrected `.env.example` header. Script: `scripts/verify-alpha-install.sh`, run by the `alpha-install` CI job (a required gate in the ledger) and by `scripts/ci-local.sh`. Tests: `test_migrate_command.py`, `test_bootstrap_admin_logging.py`, `test_alpha_install_contract.py`.
 - **Acceptance criteria:**
-  - [ ] From an installed wheel with no repo checkout, `caliber-migrate` brings an empty SQLite DB to the Alembic head (test).
-  - [ ] Following `alpha-install.md` verbatim (scripted), `/auth/session` shows `is_admin: true` for the bootstrap user.
-  - [ ] In that session, `POST /projects` and `POST /prompts` return 2xx, and `/readiness` `simulated` contains at most `llm`, `eval`.
-  - [ ] The script runs green in CI.
-  - [ ] Every onboarding page lists the migration step before uvicorn.
-  - [ ] `make setup` on Python ≥ 3.13 exits with an actionable message before creating a venv.
-  - [ ] The docker stack journey result is recorded in the release PR.
+  - [x] From an installed wheel with no repo checkout, `caliber-migrate` brings an empty SQLite DB to the Alembic head (pytest runs it from an unrelated directory; the script runs the installed wheel and asserts the checkout is not on the import path).
+  - [x] Following `alpha-install.md` verbatim (scripted), `/auth/session` shows `is_admin: true` for the bootstrap user.
+  - [x] In that session, `POST /projects` and `POST /prompts` return 2xx, and `/readiness` `simulated` contains at most `llm`, `eval`. The prompt is also read back from the native MLflow registry.
+  - [ ] The script runs green in CI (the `Alpha install (wheels, no checkout)` job; see the PR for the run).
+  - [x] Every onboarding page lists the migration step before uvicorn (asserted by `test_alpha_install_contract.py`).
+  - [x] `make setup` on Python 3.13 or newer exits with an actionable message before creating a venv (tested with a stub interpreter).
+  - [ ] The docker stack journey result is recorded in the release PR ([P0-7](#p0-7)).
 
 ### P0-6
 
