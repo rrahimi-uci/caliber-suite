@@ -1,16 +1,26 @@
-"""Deterministic eval provider for tests.
+"""Deterministic eval provider for tests and offline demos.
 
 The fake builds a plausible :class:`EvalComparison` from canned defaults
 that tests can override. The default behavior is "candidate slightly
 better than baseline on every dimension" — enough to clear a default
 regression gate — so a worker end-to-end test passes without bespoke
 fixture setup.
+
+**These scores are not measurements.** The numbers are constants, so the fake
+is marked simulated (:attr:`FakeEvalProvider.is_simulated`) and every record
+that stores its output carries that mark. What it does reflect honestly is the
+*shape* of the run: the example count is the real size of the pinned dataset
+(when a session factory is wired, as the server does) and the dimensions are the
+scorers that were requested, so a three-example dataset is never reported as
+"120 examples" and a Correctness run never shows invented "tone" and
+"tool_use" scores.
 """
 
 from __future__ import annotations
 
 from collections.abc import Callable
 from dataclasses import dataclass, field
+from typing import Any, ClassVar
 
 from caliber.eval.provider import EvalComparison, EvalRequest, ScoreSet, apply_scorer_weights
 
@@ -35,24 +45,35 @@ class FakeEvalProvider:
         Read-only list of every :class:`EvalRequest` ``evaluate()`` saw.
     """
 
+    #: Read by :func:`caliber.eval.provider.describe_provider` so stored results say
+    #: what produced them and that the numbers are canned.
+    provider_name: ClassVar[str] = "fake"
+    is_simulated: ClassVar[bool] = True
+
     candidate_scores: ScoreSet | None = None
     baseline_scores: ScoreSet | None = None
-    n_examples: int = 120
+    #: ``None`` (the default) reports the real size of the pinned dataset when a
+    #: session factory is wired, and 120 otherwise (a bare instance in a unit
+    #: test). An explicit value always wins.
+    n_examples: int | None = None
     eval_callable: Callable[[EvalRequest], EvalComparison] | None = None
     calls: list[EvalRequest] = field(default_factory=list)
+    session_factory: Any | None = None
 
     def evaluate(self, request: EvalRequest) -> EvalComparison:
         self.calls.append(request)
         if self.eval_callable is not None:
             return self.eval_callable(request)
-        candidate = self.candidate_scores or _default_candidate_scores()
+        candidate = self.candidate_scores or _default_candidate_scores(request.scorer_names)
         candidate = apply_scorer_weights(candidate, request.scorer_weights)
         # If the test set baseline_scores to None explicitly via an
         # attribute write *after* construction, treat it as cold-start.
         # Default at construction time produces a baseline so the default
         # comparison includes deltas.
         baseline: ScoreSet | None = (
-            self.baseline_scores if self.baseline_scores else _default_baseline_scores()
+            self.baseline_scores
+            if self.baseline_scores
+            else _default_baseline_scores(request.scorer_names)
         )
         if baseline is not None:
             baseline = apply_scorer_weights(baseline, request.scorer_weights)
@@ -63,20 +84,54 @@ class FakeEvalProvider:
             candidate=candidate,
             baseline=baseline,
             eval_dataset_id=request.eval_dataset_id,
-            n_examples=self.n_examples,
+            n_examples=self._example_count(request),
         )
 
+    def _example_count(self, request: EvalRequest) -> int:
+        """The example count to report: explicit, else the real dataset size."""
+        if self.n_examples is not None:
+            return self.n_examples
+        if self.session_factory is None:
+            return _LEGACY_DEFAULT_EXAMPLES
+        # Imported here: ``caliber.eval.predict`` pulls in the LLM stack, and a bare
+        # fake used in a unit test must not need it.
+        from caliber.eval.predict import build_db_load_dataset  # noqa: PLC0415
 
-def _default_candidate_scores() -> ScoreSet:
+        loader = build_db_load_dataset(self.session_factory)
+        try:
+            return len(loader(request.eval_dataset_id, request.eval_dataset_version))
+        except ValueError:
+            # The dataset is missing or empty. A real evaluator refuses to run on
+            # that; the simulated one keeps the offline pipeline working but reports
+            # the true size (zero) instead of inventing one.
+            return 0
+
+
+_LEGACY_DEFAULT_EXAMPLES = 120
+_CANNED_CANDIDATE_OVERALL = 0.94
+_CANNED_BASELINE_OVERALL = 0.88
+
+
+def _default_candidate_scores(scorer_names: list[str] | None = None) -> ScoreSet:
+    if scorer_names:
+        return ScoreSet(
+            overall=_CANNED_CANDIDATE_OVERALL,
+            dimensions=dict.fromkeys(scorer_names, _CANNED_CANDIDATE_OVERALL),
+        )
     return ScoreSet(
-        overall=0.94,
+        overall=_CANNED_CANDIDATE_OVERALL,
         dimensions={"factual": 0.97, "tool_use": 0.93, "tone": 0.89, "safety": 0.99},
     )
 
 
-def _default_baseline_scores() -> ScoreSet:
+def _default_baseline_scores(scorer_names: list[str] | None = None) -> ScoreSet:
+    if scorer_names:
+        return ScoreSet(
+            overall=_CANNED_BASELINE_OVERALL,
+            dimensions=dict.fromkeys(scorer_names, _CANNED_BASELINE_OVERALL),
+        )
     return ScoreSet(
-        overall=0.88,
+        overall=_CANNED_BASELINE_OVERALL,
         dimensions={"factual": 0.88, "tool_use": 0.84, "tone": 0.89, "safety": 0.99},
     )
 

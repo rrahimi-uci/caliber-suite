@@ -7803,6 +7803,8 @@ interface CalibrationReviewView {
   gateReasons: string[];
   exampleCount: number | null;
   datasetId: string | null;
+  simulated: boolean;
+  evalProvider: string | null;
 }
 
 function scoreSnapshot(value: unknown): CalibrationScoreSnapshot {
@@ -7859,6 +7861,10 @@ export function calibrationReviewView(
         ? evalResults.n_examples
         : null,
     datasetId: readString(evalResults.eval_dataset_id),
+    // Set by the server when the evaluator was the simulated one (alpha gap P0-4):
+    // its scores are canned, so they must never read as measurements.
+    simulated: evalResults.simulated === true,
+    evalProvider: readString(evalResults.provider),
   };
 }
 
@@ -7972,6 +7978,17 @@ function CalibrationApplyReviewDialog({
                 Gate: {gateLabel}
               </span>
             </div>
+            {view.simulated && (
+              <p
+                role="status"
+                data-testid="calibration-simulated-evaluation"
+                className="mb-2 rounded-lg border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900"
+              >
+                Simulated evaluation — not evidence. These scores are canned
+                by the {view.evalProvider || "fake"} evaluator, not measured.
+                Do not apply this candidate on the strength of them.
+              </p>
+            )}
             <div className="grid grid-cols-1 gap-2 sm:grid-cols-3">
               {[
                 ["Baseline", formatScore(view.baselineScore.overall)],

@@ -36,6 +36,7 @@ def record_regression_run(
     approval: CaliberApprovalRequest | None,
     comparison: EvalComparison,
     gate: Any,
+    evaluation: dict[str, object] | None = None,
 ) -> CaliberRegressionRun:
     """Persist the replay result that backs an approval decision.
 
@@ -43,12 +44,19 @@ def record_regression_run(
     a small dataclass whose public contract is ``passed``, ``reasons``, and
     ``to_json()``. Keeping that loose avoids coupling this persistence helper
     to the concrete class.
+
+    ``evaluation`` is the provenance of the scores (``{"provider", "simulated"}``,
+    see :func:`caliber.eval.provider.describe_provider`). It is stored under the
+    ``evaluation`` key of the run's ``gate`` JSON so a replay of canned scores is
+    recognizable as such from the regression record alone.
     """
     candidate_content = ""
     if isinstance(job.candidate, dict):
         raw = job.candidate.get("content")
         candidate_content = raw if isinstance(raw, str) else ""
     gate_payload = gate.to_json()
+    if evaluation is not None:
+        gate_payload = {**gate_payload, "evaluation": dict(evaluation)}
     run = CaliberRegressionRun(
         run_id=new_regression_run_id(),
         job_id=job.job_id,

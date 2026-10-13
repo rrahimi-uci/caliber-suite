@@ -35,7 +35,13 @@ from caliber.db.models import (
 )
 from caliber.db.scoping import synthetic_identity
 from caliber.eval.gate import apply_gate
-from caliber.eval.provider import EvalComparison, EvalProvider, EvalProviderError, EvalRequest
+from caliber.eval.provider import (
+    EvalComparison,
+    EvalProvider,
+    EvalProviderError,
+    EvalRequest,
+    describe_provider,
+)
 from caliber.ids import new_rework_task_id
 from caliber.regression import record_regression_run
 
@@ -157,7 +163,11 @@ def run_eval(  # noqa: PLR0915 — sequential stage: pass→candidate_ready, fai
         raise
 
     decision = apply_gate(comparison, _resolve_eval_thresholds(agent, prompt_optimization))
-    job.eval_results = _comparison_to_json(comparison, decision)
+    # Which provider produced these scores, and whether they are canned. Stored with
+    # the result, the audit rows and the regression run so a simulation can never be
+    # read later as a measurement (alpha gap P0-4).
+    evaluation = describe_provider(eval_provider)
+    job.eval_results = _comparison_to_json(comparison, decision, evaluation)
 
     previous_stage = job.current_stage
     if decision.passed:
@@ -171,6 +181,7 @@ def run_eval(  # noqa: PLR0915 — sequential stage: pass→candidate_ready, fai
             approval=None,
             comparison=comparison,
             gate=decision,
+            evaluation=evaluation,
         )
         job.status = "candidate_ready"
         job.current_stage = "done"
@@ -184,6 +195,7 @@ def run_eval(  # noqa: PLR0915 — sequential stage: pass→candidate_ready, fai
                 "from_stage": previous_stage,
                 "to_stage": "done",
                 "gate": decision.to_json(),
+                **evaluation,
             },
         )
         audit_record(
@@ -198,6 +210,7 @@ def run_eval(  # noqa: PLR0915 — sequential stage: pass→candidate_ready, fai
                 "status": regression_run.status,
                 "dataset_ids": regression_run.dataset_ids,
                 "trace_sample_ids": regression_run.trace_sample_ids,
+                **evaluation,
             },
         )
         session.commit()
@@ -218,6 +231,7 @@ def run_eval(  # noqa: PLR0915 — sequential stage: pass→candidate_ready, fai
         approval=None,
         comparison=comparison,
         gate=decision,
+        evaluation=evaluation,
     )
     audit_record(
         session,
@@ -231,6 +245,7 @@ def run_eval(  # noqa: PLR0915 — sequential stage: pass→candidate_ready, fai
             "status": regression_run.status,
             "dataset_ids": regression_run.dataset_ids,
             "trace_sample_ids": regression_run.trace_sample_ids,
+            **evaluation,
         },
     )
 
@@ -486,7 +501,9 @@ def _resolve_baseline_content(
     return None
 
 
-def _comparison_to_json(comparison: EvalComparison, decision: Any) -> dict[str, Any]:
+def _comparison_to_json(
+    comparison: EvalComparison, decision: Any, evaluation: dict[str, object] | None = None
+) -> dict[str, Any]:
     """Render the comparison + gate decision into the JSON-column shape.
 
     Mirrors the analogous helpers in :mod:`caliber.orchestrator.diagnosis`
@@ -518,6 +535,10 @@ def _comparison_to_json(comparison: EvalComparison, decision: Any) -> dict[str, 
         "n_examples": comparison.n_examples,
         "gate": decision.to_json(),
         "caliber_tags": _caliber_tags(comparison, decision),
+        # Defaults keep results built without a provider (older callers) honest:
+        # no claim either way is not the same as "real", so say "unknown".
+        "provider": (evaluation or {}).get("provider", "unknown"),
+        "simulated": bool((evaluation or {}).get("simulated", False)),
     }
 
 

@@ -64,6 +64,10 @@ _JUDGE_VALUE_TYPE_MAP: dict[Any, type] = JUDGE_VALUE_TYPE_MAP
 class MLflowEvalProvider:
     """Production EvalProvider against ``mlflow.genai.evaluate``.
 
+    ``provider_name`` identifies it in stored results (see
+    :func:`caliber.eval.provider.describe_provider`); it computes real scores, so
+    it is never marked simulated.
+
     Operator wiring (typically in the agent's own bootstrap code) registers
     a per-agent factory:
 
@@ -77,6 +81,8 @@ class MLflowEvalProvider:
     agent's code directly — the factory keeps that dependency out of the
     plugin.
     """
+
+    provider_name = "mlflow"
 
     def __init__(
         self,

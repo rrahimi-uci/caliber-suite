@@ -150,12 +150,20 @@ def _warn_if_sqlite_store_is_shared(database_url: str) -> None:
 
 
 def _require_simulated_opt_in(config: CaliberConfig) -> None:
-    """Refuse to boot with a ``fake`` promoter or artifact store unless opted in.
+    """Refuse to boot with simulated release or evidence providers unless opted in.
 
-    Those providers simulate a release: Apply would return ``applied`` and write
-    ``promote`` audit rows while the MLflow registry is unchanged (alpha gap
-    P0-3). They stay available for tests, demos and the browser-test harness, but
-    only when the operator says so explicitly.
+    Two combinations produce a result that looks real and is not (alpha gaps P0-3
+    and P0-4):
+
+    * a ``fake`` promoter or artifact store: Apply would return ``applied`` and
+      write ``promote`` audit rows while the MLflow registry is unchanged;
+    * a real LLM provider with the ``fake`` evaluation provider: genuine candidates
+      would be scored with canned numbers and pass the gate on them.
+
+    A ``fake`` LLM with a ``fake`` evaluator is the offline default and stays
+    allowed; its output is marked ``simulated`` on every stored result. All of
+    these remain available for tests, demos and the browser-test harness, but only
+    when the operator says so explicitly.
     """
     simulated = [
         f"CALIBER_{name.upper()}=fake"
@@ -165,13 +173,25 @@ def _require_simulated_opt_in(config: CaliberConfig) -> None:
         )
         if value.strip().lower() == "fake"
     ]
-    if simulated and not config.allow_simulated_providers:
-        raise ValueError(
-            f"{' and '.join(simulated)} simulate releases: Apply would report success while "
-            "the MLflow registry is unchanged. Use the default (`mlflow`), or set "
-            "CALIBER_ALLOW_SIMULATED_PROVIDERS=true to run a simulation deliberately "
-            "(tests, demos)."
-        )
+    real_llm_with_fake_eval = (
+        config.eval_provider.strip().lower() == "fake"
+        and config.llm_provider.strip().lower() not in {"", "fake"}
+    )
+    if not config.allow_simulated_providers:
+        if simulated:
+            raise ValueError(
+                f"{' and '.join(simulated)} simulate releases: Apply would report success while "
+                "the MLflow registry is unchanged. Use the default (`mlflow`), or set "
+                "CALIBER_ALLOW_SIMULATED_PROVIDERS=true to run a simulation deliberately "
+                "(tests, demos)."
+            )
+        if real_llm_with_fake_eval:
+            raise ValueError(
+                f"CALIBER_LLM_PROVIDER={config.llm_provider} is a real provider but "
+                "CALIBER_EVAL_PROVIDER=fake would score its candidates with canned numbers and "
+                "pass the gate on them. Set CALIBER_EVAL_PROVIDER=mlflow, or set "
+                "CALIBER_ALLOW_SIMULATED_PROVIDERS=true to run that combination deliberately."
+            )
 
 
 def _warn_if_unsupported_python() -> None:

@@ -1096,9 +1096,26 @@ export const caliberApi = {
     );
   },
 
-  /** GET /readiness — which providers are real vs simulated ('fake'). */
-  getProviderReadiness(signal?: AbortSignal): Promise<ProviderReadiness> {
-    return request<ProviderReadiness>("/readiness", { signal });
+  /**
+   * GET /readiness — which providers are real vs simulated ('fake').
+   *
+   * The endpoint answers 503 when a required dependency is down, but the body is
+   * the same payload (providers, `simulated`, `ready: false`, `blockers`). The
+   * provider banner must keep saying what is simulated precisely then, so a 503
+   * that carries that payload is returned, not thrown. Any other failure still
+   * throws.
+   */
+  async getProviderReadiness(signal?: AbortSignal): Promise<ProviderReadiness> {
+    try {
+      return await request<ProviderReadiness>("/readiness", { signal });
+    } catch (err) {
+      if (err instanceof ApiError && err.status === 503) {
+        const data = (err.body as unknown as { data?: ProviderReadiness } | null)
+          ?.data;
+        if (data && Array.isArray(data.simulated)) return data;
+      }
+      throw err;
+    }
   },
 
   /** GET /dashboard/summary */

@@ -76,6 +76,19 @@ class EvalRequest:
     scorer_weights: dict[str, float] = field(default_factory=dict)
 
 
+def describe_provider(provider: object) -> dict[str, object]:
+    """Identify an evaluation provider for the records its scores end up in.
+
+    ``provider`` is a short name (``fake``, ``mlflow``) and ``simulated`` is true
+    when the provider produces canned numbers instead of computing them. Both are
+    stored with every result, so the gate evidence, the audit trail and the
+    approval snapshot say what produced a score and a reader cannot mistake a
+    simulation for a measurement (alpha gap P0-4).
+    """
+    name = getattr(provider, "provider_name", None) or type(provider).__name__
+    return {"provider": str(name), "simulated": bool(getattr(provider, "is_simulated", False))}
+
+
 class EvalProviderError(Exception):
     """Raised when the eval pipeline fails (dataset missing, scorer crash, etc.).
 
@@ -152,7 +165,7 @@ def build_provider(
         # Lazy import: caliber.eval.fake imports from this module.
         from caliber.eval.fake import FakeEvalProvider  # noqa: PLC0415
 
-        return FakeEvalProvider()
+        return FakeEvalProvider(session_factory=session_factory)
     if provider_norm == "mlflow":
         # Lazy import: production impl pulls in mlflow.genai bits at
         # import time, and tests should not need it.

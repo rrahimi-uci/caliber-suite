@@ -29,6 +29,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   default. **Upgrade note:** a deployment that relied on the implicit `fake` promoter must set
   `CALIBER_PROMOTER_PROVIDER=mlflow` (now the default) or opt in explicitly.
 
+- **Simulated evaluation is no longer presented as evidence.** The `fake` evaluator reported
+  the same 0.94 vs 0.88 on "120 examples" for every dataset, and the numbers were stored in the
+  gate, audit and approval records with nothing to mark them as canned. It now reports the
+  pinned dataset's real example count and the requested scorer names, and `eval_results`, the
+  regression run and the `candidate_ready` and regression-replay audit rows carry `provider` and
+  `simulated`. The calibration review dialog and the eval comparison show a "Simulated evaluation
+  — not evidence" badge. The provider banner reads the 503 `/readiness` body and cannot be
+  dismissed while the evaluator or promoter is simulated. Startup refuses a real LLM combined with
+  the `fake` evaluator unless `CALIBER_ALLOW_SIMULATED_PROVIDERS=true`. **Upgrade note:** set
+  `CALIBER_EVAL_PROVIDER=mlflow` for real evidence, or opt in explicitly.
+
 ### Security
 
 - **Project authorization on the release path.** Refinement-job list, detail, targets, Apply,
