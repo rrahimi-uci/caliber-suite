@@ -1,0 +1,1 @@
+WARNING  caliber.trace_client:trace_client.py:493 trace detail mapping failed for T1 (data explosion); empty detail

@@ -1,0 +1,1 @@
+WARNING  caliber.events.redis_bus:redis_bus.py:151 failed to publish event to Redis: redis down

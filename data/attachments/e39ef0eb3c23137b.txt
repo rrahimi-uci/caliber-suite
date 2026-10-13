@@ -1,0 +1,3 @@
+INFO     caliber.events.nats_bus:nats_bus.py:59 NATS event bus connected (servers=['nats://example:4222'] subject=caliber.test)
+INFO     caliber.events.nats_bus:nats_bus.py:86 NATS event bus disconnected
+INFO     caliber.events.nats_bus:nats_bus.py:86 NATS event bus disconnected
