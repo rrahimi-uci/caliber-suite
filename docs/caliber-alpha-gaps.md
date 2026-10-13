@@ -618,9 +618,10 @@ deferral.
   - Add `session.commit()` after the delete audit.
 - **Files:** `routes/prompts.py`, `routes/settings.py`, `routes/observability.py`, audit tests.
 - **Deps:** None.
-- **Acceptance:**
-  - [ ] Each action produces exactly one audit row with name, version and digest. There is no secret material (route tests).
-  - [ ] The CSV export includes the new actions.
+- **Status: implemented.** `routes/prompts.py` (`prompt.create` and `prompt.create_version` through `_audit_prompt_authoring`, written in the same transaction as the hidden target; `prompt.delete` now commits), `routes/settings.py` (`settings.update_llm`, with every field validated before anything is applied), `routes/observability.py` (`trace.feedback`). Tests: new blocks at the end of `test_routes_prompts.py`, `test_settings_routes.py` and `test_routes_observability.py`.
+- **Acceptance criteria:**
+  - [x] Each action produces exactly one audit row with name, version and digest (prompt create and version), and there is no secret material: the template, key values, gateway userinfo and path, and feedback rationale text are asserted absent (route tests). A failed registration, a rejected update and a refused caller write no row.
+  - [x] The CSV export includes the new actions: the export has no action allowlist, so any row in the audit table is exported (`routes/audit.py` filters only by the query parameters).
 
 ### P1-03
 

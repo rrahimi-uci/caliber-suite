@@ -12,6 +12,7 @@ import os
 import re
 from collections.abc import Callable
 from typing import Any
+from urllib.parse import urlparse
 
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -19,10 +20,11 @@ from starlette.requests import Request
 from starlette.responses import JSONResponse
 from starlette.routing import Route
 
+from caliber.audit import record as audit_record
 from caliber.auth import SCOPE_ADMIN, SCOPE_OPERATOR, require_scopes
 from caliber.config import CaliberConfig
 from caliber.eval.gate import DEFAULT_MAX_REGRESSION_DELTA, DEFAULT_MIN_AGGREGATE_SCORE
-from caliber.routes._deps import envelope_response, parse_json_object
+from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
 from caliber.runtime_advisories import (
     RuntimeDependencyAdvisory,
     get_runtime_dependency_advisories,
@@ -1407,8 +1409,13 @@ async def get_llm_setup(request: Request) -> JSONResponse:
 
 
 async def update_llm_setup(request: Request) -> JSONResponse:
-    """Apply GPT/Claude credentials + the MLflow gateway URL at runtime (admin)."""
-    require_scopes(request, [SCOPE_ADMIN])
+    """Apply GPT/Claude credentials + the MLflow gateway URL at runtime (admin).
+
+    Every change is audited with the actor, the names of the fields changed, and masked
+    key fingerprints (never a key). A gateway URL is recorded as scheme and host only,
+    since a URL can carry credentials.
+    """
+    actor = require_scopes(request, [SCOPE_ADMIN])
     data = await parse_json_object(request)
     config = _config_from(request)
 
@@ -1416,26 +1423,51 @@ async def update_llm_setup(request: Request) -> JSONResponse:
     anthropic_key = data.get("anthropic_api_key")
     gateway_url = data.get("gateway_url")
 
-    if openai_key is not None:
-        if not isinstance(openai_key, str):
-            raise HTTPException(status_code=400, detail="'openai_api_key' must be a string")
-        if openai_key.strip():
-            os.environ[_openai_key_env(config)] = openai_key.strip()
+    # Validate everything before changing anything, so a bad field cannot leave the
+    # request half applied.
+    if openai_key is not None and not isinstance(openai_key, str):
+        raise HTTPException(status_code=400, detail="'openai_api_key' must be a string")
+    if anthropic_key is not None and not isinstance(anthropic_key, str):
+        raise HTTPException(status_code=400, detail="'anthropic_api_key' must be a string")
+    if gateway_url is not None and not isinstance(gateway_url, str):
+        raise HTTPException(status_code=400, detail="'gateway_url' must be a string")
 
-    if anthropic_key is not None:
-        if not isinstance(anthropic_key, str):
-            raise HTTPException(status_code=400, detail="'anthropic_api_key' must be a string")
-        if anthropic_key.strip():
-            os.environ[_ANTHROPIC_KEY_ENV] = anthropic_key.strip()
-
+    changed: dict[str, Any] = {}
+    if openai_key is not None and openai_key.strip():
+        os.environ[_openai_key_env(config)] = openai_key.strip()
+        changed["openai_key_fingerprint"] = _key_fingerprint(openai_key)
+    if anthropic_key is not None and anthropic_key.strip():
+        os.environ[_ANTHROPIC_KEY_ENV] = anthropic_key.strip()
+        changed["anthropic_key_fingerprint"] = _key_fingerprint(anthropic_key)
     if gateway_url is not None:
-        if not isinstance(gateway_url, str):
-            raise HTTPException(status_code=400, detail="'gateway_url' must be a string")
         # Empty string is a valid clear (route LLM traffic directly to OpenAI).
         request.app.state.config = config.model_copy(update={"llm_base_url": gateway_url.strip()})
         config = request.app.state.config
+        changed["gateway"] = _gateway_summary(gateway_url)
+
+    if changed:
+        with get_session_factory(request)() as session:
+            audit_record(
+                session,
+                actor=actor,
+                action="settings.update_llm",
+                entity_type="settings",
+                entity_id="llm",
+                details={"changed": sorted(changed), **changed},
+            )
+            session.commit()
 
     return envelope_response(LlmSetupStatusSchema.model_validate(_llm_setup_status(config)))
+
+
+def _gateway_summary(url: str) -> str:
+    """The scheme and host of a gateway URL, or ``"cleared"``; never userinfo or a path."""
+    cleaned = url.strip()
+    if not cleaned:
+        return "cleared"
+    parsed = urlparse(cleaned)
+    host = parsed.hostname or ""
+    return f"{parsed.scheme}://{host}" if parsed.scheme and host else "set"
 
 
 def register(app: Starlette) -> None:

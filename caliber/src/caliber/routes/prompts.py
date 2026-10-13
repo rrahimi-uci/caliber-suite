@@ -52,6 +52,7 @@ from caliber.db.models import (
     CaliberWorkflowVersion,
 )
 from caliber.db.scoping import apply_visibility_filter, get_visible
+from caliber.eval.evidence import content_digest_of_text
 from caliber.eval.gate import DEFAULT_MAX_REGRESSION_DELTA, DEFAULT_MIN_AGGREGATE_SCORE
 from caliber.extensibility import optimizer_registry
 from caliber.gate_verdicts import GATE_STATES, record_gate_verdict
@@ -1541,9 +1542,52 @@ async def create_prompt(request: Request) -> JSONResponse:
             model=model,
             project_id=identity.active_project_id,
         )
+        _audit_prompt_authoring(
+            session,
+            actor=actor,
+            action="prompt.create",
+            name=name,
+            result=result,
+            template=template,
+            commit_message=str(commit_message),
+            project_id=identity.active_project_id,
+        )
         session.commit()
 
     return JSONResponse({"data": result}, status_code=201)
+
+
+def _audit_prompt_authoring(
+    session: Session,
+    *,
+    actor: str,
+    action: str,
+    name: str,
+    result: dict[str, Any],
+    template: str,
+    commit_message: str,
+    project_id: str | None,
+) -> None:
+    """Record who authored a prompt version, without storing the prompt itself.
+
+    The registry holds the template. The audit row carries a digest of it, so "who wrote
+    the version that later went live" is answerable from the audit log alone and the log
+    never becomes a second copy of prompt content (alpha gap P1-02).
+    """
+    audit_record(
+        session,
+        actor=actor,
+        action=action,
+        entity_type="prompt",
+        entity_id=name,
+        details={
+            "version": result.get("version"),
+            "content_digest": content_digest_of_text(template),
+            "template_length": len(template),
+            "commit_message": commit_message[:200],
+            "project_id": project_id,
+        },
+    )
 
 
 def _prompt_target_invisible(session: Session, name: str, identity: CaliberIdentity) -> bool:
@@ -1666,7 +1710,7 @@ async def create_prompt_version(request: Request) -> JSONResponse:
 
     Registers a new version of an existing prompt in MLflow.
     """
-    require_scopes(request, [SCOPE_OPERATOR])
+    actor = require_scopes(request, [SCOPE_OPERATOR])
     identity = resolve_identity(request)
     name = request.path_params["name"]
     body = await parse_json_object(request)
@@ -1721,6 +1765,19 @@ async def create_prompt_version(request: Request) -> JSONResponse:
         source="caliber-ui",
         set_prod_alias=False,
     )
+
+    with factory() as session:
+        _audit_prompt_authoring(
+            session,
+            actor=actor,
+            action="prompt.create_version",
+            name=name,
+            result=result,
+            template=template,
+            commit_message=str(commit_message),
+            project_id=identity.active_project_id,
+        )
+        session.commit()
 
     return JSONResponse({"data": result}, status_code=201)
 
@@ -1796,6 +1853,9 @@ async def delete_prompt(request: Request) -> JSONResponse:
             entity_type="prompt",
             entity_id=clean_name,
         )
+        # ``audit_record`` never commits. Without this the row was discarded when the
+        # session closed, so a permanent deletion left no trace.
+        session.commit()
 
     return JSONResponse({"data": {"deleted": clean_name}})
 

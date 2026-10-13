@@ -31,8 +31,9 @@ from starlette.responses import (
 )
 from starlette.routing import Route
 
+from caliber.audit import record as audit_record
 from caliber.auth import require_user
-from caliber.routes._deps import parse_json_object
+from caliber.routes._deps import get_session_factory, parse_json_object
 from caliber.trace_client import (
     fetch_trace_detail,
     trace_experiment_id,
@@ -358,6 +359,25 @@ async def post_feedback(request: Request) -> JSONResponse:
     except Exception as exc:
         logger.warning("log_feedback failed for %s (%s)", trace_id, exc)
         raise HTTPException(status_code=502, detail=f"failed to log feedback: {exc}") from exc
+
+    # The assessment lands on the MLflow trace and feeds the refinement loop, so who gave
+    # it is part of the evidence. The rationale is free text and stays in MLflow; the audit
+    # row records that one was given and how long it was.
+    with get_session_factory(request)() as session:
+        audit_record(
+            session,
+            actor=user,
+            action="trace.feedback",
+            entity_type="trace",
+            entity_id=trace_id,
+            details={
+                "name": name,
+                "value": value if isinstance(value, (bool, int, float)) else str(value)[:200],
+                "has_rationale": rationale is not None,
+                "rationale_length": len(rationale) if rationale else 0,
+            },
+        )
+        session.commit()
 
     detail = fetch_trace_detail(trace_id)
     return JSONResponse({"data": {"assessments": detail.assessments}})

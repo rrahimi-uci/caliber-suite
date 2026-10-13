@@ -59,6 +59,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   count), and a revision this release does not ship are all blockers that point at `caliber-migrate`.
   `/health` is unchanged and remains a liveness probe.
 
+- **Core authoring and credential changes are audited.** Creating a prompt, creating a prompt version,
+  changing the LLM provider settings and submitting trace feedback wrote no audit row, so the log could not
+  say who authored a version that later went live. They now write `prompt.create`,
+  `prompt.create_version`, `settings.update_llm` and `trace.feedback` rows with the actor. Prompt rows carry
+  the version, a content digest and the length, never the template. Settings rows carry the field names and
+  masked key fingerprints, and a gateway URL as scheme and host only. Feedback rows carry the name, value and
+  whether a rationale was given, not its text. `DELETE /prompts/{name}` wrote its audit row but never
+  committed it, so a permanent deletion left no trace; it now commits. `PATCH /settings/llm` also validates
+  every field before applying any, so a bad field no longer leaves the request half applied.
+
 ### Security
 
 - **A project-bound personal access token is confined to its project on every route.** The binding

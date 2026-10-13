@@ -5,9 +5,12 @@ from __future__ import annotations
 import os
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 import caliber.routes.settings as settings_route
+from caliber.db.models import CaliberAuditLog
 from caliber.runtime_advisories import RuntimeDependencyAdvisory
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
@@ -261,3 +264,96 @@ def test_runtime_settings_surfaces_dependency_advisories(
     assert litellm["display_value"] == "1.83.0 (CVE-2026-42203, CVE-2026-42208)"
     assert "optional DSPy optimizer stack" in litellm["description"]
     assert litellm["env_var"] == "runtime://dependency-advisories/litellm"
+
+
+# ---------------------------------------------------------------------------
+# Audit coverage for credential changes (alpha gap P1-02)
+# ---------------------------------------------------------------------------
+
+
+def _llm_audit_rows(db_session: Session) -> list[CaliberAuditLog]:
+    db_session.expire_all()
+    return list(
+        db_session.execute(
+            select(CaliberAuditLog).where(CaliberAuditLog.action == "settings.update_llm")
+        )
+        .scalars()
+        .all()
+    )
+
+
+def test_llm_setup_update_is_audited_with_fingerprints_and_never_a_key(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "")
+
+    resp = client.patch(
+        f"{PREFIX}/settings/llm",
+        json={
+            "openai_api_key": "sk-secret-value-wxyz9876",
+            "anthropic_api_key": "sk-ant-secret-abcd1234",
+            "gateway_url": "https://user:hunter2@gateway.example.com:5000/v1/path?token=abc",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    rows = _llm_audit_rows(db_session)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.entity_type == "settings"
+    assert row.entity_id == "llm"
+    assert row.actor
+    details = row.details or {}
+    assert details["changed"] == ["anthropic_key_fingerprint", "gateway", "openai_key_fingerprint"]
+    assert details["openai_key_fingerprint"] == "••••9876"
+    assert details["anthropic_key_fingerprint"] == "••••1234"
+    assert details["gateway"] == "https://gateway.example.com"
+    dumped = str(details)
+    for secret in ("secret-value", "secret-abcd", "hunter2", "token=abc", "/v1/path"):
+        assert secret not in dumped
+
+
+def test_clearing_the_gateway_is_audited(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setenv("OPENAI_API_KEY", "")
+
+    assert client.patch(f"{PREFIX}/settings/llm", json={"gateway_url": ""}).status_code == 200
+
+    rows = _llm_audit_rows(db_session)
+    assert [(r.details or {})["gateway"] for r in rows] == ["cleared"]
+
+
+def test_a_no_op_update_writes_no_audit_row(client: TestClient, db_session: Session) -> None:
+    assert client.patch(f"{PREFIX}/settings/llm", json={}).status_code == 200
+    assert client.patch(f"{PREFIX}/settings/llm", json={"openai_api_key": "   "}).status_code == 200
+    assert _llm_audit_rows(db_session) == []
+
+
+def test_a_rejected_update_changes_nothing_and_is_not_audited(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bad field must not leave the request half applied."""
+    monkeypatch.setenv("OPENAI_API_KEY", "original")
+
+    resp = client.patch(
+        f"{PREFIX}/settings/llm",
+        json={"openai_api_key": "sk-would-overwrite-1234", "gateway_url": 12},
+    )
+
+    assert resp.status_code == 400
+    assert os.environ["OPENAI_API_KEY"] == "original"
+    assert _llm_audit_rows(db_session) == []
+
+
+def test_llm_setup_update_is_admin_only_and_unaudited_when_refused(
+    client: TestClient, db_session: Session
+) -> None:
+    resp = client.patch(
+        f"{PREFIX}/settings/llm",
+        json={"openai_api_key": "sk-x-1234"},
+        headers={"X-CALIBER-User": "@viewer"},
+    )
+    assert resp.status_code == 403
+    assert _llm_audit_rows(db_session) == []
