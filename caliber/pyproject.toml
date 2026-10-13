@@ -195,6 +195,10 @@ knowledge-local = [
     "sentence-transformers>=3.0",
 ]
 
+# ``caliber-migrate`` applies the database migrations from an installed wheel (alpha gap P0-5).
+[project.scripts]
+caliber-migrate = "caliber.db.migrate:main"
+
 # MLflow plugin discovery — the entry point that lets `mlflow server --app-name caliber`
 # locate CALIBER's ASGI app. See caliber-backend.md §3.1 (Plugin Architecture).
 [project.entry-points."mlflow.app"]

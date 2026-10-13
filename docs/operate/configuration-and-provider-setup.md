@@ -28,6 +28,8 @@ and event backend.
 | --- | --- | --- |
 | App ports and local bring-up | `CALIBER_PORT`, `MLFLOW_PORT`, `MLFLOW_GATEWAY_PORT` | [Local bring-up](../operate/local-bring-up.md) |
 | Metadata database | `CALIBER_DATABASE_URL` | [Platform](../01-caliber/architecture.md) |
+| Migrations | `caliber-migrate` (reads `CALIBER_DATABASE_URL`) | [Alpha install](../start/alpha-install.md) |
+| Roles and first login | `CALIBER_ADMIN_USERS`, `CALIBER_OPERATOR_USERS`, `CALIBER_APPROVER_USERS`, `CALIBER_AUTH_BOOTSTRAP_*` | [Alpha install](../start/alpha-install.md) |
 | LLM provider and gateway | `CALIBER_LLM_PROVIDER`, `CALIBER_LLM_BASE_URL` | [Gateways](../10-gateways/architecture.md) |
 | Release path (promoter, artifact store) | `CALIBER_PROMOTER_PROVIDER`, `CALIBER_ARTIFACT_STORE_PROVIDER`, `CALIBER_ALLOW_SIMULATED_PROVIDERS` | [Refinement loop](../refinement-loop.md) |
 | Object store | `CALIBER_OBJECT_STORE_*` | [Object store](../07-object-store/architecture.md) |

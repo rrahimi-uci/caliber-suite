@@ -40,6 +40,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the `fake` evaluator unless `CALIBER_ALLOW_SIMULATED_PROVIDERS=true`. **Upgrade note:** set
   `CALIBER_EVAL_PROVIDER=mlflow` for real evidence, or opt in explicitly.
 
+- **A first native install now works from the wheel.** The server never creates its own tables, the
+  wheel shipped no `alembic.ini`, and no command applied the migrations, so a pip-installed server
+  started with `/health` green and failed every login with `no such table: caliber_user_accounts`.
+  The new `caliber-migrate` console script applies the migrations from the installed package, from
+  any directory, reading `CALIBER_DATABASE_URL`. Startup also logs an ERROR when the bootstrap account
+  is created while `CALIBER_ADMIN_USERS`, `CALIBER_OPERATOR_USERS` and `CALIBER_APPROVER_USERS` are all
+  empty (that account signs in as a viewer and cannot create a project), and a WARNING when session
+  auth starts with no account and no bootstrap password source. Root `make setup` now refuses a
+  Python outside 3.10-3.12 before creating a venv (`PYTHON=python3.12 make setup` selects another
+  interpreter). `.env.example` no longer claims every value shown is a default.
+
 ### Security
 
 - **Project authorization on the release path.** Refinement-job list, detail, targets, Apply,
@@ -109,6 +120,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   token-authenticated calls are traceable.
 
 ### Added
+
+- **Alpha install page and verification.** `docs/start/alpha-install.md` takes a second person from
+  the release wheels to a logged-in administrator who can create a project and a prompt, with no
+  checkout and no Docker. `scripts/verify-alpha-install.sh` executes the page in a scratch directory
+  (build or take wheels, fresh venv, `caliber-migrate`, native MLflow, uvicorn, readiness, admin login,
+  project and prompt creation, a real registry write) and runs in CI as the `Alpha install` gate and
+  in `scripts/ci-local.sh`. The README, the caliber README, local bring-up and the quickstart link to it
+  and list the migration and role steps.
 
 - **Durable tool calibration, webhook acceptance, incident arbitration, and skill history repair.** Migrations `0076`–`0081` add
   snapshotted calibration jobs, durable per-target webhook acceptance/leases, and a monotonic

@@ -359,6 +359,66 @@ def _build_secret_store(config: CaliberConfig, session_factory: Any) -> Any:
     return store
 
 
+def _warn_if_nobody_can_log_in(session_factory: Any) -> None:
+    """Say so when session auth starts with no account and no way to create one.
+
+    Without a bootstrap password source the server creates nothing, so the login page
+    works but no credential does, and until this warning the log said nothing.
+    """
+    from caliber.sessions import account_count  # noqa: PLC0415
+
+    try:
+        with session_factory() as session:
+            empty = account_count(session) == 0
+    except Exception:  # pragma: no cover - the schema may not be migrated yet
+        return
+    if empty:
+        logger.warning(
+            "session auth is enabled but no account exists and no bootstrap password source "
+            "is configured, so nobody can log in. Set CALIBER_AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV "
+            "to the name of an environment variable holding the admin password, or for a "
+            "local-only install set CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true together "
+            "with CALIBER_AUTH_SESSION_COOKIE_SECURE=false"
+        )
+
+
+def _error_if_no_role_lists(config: CaliberConfig, user_id: str) -> None:
+    """Log an ERROR when the bootstrap account was created but no role list names anyone.
+
+    Accounts hold credentials only; scopes come from ``CALIBER_ADMIN_USERS``,
+    ``CALIBER_OPERATOR_USERS`` and ``CALIBER_APPROVER_USERS``. With all three empty the
+    new account signs in as a viewer and cannot create a project, which looks like a
+    broken install.
+    """
+    lists = (
+        getattr(config, "admin_users", ""),
+        getattr(config, "operator_users", ""),
+        getattr(config, "approver_users", ""),
+    )
+    if any(str(value or "").strip() for value in lists):
+        return
+    logger.error(
+        "bootstrap account %r was created but CALIBER_ADMIN_USERS, CALIBER_OPERATOR_USERS and "
+        "CALIBER_APPROVER_USERS are all empty, so it signs in with viewer access only and "
+        "cannot create projects. Set CALIBER_ADMIN_USERS=%s and restart",
+        user_id,
+        user_id,
+    )
+
+
+def _report_no_bootstrap_password(user_id: str, secret_source: str, session_factory: Any) -> None:
+    """Explain why no bootstrap account was created because no password was available."""
+    if secret_source:
+        logger.warning(
+            "auth bootstrap admin %r is configured but %s resolved no password; "
+            "no account was created",
+            user_id,
+            secret_source,
+        )
+    else:
+        _warn_if_nobody_can_log_in(session_factory)
+
+
 def _bootstrap_admin_account(config: CaliberConfig, session_factory: Any) -> None:
     """Create the configured bootstrap admin when no account exists yet.
 
@@ -403,13 +463,7 @@ def _bootstrap_admin_account(config: CaliberConfig, session_factory: Any) -> Non
         password = DEFAULT_BOOTSTRAP_ADMIN_PASSWORD
         using_default = True
     if not password:
-        if secret_source:
-            logger.warning(
-                "auth bootstrap admin %r is configured but %s resolved no password; "
-                "no account was created",
-                user_id,
-                secret_source,
-            )
+        _report_no_bootstrap_password(user_id, secret_source, session_factory)
         return
     using_default = using_default or (
         allow_insecure_default
@@ -454,6 +508,7 @@ def _bootstrap_admin_account(config: CaliberConfig, session_factory: Any) -> Non
                 "CALIBER_ADMIN_USERS",
                 user_id,
             )
+        _error_if_no_role_lists(config, user_id)
 
 
 def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915

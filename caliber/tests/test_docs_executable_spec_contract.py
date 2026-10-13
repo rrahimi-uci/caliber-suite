@@ -143,6 +143,28 @@ def _distribution_names() -> set[str]:
     return names
 
 
+def _pip_requirement_names(args: list[str]) -> list[str]:
+    """Requirement names in a ``pip install`` argument list.
+
+    Option values (``--find-links ./wheels``) are not requirements, and an extras
+    suffix (``caliber-suite[llm]``) names the same distribution.
+    """
+    value_options = {"-f", "--find-links", "-r", "--requirement", "-i", "--index-url", "-c"}
+    names: list[str] = []
+    skip_next = False
+    for token in args:
+        if skip_next:
+            skip_next = False
+            continue
+        if token in value_options:
+            skip_next = True
+            continue
+        if token.startswith("-"):
+            continue
+        names.append(token.split("[", 1)[0])
+    return names
+
+
 @cache
 def _implementation_env_names() -> set[str]:
     names: set[str] = set()
@@ -232,7 +254,7 @@ def test_shell_examples_are_parseable_and_reference_real_commands() -> None:  # 
                         continue
                     if segment.startswith("pip install "):
                         tokens = shlex.split(segment, comments=True)
-                        packages = [token for token in tokens[2:] if not token.startswith("-")]
+                        packages = _pip_requirement_names(tokens[2:])
                         for package in packages:
                             if package not in _distribution_names():
                                 command_failures.append(f"{page.name}: pip package {package!r}")

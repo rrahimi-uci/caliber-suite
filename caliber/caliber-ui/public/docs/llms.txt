@@ -6,6 +6,7 @@ The pages below are the published architecture, workflow, and strategy documenta
 
 ## Start here
 
+- [Alpha install](m-60-alpha-install.md): From the release wheels to a logged-in administrator who can create a project and a prompt: install, migrate, start MLflow, configure roles and providers, verify.
 - [5-minute quickstart](m-37-five-minute-quickstart.md): The shortest path to a real CALIBER success: bring up the local stack, verify readiness, or jump into the right next guide.
 - [Choose your CALIBER path](m-30-choose-your-path.md): The role-first entry point into the docs: choose the right path for integration, operations, governance, architecture, or product fit.
 - [Decision-maker overview](m-35-decision-maker-overview.md): A concise non-implementation path through what CALIBER is, what it solves, and where to go next for technical proof.

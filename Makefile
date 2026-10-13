@@ -16,6 +16,9 @@
 #   make clean   — remove build artifacts, caches, databases
 #   make reset   — stop + clean + setup (full nuke and rebuild)
 
+# Interpreter used to create the venv. Override when python3 is not a supported version:
+#   PYTHON=python3.12 make setup
+PYTHON     ?= python3
 VENV       := .venv
 PY         := $(VENV)/bin/python
 PIP        := $(VENV)/bin/pip
@@ -80,10 +83,13 @@ help: ## show available commands
 
 # ── Setup ────────────────────────────────────────────────────
 
-check: ## verify python3, node, npm are installed
-	@printf "  python3 ... " && command -v python3 >/dev/null 2>&1 \
-		&& echo "$(GREEN)ok$(NC) ($$(python3 --version 2>&1))" \
-		|| { echo "$(RED)MISSING$(NC)"; exit 1; }
+check: ## verify python3 (3.10-3.12), node, npm are installed
+	@printf "  python3 ... " && command -v $(PYTHON) >/dev/null 2>&1 \
+		&& echo "$(GREEN)ok$(NC) ($$($(PYTHON) --version 2>&1))" \
+		|| { echo "$(RED)MISSING$(NC) ($(PYTHON))"; exit 1; }
+	@$(PYTHON) -c 'import sys; sys.exit(0 if (3, 10) <= sys.version_info[:2] <= (3, 12) else 1)' \
+		|| { echo "$(RED)unsupported Python$(NC): $$($(PYTHON) --version 2>&1). CALIBER supports Python 3.10-3.12 (3.11 is what CI runs)."; \
+		     echo "Install one of those and re-run with it, for example: PYTHON=python3.12 make setup"; exit 1; }
 	@printf "  node    ... " && command -v node >/dev/null 2>&1 \
 		&& echo "$(GREEN)ok$(NC) ($$(node --version 2>&1))" \
 		|| { echo "$(RED)MISSING$(NC)"; exit 1; }
@@ -98,7 +104,7 @@ check: ## verify python3, node, npm are installed
 setup: check ## one-time: create venv, install deps, build UI
 	@echo ""
 	@echo "$(CYAN)Creating virtual environment ...$(NC)"
-	python3 -m venv $(VENV)
+	$(PYTHON) -m venv $(VENV)
 	$(PIP) install --upgrade pip -q
 	@echo "$(CYAN)Installing Python dependencies ...$(NC)"
 	$(PIP) install -e "./caliber[$(CALIBER_SETUP_EXTRAS)]" -q
