@@ -19,6 +19,15 @@ Defaults:
 The reap is idempotent: each affected row gets exactly one audit entry
 (``action="reap_stale_job"``), the same way the worker's own
 ``fail_job`` path writes a single entry per failure.
+
+A second sweep releases jobs stranded in ``status='applying'``. Apply commits
+its claim (``candidate_ready`` to ``applying``) before it calls the promoter, so
+a process that dies in that window leaves a job no request or reconciler will
+touch: the release reconciler scans release operations, and none exists yet.
+A job that has sat in ``applying`` past :data:`DEFAULT_APPLYING_STALE_SECONDS`
+with **no** release operation referencing any of its approvals is returned to
+``candidate_ready`` (``action="revert_stale_applying"``). A job whose operation
+exists is never touched here; the reconciler owns it.
 """
 
 from __future__ import annotations
@@ -28,11 +37,15 @@ import logging
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 
-from sqlalchemy import or_, select, update
+from sqlalchemy import exists, or_, select, update
 from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.audit import record as audit_record
-from caliber.db.models import CaliberRefinementJob
+from caliber.db.models import (
+    CaliberApprovalRequest,
+    CaliberRefinementJob,
+    CaliberReleaseOperation,
+)
 from caliber.observability import metrics
 from caliber.observability.trace import bind_trace_id
 
@@ -40,6 +53,11 @@ logger = logging.getLogger("caliber.orchestrator.janitor")
 
 DEFAULT_INTERVAL_SECONDS = 60.0
 DEFAULT_STALE_THRESHOLD_SECONDS = 300.0
+#: How long a job may sit in ``applying`` with no release operation before it is
+#: returned to ``candidate_ready``. Deliberately much longer than the running-job
+#: threshold: a live Apply spends this time inside a provider call, and an
+#: unreachable MLflow can legitimately take several minutes to give up.
+DEFAULT_APPLYING_STALE_SECONDS = 1800.0
 
 
 class JanitorTask:
@@ -63,8 +81,10 @@ class JanitorTask:
         interval_seconds: float = DEFAULT_INTERVAL_SECONDS,
         stale_threshold_seconds: float = DEFAULT_STALE_THRESHOLD_SECONDS,
         workflow_run_retention_days: float = 0.0,
+        applying_stale_seconds: float = DEFAULT_APPLYING_STALE_SECONDS,
     ) -> None:
         self._session_factory = session_factory
+        self._applying_stale = timedelta(seconds=applying_stale_seconds)
         self._interval_seconds = interval_seconds
         self._stale_threshold = timedelta(seconds=stale_threshold_seconds)
         # Retention for the workflow-run index (ext D2); 0 disables pruning.
@@ -126,6 +146,7 @@ class JanitorTask:
             candidates = self._find_stale(session, cutoff)
             for job in candidates:
                 self._reap(session, job, cutoff)
+            reverted = self._revert_stale_applying(session)
             # Prune the workflow-run index past its retention window (ext D2).
             if self._workflow_run_retention_days > 0:
                 from caliber.workflows.promoter import prune_workflow_runs  # noqa: PLC0415
@@ -135,8 +156,68 @@ class JanitorTask:
                 )
                 if pruned:
                     logger.info("janitor pruned %d expired workflow-run rows", pruned)
-            if candidates or self._workflow_run_retention_days > 0:
+            if candidates or reverted or self._workflow_run_retention_days > 0:
                 session.commit()
+
+    def _revert_stale_applying(self, session: Session) -> int:
+        """Return jobs stranded in ``applying`` (no release operation) to ``candidate_ready``.
+
+        Each revert is a conditional UPDATE that re-checks the status and the
+        staleness atomically, so an Apply that finished or moved on between the
+        SELECT and the UPDATE is left alone. Returns the number reverted.
+        """
+        cutoff = datetime.now(timezone.utc) - self._applying_stale
+        has_operation = exists(
+            select(CaliberReleaseOperation.operation_id)
+            .join(
+                CaliberApprovalRequest,
+                CaliberApprovalRequest.approval_id == CaliberReleaseOperation.approval_id,
+            )
+            .where(CaliberApprovalRequest.job_id == CaliberRefinementJob.job_id)
+            .correlate(CaliberRefinementJob)
+        )
+        stranded = session.execute(
+            select(
+                CaliberRefinementJob.job_id,
+                CaliberRefinementJob.agent_id,
+                CaliberRefinementJob.updated_at,
+            )
+            .where(CaliberRefinementJob.status == "applying")
+            .where(CaliberRefinementJob.updated_at < cutoff)
+            .where(~has_operation)
+        ).all()
+        reverted = 0
+        for job_id, agent_id, updated_at in stranded:
+            result = session.execute(
+                update(CaliberRefinementJob)
+                .where(CaliberRefinementJob.job_id == job_id)
+                .where(CaliberRefinementJob.status == "applying")
+                .where(CaliberRefinementJob.updated_at < cutoff)
+                .where(~has_operation)
+                .values(status="candidate_ready")
+            )
+            if int(getattr(result, "rowcount", 0) or 0) != 1:
+                continue
+            reverted += 1
+            audit_record(
+                session,
+                actor="caliber.janitor",
+                action="revert_stale_applying",
+                entity_type="refinement_job",
+                entity_id=job_id,
+                details={
+                    "agent_id": agent_id,
+                    "last_update": updated_at.isoformat() if updated_at else None,
+                    "applying_stale_seconds": int(self._applying_stale.total_seconds()),
+                },
+            )
+            logger.warning(
+                "reverted job=%s from applying to candidate_ready: no release operation "
+                "after %ds (process presumably died mid-Apply)",
+                job_id,
+                int(self._applying_stale.total_seconds()),
+            )
+        return reverted
 
     def _find_stale(self, session: Session, cutoff: datetime) -> list[CaliberRefinementJob]:
         """Return jobs whose heartbeat *appears* stale.

@@ -419,3 +419,182 @@ def test_failed_prompt_alias_apply_is_reconciled_back_to_candidate_ready(
     assert reconciled.json()["data"][0]["status"] == "failed"
     db_session.expire_all()
     assert db_session.get(CaliberRefinementJob, "RFN-A").status == "candidate_ready"  # type: ignore[union-attr]
+
+
+# ---------------------------------------------------------------------------
+# Intent-first Apply (alpha gap P0-2)
+#
+# The claim (candidate_ready -> applying) and the approval anchor are committed
+# *before* the promoter runs, so no write transaction is held across a provider
+# call. A failure therefore has to compensate explicitly instead of rolling back.
+# ---------------------------------------------------------------------------
+
+
+def _audit_actions(db_session: Session) -> list[str]:
+    db_session.expire_all()
+    return [
+        row.action for row in db_session.query(CaliberAuditLog).order_by(CaliberAuditLog.log_id)
+    ]
+
+
+def test_apply_commits_the_claim_before_the_promoter_runs(
+    client: TestClient, db_session: Session
+) -> None:
+    """Before the fix the claim UPDATE and the approval row stayed in one open
+    write transaction across the promoter. On a SQLite file shared with MLflow,
+    MLflow's own engine then waited on that lock until its busy timeout expired."""
+    from sqlalchemy import event
+
+    _seed_candidate_ready_job(db_session)
+    commits_by_session: dict[int, int] = {}
+
+    def count_commit(session: Session) -> None:
+        commits_by_session[id(session)] = commits_by_session.get(id(session), 0) + 1
+
+    seen: dict[str, object] = {}
+    promoter = client.app.state.promoter  # type: ignore[attr-defined]
+    original = promoter._default.promote
+
+    def spying_promote(request):  # type: ignore[no-untyped-def]
+        seen["commits_before_promote"] = commits_by_session.get(id(request.session), 0)
+        seen["pending_writes"] = bool(
+            request.session.new or request.session.dirty or request.session.deleted
+        )
+        return original(request)
+
+    promoter._default.promote = spying_promote
+    event.listen(Session, "after_commit", count_commit)
+    try:
+        response = client.post(APPLY_PATH.format(job_id="RFN-A"))
+    finally:
+        event.remove(Session, "after_commit", count_commit)
+        promoter._default.promote = original
+
+    assert response.status_code == 200, response.text
+    assert seen["commits_before_promote"] >= 1
+    assert seen["pending_writes"] is False
+
+
+def test_apply_failure_before_any_release_reverts_the_job_and_withdraws_the_approval(
+    client: TestClient, db_session: Session
+) -> None:
+    from caliber.promoter import PromoterError
+
+    _seed_candidate_ready_job(db_session)
+    client.app.state.promoter.fail_with = PromoterError("registry down")  # type: ignore[attr-defined]
+
+    failed = client.post(APPLY_PATH.format(job_id="RFN-A"))
+
+    assert failed.status_code == 502
+    db_session.expire_all()
+    job = db_session.get(CaliberRefinementJob, "RFN-A")
+    assert job is not None
+    assert job.status == "candidate_ready"
+    assert db_session.query(CaliberApprovalRequest).count() == 0
+    assert db_session.query(CaliberRollbackCheckpoint).count() == 0
+    assert "apply_candidate" not in _audit_actions(db_session)
+    failure = (
+        db_session.query(CaliberAuditLog).filter(CaliberAuditLog.action == "apply_failed").one()
+    )
+    assert failure.entity_id == "RFN-A"
+    assert failure.details["outcome"] == "reverted_to_candidate_ready"
+    assert "registry down" in failure.details["error"]
+
+    # The failure was clean, so the very same job can be applied again.
+    client.app.state.promoter.fail_with = None  # type: ignore[attr-defined]
+    retried = client.post(APPLY_PATH.format(job_id="RFN-A"))
+    assert retried.status_code == 200, retried.text
+    db_session.expire_all()
+    assert db_session.get(CaliberRefinementJob, "RFN-A").status == "applied"  # type: ignore[union-attr]
+
+
+def test_apply_conflict_after_the_claim_commit_also_reverts_the_job(
+    client: TestClient, db_session: Session
+) -> None:
+    """A 409 raised inside ``apply_candidate`` (here: no candidate content) used to
+    be undone by the rollback; it must now be undone by the compensation."""
+    _seed_candidate_ready_job(
+        db_session, candidate={"artifact_type": "prompt", "content": "", "rationale": "r"}
+    )
+
+    response = client.post(APPLY_PATH.format(job_id="RFN-A"))
+
+    assert response.status_code == 409
+    db_session.expire_all()
+    assert db_session.get(CaliberRefinementJob, "RFN-A").status == "candidate_ready"  # type: ignore[union-attr]
+    assert db_session.query(CaliberApprovalRequest).count() == 0
+
+
+def test_apply_failure_after_a_release_operation_exists_is_left_to_the_reconciler(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Once a durable release operation exists the provider outcome may be
+    indeterminate, so Apply must neither revert the job nor withdraw the approval
+    the operation points at; the reconciler settles both from the operation."""
+    from starlette.exceptions import HTTPException
+
+    from caliber.db.models import CaliberReleaseOperation
+
+    _seed_candidate_ready_job(
+        db_session,
+        candidate={
+            "artifact_type": "prompt",
+            "promotion_type": "prompt_alias",
+            "source_version": 7,
+            "target_alias": "prod",
+            "content": "rewritten prompt body",
+        },
+    )
+    monkeypatch.setattr(
+        "caliber.routes.prompts._load_prompt_release_info",
+        lambda agent_id, alias="prod": {"version": 5, "alias": alias, "agent_id": agent_id},
+    )
+
+    def fail_alias(**_kwargs: object) -> dict[str, object]:
+        raise HTTPException(status_code=502, detail="provider timeout")
+
+    monkeypatch.setattr("caliber.routes.prompts.set_prompt_alias_version", fail_alias)
+    assert client.post(APPLY_PATH.format(job_id="RFN-A")).status_code == 502
+
+    db_session.expire_all()
+    operation = db_session.query(CaliberReleaseOperation).one()
+    assert operation.status == "reconcile_required"
+    assert db_session.get(CaliberRefinementJob, "RFN-A").status == "applying"  # type: ignore[union-attr]
+    assert db_session.get(CaliberApprovalRequest, operation.approval_id) is not None
+    assert "apply_failed" not in _audit_actions(db_session)
+
+
+def test_a_failing_revert_does_not_mask_the_original_error(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """If the compensation itself cannot run, the caller still sees the original
+    502 and the job is left ``applying`` for the janitor to release."""
+    from caliber.promoter import PromoterError
+
+    _seed_candidate_ready_job(db_session)
+    client.app.state.promoter.fail_with = PromoterError("registry down")  # type: ignore[attr-defined]
+
+    def broken_audit(*_args: object, **_kwargs: object) -> None:
+        raise RuntimeError("audit unavailable")
+
+    monkeypatch.setattr("caliber.routes.jobs.audit_record", broken_audit)
+
+    response = client.post(APPLY_PATH.format(job_id="RFN-A"))
+
+    assert response.status_code == 502
+    assert "registry down" in response.json()["detail"]
+    db_session.expire_all()
+    assert db_session.get(CaliberRefinementJob, "RFN-A").status == "applying"  # type: ignore[union-attr]
+
+
+def test_the_jobs_list_accepts_the_applying_status_filter(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_candidate_ready_job(db_session, status="applying")
+    response = client.get("/ajax-api/2.0/mlflow/caliber/jobs?status=applying")
+    assert response.status_code == 200
+    assert [row["job_id"] for row in response.json()["data"]] == ["RFN-A"]

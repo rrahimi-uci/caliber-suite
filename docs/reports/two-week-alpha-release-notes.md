@@ -111,13 +111,15 @@ target -- no second scenario.
   failure (`docs/reports/two-week-alpha-day4-5-decision.md`) and a genuine,
   repeated infrastructure failure encountered while proving the browser
   journey (`docs/reports/two-week-alpha-day9-decision.md`'s SQLite
-  writer-contention finding): every observed failure was a clean, honestly
-  reported, retriable failure, never a false success. Running this journey
-  against this harness's default SQLite-backed dev server can hit that same
-  single-writer contention under Apply; running it against PostgreSQL
-  (`CALIBER_DATABASE_URL=postgresql+psycopg://...`) does not. This is a
-  verified characteristic of the harness's default local database, not a
-  defect in the Apply/release code itself.
+  finding): every observed failure was a clean, honestly reported, retriable
+  failure, never a false success. **Correction (2026-10-13):** that failure was
+  originally attributed to background-worker contention on SQLite. It was in
+  fact a defect in Apply: it held an uncommitted write transaction across the
+  call that registers the new prompt version in MLflow, which deadlocked against
+  itself whenever CALIBER and MLflow shared one SQLite file (the `make dev` and
+  browser-harness default). Apply now commits its claim before the provider call
+  (alpha gap P0-2), so the journey runs on the default SQLite harness as well as
+  on PostgreSQL.
 - The bundled SPA the wheel ships (including the Diagnosis tab this journey
   needs) is genuinely present in the built wheel today -- re-verified as
   part of Day 10, directly re-checking the specific known failure mode
@@ -137,8 +139,9 @@ verbatim:
    assumed** -- it is still true today (see above), but this note states
    how that was confirmed on this specific commit rather than repeating the
    plan's own forward-looking wording unchanged.
-2. The draft did not anticipate the SQLite writer-contention finding Day 9
-   surfaced, or the fact that the proven journey's DSPy path runs offline
+2. The draft did not anticipate the SQLite finding Day 9 surfaced (since
+   traced to an Apply transaction defect and fixed; see the correction above),
+   or the fact that the proven journey's DSPy path runs offline
    against a deterministic `DummyLM` rather than a live OpenAI call. Both
    are now stated explicitly above, because the plan's own standard for this
    note is "say what is true, not what is aspirational."

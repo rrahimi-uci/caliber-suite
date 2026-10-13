@@ -11,7 +11,7 @@ import logging
 from datetime import datetime, timezone
 from typing import Any, Final
 
-from sqlalchemy import Select, select, update
+from sqlalchemy import Select, delete, select, update
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
@@ -28,7 +28,11 @@ from caliber.auth import (
     require_user,
     resolve_identity,
 )
-from caliber.db.models import CaliberApprovalRequest, CaliberRefinementJob
+from caliber.db.models import (
+    CaliberApprovalRequest,
+    CaliberRefinementJob,
+    CaliberReleaseOperation,
+)
 from caliber.ids import new_approval_id
 from caliber.observability import metrics
 from caliber.promoter import Promoter
@@ -70,6 +74,7 @@ _VALID_STATUSES: Final[frozenset[str]] = frozenset(
     {
         "queued",
         "running",
+        "applying",
         "awaiting_approval",
         "candidate_ready",
         "applied",
@@ -319,6 +324,72 @@ def _optional_str(value: object) -> str | None:
     return None
 
 
+_APPLY_ERROR_AUDIT_CHARS = 500
+
+
+def _revert_unstarted_apply(
+    session: Any, *, job_id: str, approval_id: str, actor: str, error: Exception
+) -> None:
+    """Undo the committed Apply claim when the promotion failed before any release.
+
+    Apply commits its claim (``candidate_ready`` to ``applying``) and the
+    approval anchor before the promoter runs, so a failed attempt can no longer
+    just roll back. Two cases:
+
+    * A release operation already references this approval. The provider outcome
+      may be indeterminate, so the job stays ``applying`` and the release
+      reconciler settles it from the durable operation (to ``applied`` or back to
+      ``candidate_ready``). Nothing is reverted here.
+    * No release operation exists. Nothing external was committed to, so the job
+      returns to ``candidate_ready`` (retryable), the unused approval is
+      withdrawn, and an ``apply_failed`` audit row records the attempt.
+
+    The revert is best-effort: if it cannot run (for example the database is
+    unavailable) the original error still propagates and the job is left
+    ``applying`` with no operation, which the janitor reverts after its stale
+    window. The conditional UPDATE only touches a job still ``applying``.
+    """
+    try:
+        has_operation = (
+            session.execute(
+                select(CaliberReleaseOperation.operation_id)
+                .where(CaliberReleaseOperation.approval_id == approval_id)
+                .limit(1)
+            ).first()
+            is not None
+        )
+        if has_operation:
+            return
+        reverted = session.execute(
+            update(CaliberRefinementJob)
+            .where(CaliberRefinementJob.job_id == job_id)
+            .where(CaliberRefinementJob.status == "applying")
+            .values(status="candidate_ready")
+        )
+        session.execute(
+            delete(CaliberApprovalRequest).where(CaliberApprovalRequest.approval_id == approval_id)
+        )
+        if int(getattr(reverted, "rowcount", 0) or 0) == 1:
+            audit_record(
+                session,
+                actor=actor,
+                action="apply_failed",
+                entity_type="refinement_job",
+                entity_id=job_id,
+                details={
+                    "approval_id": approval_id,
+                    "outcome": "reverted_to_candidate_ready",
+                    "error": str(error)[:_APPLY_ERROR_AUDIT_CHARS],
+                },
+            )
+        session.commit()
+    except Exception:
+        session.rollback()
+        logger.exception(
+            "could not revert failed apply of job=%s; the janitor will release it", job_id
+        )
+
+
 async def apply_job(request: Request) -> JSONResponse:
     """Promote a ``candidate_ready`` job's candidate (operator action).
 
@@ -342,10 +413,10 @@ async def apply_job(request: Request) -> JSONResponse:
         # approval row, promoter call or audit write can happen.
         load_visible_job(session, identity, job_id, action=ACTION_APPLY)
         # Claim with a conditional write rather than relying only on
-        # SELECT FOR UPDATE (which SQLite ignores). The transient status lives
-        # in this transaction: failure rolls it back to candidate_ready, while
-        # a racing request blocks and then observes rowcount=0 before any
-        # promoter/provider effect runs.
+        # SELECT FOR UPDATE (which SQLite ignores). The claim and the approval
+        # anchor are committed *before* the promoter runs (see below), so a
+        # racing request observes rowcount=0 before any provider effect, and
+        # the write lock is never held across the provider call.
         claim = session.execute(
             update(CaliberRefinementJob)
             .where(CaliberRefinementJob.job_id == job_id)
@@ -385,30 +456,46 @@ async def apply_job(request: Request) -> JSONResponse:
             approved_at=now,
         )
         session.add(approval)
-        session.flush()
-
-        outcome = apply_candidate(
-            session,
-            job=job,
-            approval=approval,
-            promoter=promoter,
-            actor=actor,
-            terminal_status="applied",
-        )
-
-        audit_record(
-            session,
-            actor=actor,
-            action="apply_candidate",
-            entity_type="refinement_job",
-            entity_id=job.job_id,
-            details={
-                "approval_id": approval.approval_id,
-                "artifact_ref": outcome.promotion.get("artifact_ref"),
-                "checkpoint_ids": outcome.checkpoint_ids,
-            },
-        )
+        # Intent first: commit the claim and the approval anchor before any
+        # provider call. Previously they stayed in one open write transaction
+        # across ``apply_candidate``, and MLflow registers the new prompt
+        # version through its own engine. On a SQLite file shared by CALIBER and
+        # MLflow that engine waited on this request's own write lock until its
+        # busy timeout expired, so Apply failed every time (alpha gap P0-2).
+        # The cost is that a failure must now compensate explicitly instead of
+        # relying on rollback; see ``_revert_unstarted_apply``.
         session.commit()
+        approval_id = approval.approval_id
+
+        try:
+            outcome = apply_candidate(
+                session,
+                job=job,
+                approval=approval,
+                promoter=promoter,
+                actor=actor,
+                terminal_status="applied",
+            )
+
+            audit_record(
+                session,
+                actor=actor,
+                action="apply_candidate",
+                entity_type="refinement_job",
+                entity_id=job.job_id,
+                details={
+                    "approval_id": approval_id,
+                    "artifact_ref": outcome.promotion.get("artifact_ref"),
+                    "checkpoint_ids": outcome.checkpoint_ids,
+                },
+            )
+            session.commit()
+        except Exception as exc:
+            session.rollback()
+            _revert_unstarted_apply(
+                session, job_id=job_id, approval_id=approval_id, actor=actor, error=exc
+            )
+            raise
         agent_id = job.agent_id
         artifact_type = job.artifact_type
         artifact_ref = outcome.promotion.get("artifact_ref")

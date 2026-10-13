@@ -30,17 +30,15 @@ import { signIn } from "./helpers";
  * `caliber/prompt_targets.py::ensure_prompt_target`) and
  * `scripts/two_week_alpha_e2e_seed.py::PROMPT_NAME`.
  *
- * Backend note: run this against a Postgres-backed server for a reliable
- * result --
- * `CALIBER_DATABASE_URL=postgresql+psycopg://user@host/db npx playwright
- * test e2e/two-week-alpha-journey.spec.ts`. Against this harness's SQLite
- * default, the real Apply step (a genuine `mlflow.genai.register_prompt`
- * write racing this server's own periodic background workers on one
- * single-writer file) can starve past even a 30s busy-timeout -- a verified,
- * pre-existing SQLite concurrency limitation, not a bug in this journey or
- * in the Days 1-8 code it drives. See
- * `docs/reports/two-week-alpha-day9-decision.md` for the full investigation
- * and the Postgres-backed confirmation runs.
+ * Backend note: this runs on the harness's default SQLite file as well as on
+ * PostgreSQL (`CALIBER_DATABASE_URL=postgresql+psycopg://user@host/db`).
+ * It used to fail at the real Apply step on SQLite, which was blamed on this
+ * server's background workers; the actual cause was that Apply held an
+ * uncommitted write transaction while MLflow registered the new prompt version
+ * through its own engine on the same file, deadlocking against itself. Apply
+ * now commits its claim before the provider call. See the correction in
+ * `docs/reports/two-week-alpha-day9-decision.md` and
+ * `tests/test_apply_shared_sqlite_store.py`, which reproduces the shape.
  */
 const PROMPT_NAME = "intake-classifier-day1-seed";
 
