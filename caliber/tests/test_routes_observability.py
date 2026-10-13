@@ -14,7 +14,11 @@ import json
 from types import SimpleNamespace
 
 import pytest
+from sqlalchemy import select
+from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
+
+from caliber.db.models import CaliberAuditLog
 
 
 class _NoSuchKeyError(Exception):
@@ -503,3 +507,94 @@ def test_metrics_buckets_and_totals(client: TestClient, monkeypatch: pytest.Monk
     assert data["totals"]["p50_ms"] == 1  # every fake trace has execution_duration=1
     assert isinstance(data["buckets"], list)
     assert sum(b["count"] for b in data["buckets"]) == 3
+
+
+# ---------------------------------------------------------------------------
+# Audit coverage for human feedback (alpha gap P1-02)
+# ---------------------------------------------------------------------------
+
+
+def _feedback_audit_rows(db_session: Session) -> list[CaliberAuditLog]:
+    db_session.expire_all()
+    return list(
+        db_session.execute(
+            select(CaliberAuditLog).where(CaliberAuditLog.action == "trace.feedback")
+        )
+        .scalars()
+        .all()
+    )
+
+
+def test_feedback_is_audited_with_the_actor_and_without_the_rationale_text(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mlflow
+
+    monkeypatch.setattr(mlflow, "log_feedback", lambda **_kwargs: SimpleNamespace())
+
+    resp = client.post(
+        f"{OBS}/traces/tr-audit/feedback",
+        json={
+            "name": "helpful",
+            "value": False,
+            "rationale": "contains the customer's phone 555-0100",
+        },
+    )
+    assert resp.status_code == 200, resp.text
+
+    rows = _feedback_audit_rows(db_session)
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.entity_type == "trace"
+    assert row.entity_id == "tr-audit"
+    assert row.actor
+    details = row.details or {}
+    assert details["name"] == "helpful"
+    assert details["value"] is False
+    assert details["has_rationale"] is True
+    assert details["rationale_length"] == len("contains the customer's phone 555-0100")
+    assert "555-0100" not in str(details)
+
+
+def test_feedback_without_a_rationale_records_that_none_was_given(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mlflow
+
+    monkeypatch.setattr(mlflow, "log_feedback", lambda **_kwargs: SimpleNamespace())
+
+    assert client.post(f"{OBS}/traces/tr-2/feedback", json={"value": 4}).status_code == 200
+
+    details = _feedback_audit_rows(db_session)[0].details or {}
+    assert (details["value"], details["has_rationale"], details["rationale_length"]) == (
+        4,
+        False,
+        0,
+    )
+
+
+def test_a_long_text_feedback_value_is_truncated_in_the_audit_row(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mlflow
+
+    monkeypatch.setattr(mlflow, "log_feedback", lambda **_kwargs: SimpleNamespace())
+
+    assert client.post(f"{OBS}/traces/tr-3/feedback", json={"value": "x" * 500}).status_code == 200
+
+    assert len((_feedback_audit_rows(db_session)[0].details or {})["value"]) == 200
+
+
+def test_failed_or_invalid_feedback_writes_no_audit_row(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mlflow
+
+    def _boom(**_kwargs: object) -> object:
+        raise RuntimeError("tracking server down")
+
+    monkeypatch.setattr(mlflow, "log_feedback", _boom)
+
+    assert client.post(f"{OBS}/traces/tr-4/feedback", json={"value": True}).status_code == 502
+    assert client.post(f"{OBS}/traces/tr-4/feedback", json={}).status_code == 400
+    assert _feedback_audit_rows(db_session) == []

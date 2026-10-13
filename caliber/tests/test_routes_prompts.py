@@ -3002,3 +3002,110 @@ def test_baseline_hides_a_project_prompt_and_does_not_reveal_run_ids(
         )
         assert resp.status_code == 404
         assert "prompt" in resp.json()["detail"]
+
+
+# ---------------------------------------------------------------------------
+# Audit coverage for prompt authoring and deletion (alpha gap P1-02)
+# ---------------------------------------------------------------------------
+
+
+def _authoring_audit_rows(db_session: Session, action: str) -> list[CaliberAuditLog]:
+    db_session.expire_all()
+    return list(
+        db_session.execute(select(CaliberAuditLog).where(CaliberAuditLog.action == action))
+        .scalars()
+        .all()
+    )
+
+
+def test_creating_a_prompt_writes_one_audit_row_with_a_digest_not_the_template(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    _install_mlflow(monkeypatch)
+    template = "You are a careful analyst. Secret-looking token: sk-should-not-be-stored"
+
+    response = client.post(
+        PREFIX, json={"name": "audited_prompt", "template": template, "commit_message": "first"}
+    )
+    assert response.status_code == 201, response.text
+
+    rows = _authoring_audit_rows(db_session, "prompt.create")
+    assert len(rows) == 1
+    row = rows[0]
+    assert row.entity_type == "prompt"
+    assert row.entity_id == "audited_prompt"
+    assert row.actor
+    details = row.details or {}
+    assert details["version"] == 7
+    assert details["content_digest"]
+    assert details["template_length"] == len(template)
+    assert details["commit_message"] == "first"
+    assert template not in str(details)
+    assert "sk-should-not-be-stored" not in str(details)
+
+
+def test_creating_a_version_writes_one_audit_row(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    _install_mlflow(monkeypatch)
+
+    response = client.post(
+        f"{PREFIX}/support-agent/versions",
+        json={"template": "version two body", "commit_message": "second"},
+    )
+    assert response.status_code == 201, response.text
+
+    rows = _authoring_audit_rows(db_session, "prompt.create_version")
+    assert len(rows) == 1
+    assert rows[0].entity_id == "support-agent"
+    assert (rows[0].details or {})["version"] == 7
+    assert (rows[0].details or {})["content_digest"]
+    assert "version two body" not in str(rows[0].details)
+
+
+def test_the_digest_identifies_the_content(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    _install_mlflow(monkeypatch)
+    for template in ("same body", "same body", "different body"):
+        client.post(f"{PREFIX}/support-agent/versions", json={"template": template})
+
+    digests = [
+        (row.details or {})["content_digest"]
+        for row in _authoring_audit_rows(db_session, "prompt.create_version")
+    ]
+    assert len(digests) == 3
+    assert digests[0] == digests[1] != digests[2]
+
+
+def test_a_failed_registration_writes_no_authoring_audit_row(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    def _raise_register(**_kwargs: object) -> object:
+        raise RuntimeError("register failed")
+
+    _install_mlflow(monkeypatch, register_impl=_raise_register)
+
+    assert client.post(PREFIX, json={"name": "x", "template": "hello"}).status_code == 502
+    assert client.post(f"{PREFIX}/x/versions", json={"template": "hello"}).status_code == 502
+
+    assert _authoring_audit_rows(db_session, "prompt.create") == []
+    assert _authoring_audit_rows(db_session, "prompt.create_version") == []
+
+
+def test_deleting_a_prompt_leaves_a_committed_audit_row(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    """The row used to be written and never committed, so it vanished with the session."""
+
+    class _FakeClient:
+        def delete_prompt(self, name: str) -> None:
+            return None
+
+    monkeypatch.setattr(prompt_routes, "_build_mlflow_client", lambda: _FakeClient())
+
+    assert client.delete(f"{PREFIX}/support-agent").status_code == 200
+
+    rows = _authoring_audit_rows(db_session, "prompt.delete")
+    assert len(rows) == 1
+    assert rows[0].entity_id == "support-agent"
