@@ -1,0 +1,1 @@
+Bootstrapped 2 full traces after 1 examples for up to 1 rounds, amounting to 2 attempts.
