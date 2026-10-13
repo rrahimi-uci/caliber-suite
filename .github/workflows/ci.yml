@@ -1084,10 +1084,13 @@ jobs:
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
+      # ``dspy`` because the seeded journey's fixture is built with the real DSPy optimizer
+      # (tests/fixtures/day2_day3_pipeline.py); without it the seed step logs
+      # "No module named 'dspy'" and the spec sees a job that never reaches candidate_ready.
       - name: Install CALIBER test runtime
         run: |
           uv venv .venv --python 3.11
-          uv pip install --python .venv/bin/python -e ".[dev,llm]"
+          uv pip install --python .venv/bin/python -e ".[dev,llm,dspy]"
       - uses: actions/setup-node@v7
         with:
           node-version: "20"
