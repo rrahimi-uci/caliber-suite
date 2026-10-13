@@ -594,10 +594,11 @@ deferral.
   - A bound PAT with no header defaults its active project to the binding.
 - **Files:** `auth.py`, `caliber/tests/test_personal_access_tokens.py`.
 - **Deps:** [P0-1](#p0-1).
+- **Status: implemented.** `auth.py`: `_enforce_binding_for_request` runs in `require_user`, `require_scopes` and `require_all_scopes` (after the 401 check, before the scope check), and `resolve_identity` defaults `active_project_id` to the binding when no header names a project. Tests: `tests/test_pat_binding_gates.py` (every gate, header and path, bound and unbound, blank header; fail without the fix) and three route tests in `tests/test_personal_access_tokens.py` (a scope-only route, an unbound token, and a bound token with no header).
 - **Acceptance:**
-  - [ ] Bound PAT + another project's header on any `require_scopes` route → 403.
-  - [ ] Bound PAT with no header → identity's project = binding.
-  - [ ] Unbound tokens and sessions are unchanged.
+  - [x] Bound PAT + another project's header on any `require_scopes` route → 403 (`GET /eval-datasets` route test, and each gate directly).
+  - [x] Bound PAT with no header → identity's project = binding (`resolve_identity` unit test, and a listing scoped to the binding).
+  - [x] Unbound tokens and sessions are unchanged (parametrized unit test; the existing PAT and auth suites pass).
 
 ### P1-02
 
