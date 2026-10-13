@@ -73,6 +73,25 @@ The member-management calls require the project `owner` role. A valid bearer
 token without the required project role receives a permission error; a caller
 with no visibility of the project receives a not-found response.
 
+### Calibration jobs and live versions follow the project
+
+A calibration job belongs to the prompt, skill or workflow it refines, so it is
+visible to exactly the callers who can see that target, and acting on it needs a
+project role:
+
+| Action | Project role needed |
+| --- | --- |
+| List or read a job, its targets, or its quality reviews | any member |
+| Request changes on a candidate, or submit a quality review | `owner`, `editor` or `reviewer` |
+| Apply a candidate, promote a prompt version, or roll a prompt back | `owner` or `editor` |
+
+A caller who is not a member of the project receives a not-found response, even
+when their token carries the global `caliber.operator` scope and even when the
+request names the project in `X-CALIBER-Project`. A member whose role is too
+weak receives a permission error. `caliber.admin` can read every project's jobs
+but, like every other role-gated action, is not an implicit member, so applying
+or rolling back needs a real role in that project.
+
 ## 4. SDK path
 
 If you are writing Python, use the SDK unless you specifically need the raw

@@ -249,6 +249,11 @@ def seeded_db(db_session: Session) -> Session:
             experiment_id="exp",
             name="A",
             owner="@x",
+            # A shared agent. The model default is visibility="project" with no
+            # project, a state the product never creates and one the job routes
+            # (correctly) hide from every non-admin; these tests check *scope*
+            # gates, not visibility, so seed a row any operator may see.
+            visibility="public",
             artifact_types=["prompt"],
             eval_thresholds={},
             optimizer_config={},

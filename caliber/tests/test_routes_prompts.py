@@ -17,12 +17,16 @@ from caliber.db.models import (
     CaliberAuditLog,
     CaliberEvalDataset,
     CaliberEvalDatasetExample,
+    CaliberProject,
+    CaliberProjectMember,
     CaliberPromptTestRun,
     CaliberRefinementJob,
+    CaliberReleaseOperation,
     CaliberVerificationItem,
     CaliberWorkflow,
     CaliberWorkflowVersion,
 )
+from caliber.resource_access import ROLE_EDITOR, ROLE_VIEWER
 from caliber.routes import prompts as prompt_routes
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber/prompts"
@@ -2721,3 +2725,280 @@ def test_create_prompt_optimization_run_hides_a_hidden_eval_dataset(
         headers=_STRANGER,
     )
     assert resp.status_code == 404, resp.text
+
+
+# ---------------------------------------------------------------------------
+# Release-path authorization (alpha gap P0-1): promoting or rolling back a
+# project's live prompt needs visibility of its hidden target (404 otherwise)
+# and the `release.apply` project role (403 for a viewer member). Before this,
+# any caller with the global operator scope could flip another project's live
+# alias, and the audit trail recorded them as a legitimate actor.
+# ---------------------------------------------------------------------------
+
+_RELEASE_PROJECT = "P-prompt-release"
+_RELEASE_PROMPT = "release-gated-prompt"
+_PROJECT_HEADER = {"X-CALIBER-Project": _RELEASE_PROJECT}
+
+
+def _as_member(user: str) -> dict[str, str]:
+    return {"X-CALIBER-User": user, **_PROJECT_HEADER}
+
+
+def _seed_release_project(client: TestClient, db_session: Session) -> None:
+    db_session.add(CaliberProject(project_id=_RELEASE_PROJECT, name="Release", owner="@owner"))
+    db_session.commit()
+    for user, role in (("@editor", ROLE_EDITOR), ("@viewer", ROLE_VIEWER)):
+        db_session.add(
+            CaliberProjectMember(
+                member_id=f"M-rel-{user.lstrip('@')}",
+                project_id=_RELEASE_PROJECT,
+                user_id=user,
+                role=role,
+                created_by="@owner",
+            )
+        )
+    db_session.commit()
+    _insert_agent(
+        db_session,
+        agent_id=_RELEASE_PROMPT,
+        experiment_id="exp-release-gated",
+        visibility="project",
+        project_id=_RELEASE_PROJECT,
+        owner="@owner",
+    )
+    config = client.app.state.config
+    client.app.state.config = config.model_copy(
+        update={"operator_users": "@editor,@viewer,@stranger"}
+    )
+
+
+def _release_ops(session: Session) -> int:
+    session.expire_all()
+    return len(session.execute(select(CaliberReleaseOperation)).scalars().all())
+
+
+def _promotion_audit(session: Session) -> list[CaliberAuditLog]:
+    session.expire_all()
+    return list(
+        session.execute(
+            select(CaliberAuditLog).where(CaliberAuditLog.entity_id == _RELEASE_PROMPT)
+        ).scalars()
+    )
+
+
+def _install_live_v2(monkeypatch: pytest.MonkeyPatch) -> dict[str, list[Any]]:
+    return _install_mlflow(
+        monkeypatch,
+        load_refs={
+            f"prompts:/{_RELEASE_PROMPT}@prod": SimpleNamespace(
+                name=_RELEASE_PROMPT, version=2, template="live v2"
+            )
+        },
+    )
+
+
+def _seed_promotion_history(session_factory: sessionmaker[Session]) -> None:
+    with session_factory() as session:
+        session.add(
+            CaliberAuditLog(
+                actor="@owner",
+                action="promote_prompt",
+                entity_type="prompt",
+                entity_id=_RELEASE_PROMPT,
+                details={"alias": "prod", "from_version": 1, "to_version": 2},
+            )
+        )
+        session.commit()
+
+
+@pytest.mark.parametrize("names_project", [True, False], ids=["with-project-header", "no-header"])
+def test_non_member_operator_cannot_promote_a_project_prompt(
+    client: TestClient,
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    names_project: bool,
+) -> None:
+    _seed_release_project(client, db_session)
+    calls = _install_live_v2(monkeypatch)
+    headers = {"X-CALIBER-User": "@stranger", **(_PROJECT_HEADER if names_project else {})}
+
+    resp = client.post(
+        f"{PREFIX}/{_RELEASE_PROMPT}/aliases/prod", json={"version": 3}, headers=headers
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert calls["alias_calls"] == []
+    assert _release_ops(db_session) == 0
+    assert _promotion_audit(db_session) == []
+
+
+def test_non_member_cannot_replay_a_release_by_operation_id(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """The idempotent ``operation_id`` replay used to return before any check, so a
+    stranger who learned an operation id could re-run that release."""
+    _seed_release_project(client, db_session)
+    calls = _install_live_v2(monkeypatch)
+    first = client.post(
+        f"{PREFIX}/{_RELEASE_PROMPT}/aliases/prod",
+        json={"version": 3, "operation_id": "REL-replay-1"},
+        headers=_as_member("@editor"),
+    )
+    assert first.status_code == 200, first.text
+    assert len(calls["alias_calls"]) == 1
+
+    replay = client.post(
+        f"{PREFIX}/{_RELEASE_PROMPT}/aliases/prod",
+        json={"version": 3, "operation_id": "REL-replay-1"},
+        headers={"X-CALIBER-User": "@stranger", **_PROJECT_HEADER},
+    )
+
+    assert replay.status_code == 404, replay.text
+    assert len(calls["alias_calls"]) == 1
+
+
+def test_non_member_operator_cannot_roll_back_a_project_prompt(
+    client: TestClient,
+    db_session: Session,
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_release_project(client, db_session)
+    _seed_promotion_history(session_factory)
+    calls = _install_live_v2(monkeypatch)
+
+    resp = client.post(
+        f"{PREFIX}/{_RELEASE_PROMPT}/rollback",
+        json={},
+        headers={"X-CALIBER-User": "@stranger", **_PROJECT_HEADER},
+    )
+
+    assert resp.status_code == 404, resp.text
+    assert calls["alias_calls"] == []
+    assert _release_ops(db_session) == 0
+    assert not [r for r in _promotion_audit(db_session) if r.action == "rollback_prompt"]
+
+
+def test_viewer_member_cannot_promote_or_roll_back(
+    client: TestClient,
+    db_session: Session,
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_release_project(client, db_session)
+    _seed_promotion_history(session_factory)
+    calls = _install_live_v2(monkeypatch)
+
+    promote = client.post(
+        f"{PREFIX}/{_RELEASE_PROMPT}/aliases/prod",
+        json={"version": 3},
+        headers=_as_member("@viewer"),
+    )
+    rollback = client.post(
+        f"{PREFIX}/{_RELEASE_PROMPT}/rollback", json={}, headers=_as_member("@viewer")
+    )
+
+    assert promote.status_code == 403, promote.text
+    assert rollback.status_code == 403, rollback.text
+    assert "release.apply" in promote.json()["detail"]
+    assert calls["alias_calls"] == []
+    assert _release_ops(db_session) == 0
+
+
+def test_editor_member_can_promote_and_roll_back(
+    client: TestClient,
+    db_session: Session,
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    _seed_release_project(client, db_session)
+    _seed_promotion_history(session_factory)
+    calls = _install_live_v2(monkeypatch)
+
+    promote = client.post(
+        f"{PREFIX}/{_RELEASE_PROMPT}/aliases/prod",
+        json={"version": 3},
+        headers=_as_member("@editor"),
+    )
+    assert promote.status_code == 200, promote.text
+    rollback = client.post(
+        f"{PREFIX}/{_RELEASE_PROMPT}/rollback", json={}, headers=_as_member("@editor")
+    )
+    assert rollback.status_code == 200, rollback.text
+    assert rollback.json()["data"]["version"] == 1
+    assert calls["alias_calls"] == [(_RELEASE_PROMPT, "prod", 3), (_RELEASE_PROMPT, "prod", 1)]
+
+
+def test_admin_without_membership_cannot_promote_a_project_prompt(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``caliber.admin`` is deliberately not an implicit project member
+    (``resource_access.project_role``, P1-B): reads bypass the visibility tier,
+    but changing what is live needs a real role."""
+    _seed_release_project(client, db_session)
+    calls = _install_live_v2(monkeypatch)
+    resp = client.post(
+        f"{PREFIX}/{_RELEASE_PROMPT}/aliases/prod", json={"version": 3}, headers=_PROJECT_HEADER
+    )
+    assert resp.status_code == 404
+    assert calls["alias_calls"] == []
+
+
+def test_a_prompt_with_no_target_row_keeps_working_for_operators(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A bare provider-only prompt has no project to protect (the documented
+    ``_prompt_target_invisible`` carve-out); the global scope check still applies."""
+    _seed_release_project(client, db_session)
+    calls = _install_mlflow(monkeypatch)
+    resp = client.post(
+        f"{PREFIX}/bare-registry-prompt/aliases/prod",
+        json={"version": 1},
+        headers={"X-CALIBER-User": "@stranger"},
+    )
+    assert resp.status_code == 200, resp.text
+    assert calls["alias_calls"] == [("bare-registry-prompt", "prod", 1)]
+
+
+def test_test_run_list_hides_runs_of_a_project_prompt_from_non_members(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_release_project(client, db_session)
+    db_session.add_all(
+        [
+            CaliberPromptTestRun(test_run_id="PTR-secret-1", agent_id=_RELEASE_PROMPT),
+            CaliberPromptTestRun(test_run_id="PTR-bare-1", agent_id="legacy-no-target"),
+        ]
+    )
+    db_session.commit()
+
+    def ids(resp: Any) -> set[str]:
+        assert resp.status_code == 200, resp.text
+        return {row["test_run_id"] for row in resp.json()["data"]}
+
+    stranger = {"X-CALIBER-User": "@stranger", **_PROJECT_HEADER}
+    assert ids(client.get(f"{PREFIX}/test-runs", headers=stranger)) == {"PTR-bare-1"}
+    assert (
+        ids(client.get(f"{PREFIX}/test-runs?agent_id={_RELEASE_PROMPT}", headers=stranger)) == set()
+    )
+    member = _as_member("@viewer")
+    assert ids(client.get(f"{PREFIX}/test-runs", headers=member)) == {
+        "PTR-secret-1",
+        "PTR-bare-1",
+    }
+
+
+def test_baseline_hides_a_project_prompt_and_does_not_reveal_run_ids(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_release_project(client, db_session)
+    db_session.add(CaliberPromptTestRun(test_run_id="PTR-real-1", agent_id=_RELEASE_PROMPT))
+    db_session.commit()
+    stranger = {"X-CALIBER-User": "@stranger", **_PROJECT_HEADER}
+
+    for run_id in ("PTR-real-1", "PTR-does-not-exist"):
+        resp = client.post(
+            f"{PREFIX}/{_RELEASE_PROMPT}/baseline", json={"test_run_id": run_id}, headers=stranger
+        )
+        assert resp.status_code == 404
+        assert "prompt" in resp.json()["detail"]

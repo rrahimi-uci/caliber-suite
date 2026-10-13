@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **Project authorization on the release path.** Refinement-job list, detail, targets, Apply,
+  request-changes and quality-review routes, and prompt alias promotion, rollback, baseline and
+  the test-run list, now follow the owning project. A caller outside the project gets 404 (even
+  with `caliber.operator` and a matching `X-CALIBER-Project`); a member without `release.apply`
+  (Apply, promote, rollback) or a review role (request changes, quality review) gets 403. Previously
+  any operator could apply another project's candidate or change its live prompt, and any signed-in
+  user could read every project's candidate text and diagnosis. `caliber.admin` is not an implicit
+  project member for these actions.
 - **Authentication and browser-session isolation.** Default configuration no longer grants
   the literal `admin` identity special access; the loopback launchers are the only paths that
   opt into the disposable first-boot credential. Server-side password validation, dummy-hash

@@ -21,7 +21,13 @@ from starlette.routing import Route
 
 from caliber.apply import apply_candidate
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user
+from caliber.auth import (
+    SCOPE_OPERATOR,
+    CaliberIdentity,
+    require_scopes,
+    require_user,
+    resolve_identity,
+)
 from caliber.db.models import CaliberApprovalRequest, CaliberRefinementJob
 from caliber.ids import new_approval_id
 from caliber.observability import metrics
@@ -32,6 +38,12 @@ from caliber.routes._deps import (
     get_session_factory,
     list_limit,
     parse_json_object,
+)
+from caliber.routes._job_access import (
+    ACTION_APPLY,
+    ACTION_REVIEW,
+    load_visible_job,
+    scope_jobs_to_visible_agents,
 )
 from caliber.schemas import (
     ApprovalRequestChangesRequest,
@@ -197,8 +209,10 @@ async def list_jobs(request: Request) -> JSONResponse:
     history view.
     """
     require_user(request)
+    identity = resolve_identity(request)
     factory = get_session_factory(request)
     stmt = select(CaliberRefinementJob).order_by(CaliberRefinementJob.created_at.desc())
+    stmt = scope_jobs_to_visible_agents(stmt, identity)
     stmt = _apply_filters(stmt, request)
     limit, offset = list_limit(request)
     with factory() as session:
@@ -208,14 +222,17 @@ async def list_jobs(request: Request) -> JSONResponse:
 
 
 async def get_job(request: Request) -> JSONResponse:
-    """Return a single refinement job by ``job_id``."""
+    """Return a single refinement job by ``job_id``.
+
+    404 when the job's agent is not visible to the caller (a non-member of the
+    owning project); see :mod:`caliber.routes._job_access`.
+    """
     require_user(request)
+    identity = resolve_identity(request)
     job_id = request.path_params["job_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        row = session.get(CaliberRefinementJob, job_id)
-        if row is None:
-            raise HTTPException(status_code=404, detail=f"refinement job {job_id!r} not found")
+        row = load_visible_job(session, identity, job_id)
         payload = _serialize_job(row)
     return envelope_response_dict(payload)
 
@@ -235,12 +252,11 @@ async def get_job_targets(request: Request) -> JSONResponse:
     location. Extra keys pass through via ``ConfigDict(extra='allow')``.
     """
     require_user(request)
+    identity = resolve_identity(request)
     job_id = request.path_params["job_id"]
     factory = get_session_factory(request)
     with factory() as session:
-        job = session.get(CaliberRefinementJob, job_id)
-    if job is None:
-        raise HTTPException(status_code=404, detail=f"refinement job {job_id!r} not found")
+        job = load_visible_job(session, identity, job_id)
 
     targets = _resolve_targets(job)
     response = JobTargetsResponse(
@@ -316,10 +332,15 @@ async def apply_job(request: Request) -> JSONResponse:
     job terminal at ``applied``.
     """
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     job_id = request.path_params["job_id"]
     promoter: Promoter = request.app.state.promoter
     factory = get_session_factory(request)
     with factory() as session:
+        # Project authorization comes first: a non-member gets 404 and a
+        # member without the ``release.apply`` role gets 403 before any claim,
+        # approval row, promoter call or audit write can happen.
+        load_visible_job(session, identity, job_id, action=ACTION_APPLY)
         # Claim with a conditional write rather than relying only on
         # SELECT FOR UPDATE (which SQLite ignores). The transient status lives
         # in this transaction: failure rolls it back to candidate_ready, while
@@ -416,9 +437,15 @@ async def apply_job(request: Request) -> JSONResponse:
 
 
 def _request_changes_sync(
-    factory: Any, *, job_id: str, actor: str, payload: ApprovalRequestChangesRequest
+    factory: Any,
+    *,
+    job_id: str,
+    actor: str,
+    identity: CaliberIdentity,
+    payload: ApprovalRequestChangesRequest,
 ) -> RefinementJobSchema:
     with factory() as session:
+        load_visible_job(session, identity, job_id, action=ACTION_REVIEW)
         # Same conditional-UPDATE claim idiom as apply_job: the transient
         # status lives in this transaction, so a racing request observes
         # rowcount=0 before any further effect runs.
@@ -472,13 +499,19 @@ async def request_changes(request: Request) -> JSONResponse:
     ``tests/test_async_offload_ratchet.py``.
     """
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     job_id = request.path_params["job_id"]
     body = await parse_json_object(request)
     payload = ApprovalRequestChangesRequest.model_validate(body)
 
     factory = get_session_factory(request)
     schema = await run_in_threadpool(
-        _request_changes_sync, factory, job_id=job_id, actor=actor, payload=payload
+        _request_changes_sync,
+        factory,
+        job_id=job_id,
+        actor=actor,
+        identity=identity,
+        payload=payload,
     )
     return envelope_response_dict({"job": schema.model_dump(mode="json")})
 

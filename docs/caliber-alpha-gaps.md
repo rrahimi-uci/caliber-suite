@@ -294,26 +294,29 @@ Status legend:
      - return 404 on `None` and on an orphaned agent.
      Use it in `get_job`, `get_job_targets`, `apply_job` (before the claim UPDATE), `request_changes`, and in `routes/quality_reviews.py`.
   2. Filter `list_jobs` by joining visible agent ids, as `routes/releases.py::_visible_ids` does.
-  3. In `apply_job` and the prompt promote/rollback handlers, call `require_project_access_if_scoped(session, identity, agent.project_id, "release.apply")`. Use the existing rollback action for rollback.
+  3. In `apply_job` and the prompt promote/rollback handlers, call `require_project_access_if_scoped(session, identity, agent.project_id, "release.apply")`. Rollback uses the same `release.apply` action rather than the owner-only `release.rollback`, so the editor who applied a version can roll it back from the prompt page.
   4. In `set_prompt_alias`, `rollback_prompt`, `set_prompt_baseline` and `bind_prompt`, apply `_prompt_target_invisible` → 404 **before** the idempotent replay branch.
   5. Filter `list_prompt_test_runs` by visible agent ids.
-  6. Register `CaliberRefinementJob` (via its agent) in the scoping inventory so `test_bare_lookup_inventory.py` guards it.
+  6. Guard it against regression. The bare-lookup inventory is derived from table columns and `CaliberRefinementJob` has none, so it cannot cover jobs. `tests/test_job_route_gate_ratchet.py` is the equivalent net: any function in the job route modules that reads or lists the job model without calling the gate fails the test.
 - **Priority:** P0. This is an unauthorized cross-project production mutation on the core journey.
 - **Files:**
   - `routes/jobs.py`, `routes/quality_reviews.py`, `routes/prompts.py`
   - `routes/bare_lookup_inventory.py` / `db/resource_inventory.py`
   - `caliber/tests/test_routes_jobs*.py`, `caliber/tests/test_routes_prompts.py`
 - **Dependencies:** None. The helpers (`get_visible`, `require_project_access_if_scoped`, `_prompt_target_invisible`) exist.
+- **Status: implemented.** Tests: `tests/test_routes_jobs_isolation.py` (16), the release-path block at the end of `tests/test_routes_prompts.py` (11), and `tests/test_job_route_gate_ratchet.py` (3). The new route tests fail against the old code and pass against the fix.
 - **Acceptance criteria:**
-  - [ ] Non-member operator: `GET /jobs` omits the job.
-  - [ ] Non-member operator: `GET /jobs/{id}`, `/targets` and `/quality-reviews` return 404.
-  - [ ] Non-member operator: `POST /jobs/{id}/apply`, `/request-changes` and `/quality-reviews` return 404. The promoter is not called and the job status is unchanged.
-  - [ ] Viewer- or reviewer-role member: Apply returns 403. Owner or editor: 200.
-  - [ ] Non-member operator: `POST /prompts/{name}/aliases/prod` and `/rollback` return 404 (including with a replayed `operation_id`). There are zero MLflow alias calls and no release operation or audit row.
-  - [ ] Viewer member gets 403 on the alias and rollback routes.
-  - [ ] Non-member `GET /prompts/test-runs` excludes the other project's runs.
-  - [ ] `test_bare_lookup_inventory.py` covers refinement jobs.
-  - [ ] The two-week alpha spec still passes.
+  - [x] Non-member operator: `GET /jobs` omits the job.
+  - [x] Non-member operator: `GET /jobs/{id}`, `/targets` and `/quality-reviews` return 404.
+  - [x] Non-member operator: `POST /jobs/{id}/apply`, `/request-changes` and `/quality-reviews` return 404. The promoter is not called and the job status is unchanged.
+  - [x] Viewer- or reviewer-role member: Apply returns 403. Owner or editor: 200.
+  - [x] Non-member operator: `POST /prompts/{name}/aliases/prod` and `/rollback` return 404 (including with a replayed `operation_id`). There are zero MLflow alias calls and no release operation or audit row.
+  - [x] Viewer member gets 403 on the alias and rollback routes.
+  - [x] Non-member `GET /prompts/test-runs` excludes the other project's runs.
+  - [x] A regression net covers refinement jobs (`test_job_route_gate_ratchet.py`, see fix step 6).
+  - [ ] The two-week alpha spec still passes in the browser. The backing pytest pipelines pass; the browser spec cannot pass on its default SQLite harness until [P0-2](#p0-2) lands, so it is re-verified there and in [P0-6](#p0-6).
+
+  Behavior changes to know about: a `caliber.admin` who is not a member of a project can still read its jobs but can no longer apply them or promote or roll back its prompts, because admin is deliberately not an implicit project member (`resource_access.project_role`). The same applies to every other role-gated project action.
 
 ### P0-2
 
@@ -1182,7 +1185,7 @@ ticked with linked evidence.
 
 ### Security and correctness
 
-- [ ] **P0-1** closed. A non-member gets 404 and a viewer gets 403 on every job, alias, rollback and test-run route. The bare-lookup inventory covers refinement jobs.
+- [ ] **P0-1** closed. A non-member gets 404 and a viewer gets 403 on every job, alias, rollback and test-run route, and a regression test guards the job routes. Implemented; this box closes when the browser spec criterion above is re-verified under P0-2.
 - [ ] **P1-01** closed. Project-bound PATs cannot act outside their project on any route.
 - [ ] **P0-2** closed. Apply succeeds with CALIBER and MLflow on the same SQLite file in a test, or the same-file configuration is refused at startup. The Day 9 attribution is corrected.
 - [ ] **P0-3** closed. With no provider env, Apply moves the real MLflow alias. No audit row claims a release that did not occur.

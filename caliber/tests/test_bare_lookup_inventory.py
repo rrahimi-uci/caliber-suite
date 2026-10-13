@@ -297,6 +297,11 @@ def test_bare_lookup_call_site_count_is_pinned() -> None:
     reflects `P2-Q` slice 2 (#417), landed on `main` after this checker was
     first written: its `identity is not None` branch now routes through
     `get_visible` instead of a bare admin-gated lookup.
+
+    `role_gated_own_project` 1 -> 2 is `routes.prompts._require_prompt_release_access`
+    (alpha gap P0-1): the prompt promote/rollback gate looks up the prompt's hidden
+    target by name and immediately enforces the `release.apply` project role, the
+    same shape as `create_prompt_version`.
     """
     from collections import Counter
 
@@ -306,10 +311,10 @@ def test_bare_lookup_call_site_count_is_pinned() -> None:
         "gated": 9,
         "admin_only": 6,
         "existence_only": 3,
-        "role_gated_own_project": 1,
+        "role_gated_own_project": 2,
         "reviewed": 5,
     }
-    assert len(findings) == 24
+    assert len(findings) == 25
 
 
 def test_findings_only_cover_scoping_visibility_models() -> None:

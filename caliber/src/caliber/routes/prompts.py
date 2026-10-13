@@ -23,7 +23,7 @@ from datetime import datetime, timezone
 from types import ModuleType
 from typing import Any, cast
 
-from sqlalchemy import select
+from sqlalchemy import or_, select
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
@@ -1565,6 +1565,33 @@ def _prompt_target_invisible(session: Session, name: str, identity: CaliberIdent
     )
 
 
+#: Project action needed to change which version is live (promote or roll back).
+#: Owners and editors hold it; viewers and reviewers do not. Rollback uses the
+#: same action as promote on purpose: the editor who applied a version must be
+#: able to roll it back from the prompt page, and ``release.rollback`` is
+#: owner-only (it was designed for the Workspace release lifecycle).
+_PROMPT_RELEASE_ACTION = "release.apply"
+
+
+def _require_prompt_release_access(session: Session, name: str, identity: CaliberIdentity) -> None:
+    """Gate a mutation of the live version: 404 when the prompt's hidden target
+    is not visible to ``identity`` (a non-member of the owning project), 403
+    when the caller is a member without the ``release.apply`` role.
+
+    A name with no CALIBER target row at all (a bare provider-only/legacy MLflow
+    prompt) has no project to protect and is unaffected, the same carve-out
+    :func:`_prompt_target_invisible` documents. The caller's global operator
+    scope check still applies either way.
+    """
+    if _prompt_target_invisible(session, name, identity):
+        raise HTTPException(status_code=404, detail=f"prompt {name!r} not found")
+    target = session.get(CaliberAgentConfig, name)
+    if target is not None:
+        require_project_access_if_scoped(
+            session, identity, target.project_id, _PROMPT_RELEASE_ACTION
+        )
+
+
 async def get_prompt(request: Request) -> JSONResponse:
     """``GET /caliber/prompts/{name}`` — load full prompt details.
 
@@ -1938,9 +1965,16 @@ async def set_prompt_alias(  # noqa: PLR0915 - validation, idempotency, durable 
     :func:`rollback_prompt` reads — replacing the prior path that wrote nothing.
     """
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     name = request.path_params["name"]
     alias = request.path_params["alias"]
     body = await parse_json_object(request)
+
+    # Authorize before anything else, including the idempotent ``operation_id``
+    # replay below, which would otherwise re-run a release for any caller.
+    factory = get_session_factory(request)
+    with factory() as session:
+        _require_prompt_release_access(session, name, identity)
 
     raw_version = body.get("version")
     if not isinstance(raw_version, (int, str)):
@@ -1960,7 +1994,6 @@ async def set_prompt_alias(  # noqa: PLR0915 - validation, idempotency, durable 
     ):
         raise HTTPException(status_code=400, detail="'operation_id' must be a non-empty string")
     operation_id = raw_operation_id.strip() if isinstance(raw_operation_id, str) else None
-    factory = get_session_factory(request)
     if operation_id is not None:
         with factory() as session:
             existing = session.get(CaliberReleaseOperation, operation_id)
@@ -2101,8 +2134,13 @@ async def rollback_prompt(request: Request) -> JSONResponse:
     version to restore. Body (optional): ``{"alias": "prod"}``.
     """
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
     name = request.path_params["name"]
     body = await parse_json_object(request, allow_empty=True)
+
+    factory = get_session_factory(request)
+    with factory() as session:
+        _require_prompt_release_access(session, name, identity)
 
     raw_alias = body.get("alias")
     alias = raw_alias.strip() if isinstance(raw_alias, str) and raw_alias.strip() else "prod"
@@ -2117,7 +2155,6 @@ async def rollback_prompt(request: Request) -> JSONResponse:
             detail=f"prompt {name!r} has no live version on alias {alias!r} to roll back",
         )
 
-    factory = get_session_factory(request)
     with factory() as session:
         target = _previous_live_version(session, name, alias, int(current))
         if target is None:
@@ -2442,6 +2479,7 @@ async def list_prompt_test_runs(request: Request) -> JSONResponse:
     to 20 and is capped at 100. The heavy per-case ``results`` array is omitted.
     """
     require_user(request)
+    identity = resolve_identity(request)
     agent_id = request.query_params.get("agent_id")
 
     raw_limit = request.query_params.get("limit")
@@ -2455,7 +2493,21 @@ async def list_prompt_test_runs(request: Request) -> JSONResponse:
             raise HTTPException(status_code=400, detail="'limit' must be >= 1")
     limit = min(limit, _TEST_RUNS_MAX_LIMIT)
 
-    stmt = select(CaliberPromptTestRun)
+    # Only runs of prompts whose hidden target is visible to the caller. A run
+    # whose target row is missing (legacy data) has no project and stays listed,
+    # the same carve-out ``_prompt_target_invisible`` documents.
+    visible_agents = apply_visibility_filter(
+        select(CaliberAgentConfig.agent_id),
+        CaliberAgentConfig,
+        identity,
+        identity.active_project_id,
+    )
+    stmt = select(CaliberPromptTestRun).where(
+        or_(
+            CaliberPromptTestRun.agent_id.in_(visible_agents),
+            CaliberPromptTestRun.agent_id.not_in(select(CaliberAgentConfig.agent_id)),
+        )
+    )
     if agent_id:
         stmt = stmt.where(CaliberPromptTestRun.agent_id == agent_id)
     stmt = stmt.order_by(CaliberPromptTestRun.created_at.desc()).limit(limit)
@@ -2708,6 +2760,10 @@ async def set_prompt_baseline(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
+        # Gate on the prompt first so a non-member cannot probe which test-run
+        # ids exist (404 vs 400) on a project they cannot see.
+        if _prompt_target_invisible(session, name, identity):
+            raise HTTPException(status_code=404, detail=f"prompt {name!r} not found")
         run = session.get(CaliberPromptTestRun, payload.test_run_id)
         if run is None:
             raise HTTPException(

@@ -49,10 +49,17 @@ from starlette.responses import JSONResponse
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
-from caliber.auth import SCOPE_OPERATOR, require_scopes, require_user
+from caliber.auth import (
+    SCOPE_OPERATOR,
+    CaliberIdentity,
+    require_scopes,
+    require_user,
+    resolve_identity,
+)
 from caliber.db.models import CaliberQualityReview, CaliberRefinementJob, CaliberReworkTask
 from caliber.ids import new_quality_review_id, new_rework_task_id
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
+from caliber.routes._job_access import ACTION_REVIEW, load_visible_job
 from caliber.schemas import QualityReviewRequest, QualityReviewSchema
 
 #: One URL, two methods (POST creates, GET lists) -- both routes below
@@ -63,9 +70,17 @@ _Factory = sessionmaker[Session]
 
 
 def _submit_quality_review_sync(
-    factory: _Factory, *, job_id: str, actor: str, payload: QualityReviewRequest
+    factory: _Factory,
+    *,
+    job_id: str,
+    actor: str,
+    identity: CaliberIdentity,
+    payload: QualityReviewRequest,
 ) -> QualityReviewSchema:
     with factory() as session:
+        # 404 for a non-member, 403 for a member without a review role, before
+        # the no_go claim below can reject the job.
+        load_visible_job(session, identity, job_id, action=ACTION_REVIEW)
         if payload.decision == "no_go":
             # Same conditional-UPDATE claim idiom as apply_job/request_changes:
             # the transition lives in this transaction, so a racing Apply or
@@ -161,19 +176,25 @@ async def submit_quality_review(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = QualityReviewRequest.model_validate(body)
     actor = require_scopes(request, [SCOPE_OPERATOR])
+    identity = resolve_identity(request)
 
     factory = get_session_factory(request)
     schema = await run_in_threadpool(
-        _submit_quality_review_sync, factory, job_id=job_id, actor=actor, payload=payload
+        _submit_quality_review_sync,
+        factory,
+        job_id=job_id,
+        actor=actor,
+        identity=identity,
+        payload=payload,
     )
     return envelope_response(schema, status_code=201)
 
 
-def _list_quality_reviews_sync(factory: _Factory, *, job_id: str) -> list[QualityReviewSchema]:
+def _list_quality_reviews_sync(
+    factory: _Factory, *, job_id: str, identity: CaliberIdentity
+) -> list[QualityReviewSchema]:
     with factory() as session:
-        job = session.get(CaliberRefinementJob, job_id)
-        if job is None:
-            raise HTTPException(status_code=404, detail=f"refinement job {job_id!r} not found")
+        load_visible_job(session, identity, job_id)
         rows = (
             session.execute(
                 select(CaliberQualityReview)
@@ -188,9 +209,12 @@ def _list_quality_reviews_sync(factory: _Factory, *, job_id: str) -> list[Qualit
 
 async def list_quality_reviews(request: Request) -> JSONResponse:
     require_user(request)
+    identity = resolve_identity(request)
     job_id = request.path_params["job_id"]
     factory = get_session_factory(request)
-    schemas = await run_in_threadpool(_list_quality_reviews_sync, factory, job_id=job_id)
+    schemas = await run_in_threadpool(
+        _list_quality_reviews_sync, factory, job_id=job_id, identity=identity
+    )
     return envelope_response(schemas)
 
 
