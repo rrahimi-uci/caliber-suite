@@ -402,3 +402,69 @@ def test_an_unbound_token_gets_context_mismatch_for_mismatched_project_header(
     resp = client.get(f"{PREFIX}/projects/{project_a}", headers=headers)
     assert resp.status_code == 400, resp.text
     assert resp.json()["detail"].startswith("workspace_context_mismatch:")
+
+
+# ---------------------------------------------------------------------------
+# P1-01: the binding holds on every route that authenticates, not only the ones
+# that call ``resolve_identity``.
+# ---------------------------------------------------------------------------
+
+
+def test_a_bound_token_is_refused_another_projects_header_on_a_scope_only_route(
+    client: TestClient,
+) -> None:
+    """``GET /eval-datasets`` authenticates with ``require_scopes`` alone. Before the
+    binding moved into the shared gates it answered 200 for a token bound to a
+    different project."""
+    bound_project = _create_project(client, "Bound")
+    other_project = _create_project(client, "Other")
+    token = _issue(client, project_id=bound_project)["token"]
+
+    headers = _as_token(token)
+    headers["X-CALIBER-Project"] = other_project
+    refused = client.get(f"{PREFIX}/eval-datasets", headers=headers)
+    assert refused.status_code == 403, refused.text
+    assert bound_project in refused.json()["detail"]
+
+    headers["X-CALIBER-Project"] = bound_project
+    allowed = client.get(f"{PREFIX}/eval-datasets", headers=headers)
+    assert allowed.status_code == 200, allowed.text
+
+
+def test_an_unbound_token_may_name_any_project_on_a_scope_only_route(
+    client: TestClient,
+) -> None:
+    project_id = _create_project(client, "Any")
+    token = _issue(client)["token"]
+    headers = _as_token(token)
+    headers["X-CALIBER-Project"] = project_id
+
+    assert client.get(f"{PREFIX}/eval-datasets", headers=headers).status_code == 200
+
+
+def test_a_bound_token_with_no_project_header_acts_in_its_bound_project(
+    client: TestClient,
+) -> None:
+    """The listing is scoped to the binding even though the caller named nothing."""
+    bound_project = _create_project(client, "Bound")
+    other_project = _create_project(client, "Other")
+    token = _issue(client, project_id=bound_project)["token"]
+
+    inside = client.post(
+        f"{PREFIX}/eval-datasets",
+        json={"name": "bound-set", "owner": "admin"},
+        headers={**_as_token(token), "X-CALIBER-Project": bound_project},
+    )
+    assert inside.status_code == 201, inside.text
+    elsewhere = client.post(
+        f"{PREFIX}/eval-datasets",
+        json={"name": "other-set", "owner": "admin"},
+        headers={**_as_token(token), "X-CALIBER-Project": other_project},
+    )
+    assert elsewhere.status_code == 403, elsewhere.text
+
+    listed = client.get(f"{PREFIX}/eval-datasets", headers=_as_token(token))
+    assert listed.status_code == 200, listed.text
+    names = {row["name"] for row in listed.json()["data"]}
+    assert "bound-set" in names
+    assert "other-set" not in names

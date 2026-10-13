@@ -265,6 +265,7 @@ def require_user(request: Request) -> str:
             status_code=401,
             detail="authentication required (no identity in request)",
         )
+    _enforce_binding_for_request(request)
     return actor
 
 
@@ -347,6 +348,27 @@ class CaliberIdentity:
         return scope in self.scopes
 
 
+def _enforce_binding_for_request(request: Request) -> None:
+    """Apply a project-bound PAT's binding to a request, from the request alone.
+
+    ``resolve_identity`` always enforced the binding, but ``require_user``,
+    ``require_scopes`` and ``require_all_scopes`` did not, so a PAT bound to project B
+    could act on project A through any route that gates only on a scope and passes the
+    ``X-CALIBER-Project`` header on (alpha gap P1-01). Running the check here closes
+    that for every route that authenticates through those functions. It is a no-op for
+    unbound credentials, sessions and header identities, and idempotent when a route
+    later calls ``resolve_identity`` as well.
+    """
+    credential_project_id = request.scope.get(_CREDENTIAL_PROJECT_KEY)
+    if not isinstance(credential_project_id, str):
+        return
+    raw_project = request.headers.get(_PROJECT_HEADER)
+    header_project = (raw_project.strip() if raw_project else "") or None
+    path_project = request.path_params.get("project_id")
+    path_project_id = path_project if isinstance(path_project, str) else None
+    _enforce_pat_project_binding(credential_project_id, header_project, path_project_id)
+
+
 def resolve_identity(request: Request) -> CaliberIdentity:
     """Resolve user, scopes, active project, and credential context from the request.
 
@@ -391,7 +413,8 @@ def resolve_identity(request: Request) -> CaliberIdentity:
     return CaliberIdentity(
         user_id=user,
         scopes=scopes,
-        active_project_id=header_project,
+        # A bound PAT that names no project acts in its bound project.
+        active_project_id=header_project or credential_project_id,
         credential_kind=credential_kind if isinstance(credential_kind, str) else None,
         credential_id=credential_id if isinstance(credential_id, str) else None,
         credential_project_id=credential_project_id,
@@ -473,6 +496,7 @@ def require_scopes(request: Request, scopes: Iterable[str]) -> str:
             status_code=401,
             detail="authentication required (no identity in request)",
         )
+    _enforce_binding_for_request(request)
     granted = current_scopes(request)
     if required.isdisjoint(granted):
         raise HTTPException(
@@ -508,6 +532,7 @@ def require_all_scopes(request: Request, scopes: Iterable[str]) -> str:
             status_code=401,
             detail="authentication required (no identity in request)",
         )
+    _enforce_binding_for_request(request)
     granted = current_scopes(request)
     missing = required - granted
     if missing:

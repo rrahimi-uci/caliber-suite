@@ -53,6 +53,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Security
 
+- **A project-bound personal access token is confined to its project on every route.** The binding
+  was enforced only by routes that call `resolve_identity`, so a token bound to project B could act
+  on project A (apply its job, for example) through any route that gates on a scope and passes
+  `X-CALIBER-Project` along. The check now runs in `require_user`, `require_scopes` and
+  `require_all_scopes` too, and a bound token that names no project acts in its bound project. Unbound
+  tokens, sessions and header identities are unchanged.
 - **Project authorization on the release path.** Refinement-job list, detail, targets, Apply,
   request-changes and quality-review routes, and prompt alias promotion, rollback, baseline and
   the test-run list, now follow the owning project. A caller outside the project gets 404 (even
