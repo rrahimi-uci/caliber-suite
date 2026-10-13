@@ -21,8 +21,13 @@ ENV PYTHONUNBUFFERED=1 \
 # MLflow API call 500'd. Fixed upstream in the very next release, 4.15.1 --
 # pinned below rather than left floating, so a future PyPI regression in some
 # *other* transitive dependency doesn't repeat this silently the same way.
+# ``sqlalchemy`` is pinned to the 2.0 line for the same reason. SQLAlchemy 2.1
+# (2026-10-07) changed the default driver for a plain ``postgresql://`` URL --
+# which MLFLOW_BACKEND_URI uses -- from psycopg2 to psycopg (v3). This image
+# installs psycopg2-binary only, so a floating install makes the server die at
+# startup with ``ModuleNotFoundError: No module named 'psycopg'``.
 RUN pip install --upgrade pip \
- && pip install "mlflow>=3.14.0,<4" "boto3>=1.34" "psycopg2-binary>=2.9" "anyio>=4.15.1"
+ && pip install "mlflow>=3.14.0,<4" "boto3>=1.34" "psycopg2-binary>=2.9" "anyio>=4.15.1" "sqlalchemy>=2.0,<2.1"
 
 # --- Guardrails AI — backend for MLflow's gateway guardrails -----------------
 # MLflow's gateway guardrails (``mlflow.gateway.guardrails``, enforced pre/post
