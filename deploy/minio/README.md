@@ -29,6 +29,15 @@ The `createbuckets` job runs once on startup and creates the three buckets
 above (idempotent). Override names/ports/creds via `deploy/.env` — see
 [`deploy/.env.example`](../.env.example).
 
+### Images
+
+The compose file uses `cgr.dev/chainguard/minio` and `cgr.dev/chainguard/minio-client`.
+Upstream's `minio/minio` and `minio/mc` images (Docker Hub and `quay.io`) are no longer
+published, so pulling them fails with `pull access denied`. The server runs as root, as
+the old upstream image did, so a `caliber_minio_data` volume created by that image stays
+writable. The client image has no shell, so `createbuckets` takes its credentials from
+`MC_HOST_local`; a `MINIO_ROOT_PASSWORD` containing `@ : / ? #` must be percent-encoded.
+
 ## Point the apps at it
 
 In the suite `.env` (defaults already match this compose):

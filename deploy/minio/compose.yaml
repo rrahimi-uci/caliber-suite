@@ -11,8 +11,15 @@ name: caliber-minio
 
 services:
   minio:
-    image: minio/minio:latest
+    # Upstream's `minio/minio` (Docker Hub) and `quay.io/minio/minio` images are no
+    # longer published, so `docker pull` fails with "pull access denied". Chainguard
+    # publishes a maintained build of the same server under a free `latest` tag.
+    image: cgr.dev/chainguard/minio:latest
     container_name: caliber-minio
+    # Run as root, as the old upstream image did. The Chainguard default (uid 65532)
+    # cannot write a `caliber_minio_data` volume created by that image, which would
+    # break every existing checkout with "file access denied".
+    user: "0:0"
     command: server /data --console-address ":9001"
     environment:
       MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
@@ -24,29 +31,26 @@ services:
       - caliber_minio_data:/data
     restart: unless-stopped
 
-  # One-shot init: wait for MinIO, then create the buckets the apps expect.
-  # Exits 0 when done; `--ignore-existing` makes re-runs idempotent.
+  # One-shot init: create the buckets the apps expect, then exit 0. `--ignore-existing`
+  # makes re-runs idempotent. The Chainguard client image has no shell, so there is no
+  # wait loop: the alias comes from MC_HOST_local (no `mc alias set` step) and
+  # `restart: on-failure` retries `mc mb` until MinIO accepts connections.
+  # NOTE: MC_HOST_local embeds the credentials in a URL, so a MINIO_ROOT_PASSWORD with
+  # URL-reserved characters (@ : / ? #) must be percent-encoded.
   createbuckets:
-    image: minio/mc:latest
+    image: cgr.dev/chainguard/minio-client:latest
     container_name: caliber-minio-init
     depends_on:
       - minio
+    restart: on-failure:60
     environment:
-      MINIO_ROOT_USER: ${MINIO_ROOT_USER:-minioadmin}
-      MINIO_ROOT_PASSWORD: ${MINIO_ROOT_PASSWORD:-minioadmin}
-      MLFLOW_BUCKET: ${MINIO_MLFLOW_BUCKET:-mlflow}
-      WORKSPACES_BUCKET: ${MINIO_WORKSPACES_BUCKET:-caliber-workspaces}
-      LOG_BUCKET: ${MINIO_LOG_BUCKET:-caliber-log}
-    entrypoint: >
-      /bin/sh -c "
-      until mc alias set local http://minio:9000 \"$$MINIO_ROOT_USER\" \"$$MINIO_ROOT_PASSWORD\" >/dev/null 2>&1; do
-        echo 'waiting for minio...'; sleep 1;
-      done;
-      mc mb --ignore-existing local/$$MLFLOW_BUCKET;
-      mc mb --ignore-existing local/$$WORKSPACES_BUCKET;
-      mc mb --ignore-existing local/$$LOG_BUCKET;
-      echo 'minio buckets ready';
-      "
+      MC_HOST_local: http://${MINIO_ROOT_USER:-minioadmin}:${MINIO_ROOT_PASSWORD:-minioadmin}@minio:9000
+    command:
+      - mb
+      - --ignore-existing
+      - local/${MINIO_MLFLOW_BUCKET:-mlflow}
+      - local/${MINIO_WORKSPACES_BUCKET:-caliber-workspaces}
+      - local/${MINIO_LOG_BUCKET:-caliber-log}
 
 volumes:
   caliber_minio_data:
