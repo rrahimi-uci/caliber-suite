@@ -130,7 +130,7 @@ describe("Sidebar Build routes", () => {
         ),
       ),
       http.get(`${API_BASE}/health`, () =>
-        HttpResponse.json(envelope({ status: "ok", version: "test" })),
+        HttpResponse.json({ status: "ok", version: "test", db: "ok" }),
       ),
       http.get(`${API_BASE}/dashboard/summary`, () =>
         HttpResponse.json(

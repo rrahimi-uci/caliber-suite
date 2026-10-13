@@ -44,7 +44,7 @@ describe("shared health poll", () => {
     server.use(
       http.get(`${API_BASE}/health`, () => {
         calls += 1;
-        return HttpResponse.json({ data: { status: "ok", version: "test" } });
+        return HttpResponse.json({ status: "ok", version: "test", db: "ok" });
       }),
     );
 

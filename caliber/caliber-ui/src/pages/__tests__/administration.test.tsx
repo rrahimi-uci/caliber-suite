@@ -617,11 +617,15 @@ describe("Administration", () => {
   });
 
   it("stores a secret through the write-only form and surfaces the reference scheme", async () => {
+    let stored: Record<string, unknown> | null = null;
     stubStores();
     server.use(
-      http.post(`${API_BASE}/secrets`, () =>
-        HttpResponse.json(envelope({ name: "stripe-key", version: 1 })),
-      ),
+      http.put(`${API_BASE}/secrets/stripe-key`, async ({ request }) => {
+        // The server contract: PUT /secrets/{name} with only {value}; the name
+        // travels in the path. (The form once POSTed /secrets, which 405s.)
+        stored = (await request.json()) as Record<string, unknown>;
+        return HttpResponse.json(envelope({ name: "stripe-key", version: 1 }));
+      }),
     );
     renderPage();
 
@@ -636,6 +640,7 @@ describe("Administration", () => {
     expect(await screen.findByRole("status")).toHaveTextContent(
       "Stored stripe-key as version 1. Reference it as secret://stripe-key.",
     );
+    expect(stored).toEqual({ value: "sk_live_abc" });
     // The value never lingers in the form after a successful store.
     expect((screen.getByLabelText("Value") as HTMLInputElement).value).toBe("");
     expect((screen.getByLabelText("Name") as HTMLInputElement).value).toBe("");
@@ -644,7 +649,7 @@ describe("Administration", () => {
   it("shows an error when storing a secret is rejected", async () => {
     stubStores();
     server.use(
-      http.post(`${API_BASE}/secrets`, () =>
+      http.put(`${API_BASE}/secrets/stripe-key`, () =>
         HttpResponse.json({ detail: "encryption key source is not configured" }, { status: 503 }),
       ),
     );

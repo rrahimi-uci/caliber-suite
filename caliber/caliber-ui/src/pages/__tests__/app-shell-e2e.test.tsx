@@ -177,7 +177,7 @@ describe("App shell end-to-end journeys", () => {
         ),
       ),
       http.get(`${API_BASE}/health`, () =>
-        HttpResponse.json(envelope({ status: "ok", version: "test" })),
+        HttpResponse.json({ status: "ok", version: "test", db: "ok" }),
       ),
       // Credentials are verified server-side (C1). There is no default credential and
       // no browser-synthesised identity, so this journey needs the real endpoint.
@@ -289,7 +289,7 @@ describe("App shell end-to-end journeys", () => {
         );
       }),
       http.get(`${API_BASE}/health`, () =>
-        HttpResponse.json(envelope({ status: "ok", version: "test" })),
+        HttpResponse.json({ status: "ok", version: "test", db: "ok" }),
       ),
       http.get(`${API_BASE}/dashboard/summary`, () =>
         HttpResponse.json(
@@ -547,7 +547,7 @@ describe("App shell end-to-end journeys", () => {
   it("logs out and clears the local session", async () => {
     server.use(
       http.get(`${API_BASE}/health`, () =>
-        HttpResponse.json(envelope({ status: "ok", version: "test" })),
+        HttpResponse.json({ status: "ok", version: "test", db: "ok" }),
       ),
       http.get(`${API_BASE}/dashboard/summary`, () =>
         HttpResponse.json(
@@ -630,7 +630,7 @@ describe("App shell end-to-end journeys", () => {
         ),
       ),
       http.get(`${API_BASE}/health`, () =>
-        HttpResponse.json(envelope({ status: "ok", version: "test" })),
+        HttpResponse.json({ status: "ok", version: "test", db: "ok" }),
       ),
       http.get(`${API_BASE}/dashboard/summary`, () =>
         HttpResponse.json(
@@ -754,7 +754,7 @@ describe("App shell end-to-end journeys", () => {
   it("renders workflow detail deep links through the real app router", async () => {
     server.use(
       http.get(`${API_BASE}/health`, () =>
-        HttpResponse.json(envelope({ status: "ok", version: "test" })),
+        HttpResponse.json({ status: "ok", version: "test", db: "ok" }),
       ),
       http.get(`${API_BASE}/dashboard/summary`, () =>
         HttpResponse.json(
@@ -969,7 +969,7 @@ describe("App shell end-to-end journeys", () => {
 
     server.use(
       http.get(`${API_BASE}/health`, () =>
-        HttpResponse.json(envelope({ status: "ok", version: "test" })),
+        HttpResponse.json({ status: "ok", version: "test", db: "ok" }),
       ),
       http.get(`${API_BASE}/dashboard/summary`, () =>
         HttpResponse.json(
@@ -1168,7 +1168,7 @@ describe("App shell end-to-end journeys", () => {
     let summaryCallCount = 0;
     server.use(
       http.get(`${API_BASE}/health`, () =>
-        HttpResponse.json(envelope({ status: "ok", version: "test" })),
+        HttpResponse.json({ status: "ok", version: "test", db: "ok" }),
       ),
       http.get(`${API_BASE}/dashboard/summary`, () => {
         summaryCallCount += 1;
@@ -1247,7 +1247,7 @@ describe("App shell end-to-end journeys", () => {
   it("persists sidebar collapse preference across remounts", async () => {
     server.use(
       http.get(`${API_BASE}/health`, () =>
-        HttpResponse.json(envelope({ status: "ok", version: "test" })),
+        HttpResponse.json({ status: "ok", version: "test", db: "ok" }),
       ),
       http.get(`${API_BASE}/dashboard/summary`, () =>
         HttpResponse.json(
@@ -1295,7 +1295,7 @@ describe("App shell end-to-end journeys", () => {
   it("reserves page space when assistant drawer is open", async () => {
     server.use(
       http.get(`${API_BASE}/health`, () =>
-        HttpResponse.json(envelope({ status: "ok", version: "test" })),
+        HttpResponse.json({ status: "ok", version: "test", db: "ok" }),
       ),
       http.get(`${API_BASE}/dashboard/summary`, () =>
         HttpResponse.json(
@@ -1338,7 +1338,7 @@ describe("App shell end-to-end journeys", () => {
   it("supports resizing and collapse/expand for the assistant drawer", async () => {
     server.use(
       http.get(`${API_BASE}/health`, () =>
-        HttpResponse.json(envelope({ status: "ok", version: "test" })),
+        HttpResponse.json({ status: "ok", version: "test", db: "ok" }),
       ),
       http.get(`${API_BASE}/dashboard/summary`, () =>
         HttpResponse.json(
