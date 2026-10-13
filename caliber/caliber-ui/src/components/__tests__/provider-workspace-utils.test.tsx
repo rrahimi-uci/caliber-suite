@@ -4,7 +4,7 @@ import userEvent from "@testing-library/user-event";
 import type { ReactElement } from "react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
-import { ProviderBanner } from "@/components/ProviderBanner";
+import { ProviderBanner, describeBlocker } from "@/components/ProviderBanner";
 import { WorkspaceSelector } from "@/components/WorkspaceSelector";
 import { relativeTime } from "@/lib/time";
 import { showToast } from "@/lib/toast";
@@ -86,6 +86,53 @@ describe("ProviderBanner", () => {
       "Not ready: promoter is simulated",
     );
     expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
+  });
+
+  it("shows MLflow unavailable for an mlflow blocker even when every provider is real", async () => {
+    vi.mocked(caliberApi.getProviderReadiness).mockResolvedValue({
+      mode: "real",
+      real: ["eval", "llm", "promoter", "artifact_store"],
+      simulated: [],
+      providers: {},
+      warnings: [],
+      ready: false,
+      blockers: ["mlflow: MLflow returned HTTP 502"],
+    });
+
+    render(<ProviderBanner />);
+
+    const blockers = await screen.findByTestId("provider-banner-blockers");
+    expect(blockers).toHaveTextContent("Not ready: MLflow unavailable (MLflow returned HTTP 502)");
+    expect(screen.getByTestId("provider-banner")).not.toHaveTextContent("Simulated providers");
+  });
+
+  it("cannot dismiss a banner that reports a blocker, even with a stored dismissal", async () => {
+    window.sessionStorage.setItem("caliber.provider_banner_dismissed", "1");
+    vi.mocked(caliberApi.getProviderReadiness).mockResolvedValue({
+      mode: "mixed",
+      real: ["llm"],
+      simulated: ["artifact_store"],
+      providers: {},
+      warnings: [],
+      ready: false,
+      blockers: ["schema: schema is behind: database is at 0100"],
+    });
+
+    render(<ProviderBanner />);
+
+    const banner = await screen.findByTestId("provider-banner");
+    expect(banner).toHaveTextContent("Database schema is not current");
+    expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
+  });
+
+  it("describes known blockers in plain language and keeps unknown ones as they are", () => {
+    expect(describeBlocker("database: could not connect")).toBe("Database unavailable (could not connect)");
+    expect(describeBlocker("object_store: bucket listable failed")).toBe(
+      "Object storage unavailable (bucket listable failed)",
+    );
+    expect(describeBlocker("mlflow:")).toBe("MLflow unavailable");
+    expect(describeBlocker("quantum_flux: unstable")).toBe("quantum_flux: unstable");
+    expect(describeBlocker("no separator here")).toBe("no separator here");
   });
 
   it("renders nothing when all providers are real or readiness fails", async () => {

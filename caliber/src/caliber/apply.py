@@ -44,6 +44,7 @@ from caliber.db.models import (
     CaliberRollbackCheckpoint,
 )
 from caliber.ids import new_checkpoint_id, new_release_operation_id
+from caliber.mlflow_errors import is_mlflow_unreachable, unreachable_http_exception
 from caliber.promoter import Promoter, PromoterConflictError, PromoterError, PromotionResult
 from caliber.release_operations import (
     ReleaseOperationConflictError,
@@ -394,6 +395,10 @@ def _apply_bundle(
     except PromoterConflictError as exc:
         raise HTTPException(status_code=409, detail=f"promotion conflict: {exc}") from exc
     except PromoterError as exc:
+        # A connection-level failure is "MLflow is down", not "the registry rejected
+        # this": say so with a 503 instead of a client stack trace (alpha gap P1-04).
+        if is_mlflow_unreachable(exc):
+            raise unreachable_http_exception() from exc
         raise HTTPException(status_code=502, detail=f"promotion failed: {exc}") from exc
 
     result = results[0]

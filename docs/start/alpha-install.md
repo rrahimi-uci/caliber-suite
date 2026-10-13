@@ -185,6 +185,7 @@ scripts/verify-alpha-install.sh --wheel-dir ./wheels
 | `/readiness` is not ready with a `schema` blocker, or login returns 500 and the log says `no such table` | the migration never ran, or the database is behind this release | run `caliber-migrate` with the same `CALIBER_DATABASE_URL` and restart |
 | Login works but "create project" is refused with 403 | no role list names you | set `CALIBER_ADMIN_USERS` and restart |
 | `admin`/`admin` is rejected | no account was created | set the two bootstrap lines in step 5, or a password source, on a fresh database |
+| Creating a prompt or applying answers 503 "MLflow tracking server unreachable" | MLflow is not running, or `MLFLOW_TRACKING_URI` is wrong | start MLflow (step 4) or correct the URI, then retry; nothing was changed |
 | `/readiness` lists `promoter` | a `fake` promoter was configured | set `CALIBER_PROMOTER_PROVIDER=mlflow` |
 | `pip install caliber-sdk` finds nothing | the packages are not on PyPI | install from the wheels as in step 2 |
 

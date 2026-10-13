@@ -655,8 +655,10 @@ deferral.
 - **Files:** `server.py`, `routes/prompts.py`, `promoter.py`, `components/ProviderBanner.tsx`.
 - **Deps:** None.
 - **Acceptance:**
-  - [ ] With the tracking URI on a closed port, `POST /prompts` returns 503 in under 45 s (offline pytest).
-  - [ ] The banner shows "MLflow unavailable" for an `mlflow` blocker (Vitest).
+- **Status: implemented.** `server.py` (`MLFLOW_HTTP_REQUEST_MAX_RETRIES=1` and `MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR=1` unless the operator set them), new `mlflow_errors.py` (`is_mlflow_unreachable` walks the exception chain; `unreachable_http_exception` is a 503 with fixed text that carries no tracking URI), `routes/prompts.py` (register, read, read version, set alias) and `apply.py` (promotion) map a connection failure to that 503 while every other registry error keeps its 502, and `ProviderBanner.tsx` now renders readiness blockers in plain language even when every provider is real, and never lets a blocked banner be dismissed. Tests: `tests/test_mlflow_unreachable.py` (classifier, retry defaults and a real-MLflow subprocess against a closed port), route tests in `test_routes_prompts.py` and `test_routes_jobs_apply.py`, and Vitest in `provider-workspace-utils.test.tsx`.
+- **Acceptance criteria:**
+  - [x] With the tracking URI on a closed port, `POST /prompts` returns 503 in under 45 s: the subprocess test runs the real MLflow client with the shipped defaults and answers 503 with the fixed detail in about a second (a connection refusal does not wait on backoff; a server that accepts and never answers is bounded by the 15 s timeout and one retry, about 30 s).
+  - [x] The banner shows "MLflow unavailable" for an `mlflow` blocker, including when nothing is simulated (Vitest).
 
 ### P1-05
 

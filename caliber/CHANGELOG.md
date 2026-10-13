@@ -69,6 +69,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   committed it, so a permanent deletion left no trace; it now commits. `PATCH /settings/llm` also validates
   every field before applying any, so a bad field no longer leaves the request half applied.
 
+- **An unreachable MLflow now fails fast with a clear 503.** With the tracking server stopped, creating a
+  prompt and applying a candidate sat in MLflow's retry loop (seven retries with exponential backoff) for
+  about eight minutes and then answered 502 with a client stack trace. CALIBER now sets
+  `MLFLOW_HTTP_REQUEST_MAX_RETRIES=1` and `MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR=1` unless you set them, so a
+  refused connection fails immediately and a hung server in about 30 seconds. Connection-level failures on
+  prompt create, version create, read, alias change and Apply answer 503 "MLflow tracking server
+  unreachable" with fixed text (no tracking URI); other registry errors keep their 502. The provider
+  banner now shows readiness blockers in plain language (for example "MLflow unavailable") even when every
+  provider is real, and a banner that reports a blocker cannot be dismissed.
+
 ### Security
 
 - **A project-bound personal access token is confined to its project on every route.** The binding
