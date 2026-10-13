@@ -1,1 +1,0 @@
-INFO     httpx:_client.py:1025 HTTP Request: POST https://api.github.com/repos/owner/repo/statuses/deadbeef?per_page=10 "HTTP/1.1 200 OK"

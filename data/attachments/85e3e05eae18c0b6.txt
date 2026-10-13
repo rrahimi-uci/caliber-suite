@@ -1,7 +1,0 @@
-{"t":"2026-10-13T06:54:11.019Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-10-13T06:54:11.027Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-10-13T06:54:11.028Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
-{"t":"2026-10-13T06:54:11.029Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-10-13T06:54:11.040Z","severity":"WARNING","logger":"caliber.routes.observability","message":"search_experiments failed (mlflow tracking server down)","trace_id":"d38b6a89f52b6837"}
-{"t":"2026-10-13T06:54:11.041Z","severity":"WARNING","logger":"caliber.routes.observability","message":"search_experiments failed (mlflow tracking server down)","trace_id":"d38b6a89f52b6837"}
-{"t":"2026-10-13T06:54:11.041Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/observability/traces \"HTTP/1.1 200 OK\""}
