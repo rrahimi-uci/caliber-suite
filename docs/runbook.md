@@ -267,7 +267,7 @@ families because the same interface component appears in both places.
 
 | Family | Endpoint | Semantics |
 | --- | --- | --- |
-| Prompt | via the release service | Restores the **recorded** outgoing alias target. Takes the same intent record and audit row as a promotion |
+| Prompt | `POST /caliber/prompts/{name}/rollback` | Restores the **recorded** outgoing alias target. Takes the same intent record and audit row as a promotion |
 | Workflow | `POST /caliber/workflows/{workflow_id}/deployments/{alias}/rollback` | Pops the deployment's checkpoint stack |
 | Skill | `POST /caliber/skills/{skill_id}/rollback` | Restores the prior snapshot as a **new** version |
 | Knowledge base | `POST /caliber/knowledge-bases/{knowledge_base_id}/rollback` | Derives the prior build from history |

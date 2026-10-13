@@ -223,6 +223,8 @@ scope to start a run.
 - `POST /tools/{tool_id}/calibration-jobs` — snapshot and queue the same suite (`202`);
   `GET /tools/{tool_id}/calibration-jobs` and
   `GET /tools/{tool_id}/calibration-jobs/{job_id}` list/poll durable state.
+  `POST /tools/{tool_id}/calibration-jobs/{job_id}/resolve` abandons or explicitly
+  retries an ambiguously `running` job.
 - `GET /workflows/{workflow_id}/calibration/options` and
   `POST /workflows/{workflow_id}/calibration/runs` — workflow calibration; the run
   is enqueued, not executed inline.

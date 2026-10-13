@@ -4,8 +4,9 @@ A typed Python client for the [CALIBER](https://github.com/rrahimi-uci/caliber-s
 management API.
 
 Installing it does **not** install the CALIBER server. No `mlflow`, no
-`sqlalchemy`, no `starlette` — just `httpx`. That is the reason this is a
-separate distribution rather than a module inside the server package.
+`sqlalchemy`, no `starlette` — just `httpx` and `typing-extensions`. That is
+the reason this is a separate distribution rather than a module inside the
+server package.
 
 ## Install
 
@@ -155,8 +156,10 @@ python -m build
 
 ## Status
 
-Alpha. The transport, auth, error, and waiter contracts above are stable;
-typed resource modules are being added milestone by milestone.
+Alpha (`0.1.0a1`). Every management-API operation is reachable through a
+typed resource method (the coverage gate in `caliber/tests/test_sdk_api_coverage.py`
+allows only the exclusions listed in `coverage_allowlist.toml`); public names
+can still change before 1.0.0, as described in `VERSIONING.md`.
 
 ## License
 

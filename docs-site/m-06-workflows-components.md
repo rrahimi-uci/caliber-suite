@@ -32,7 +32,7 @@ runtime, deployments) see the [Workflows Architecture](m-06-workflows.md).
 | **Component anatomy** | Each node renders as a card: header, description, configuration detail, typed **Ports**, and a hover toolbar. |
 | **Port system** | Five color-coded data types — `string`, `structured`, `messages`, `boolean`, and `void` — that connect cleanly only when compatible. |
 | **Working with nodes** | Add from the palette, configure in the **Inspector**, connect node-to-node via an **edge map**, view/edit each node's **manifest JSON** (`<>`), and preview or run. |
-| **Component categories** | Seven palette groups: Inputs & Outputs, Orchestration, Agents, Logic, Safety, Integrations, and Utilities. |
+| **Component categories** | Eight palette groups: Inputs & Outputs, Orchestration, Agents, Logic, Safety, Integrations, Governance, and Utilities. |
 | **No-code logic** | **Data Transform** covers fixtures, mapping, JSON Schema, decision tables, and confidence; **Python Code** remains the bounded extension outside that vocabulary. |
 | **Built-in reference** | Every built-in component, grouped by category, with default ports, key fields, and setup checks. |
 
@@ -204,6 +204,7 @@ The palette groups components by purpose:
 | **Logic**           | Branch execution conditionally.                                               |
 | **Safety**          | Guardrails, human approval, and error boundaries.                             |
 | **Integrations**    | Call out to tools, MCP servers, HTTP APIs, and knowledge bases.               |
+| **Governance**      | Hand run evidence to governed human review queues.                            |
 | **Utilities**       | No-code templating, sandboxed Python, and canvas notes.                       |
 
 A component may also be marked **Legacy** — kept working for existing workflows
@@ -275,8 +276,13 @@ considered configured.
 | **API Request** | `api_request` | Make an HTTP request from a URL + method, or paste a cURL command that the node parses for method/URL/headers/body. | `payload`, `input` → `text`, `response`, `metadata` | `mode` (`url`/`curl`), `url`, `method`, `curl`, `headers`, `body`, `timeout_seconds` | Provide a URL or cURL command |
 | **Knowledge Query** | `knowledge_query` | Query a knowledge base with dense, GraphRAG hybrid, or Apache AGE graph retrieval, with query-time overrides. | `question`, `history`, `retrieval_modes`, `version_ids`, `graph_overrides` → `text`, `answer`, `result`, `citations`, `chunks`, `graph_context` | `knowledge_base_id`, `version_ids`, `retrieval_modes`, `top_k`, `chat_model`, `graph_overrides` | Select a knowledge base or pinned versions |
 | **Knowledge Build** | `knowledge_build` | Launch a new knowledge-base version build (chunking, embeddings, graph) from inside a workflow. | `input`, `sources`, `chunking_strategy`, `embedding_model`, … → `status`, `version_id`, `run_id`, `result`, … | `knowledge_base_id`, `chunking_strategy`, `embedding_model`, `chunking_config`, `graph_config`, `activate_when_complete`, `wait_for_completion`, `wait_timeout_seconds` | Select a KB, chunking strategy, and embedding model |
-| **Review Queue Enqueue** | `review_queue_enqueue` | Add the current trace/run payload to a governed review queue through the audited idempotent queue service. | `input`, `trace_id`, `metadata` → `text`, `result`, `item_id`, `metadata` | `queue_id`, `experiment_id`, `assigned_to` | Select a review queue; runtime execution fails closed if no enqueuer is bound |
 | **External App** | `external_app` | Migration bridge — invoke an existing hand-coded Python entrypoint while it is converted to a first-class node. | `input`, `context` → `text`, `result`, `metadata` | `entrypoint` | Set the external app entrypoint |
+
+### Governance
+
+| Component | Type | Purpose | Inputs → Outputs | Key fields | Setup |
+| --- | --- | --- | --- | --- | --- |
+| **Review Queue Enqueue** | `review_queue_enqueue` | Durably enqueue one or more trace IDs for governed human review through the audited idempotent queue service. | `trace_id`, `trace_ids` → `text`, `result`, `created_count` | `queue_id`, `experiment_id`, `assigned_to` | Select an active review queue; runtime execution fails closed if no enqueuer is bound |
 
 ### Utilities
 

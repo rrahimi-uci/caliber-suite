@@ -194,6 +194,8 @@ The dataset routes cover the full curation lifecycle:
 - `POST /eval-datasets/{dataset_id}/examples/from-trace`
 - `POST /eval-datasets/{dataset_id}/examples/{example_id}/supersede`
 - `POST /eval-datasets/{dataset_id}/examples/{example_id}/revise`
+- `POST /eval-datasets/{dataset_id}/sync`
+- `POST /eval-datasets/{dataset_id}/restore`
 
 The evaluation-run routes consume test sets to produce scorecards:
 

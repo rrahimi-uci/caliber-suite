@@ -27,7 +27,7 @@ tags:
 | **Session model** | Per-user authoring sessions with turn-by-turn message history, persisted in the `CaliberAssistant*` tables. |
 | **Engine** | A pluggable provider behind one `AssistantEngine` protocol (`fake` / `openai` / `anthropic` / `ollama`), selected once at boot in `server.py`. |
 | **Interaction modes** | `chat`, `build`, and `plan` — only `build` materializes `draft_deltas`; `plan` creates durable goal-plans via `POST /aria/plans`. |
-| **Tool loop** | The OpenAI and Anthropic engines run an agentic tool-calling loop over a per-turn, tier-filtered surface: 29 hand-written tools plus seven capability-registry entries in the current source. It is not read-only or full registry parity: read tools are always eligible, safe/mutate tools depend on build/approval mode, and `gated` capabilities are omitted from synchronous projection. |
+| **Tool loop** | The OpenAI and Anthropic engines run an agentic tool-calling loop over a per-turn, tier-filtered surface: 29 hand-written tools plus nine capability-registry entries in the current source. It is not read-only or full registry parity: read tools are always eligible, safe/mutate tools depend on build/approval mode, and `gated` capabilities are omitted from synchronous projection. |
 | **Approval / governance** | Drafts use validate → test → review/approved-status → publish. The author turn never receives gated approve/publish tools. `agent_review` invokes an isolated approver-scoped reviewer agent; `full_autonomy` adds a distinct operator-scoped release principal. Both fail closed and bind the decision to an immutable candidate hash. Gated goal-plan capabilities still pause for a human. |
 | **Trust / safety** | Engine output is a proposal, never an authorization; attachments are capped text snapshots and platform RBAC outranks injected prompt content. |
 
@@ -132,7 +132,7 @@ and what that ownership entails.
 | System prompt assembly | `prompt_builder.py` | Builds one shared system prompt from policy, mode guidance, selected skills, and attached context. |
 | Skill selection | `skill_runtime.py` | Deterministic `resolve_assistant_skills` (auto / manual / off) over `CaliberSkill` rows. |
 | Fallback registry access | `RegistryToolDispatcher` (`tools.py`) | A three-tool, read-only fallback (`list_skills` / `get_skill` / `list_tools`). Normal service turns pass the richer per-turn toolset below, which overrides this engine fallback. |
-| Per-turn agent tools | `AssistantAgentToolset` (`agent_tools.py`) | Binds the actor, session, mode, approval mode, and project to 29 hand-written tools plus a tier-filtered projection of the seven currently registered capabilities. This is partial coverage, not a claim that every CALIBER route has tool parity; `gated` capabilities are never advertised to a synchronous turn. |
+| Per-turn agent tools | `AssistantAgentToolset` (`agent_tools.py`) | Binds the actor, session, mode, approval mode, and project to 29 hand-written tools plus a tier-filtered projection of the nine currently registered capabilities. This is partial coverage, not a claim that every CALIBER route has tool parity; `gated` capabilities are never advertised to a synchronous turn. |
 | Draft validation / test | `validators.py`, `service.py` | Validates draft artifacts and runs draft tests (tool sandbox, skill render, workflow compile). |
 | Independent review | `reviewer.py`, `service.py` | Runs an isolated no-tools reviewer turn, validates its strict JSON decision, enforces approver scope and author/reviewer separation, and persists the decision against candidate hash/version with an expiry. |
 | Publishing | `publisher.py`, `service.py` | Publishes drafts whose approved status, reviewer binding, and asset-specific policy permit it. `full_autonomy` requires a release principal distinct from author and reviewer with `operator` scope. |
@@ -143,7 +143,7 @@ The result is a layered ownership model: the service assembles and persists the
 turn and injects context-bound tool dependencies, the engine reasons and requests
 tool calls, and permissioned service/capability handlers perform any admitted
 mutation. The seam remains the single `run_turn` contract, but the current tool
-surface is deliberately mixed — 29 hand-written operations plus seven projected
+surface is deliberately mixed — 29 hand-written operations plus nine projected
 registry capabilities — rather than full registry parity.
 
 ## 3. Runtime architecture
@@ -230,7 +230,7 @@ background worker:
 | --- | --- | --- |
 | Plan | `CaliberAriaPlan` (`caliber_aria_plans`) | A goal decomposed into ordered steps; carries `goal`, `owner`, `autonomy`, `status`, `visibility`, the originating session/project, and the task contract the planner reasons over — `constraints`, `done_when`, and `context_refs`. |
 | Plan step | `CaliberAriaPlanStep` (`caliber_aria_plan_steps`) | One capability-bound action with `inputs`, an optional quality `gate`, `status`, and the captured `result`. |
-| Interaction | `CaliberAriaInteraction` (`caliber_aria_interactions`) | A mid-run pause awaiting an answer — `kind` is `confirm` (accept/reject a result) or a permission prompt — with the supporting `evidence`, optional `required_scope`, and resolution. |
+| Interaction | `CaliberAriaInteraction` (`caliber_aria_interactions`) | A mid-run pause awaiting an answer — `kind` is `confirm` (accept/reject a result), `permission`, or `input` — with the supporting `evidence`, optional `required_scope`, and resolution. |
 
 Some session state does not warrant its own columns and instead lives in the
 session `metadata` JSON bag:
@@ -305,6 +305,7 @@ stateless draft shortcut:
 - `GET /sessions/{session_id}/messages`
 - `POST /sessions/{session_id}/messages`  (carries `mode`)
 - `POST /prompt-draft`
+- `GET`/`POST /sessions/{session_id}/queue` and `DELETE /queue/{queue_id}`  (queued follow-up messages)
 
 Context attachments back the "+ add files" affordance, with one route per source
 plus a deletion route:
@@ -351,6 +352,7 @@ mid-run interaction protocol:
 - `POST /aria/plans/{plan_id}/poll`  (advance any parked async steps)
 - `GET /aria/plans/{plan_id}/interactions`
 - `POST /aria/interactions/{interaction_id}/answer`  (resume a paused plan)
+- `GET /aria/capabilities`  (the registered capability catalog)
 
 On the frontend, a focused set of components binds these routes to the user:
 
@@ -462,7 +464,7 @@ human-driven route. The following controls enforce that assumption.
   and context blowup.
 - The legacy engine fallback dispatcher is read-only, but normal OpenAI/Anthropic
   service turns receive `AssistantAgentToolset`: 29 hand-written tools plus the
-  allowed subset of seven registered capabilities. Read tools are eligible in
+  allowed subset of nine registered capabilities. Read tools are eligible in
   every mode; safe/mutate tools require the matching build/approval mode; and
   capabilities declared `gated` are omitted from synchronous tool specs and
   dispatch. This is permissioned partial coverage, not a read-only surface or
@@ -553,8 +555,8 @@ testable modules.
 
 | Responsibility | Owner | Notes |
 | --- | --- | --- |
-| Capability registry | `capabilities.py` | Single-definition `Capability` objects (key, title, tier, handler) plus a `CapabilityContext`. Handlers reuse the same extracted route helpers as their HTTP paths. The seven builtins today are `judge.list/create`, `review_queue.list/create/add_items`, `eval_dataset.create`, and async `workflow.calibrate`; the shipped planner does not yet populate step inputs, so create-tier steps require operator-supplied inputs rather than autonomous creation. |
-| Tool projection | `agent_tools.py` | Adds the allowed registry entries to a separate set of 29 hand-written engine tools. Thus the conversation and plan paths overlap on seven registered capabilities but do not have full surface parity. Mode/approval tier filtering applies, and `gated` capabilities are never projected for synchronous autonomous calling. |
+| Capability registry | `capabilities.py` | Single-definition `Capability` objects (key, title, tier, handler) plus a `CapabilityContext`. Handlers reuse the same extracted route helpers as their HTTP paths. The nine builtins today are `judge.list/create`, `review_queue.list/create/add_items`, `eval_dataset.create`, async `workflow.calibrate`, and the `openapi_tool.list/invoke` bridge; the shipped planner does not yet populate step inputs, so create-tier steps require operator-supplied inputs rather than autonomous creation. |
+| Tool projection | `agent_tools.py` | Adds the allowed registry entries to a separate set of 29 hand-written engine tools. Thus the conversation and plan paths overlap on nine registered capabilities but do not have full surface parity. Mode/approval tier filtering applies, and `gated` capabilities are never projected for synchronous autonomous calling. |
 | Planner | `plans.py` (`Planner` protocol, `HeuristicPlanner`) | Decomposes a goal into ordered `PlannedStep`s, each bound to a capability and carrying an optional quality `gate`. The default planner is registry-driven: it matches the capability domain named in the goal (the richer task contract is persisted on the plan for a future state-aware planner). |
 | Plan service | `plans.py` (`PlanService`) | Persists plans and steps — including the per-plan task contract (`constraints`, `done_when`, `context_refs`) — with create / get / list / `set_status`. |
 | Plan executor | `executor.py` (`PlanExecutor`) | Walks an approved plan, dispatches each step's capability, applies the autonomy gate, raises interactions, parks async steps, and runs the quality-gate / self-correction logic. |

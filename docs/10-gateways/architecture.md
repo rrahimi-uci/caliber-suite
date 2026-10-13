@@ -85,7 +85,7 @@ assigns each responsibility to its owner.
 | Runtime routing configuration | `routes/settings.py` + `CaliberConfig.llm_base_url` | Determines whether CALIBER's own LLM calls go through the gateway or directly to providers. |
 | Discovery configuration | `CaliberConfig.gateway_uri` | Tells CALIBER where to probe for the external AI Gateway, but does not route traffic by itself. |
 | Operator service probes | `routes/system_services.py` | Shows AI Gateway health alongside MLflow, DB, object store, NATS, and related backing services. |
-| Runtime honesty surface | `routes/health.py` | Two endpoints sit adjacent to gateway operations: `GET /health` probes the database (`SELECT 1`) and returns HTTP 503 with `db: "down"` when it is unreachable, while `GET /readiness` reports real-vs-simulated provider state (and does not probe the database). |
+| Runtime honesty surface | `routes/health.py` | Two endpoints sit adjacent to gateway operations: `GET /health` probes the database (`SELECT 1`) and returns HTTP 503 with `db: "down"` when it is unreachable, while `GET /readiness` reports real-vs-simulated provider state **and** probes the dependencies the configuration needs (database, MLflow tracking, object storage, event broker, workflow queue/worker liveness), returning 503 when a required one is not ready. |
 | Frontend gateway UX | `Gateway.tsx` + `components/gateway/*` | Tabbed LLM Gateway page: **Endpoints** (status cards + endpoint table + routing), **Guardrails** (catalog-backed define/delete plus per-endpoint attach/detach/order/enablement), **Pricing** (editable per-model rate table), **Usage** (recharts time-series + by-model table). |
 
 Two MLflow servers are involved and must not be conflated: **endpoint discovery**

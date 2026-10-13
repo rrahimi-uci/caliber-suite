@@ -171,6 +171,7 @@ The first area covers registry and lifecycle operations on the canonical row:
 The second area handles packaging in the OpenAI-compatible format:
 
 - `POST /skills/import-package`
+- `POST /skills/import-package.zip`
 - `GET /skills/{skill_id}/package`
 - `GET /skills/{skill_id}/package.zip`
 

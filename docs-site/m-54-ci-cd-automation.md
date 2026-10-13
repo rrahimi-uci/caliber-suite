@@ -13,7 +13,7 @@ where human review is still deliberate rather than accidental.
 | --- | --- |
 | backend and UI quality gate | `make test`, `make test-all` |
 | strict docs rebuild + sync | `CALIBER_DOCS_PYTHON=caliber/.venv/bin/python CALIBER_DOCS_STRICT=1 node caliber/caliber-ui/scripts/sync-docs.mjs` |
-| focused docs validation | `caliber/.venv/bin/python -m pytest caliber/tests/test_docs_generation_contract.py caliber/tests/test_sdk_docs_contract.py caliber/tests/test_cookbook_doc_contract.py caliber/tests/test_cookbook_steps_contract.py caliber/tests/test_design_principles_contract.py caliber/tests/test_ci_published_site_gate_contract.py caliber/tests/test_docs_executable_spec_contract.py --no-cov` |
+| focused docs validation | `caliber/.venv/bin/python -m pytest caliber/tests/test_docs_generation_contract.py caliber/tests/test_docs_mermaid_contract.py caliber/tests/test_sdk_docs_contract.py caliber/tests/test_cookbook_doc_contract.py caliber/tests/test_cookbook_steps_contract.py caliber/tests/test_design_principles_contract.py caliber/tests/test_ci_published_site_gate_contract.py caliber/tests/test_docs_executable_spec_contract.py --no-cov` |
 | CI docs gate | `.github/workflows/ci.yml` → `docs-validation` job (uploads `docs-validation-junit.xml`) |
 
 ## 1. Keep docs and code in the same automation loop

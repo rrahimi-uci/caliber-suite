@@ -288,14 +288,10 @@ def test_sdk_guide_configuration_table_matches_the_client_env_fallbacks() -> Non
 def test_cli_docs_publish_the_real_exit_codes() -> None:
     cli_doc = (DOCS_SOURCE / "sdk" / "cli.md").read_text(encoding="utf-8")
     published = {int(code) for code in re.findall(r"\| `([0-9]+)` \|", cli_doc)}
+    # Every exported integer constant is a public exit code; deriving the set
+    # from ``__all__`` keeps this test honest when a new code is added.
     expected = {
-        exits.OK,
-        exits.FAILURE,
-        exits.USAGE,
-        exits.AWAITING_HUMAN,
-        exits.GATE_FAILED,
-        exits.TIMEOUT,
-        exits.UNAUTHENTICATED,
+        getattr(exits, name) for name in exits.__all__ if isinstance(getattr(exits, name), int)
     }
     assert published == expected, (
         f"CLI docs advertise exit codes {sorted(published)}, expected {sorted(expected)}"

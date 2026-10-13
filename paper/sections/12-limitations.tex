@@ -92,7 +92,7 @@ Other provider and object-storage crossings retain family-specific compensation.
 failed object write can still leave orphaned bytes requiring a sweeper.
 
 \para{In-memory limiters are per process.} The failed-login throttle and the API rate
-limiter are per-process token buckets, so their effective ceilings scale with the
+limiter are per-process in-memory limiters, so their effective ceilings scale with the
 worker count (\secref{sec:exec}). An operator who sizes them as though they were
 global will provision a limit several times looser than intended. This is a genuine
 sharp edge and the documentation-only mitigation is unsatisfying.

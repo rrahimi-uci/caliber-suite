@@ -130,7 +130,7 @@ The base is the swappable substrate: a Starlette ASGI process host; PostgreSQL~1
 with pgvector for approximate nearest-neighbour search~\cite{pgvector,malkov2020hnsw}
 and Apache~AGE for property-graph queries~\cite{apacheage}, with SQLite supported
 for lightweight development; object storage over local or S3-compatible backends;
-\mlflow{} 3.14 or later; and an event transport that may be in-process, NATS,
+\mlflow{} 3.15 or later; and an event transport that may be in-process, NATS,
 Redis, or the database. Every element is selected by configuration, and the layer's
 sole architectural obligation is that nothing above it names a concrete backend.
 
@@ -232,10 +232,11 @@ matches a version the intent already recorded; and \aria{}'s plan worker polls
 without a claim lease.
 
 The honest converse is that two mechanisms are genuinely per-process. The
-failed-login throttle and the API rate limiter are in-memory token buckets behind a
-thread lock. Because every process runs its own full set of loops, a four-worker
-deployment has four independent budgets and the effective ceiling scales with the
-worker count. Operators must size these limits accordingly or pin a single worker.
+failed-login throttle is an in-memory sliding-window counter and the API rate
+limiter an in-memory token bucket, each behind a thread lock. Because every
+process runs its own full set of loops, a four-worker deployment has four
+independent budgets and the effective ceiling scales with the worker count.
+Operators must size these limits accordingly or pin a single worker.
 We state this in the architecture section rather than the limitations section
 because it is a property of the design, not a defect in it.
 

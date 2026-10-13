@@ -10,7 +10,7 @@ summary: A proposed, lighter, earlier checkpoint than v0.1.0 -- one seeded journ
 prerequisites:
   - Read docs/roadmap.md and docs/prd.md for the approved v1.0.0 plan this proposes a lighter run-up to
 reviewed_on: 2026-09-19
-version_applicability: proposal, not yet approved; no roadmap or PRD change until accepted
+version_applicability: proposal; Days 1-9 executed against current main (see docs/reports/two-week-alpha-day*-decision.md), Day 10 tag left to the repo owner; no roadmap or PRD change
 tags:
   - roadmap
   - alpha
@@ -29,6 +29,19 @@ milestones gets folded into the roadmap, the PRD, and the GitHub Project
 hierarchy in the same pull request. Until then, this is a standalone proposal
 for a lighter, earlier checkpoint than `M1`'s pilot or `M4`'s `v0.1.0`
 controlled-pilot gate.
+
+**Execution record.** Days 1-9 of this plan have since run against current
+`main`; the per-day decision records live in
+`docs/reports/two-week-alpha-day1-decision.md` through
+`docs/reports/two-week-alpha-day9-decision.md`, and Day 10 (everything short
+of cutting the tag) in `docs/reports/two-week-alpha-day10-decision.md`. The
+published scope-and-limitations note is
+`docs/reports/two-week-alpha-release-notes.md`; it adapts and corrects the
+draft note below against what was actually built (for example, the SDK ships
+an `AsyncCaliberClient`, so "sync only" is overstated; the real gap is that
+the async client and `caliberctl` do not type this journey's operations). The
+roadmap and PRD treat this as evidence feeding `M1`, as the "Relationship to
+the existing roadmap" section proposes.
 
 ## Why this exists
 
