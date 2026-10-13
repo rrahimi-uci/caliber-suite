@@ -753,6 +753,58 @@ async function request<T>(
   }
 }
 
+/**
+ * Like {@link request} but returns the response body as-is instead of unwrapping
+ * the `{data: ...}` envelope. For the few routes (`/health`) whose contract is a
+ * bare object. Shares the fetch, timeout, auth-boundary and error handling of
+ * every other call; only the success-path unwrap differs.
+ */
+async function requestBare<T>(
+  path: string,
+  options: RequestOptions = {},
+): Promise<T> {
+  const method = options.method ?? "GET";
+  const logicalAuthBoundary = authBoundary();
+  const lifecycle = new RequestLifecycle(path, options, method);
+  try {
+    let response: Response;
+    try {
+      response = await doFetch(path, options, null, lifecycle);
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") throw err;
+      if (err instanceof ApiError) throw err;
+      throw new ApiError(
+        0,
+        `network error: ${err instanceof Error ? err.message : String(err)}`,
+        null,
+      );
+    }
+    if (!response.ok) {
+      let parsed: ApiErrorBody | null = null;
+      try {
+        parsed = await lifecycle.wait(
+          () => response.json() as Promise<ApiErrorBody>,
+        );
+      } catch (error) {
+        rethrowRequestTermination(error);
+        // Body wasn't JSON; fall through with the status-line message.
+      }
+      throw new ApiError(
+        response.status,
+        parsed?.detail ?? response.statusText,
+        parsed,
+      );
+    }
+    const body = await lifecycle.wait(() => response.json() as Promise<T>);
+    if (!options.allowAuthBoundaryChangeOnSuccess) {
+      requireSameAuthBoundary(logicalAuthBoundary, path);
+    }
+    return body;
+  } finally {
+    lifecycle.finish();
+  }
+}
+
 async function requestEnvelope<T>(
   path: string,
   options: RequestOptions = {},
@@ -975,11 +1027,21 @@ function buildQuery(params: Record<string, string | undefined>): string {
 }
 
 export const caliberApi = {
-  /** GET /health */
+  /**
+   * GET /health. Unlike every other route, `/health` returns a bare
+   * `{status, version, db}` body with no `{data: ...}` envelope (load balancers
+   * and the SDK rely on that shape), so it must not go through `request()`,
+   * which would unwrap `.data` to `undefined` and make a healthy backend read as
+   * down. A 503 (database unreachable) throws an `ApiError` like any other
+   * failure, which is exactly the "down" signal the shell indicator wants.
+   */
   getHealth(
     signal?: AbortSignal,
-  ): Promise<{ status: string; version: string }> {
-    return request<{ status: string; version: string }>("/health", { signal });
+  ): Promise<{ status: string; version: string; db?: string }> {
+    return requestBare<{ status: string; version: string; db?: string }>(
+      "/health",
+      { signal },
+    );
   },
 
   /** GET /capabilities */
@@ -1339,15 +1401,15 @@ export const caliberApi = {
     return request<SecretList>("/secrets", { signal });
   },
 
-  /** POST /secrets — store a value, creating a new version (rotation). */
+  /** PUT /secrets/{name} — store a value, creating a new version (rotation). */
   putSecret(
     name: string,
     value: string,
   ): Promise<{ name: string; version: number }> {
-    return request<{ name: string; version: number }>("/secrets", {
-      method: "POST",
-      body: { name, value },
-    });
+    return request<{ name: string; version: number }>(
+      `/secrets/${encodeURIComponent(name)}`,
+      { method: "PUT", body: { value } },
+    );
   },
 
   /** POST /secrets/{name}/revoke — stop the name resolving, retaining ciphertext. */

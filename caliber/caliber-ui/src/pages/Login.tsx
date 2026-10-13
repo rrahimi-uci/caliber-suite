@@ -1,5 +1,6 @@
 import { useState, type FormEvent } from "react";
 
+import { ApiError } from "@/api/caliberApi";
 import { signIn } from "@/auth/localAuth";
 import { BrandAcronym } from "@/components/BrandAcronym";
 
@@ -129,6 +130,30 @@ const FEATURES: Feature[] = [
   },
 ];
 
+/**
+ * Map a failed sign-in to a message that tells the truth about *why*.
+ *
+ * Only a 401 means "wrong credentials", and its wording stays generic so the
+ * form cannot be used to enumerate accounts. A network failure (status 0) or a
+ * 5xx means the server could not answer, and calling that "Invalid username or
+ * password" sends a user with a good password hunting for a typo while the
+ * server is down or still starting.
+ */
+export function loginFailureMessage(err: unknown): string {
+  const status = err instanceof ApiError ? err.status : undefined;
+  const message = err instanceof Error ? err.message : "";
+  if (status === 429 || message.includes("too many")) {
+    return "Too many failed sign-in attempts. Wait a few minutes and try again.";
+  }
+  if (status === 0) {
+    return "Can't reach CALIBER. Check that the server is running and try again.";
+  }
+  if (status !== undefined && status >= 500) {
+    return `CALIBER is unavailable (server error ${status}). Check the server logs and try again.`;
+  }
+  return "Invalid username or password.";
+}
+
 /* ── Login component ──────────────────────────────────────────────── */
 
 export function Login({ notice, onLogin }: LoginProps): JSX.Element {
@@ -155,12 +180,7 @@ export function Login({ notice, onLogin }: LoginProps): JSX.Element {
       await signIn(username, password);
       onLogin();
     } catch (err) {
-      const message = err instanceof Error ? err.message : "";
-      setError(
-        message.includes("too many")
-          ? "Too many failed sign-in attempts. Wait a few minutes and try again."
-          : "Invalid username or password.",
-      );
+      setError(loginFailureMessage(err));
     } finally {
       setSubmitting(false);
     }

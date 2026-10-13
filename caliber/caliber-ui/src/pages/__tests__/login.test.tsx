@@ -132,6 +132,40 @@ describe("Login", () => {
     );
   });
 
+  it("says the server is unreachable instead of blaming the password", async () => {
+    // A network failure carries no verdict on the credentials. Telling a user with
+    // a correct password that it is "invalid" sends them hunting for a typo.
+    const user = userEvent.setup();
+    server.use(http.post(`${API_BASE}/auth/login`, () => HttpResponse.error()));
+
+    render(<Login onLogin={vi.fn()} />);
+    await fillCredentials(user, "@owner", "correct-password-here");
+    await user.click(screen.getByRole("button", { name: /^Sign in$/ }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(/Can't reach CALIBER/);
+    expect(alert).not.toHaveTextContent(/Invalid username or password/);
+  });
+
+  it("reports a server error with its status, not a wrong password", async () => {
+    const user = userEvent.setup();
+    server.use(
+      http.post(`${API_BASE}/auth/login`, () =>
+        HttpResponse.json({ detail: "database unavailable" }, { status: 503 }),
+      ),
+    );
+
+    render(<Login onLogin={vi.fn()} />);
+    await fillCredentials(user, "@owner", "correct-password-here");
+    await user.click(screen.getByRole("button", { name: /^Sign in$/ }));
+
+    const alert = await screen.findByRole("alert");
+    expect(alert).toHaveTextContent(
+      /CALIBER is unavailable \(server error 503\)/,
+    );
+    expect(alert).not.toHaveTextContent(/Invalid username or password/);
+  });
+
   it("clears the error when a field is edited", async () => {
     const user = userEvent.setup();
     server.use(

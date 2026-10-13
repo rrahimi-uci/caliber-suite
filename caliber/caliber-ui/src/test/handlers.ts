@@ -1146,8 +1146,10 @@ function asStringRecord(value: unknown): Record<string, string> {
 const WORKFLOW_BENCHMARK_REPORT_FIXTURES: Array<Record<string, unknown>> = [];
 
 export const handlers = [
+  // `/health` is the one route with a bare body (no `{data: ...}` envelope); the
+  // mock must match the server or the shell indicator regresses unseen.
   http.get(`${API_BASE}/health`, () => {
-    return HttpResponse.json(envelope({ status: "ok", version: "test" }));
+    return HttpResponse.json({ status: "ok", version: "test", db: "ok" });
   }),
 
   // The sidebar polls plans for its "needs you" badge on every app render;
