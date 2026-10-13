@@ -19,6 +19,7 @@ from alembic import context
 from sqlalchemy import engine_from_config, pool
 
 from caliber.db import Base
+from caliber.db.migrate import VERSION_TABLE
 from caliber.db_url import normalize_database_url
 
 # Alembic config object provides access to alembic.ini values.
@@ -37,7 +38,7 @@ target_metadata = Base.metadata
 # default ``alembic_version`` row and each would refuse to start
 # after the other ran. Pin caliber's version history to its own
 # table so the two migration histories coexist.
-CALIBER_VERSION_TABLE = "caliber_alembic_version"
+CALIBER_VERSION_TABLE = VERSION_TABLE
 
 
 def _get_database_url() -> str:

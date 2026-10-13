@@ -22,6 +22,23 @@ An alive process is not the same thing as a usable CALIBER deployment.
 For operator decisions, prefer the readiness surface because it captures whether
 the surrounding runtime posture is actually suitable for real use.
 
+### What readiness checks
+
+Each check is probed live, and a required check that fails turns readiness to `ready: false`
+(HTTP 503) with a blocker that names it.
+
+| Check | Required | Ready means |
+| --- | --- | --- |
+| `database` | always | the database answers a query |
+| `schema` | always | the database is at the migration head this release ships. A database that was never migrated, is behind, or was migrated by a newer release is a blocker. Fix it with `caliber-migrate`. |
+| `mlflow` | when an HTTP tracking server is configured | the tracking server's `/health` answers |
+| `object_store` | when workflow storage is remote | the bucket can be listed |
+| `event_bus` | when an external broker is configured | the broker's port accepts a connection |
+| `workflow_queue` | when the run queue is enabled | the queue is draining and the worker heartbeat is fresh |
+
+`/health` stays a liveness probe: it answers 200 while the process is up and the database
+answers, even when the schema is missing. Use readiness for go or no-go decisions.
+
 ## 2. What to verify after boot
 
 After bring-up or configuration changes, verify:

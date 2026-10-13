@@ -634,7 +634,10 @@ deferral.
 - **Files:** `observability/readiness.py`, tests.
 - **Deps:** [P0-5](#p0-5).
 - **Acceptance:**
-  - [ ] Tests cover a missing table (blocker), behind head (blocker) and at head (ready, with the revision in detail).
+- **Status: implemented.** `db/migrate.py` (`schema_status`, `SchemaStatus`, `head_revision`, `VERSION_TABLE`, shared with `migrations/env.py` and `caliber-migrate`), `observability/readiness.py` (`_plan_schema`, `_probe_schema_sync`, a required `schema` check), `tests/conftest.py` (test databases built with `create_all` are stamped at head), and `docs/operate/health-and-readiness.md` (a table of what each check means). `/health` is unchanged: it stays a liveness probe. Tests: `tests/test_schema_readiness.py`.
+- **Acceptance criteria:**
+  - [x] Tests cover a missing table (blocker), an empty version table (blocker), behind head (blocker, with the pending count), a revision this release does not ship (blocker) and at head (ready, with the revision in the detail).
+  - [x] The readiness route answers 503 with a `schema` blocker on an unmigrated database while `/health` stays 200, and answers 200 after `caliber-migrate`.
 
 ### P1-04
 

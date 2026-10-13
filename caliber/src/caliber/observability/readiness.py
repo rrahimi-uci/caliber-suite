@@ -152,6 +152,22 @@ def _probe_database_sync(session_factory: Any) -> str:
     return "SELECT 1 ok"
 
 
+def _probe_schema_sync(session_factory: Any) -> str:
+    """Prove the database has been migrated to the schema this release expects.
+
+    ``SELECT 1`` answers "is the database reachable", which is not the question: a
+    reachable but never-migrated database made every API route fail with ``no such
+    table`` while ``/readiness`` said ``ready: true`` (alpha gap P1-03).
+    """
+    from caliber.db.migrate import schema_status  # noqa: PLC0415
+
+    with session_factory() as session:
+        status = schema_status(session)
+    if not status.ok:
+        raise RuntimeError(status.describe())
+    return status.describe()
+
+
 async def _probe_http(url: str, label: str) -> str:
     import httpx  # noqa: PLC0415
 
@@ -220,6 +236,19 @@ def _plan_database(session_factory: Any | None) -> _Plan:
         )
     return _Plan(
         awaitable=_timed("database", True, asyncio.to_thread(_probe_database_sync, session_factory))
+    )
+
+
+def _plan_schema(session_factory: Any | None) -> _Plan:
+    """Always required, and only meaningful once the database itself is reachable.
+
+    With no session factory the ``database`` check already blocks readiness, so this
+    one is skipped rather than reporting a second, derived failure.
+    """
+    if session_factory is None:
+        return _Plan(check=_skipped("schema", "no database configured"))
+    return _Plan(
+        awaitable=_timed("schema", True, asyncio.to_thread(_probe_schema_sync, session_factory))
     )
 
 
@@ -400,6 +429,7 @@ async def collect_readiness(
     # dependency rather than buried in one long branch.
     for plan in (
         _plan_database(session_factory),
+        _plan_schema(session_factory),
         _plan_mlflow(config, environ),
         _plan_object_store(config),
         _plan_event_bus(config),

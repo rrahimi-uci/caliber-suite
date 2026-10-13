@@ -22,6 +22,7 @@ import pytest
 from starlette.testclient import TestClient
 
 from caliber.config import CaliberConfig, WorkflowStorageConfig
+from caliber.db.migrate import head_revision
 from caliber.observability import readiness as readiness_mod
 from caliber.observability.queue_health import QueueHealth
 from caliber.observability.readiness import collect_readiness
@@ -39,8 +40,15 @@ class _WorkingSession:
     def __exit__(self, *_: object) -> None:
         return None
 
-    def execute(self, _statement: object) -> None:
-        return None
+    def execute(self, _statement: object) -> _Result:
+        return _Result()
+
+
+class _Result:
+    """Stands in for a migrated database: the version query answers with the head."""
+
+    def scalar(self) -> str | None:
+        return head_revision()
 
 
 def _working_factory() -> _WorkingSession:

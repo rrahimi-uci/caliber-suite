@@ -51,6 +51,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   Python outside 3.10-3.12 before creating a venv (`PYTHON=python3.12 make setup` selects another
   interpreter). `.env.example` no longer claims every value shown is a default.
 
+- **`/readiness` no longer reports a database that was never migrated as ready.** It probed the
+  database with `SELECT 1` only, so a reachable but unmigrated database answered `ready: true` with no
+  blockers while every API route failed with `no such table`. Readiness now has a required `schema`
+  check that compares the database's `caliber_alembic_version` with the migration head shipped in the
+  installed package. A missing or empty version table, a database behind the head (with the pending
+  count), and a revision this release does not ship are all blockers that point at `caliber-migrate`.
+  `/health` is unchanged and remains a liveness probe.
+
 ### Security
 
 - **A project-bound personal access token is confined to its project on every route.** The binding
