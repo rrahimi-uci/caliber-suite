@@ -1,5 +1,0 @@
-INFO     caliber:server.py:427 CALIBER plugin starting (log_level=INFO, log_sink=s3)
-INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
-INFO     caliber:server.py:269 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
-WARNING  caliber:server.py:580 CALIBER_GITHUB_SOURCE_CONTROL_ENABLED is true but no encrypted secret store is configured (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); the GitHub source provider will not be registered
-INFO     caliber:server.py:782 CALIBER assistant engine: fake (configured=fake)
