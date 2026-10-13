@@ -65,6 +65,29 @@ describe("ProviderBanner", () => {
     expect(window.sessionStorage.getItem("caliber.provider_banner_dismissed")).toBe("1");
   });
 
+  it("cannot be dismissed while the evaluator or promoter is simulated", async () => {
+    window.sessionStorage.setItem("caliber.provider_banner_dismissed", "1");
+    vi.mocked(caliberApi.getProviderReadiness).mockResolvedValue({
+      mode: "mixed",
+      real: ["llm"],
+      simulated: ["eval", "promoter"],
+      providers: {},
+      warnings: [],
+      ready: false,
+      blockers: ["promoter is simulated"],
+    });
+
+    render(<ProviderBanner />);
+
+    const banner = await screen.findByTestId("provider-banner");
+    expect(banner).toHaveTextContent("Evaluation scores are canned, not measurements.");
+    expect(banner).toHaveTextContent("Applying a candidate will not change the prompt registry.");
+    expect(screen.getByTestId("provider-banner-blockers")).toHaveTextContent(
+      "Not ready: promoter is simulated",
+    );
+    expect(screen.queryByRole("button", { name: "Dismiss" })).not.toBeInTheDocument();
+  });
+
   it("renders nothing when all providers are real or readiness fails", async () => {
     vi.mocked(caliberApi.getProviderReadiness).mockResolvedValueOnce({
       mode: "real",

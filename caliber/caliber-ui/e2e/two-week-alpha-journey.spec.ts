@@ -100,7 +100,12 @@ test.describe("Two-week alpha journey (Day 9)", () => {
     // ---- Review candidate/eval evidence and Apply --------------------------
     await expect(page.getByText("Review candidate before applying")).toBeVisible();
     await expect(page.getByTestId("calibration-prompt-diff")).toBeVisible();
-    await expect(page.getByText("Evaluation score")).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Evaluation score" })).toBeVisible();
+    // The default harness evaluates with the simulated provider, so the decision
+    // screen must say the numbers are not evidence (alpha gap P0-4).
+    await expect(page.getByTestId("calibration-simulated-evaluation")).toContainText(
+      "Simulated evaluation — not evidence",
+    );
     await expect(page.getByText("Gate: Passed")).toBeVisible();
 
     const confirmApply = page.getByRole("button", { name: /Apply candidate/ });

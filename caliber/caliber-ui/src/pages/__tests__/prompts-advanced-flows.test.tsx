@@ -849,6 +849,10 @@ describe("Prompt optimization calibration edge flows", () => {
       screen.getByRole("heading", { name: "Review candidate before applying" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Gate: Passed")).toBeInTheDocument();
+    // A real (measured) evaluation carries no simulated marker.
+    expect(
+      screen.queryByTestId("calibration-simulated-evaluation"),
+    ).not.toBeInTheDocument();
     expect(screen.getByText("81.0%")).toBeInTheDocument();
     expect(screen.getAllByText("92.0%").length).toBeGreaterThan(0);
     expect(screen.getByText("+11.0 pts")).toBeInTheDocument();
@@ -927,6 +931,8 @@ describe("Prompt optimization calibration edge flows", () => {
         },
         deltas: { overall: 0.11 },
         gate: { passed: true, reasons: [] },
+        simulated: true,
+        provider: "fake",
         eval_dataset_id: "ED-review",
         n_examples: 24,
       },
@@ -971,6 +977,9 @@ describe("Prompt optimization calibration edge flows", () => {
       screen.getByRole("heading", { name: "Review candidate before applying" }),
     ).toBeInTheDocument();
     expect(screen.getByText("Gate: Passed")).toBeInTheDocument();
+    expect(
+      screen.getByTestId("calibration-simulated-evaluation"),
+    ).toHaveTextContent(/Simulated evaluation — not evidence/);
     expect(screen.getByText("81.0%")).toBeInTheDocument();
     expect(screen.getAllByText("92.0%").length).toBeGreaterThan(0);
     expect(screen.getByText("+11.0 pts")).toBeInTheDocument();

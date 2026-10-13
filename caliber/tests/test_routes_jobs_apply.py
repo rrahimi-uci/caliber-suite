@@ -660,3 +660,22 @@ def test_apply_with_a_real_promoter_is_not_marked_simulated(
     assert audit.details["simulated"] is False
     promote = db_session.query(CaliberAuditLog).filter(CaliberAuditLog.action == "promote").one()
     assert "simulated" not in promote.details
+
+
+def test_the_approval_snapshot_keeps_the_evaluation_provenance(
+    client: TestClient, db_session: Session
+) -> None:
+    """The approval row is the evidence of record at Apply time. It snapshots the
+    job's ``eval_results``, which now say whether the scores were simulated."""
+    _seed_candidate_ready_job(db_session)
+    job = db_session.get(CaliberRefinementJob, "RFN-A")
+    assert job is not None
+    job.eval_results = {"gate": {"passed": True}, "provider": "fake", "simulated": True}
+    db_session.commit()
+
+    assert client.post(APPLY_PATH.format(job_id="RFN-A")).status_code == 200
+
+    db_session.expire_all()
+    approval = db_session.query(CaliberApprovalRequest).one()
+    assert approval.eval_results["simulated"] is True
+    assert approval.eval_results["provider"] == "fake"

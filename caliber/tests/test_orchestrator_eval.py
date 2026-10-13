@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import pytest
 from sqlalchemy import select
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.artifact_store import FakeArtifactStore
 from caliber.config import CaliberConfig
@@ -12,12 +12,21 @@ from caliber.db.models import (
     CaliberAgentConfig,
     CaliberApprovalRequest,
     CaliberAuditLog,
+    CaliberEvalDataset,
+    CaliberEvalDatasetExample,
     CaliberRefinementJob,
     CaliberRegressionRun,
     CaliberVerificationItem,
 )
 from caliber.eval.fake import FakeEvalProvider
-from caliber.eval.provider import EvalComparison, EvalProviderError, EvalRequest, ScoreSet
+from caliber.eval.provider import (
+    EvalComparison,
+    EvalProviderError,
+    EvalRequest,
+    ScoreSet,
+    build_provider,
+    describe_provider,
+)
 from caliber.orchestrator.eval_stage import EvalStateError, run_eval
 from caliber.regression import candidate_hash
 
@@ -504,3 +513,221 @@ def test_run_eval_tags_flag_regression_when_dimension_drops(db_session: Session)
     assert tags["caliber.max_regression_delta"] == pytest.approx(0.09, abs=1e-4)
     assert tags["caliber.gate_passed"] is False
     assert tags["caliber.test_case_count"] == 50
+
+
+# ---------------------------------------------------------------------------
+# Simulated evidence is marked, and tells the truth about its shape (alpha gap P0-4)
+#
+# The fake evaluator's scores are constants. It used to report them as "120
+# examples" with invented factual/tool_use/tone/safety dimensions whatever the
+# dataset and scorers were, and nothing recorded that they were canned.
+# ---------------------------------------------------------------------------
+
+
+def _request(**overrides: object) -> EvalRequest:
+    fields: dict[str, object] = {
+        "agent_id": "support-agent",
+        "job_id": "RFN-E",
+        "artifact_type": "prompt",
+        "candidate_content": "new",
+        "baseline_content": "old",
+        "eval_dataset_id": "EDS-shape",
+    }
+    fields.update(overrides)
+    return EvalRequest(**fields)  # type: ignore[arg-type]
+
+
+def _seed_dataset(session: Session, *, examples: int, superseded: int = 0) -> None:
+    session.add(
+        CaliberEvalDataset(
+            dataset_id="EDS-shape",
+            name="shape",
+            description="",
+            owner="@sarah",
+            tags=[],
+            status="active",
+            version=1,
+            visibility="public",
+        )
+    )
+    session.flush()
+    for index in range(examples):
+        session.add(
+            CaliberEvalDatasetExample(
+                example_id=f"EX-{index}",
+                dataset_id="EDS-shape",
+                dataset_version=1,
+                input={"q": str(index)},
+                expected={"a": "x"},
+            )
+        )
+    from datetime import datetime, timezone
+
+    for index in range(superseded):
+        session.add(
+            CaliberEvalDatasetExample(
+                example_id=f"OLD-{index}",
+                dataset_id="EDS-shape",
+                dataset_version=1,
+                input={"q": "old"},
+                expected={"a": "x"},
+                superseded_at=datetime.now(timezone.utc),
+                superseded_version=2,
+            )
+        )
+    session.commit()
+
+
+def test_fake_evaluator_reports_the_real_dataset_size(
+    db_session: Session, session_factory: sessionmaker[Session]
+) -> None:
+    _seed_dataset(db_session, examples=3, superseded=2)
+    provider = FakeEvalProvider(session_factory=session_factory)
+
+    comparison = provider.evaluate(_request())
+
+    # Three live examples, not "120"; the two retired ones are not counted.
+    assert comparison.n_examples == 3
+
+
+def test_fake_evaluator_counts_the_pinned_version_not_the_current_set(
+    db_session: Session, session_factory: sessionmaker[Session]
+) -> None:
+    _seed_dataset(db_session, examples=3, superseded=2)
+    provider = FakeEvalProvider(session_factory=session_factory)
+
+    # As of version 1 the two examples superseded in version 2 still existed.
+    assert provider.evaluate(_request(eval_dataset_version=1)).n_examples == 5
+
+
+def test_fake_evaluator_reports_zero_for_a_missing_or_empty_dataset(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """The offline pipeline keeps running on a job with no dataset yet (the default
+    id), but the simulated evaluator reports the true size instead of inventing one."""
+    provider = FakeEvalProvider(session_factory=session_factory)
+
+    assert provider.evaluate(_request()).n_examples == 0
+
+
+def test_an_explicit_example_count_still_wins() -> None:
+    assert FakeEvalProvider(n_examples=12).evaluate(_request()).n_examples == 12
+
+
+def test_a_bare_fake_keeps_its_legacy_default_count() -> None:
+    """With no session factory (a unit test constructing the fake directly) there is
+    no dataset to count, so the historical default is unchanged."""
+    assert FakeEvalProvider().evaluate(_request()).n_examples == 120
+
+
+def test_fake_evaluator_dimensions_are_the_requested_scorers() -> None:
+    comparison = FakeEvalProvider().evaluate(_request(scorer_names=["Correctness", "Safety"]))
+
+    assert set(comparison.candidate.dimensions) == {"Correctness", "Safety"}
+    assert comparison.baseline is not None
+    assert set(comparison.baseline.dimensions) == {"Correctness", "Safety"}
+    assert set(comparison.deltas) == {"overall", "Correctness", "Safety"}
+    # In particular no invented dimension the caller never asked for.
+    assert "tone" not in comparison.candidate.dimensions
+    assert "tool_use" not in comparison.candidate.dimensions
+
+
+def test_fake_evaluator_keeps_its_legacy_dimensions_when_no_scorer_is_named() -> None:
+    comparison = FakeEvalProvider().evaluate(_request())
+    assert set(comparison.candidate.dimensions) == {"factual", "tool_use", "tone", "safety"}
+
+
+def test_build_provider_wires_the_session_factory_into_the_fake(
+    session_factory: sessionmaker[Session],
+) -> None:
+    provider = build_provider("fake", session_factory=session_factory)
+    assert isinstance(provider, FakeEvalProvider)
+    assert provider.session_factory is session_factory
+
+
+def test_describe_provider_marks_only_the_fake_as_simulated() -> None:
+    from caliber.eval.mlflow_runner import MLflowEvalProvider
+
+    assert describe_provider(FakeEvalProvider()) == {"provider": "fake", "simulated": True}
+    assert describe_provider(MLflowEvalProvider()) == {"provider": "mlflow", "simulated": False}
+
+    class Unnamed:
+        pass
+
+    assert describe_provider(Unnamed()) == {"provider": "Unnamed", "simulated": False}
+
+
+def test_run_eval_marks_a_simulated_result_everywhere_it_is_stored(db_session: Session) -> None:
+    _seed_job(db_session)
+
+    job = run_eval(db_session, "RFN-E", FakeEvalProvider())
+
+    assert job.eval_results is not None
+    assert job.eval_results["provider"] == "fake"
+    assert job.eval_results["simulated"] is True
+    db_session.expire_all()
+    ready = (
+        db_session.execute(
+            select(CaliberAuditLog).where(CaliberAuditLog.action == "candidate_ready")
+        )
+        .scalars()
+        .one()
+    )
+    assert ready.details["provider"] == "fake"
+    assert ready.details["simulated"] is True
+    replay = (
+        db_session.execute(
+            select(CaliberAuditLog).where(CaliberAuditLog.action == "record_regression_replay")
+        )
+        .scalars()
+        .one()
+    )
+    assert replay.details["simulated"] is True
+    run = db_session.execute(select(CaliberRegressionRun)).scalars().one()
+    assert run.gate["evaluation"] == {"provider": "fake", "simulated": True}
+
+
+def test_run_eval_marks_a_simulated_rejection_too(db_session: Session) -> None:
+    _seed_job(db_session)
+    provider = FakeEvalProvider(
+        candidate_scores=ScoreSet(overall=0.5, dimensions={"factual": 0.5}),
+        baseline_scores=ScoreSet(overall=0.88, dimensions={"factual": 0.88}),
+    )
+
+    job = run_eval(db_session, "RFN-E", provider)
+
+    assert job.status == "rejected"
+    assert job.eval_results is not None and job.eval_results["simulated"] is True
+    db_session.expire_all()
+    run = db_session.execute(select(CaliberRegressionRun)).scalars().one()
+    assert run.status == "failed"
+    assert run.gate["evaluation"]["simulated"] is True
+
+
+def test_run_eval_does_not_mark_a_real_provider_simulated(db_session: Session) -> None:
+    """A provider that computes its scores is recorded under its own name and is not
+    flagged; only the fake carries the simulated mark."""
+
+    class RealishProvider:
+        provider_name = "mlflow"
+
+        def evaluate(self, request: EvalRequest) -> EvalComparison:
+            return FakeEvalProvider(n_examples=7).evaluate(request)
+
+    _seed_job(db_session)
+    job = run_eval(db_session, "RFN-E", RealishProvider())  # type: ignore[arg-type]
+
+    assert job.eval_results is not None
+    assert job.eval_results["provider"] == "mlflow"
+    assert job.eval_results["simulated"] is False
+    db_session.expire_all()
+    ready = (
+        db_session.execute(
+            select(CaliberAuditLog).where(CaliberAuditLog.action == "candidate_ready")
+        )
+        .scalars()
+        .one()
+    )
+    assert ready.details["simulated"] is False
+    run = db_session.execute(select(CaliberRegressionRun)).scalars().one()
+    assert run.gate["evaluation"] == {"provider": "mlflow", "simulated": False}

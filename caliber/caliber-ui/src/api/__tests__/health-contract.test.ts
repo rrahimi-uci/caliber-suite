@@ -55,6 +55,46 @@ describe("caliberApi.getHealth", () => {
   });
 });
 
+describe("caliberApi.getProviderReadiness", () => {
+  const payload = {
+    mode: "simulated",
+    real: [],
+    simulated: ["eval", "promoter"],
+    providers: {},
+    warnings: [],
+    ready: false,
+    blockers: ["promoter is simulated"],
+  };
+
+  it("returns the readiness payload from a 503 that carries one", async () => {
+    server.use(
+      http.get(`${API_BASE}/readiness`, () =>
+        HttpResponse.json({ data: payload }, { status: 503 }),
+      ),
+    );
+    await expect(caliberApi.getProviderReadiness()).resolves.toEqual(payload);
+  });
+
+  it("returns the payload on a normal 200", async () => {
+    server.use(
+      http.get(`${API_BASE}/readiness`, () => HttpResponse.json({ data: payload })),
+    );
+    await expect(caliberApi.getProviderReadiness()).resolves.toEqual(payload);
+  });
+
+  it("still rejects a 503 that has no readiness payload", async () => {
+    server.use(
+      http.get(`${API_BASE}/readiness`, () =>
+        HttpResponse.json({ error: "down" }, { status: 503 }),
+      ),
+    );
+    await expect(caliberApi.getProviderReadiness()).rejects.toMatchObject({
+      name: "ApiError",
+      status: 503,
+    });
+  });
+});
+
 describe("caliberApi.putSecret", () => {
   it("PUTs the value to /secrets/{name} with the name in the path", async () => {
     let seen: { method: string; url: string; body: unknown } | null = null;

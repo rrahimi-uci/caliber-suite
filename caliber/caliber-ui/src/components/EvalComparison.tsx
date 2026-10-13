@@ -36,8 +36,19 @@ export function EvalComparison({ results }: EvalComparisonProps): JSX.Element {
       ? (results["eval_dataset_id"] as string)
       : null;
 
+  const simulated = results["simulated"] === true;
+
   return (
     <>
+      {simulated && (
+        <div
+          role="status"
+          data-testid="eval-simulated-badge"
+          className="mb-3 rounded-md border border-amber-300 bg-amber-50 px-3 py-2 text-xs font-semibold text-amber-900"
+        >
+          Simulated evaluation — not evidence. These scores are canned, not measured.
+        </div>
+      )}
       <div className="grid grid-cols-2 gap-4 mb-4">
         <ScoreBlock label="Candidate" overall={candidate.overall} dimensions={candidate.dimensions} />
         {baseline ? (

@@ -296,7 +296,9 @@ version pinning makes a run reproducible against the exact example set it scored
 
 Evaluation is configured through a small set of keys and leaves durable evidence
 behind. The provider is selected by `eval_provider` (env `CALIBER_EVAL_PROVIDER`),
-which defaults to `fake`; production deployments set it to `mlflow`. The
+which defaults to `fake`; production deployments set it to `mlflow`. A `fake` evaluator
+returns canned scores, so its results are stamped `provider` and `simulated: true` on the job,
+the regression run and the audit rows, and the UI badges them as not evidence. The
 prediction path is driven by `llm_provider`, `llm_diagnosis_model`, and
 `llm_api_key_env`, and the completion function returns `None` for unset or fake
 providers — the mechanism that makes the engine fail closed.

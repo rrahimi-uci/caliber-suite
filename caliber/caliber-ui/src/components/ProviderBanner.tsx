@@ -2,7 +2,13 @@
  * Provider-readiness banner (golden-path roadmap, Wave 3 — honesty about
  * simulated vs real providers). When any provider runs in ``fake`` mode the
  * banner names them so users never mistake simulated results for real ones.
- * Dismissible per session; renders nothing when all providers are real.
+ *
+ * It can be dismissed for the session only when what is simulated does not feed a
+ * decision. If the *evaluation* or the *promoter* is simulated, the scores a user
+ * is about to act on are canned, or the "release" they trigger changes nothing, so
+ * the banner stays (alpha gap P0-4). It also keeps rendering when readiness
+ * reports a missing dependency (the endpoint then answers 503) and names why.
+ * Renders nothing when all providers are real.
  */
 
 import { useEffect, useState } from "react";
@@ -11,6 +17,9 @@ import { caliberApi } from "@/api/caliberApi";
 import type { ProviderReadiness } from "@/api/types";
 
 const DISMISS_KEY = "caliber.provider_banner_dismissed";
+
+/** Simulated providers whose output a user decides on; their banner is permanent. */
+const DECISION_PROVIDERS = new Set(["eval", "promoter"]);
 
 function readDismissed(): boolean {
   if (typeof window === "undefined") return false;
@@ -36,7 +45,13 @@ export function ProviderBanner(): JSX.Element | null {
     };
   }, []);
 
-  if (dismissed || !readiness || readiness.simulated.length === 0) {
+  if (!readiness || readiness.simulated.length === 0) {
+    return null;
+  }
+  const decisionsAreSimulated = readiness.simulated.some((name) =>
+    DECISION_PROVIDERS.has(name),
+  );
+  if (dismissed && !decisionsAreSimulated) {
     return null;
   }
 
@@ -48,6 +63,7 @@ export function ProviderBanner(): JSX.Element | null {
   }
 
   const names = readiness.simulated.join(", ");
+  const blockers = readiness.ready === false ? (readiness.blockers ?? []) : [];
   return (
     <div
       role="status"
@@ -59,15 +75,35 @@ export function ProviderBanner(): JSX.Element | null {
       </svg>
       <span className="flex-1">
         Simulated providers: <strong className="font-semibold">{names}</strong> are running in fake mode — results
-        are demonstrative, not real. Configure <code className="font-mono">CALIBER_*_PROVIDER</code> for real behavior.
+        are demonstrative, not real.
+        {readiness.simulated.includes("eval") && (
+          <>
+            {" "}
+            <strong className="font-semibold">Evaluation scores are canned, not measurements.</strong>
+          </>
+        )}
+        {readiness.simulated.includes("promoter") && (
+          <>
+            {" "}
+            <strong className="font-semibold">Applying a candidate will not change the prompt registry.</strong>
+          </>
+        )}{" "}
+        Configure <code className="font-mono">CALIBER_*_PROVIDER</code> for real behavior.
+        {blockers.length > 0 && (
+          <span data-testid="provider-banner-blockers" className="block mt-0.5 text-red-700">
+            Not ready: {blockers.join("; ")}
+          </span>
+        )}
       </span>
-      <button
-        type="button"
-        onClick={dismiss}
-        className="rounded-md px-2 py-0.5 font-medium text-amber-700 hover:bg-amber-100 transition-colors"
-      >
-        Dismiss
-      </button>
+      {!decisionsAreSimulated && (
+        <button
+          type="button"
+          onClick={dismiss}
+          className="rounded-md px-2 py-0.5 font-medium text-amber-700 hover:bg-amber-100 transition-colors"
+        >
+          Dismiss
+        </button>
+      )}
     </div>
   );
 }

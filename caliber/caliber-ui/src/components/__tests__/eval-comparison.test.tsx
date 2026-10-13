@@ -103,4 +103,20 @@ describe("EvalComparison", () => {
     render(<EvalComparison results={{ candidate: {} }} />);
     expect(screen.getAllByText("—").length).toBeGreaterThan(0);
   });
+
+  it("labels a simulated evaluation as not evidence", () => {
+    render(
+      <EvalComparison
+        results={{ candidate: { overall: 0.94 }, simulated: true, provider: "fake" }}
+      />,
+    );
+    expect(screen.getByTestId("eval-simulated-badge")).toHaveTextContent(
+      "Simulated evaluation — not evidence",
+    );
+  });
+
+  it("shows no simulated label for a measured evaluation", () => {
+    render(<EvalComparison results={{ candidate: { overall: 0.9 }, simulated: false }} />);
+    expect(screen.queryByTestId("eval-simulated-badge")).not.toBeInTheDocument();
+  });
 });

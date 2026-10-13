@@ -435,12 +435,13 @@ Status legend:
   - `eval/fake.py`, `eval/provider.py`, `orchestrator/eval_stage.py`, `regression.py`, `routes/jobs.py`, `server.py`
   - `caliber-ui/src/pages/Prompts.tsx`, `components/EvalComparison.tsx`, `components/ProviderBanner.tsx`
 - **Dependencies:** Shares the opt-in flag with [P0-3](#p0-3).
+- **Status: implemented.** Code: `eval/provider.py` (`describe_provider`), `eval/fake.py` (real example count from the pinned dataset, scorer names echoed, `provider_name`/`is_simulated` markers), `eval/mlflow_runner.py` (`provider_name`), `orchestrator/eval_stage.py` and `regression.py` (`provider`/`simulated` on `eval_results`, the regression run's gate payload, and the `candidate_ready` and `record_regression_replay` audit rows), `server.py` (real LLM plus fake eval needs the opt-in). UI: `ProviderBanner.tsx` (no dismiss control while `eval` or `promoter` is simulated, blockers shown), `caliberApi.getProviderReadiness` (accepts the 503 readiness body), `Prompts.tsx` review dialog and `EvalComparison.tsx` (simulated badge). The approval snapshot copies `eval_results`, so it carries the marker too. Tests: `test_orchestrator_eval.py`, `test_simulated_provider_guard.py`, `test_routes_jobs_apply.py`, and Vitest for the banner, the API client, `EvalComparison` and the review dialog.
 - **Acceptance criteria:**
-  - [ ] Under the fake provider, `eval_results.n_examples` equals the dataset size, and the dimension keys equal the requested scorers (pytest).
-  - [ ] `eval_results`, the regression run and the `candidate_ready` audit details include `provider` and `simulated` (pytest).
-  - [ ] The review dialog renders the simulated badge (Vitest).
-  - [ ] The banner renders when `/readiness` returns 503 with a non-empty `simulated`, and has no dismiss control while eval or promoter is simulated (Vitest).
-  - [ ] Real LLM + fake eval without the opt-in fails startup (unit test).
+  - [x] Under the fake provider, `eval_results.n_examples` equals the dataset size, and the dimension keys equal the requested scorers (pytest).
+  - [x] `eval_results`, the regression run and the `candidate_ready` audit details include `provider` and `simulated` (pytest). The Apply-time approval snapshot keeps the marker (pytest).
+  - [x] The review dialog renders the simulated badge, and does not render it for a measured evaluation (Vitest).
+  - [x] The banner renders when `/readiness` returns 503 with a non-empty `simulated`, and has no dismiss control while eval or promoter is simulated, even with a stored dismissal (Vitest).
+  - [x] Real LLM + fake eval without the opt-in fails startup (unit test).
 
 ### P0-5
 

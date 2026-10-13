@@ -1915,6 +1915,10 @@ export interface ProviderReadiness {
   tracing_enabled: boolean;
   tracing_autolog_enabled: boolean;
   workflow_llm_judge_enabled: boolean;
+  /** False when a required dependency is down (the endpoint then answers 503). */
+  ready?: boolean;
+  /** Why it is not ready, e.g. `mlflow: All connection attempts failed`. */
+  blockers?: string[];
 }
 
 /** One row of `GET /auth/accounts`. Never carries a password or hash. */
