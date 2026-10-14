@@ -214,3 +214,113 @@ def test_the_ledger_does_not_count_itself_as_a_gate(monkeypatch, tmp_path) -> No
     jobs = [*_all_gates(), {"name": "Gate execution ledger", "conclusion": None}]
     _, exit_code = _run_ledger(monkeypatch, tmp_path, jobs)
     assert exit_code == 0
+
+
+# ---------------------------------------------------------------------------
+# Transient GitHub API failures must not turn a green run's ledger red (alpha gap P1-16)
+# ---------------------------------------------------------------------------
+
+
+class _FakeResponse:
+    def __init__(self, payload: dict) -> None:
+        import io
+        import json
+
+        self._body = io.BytesIO(json.dumps(payload).encode())
+
+    def __enter__(self) -> _FakeResponse:
+        return self
+
+    def __exit__(self, *_: object) -> None:
+        return None
+
+    def read(self, *args: object) -> bytes:
+        return self._body.read(*args)
+
+
+def _http_error(code: int):
+    import urllib.error
+
+    return urllib.error.HTTPError("https://api.github.com/x", code, "boom", {}, None)  # type: ignore[arg-type]
+
+
+def test_a_transient_502_is_retried_and_then_read(monkeypatch: pytest.MonkeyPatch) -> None:
+    ledger = _ledger_module()
+    calls: list[int] = []
+
+    def fake_urlopen(request, timeout=30):
+        calls.append(1)
+        if len(calls) < 3:
+            raise _http_error(502)
+        return _FakeResponse({"total_count": 1, "jobs": [{"name": "Lint & format"}]})
+
+    monkeypatch.setattr(ledger.urllib.request, "urlopen", fake_urlopen)
+    monkeypatch.setattr(ledger.time, "sleep", lambda _s: None)
+
+    jobs = ledger.fetch_jobs("owner/repo", "123", "token")
+
+    assert [job["name"] for job in jobs] == ["Lint & format"]
+    assert len(calls) == 3
+
+
+def test_a_persistent_5xx_fails_closed_after_the_attempts(monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.error
+
+    ledger = _ledger_module()
+    calls: list[int] = []
+
+    def always_down(request, timeout=30):
+        calls.append(1)
+        raise _http_error(503)
+
+    monkeypatch.setattr(ledger.urllib.request, "urlopen", always_down)
+    monkeypatch.setattr(ledger.time, "sleep", lambda _s: None)
+
+    with pytest.raises(urllib.error.HTTPError):
+        ledger.fetch_jobs("owner/repo", "123", "token")
+
+    assert len(calls) == ledger._ATTEMPTS
+
+
+def test_a_client_error_is_not_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.error
+
+    ledger = _ledger_module()
+    calls: list[int] = []
+
+    def forbidden(request, timeout=30):
+        calls.append(1)
+        raise _http_error(403)
+
+    monkeypatch.setattr(ledger.urllib.request, "urlopen", forbidden)
+    monkeypatch.setattr(ledger.time, "sleep", lambda _s: None)
+
+    with pytest.raises(urllib.error.HTTPError):
+        ledger.fetch_jobs("owner/repo", "123", "token")
+
+    assert len(calls) == 1
+
+
+def test_a_network_error_is_retried(monkeypatch: pytest.MonkeyPatch) -> None:
+    import urllib.error
+
+    ledger = _ledger_module()
+    calls: list[int] = []
+
+    def flaky(request, timeout=30):
+        calls.append(1)
+        if len(calls) == 1:
+            raise urllib.error.URLError("connection reset")
+        return _FakeResponse({"total_count": 0, "jobs": []})
+
+    monkeypatch.setattr(ledger.urllib.request, "urlopen", flaky)
+    monkeypatch.setattr(ledger.time, "sleep", lambda _s: None)
+
+    assert ledger.fetch_jobs("owner/repo", "123", "token") == []
+    assert len(calls) == 2
+
+
+def test_the_core_journey_gate_is_required_and_waited_for() -> None:
+    assert "Backend core journey" in _ledger_module().REQUIRED_GATES
+    workflow = yaml.safe_load(WORKFLOW.read_text(encoding="utf-8"))
+    assert "backend-core" in workflow["jobs"]["gate-ledger"]["needs"]

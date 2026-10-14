@@ -46,7 +46,7 @@ VENV_PY="$CALIBER_DIR/.venv/bin/python"
 # fails here the same way it would there.
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
-ALL_JOBS=(lint type-check test-smoke migration-parity-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package alpha-install alpha-journey security sdk plugin-sdk cli)
+ALL_JOBS=(lint type-check test-smoke backend-core migration-parity-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package alpha-install alpha-journey security sdk plugin-sdk cli)
 FAST_SKIP=(test compatibility integration cookbook-ui-only package alpha-install alpha-journey)
 
 bold() { printf '\033[1m%s\033[0m\n' "$*"; }
@@ -123,6 +123,44 @@ job_test_smoke() {
     tests/test_migrations.py \
     tests/test_auth_sessions.py \
     --no-cov -q
+}
+
+# The core journey and the contracts that guard it (alpha gap P1-16): the same files the
+# "Backend core journey" CI job runs. ``tests/test_ci_local_parity.py`` fails if the two
+# lists drift apart.
+BACKEND_CORE_TESTS=(
+  tests/test_routes_jobs_apply.py
+  tests/test_routes_jobs_isolation.py
+  tests/test_routes_jobs.py
+  tests/test_job_route_gate_ratchet.py
+  tests/test_apply_shared_sqlite_store.py
+  tests/test_routes_prompts.py
+  tests/test_routes_releases.py
+  tests/test_routes_releases_scoping.py
+  tests/test_release_traceability.py
+  tests/test_orchestrator_eval.py
+  tests/test_simulated_provider_guard.py
+  tests/test_schema_readiness.py
+  tests/test_readiness_probes.py
+  tests/test_personal_access_tokens.py
+  tests/test_pat_binding_gates.py
+  tests/test_settings_routes.py
+  tests/test_mlflow_unreachable.py
+  tests/test_aria_honesty.py
+  tests/test_migrate_command.py
+  tests/test_alpha_install_contract.py
+  tests/test_sdk_against_server.py
+  tests/test_sdk_api_coverage.py
+  tests/test_bare_lookup_inventory.py
+  tests/test_plugin_contract.py
+)
+
+job_backend_core() {
+  cd "$CALIBER_DIR" || return 1
+  "$VENV_PY" -m pip install -q -e "$SDK_DIR" || return 1
+  "$VENV_PY" -m pip install -q -e "$CLI_DIR" || return 1
+  "$VENV_PY" -m pip install -q -e "$PLUGIN_SDK_DIR" || return 1
+  "$VENV_PY" -m pytest -n auto --dist loadgroup --no-cov -q "${BACKEND_CORE_TESTS[@]}"
 }
 
 # The PostgreSQL half of tests/test_migrations.py's and
@@ -580,6 +618,7 @@ main() {
       lint) run_job lint job_lint ;;
       type-check) run_job type-check job_type_check ;;
       test-smoke) run_job test-smoke job_test_smoke ;;
+      backend-core) run_job backend-core job_backend_core ;;
       migration-parity-postgres) run_job migration-parity-postgres job_migration_parity_postgres ;;
       test) run_job test job_test ;;
       compatibility) run_job compatibility job_compatibility ;;

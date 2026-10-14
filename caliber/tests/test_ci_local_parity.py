@@ -269,3 +269,22 @@ def test_the_local_sdk_venvs_target_the_python_ci_uses() -> None:
     # unconditionally.
     assert 'python3 -m venv "$SDK_DIR' not in script
     assert script.count('"$(sdk_interpreter)" -m venv') == 3
+
+
+def test_the_backend_core_test_lists_match_between_ci_and_the_local_runner() -> None:
+    """The PR gate and ``scripts/ci-local.sh`` must run the same files, or a green local run
+    would say nothing about the PR check (alpha gap P1-16)."""
+    workflow = yaml.safe_load(WORKFLOW.read_text())
+    steps = workflow["jobs"]["backend-core"]["steps"]
+    run = next(step["run"] for step in steps if step.get("name", "").startswith("Run the core"))
+    in_ci = re.findall(r"tests/[A-Za-z0-9_]+\.py", run)
+
+    script = SCRIPT.read_text()
+    block = re.search(r"BACKEND_CORE_TESTS=\(([^)]*)\)", script, re.S)
+    assert block, "BACKEND_CORE_TESTS not found in ci-local.sh"
+    locally = re.findall(r"tests/[A-Za-z0-9_]+\.py", block.group(1))
+
+    assert in_ci, "the CI job lists no test files"
+    assert in_ci == locally
+    for path in in_ci:
+        assert (REPO_ROOT / "caliber" / path).exists(), f"{path} does not exist"
