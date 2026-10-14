@@ -57,6 +57,7 @@ from caliber.eval.gate import DEFAULT_MAX_REGRESSION_DELTA, DEFAULT_MIN_AGGREGAT
 from caliber.extensibility import optimizer_registry
 from caliber.gate_verdicts import GATE_STATES, record_gate_verdict
 from caliber.ids import new_item_id, new_job_id, new_prompt_test_run_id
+from caliber.mlflow_errors import is_mlflow_unreachable, unreachable_http_exception
 from caliber.prompt_targets import (
     ensure_prompt_target,
     is_hidden_prompt_target,
@@ -327,6 +328,8 @@ def register_prompt_version(
         )
     except Exception as exc:
         logger.exception("register_prompt failed for %s", clean_name)
+        if is_mlflow_unreachable(exc):
+            raise unreachable_http_exception() from exc
         raise HTTPException(status_code=502, detail=f"failed to register prompt: {exc}") from exc
 
     version_number = int(getattr(version, "version", 0))
@@ -674,6 +677,8 @@ def _load_prompt_release_info(agent_id: str, alias: str = "prod") -> dict[str, A
     try:
         prompt = load_prompt(ref, allow_missing=True)
     except Exception as exc:
+        if is_mlflow_unreachable(exc):
+            raise unreachable_http_exception() from exc
         raise HTTPException(
             status_code=502,
             detail=f"failed to resolve current prompt alias {alias!r}: {exc}",
@@ -1673,6 +1678,8 @@ async def get_prompt(request: Request) -> JSONResponse:
     try:
         prompt = load_prompt(ref, allow_missing=True)
     except Exception as exc:
+        if is_mlflow_unreachable(exc):
+            raise unreachable_http_exception() from exc
         raise HTTPException(status_code=502, detail=f"failed to load prompt: {exc}") from exc
 
     if prompt is None:
@@ -1921,6 +1928,8 @@ async def get_prompt_version(request: Request) -> JSONResponse:
     try:
         prompt = load_prompt(ref, allow_missing=True)
     except Exception as exc:
+        if is_mlflow_unreachable(exc):
+            raise unreachable_http_exception() from exc
         raise HTTPException(
             status_code=502, detail=f"failed to load prompt version: {exc}"
         ) from exc
@@ -1969,6 +1978,8 @@ def set_prompt_alias_version(*, name: str, alias: str, version: int | str) -> di
     try:
         set_alias(name, alias, version_num)
     except Exception as exc:
+        if is_mlflow_unreachable(exc):
+            raise unreachable_http_exception() from exc
         raise HTTPException(status_code=502, detail=f"failed to set alias: {exc}") from exc
 
     return {"name": name, "alias": alias, "version": version_num}

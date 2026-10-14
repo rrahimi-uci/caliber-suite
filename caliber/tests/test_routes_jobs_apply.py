@@ -508,6 +508,35 @@ def test_apply_failure_before_any_release_reverts_the_job_and_withdraws_the_appr
     assert db_session.get(CaliberRefinementJob, "RFN-A").status == "applied"  # type: ignore[union-attr]
 
 
+def test_apply_with_mlflow_unreachable_is_a_503_and_the_job_is_left_retryable(
+    client: TestClient, db_session: Session
+) -> None:
+    """A connection failure used to surface as a 502 carrying the client stack trace after
+    MLflow's retries ran out. It is now a 503 with fixed text, and the clean failure still
+    returns the job to ``candidate_ready``."""
+    import requests
+
+    from caliber.mlflow_errors import UNREACHABLE_DETAIL
+    from caliber.promoter import PromoterError
+
+    _seed_candidate_ready_job(db_session)
+    error = PromoterError("failed to register new version of 'p': connection problem")
+    error.__cause__ = requests.exceptions.ConnectionError("Max retries exceeded with url: /x")
+    client.app.state.promoter.fail_with = error  # type: ignore[attr-defined]
+
+    failed = client.post(APPLY_PATH.format(job_id="RFN-A"))
+
+    assert failed.status_code == 503, failed.text
+    assert failed.json()["detail"] == UNREACHABLE_DETAIL
+    db_session.expire_all()
+    job = db_session.get(CaliberRefinementJob, "RFN-A")
+    assert job is not None
+    assert job.status == "candidate_ready"
+
+    client.app.state.promoter.fail_with = None  # type: ignore[attr-defined]
+    assert client.post(APPLY_PATH.format(job_id="RFN-A")).status_code == 200
+
+
 def test_apply_conflict_after_the_claim_commit_also_reverts_the_job(
     client: TestClient, db_session: Session
 ) -> None:

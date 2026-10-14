@@ -3109,3 +3109,59 @@ def test_deleting_a_prompt_leaves_a_committed_audit_row(
     rows = _authoring_audit_rows(db_session, "prompt.delete")
     assert len(rows) == 1
     assert rows[0].entity_id == "support-agent"
+
+
+def test_creating_a_prompt_with_mlflow_unreachable_is_a_503_not_a_502(
+    client: TestClient, monkeypatch
+) -> None:
+    import requests
+    from mlflow.exceptions import MlflowException
+
+    from caliber.mlflow_errors import UNREACHABLE_DETAIL
+
+    def _unreachable(**_kwargs: object) -> object:
+        raise MlflowException("API request failed") from requests.exceptions.ConnectionError("x")
+
+    _install_mlflow(monkeypatch, register_impl=_unreachable)
+
+    for path, body in (
+        (PREFIX, {"name": "x", "template": "hello"}),
+        (f"{PREFIX}/x/versions", {"template": "hello"}),
+    ):
+        response = client.post(path, json=body)
+        assert response.status_code == 503, response.text
+        assert response.json()["detail"] == UNREACHABLE_DETAIL
+
+
+def test_reading_a_prompt_with_mlflow_unreachable_is_a_503(client: TestClient, monkeypatch) -> None:
+    import requests
+
+    from caliber.mlflow_errors import UNREACHABLE_DETAIL
+
+    down = requests.exceptions.ConnectionError("down")
+    _install_mlflow(
+        monkeypatch,
+        load_refs={
+            "prompts:/support-agent@prod": down,
+            "prompts:/support-agent/3": down,
+        },
+    )
+
+    for path in (f"{PREFIX}/support-agent", f"{PREFIX}/support-agent/versions/3"):
+        response = client.get(path)
+        assert response.status_code == 503, (path, response.text)
+        assert response.json()["detail"] == UNREACHABLE_DETAIL
+
+
+def test_a_registry_rejection_is_still_a_502_not_an_outage(client: TestClient, monkeypatch) -> None:
+    """Only connection-level failures become 503; other registry errors keep their meaning."""
+    from mlflow.exceptions import MlflowException
+
+    def _rejected(**_kwargs: object) -> object:
+        raise MlflowException("RESOURCE_ALREADY_EXISTS: nope")
+
+    _install_mlflow(monkeypatch, register_impl=_rejected)
+
+    response = client.post(PREFIX, json={"name": "x", "template": "hello"})
+    assert response.status_code == 502
+    assert "failed to register prompt" in response.json()["detail"]

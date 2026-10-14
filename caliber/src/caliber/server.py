@@ -569,6 +569,12 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     # set it when the operator hasn't already chosen a value — honour
     # their override.
     os.environ.setdefault("MLFLOW_HTTP_REQUEST_TIMEOUT", "15")
+    # MLflow's default is seven retries with exponential backoff, which kept a request
+    # alive for about eight minutes when the tracking server was down (alpha gap P1-04).
+    # One retry with a short backoff fails a hung server in about 30 seconds and a refused
+    # connection immediately. Operators who run a flaky link can raise it.
+    os.environ.setdefault("MLFLOW_HTTP_REQUEST_MAX_RETRIES", "1")
+    os.environ.setdefault("MLFLOW_HTTP_REQUEST_BACKOFF_FACTOR", "1")
 
     # Install the audit-log redactor before any state-changing path
     # can call ``audit.record()``. ``configure_redactor`` is a module-
