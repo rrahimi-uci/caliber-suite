@@ -18,7 +18,12 @@ tags:
   - release-notes
 ---
 
-# CALIBER `v0.1.0-alpha.1` -- scope and limitations
+# CALIBER `v0.1.0-alpha.1` -- scope and limitations (historical)
+
+> **Superseded.** This note describes the two-week checkpoint, whose one journey started from a seeded
+> flagged trace. The current alpha, `0.1.0a1`, has a broader and different scope, and its scope and known
+> limitations are in [Alpha scope and limitations](../start/alpha-scope.md). Read that page, not this one,
+> to decide what the alpha does. This file is kept as the record of the checkpoint.
 
 Last updated: 2026-09-20
 
