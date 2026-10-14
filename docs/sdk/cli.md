@@ -24,7 +24,9 @@ asynchronous client for the case where being synchronous costs you a thread.
 ## caliberctl
 
 ```bash
-pip install caliber-cli
+# From the 0.1.0a1 release wheels; the packages are not on PyPI yet. caliber-cli needs
+# caliber-sdk (>=0.1.0a1,<0.2), which pip finds in the same directory.
+pip install --find-links ./wheels caliber-cli
 export CALIBER_BASE_URL=https://caliber.example.com
 export CALIBER_TOKEN=calpat_...
 

@@ -3,7 +3,9 @@
 Non-interactive operator commands for CALIBER, on top of `caliber-sdk`.
 
 ```bash
-pip install caliber-cli
+# The packages are not on PyPI yet: install from the 0.1.0a1 release wheels.
+# caliber-cli needs caliber-sdk (>=0.1.0a1,<0.2), which pip finds in the same directory.
+pip install --find-links ./wheels caliber-cli
 export CALIBER_BASE_URL=https://caliber.example.com
 export CALIBER_TOKEN=calpat_...
 

@@ -12044,6 +12044,11 @@ A durable background job (refinement, calibration, reporting).
 | `updated_at` | `str | None` | `None` |
 | `error` | `str | None` | `None` |
 | `result` | `dict[str, Any] | None` | `None` |
+| `candidate` | `dict[str, Any] | None` | `None` |
+| `eval_results` | `dict[str, Any] | None` | `None` |
+| `approval_id` | `str | None` | `None` |
+| `applied_by` | `str | None` | `None` |
+| `applied_version` | `int | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 **Properties**

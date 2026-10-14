@@ -95,7 +95,9 @@
 <h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
 <div class="table-wrap"><table><thead><tr><th>Dimension</th><th>Where the SDK stands</th></tr></thead><tbody><tr><td><strong>Runtime dependencies</strong></td><td><code>httpx</code> and <code>typing-extensions</code>. Nothing else.</td></tr><tr><td><strong>Typing</strong></td><td>Ships <code>py.typed</code>; <code>mypy --strict</code> clean.</td></tr><tr><td><strong>Auth</strong></td><td>Personal access token (recommended), or a trusted-proxy header.</td></tr><tr><td><strong>Errors</strong></td><td>Non-2xx becomes a typed exception carrying status, detail, method, URL, and a request id.</td></tr><tr><td><strong>Retries</strong></td><td>Idempotent methods only, capped exponential backoff, honouring <code>Retry-After</code>.</td></tr><tr><td><strong>Long-running work</strong></td><td>Waiters that poll with backoff and never sleep past your deadline.</td></tr><tr><td><strong>Coverage</strong></td><td>Every GA surface, plus <code>client.raw</code> for anything not yet modelled.</td></tr><tr><td><strong>Project access</strong></td><td>Typed <code>client.projects.list_members()</code>, <code>add_member()</code>, <code>update_member()</code>, and <code>remove_member()</code> methods.</td></tr></tbody></table></div>
 <h2 id="install">Install<a class="anchor" href="#install" aria-hidden="true" tabindex="-1">#</a></h2>
-<pre class="language-bash"><code class="language-bash">pip install caliber-sdk</code></pre>
+<p>The packages are not on PyPI yet. Install them from the <code>0.1.0a1</code> release wheels (the <a href="m-60-alpha-install.html">Alpha install</a> page says where to get them), into a virtual environment:</p>
+<pre class="language-bash"><code class="language-bash">pip install --find-links ./wheels caliber-sdk</code></pre>
+<p><code>--find-links</code> points pip at the directory holding the downloaded wheels. Installing from an index by name finds nothing until the packages are published.</p>
 <h2 id="quickstart">Quickstart<a class="anchor" href="#quickstart" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Construct a client, confirm who you are, and read what the deployment supports:</p>
 <figure class="code-example" data-example-src="sdk/caliber-sdk/examples/quickstart.py#quickstart"><pre class="language-python"><code class="language-python"><span class="tok-keyword">def</span> <span class="tok-function">quickstart</span><span class="tok-punctuation">(</span>caliber<span class="tok-punctuation">:</span> CaliberClient<span class="tok-punctuation">)</span> <span class="tok-operator">-</span><span class="tok-operator">&gt;</span> dict<span class="tok-punctuation">[</span>str<span class="tok-punctuation">,</span> Any<span class="tok-punctuation">]</span><span class="tok-punctuation">:</span>
@@ -131,7 +133,7 @@
       - <span class="tok-key">uses</span><span class="tok-punctuation">:</span> actions/setup-python@v5
         with<span class="tok-punctuation">:</span>
           python-version<span class="tok-punctuation">:</span> <span class="tok-string">"3.12"</span>
-      - <span class="tok-key">run</span><span class="tok-punctuation">:</span> pip install caliber-sdk
+      - <span class="tok-key">run</span><span class="tok-punctuation">:</span> pip install <span class="tok-number">-</span><span class="tok-number">-</span>find-links ./wheels caliber-sdk
       - <span class="tok-key">env</span><span class="tok-punctuation">:</span>
           CALIBER_BASE_URL<span class="tok-punctuation">:</span> https<span class="tok-punctuation">:</span>//caliber.example.com
           CALIBER_TOKEN<span class="tok-punctuation">:</span> $<span class="tok-punctuation">{</span><span class="tok-punctuation">{</span> secrets.CALIBER_TOKEN <span class="tok-punctuation">}</span><span class="tok-punctuation">}</span>
