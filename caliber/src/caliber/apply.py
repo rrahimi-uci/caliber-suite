@@ -295,6 +295,30 @@ def _build_promotion_payload(
     }
 
 
+def release_provenance(job: CaliberRefinementJob) -> dict[str, str]:
+    """What a released version should say about where it came from.
+
+    Written as tags on the registry version and into the release operation's evidence, so
+    one public hop from a live version reaches the job, the dataset and version it was
+    evaluated on, and whether that evaluation was simulated (alpha gap P1-14). Only values
+    that exist are included; every value is a string because MLflow tags are.
+    """
+    provenance = {"job_id": job.job_id}
+    results = job.eval_results if isinstance(job.eval_results, dict) else {}
+    dataset_id = results.get("eval_dataset_id")
+    if dataset_id:
+        provenance["eval_dataset_id"] = str(dataset_id)
+    dataset_version = results.get("eval_dataset_version")
+    if dataset_version is not None:
+        provenance["eval_dataset_version"] = str(dataset_version)
+    provider = results.get("provider")
+    if provider:
+        provenance["eval_provider"] = str(provider)
+    if "simulated" in results:
+        provenance["eval_simulated"] = "true" if results["simulated"] else "false"
+    return provenance
+
+
 def apply_candidate(
     session: Session,
     *,
@@ -391,6 +415,7 @@ def _apply_bundle(
             approval_id=approval.approval_id,
             session=session,
             actor=actor,
+            provenance=release_provenance(job),
         )
     except PromoterConflictError as exc:
         raise HTTPException(status_code=409, detail=f"promotion conflict: {exc}") from exc

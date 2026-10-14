@@ -167,7 +167,9 @@ def run_eval(  # noqa: PLR0915 — sequential stage: pass→candidate_ready, fai
     # the result, the audit rows and the regression run so a simulation can never be
     # read later as a measurement (alpha gap P0-4).
     evaluation = describe_provider(eval_provider)
-    job.eval_results = _comparison_to_json(comparison, decision, evaluation)
+    job.eval_results = _comparison_to_json(
+        comparison, decision, evaluation, eval_dataset_version=eval_dataset_version
+    )
 
     previous_stage = job.current_stage
     if decision.passed:
@@ -502,7 +504,10 @@ def _resolve_baseline_content(
 
 
 def _comparison_to_json(
-    comparison: EvalComparison, decision: Any, evaluation: dict[str, object] | None = None
+    comparison: EvalComparison,
+    decision: Any,
+    evaluation: dict[str, object] | None = None,
+    eval_dataset_version: int | None = None,
 ) -> dict[str, Any]:
     """Render the comparison + gate decision into the JSON-column shape.
 
@@ -532,6 +537,9 @@ def _comparison_to_json(
         "baseline": baseline_dump,
         "deltas": dict(comparison.deltas),
         "eval_dataset_id": comparison.eval_dataset_id,
+        # The dataset version the run was pinned to, so "why is v3 live" can name the exact
+        # example set it was judged on (alpha gap P1-14). ``None`` for an unpinned run.
+        "eval_dataset_version": eval_dataset_version,
         "n_examples": comparison.n_examples,
         "gate": decision.to_json(),
         "caliber_tags": _caliber_tags(comparison, decision),

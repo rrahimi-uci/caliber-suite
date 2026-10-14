@@ -178,6 +178,8 @@ export interface ArtifactVersion {
   publishedAt?: string | null;
   label?: string | null;
   gate?: GateVerdict;
+  /** Where the version came from (job, dataset, evaluation provider), when it was released by Apply. */
+  provenance?: Record<string, string>;
   capabilities: VersionCapabilities;
   raw: unknown;
 }
@@ -225,6 +227,7 @@ export function promptVersionsToArtifactVersions(
       author: null, // MLflow prompt versions carry no author
       createdAt: toIsoString(info.creation_timestamp),
       label: info.commit_message,
+      provenance: info.provenance,
       capabilities: PROMPT_CAPABILITIES,
       raw: info,
     } satisfies ArtifactVersion;

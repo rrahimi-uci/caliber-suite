@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from datetime import datetime, timezone
+
 from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
@@ -409,3 +411,160 @@ def test_resolve_release_operation_allows_an_active_project_member(
     )
     assert resp.status_code == 200, resp.text
     assert resp.json()["data"]["status"] == "failed"
+
+
+# --- P1-13: prompts on the "What's live now" board ---------------------------------------
+
+
+def _applied_prompt_release(
+    session: Session,
+    name: str,
+    *,
+    before: int | None,
+    after: int,
+    operation_type: str = "promote",
+    actor: str = "@applier",
+    alias: str = "prod",
+) -> CaliberReleaseOperation:
+    operation = prepare_prompt_alias_release(
+        session,
+        name=name,
+        alias=alias,
+        version_before=before,
+        version_after=after,
+        actor=actor,
+        operation_type=operation_type,
+    )
+    operation.status = "applied"
+    operation.active_lock = None
+    operation.applied_at = datetime.now(timezone.utc).replace(tzinfo=None)
+    session.commit()
+    return operation
+
+
+def _live_prompt_rows(client: TestClient, headers: dict[str, str] | None = None) -> list[dict]:
+    rows = client.get(LIVE, headers=headers or {}).json()["data"]
+    return [row for row in rows if row["artifact_type"] == "prompt"]
+
+
+def test_live_lists_an_applied_prompt_release(client: TestClient, db_session: Session) -> None:
+    """The board said "Nothing deployed yet" straight after a prompt Apply."""
+    _applied_prompt_release(db_session, "support-agent", before=1, after=2)
+
+    rows = _live_prompt_rows(client)
+
+    assert len(rows) == 1
+    row = rows[0]
+    assert row["artifact_id"] == "support-agent"
+    assert row["artifact_name"] == "support-agent"
+    assert row["alias"] == "prod"
+    assert row["version_id"] == "v2"
+    assert row["by"] == "@applier"
+    assert row["since"]
+
+
+def test_live_shows_the_newest_applied_release_per_prompt_alias(
+    client: TestClient, db_session: Session
+) -> None:
+    _applied_prompt_release(db_session, "support-agent", before=None, after=1)
+    _applied_prompt_release(db_session, "support-agent", before=1, after=2)
+    _applied_prompt_release(db_session, "other-agent", before=None, after=1)
+
+    rows = {r["artifact_id"]: r for r in _live_prompt_rows(client)}
+
+    assert set(rows) == {"support-agent", "other-agent"}
+    assert rows["support-agent"]["version_id"] == "v2"
+
+
+def test_a_rollback_supersedes_the_release_it_undid(
+    client: TestClient, db_session: Session
+) -> None:
+    _applied_prompt_release(db_session, "support-agent", before=1, after=2)
+    _applied_prompt_release(
+        db_session, "support-agent", before=2, after=1, operation_type="rollback"
+    )
+
+    rows = _live_prompt_rows(client)
+
+    assert [r["version_id"] for r in rows] == ["v1"]
+
+
+def test_live_ignores_releases_that_did_not_complete(
+    client: TestClient, db_session: Session
+) -> None:
+    _applied_prompt_release(db_session, "support-agent", before=None, after=1)
+    pending = prepare_prompt_alias_release(
+        db_session,
+        name="support-agent",
+        alias="prod",
+        version_before=1,
+        version_after=2,
+        actor="@applier",
+    )
+    pending.status = "applying"
+    db_session.commit()
+
+    assert [r["version_id"] for r in _live_prompt_rows(client)] == ["v1"]
+
+
+def test_live_keeps_different_aliases_of_one_prompt_separate(
+    client: TestClient, db_session: Session
+) -> None:
+    _applied_prompt_release(db_session, "support-agent", before=None, after=3, alias="prod")
+    _applied_prompt_release(db_session, "support-agent", before=None, after=4, alias="staging")
+
+    rows = {r["alias"]: r["version_id"] for r in _live_prompt_rows(client)}
+
+    assert rows == {"prod": "v3", "staging": "v4"}
+
+
+def test_live_hides_another_projects_prompt_from_a_non_member(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project_member(db_session, project_id="PRJ-A", user_id="@member")
+    _seed_scoped_prompt_target(db_session, prompt_name="secret-prompt", project_id="PRJ-A")
+    prepared = _applied_prompt_release(db_session, "secret-prompt", before=None, after=1)
+    prepared.project_id = "PRJ-A"
+    db_session.commit()
+    _applied_prompt_release(db_session, "personal-prompt", before=None, after=1)
+
+    # The default test caller is an admin and sees both; a stranger sees only the unscoped one.
+    assert {r["artifact_id"] for r in _live_prompt_rows(client)} == {
+        "secret-prompt",
+        "personal-prompt",
+    }
+    assert {r["artifact_id"] for r in _live_prompt_rows(client, _STRANGER)} == {"personal-prompt"}
+
+
+def test_a_project_member_sees_their_projects_prompt(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed_project_member(db_session, project_id="PRJ-A", user_id="@member")
+    _seed_scoped_prompt_target(db_session, prompt_name="team-prompt", project_id="PRJ-A")
+    operation = _applied_prompt_release(db_session, "team-prompt", before=None, after=1)
+    operation.project_id = "PRJ-A"
+    db_session.commit()
+
+    headers = {"X-CALIBER-User": "@member", "X-CALIBER-Project": "PRJ-A"}
+
+    assert {r["artifact_id"] for r in _live_prompt_rows(client, headers)} == {"team-prompt"}
+
+
+def test_live_still_lists_workflows_and_knowledge_bases_beside_prompts(
+    client: TestClient, db_session: Session
+) -> None:
+    db_session.add(
+        CaliberWorkflowDeployment(
+            deployment_id="DEP-P",
+            workflow_id="WF-P",
+            alias="prod",
+            version_id="WFV-P",
+            status="active",
+        )
+    )
+    db_session.commit()
+    _applied_prompt_release(db_session, "support-agent", before=None, after=1)
+
+    rows = client.get(LIVE).json()["data"]
+
+    assert {r["artifact_type"] for r in rows} == {"workflow", "prompt"}

@@ -384,6 +384,63 @@ describe("Releases", () => {
     expect(within(factory).getByTestId("preview-badge")).toHaveTextContent("Preview");
   });
 
+  it("shows a released prompt on the live board, with its alias and a link to Prompts (alpha P1-13)", async () => {
+    server.use(
+      http.get(`${API_BASE}/releases/live`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              artifact_type: "prompt",
+              artifact_id: "support-agent",
+              artifact_name: "support-agent",
+              alias: "prod",
+              version_id: "v2",
+              since: "2026-06-29T00:00:00Z",
+              by: "@applier",
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/releases/timeline`, () => HttpResponse.json(envelope([]))),
+    );
+    renderPage();
+
+    const row = await screen.findByTestId("releases-live-support-agent");
+    expect(row).toHaveTextContent("prompt");
+    expect(row).toHaveTextContent("v2");
+    expect(row).toHaveTextContent("@prod");
+    expect(row).toHaveTextContent("@applier");
+    expect(screen.queryByText("Nothing deployed yet in your visible projects.")).not.toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Open support-agent in Prompts" })).toHaveAttribute(
+      "href",
+      "/prompts",
+    );
+  });
+
+  it("does not link workflow rows to Prompts", async () => {
+    server.use(
+      http.get(`${API_BASE}/releases/live`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              artifact_type: "workflow",
+              artifact_id: "WF-1",
+              alias: "prod",
+              version_id: "WFV-7",
+              since: null,
+              by: null,
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/releases/timeline`, () => HttpResponse.json(envelope([]))),
+    );
+    renderPage();
+
+    await screen.findByTestId("releases-live-WF-1");
+    expect(screen.queryByTestId("releases-live-open-WF-1")).not.toBeInTheDocument();
+  });
+
   it("validates JSON criteria/evidence before submitting a new candidate", async () => {
     server.use(
       http.get(`${API_BASE}/releases/live`, () => HttpResponse.json(envelope([]))),

@@ -177,6 +177,7 @@ export function VersionPanel({ adapter, refreshKey }: VersionPanelProps): JSX.El
             {version.label ? (
               <span className="truncate text-xs text-gray-500">{version.label}</span>
             ) : null}
+            <ProvenanceLine versionKey={version.versionKey} provenance={version.provenance} />
             <span className="ml-auto flex gap-2">
               {!version.isLive && version.capabilities.canPromote ? (
                 <Button
@@ -243,5 +244,42 @@ export function VersionPanel({ adapter, refreshKey }: VersionPanelProps): JSX.El
         onConfirm={() => void runAction(() => adapter.rollback())}
       />
     </div>
+  );
+}
+
+/**
+ * Where a released version came from: the job that produced it, the dataset and version it
+ * was judged on, and whether that judgement was simulated. Hand-authored versions have none.
+ * This is the answer to "why is this version live" without leaving the page (alpha gap P1-14).
+ */
+function ProvenanceLine({
+  versionKey,
+  provenance,
+}: {
+  versionKey: string;
+  provenance?: Record<string, string>;
+}): JSX.Element | null {
+  if (!provenance?.job_id) return null;
+  const dataset = provenance.eval_dataset_id
+    ? `${provenance.eval_dataset_id}${
+        provenance.eval_dataset_version ? ` v${provenance.eval_dataset_version}` : ""
+      }`
+    : null;
+  const simulated = provenance.eval_simulated === "true";
+  return (
+    <span
+      data-testid={`version-provenance-${versionKey}`}
+      className="truncate text-xs text-gray-500"
+      title={provenance.approval_id ? `Approval ${provenance.approval_id}` : undefined}
+    >
+      From job <span className="font-mono">{provenance.job_id}</span>
+      {dataset ? (
+        <>
+          {" "}
+          · judged on <span className="font-mono">{dataset}</span>
+        </>
+      ) : null}
+      {simulated ? <span className="font-semibold text-amber-700"> · simulated evaluation</span> : null}
+    </span>
   );
 }

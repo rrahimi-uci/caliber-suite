@@ -370,6 +370,12 @@ class RefinementJobSchema(BaseModel):
     # for every other stage/optimizer, or when GEPA hasn't logged its first
     # validation pass yet. See ``caliber.routes.jobs._gepa_progress``.
     gepa_progress: dict[str, object] | None = None
+    # Computed on read for a job that was applied (not DB columns): which approval anchors
+    # the release, who applied it, and the version it registered. They let one public call
+    # from a live version reach "who put this live" (alpha gap P1-14). ``None`` until applied.
+    approval_id: str | None = None
+    applied_by: str | None = None
+    applied_version: int | None = None
     created_at: datetime
     updated_at: datetime
 

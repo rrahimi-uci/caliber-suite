@@ -505,6 +505,12 @@ export interface PromptVersionInfo {
   source: string | null;
   commit_message: string | null;
   current: boolean;
+  /**
+   * Where a released version came from, from its `caliber.*` tags: `job_id`,
+   * `approval_id`, `eval_dataset_id`, `eval_dataset_version`, `eval_provider` and
+   * `eval_simulated`. Empty for a hand-authored version. Absent on older servers.
+   */
+  provenance?: Record<string, string>;
 }
 
 export interface PromptVersionDetail {

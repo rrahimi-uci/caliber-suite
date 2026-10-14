@@ -860,9 +860,10 @@ deferral.
   - Fallback: copy plus a link to the prompt page.
 - **Files:** `routes/releases.py`, `pages/Releases.tsx`.
 - **Deps:** None.
-- **Acceptance:**
-  - [ ] Route test: an applied prompt operation appears in `/releases/live`, and is hidden from non-members.
-  - [ ] Vitest renders it.
+- **Status: implemented.** `routes/releases.py` (`_prompt_live_entries`: the newest `applied` release operation per `(prompt, alias)` from the durable ledger, ordered by settle time, a rollback superseding the promote it undid, scoped through `_scope_release_operations`) and `pages/Releases.tsx` (prompt rows show the alias, and an "Open in Prompts" link). A version moved straight in the MLflow UI is not in the ledger, so it is listed only after CALIBER next releases that prompt. Tests: a block at the end of `test_routes_releases.py` and two cases in `releases.test.tsx`.
+- **Acceptance criteria:**
+  - [x] Route test: an applied prompt operation appears in `/releases/live`, and is hidden from non-members (also: newest per alias, a rollback supersedes, incomplete releases ignored, separate aliases, a project member sees their own project's prompt, workflows still listed).
+  - [x] Vitest renders it.
 
 ### P1-14
 
@@ -884,9 +885,10 @@ deferral.
   - Make the UI version row's "Approval linked" a link to the run detail.
 - **Files:** `promoter.py`, `apply.py`, `orchestrator/eval_stage.py`, `routes/jobs.py`, `schemas.py`, `pages/Prompts.tsx`.
 - **Deps:** [P0-3](#p0-3), [P0-4](#p0-4).
-- **Acceptance:**
-  - [ ] A test walks version → job → `eval_results` → dataset version using only public API calls.
-  - [ ] The new version carries `caliber.job_id` and `caliber.eval_dataset_version` tags.
+- **Status: implemented.** `apply.release_provenance` builds `job_id`, `eval_dataset_id`, `eval_dataset_version`, `eval_provider` and `eval_simulated` from the job; `PromotionRequest.provenance` and `bundle.promote_bundle` carry it; `MLflowPromoter` writes it as `caliber.*` tags on the registered version and into the release operation's evidence; `orchestrator/eval_stage.py` stores `eval_dataset_version` in `eval_results`; `GET /jobs` and `GET /jobs/{id}` return `approval_id`, `applied_by` and `applied_version` for an applied job (two queries per page); `GET /prompts/{name}/versions` returns a `provenance` object from the version's tags; and the version rows show "From job RFN-x · judged on ED-y v3 · simulated evaluation" with the approval id as a tooltip. Tests: `tests/test_release_traceability.py` (9), `versioning.test.ts`, `VersionPanel.test.tsx`. Not done: a deep link from the version row to the run detail, because the Calibration stage has no addressable run route; the row names the job id instead.
+- **Acceptance criteria:**
+  - [x] A test walks version → job → `eval_results` → dataset version using only public API calls (Apply through the real route and `MLflowPromoter` over a recording MLflow stand-in, then `GET /prompts/{name}/versions`, `GET /jobs/{id}`).
+  - [x] The new version carries `caliber.job_id` and `caliber.eval_dataset_version` tags, and the release operation's evidence has the same.
 
 ### P1-15
 

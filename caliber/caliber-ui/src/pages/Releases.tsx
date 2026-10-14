@@ -11,6 +11,8 @@
  * an empty release board is indistinguishable from a broken one, and on this page
  * that reads as "nothing is in production".
  */
+import { Link } from "react-router-dom";
+
 import { caliberApi } from "@/api/caliberApi";
 import type {
   ReleaseOperation,
@@ -26,6 +28,7 @@ import type {
 } from "@/api/types";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+
 import { PreviewBadge } from "@/components/PreviewBadge";
 import {
   useApiMutation,
@@ -480,6 +483,19 @@ export function Releases(): JSX.Element {
               <span className="font-mono text-xs text-gray-500">
                 {row.version_id}
               </span>
+              {row.alias && row.artifact_type === "prompt" && (
+                <span className="text-xs text-gray-500">@{row.alias}</span>
+              )}
+              {row.artifact_type === "prompt" && (
+                <Link
+                  to="/prompts"
+                  data-testid={`releases-live-open-${row.artifact_id}`}
+                  aria-label={`Open ${row.artifact_name ?? row.artifact_id} in Prompts`}
+                  className="text-xs text-caliber-700 underline"
+                >
+                  Open in Prompts
+                </Link>
+              )}
               <span className="ml-auto text-xs text-gray-400">
                 {row.since ? `since ${relativeTime(row.since)}` : ""}
                 {row.by ? ` · ${row.by}` : ""}

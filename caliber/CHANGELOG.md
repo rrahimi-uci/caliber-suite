@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The Releases board lists released prompts, and a live version names its evidence.** "What's live now" showed
+  only workflows and knowledge bases, so it said "Nothing deployed yet" right after a prompt Apply. It now lists
+  each prompt alias with the version CALIBER last released (from the durable release-operation ledger; a rollback
+  supersedes the release it undid), scoped to the projects you can see, with a link to Prompts. Separately, a
+  released version could not be traced to why it was live: Apply now writes `caliber.job_id`,
+  `caliber.eval_dataset_id`, `caliber.eval_dataset_version`, `caliber.eval_provider` and
+  `caliber.eval_simulated` on the registered version and into the release operation's evidence; `eval_results`
+  records the pinned dataset version; `GET /jobs` and `GET /jobs/{id}` return `approval_id`, `applied_by` and
+  `applied_version`; `GET /prompts/{name}/versions` returns each version's `provenance`; and the version rows
+  say "From job … judged on … simulated evaluation".
+
 - **Aria no longer fails silently on a default install.** With no LLM key, every Aria turn replied `An error
   occurred: OpenAIError` while "Ask Aria" was offered on every page, and a goal the planner could not map
   produced an empty plan that approved and executed to `completed`. `GET /assistant/config` now reports

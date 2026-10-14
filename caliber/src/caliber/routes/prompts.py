@@ -938,6 +938,28 @@ def _prompt_versions_from_prompt_info(name: str) -> list[dict[str, Any]]:
     ]
 
 
+#: The ``caliber.*`` tags Apply writes on a version it releases (``apply.release_provenance``
+#: plus the approval id), exposed so a version row can name its evidence.
+_PROVENANCE_TAGS = (
+    "approval_id",
+    "job_id",
+    "eval_dataset_id",
+    "eval_dataset_version",
+    "eval_provider",
+    "eval_simulated",
+)
+
+
+def _version_provenance(tags: dict[str, Any]) -> dict[str, str]:
+    """Where a version came from, from its ``caliber.*`` tags; empty for a hand-authored one."""
+    out: dict[str, str] = {}
+    for key in _PROVENANCE_TAGS:
+        value = tags.get(f"caliber.{key}")
+        if value not in (None, ""):
+            out[key] = str(value)
+    return out
+
+
 def _serialize_prompt_version_items(
     name: str,
     versions: list[Any],
@@ -967,6 +989,7 @@ def _serialize_prompt_version_items(
                 "source": source,
                 "commit_message": commit_message,
                 "current": "prod" in alias_by_version.get(version_no, set()),
+                "provenance": _version_provenance(tags),
             }
         )
     items.sort(key=lambda item: item["version"], reverse=True)
