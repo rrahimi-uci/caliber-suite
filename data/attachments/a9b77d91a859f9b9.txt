@@ -1,1 +1,0 @@
-WARNING  caliber.workspace_import_worker:workspace_import_worker.py:359 workspace-import worker lost the lease for WSI-0a4727d4 before it could record failure 'whatever'; leaving it for lease-expiry reconciliation

@@ -1,2 +1,0 @@
-{"t":"2026-10-14T09:09:14.781Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:40709/tickets \"HTTP/1.0 503 Service Unavailable\""}
-{"t":"2026-10-14T09:09:15.060Z","severity":"INFO","logger":"httpx","message":"HTTP Request: POST http://127.0.0.1:40709/tickets \"HTTP/1.0 200 OK\""}

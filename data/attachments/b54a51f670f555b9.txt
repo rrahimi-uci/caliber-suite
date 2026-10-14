@@ -1,1 +1,0 @@
-{"t":"2026-10-14T09:24:10.856Z","severity":"WARNING","logger":"caliber.workspace_release_prompt_adapter","message":"mlflow not installed; prompt adapter operations unavailable"}
