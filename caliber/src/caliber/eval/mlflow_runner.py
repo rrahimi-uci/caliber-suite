@@ -123,9 +123,11 @@ class MLflowEvalProvider:
         factory = self._factories.get(request.agent_id) or self._default_factory
         if factory is None:
             raise EvalProviderError(
-                f"no predict_fn for agent_id={request.agent_id!r}: register one via "
-                "MLflowEvalProvider.register_predict_fn, or configure a real LLM "
-                "provider so the default predict_fn (caliber.eval.predict) is wired."
+                f"no predict_fn for agent_id={request.agent_id!r}: evaluation needs a real "
+                "LLM provider. Set CALIBER_LLM_PROVIDER (for example openai) with its API "
+                "key and restart CALIBER, or register a predict_fn for this agent via "
+                "MLflowEvalProvider.register_predict_fn. See docs/start/alpha-install.md, "
+                "'Real LLM and evaluation'."
             )
 
         data = self._resolve_dataset(request.eval_dataset_id, request.eval_dataset_version)

@@ -426,6 +426,29 @@ def test_run_eval_rejects_queued_job(db_session: Session) -> None:
         run_eval(db_session, "RFN-E", FakeEvalProvider())
 
 
+def test_a_compose_style_job_without_an_llm_fails_with_a_user_facing_message(
+    db_session: Session,
+) -> None:
+    """A real evaluator with a simulated LLM has no ``predict_fn``. The worker stores
+    ``str(exc)`` as the job's error, so that text is what the user reads on the failed
+    job. It must name what to configure, not only a Python method (alpha gap P1-09)."""
+    from caliber.eval.mlflow_runner import MLflowEvalProvider
+
+    _seed_job(db_session)
+
+    with pytest.raises(EvalProviderError) as excinfo:
+        run_eval(db_session, "RFN-E", MLflowEvalProvider())
+
+    message = str(excinfo.value)
+    assert "evaluation needs a real LLM provider" in message
+    assert "CALIBER_LLM_PROVIDER" in message
+    assert "alpha-install" in message
+    db_session.expire_all()
+    job = db_session.get(CaliberRefinementJob, "RFN-E")
+    assert job is not None
+    assert (job.status, job.current_stage, job.eval_results) == ("running", "eval", None)
+
+
 def test_run_eval_propagates_provider_error(db_session: Session) -> None:
     """Provider failures roll back and surface to the worker."""
     _seed_job(db_session)

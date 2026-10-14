@@ -354,4 +354,72 @@ describe("Settings page", () => {
     expect(await screen.findByRole("button", { name: "Create token" })).toBeInTheDocument();
     expect(await screen.findByText("You have not created any tokens yet.")).toBeInTheDocument();
   });
+
+  it("shows which provider each subsystem uses and why saving a key does not change it", async () => {
+    server.use(
+      http.get(`${API_BASE}/readiness`, () =>
+        HttpResponse.json(
+          envelope({
+            providers: { llm: "fake", eval: "fake", promoter: "mlflow", artifact_store: "mlflow" },
+            simulated: ["llm", "eval"],
+            all_real: false,
+            tracing_enabled: true,
+            tracing_autolog_enabled: true,
+            workflow_llm_judge_enabled: false,
+          }),
+        ),
+      ),
+    );
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Providers" }));
+
+    const card = await screen.findByTestId("active-providers");
+    expect(card).toHaveTextContent("What CALIBER is using now");
+    expect(screen.getByTestId("provider-row-llm")).toHaveTextContent("fake");
+    expect(screen.getByTestId("provider-row-llm")).toHaveTextContent("Simulated");
+    expect(screen.getByTestId("provider-row-eval")).toHaveTextContent("Simulated");
+    expect(screen.getByTestId("provider-row-promoter")).toHaveTextContent("mlflow");
+    expect(screen.getByTestId("provider-row-promoter")).toHaveTextContent("Real");
+    const notice = screen.getByTestId("providers-restart-notice");
+    expect(notice).toHaveTextContent("does not switch a simulated provider to a real one");
+    expect(notice).toHaveTextContent("CALIBER_LLM_PROVIDER=openai");
+    expect(notice).toHaveTextContent("CALIBER_EVAL_PROVIDER=mlflow");
+    expect(notice).toHaveTextContent("restart");
+  });
+
+  it("shows no restart notice when every provider is real", async () => {
+    // The default handler reports all providers real.
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Providers" }));
+
+    expect(await screen.findByTestId("provider-row-llm")).toHaveTextContent("Real");
+    expect(screen.queryByTestId("providers-restart-notice")).not.toBeInTheDocument();
+  });
+
+  it("shows the active providers even while readiness reports a blocker (503)", async () => {
+    server.use(
+      http.get(`${API_BASE}/readiness`, () =>
+        HttpResponse.json(
+          envelope({
+            providers: { llm: "openai", eval: "mlflow", promoter: "mlflow", artifact_store: "mlflow" },
+            simulated: [],
+            all_real: true,
+            tracing_enabled: true,
+            tracing_autolog_enabled: true,
+            workflow_llm_judge_enabled: false,
+            ready: false,
+            blockers: ["mlflow: down"],
+          }),
+          { status: 503 },
+        ),
+      ),
+    );
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "Providers" }));
+
+    expect(await screen.findByTestId("provider-row-eval")).toHaveTextContent("mlflow");
+  });
 });

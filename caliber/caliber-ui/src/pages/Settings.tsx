@@ -4,7 +4,12 @@ import { BarChart3, ExternalLink, KeyRound, RefreshCw, Rocket, Server } from "lu
 
 import { caliberApi } from "@/api/caliberApi";
 import type { AssistantConfig, SkillRuntimeMode } from "@/api/assistantTypes";
-import type { LlmSetupStatus, LlmSetupUpdate, SystemService } from "@/api/types";
+import type {
+  LlmSetupStatus,
+  LlmSetupUpdate,
+  ProviderReadiness,
+  SystemService,
+} from "@/api/types";
 import { ApiTokensTab } from "@/components/ApiTokensTab";
 import { PageHeader } from "@/components/PageHeader";
 import { PageTabs, type PageTab } from "@/components/PageTabs";
@@ -621,6 +626,84 @@ function AssistantSettingsTab({
   );
 }
 
+/** Subsystems whose provider is chosen at startup, in the order a user thinks about them. */
+const PROVIDER_ROWS: Array<{
+  key: keyof ProviderReadiness["providers"];
+  label: string;
+  what: string;
+}> = [
+  { key: "llm", label: "LLM", what: "diagnosis, candidates, test-case generation, Aria" },
+  { key: "eval", label: "Evaluation", what: "the scores a candidate is judged on" },
+  { key: "promoter", label: "Release (promoter)", what: "what Apply changes" },
+  { key: "artifact_store", label: "Artifact store", what: "where released artifacts are kept" },
+];
+
+/**
+ * Which provider each subsystem is using right now, and why saving a key below does not
+ * change it. Providers are built when CALIBER starts, so a key saved here is only used
+ * once the LLM provider is real (alpha gap P1-09).
+ */
+function ActiveProvidersCard(): JSX.Element | null {
+  const readiness = useApiQuery(["readiness", "providers"], (signal) =>
+    caliberApi.getProviderReadiness(signal),
+  );
+  const data = readiness.data;
+  if (!data) return null;
+  const simulated = new Set(data.simulated ?? []);
+  return (
+    <section className="card p-6 space-y-4" data-testid="active-providers">
+      <div>
+        <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">
+          Active providers
+        </p>
+        <h2 className="mt-2 text-xl font-semibold text-slate-900">What CALIBER is using now</h2>
+      </div>
+      <table className="w-full text-sm">
+        <tbody>
+          {PROVIDER_ROWS.map((row) => {
+            const provider = data.providers?.[row.key];
+            if (provider === undefined) return null;
+            const isSimulated = simulated.has(row.key);
+            return (
+              <tr key={row.key} data-testid={`provider-row-${row.key}`} className="border-t border-slate-100">
+                <td className="py-2 pr-4 font-medium text-slate-800">{row.label}</td>
+                <td className="py-2 pr-4">
+                  <code className="font-mono text-xs">{provider}</code>
+                </td>
+                <td className="py-2 pr-4">
+                  {isSimulated ? (
+                    <span className="rounded-full bg-amber-100 px-2 py-0.5 text-xs font-semibold text-amber-800">
+                      Simulated
+                    </span>
+                  ) : (
+                    <span className="rounded-full bg-emerald-100 px-2 py-0.5 text-xs font-semibold text-emerald-800">
+                      Real
+                    </span>
+                  )}
+                </td>
+                <td className="py-2 text-xs text-slate-500">{row.what}</td>
+              </tr>
+            );
+          })}
+        </tbody>
+      </table>
+      {simulated.size > 0 && (
+        <p
+          role="note"
+          data-testid="providers-restart-notice"
+          className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+        >
+          Providers are chosen when CALIBER starts, so saving a key below does not switch a simulated
+          provider to a real one. To use real ones, set{" "}
+          <code className="font-mono">CALIBER_LLM_PROVIDER=openai</code> and{" "}
+          <code className="font-mono">CALIBER_EVAL_PROVIDER=mlflow</code> in the server's environment
+          and restart. See <em>Alpha install, Real LLM and evaluation</em> in the docs.
+        </p>
+      )}
+    </section>
+  );
+}
+
 function ProviderSettingsTab({
   setup,
   isLoading,
@@ -679,7 +762,8 @@ function ProviderSettingsTab({
   }
 
   return (
-    <div className={TAB_WIDTH}>
+    <div className={`${TAB_WIDTH} space-y-6`}>
+      <ActiveProvidersCard />
       <section className="card p-6 space-y-5">
         <div>
           <p className="text-xs font-semibold uppercase tracking-[0.18em] text-slate-400">

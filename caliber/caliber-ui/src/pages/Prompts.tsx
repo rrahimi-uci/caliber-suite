@@ -4751,6 +4751,30 @@ export function PromptCalibrationTab({
   );
 }
 
+/**
+ * Why a generation attempt produced no usable cases.
+ *
+ * On a deployment whose LLM is simulated, or has no key, the assistant answers with text
+ * that is not a JSON array, and "did not return a valid JSON array. Try again." sends the
+ * user into a retry loop that cannot succeed. When readiness says the LLM is simulated,
+ * say that instead (alpha gap P1-09).
+ */
+async function testCaseGenerationFailure(): Promise<string> {
+  try {
+    const readiness = await caliberApi.getProviderReadiness();
+    if (readiness.simulated.includes("llm")) {
+      return (
+        "Generating test cases needs a real LLM provider, and this deployment's LLM is " +
+        "simulated. Set CALIBER_LLM_PROVIDER (for example openai) with its API key and " +
+        "restart CALIBER, or add cases by hand on the Test Sets page."
+      );
+    }
+  } catch {
+    // Readiness is best-effort; fall through to the generic message.
+  }
+  return "LLM did not return a valid JSON array. Try again.";
+}
+
 export function PromptTestCases({
   prompts,
   loading,
@@ -4991,7 +5015,7 @@ export function PromptTestCases({
       const raw = turn.assistant_message.content;
       const jsonMatch = raw.match(/\[[\s\S]*\]/);
       if (!jsonMatch) {
-        throw new Error("LLM did not return a valid JSON array. Try again.");
+        throw new Error(await testCaseGenerationFailure());
       }
       const parsed = JSON.parse(jsonMatch[0]) as Array<{
         input: string;

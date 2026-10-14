@@ -532,3 +532,20 @@ def test_explicit_deepeval_scorer_requires_optional_dependency(
 
     with pytest.raises(EvalProviderError, match=r"pip install -U deepeval"):
         MLflowEvalProvider()._resolve_scorers(["DeepEval.Faithfulness"], {})
+
+
+def test_the_missing_predict_fn_error_names_the_configuration_to_change() -> None:
+    """The message a compose-style install (real evaluator, fake LLM) shows in a failed job.
+
+    It used to name only a Python method an operator never sees. It now says what to set
+    and where the page is (alpha gap P1-09).
+    """
+    provider = MLflowEvalProvider()
+    with pytest.raises(EvalProviderError) as excinfo:
+        provider.evaluate(_request())
+
+    message = str(excinfo.value)
+    assert "no predict_fn for agent_id=" in message
+    assert "needs a real LLM provider" in message
+    assert "CALIBER_LLM_PROVIDER" in message
+    assert "alpha-install" in message
