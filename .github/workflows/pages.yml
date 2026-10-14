@@ -56,7 +56,7 @@ jobs:
       github.event_name != 'workflow_run' ||
       github.event.workflow_run.conclusion == 'success'
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Stage the narrated overview video
         run: |
           install -D -m 0644 overview-video/output/caliber.mp4 \
@@ -141,7 +141,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 10
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Fetch the published site and check what it actually serves
         env:
           PAGE_URL: ${{ needs.deploy.outputs.page_url || 'https://rrahimi-uci.github.io/caliber-suite/' }}

@@ -80,7 +80,7 @@ jobs:
       compose: ${{ steps.filter.outputs.compose }}
       ci: ${{ steps.filter.outputs.ci }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: dorny/paths-filter@v4
@@ -126,7 +126,7 @@ jobs:
     name: Lint & format
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -157,7 +157,7 @@ jobs:
       run:
         working-directory: sdk/caliber-sdk
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -256,7 +256,7 @@ jobs:
       run:
         working-directory: sdk/caliber-plugin-sdk
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -307,7 +307,7 @@ jobs:
       run:
         working-directory: sdk/caliber-cli
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -352,7 +352,7 @@ jobs:
     name: Type check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -370,7 +370,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, type-check]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -408,7 +408,7 @@ jobs:
     runs-on: ubuntu-latest
     needs: [lint, type-check]
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -518,7 +518,7 @@ jobs:
           --health-timeout 5s
           --health-retries 10
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -556,7 +556,7 @@ jobs:
         (needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true')
       }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -639,7 +639,7 @@ jobs:
         (needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true')
       }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -672,7 +672,7 @@ jobs:
         (needs.changes.outputs.backend == 'true' || needs.changes.outputs.ci == 'true')
       }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -709,7 +709,7 @@ jobs:
       run:
         working-directory: caliber/caliber-ui
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-node@v7
         with:
           node-version: "20"
@@ -763,7 +763,7 @@ jobs:
     name: Docs validation
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -833,7 +833,7 @@ jobs:
          needs.changes.outputs.ci == 'true')
       }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -885,7 +885,7 @@ jobs:
       run:
         working-directory: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       # Merge every suite's results into one dir (UUID-named files never collide).
       - name: Download all Allure results
         id: fetch_results
@@ -926,7 +926,7 @@ jobs:
       # Pull prior gh-pages content so Allure can carry trend history forward.
       - name: Load report history
         if: steps.have_results.outputs.found == 'true'
-        uses: actions/checkout@v5
+        uses: actions/checkout@v7
         continue-on-error: true
         with:
           ref: gh-pages
@@ -976,7 +976,7 @@ jobs:
       run:
         working-directory: ${{ github.workspace }}
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Validate all included services and profiles
         env:
           COMPOSE_DISABLE_ENV_FILE: "1"
@@ -1027,7 +1027,7 @@ jobs:
     # elsewhere fail. It opportunistically reuses the UI dist artifact, but that
     # hand-off is already soft: a missing artifact triggers a local rebuild.
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -1144,7 +1144,7 @@ jobs:
     # apply, roll back), and P0-1 through P0-4 each shipped while CI stayed green because
     # nothing exercised that path. See docs/caliber-alpha-gaps.md, P0-6.
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: astral-sh/setup-uv@v10.0.1
         with:
           enable-cache: true
@@ -1199,7 +1199,7 @@ jobs:
     needs: [lint]
     timeout-minutes: 25
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - uses: actions/setup-python@v7
         with:
           python-version: "3.11"
@@ -1224,7 +1224,7 @@ jobs:
       # fetch-depth: 0 — gitleaks scans the PR commit range (BASE^..HEAD); the
       # default depth-1 checkout lacks the base commit, so its git log errors
       # ("stderr is not empty") and the action exits non-zero even with no leaks.
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
       - uses: actions/setup-python@v7
@@ -1277,7 +1277,7 @@ jobs:
       contents: read
       actions: read
     steps:
-      - uses: actions/checkout@v5
+      - uses: actions/checkout@v7
       - name: Record which gates actually executed
         working-directory: .
         env:
