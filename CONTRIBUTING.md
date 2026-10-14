@@ -21,4 +21,4 @@ Cutting a release is manual and written down in [Releasing](docs/operate/releasi
 
 Use the issue templates under [.github/ISSUE_TEMPLATE](.github/ISSUE_TEMPLATE). For security issues, follow [SECURITY.md](SECURITY.md) instead of opening a public issue.
 
-By contributing you agree your contributions are licensed under the project's [MIT License](LICENSE).
+By contributing you agree your contributions are licensed under the project's [Apache License 2.0](LICENSE).
