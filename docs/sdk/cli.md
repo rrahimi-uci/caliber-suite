@@ -116,12 +116,12 @@ caliberctl token revoke PAT-9 --yes   # revokes
 | `promotion approve \| reject` | Act on a pending gated promotion (see `workflow promote`). |
 | `gate-verdict show \| record` | Advisory per-version evaluation verdicts (`prompt`/`workflow`/`skill`). |
 | `job list \| wait` | Background jobs, including the ones that wait for you. |
-| `release list \| sign` | Release candidates and go / no-go. |
+| `release list \| sign` | Release candidates and go / no-go. **Preview, record-only:** a signoff records a decision and does not deploy or roll back anything. |
 | `cookbook list \| install` | Example workflows, with readiness checked first. |
 | `prompt list \| show` | Governed prompts and the registry coordinate each resolves to. |
 | `service show \| publish \| unpublish` | A workflow's external HTTP service. |
 | `plugin list` | Optimizers, and plugins installed but not enabled. |
-| `workspace import \| package \| cr \| release` | Git-backed Workspace lifecycle: import jobs, revision packages, Change Request review, and environment releases. Every leaf requires `--project`. |
+| `workspace import \| package \| cr \| release` | Git-backed Workspace lifecycle: import jobs, revision packages, Change Request review, and environment releases. Every leaf requires `--project`. **Experimental:** release evaluation has no executor in this build, so a `workspace release` stays queued. |
 
 Choices worth knowing about:
 

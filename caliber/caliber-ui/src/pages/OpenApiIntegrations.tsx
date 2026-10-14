@@ -23,6 +23,7 @@ import type {
   OpenApiToolDraft,
 } from "@/api/workflowTypes";
 import { PageHeader } from "@/components/PageHeader";
+import { PreviewBanner } from "@/components/PreviewBadge";
 import { PageTabs, type PageTab } from "@/components/PageTabs";
 import { useApi } from "@/hooks/useApi";
 import { relativeTime } from "@/lib/time";
@@ -77,6 +78,7 @@ function IntegrationList({ onOpen }: { onOpen: (id: string) => void }): JSX.Elem
     <div className="openapi-integrations-page">
       <PageHeader
         title="OpenAPI Integrations"
+        preview
         subtitle="Import a third-party OpenAPI spec, curate which operations become agent-facing tools, and publish them into CALIBER's governed tool registry."
         actions={
           <button
@@ -88,6 +90,10 @@ function IntegrationList({ onOpen }: { onOpen: (id: string) => void }): JSX.Elem
           </button>
         }
       />
+      <PreviewBanner>
+        OpenAPI integrations call third-party services and are not part of the core release
+        journey.
+      </PreviewBanner>
 
       {error && (
         <div className="mb-4 rounded-md border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

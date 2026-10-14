@@ -825,3 +825,35 @@ def test_an_unsupported_artifact_type_is_a_usage_error(capsys: pytest.CaptureFix
     with pytest.raises(SystemExit) as excinfo:
         main(["gate-verdict", "show", "agent", "AGT-1"])
     assert excinfo.value.code == exits.USAGE
+
+
+# ---------------------------------------------------------------------------
+# Maturity labels in --help (alpha gap P1-10)
+# ---------------------------------------------------------------------------
+
+
+def _help_text(argv: list[str], capsys: pytest.CaptureFixture[str]) -> str:
+    with pytest.raises(SystemExit) as exit_info:
+        main(argv)
+    assert exit_info.value.code == 0
+    return " ".join(capsys.readouterr().out.split())
+
+
+def test_release_help_says_a_signoff_does_not_deploy(capsys: pytest.CaptureFixture[str]) -> None:
+    text = _help_text(["release", "--help"], capsys)
+    assert "Preview, record-only" in text
+    assert "does not deploy or roll back anything" in text
+
+
+def test_workspace_help_says_release_evaluation_has_no_executor(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    text = _help_text(["workspace", "--help"], capsys)
+    assert "Experimental" in text
+    assert "release evaluation has no executor in this build" in text
+
+
+def test_the_top_level_help_carries_the_same_labels(capsys: pytest.CaptureFixture[str]) -> None:
+    text = _help_text(["--help"], capsys)
+    assert "Preview, record-only" in text
+    assert "Experimental" in text

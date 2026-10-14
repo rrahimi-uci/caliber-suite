@@ -1,4 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import userEvent from "@testing-library/user-event";
 import { cleanup, render, screen } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter } from "react-router-dom";
@@ -76,6 +77,8 @@ describe("Sidebar plans badge", () => {
       ),
     );
     renderSidebar();
+    // Plans lives in the preview group, which starts closed on the dashboard.
+    await userEvent.click(await screen.findByTestId("nav-group-toggle-preview"));
     expect(await screen.findByText("Plans")).toBeInTheDocument();
     expect(screen.queryByLabelText(/awaiting your input/i)).toBeNull();
   });

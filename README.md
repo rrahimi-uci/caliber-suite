@@ -283,6 +283,19 @@ primitives):
 
 ## ✅ Project status
 
+CALIBER is **alpha** (`0.1.0a1`). What that means area by area:
+
+| Maturity | Areas |
+| --- | --- |
+| **Core journey** (supported, proven end to end in CI) | Prompts (author, version, promote, roll back), test sets, evaluations, calibration, review and Apply, projects and roles, access tokens, audit log, release timeline, readiness |
+| **Also in the alpha** (supported, with stated prerequisites) | Skills, tools (trusted authors; the sandbox is a process boundary, not isolation), workflows, knowledge bases and the object-store console (need an S3 or MinIO bucket) |
+| **Preview** (works, outside the supported journey, may change; marked in the app) | MCP servers, OpenAPI integrations, cookbooks, the Aria assistant and plans |
+| **Record-only** | Release-candidate signoff on the Releases page: it records a decision and deploys nothing |
+| **Experimental** | Workspace releases (API, SDK, `caliberctl workspace`): release evaluation has no executor in this build |
+| **Not in the alpha** | Memory, and the flagged-trace to refinement loop |
+
+The full scope decision, with the reasoning, is in [`docs/caliber-alpha-gaps.md`](./docs/caliber-alpha-gaps.md).
+
 The platform spans prompts, tools, skills, MCP servers, workflows, knowledge bases, object storage, test
 sets, observability, evaluation, calibration, the LLM Gateway, RBAC, and Aria. The dated
 [`docs/reports/product-completeness-report.md`](./docs/reports/product-completeness-report.md) preserves the

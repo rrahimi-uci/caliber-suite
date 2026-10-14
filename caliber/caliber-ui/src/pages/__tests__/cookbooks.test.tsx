@@ -97,6 +97,18 @@ describe("Cookbooks", () => {
     expect(screen.queryByTestId("cookbook-card-01")).not.toBeInTheDocument();
   });
 
+  it("is labelled Preview in the header and with a banner (alpha P1-10)", async () => {
+    server.use(
+      http.get(`${API_BASE}/cookbooks`, () => HttpResponse.json(envelope(CATALOG))),
+    );
+    renderPage();
+    await screen.findByTestId("cookbook-card-01");
+
+    expect(screen.getByRole("heading", { name: "Cookbooks" })).toBeInTheDocument();
+    expect(screen.getByTestId("preview-badge")).toHaveTextContent("Preview");
+    expect(screen.getByTestId("preview-banner")).toHaveTextContent("outside the supported alpha journey");
+  });
+
   it("requires prerequisite review, installs a paused draft, and opens its editor", async () => {
     let installBody: Record<string, unknown> | null = null;
     server.use(

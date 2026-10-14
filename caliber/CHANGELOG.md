@@ -155,6 +155,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The app says what is supported and what is not.** The sidebar now leads with the core journey (Prompts,
+  Test Sets, Evaluations, Releases), then Skills, Tools, Workflows and Knowledge Bases, and marks MCP Servers,
+  OpenAPI Integrations, Cookbooks and Aria Plans with a Preview pill, a page-header badge and a banner. On the
+  Releases page the release-candidate signoff block now sits below what is live and the timeline and says it is
+  record-only: it records a decision and deploys nothing. `caliberctl release --help` says the same, and
+  `caliberctl workspace --help` and `docs/sdk/beta.md` say Workspace release evaluation has no executor in this
+  build. The README has a maturity table. Documentation pages for the MCP, object store, knowledge base,
+  observability, gateway and assistant areas no longer carry a GA chip over a beta API, and a test keeps them
+  from drifting.
+
 - **Settings → API tokens.** A signed-in user can create, list, rotate and revoke personal access
   tokens in the web app. The secret is shown once, when a token is created or rotated, and is not kept
   anywhere afterwards. Only the scopes the user holds are offered, and the server's refusal for an

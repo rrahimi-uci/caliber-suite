@@ -209,7 +209,12 @@ def build_parser() -> argparse.ArgumentParser:
     wait.add_argument("--timeout", type=float, default=900.0, help="seconds to wait (default 900)")
 
     # -- release -------------------------------------------------------------
-    release = _group(subparsers, "release", "release candidates and signoff")
+    release = _group(
+        subparsers,
+        "release",
+        "release candidates and signoff. Preview, record-only: a signoff records a decision "
+        "and does not deploy or roll back anything",
+    )
     _add(release, "list", commands.release_list, "list release candidates")
 
     sign = _add(release, "sign", commands.release_sign, "record a go / no-go decision")
@@ -274,7 +279,10 @@ def build_parser() -> argparse.ArgumentParser:
     # path-scoped by project ID, not header-scoped like most other resources,
     # so there is no ambient default that would be safe to fall back to.
     workspace = _group(
-        subparsers, "workspace", "Git-backed project lifecycle: import, package, review, release"
+        subparsers,
+        "workspace",
+        "Git-backed project lifecycle: import, package, review, release. Experimental: "
+        "release evaluation has no executor in this build, so a release stays queued",
     )
 
     ws_import = _group(workspace, "import", "bounded source-to-revision import jobs")

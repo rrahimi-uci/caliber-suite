@@ -6,6 +6,9 @@
  * traded away for whitespace.
  */
 
+import { readFileSync } from "node:fs";
+import { resolve } from "node:path";
+
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -14,6 +17,7 @@ import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { Sidebar } from "@/components/Sidebar";
+import { PREVIEW_DESTINATIONS } from "@/lib/maturity";
 import { server } from "@/test/server";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
@@ -44,29 +48,31 @@ const ALL_DESTINATIONS = [
   "/settings",
 ];
 
-const GROUP_IDS = ["build", "resources", "integrations", "evaluate", "operate", "admin"];
+const GROUP_IDS = ["core", "extended", "operate", "preview", "admin"];
 
+// The core journey leads, then the rest of the supported alpha, then operations, then
+// previews. A Preview pill is part of the link's text content.
 const EXPECTED_NAV_LABELS = [
   "Dashboard",
-  "Workflows",
-  "Cookbooks",
-  "Agents",
-  "Plans",
   "Prompts",
-  "Tools",
-  "Skills",
-  "Knowledge Bases",
-  "Object Store",
-  "LLM Gateway",
-  "MCP Servers",
-  "OpenAPI Integrations",
   "Test Sets",
-  "Judges",
   "Evaluations",
   "Releases",
+  "Skills",
+  "Tools",
+  "Workflows",
+  "Knowledge Bases",
+  "Object Store",
+  "Judges",
+  "Agents",
   "Observability",
   "Review Queues",
   "Audit Log",
+  "LLM Gateway",
+  "MCP ServersPreview",
+  "OpenAPI IntegrationsPreview",
+  "CookbooksPreview",
+  "PlansPreview",
   "Administration",
   "Settings",
   "Docs",
@@ -128,7 +134,7 @@ describe("Sidebar navigation groups", () => {
     }
   });
 
-  it("orders destinations by build, integration, evaluation, and operating lifecycle", async () => {
+  it("leads with the core journey, then the extended areas, operations, and previews", async () => {
     stubPlans();
     const user = userEvent.setup();
     renderSidebar();
@@ -145,23 +151,77 @@ describe("Sidebar navigation groups", () => {
     ).toEqual(EXPECTED_NAV_LABELS);
   });
 
-  it("groups MCP Servers and the LLM Gateway together as integrations", async () => {
+  it("puts the integrations and the previews together at the end of the work areas", async () => {
     stubPlans();
     const user = userEvent.setup();
     renderSidebar();
 
-    await user.click(await screen.findByTestId("nav-group-toggle-integrations"));
-    const panel = document.getElementById("nav-group-integrations");
+    await user.click(await screen.findByTestId("nav-group-toggle-preview"));
+    const panel = document.getElementById("nav-group-preview");
     expect(panel).not.toBeNull();
-    expect(within(panel as HTMLElement).getByText("MCP Servers")).toBeInTheDocument();
-    expect(within(panel as HTMLElement).getByText("LLM Gateway")).toBeInTheDocument();
+    for (const label of ["LLM Gateway", "MCP Servers", "OpenAPI Integrations", "Cookbooks", "Plans"]) {
+      expect(within(panel as HTMLElement).getByText(label)).toBeInTheDocument();
+    }
+  });
+
+  it("labels exactly the scope decision's preview areas, in the nav", async () => {
+    stubPlans();
+    const user = userEvent.setup();
+    renderSidebar();
+    for (const id of GROUP_IDS) {
+      const toggle = await screen.findByTestId(`nav-group-toggle-${id}`);
+      if (toggle.getAttribute("aria-expanded") === "false") await user.click(toggle);
+    }
+
+    const labelled = screen
+      .getAllByTestId("nav-preview-pill")
+      .map((pill) => pill.closest("a")?.getAttribute("href"))
+      .sort();
+
+    // The same list the docs scope decision ("LABEL preview", section 2.2) names:
+    // MCP servers, OpenAPI integrations, cookbooks, and the Aria assistant and plans.
+    expect(labelled).toEqual([...PREVIEW_DESTINATIONS].sort());
+    // Core journey destinations never carry the pill.
+    for (const core of ["/prompts", "/eval-datasets", "/evaluations", "/releases"]) {
+      const link = document.querySelector(`a[href="${core}"]`);
+      expect(link, `missing ${core}`).not.toBeNull();
+      expect(link?.querySelector('[data-testid="nav-preview-pill"]')).toBeNull();
+    }
+  });
+
+  it("keeps a preview link's accessible name free of the pill, and describes it", async () => {
+    stubPlans();
+    const user = userEvent.setup();
+    renderSidebar();
+    await user.click(await screen.findByTestId("nav-group-toggle-preview"));
+
+    const link = screen.getByRole("link", { name: "Cookbooks" });
+    expect(link).toHaveAccessibleDescription("Preview");
+  });
+
+  it("ties the nav's preview set to the documented scope decision", () => {
+    const doc = readFileSync(
+      resolve(__dirname, "../../../../../docs/caliber-alpha-gaps.md"),
+      "utf8",
+    );
+    const labelRows = doc
+      .split("\n")
+      .filter((line) => line.startsWith("|") && /\*\*LABEL preview\*\*/.test(line));
+    expect(labelRows.length).toBeGreaterThan(0);
+    const row = labelRows.join(" ");
+    for (const phrase of ["MCP servers", "OpenAPI integrations", "cookbooks"]) {
+      expect(row).toContain(phrase);
+    }
+    expect(PREVIEW_DESTINATIONS).toEqual(
+      expect.arrayContaining(["/mcp-servers", "/openapi-integrations", "/cookbooks", "/aria/plans"]),
+    );
   });
 
   it("opens the group holding the current route and leaves the rest closed", async () => {
     stubPlans();
     renderSidebar("/mcp-servers");
 
-    expect(await screen.findByTestId("nav-group-toggle-integrations")).toHaveAttribute(
+    expect(await screen.findByTestId("nav-group-toggle-preview")).toHaveAttribute(
       "aria-expanded",
       "true",
     );
@@ -173,30 +233,30 @@ describe("Sidebar navigation groups", () => {
     expect(screen.queryByText("Audit Log")).toBeNull();
   });
 
-  it("falls back to Build when no group owns the route", async () => {
+  it("falls back to the core journey when no group owns the route", async () => {
     stubPlans();
     renderSidebar("/");
 
     // Dashboard sits outside every group. Opening nothing would greet a new
-    // user with six headers and zero destinations.
-    expect(await screen.findByTestId("nav-group-toggle-build")).toHaveAttribute(
+    // user with five headers and zero destinations.
+    expect(await screen.findByTestId("nav-group-toggle-core")).toHaveAttribute(
       "aria-expanded",
       "true",
     );
-    expect(screen.getByText("Workflows")).toBeInTheDocument();
+    expect(screen.getByText("Prompts")).toBeInTheDocument();
   });
 
   it("persists which groups the user opened", async () => {
     stubPlans();
     const user = userEvent.setup();
     renderSidebar();
-    await user.click(await screen.findByTestId("nav-group-toggle-evaluate"));
+    await user.click(await screen.findByTestId("nav-group-toggle-extended"));
     expect(screen.getByText("Judges")).toBeInTheDocument();
 
     cleanup();
     renderSidebar();
 
-    expect(await screen.findByTestId("nav-group-toggle-evaluate")).toHaveAttribute(
+    expect(await screen.findByTestId("nav-group-toggle-extended")).toHaveAttribute(
       "aria-expanded",
       "true",
     );
@@ -212,11 +272,11 @@ describe("Sidebar navigation groups", () => {
     toggle.focus();
     await user.keyboard("{Enter}");
     expect(toggle).toHaveAttribute("aria-expanded", "true");
-    expect(screen.getByText("Releases")).toBeInTheDocument();
+    expect(screen.getByText("Audit Log")).toBeInTheDocument();
 
     await user.keyboard(" ");
     expect(toggle).toHaveAttribute("aria-expanded", "false");
-    expect(screen.queryByText("Releases")).toBeNull();
+    expect(screen.queryByText("Audit Log")).toBeNull();
   });
 
   it("associates each toggle with the panel it controls", async () => {
@@ -258,14 +318,14 @@ describe("Sidebar navigation groups", () => {
     const user = userEvent.setup();
     renderSidebar("/observability");
 
-    // Operate owns this route, so Build — which holds Plans — starts closed.
+    // Operate owns this route, so the preview group — which holds Plans — starts closed.
     const badge = await screen.findByLabelText(/awaiting your input/i);
     expect(badge).toHaveTextContent("1");
-    expect(screen.getByTestId("nav-group-toggle-build")).toContainElement(badge);
+    expect(screen.getByTestId("nav-group-toggle-preview")).toContainElement(badge);
 
-    await user.click(screen.getByTestId("nav-group-toggle-build"));
+    await user.click(screen.getByTestId("nav-group-toggle-preview"));
     const openBadge = await screen.findByLabelText(/awaiting your input/i);
     expect(openBadge).toHaveTextContent("1");
-    expect(screen.getByTestId("nav-group-toggle-build")).not.toContainElement(openBadge);
+    expect(screen.getByTestId("nav-group-toggle-preview")).not.toContainElement(openBadge);
   });
 });

@@ -631,7 +631,7 @@ window.DOCS_DATA = {
       "prerequisites": [
         "Layered architecture overview"
       ],
-      "stability": "ga",
+      "stability": "beta",
       "reviewed_on": "2026-08-10",
       "version_applicability": "current main branch docs contract",
       "tags": [
@@ -711,7 +711,7 @@ window.DOCS_DATA = {
       "prerequisites": [
         "Layered architecture overview"
       ],
-      "stability": "ga",
+      "stability": "beta",
       "reviewed_on": "2026-08-11",
       "version_applicability": "current main branch docs contract",
       "tags": [
@@ -738,7 +738,7 @@ window.DOCS_DATA = {
       "prerequisites": [
         "Layered architecture overview"
       ],
-      "stability": "ga",
+      "stability": "beta",
       "reviewed_on": "2026-08-10",
       "version_applicability": "current main branch docs contract",
       "tags": [
@@ -846,7 +846,7 @@ window.DOCS_DATA = {
       "prerequisites": [
         "Layered architecture overview"
       ],
-      "stability": "ga",
+      "stability": "beta",
       "reviewed_on": "2026-08-10",
       "version_applicability": "current main branch docs contract",
       "tags": [
@@ -873,7 +873,7 @@ window.DOCS_DATA = {
       "prerequisites": [
         "Layered architecture overview"
       ],
-      "stability": "ga",
+      "stability": "beta",
       "reviewed_on": "2026-08-20",
       "version_applicability": "current main branch docs contract",
       "tags": [
@@ -980,7 +980,7 @@ window.DOCS_DATA = {
       "prerequisites": [
         "Layered architecture overview"
       ],
-      "stability": "ga",
+      "stability": "beta",
       "reviewed_on": "2026-08-10",
       "version_applicability": "current main branch docs contract",
       "tags": [
@@ -1681,7 +1681,7 @@ window.DOCS_DATA = {
       "prerequisites": [
         "A CALIBER deployment with knowledge-base access"
       ],
-      "stability": "ga",
+      "stability": "beta",
       "reviewed_on": "2026-08-10",
       "version_applicability": "current main branch docs contract",
       "tags": [

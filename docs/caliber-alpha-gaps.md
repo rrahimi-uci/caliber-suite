@@ -787,11 +787,12 @@ deferral.
   - Optional: `evaluate` returns 409 unless `CALIBER_WORKSPACE_RELEASES_ENABLED`.
 - **Files:** `components/Sidebar.tsx`, `components/PageHeader.tsx`, `pages/Releases.tsx`, `sdk/caliber-cli/src/caliber_cli/cli.py`, `docs/sdk/cli.md`, `docs/sdk/beta.md`, the doc front matter above, `README.md`.
 - **Deps:** §2.2 scope decision.
-- **Acceptance:**
-  - [ ] A sidebar test asserts the preview set equals the §2.2 list.
-  - [ ] The Releases page shows no signoff factory, or shows it with the banner (Vitest).
-  - [ ] `caliberctl workspace --help` and `release --help` show the labels.
-  - [ ] A docs check rejects a GA chip on a page whose API tier is beta or internal.
+- **Status: implemented.** UI: `lib/maturity.ts` (the one list of preview destinations), `components/PreviewBadge.tsx` (`PreviewBadge`, `PreviewBanner`), `PageHeader` (`preview` prop, the pill sits beside the heading so its accessible name is unchanged), `Sidebar.tsx` (groups now lead with the core journey: Prompts, Test Sets, Evaluations, Releases; then Skills, Tools, Workflows, Knowledge Bases, Object Store, Judges, Agents; then Operate; then LLM Gateway, MCP Servers, OpenAPI Integrations, Cookbooks and Plans, the last four with a Preview pill, and a dot in the icon rail), labelled pages (Cookbooks, MCP Servers, OpenAPI Integrations, Aria Plans), and `Releases.tsx` (the signoff factory moved below the live board and timeline, with a "Preview, record-only" note). CLI: `caliberctl release --help` and `workspace --help`. Docs: `stability` front matter lowered to `beta` on the MCP, object-store, knowledge-base, observability, gateway and assistant pages and `use/knowledge-bases.md`; a Workspace experimental note in `docs/sdk/beta.md` and the command table in `docs/sdk/cli.md`; a maturity table in the README. The optional "evaluate returns 409 unless enabled" was not done.
+- **Acceptance criteria:**
+  - [x] A sidebar test asserts the preview set equals the scope decision's list (the nav's pills are exactly `PREVIEW_DESTINATIONS`, core destinations carry none, and the §2.2 "LABEL preview" row names the same areas).
+  - [x] The Releases page shows the signoff factory with the banner, after the live board and timeline (Vitest).
+  - [x] `caliberctl workspace --help` and `release --help` show the labels (pytest in `sdk/caliber-cli/tests/test_cli.py`).
+  - [x] A docs check rejects a GA chip on a page whose API tier is beta or internal (`tests/test_docs_stability_matches_api_tier.py`, 14 pages mapped to OpenAPI tags).
 
 ### P1-11
 

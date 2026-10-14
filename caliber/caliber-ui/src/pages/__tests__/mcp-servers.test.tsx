@@ -177,6 +177,17 @@ describe("McpServers", () => {
     expect(screen.getByTestId("mcp-row-MCP-2")).toBeInTheDocument();
   });
 
+  it("is labelled Preview in the header and with a banner (alpha P1-10)", async () => {
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([baseServer()]))),
+    );
+    renderPage();
+
+    expect(await screen.findByRole("heading", { name: "MCP Servers" })).toBeInTheDocument();
+    expect(screen.getByTestId("preview-badge")).toHaveTextContent("Preview");
+    expect(screen.getByTestId("preview-banner")).toHaveTextContent("external server");
+  });
+
   it("opens quick-connect templates and registers a prefilled server", async () => {
     let listCalls = 0;
     let createBody: Record<string, unknown> | null = null;
