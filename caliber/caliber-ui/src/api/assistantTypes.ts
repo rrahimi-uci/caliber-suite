@@ -403,6 +403,13 @@ export interface AssistantConfig {
   provider: "openai" | "anthropic" | "ollama";
   reasoning: string;
   enabled: boolean;
+  /**
+   * False when the engine cannot answer, for example no API key is set. Absent on older
+   * servers, which the UI treats as configured.
+   */
+  configured?: boolean;
+  /** Why Aria cannot answer, in words an operator can act on. */
+  reason?: string | null;
   disabled_intents: string[];
   disabled_domains: string[];
   available_models: AssistantModelOption[];

@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
@@ -23,9 +24,11 @@ function expectBefore(first: Element, second: Element): void {
 describe("TopBar action order", () => {
   it("places context and primary action before utilities, with the account last", () => {
     render(
-      <AssistantPanelProvider>
-        <TopBar health="ok" currentUser="@admin" onLogout={vi.fn()} />
-      </AssistantPanelProvider>,
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <AssistantPanelProvider>
+          <TopBar health="ok" currentUser="@admin" onLogout={vi.fn()} />
+        </AssistantPanelProvider>
+      </QueryClientProvider>,
     );
 
     const workspace = screen.getByRole("button", { name: "Active workspace" });

@@ -556,6 +556,36 @@ def _resolve_auto_engine(engine: str) -> str:
     return "openai"
 
 
+#: The environment variable each hosted engine reads its key from.
+_ENGINE_KEY_ENV = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}
+
+
+def _engine_status(engine_name: str, *, enabled: bool, config: Any) -> tuple[bool, str | None]:
+    """Whether Aria can answer, and if not, why in words an operator can act on.
+
+    ``assistant_engine=auto`` resolves to OpenAI when no key is set, so on a default
+    install every turn used to fail with ``An error occurred: OpenAIError`` while the
+    UI offered "Ask Aria" on every page (alpha gap P1-11). The reason names the variable
+    to set. ``fake`` and ``ollama`` need no key (``ollama`` is not probed here), so they
+    report configured.
+    """
+    if not enabled:
+        return False, "Aria is disabled on this deployment (CALIBER_ASSISTANT_ENABLED=false)."
+    key_env = _ENGINE_KEY_ENV.get(engine_name)
+    if key_env is None:
+        return True, None
+    configured_env = str(getattr(config, "llm_api_key_env", "") or "").strip()
+    names = {key_env}
+    if engine_name == "openai" and configured_env and "://" not in configured_env:
+        names.add(configured_env)
+    if any(os.environ.get(name) for name in names):
+        return True, None
+    return False, (
+        f"Aria needs an LLM API key, and {key_env} is not set. Set it and restart CALIBER, "
+        "or save a key under Settings, Providers."
+    )
+
+
 def _list_ollama_models(base_url: str | None = None) -> list[dict[str, str]]:
     resolved_base_url = (
         base_url or os.environ.get("OLLAMA_BASE_URL") or "http://127.0.0.1:11434"
@@ -665,6 +695,7 @@ async def get_assistant_config(request: Request) -> JSONResponse:
         model = _DEFAULT_MODEL_BY_PROVIDER.get(provider, DEFAULT_OPENAI_MODEL)
     available_models = _available_models(current_model=model, current_provider=provider)
 
+    configured, reason = _engine_status(engine_name, enabled=enabled, config=config)
     return JSONResponse(
         {
             "data": {
@@ -673,6 +704,8 @@ async def get_assistant_config(request: Request) -> JSONResponse:
                 "provider": provider,
                 "reasoning": reasoning,
                 "enabled": enabled,
+                "configured": configured,
+                "reason": reason,
                 "disabled_intents": list(disabled_intents),
                 "disabled_domains": list(disabled_domains),
                 "available_models": available_models,
@@ -798,6 +831,7 @@ async def update_assistant_config(request: Request) -> JSONResponse:  # noqa: PL
     )
     request.app.state._assistant_overrides = overrides
 
+    configured, reason = _engine_status(response_engine, enabled=True, config=config)
     return JSONResponse(
         {
             "data": {
@@ -806,6 +840,8 @@ async def update_assistant_config(request: Request) -> JSONResponse:  # noqa: PL
                 "provider": provider,
                 "reasoning": effective_reasoning,
                 "enabled": True,
+                "configured": configured,
+                "reason": reason,
                 "disabled_intents": list(_config_disabled_intents(config, overrides)),
                 "disabled_domains": list(_config_disabled_domains(config, overrides)),
                 "available_models": available_models,

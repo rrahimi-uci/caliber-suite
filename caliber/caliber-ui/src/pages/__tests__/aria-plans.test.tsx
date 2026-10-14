@@ -104,6 +104,82 @@ describe("AriaPlans", () => {
     expect(screen.getByTestId("preview-banner")).toHaveTextContent("configured LLM engine");
   });
 
+  it("shows why Aria cannot answer when no engine is configured (alpha P1-11)", async () => {
+    server.use(
+      http.get(`${API_BASE}/aria/plans`, () => HttpResponse.json(envelope([makePlan()]))),
+      http.get(`${API_BASE}/assistant/config`, () =>
+        HttpResponse.json(
+          envelope({
+            engine: "openai",
+            model: "gpt-5.6-luna",
+            provider: "openai",
+            reasoning: "high",
+            enabled: true,
+            configured: false,
+            reason: "Aria needs an LLM API key, and OPENAI_API_KEY is not set.",
+            disabled_intents: [],
+            disabled_domains: [],
+            available_models: [],
+          }),
+        ),
+      ),
+    );
+    renderPage();
+    await screen.findByText("Create a faithfulness judge");
+
+    await waitFor(() =>
+      expect(screen.getByTestId("preview-banner")).toHaveTextContent("OPENAI_API_KEY is not set"),
+    );
+  });
+
+  it("keeps the goal and explains when nothing matched, instead of opening an empty plan", async () => {
+    server.use(
+      http.get(`${API_BASE}/aria/plans`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/aria/plans`, () =>
+        HttpResponse.json(
+          envelope({
+            plan: makePlan({ step_count: 0 }),
+            steps: [],
+            warnings: ["No platform steps matched this goal, so there is nothing to approve."],
+          }),
+          { status: 201 },
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("No plans yet — decompose a goal above.");
+
+    await user.type(screen.getByLabelText("Goal"), "write me a poem");
+    await user.click(screen.getByRole("button", { name: "Decompose goal" }));
+
+    const warning = await screen.findByTestId("aria-plan-warning");
+    expect(warning).toHaveTextContent("No platform steps matched this goal");
+    expect(screen.queryByText("Plan steps")).not.toBeInTheDocument();
+    expect(screen.getByLabelText("Goal")).toHaveValue("write me a poem");
+  });
+
+  it("does not offer to approve a plan that has no steps", async () => {
+    server.use(
+      http.get(`${API_BASE}/aria/plans`, () =>
+        HttpResponse.json(envelope([makePlan({ step_count: 0 })])),
+      ),
+      http.get(`${API_BASE}/aria/plans/PLAN-1`, () =>
+        HttpResponse.json(envelope({ plan: makePlan({ step_count: 0 }), steps: [] })),
+      ),
+      http.get(`${API_BASE}/aria/plans/PLAN-1/interactions`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText("Create a faithfulness judge"));
+
+    const approve = await screen.findByRole("button", { name: "Approve plan" });
+    expect(approve).toBeDisabled();
+    expect(approve).toHaveAttribute("title", expect.stringContaining("nothing to approve"));
+  });
+
   it("decomposes a goal and opens the new plan's step DAG", async () => {
     server.use(
       http.get(`${API_BASE}/aria/plans`, () => HttpResponse.json(envelope([]))),

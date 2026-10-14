@@ -135,6 +135,34 @@ _MAX_PLANS_PER_SESSION = 25
 _MAX_OPERATIONS_PER_SESSION = 50
 
 
+_KEY_ENV_NAMES = ("OPENAI_API_KEY", "ANTHROPIC_API_KEY")
+
+
+def assistant_failure_message(exc: BaseException) -> str:
+    """What Aria says when a turn fails, in words a user can act on.
+
+    A missing key used to read ``An error occurred: OpenAIError`` on every default
+    install (alpha gap P1-11). The provider SDKs name the variable in their own message,
+    so name it back. Anything else keeps the exception class and nothing more: the full
+    text may carry a URL or request id and is stored on the run row instead.
+    """
+    text = str(exc)
+    for name in _KEY_ENV_NAMES:
+        if name in text:
+            return (
+                f"Aria cannot answer yet: {name} is not set. Set it and restart CALIBER, "
+                "or save a key under Settings, Providers."
+            )
+    if "api_key" in text.lower() or "api key" in text.lower():
+        return (
+            "Aria cannot answer yet: its LLM provider has no usable API key. "
+            "Set OPENAI_API_KEY or ANTHROPIC_API_KEY and restart CALIBER."
+        )
+    if type(exc).__name__ in {"AuthenticationError", "PermissionDeniedError"}:
+        return "Aria's LLM provider rejected the API key. Check the key under Settings, Providers."
+    return f"An error occurred: {type(exc).__name__}"
+
+
 def _optional_identity_kwargs(identity: CaliberIdentity | None) -> dict[str, CaliberIdentity]:
     """Keep legacy direct service adapters callable without a new keyword."""
     return {"identity": identity} if identity is not None else {}
@@ -5234,7 +5262,7 @@ class AssistantService:
                     db,
                     session_id=session_id,
                     role="assistant",
-                    content=f"An error occurred: {type(exc).__name__}",
+                    content=assistant_failure_message(exc),
                     metadata_={
                         "error": True,
                         "selected_skills": selected_skill_metadata,
