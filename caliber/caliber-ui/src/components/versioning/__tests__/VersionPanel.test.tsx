@@ -54,6 +54,46 @@ describe("VersionPanel", () => {
     expect(screen.queryByTestId("version-promote-2")).not.toBeInTheDocument();
   });
 
+  it("says where a released version came from, and shows nothing for a hand-authored one (alpha P1-14)", async () => {
+    const released = v({
+      versionKey: "2",
+      versionLabel: "v2",
+      ordinal: 2,
+      status: "active",
+      isLive: true,
+      liveAliases: ["prod"],
+      provenance: {
+        job_id: "RFN-9",
+        approval_id: "AP-1234",
+        eval_dataset_id: "ED-support",
+        eval_dataset_version: "3",
+        eval_provider: "fake",
+        eval_simulated: "true",
+      },
+    });
+    render(<VersionPanel adapter={makeAdapter([released, PRIOR])} />);
+    await screen.findByTestId("version-panel");
+
+    const line = screen.getByTestId("version-provenance-2");
+    expect(line).toHaveTextContent("From job RFN-9");
+    expect(line).toHaveTextContent("judged on ED-support v3");
+    expect(line).toHaveTextContent("simulated evaluation");
+    expect(line).toHaveAttribute("title", "Approval AP-1234");
+    expect(screen.queryByTestId("version-provenance-1")).not.toBeInTheDocument();
+  });
+
+  it("omits the dataset and the simulated note when the evidence does not have them", async () => {
+    const bare = v({ versionKey: "3", versionLabel: "v3", provenance: { job_id: "RFN-1", eval_simulated: "false" } });
+    render(<VersionPanel adapter={makeAdapter([bare])} />);
+    await screen.findByTestId("version-panel");
+
+    const line = screen.getByTestId("version-provenance-3");
+    expect(line).toHaveTextContent("From job RFN-1");
+    expect(line).not.toHaveTextContent("judged on");
+    expect(line).not.toHaveTextContent("simulated");
+    expect(line).not.toHaveAttribute("title");
+  });
+
   it("promotes a non-live version after confirmation (no override needed)", async () => {
     const adapter = makeAdapter([LIVE, PRIOR]);
     render(<VersionPanel adapter={adapter} />);

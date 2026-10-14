@@ -41,6 +41,21 @@ describe("promptVersionsToArtifactVersions", () => {
     });
   });
 
+  it("carries the release provenance through to the normalized version (alpha P1-14)", () => {
+    const provenance = {
+      job_id: "RFN-9",
+      eval_dataset_id: "ED-support",
+      eval_dataset_version: "3",
+    };
+    const versions = promptVersionsToArtifactVersions("p", [
+      info({ version: 2, provenance }),
+      info({ version: 1 }),
+    ]);
+
+    expect(versions[0]?.provenance).toEqual(provenance);
+    expect(versions[1]?.provenance).toBeUndefined();
+  });
+
   it("derives isLive from the live alias when `current` is not set", () => {
     const versions = promptVersionsToArtifactVersions("p", [
       info({ version: 3, current: false, aliases: ["prod"] }),

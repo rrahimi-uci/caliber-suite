@@ -198,6 +198,7 @@ def promote_bundle(
     approval_id: str,
     session: Any | None = None,
     actor: str = "",
+    provenance: dict[str, str] | None = None,
 ) -> list[PromotionResult]:
     """Promote every target with transactional or compensating rollback.
 
@@ -221,6 +222,7 @@ def promote_bundle(
                     # and settlement around their alias effect.
                     session=session,
                     actor=actor,
+                    provenance=dict(provenance or {}),
                 )
             )
         except PromoterError as exc:

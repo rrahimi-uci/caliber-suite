@@ -51,6 +51,12 @@ class PromotionRequest:
     # promoters ignore these fields.
     session: Any | None = field(default=None, repr=False, compare=False)
     actor: str = ""
+    #: Where the candidate came from and what it was judged on (``job_id``,
+    #: ``eval_dataset_id``, ``eval_dataset_version``, ``eval_provider``,
+    #: ``eval_simulated``). Written onto the released version and its release operation
+    #: so one public hop from a live version reaches its evidence (alpha gap P1-14).
+    #: String values only: they become MLflow tags.
+    provenance: dict[str, str] = field(default_factory=dict, compare=False)
 
 
 @dataclass(frozen=True)
@@ -175,6 +181,7 @@ class MLflowPromoter:
                 tags={
                     "caliber.approval_id": request.approval_id,
                     "caliber.artifact_type": request.artifact_type,
+                    **{f"caliber.{key}": value for key, value in request.provenance.items()},
                 },
             )
         except Exception as exc:
@@ -205,6 +212,7 @@ class MLflowPromoter:
                         "gate_state": "pass",
                         "source": "candidate_ready",
                         "approval_id": request.approval_id,
+                        **request.provenance,
                     },
                     approval_id=request.approval_id,
                 )

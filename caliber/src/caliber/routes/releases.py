@@ -21,7 +21,8 @@ from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any
 
-from sqlalchemy import ColumnElement, and_, exists, or_, select
+from sqlalchemy import ColumnElement, and_, exists, func, or_, select
+from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
@@ -785,13 +786,62 @@ async def timeline(request: Request) -> JSONResponse:
     return envelope_response_dict(data)
 
 
+def _prompt_live_entries(session: Session, identity: CaliberIdentity) -> list[dict[str, object]]:
+    """One ``/releases/live`` row per prompt alias, from the release operations ledger.
+
+    The registry is the source of truth for ``@prod`` but cannot be enumerated here
+    without a scan. Every release that CALIBER performs, a promote, an Apply or a
+    rollback, is a durable ``CaliberReleaseOperation``, so the newest ``applied`` one
+    for a ``(prompt, alias)`` names the version CALIBER last made live there. A rollback
+    is an operation too, so it supersedes the promote it undid. Scoped through
+    ``_scope_release_operations``: a prompt owned by another project is not listed.
+
+    The board used to omit prompts entirely and say "Nothing deployed yet" right after
+    an Apply (alpha gap P1-13). A version moved straight in the MLflow UI is not in the
+    ledger, so it is not listed until CALIBER next releases that prompt.
+    """
+    settled_at = func.coalesce(
+        CaliberReleaseOperation.applied_at, CaliberReleaseOperation.created_at
+    )
+    stmt = (
+        select(CaliberReleaseOperation)
+        .where(CaliberReleaseOperation.resource_type == "prompt")
+        .where(CaliberReleaseOperation.status == "applied")
+        .order_by(settled_at.desc(), CaliberReleaseOperation.operation_id.desc())
+        .limit(_LIVE_PROMPT_SCAN_LIMIT)
+    )
+    stmt = _scope_release_operations(stmt, identity)
+    seen: set[tuple[str, str]] = set()
+    entries: list[dict[str, object]] = []
+    for operation in session.execute(stmt).scalars():
+        key = (operation.resource_name, operation.target_name)
+        if key in seen:
+            continue  # an older release of the same prompt alias
+        seen.add(key)
+        since = operation.applied_at or operation.created_at
+        entries.append(
+            {
+                "artifact_type": "prompt",
+                "artifact_id": operation.resource_name,
+                "artifact_name": operation.resource_name,
+                "alias": operation.target_name,
+                "version_id": f"v{operation.version_after}",
+                "since": since.isoformat() if since else None,
+                "by": operation.actor,
+            }
+        )
+    return entries
+
+
+#: How many of the newest applied prompt operations one ``/releases/live`` call reads.
+_LIVE_PROMPT_SCAN_LIMIT = 2000
+
+
 async def live(request: Request) -> JSONResponse:
     """What is currently live across artifact types (DB-backed).
 
-    Active workflow deployments and each knowledge base's active version. Prompt
-    ``@prod`` liveness lives in the MLflow registry (not enumerable here without
-    a registry scan), so it is surfaced via the per-prompt page rather than this
-    aggregate; the timeline still records prompt promotions.
+    Active workflow deployments, each knowledge base's active version, and the version
+    CALIBER last released to each prompt alias (from the release operations ledger).
     """
     require_user(request)
     identity = resolve_identity(request)
@@ -862,6 +912,7 @@ async def live(request: Request) -> JSONResponse:
             }
             for dep in deployments
         ] + [_kb_live_entry(kb, activation_by_kb.get(kb.knowledge_base_id)) for kb in kbs]
+        data += _prompt_live_entries(session, identity)
     return envelope_response_dict(data)
 
 

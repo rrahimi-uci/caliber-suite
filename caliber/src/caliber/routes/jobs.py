@@ -8,10 +8,12 @@ Read-only for now: jobs are created by the verify endpoint
 from __future__ import annotations
 
 import logging
+from collections.abc import Sequence
 from datetime import datetime, timezone
 from typing import Any, Final
 
 from sqlalchemy import Select, delete, select, update
+from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
@@ -198,11 +200,73 @@ def _gepa_progress(job: CaliberRefinementJob) -> dict[str, object] | None:
     }
 
 
-def _serialize_job(job: CaliberRefinementJob) -> dict[str, object]:
-    """``RefinementJobSchema`` plus the computed, non-persisted GEPA progress."""
+def _serialize_job(
+    job: CaliberRefinementJob, apply_summary: dict[str, object] | None = None
+) -> dict[str, object]:
+    """``RefinementJobSchema`` plus the computed, non-persisted GEPA progress and, for an
+    applied job, the approval, applier and registered version."""
     payload = RefinementJobSchema.model_validate(job).model_dump(mode="json")
     payload["gepa_progress"] = _gepa_progress(job)
+    if apply_summary:
+        payload.update(apply_summary)
     return payload
+
+
+def _apply_summaries(
+    session: Session, jobs: Sequence[CaliberRefinementJob]
+) -> dict[str, dict[str, object]]:
+    """The approval, applier and registered version of each applied job, in two queries.
+
+    ``POST /jobs/{id}/apply`` mints an already-approved ``CaliberApprovalRequest`` as the
+    release anchor and records the release operation under its id. The newest approved
+    approval for a job is the one that went live; its operation's ``version_after`` is the
+    version it registered. A job that is not applied has neither.
+    """
+    job_ids = [job.job_id for job in jobs if job.status in {"applied", "applying"}]
+    if not job_ids:
+        return {}
+    approvals = (
+        session.execute(
+            select(CaliberApprovalRequest)
+            .where(CaliberApprovalRequest.job_id.in_(job_ids))
+            .where(CaliberApprovalRequest.status == "approved")
+            .order_by(
+                CaliberApprovalRequest.created_at.desc(), CaliberApprovalRequest.approval_id.desc()
+            )
+        )
+        .scalars()
+        .all()
+    )
+    newest: dict[str, CaliberApprovalRequest] = {}
+    for approval in approvals:
+        newest.setdefault(approval.job_id, approval)
+    operations = (
+        session.execute(
+            select(CaliberReleaseOperation)
+            .where(
+                CaliberReleaseOperation.approval_id.in_([a.approval_id for a in newest.values()])
+            )
+            .where(CaliberReleaseOperation.status == "applied")
+            .where(CaliberReleaseOperation.operation_type == "promote")
+            .order_by(CaliberReleaseOperation.created_at.desc())
+        )
+        .scalars()
+        .all()
+        if newest
+        else []
+    )
+    version_by_approval: dict[str, int] = {}
+    for operation in operations:
+        if operation.approval_id is not None:
+            version_by_approval.setdefault(operation.approval_id, operation.version_after)
+    return {
+        job_id: {
+            "approval_id": approval.approval_id,
+            "applied_by": approval.approved_by,
+            "applied_version": version_by_approval.get(approval.approval_id),
+        }
+        for job_id, approval in newest.items()
+    }
 
 
 async def list_jobs(request: Request) -> JSONResponse:
@@ -222,7 +286,8 @@ async def list_jobs(request: Request) -> JSONResponse:
     limit, offset = list_limit(request)
     with factory() as session:
         rows = session.execute(stmt.limit(limit).offset(offset)).scalars().all()
-        items = [_serialize_job(row) for row in rows]
+        summaries = _apply_summaries(session, rows)
+        items = [_serialize_job(row, summaries.get(row.job_id)) for row in rows]
     return envelope_response_dict(items)
 
 
@@ -238,7 +303,7 @@ async def get_job(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         row = load_visible_job(session, identity, job_id)
-        payload = _serialize_job(row)
+        payload = _serialize_job(row, _apply_summaries(session, [row]).get(row.job_id))
     return envelope_response_dict(payload)
 
 
