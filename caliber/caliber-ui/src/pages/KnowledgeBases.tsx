@@ -3351,6 +3351,21 @@ export function KnowledgeBases(): JSX.Element {
               </div>
             </div>
             <div className="space-y-4 p-5">
+              {bucketsQuery.error && (
+                <div
+                  role="alert"
+                  data-testid="kb-object-store-offline"
+                  className="rounded-2xl border border-amber-200 bg-amber-50/95 px-4 py-3 text-sm text-amber-900"
+                >
+                  <strong className="font-semibold">
+                    The object store is not configured or unreachable.
+                  </strong>{" "}
+                  Knowledge bases read their sources from an S3-compatible bucket, so you cannot
+                  create one until it is reachable. Configure{" "}
+                  <code className="font-mono">CALIBER_OBJECT_STORE_*</code> (or start MinIO), then
+                  reload. Detail: {bucketsQuery.error.message}
+                </div>
+              )}
               <div className="grid gap-4 md:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
                 <label className="space-y-2 text-sm">
                   <span className="font-medium text-slate-700">Bucket</span>
@@ -4537,7 +4552,9 @@ export function KnowledgeBases(): JSX.Element {
                   selectedSources.length === 0 ||
                   (buildMode === "new" && !newName.trim()) ||
                   !hasAvailableEmbeddingOptions ||
-                  Boolean(embeddingSelectionBlockedReason)
+                  Boolean(embeddingSelectionBlockedReason) ||
+                  // No reachable object store: the server would refuse the create anyway.
+                  Boolean(bucketsQuery.error)
                 }
                 className="btn-primary flex w-full items-center justify-center gap-2"
               >
