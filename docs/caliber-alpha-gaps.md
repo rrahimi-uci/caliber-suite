@@ -498,7 +498,7 @@ Status legend:
   - [x] The script runs green in CI: the `Alpha install (wheels, no checkout)` job passed on PR #461 in 2 min 16 s and is a required gate in the ledger.
   - [x] Every onboarding page lists the migration step before uvicorn (asserted by `test_alpha_install_contract.py`).
   - [x] `make setup` on Python 3.13 or newer exits with an actionable message before creating a venv (tested with a stub interpreter).
-  - [ ] The docker stack journey result is recorded in the release PR ([P0-7](#p0-7)).
+  - [x] The docker stack journey result is recorded in the release PR ([P0-7](#p0-7)). `scripts/verify-compose-stack.sh` builds both images, starts the stack from the example environment and, on a fresh volume, checks a database-backed MLflow call, `/health`, `/readiness` (ready), the packaged UI, the admin login, a project, a prompt and the registry write. It passed locally, on #476, and on `main` through `workflow_dispatch` (run 38504702392). Running it the first time found that `/readiness` was permanently 503 on the MinIO topology (fixed in #476). A knowledge-base journey on the same MinIO and PostgreSQL passes with simulated embeddings (#483); the default image cannot build a knowledge base with a real model because it lacks `knowledge-local` (see [P1-23](#p1-23)).
 
 ### P0-6
 
@@ -525,7 +525,7 @@ Status legend:
 - **Dependencies:** [P0-2](#p0-2), or Postgres in the job. [P0-4](#p0-4) for the badge assertion.
 - **Status: implemented; the first green run on `main` and the tag-commit run are tracked below.** Code: `caliber-ui/e2e/user-prompt-journey.spec.ts` (new), `caliber-ui/playwright.alpha.config.ts` (new, own port and state directory), `npm run test:e2e:alpha`, the `alpha-journey` job in `.github/workflows/ci.yml`, its entry in `REQUIRED_GATES` and the ledger `needs`, and `job_alpha_journey` in `scripts/ci-local.sh`. The user-path spec creates a prompt in the UI (live as v1), saves a 3-example test set, starts a MetaPrompt calibration from the Calibration stage, checks the review dialog (simulated badge and "3 evaluation examples"), applies, asserts v2 is the `prod` version in the registry, rolls back, and asserts v1. One step uses the API: the Test Sets stage generates cases through the Aria assistant, which needs a real LLM (see [P1-09](#p1-09)).
 - **Acceptance criteria:**
-  - [ ] The `alpha-journey` check runs on qualifying PRs and on `main`, and is green. It runs on every PR (the ledger treats a skipped gate as not run); the PR carries the first run, `main` the second.
+  - [x] The `alpha-journey` check runs on qualifying PRs and on `main`, and is green. It runs on every PR (the ledger treats a skipped gate as not run), and was green on #478 to #483 and on the `main` runs for #478, #479 and #480.
   - [x] Temporarily making `/jobs/{id}/apply` return 500 makes it fail: verified locally, both specs failed at the review/apply step; with the original code both pass. (An earlier attempt passed only because the injected line landed inside the handler's docstring, which is why the check was repeated.)
   - [x] It is listed in the gate ledger (`REQUIRED_GATES` and the `gate-ledger` job's `needs`, with `test_ci_gate_ledger_contract.py` keeping the names consistent).
   - [ ] It is green on the tag commit ([P0-7](#p0-7)).
@@ -566,12 +566,13 @@ Status legend:
 - **Priority:** P0.
 - **Files:** `docs/operate/releasing.md` (new), `caliber/CHANGELOG.md`, `caliber/caliber-ui/package.json`, `docs/two-week-alpha-plan.md`, `docs/roadmap.md`, `docs/reports/two-week-alpha-release-notes.md`, GitHub Releases.
 - **Dependencies:** All other P0s.
+- **Status: prepared; the tag and the release are the owner's step.** The repository side is done: `docs/operate/releasing.md` (the manual procedure: names, preconditions, build, publish, verify as a tester, pull a bad release), linked from `CONTRIBUTING.md`; a dated `## [0.1.0a1] - 2026-10-14` changelog section that links the scope note; the UI version set to `0.1.0-alpha.1` and brought into `test_version_lockstep.py` (a PEP 440 to semver translation, so the four wheels, `package.json` and the lockfile cannot drift apart); the tag name decided as `caliber-v0.1.0a1` and the plan, the roadmap and the day-10 note reworded to match; and release notes in `docs/reports/release-0.1.0a1-notes.md` that say what is attached, what was verified and how, what was not, and the limitations. Not done here, on purpose: creating and pushing the tag, building and attaching the wheels, `gh release create`, and `gh release edit caliber-v0.0.1`. The two-week plan reserved cutting the tag to the repository owner, publishing is outward-facing, and one decision has to come first: **the repository names two licences**. The root `LICENSE` and `CONTRIBUTING.md` say MIT, while `caliber/LICENSE`, the three SDK packages' metadata and the README say Apache-2.0. Which one is the owner's call, and it should be settled before a public tag.
 - **Acceptance criteria:**
-  - [ ] The tag `caliber-v0.1.0a1` exists on a commit with green full CI and green `alpha-journey`.
+  - [ ] The tag `caliber-v0.1.0a1` exists on a commit with green full CI and green `alpha-journey`. Owner's step; the procedure is in `releasing.md`.
   - [ ] The prerelease has 4 wheels and their sdists.
-  - [ ] The verify script passes against the downloaded assets in a clean venv.
-  - [ ] `releasing.md` exists and is linked from `CONTRIBUTING.md`.
-  - [ ] `caliber-v0.0.1` is no longer "Latest".
+  - [ ] The verify script passes against the downloaded assets in a clean venv. `scripts/verify-alpha-install.sh --wheel-dir` does this; it has passed against wheels built from the checkout in CI on every PR.
+  - [x] `releasing.md` exists and is linked from `CONTRIBUTING.md`.
+  - [ ] `caliber-v0.0.1` is no longer "Latest". One command, in `releasing.md`.
 
 ---
 
@@ -1147,7 +1148,7 @@ deferral.
   - Not done: a real-model knowledge-base journey (it needs torch and a model download, which no CI job here installs), and the journey is not driven through the browser (`knowledge-bases.spec.ts` exists but needs the same embeddings).
 - **Acceptance criteria:**
   - [x] With `sentence_transformers` absent, options report `available: false` with a reason naming the extra (unit test).
-  - [ ] The KB journey result on the docker stack is recorded in the release PR. The result is above (MinIO and PostgreSQL pass with simulated embeddings; the default image cannot embed); it is copied into the release PR when that is opened ([P0-7](#p0-7)).
+  - [x] The KB journey result on the docker stack is recorded in the release PR. The result is above (MinIO and PostgreSQL pass with simulated embeddings; the default image cannot embed); it is copied into the release-prep PR and into `docs/reports/release-0.1.0a1-notes.md` ([P0-7](#p0-7)).
   - [x] A CI job with MinIO and PostgreSQL services runs the KB pytest equivalent (the `knowledge` job in `stack-smoke.yml`); it ran green on the PR that introduced it, and the script passes locally.
   - [x] The docs list every prerequisite before the first KB step.
 

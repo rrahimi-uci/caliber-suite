@@ -311,6 +311,13 @@
       "doc_type": "runbook"
     },
     {
+      "href": "m-62-releasing.html",
+      "label": "Releasing",
+      "section": "operate",
+      "nav_order": 61,
+      "doc_type": "runbook"
+    },
+    {
       "href": "m-19-runbook.html",
       "label": "Operations runbook",
       "section": "operate",

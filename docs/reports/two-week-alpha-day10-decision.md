@@ -213,8 +213,8 @@ explicit instruction that follows from the repo owner's own decision:
    `.dev0` placeholder.
 2. **Create and push the git tag**, e.g.:
    ```
-   git tag v0.1.0-alpha.1 a553384f6aacaa0aa383237eb5a72167a2f7ad86
-   git push origin v0.1.0-alpha.1
+   git tag caliber-v0.1.0a1 a553384f6aacaa0aa383237eb5a72167a2f7ad86
+   git push origin caliber-v0.1.0a1
    ```
    (or the current tip of `main` at the time of tagging, if this PR and any
    version-bump commit have landed by then -- use `git rev-parse main` to

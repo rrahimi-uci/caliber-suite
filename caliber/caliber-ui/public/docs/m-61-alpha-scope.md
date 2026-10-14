@@ -74,7 +74,16 @@ These are real and deliberate for the alpha. Read them before you rely on the pr
   environment-empty process with resource limits. Register tools only from authors you trust.
 - **Knowledge bases need an S3-compatible bucket**, the `knowledge-local` extra (torch and
   sentence-transformers) and a one-time embedding-model download. Without a reachable object store,
-  creating one fails fast with a 503.
+  creating one fails fast with a 503, and without the extra every embedding model is listed as
+  unavailable. The default docker image installs `knowledge` but not `knowledge-local`, so it cannot build
+  a knowledge base until you add it to `CALIBER_INSTALL_EXTRAS`. The storage and build path is tested
+  against a real MinIO and PostgreSQL with simulated embeddings; no CI job exercises a real model.
+- **A killed worker keeps `/readiness` red.** A worker that exits uncleanly (killed, out of memory, host
+  asleep) leaves its heartbeat row, and every such row counts as a blocking queue problem until it is
+  deleted by hand, even while a live worker is serving. A clean stop is fine.
+- **Gate verdicts are not project-scoped.** `/gate-verdicts` keys a verdict by a free-form string that
+  names no artifact, so any operator can overwrite any verdict. It is advisory: no release or promotion
+  decision reads it.
 - **No HA, no performance targets, no SSO or MFA, no multi-tenant hosting.**
 - **Backups are documented, not rehearsed.** See [Backup and recovery](m-52-backup-and-recovery.md).
 - **No upgrade guarantees** from earlier tags, and the packages are not on PyPI: install from the release

@@ -47,7 +47,9 @@ require reproducible evidence.
   evidence, and operational interruptions.
 - Monthly increments are releasable checkpoints. Formal product tags are
   created only at M4 (`caliber-v0.1.0`) and M6 (`caliber-v1.0.0`) after their
-  gates pass.
+  gates pass. The one earlier tag is the alpha prerelease `caliber-v0.1.0a1`
+  (see [Releasing](operate/releasing.md)): it is not a formal product tag and
+  makes no pilot or production claim.
 - The first-mile pilot tests current `main`; it is not a production-readiness
   or stability claim.
 - Every ticket must state exact scope, deliverables, acceptance criteria,

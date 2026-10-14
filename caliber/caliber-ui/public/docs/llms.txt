@@ -49,6 +49,7 @@ The pages below are the published architecture, workflow, and strategy documenta
 - [Health and readiness](m-50-health-and-readiness.md): The operator meaning of CALIBER liveness, readiness, and the deeper evidence surfaces to use when a runtime is up but not actually usable.
 - [Operator troubleshooting](m-51-operator-troubleshooting.md): The first-pass diagnosis path for degraded CALIBER deployments before a failure escalates into full runbook recovery.
 - [Backup and recovery](m-52-backup-and-recovery.md): The operator view of what CALIBER state must be preserved, what can be rebuilt, and where disaster recovery stops and asset-specific rollback begins.
+- [Releasing](m-62-releasing.md): How a CALIBER release is cut: version and tag names, what must be green first, building and attaching the wheels, and verifying the release as a tester would.
 - [Operations runbook](m-19-runbook.md): The on-call procedure for recoveries CALIBER cannot complete alone — an unsettled release intent, an indeterminate external effect, a queue that stopped draining, a lost at-most-once job, and rollback whose semantics differ per asset family — plus what each triage surface does not prove.
 
 ## Examples
