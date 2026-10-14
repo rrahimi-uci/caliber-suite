@@ -492,3 +492,68 @@ def test_a_redis_url_without_a_port_is_reported_not_ready() -> None:
     assert plan.check is not None
     assert plan.check.ready is False
     assert "REDIS" in (plan.check.detail or "")
+
+
+# ---------------------------------------------------------------------------
+# The real object-store probe, against the real S3 backend (alpha gap P1-17)
+# ---------------------------------------------------------------------------
+#
+# Every test above replaces ``_probe_object_store_sync``, so none of them ran the probe.
+# It listed an empty prefix, which the S3 backend rejects as an unsafe path, and the
+# docker stack's /readiness stayed 503 with ``object_store: unsafe path: ''``.
+
+
+def _s3_config(bucket: str = "readiness-bucket") -> CaliberConfig:
+    return CaliberConfig(
+        workflow_storage=WorkflowStorageConfig(backend="s3", bucket=bucket, region="us-east-1")
+    )
+
+
+def test_the_real_probe_passes_against_an_existing_empty_bucket(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    boto3 = pytest.importorskip("boto3")
+    moto = pytest.importorskip("moto")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    with moto.mock_aws():
+        boto3.client("s3", region_name="us-east-1").create_bucket(Bucket="readiness-bucket")
+        assert readiness_mod._probe_object_store_sync(_s3_config()) == "bucket listable"
+
+
+def test_the_real_probe_passes_against_a_bucket_that_has_objects(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    boto3 = pytest.importorskip("boto3")
+    moto = pytest.importorskip("moto")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    with moto.mock_aws():
+        client = boto3.client("s3", region_name="us-east-1")
+        client.create_bucket(Bucket="readiness-bucket")
+        client.put_object(Bucket="readiness-bucket", Key="workspaces/a.txt", Body=b"x")
+        assert readiness_mod._probe_object_store_sync(_s3_config()) == "bucket listable"
+
+
+def test_the_real_probe_fails_when_the_bucket_does_not_exist(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    pytest.importorskip("boto3")
+    moto = pytest.importorskip("moto")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    with moto.mock_aws(), pytest.raises(Exception, match=r"(?i)bucket|NoSuchBucket|not found"):
+        readiness_mod._probe_object_store_sync(_s3_config("a-bucket-that-was-never-made"))
+
+
+def test_readiness_reports_a_reachable_s3_store_as_ready(monkeypatch: pytest.MonkeyPatch) -> None:
+    boto3 = pytest.importorskip("boto3")
+    moto = pytest.importorskip("moto")
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "testing")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "testing")
+    with moto.mock_aws():
+        boto3.client("s3", region_name="us-east-1").create_bucket(Bucket="readiness-bucket")
+        report = _run(config=_s3_config(), session_factory=_working_factory)
+    store = next(check for check in report.checks if check.name == "object_store")
+    assert store.required is True
+    assert store.ready is True, store.detail

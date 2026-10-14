@@ -91,6 +91,20 @@ docker compose --env-file deploy/.env --env-file .env -f deploy/compose.yaml --p
 # → open http://localhost:5001/caliber/
 ```
 
+## Verify the stack builds and works
+
+`docker compose config` only proves the YAML resolves; it builds nothing. To build the CALIBER and MLflow images,
+start the stack from the example environment and use it (MLflow API, `/readiness`, the SPA at `/caliber/`, admin
+login, creating a project and a prompt), run:
+
+```bash
+scripts/verify-compose-stack.sh            # add --no-build to reuse local images, --keep to leave it running
+```
+
+It runs as its own compose project (`caliber-stack-smoke`), so removing it never touches your data, and it refuses to
+start while another CALIBER stack owns the fixed container names. Stop yours first with `down` (without `-v`). CI runs
+the same script weekly and on pull requests that change `deploy/`: `.github/workflows/stack-smoke.yml`.
+
 ## Why containers?
 
 The stack pins the local service topology and keeps state in named volumes, so a

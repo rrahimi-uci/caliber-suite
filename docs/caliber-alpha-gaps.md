@@ -214,8 +214,8 @@ Status legend:
 | Administration → store secret | ❌ | UI sends `POST /secrets`; only `PUT /secrets/{name}` exists → 405 | IN | [P1-06](#p1-06) |
 | PAT management UI | ⛔ | API works with a cookie; no UI | IN | [P1-07](#p1-07) |
 | Wheel build with SPA | ✅ | `twine check` passes; content assertions pass | IN | — |
-| Installed-wheel boot smoke in CI | ⛔ | `package` job never installs or boots the wheel | IN | [P1-17](#p1-17) |
-| Docker dev stack | ⚠️ | Images fixed by #453 (merged 2026-10-13). CALIBER image never built in CI | IN | [P0-5](#p0-5), [P1-17](#p1-17) |
+| Installed-wheel boot smoke in CI | ✅ | `package` installs the built wheel, migrates, boots, and fetches `/health` and the SPA | IN | [P1-17](#p1-17) |
+| Docker dev stack | ✅ | Images fixed by #453. `stack-smoke.yml` builds both images weekly and on `deploy/**` changes and uses the stack end to end | IN | [P0-5](#p0-5), [P1-17](#p1-17) |
 | Alpha journey E2E spec in CI | ⛔ | Only `e2e/cookbooks` runs, on push to `main` only | IN | [P0-6](#p0-6) |
 | Required status checks on `main` | ⛔ | `required_status_checks` → 404 | IN | [P1-16](#p1-16) |
 | Tag / prerelease / changelog | ⛔ | Only `caliber-v0.0.1` (no assets, marked Latest) | IN | [P0-7](#p0-7) |
@@ -238,7 +238,7 @@ Status legend:
 | # | Journey | Status today | Blocking gaps |
 | --- | --- | --- | --- |
 | CJ-1 | Install and start from docs (native, no Docker) | ❌ Login 500 (no migration). After a manual migration, admin is a viewer `[exec]`. | P0-5 |
-| CJ-2 | Install and start from docs (docker compose) | ⚠️ Images fixed by #453. The full stack and CALIBER image are not verified by anyone or by CI. | P0-5, P1-17 |
+| CJ-2 | Install and start from docs (docker compose) | ✅ Built and used end to end by `scripts/verify-compose-stack.sh` (login, project, prompt, registry, SPA). It runs weekly and on `deploy/**` changes, not on every PR. | P0-5, P1-17 |
 | CJ-3 | Sign in, create a project, add a member with a role | ⚠️ Works only with `CALIBER_ADMIN_USERS` set. Default config creates no account, with no log line. | P0-5, P1-08 |
 | CJ-4 | Author a prompt, version it, promote it | ✅ `[exec]` (no authoring audit) | P1-02 |
 | CJ-5 | Build a test set | ✅ `[exec]` | — |
@@ -973,9 +973,10 @@ deferral.
   - Add `schedule` + `workflow_dispatch` to `ci.yml` (or a new `nightly.yml`) running the compose job unconditionally with `--build caliber`.
 - **Files:** `.github/workflows/ci.yml`.
 - **Deps:** [P0-5](#p0-5).
+- **Status: implemented.** `scripts/verify-wheel-boot.sh` runs in the `package` job (and in `ci-local.sh`'s `package`): it first checks the wheel's file list for the SPA and the Alembic migrations, and fails before installing anything if either is gone; it then installs the wheel alone into a fresh venv, runs `caliber-migrate`, boots the server and fetches `/health` and the SPA shell plus one of its hashed bundles. The new `.github/workflows/stack-smoke.yml` runs `scripts/verify-compose-stack.sh` weekly (Mondays 05:17 UTC), on `workflow_dispatch`, and on pull requests that touch `deploy/**`. The script builds the CALIBER and MLflow images, starts the `app` and `nats` profiles from the example environment as its own compose project (so removing it never touches a developer's volumes, and it refuses to run beside another CALIBER stack), and checks a database-backed MLflow call, `/health`, `/readiness`, the SPA, the admin login, project and prompt creation, and the prompt in the MLflow registry. It is not a required check and `ci-local.sh` does not mirror it, because it takes about 15 minutes and pulls several gigabytes. The first real run found a defect that every other check had missed: `/readiness` was permanently 503 on the shipped MinIO topology, because the object-store probe listed an empty prefix and the S3 backend rejects that as `unsafe path: ''`. Every existing readiness test replaced the probe, so none ran it. The probe now lists a fixed prefix, with tests against the real S3 backend under moto. The same run also surfaced two lower-severity findings, recorded in the P2 backlog (dead worker rows keep readiness red, and the gateway container restarts forever without a provider key).
 - **Acceptance:**
-  - [ ] Removing the SPA or migrations from the wheel fails `package`.
-  - [ ] A scheduled run is visible in Actions and probes both images.
+  - [x] Removing the SPA or migrations from the wheel fails `package`. Checked on a real built wheel with `zip -d` removing `caliber/ui/*`, then `caliber/db/migrations/*`: the script exits 1 naming the missing files before installing anything. `tests/test_wheel_boot_script.py` covers each omission on synthetic wheels.
+  - [ ] A scheduled run is visible in Actions and probes both images. The workflow also runs on pull requests that touch it, so it runs on the PR that introduced it; the first scheduled run is the next Monday after the merge.
 
 ### P1-18
 
@@ -1353,3 +1354,5 @@ The first draft kept skills, tools, workflows and knowledge bases as preview. Th
 | Tests: `MLflowPromoter.rollback` integration test, vitest retry reporting, SDK coverage floors, upgrade test from the alpha DB, opt-in live-provider smoke | — | Add after the tag | `caliber/tests`, `sdk/*` |
 | Verification queue `verify` → refinement job; UI "Flag for refinement" on traces | Documented deferral | Wire through the calibration adapter | `routes/verification.py`, `pages/Observability.tsx` |
 | Route/MSW contract test (UI calls vs live route table) | Absent; would have caught P1-05 and P1-06 | Add with the wave-1 UI fixes if cheap | `caliber/tests` or `caliber-ui/scripts` |
+| Dead worker rows keep `/readiness` at 503 forever | Found by P1-17. A worker that exits uncleanly (killed, OOM, host sleep) leaves its heartbeat row, and every stale row is a blocking `workflow_queue` reason even while a live worker is serving. A developer volume held 32 such rows, some 60 days old, so the UI banner stayed red until the rows were deleted by hand. A clean stop deregisters correctly | Decide the policy (for example: report stale rows as a warning while a live worker exists, and prune rows older than a day) | `observability/queue_health.py`, `worker_registry.py` |
+| The default stack's `mlflow-gateway` restarts forever without a provider key | Found by P1-17. It exits when no `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` is set; CALIBER does not depend on it | Keep it behind a profile, or idle with a clear status | `deploy/mlflow-gateway/` |

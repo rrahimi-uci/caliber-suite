@@ -448,6 +448,7 @@ jobs:
           tests/test_aria_honesty.py
           tests/test_migrate_command.py
           tests/test_alpha_install_contract.py
+          tests/test_wheel_boot_script.py
           tests/test_alpha_scope_claims.py
           tests/test_sdk_against_server.py
           tests/test_sdk_prompt_journey.py
@@ -1117,6 +1118,14 @@ jobs:
               raise SystemExit("sdist contains local evidence/cache files: " + ", ".join(leaked[:10]))
           print(f"validated {wheels[-1].name} and {sdists[-1].name}")
           PY
+      # A wheel can build, pass twine and still be unusable: without its migrations every
+      # login fails on a missing table, and without its SPA /caliber/ serves a placeholder.
+      # So the artifact is installed alone into a fresh venv, migrated, booted, and asked
+      # for /health and the SPA. The file-list half of the script fails first, before any
+      # install, which is what makes removing the SPA or the migrations break this job.
+      - name: Install the built wheel and boot it
+        working-directory: .
+        run: scripts/verify-wheel-boot.sh --python python caliber/dist/*.whl
       - name: Upload distributions
         # Evidence publication; see the uploads in the test job.
         continue-on-error: true

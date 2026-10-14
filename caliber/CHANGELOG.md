@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **`/readiness` no longer reports 503 forever on the docker stack, and CI now boots both the wheel and the stack.**
+  The object-store readiness probe listed an empty prefix, which the S3 backend rejects as `unsafe path: ''`, so
+  any deployment using MinIO or S3 for workflow storage (the shipped docker stack) stayed not-ready. The probe now
+  lists a fixed prefix, and tests run it against the real S3 backend. The `package` job installs the built wheel
+  into a fresh venv, migrates, boots it and fetches `/health` and the SPA (`scripts/verify-wheel-boot.sh`), and
+  fails before installing when the wheel has lost the SPA or the migrations. A new weekly workflow,
+  `stack-smoke.yml`, also runs on `deploy/**` changes: it builds the CALIBER and MLflow images, starts the stack
+  and checks login, project and prompt creation and the SPA (`scripts/verify-compose-stack.sh`).
+
 - **The SDK and CLI install instructions work, and the SDK's journey is tested for real.** The docs said
   `pip install caliber-sdk` and `pip install caliber-cli`, which find nothing because the packages are not
   published, and `caliber-cli` depended on an unbounded `caliber-sdk`. The docs now install from the release
