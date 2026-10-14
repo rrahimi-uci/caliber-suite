@@ -1,0 +1,5 @@
+{"t":"2026-10-14T09:07:33.727Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-10-14T09:07:33.757Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-10-14T09:07:33.760Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-10-14T09:07:33.762Z","severity":"WARNING","logger":"caliber","message":"CALIBER_GITHUB_SOURCE_CONTROL_ENABLED is true but no encrypted secret store is configured (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); the GitHub source provider will not be registered"}
+{"t":"2026-10-14T09:07:33.764Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}

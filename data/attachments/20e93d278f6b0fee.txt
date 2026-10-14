@@ -1,0 +1,3 @@
+{"t":"2026-10-14T09:23:09.392Z","severity":"INFO","logger":"caliber.workspace_import_worker","message":"workspace-import worker started (interval=0.0s lease=300.0s worker=workspace-import-worker-2508-7f104f2e1cd0)"}
+{"t":"2026-10-14T09:23:09.445Z","severity":"WARNING","logger":"caliber.workspace_import_worker","message":"workspace-import worker did not stop within 0.1s; cancelling"}
+{"t":"2026-10-14T09:23:09.446Z","severity":"INFO","logger":"caliber.workspace_import_worker","message":"workspace-import worker stopped"}

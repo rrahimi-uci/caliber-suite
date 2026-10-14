@@ -1,0 +1,2 @@
+{"t":"2026-10-14T09:23:07.503Z","severity":"WARNING","logger":"caliber.workspace_import_worker","message":"workspace-import worker moved 1 expired import job(s) to reconcile_required: ['WSI-076395d9']","trace_id":"208ba0add62402f0"}
+{"t":"2026-10-14T09:23:07.560Z","severity":"INFO","logger":"caliber.workspace_import_worker","message":"workspace-import worker materialized WSI-3653d13d -> revision WSR-57bac633 (replayed=False)","trace_id":"c00361d1ce8c6aaf"}

@@ -1,0 +1,1 @@
+{"t":"2026-10-14T09:23:08.500Z","severity":"WARNING","logger":"caliber.workspace_import_worker","message":"workspace-import worker lost the lease for WSI-0a4727d4 before it could record failure 'whatever'; leaving it for lease-expiry reconciliation"}
