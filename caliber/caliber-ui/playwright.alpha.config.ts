@@ -14,6 +14,9 @@ import { defineConfig, devices } from "@playwright/test";
  *     preview, calibrate, review the simulated evidence, apply, roll back.
  *   - tool-journey.spec.ts: register a tool, run it, calibrate its fixtures, pin a
  *     baseline, see it used by a workflow (alpha gap P1-21).
+ *   - build-workflows.spec.ts and workflow-studio.spec.ts (alpha gap P1-22): the skill
+ *     and tool builders, and the workflow studio from template to run, approval, and
+ *     the wait-for-event and wait-until resumes, with the run queue on.
  *
  * Run with `npm run test:e2e:alpha`. It gets its own port and state directory, so it
  * never reuses (or disturbs) the server a developer has running for `npm run test:e2e`.
@@ -27,7 +30,11 @@ export default defineConfig({
     "user-prompt-journey.spec.ts",
     "skill-journey.spec.ts",
     "tool-journey.spec.ts",
+    "build-workflows.spec.ts",
+    "workflow-studio.spec.ts",
   ],
+  // The object store needs MinIO, which this harness does not start; the stack smoke covers it.
+  grepInvert: /object store/,
   fullyParallel: false,
   workers: 1,
   timeout: 240_000,

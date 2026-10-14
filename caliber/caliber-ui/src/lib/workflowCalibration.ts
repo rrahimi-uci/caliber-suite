@@ -34,6 +34,12 @@ export interface WorkflowCalibrationView {
   gateReasons: string[];
   candidates: WorkflowCalibrationCandidateView[];
   candidateManifestText: string | null;
+  /** True when the executor was the deterministic fake one: the scores are replayed, not measured. */
+  simulated: boolean | null;
+  /** The LLM provider the evaluation ran against ("fake", "openai", ...). */
+  evalProvider: string | null;
+  /** "structural" scores that the run completed and used its tools; "llm_judge" grades output. */
+  scorer: string | null;
 }
 
 function isRecord(value: unknown): value is Record<string, unknown> {
@@ -177,6 +183,9 @@ function workflowCalibrationPayloadView({
     gateReasons: readStringArray(gate?.reasons),
     candidates,
     candidateManifestText: readString(candidate?.content),
+    simulated: readBoolean(evalResults?.simulated),
+    evalProvider: readString(evalResults?.provider),
+    scorer: readString(evalResults?.scorer),
   };
 }
 

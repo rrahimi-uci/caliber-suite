@@ -721,6 +721,14 @@ export interface WorkflowComponentSetupCheck {
   minimum?: number | null;
 }
 
+/** One prerequisite of a workflow node, and whether this server's configuration meets it. */
+export interface WorkflowComponentRequirement {
+  id: string;
+  label: string;
+  /** `null` when the configuration cannot say (for example, a registered MCP server). */
+  met: boolean | null;
+}
+
 export interface WorkflowComponent {
   type: WorkflowNodeType;
   label: string;
@@ -732,6 +740,8 @@ export interface WorkflowComponent {
   starter_node?: Record<string, unknown> | null;
   fields: WorkflowComponentField[];
   setup_checks?: WorkflowComponentSetupCheck[];
+  /** What the node needs before it can work, resolved against the running server. */
+  requirements?: WorkflowComponentRequirement[];
   /** Kept for compatibility but de-emphasized in the palette. */
   legacy?: boolean;
   /** Suggested modern replacement, shown on the legacy badge. */
