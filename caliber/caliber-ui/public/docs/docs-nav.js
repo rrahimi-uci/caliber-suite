@@ -1186,7 +1186,7 @@ window.DOCS_DATA = {
       "label": "Alpha install",
       "section": "Start here",
       "section_id": "start",
-      "summary": "From the release wheels to a logged-in administrator who can create a project and a prompt: install, migrate, start MLflow, configure roles and providers, verify.",
+      "summary": "From wheels to a logged-in administrator who can create a project and a prompt: install, migrate, start MLflow, configure roles and providers, verify.",
       "audience": [
         "developer",
         "operator"
@@ -1196,7 +1196,7 @@ window.DOCS_DATA = {
         "Python 3.10, 3.11 or 3.12 and the three CALIBER wheels (release assets or a source checkout)"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-13",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "0.1.0a1 alpha",
       "tags": [
         "install",
@@ -1223,7 +1223,7 @@ window.DOCS_DATA = {
         "None"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-13",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "0.1.0a1 alpha",
       "tags": [
         "alpha",

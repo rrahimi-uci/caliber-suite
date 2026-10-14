@@ -6,7 +6,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>Alpha install | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
-  <meta name="description" content="From the release wheels to a logged-in administrator who can create a project and a prompt: install, migrate, start MLflow, configure roles and providers, verify.">
+  <meta name="description" content="From wheels to a logged-in administrator who can create a project and a prompt: install, migrate, start MLflow, configure roles and providers, verify.">
   <link rel="icon" type="image/png" href="caliber-icon.png">
   <script>
     (function () {
@@ -81,26 +81,26 @@
         <header class="doc-header">
           <div class="doc-eyebrow">Start here</div>
           <h1 id="top">Alpha install</h1>
-          <p class="doc-summary">From the release wheels to a logged-in administrator who can create a project and a prompt: install, migrate, start MLflow, configure roles and providers, verify.</p>
-          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">Operator</span><span class="doc-meta-chip doc-meta-chip-type">Tutorial</span><span class="doc-meta-chip doc-meta-chip-stability">BETA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">Python 3.10, 3.11 or 3.12 and the three CALIBER wheels (release assets or a source checkout)</span></div><div class="doc-meta-notes">Reviewed 2026-10-13 · 0.1.0a1 alpha</div></div>
+          <p class="doc-summary">From wheels to a logged-in administrator who can create a project and a prompt: install, migrate, start MLflow, configure roles and providers, verify.</p>
+          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">Operator</span><span class="doc-meta-chip doc-meta-chip-type">Tutorial</span><span class="doc-meta-chip doc-meta-chip-stability">BETA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">Python 3.10, 3.11 or 3.12 and the three CALIBER wheels (release assets or a source checkout)</span></div><div class="doc-meta-notes">Reviewed 2026-10-14 · 0.1.0a1 alpha</div></div>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
               Copy page
             </button>
           </div>
         </header>
-<p>This page takes you from nothing to a logged-in administrator who can create a project and a prompt. It needs no Docker and no repository checkout. Every command here is executed by <code>scripts/verify-alpha-install.sh</code>, so if a step stops working the check fails before you do.</p>
+<p>This page takes you from wheels to a logged-in administrator who can create a project and a prompt. It needs no Docker. The install is checked by <code>scripts/verify-alpha-install.sh</code>. Until the <code>caliber-v0.1.0a1</code> release assets are published, you need a source checkout to build the wheels and to run that verification script.</p>
 <p>CALIBER is alpha software. The packages are not on PyPI yet, so <code>pip install caliber-sdk</code> returns "no matching distribution". Install from the wheels instead.</p>
 <h2 id="what-you-get">What you get<a class="anchor" href="#what-you-get" aria-hidden="true" tabindex="-1">#</a></h2>
 <div class="table-wrap"><table><thead><tr><th>Piece</th><th>Where it runs</th></tr></thead><tbody><tr><td>CALIBER (the control plane and API)</td><td><code>uvicorn</code> on <code>127.0.0.1:5001</code></td></tr><tr><td>MLflow (the prompt registry)</td><td><code>mlflow server</code> on <code>127.0.0.1:5000</code>, its own SQLite file</td></tr><tr><td>CALIBER's database</td><td>one SQLite file, separate from MLflow's</td></tr></tbody></table></div>
 <p>The LLM and the evaluator are simulated in this setup. That is the honest offline default: calibration runs and returns candidates, but the evaluation scores are canned and every screen that shows them says so. See <a href="#real-llm-and-evaluation">Real LLM and evaluation</a> to change that.</p>
 <h2 id="1-get-the-wheels">1. Get the wheels<a class="anchor" href="#1-get-the-wheels" aria-hidden="true" tabindex="-1">#</a></h2>
-<p>Download <code>caliber_sdk</code>, <code>caliber_cli</code> and <code>caliber_suite</code> (all <code>0.1.0a1</code>) from the release assets into a <code>wheels/</code> directory. From a source checkout you can build them instead:</p>
+<p>The release assets are not published yet. From a source checkout, build <code>caliber_sdk</code>, <code>caliber_cli</code> and <code>caliber_suite</code> (all <code>0.1.0a1</code>) into <code>wheels/</code>:</p>
 <pre class="language-bash"><code class="language-bash">python3.12 -m venv build-venv &amp;&amp; build-venv/bin/pip install build
 for pkg in sdk/caliber-sdk sdk/caliber-cli caliber; do
   build-venv/bin/python -m build --wheel --outdir wheels "$pkg"
 done</code></pre>
-<p>A wheel built this way has no bundled web UI. The release wheel does.</p>
+<p>A wheel built this way has no bundled web UI. To include the UI, use the build procedure in <a href="m-62-releasing.html#cut-it">Releasing</a>. After the prerelease is published, you can download its wheels instead of building them.</p>
 <h2 id="2-create-a-virtual-environment-and-install">2. Create a virtual environment and install<a class="anchor" href="#2-create-a-virtual-environment-and-install" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Python 3.13 is not supported yet. Use 3.10, 3.11 or 3.12.</p>
 <pre class="language-bash"><code class="language-bash">python3.12 -m venv alpha
@@ -145,7 +145,7 @@ curl -s -b jar -X POST $B/projects -H 'content-type: application/json' \
   -d '{"name":"my-first-project"}'
 curl -s -b jar -X POST $B/prompts -H 'content-type: application/json' \
   -d '{"name":"my-first-prompt","template":"Answer briefly: {{question}}"}'</code></pre>
-<p>With a release wheel, open <code>http://127.0.0.1:5001/caliber/</code> and sign in as <code>admin</code> / <code>admin</code>.</p>
+<p>With a wheel built using the bundled UI procedure, open <code>http://127.0.0.1:5001/caliber/</code> and sign in as <code>admin</code> / <code>admin</code>.</p>
 <p>For the Python SDK or <code>caliberctl</code>, create a token under <strong>Settings → API tokens</strong> in the UI and use it as <code>CALIBER_TOKEN</code>. The command line cannot issue the first one.</p>
 <h2 id="real-llm-and-evaluation">Real LLM and evaluation<a class="anchor" href="#real-llm-and-evaluation" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Evidence you can trust needs a real evaluator and a real model. Install the extra, set the key, and switch both providers:</p>

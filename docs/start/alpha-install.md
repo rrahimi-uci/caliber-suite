@@ -7,7 +7,7 @@ product_area: docs
 stability: beta
 prerequisites:
   - Python 3.10, 3.11 or 3.12 and the three CALIBER wheels (release assets or a source checkout)
-reviewed_on: 2026-10-13
+reviewed_on: 2026-10-14
 version_applicability: 0.1.0a1 alpha
 tags:
   - install
@@ -18,9 +18,10 @@ tags:
 
 # Alpha install
 
-This page takes you from nothing to a logged-in administrator who can create a project and a
-prompt. It needs no Docker and no repository checkout. Every command here is executed by
-`scripts/verify-alpha-install.sh`, so if a step stops working the check fails before you do.
+This page takes you from wheels to a logged-in administrator who can create a project and a
+prompt. It needs no Docker. The install is checked by `scripts/verify-alpha-install.sh`.
+Until the `caliber-v0.1.0a1` release assets are published, you need a source checkout to
+build the wheels and to run that verification script.
 
 CALIBER is alpha software. The packages are not on PyPI yet, so `pip install caliber-sdk`
 returns "no matching distribution". Install from the wheels instead.
@@ -39,8 +40,8 @@ that shows them says so. See [Real LLM and evaluation](#real-llm-and-evaluation)
 
 ## 1. Get the wheels
 
-Download `caliber_sdk`, `caliber_cli` and `caliber_suite` (all `0.1.0a1`) from the release
-assets into a `wheels/` directory. From a source checkout you can build them instead:
+The release assets are not published yet. From a source checkout, build
+`caliber_sdk`, `caliber_cli` and `caliber_suite` (all `0.1.0a1`) into `wheels/`:
 
 ```bash
 python3.12 -m venv build-venv && build-venv/bin/pip install build
@@ -49,7 +50,9 @@ for pkg in sdk/caliber-sdk sdk/caliber-cli caliber; do
 done
 ```
 
-A wheel built this way has no bundled web UI. The release wheel does.
+A wheel built this way has no bundled web UI. To include the UI, use the build procedure in
+[Releasing](../operate/releasing.md#cut-it). After the prerelease is published, you can
+download its wheels instead of building them.
 
 ## 2. Create a virtual environment and install
 
@@ -143,7 +146,8 @@ curl -s -b jar -X POST $B/prompts -H 'content-type: application/json' \
   -d '{"name":"my-first-prompt","template":"Answer briefly: {{question}}"}'
 ```
 
-With a release wheel, open `http://127.0.0.1:5001/caliber/` and sign in as `admin` / `admin`.
+With a wheel built using the bundled UI procedure, open `http://127.0.0.1:5001/caliber/`
+and sign in as `admin` / `admin`.
 
 For the Python SDK or `caliberctl`, create a token under **Settings → API tokens** in the UI and use it
 as `CALIBER_TOKEN`. The command line cannot issue the first one.
