@@ -1148,7 +1148,7 @@ deferral.
   - Not done: a real-model knowledge-base journey (it needs torch and a model download, which no CI job here installs), and the journey is not driven through the browser (`knowledge-bases.spec.ts` exists but needs the same embeddings).
 - **Acceptance criteria:**
   - [x] With `sentence_transformers` absent, options report `available: false` with a reason naming the extra (unit test).
-  - [ ] The KB journey result on the docker stack is recorded in the release PR. The result is above (MinIO and PostgreSQL pass with simulated embeddings; the default image cannot embed); it is copied into the release PR when that is opened ([P0-7](#p0-7)).
+  - [x] The KB journey result on the docker stack is recorded in the release PR. The result is above (MinIO and PostgreSQL pass with simulated embeddings; the default image cannot embed); it is copied into the release-prep PR and into `docs/reports/release-0.1.0a1-notes.md` ([P0-7](#p0-7)).
   - [x] A CI job with MinIO and PostgreSQL services runs the KB pytest equivalent (the `knowledge` job in `stack-smoke.yml`); it ran green on the PR that introduced it, and the script passes locally.
   - [x] The docs list every prerequisite before the first KB step.
 
