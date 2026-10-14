@@ -1,0 +1,1 @@
+{"t":"2026-10-14T11:33:56.797Z","severity":"WARNING","logger":"caliber.llm.openai_agents","message":"DSPyMIPRO: no trainset for job=RFN-D; falling back to MetaPrompt"}
