@@ -710,3 +710,15 @@ def test_the_cli_reports_awaiting_human_and_gate_failed_against_real_routes(
     assert (
         cli_main(["workflow", "rollback", workflow_id, "dev", "--yes"]) == exits.FAILURE
     )  # no checkpoint yet on the real server
+
+
+def test_the_sdk_reads_health_from_the_real_server(sdk: object) -> None:
+    """``/health`` is the one route with a bare body, so a client that unwraps ``data`` breaks.
+
+    The SPA's indicator once said "API or database unreachable" permanently for exactly that
+    reason (alpha gap P1-05). This is the same check for the SDK, against the real route.
+    """
+    health = sdk.health()  # type: ignore[attr-defined]
+    assert health["status"] == "ok"
+    assert health["db"] == "ok"
+    assert health["version"]

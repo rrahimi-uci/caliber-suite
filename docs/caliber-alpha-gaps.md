@@ -674,10 +674,11 @@ deferral.
   - Check the SDK `health()` (`caliber_sdk/client.py:248-249`) for the same bug.
 - **Files:** `caliberApi.ts`, `components/useHealthStatus.ts`, `src/test/handlers.ts`, SDK client.
 - **Deps:** None.
+- **Status: implemented.** #456 made `getHealth` read the bare body through `requestBare`, so the shell indicator reflects the server (it had said "API or database unreachable" permanently, because the client unwrapped a `data` key the route does not send and the mock hid it by wrapping its response). `src/api/__tests__/health-contract.test.ts` pins the real `{status, version, db}` shape, the 503 `degraded` case and a network failure. The SDK's `health()` was never broken (its transport hands back a bare body as is), and `test_the_sdk_reads_health_from_the_real_server` now proves it against the real route.
 - **Acceptance:**
-  - [ ] Unit test: bare `{status:"ok"}` → "ok", and 503 → "down".
-  - [ ] The mock matches the server.
-  - [ ] SDK `health()` returns the status against a real server (test).
+  - [x] Unit test: bare `{status:"ok"}` → "ok", and 503 → "down" (`health-contract.test.ts`).
+  - [x] The mock matches the server (`src/test/handlers.ts` returns the bare body, with a comment saying why).
+  - [x] SDK `health()` returns the status against a real server (`test_sdk_against_server.py`).
 
 ### P1-06
 
@@ -690,9 +691,10 @@ deferral.
 - **Fix:** Use `PUT /secrets/${encodeURIComponent(name)}` with `{value}` and fix the two MSW handlers.
 - **Files:** `caliberApi.ts`, `pages/__tests__/administration.test.tsx`.
 - **Deps:** None.
+- **Status: implemented.** #456 changed the Administration page to `PUT /secrets/{name}` with `{value}` (`caliberApi.putSecret`) and fixed the handlers. The page never shows a stored value, clears the form after a store, reports the version and the `secret://` reference, and renders the server's refusal.
 - **Acceptance:**
-  - [ ] Against a real server with an encryption key, storing returns version 1, then version 2.
-  - [ ] Without a key, the 503 detail is rendered.
+  - [x] Against a real server with an encryption key, storing returns version 1, then version 2 (`test_rotation_over_http_bumps_the_version` in `test_secret_store.py`; the page test "stores a secret" shows `Stored stripe-key as version 1`).
+  - [x] Without a key, the 503 detail is rendered (`test_an_unconfigured_store_is_a_503_that_names_the_setting` on the server, and the Administration test "shows an error when storing a secret is rejected" for the page).
 
 ### P1-07
 
@@ -726,9 +728,10 @@ deferral.
 - **Fix:** Branch on `ApiError.status`.
 - **Files:** `pages/Login.tsx`, tests.
 - **Deps:** [P0-5](#p0-5).
+- **Status: implemented.** #456 added `loginFailureMessage`, which branches on `ApiError.status`: a rejected credential (401, and 400) keeps the generic "Invalid username or password." so accounts cannot be enumerated; status 0 says "Can't reach CALIBER"; 429 reports throttling; every 5xx names its status.
 - **Acceptance:**
-  - [ ] Server stopped → "unreachable" message.
-  - [ ] A 401 still shows the generic message (no account enumeration).
+  - [x] Server stopped → "unreachable" message (`login-failure-message.test.ts`, and the page test "says the server is unreachable instead of blaming the password").
+  - [x] A 401 still shows the generic message (no account enumeration) (same test file).
 
 ### P1-09
 
