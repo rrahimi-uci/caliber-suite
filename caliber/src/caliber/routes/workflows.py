@@ -56,7 +56,11 @@ from caliber.ids import (
     new_workflow_id,
     new_workflow_version_id,
 )
-from caliber.resource_access import require_project_access_if_scoped
+from caliber.resource_access import (
+    ACTION_WRITE_EVIDENCE,
+    ACTION_WRITE_RUNTIME,
+    require_project_access_if_scoped,
+)
 from caliber.routes._deps import (
     envelope_response,
     envelope_response_dict,
@@ -387,6 +391,11 @@ async def create_workflow_benchmark_report(request: Request) -> JSONResponse:
     identity = resolve_identity(request)
     factory = get_session_factory(request)
     with factory() as session:
+        # A report is created into the caller's active project, so the role is checked on
+        # that project (a no-op for a personal report), like create_workflow.
+        require_project_access_if_scoped(
+            session, identity, identity.active_project_id, ACTION_WRITE_EVIDENCE
+        )
         report_id = payload.report_id or new_workflow_benchmark_report_id()
         if session.get(CaliberWorkflowBenchmarkReport, report_id) is not None:
             raise HTTPException(
@@ -468,6 +477,9 @@ async def update_workflow_benchmark_report(request: Request) -> JSONResponse:
                 status_code=404,
                 detail=f"workflow benchmark report {report_id!r} not found",
             )
+        require_project_access_if_scoped(
+            session, identity, report.project_id, ACTION_WRITE_EVIDENCE
+        )
         diff: dict[str, dict[str, Any]] = {}
         if "name" in changes:
             diff["name"] = {"from": report.name, "to": payload.name}
@@ -514,6 +526,9 @@ async def delete_workflow_benchmark_report(request: Request) -> JSONResponse:
                 status_code=404,
                 detail=f"workflow benchmark report {report_id!r} not found",
             )
+        require_project_access_if_scoped(
+            session, identity, report.project_id, ACTION_WRITE_EVIDENCE
+        )
         audit_record(
             session,
             actor=actor,
@@ -569,6 +584,9 @@ async def clear_workflow_session_memory(request: Request) -> JSONResponse:
         )
         if workflow is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
+        require_project_access_if_scoped(
+            session, identity, workflow.project_id, ACTION_WRITE_RUNTIME
+        )
         stmt = select(CaliberWorkflowSessionMemory).where(
             CaliberWorkflowSessionMemory.workflow_id == workflow_id,
             CaliberWorkflowSessionMemory.session_id == session_id,

@@ -56,6 +56,12 @@ from caliber.llm.provider import (
 )
 from caliber.mcp_policy import deployment_blockers
 from caliber.observability import metrics
+from caliber.resource_access import (
+    ACTION_EXECUTE,
+    ACTION_PUBLISH,
+    ACTION_WRITE_RUNTIME,
+    require_project_access_if_scoped,
+)
 from caliber.routes._deps import (
     envelope_response,
     envelope_response_dict,
@@ -409,7 +415,9 @@ def _manifest_parse_error_report(
     return {"valid": False, "errors": errors, "warnings": []}
 
 
-def _visible_workflow(session: Session, request: Request, workflow_id: str) -> Any:
+def _visible_workflow(
+    session: Session, request: Request, workflow_id: str, *, action: str | None = None
+) -> Any:
     """The parent workflow, only if the caller can see it; ``None`` otherwise.
 
     Callers turn ``None`` into the same 404 a missing workflow produces. Scoping the
@@ -417,18 +425,21 @@ def _visible_workflow(session: Session, request: Request, workflow_id: str) -> A
     patch, run history) each resolved the workflow id directly, so a foreign operator
     was refused a specific version yet could still list every version of that workflow
     and create new ones under it.
+
+    ``action`` is the project action a mutating route needs on the workflow's project; a
+    visible workflow whose project role lacks it raises 403 (alpha gap P1-24).
     """
-    return get_visible(
-        session,
-        CaliberWorkflow,
-        CaliberWorkflow.workflow_id,
-        workflow_id,
-        resolve_identity(request),
+    identity = resolve_identity(request)
+    workflow = get_visible(
+        session, CaliberWorkflow, CaliberWorkflow.workflow_id, workflow_id, identity
     )
+    if workflow is not None and action is not None:
+        require_project_access_if_scoped(session, identity, workflow.project_id, action)
+    return workflow
 
 
 def _get_version_or_404(
-    session: Session, version_id: str, *, request: Request
+    session: Session, version_id: str, *, request: Request, action: str | None = None
 ) -> CaliberWorkflowVersion:
     """Resolve a version, but only through a parent workflow the caller can see.
 
@@ -449,6 +460,7 @@ def _get_version_or_404(
         child_label="workflow version",
         parent_model=CaliberWorkflow,
         parent_pk=CaliberWorkflow.workflow_id,
+        action=action,
     )
     return version
 
@@ -562,7 +574,7 @@ async def create_version(request: Request) -> JSONResponse:
     _parse_manifest_or_400(payload.manifest)
 
     def _require_workflow(session: Session) -> None:
-        if _visible_workflow(session, request, workflow_id) is None:
+        if _visible_workflow(session, request, workflow_id, action=ACTION_WRITE_RUNTIME) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
 
     data = _insert_version_with_retry(
@@ -593,7 +605,9 @@ async def restore_version_route(request: Request) -> JSONResponse:
     # Resolve + clone the source once (it's immutable), then allocate the new
     # draft's version_number with the shared race-safe insert.
     with factory() as session:
-        source = _get_version_or_404(session, version_id, request=request)
+        source = _get_version_or_404(
+            session, version_id, request=request, action=ACTION_WRITE_RUNTIME
+        )
         source_workflow_id = source.workflow_id
         source_version_id = source.version_id
         source_version_number = source.version_number
@@ -664,7 +678,9 @@ async def update_version(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        version = _get_version_or_404(session, version_id, request=request)
+        version = _get_version_or_404(
+            session, version_id, request=request, action=ACTION_WRITE_RUNTIME
+        )
         if version.status != "draft":
             raise HTTPException(
                 status_code=409, detail="only draft versions can be edited (published is immutable)"
@@ -718,7 +734,9 @@ async def compile_version_route(request: Request) -> JSONResponse:
     require_scopes(request, [SCOPE_OPERATOR])
     factory = get_session_factory(request)
     with factory() as session:
-        version = _get_version_or_404(session, version_id, request=request)
+        version = _get_version_or_404(
+            session, version_id, request=request, action=ACTION_WRITE_RUNTIME
+        )
         try:
             result = compile_version(session, version, persist=True)
         except CompileError as exc:
@@ -755,7 +773,7 @@ async def publish_version_route(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
     factory = get_session_factory(request)
     with factory() as session:
-        version = _get_version_or_404(session, version_id, request=request)
+        version = _get_version_or_404(session, version_id, request=request, action=ACTION_PUBLISH)
         already = version.status == "published"
         try:
             publish_version(session, version, actor=actor)
@@ -832,7 +850,7 @@ def _run_workflow_preview_sync(
     ``_run_workflow_version_sync`` below.
     """
     with factory() as session:
-        version = _get_version_or_404(session, version_id, request=request)
+        version = _get_version_or_404(session, version_id, request=request, action=ACTION_EXECUTE)
         return run_preview(
             session,
             version,
@@ -900,7 +918,7 @@ def _run_workflow_version_sync(  # noqa: PLR0912, PLR0915 - run orchestration + 
     started = datetime.now(timezone.utc)
     steps: list[dict[str, Any]] = []
     with factory() as session:
-        version = _get_version_or_404(session, version_id, request=request)
+        version = _get_version_or_404(session, version_id, request=request, action=ACTION_EXECUTE)
         workflow = session.get(CaliberWorkflow, version.workflow_id)
         if workflow is None:
             raise HTTPException(
@@ -1293,7 +1311,9 @@ async def propose_patch_route(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
     factory = get_session_factory(request)
     with factory() as session:
-        version = _get_version_or_404(session, version_id, request=request)
+        version = _get_version_or_404(
+            session, version_id, request=request, action=ACTION_WRITE_RUNTIME
+        )
         resolver = resolver_from_session(session, resolve_identity(request))
         try:
             base = parse_manifest(version.manifest)
@@ -1453,7 +1473,9 @@ async def copilot_edit_route(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     config = request.app.state.config
     with factory() as session:
-        version = _get_version_or_404(session, version_id, request=request)
+        version = _get_version_or_404(
+            session, version_id, request=request, action=ACTION_WRITE_RUNTIME
+        )
         resolver = resolver_from_session(session, resolve_identity(request))
         base_raw = payload.manifest if payload.manifest is not None else version.manifest
         try:
@@ -1503,7 +1525,9 @@ async def plan_build_route(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     config = request.app.state.config
     with factory() as session:
-        version = _get_version_or_404(session, version_id, request=request)
+        version = _get_version_or_404(
+            session, version_id, request=request, action=ACTION_WRITE_RUNTIME
+        )
         resolver = resolver_from_session(session, resolve_identity(request))
         base_raw = payload.manifest if payload.manifest is not None else version.manifest
         try:

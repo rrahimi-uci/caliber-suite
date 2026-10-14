@@ -174,6 +174,21 @@ PROJECT_ACTIONS: Final[dict[str, frozenset[str]]] = {
     # (`P5-B`) designs its real, separately-audited check.
 }
 
+#: Named project actions for the extended resource families (skills, tools, workflows).
+#: These are keys of :data:`PROJECT_ACTIONS`, spelled once so a route cannot misspell one
+#: and silently fail open or closed (alpha gap P1-24).
+#:
+#: ``ACTION_WRITE_RUNTIME``  author or change the asset itself (owner, editor)
+#: ``ACTION_WRITE_EVIDENCE`` record test runs and baselines (owner, editor, reviewer)
+#: ``ACTION_EXECUTE``        run it or start a calibration (owner, editor, reviewer)
+#: ``ACTION_PUBLISH``        publish a version, move an alias, expose a service (owner, editor)
+#: ``ACTION_APPROVE``        decide a pending production promotion (owner, reviewer)
+ACTION_WRITE_RUNTIME: Final[str] = "resource.write.runtime"
+ACTION_WRITE_EVIDENCE: Final[str] = "resource.write.evidence"
+ACTION_EXECUTE: Final[str] = "resource.execute"
+ACTION_PUBLISH: Final[str] = "resource.publish"
+ACTION_APPROVE: Final[str] = "resource.approve"
+
 #: `P1-B`/`P1-C`/`P1-D`/`P1-F`/`P4-D`: a hand-bumped marker for
 #: `AccessDecision.policy_version` (section 5.4). Bump this string whenever
 #: this module's decision policy changes in a way an auditor reading old

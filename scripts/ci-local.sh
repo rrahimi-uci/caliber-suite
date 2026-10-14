@@ -150,6 +150,7 @@ BACKEND_CORE_TESTS=(
   tests/test_migrate_command.py
   tests/test_alpha_install_contract.py
   tests/test_wheel_boot_script.py
+  tests/test_extended_family_isolation.py
   tests/test_alpha_scope_claims.py
   tests/test_sdk_against_server.py
   tests/test_sdk_prompt_journey.py

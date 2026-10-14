@@ -31,7 +31,7 @@ from caliber.db.models import (
 )
 from caliber.ids import new_workflow_run_id
 from caliber.mcp_policy import deployment_blockers
-from caliber.resource_access import require_project_access_if_scoped
+from caliber.resource_access import ACTION_APPROVE, require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -1491,6 +1491,8 @@ async def list_workflow_run_approvals(request: Request) -> JSONResponse:
 
 
 async def approve_workflow_run_approval(request: Request) -> JSONResponse:
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
     # ``require_user``, not ``require_scopes([SCOPE_OPERATOR])``. The node's own
     # ``required_role`` is the authorization rule, and ``record_approval`` enforces it
     # below with a message naming the missing scope. Pre-requiring operator broke the
@@ -1508,6 +1510,13 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         run = _get_run_or_404(session, run_id, request=request)
+        # The node's required_role (below) is a platform scope; this is the separate
+        # project-role axis. A viewer or editor who happens to hold the approver scope
+        # still cannot decide a run in a project where they have no approval role (alpha
+        # gap P1-24).
+        require_project_access_if_scoped(
+            session, resolve_identity(request), run.project_id, ACTION_APPROVE
+        )
         if run.status != RUN_STATUS_WAITING_APPROVAL:
             raise HTTPException(
                 status_code=409,
@@ -1661,6 +1670,8 @@ async def approve_workflow_run_approval(request: Request) -> JSONResponse:
 
 
 async def reject_workflow_run_approval(request: Request) -> JSONResponse:
+    from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
+
     # Same rule as approve: the node decides who may decide. This route previously
     # checked only the global operator scope and never read the node policy at all, so
     # a gate configured for ``caliber.admin`` was rejectable by any operator. Refusing
@@ -1677,6 +1688,13 @@ async def reject_workflow_run_approval(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         run = _get_run_or_404(session, run_id, request=request)
+        # The node's required_role (below) is a platform scope; this is the separate
+        # project-role axis. A viewer or editor who happens to hold the approver scope
+        # still cannot decide a run in a project where they have no approval role (alpha
+        # gap P1-24).
+        require_project_access_if_scoped(
+            session, resolve_identity(request), run.project_id, ACTION_APPROVE
+        )
         if run.status != RUN_STATUS_WAITING_APPROVAL:
             raise HTTPException(
                 status_code=409,

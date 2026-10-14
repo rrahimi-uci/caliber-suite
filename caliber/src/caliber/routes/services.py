@@ -46,6 +46,7 @@ from caliber.db.models import (
 )
 from caliber.db.scoping import get_visible
 from caliber.ids import new_service_id, new_service_token_id
+from caliber.resource_access import ACTION_PUBLISH, require_project_access_if_scoped
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -215,7 +216,7 @@ def _service_schema(service: CaliberWorkflowService, token_count: int) -> Workfl
 
 
 def _get_authorized_workflow(
-    session: Session, request: Request, workflow_id: str
+    session: Session, request: Request, workflow_id: str, *, action: str | None = None
 ) -> CaliberWorkflow:
     """Resolve the parent workflow through the same visibility contract as Studio.
 
@@ -234,6 +235,10 @@ def _get_authorized_workflow(
     )
     if workflow is None:
         raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
+    if action is not None:
+        # A mutating route: a visible workflow still needs the project role (alpha gap
+        # P1-24). A viewer could previously publish a service and mint a bearer token.
+        require_project_access_if_scoped(session, identity, workflow.project_id, action)
     return cast(CaliberWorkflow, workflow)
 
 
@@ -250,7 +255,7 @@ async def publish_service(request: Request) -> JSONResponse:
     alias = payload.alias or DEFAULT_ALIAS
     factory = get_session_factory(request)
     with factory() as session:
-        _get_authorized_workflow(session, request, workflow_id)
+        _get_authorized_workflow(session, request, workflow_id, action=ACTION_PUBLISH)
         deployment = _active_deployment(session, workflow_id, alias)
         if deployment is None:
             raise HTTPException(
@@ -392,7 +397,7 @@ async def delete_service(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
     factory = get_session_factory(request)
     with factory() as session:
-        _get_authorized_workflow(session, request, workflow_id)
+        _get_authorized_workflow(session, request, workflow_id, action=ACTION_PUBLISH)
         # Token minting and unpublishing share this row lock. Without it, a mint that
         # read the service before this transaction enumerated tokens could commit an
         # active orphan afterwards; re-publishing would make that old token valid again.
@@ -434,7 +439,7 @@ async def create_service_token(request: Request) -> JSONResponse:
     payload = ServiceTokenCreateRequest.model_validate(body)
     factory = get_session_factory(request)
     with factory() as session:
-        _get_authorized_workflow(session, request, workflow_id)
+        _get_authorized_workflow(session, request, workflow_id, action=ACTION_PUBLISH)
         try:
             # Serialize with unpublish through the same service-row write lock so the
             # plaintext token is returned only from a transaction whose service still
@@ -520,7 +525,7 @@ async def revoke_service_token(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
     factory = get_session_factory(request)
     with factory() as session:
-        _get_authorized_workflow(session, request, workflow_id)
+        _get_authorized_workflow(session, request, workflow_id, action=ACTION_PUBLISH)
         token = session.get(CaliberServiceToken, token_id)
         if token is None or token.workflow_id != workflow_id:
             raise HTTPException(

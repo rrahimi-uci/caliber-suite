@@ -43,6 +43,7 @@ from caliber.db.models import (
 from caliber.db.scoping import get_visible
 from caliber.mcp_policy import deployment_blockers
 from caliber.observability import metrics
+from caliber.resource_access import ACTION_APPROVE, ACTION_PUBLISH, require_project_access_if_scoped
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
 from caliber.schemas import (
     PromoteRequest,
@@ -96,23 +97,31 @@ def _envelope(payload: dict[str, Any], status_code: int = 200) -> JSONResponse:
     return JSONResponse({"data": payload}, status_code=status_code)
 
 
-def _visible_workflow(session: Session, request: Request, workflow_id: str) -> Any:
+def _visible_workflow(
+    session: Session, request: Request, workflow_id: str, *, action: str | None = None
+) -> Any:
     """The workflow, only if visible to the caller; ``None`` otherwise.
 
     Callers turn ``None`` into the same 404 a missing workflow produces, so "exists but
     forbidden" is never distinguishable from "does not exist" -- the distinction is
     itself a disclosure.
+
+    ``action`` is the project action a mutating route needs on the workflow's project. A
+    visible workflow whose project role lacks it raises 403 (alpha gap P1-24): a viewer
+    could previously move a production alias.
     """
-    return get_visible(
-        session,
-        CaliberWorkflow,
-        CaliberWorkflow.workflow_id,
-        workflow_id,
-        resolve_identity(request),
+    identity = resolve_identity(request)
+    workflow = get_visible(
+        session, CaliberWorkflow, CaliberWorkflow.workflow_id, workflow_id, identity
     )
+    if workflow is not None and action is not None:
+        require_project_access_if_scoped(session, identity, workflow.project_id, action)
+    return workflow
 
 
-def _visible_promotion(session: Session, request: Request, promotion_id: str) -> Any:
+def _visible_promotion(
+    session: Session, request: Request, promotion_id: str, *, action: str | None = None
+) -> Any:
     """A promotion, only if its parent workflow is visible.
 
     Promotion approve/reject previously fetched by promotion id with no project scoping
@@ -122,7 +131,7 @@ def _visible_promotion(session: Session, request: Request, promotion_id: str) ->
     promotion = session.get(CaliberWorkflowPromotion, promotion_id)
     if promotion is None:
         return None
-    if _visible_workflow(session, request, promotion.workflow_id) is None:
+    if _visible_workflow(session, request, promotion.workflow_id, action=action) is None:
         return None
     return promotion
 
@@ -161,7 +170,7 @@ async def promote_deployment(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        if _visible_workflow(session, request, workflow_id) is None:
+        if _visible_workflow(session, request, workflow_id, action=ACTION_PUBLISH) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         version = session.get(CaliberWorkflowVersion, payload.version_id)
         if version is None or version.workflow_id != workflow_id:
@@ -305,7 +314,7 @@ async def approve_promotion_route(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_APPROVER])
     factory = get_session_factory(request)
     with factory() as session:
-        promotion = _visible_promotion(session, request, promotion_id)
+        promotion = _visible_promotion(session, request, promotion_id, action=ACTION_APPROVE)
         if promotion is None:
             raise HTTPException(status_code=404, detail=f"promotion {promotion_id!r} not found")
         version = session.get(CaliberWorkflowVersion, promotion.version_id)
@@ -366,7 +375,7 @@ async def reject_promotion_route(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_APPROVER])
     factory = get_session_factory(request)
     with factory() as session:
-        promotion = _visible_promotion(session, request, promotion_id)
+        promotion = _visible_promotion(session, request, promotion_id, action=ACTION_APPROVE)
         if promotion is None:
             raise HTTPException(status_code=404, detail=f"promotion {promotion_id!r} not found")
         try:
@@ -396,7 +405,7 @@ async def rollback_deployment(request: Request) -> JSONResponse:
     actor = require_scopes(request, [SCOPE_OPERATOR])
     factory = get_session_factory(request)
     with factory() as session:
-        if _visible_workflow(session, request, workflow_id) is None:
+        if _visible_workflow(session, request, workflow_id, action=ACTION_PUBLISH) is None:
             raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
         try:
             deployment = rollback(

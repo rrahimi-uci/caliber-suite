@@ -187,7 +187,7 @@ _REVIEWED_BARE_LOOKUPS: dict[str, str] = {
         "documented scope), so it cannot see the check performed in the "
         "caller's caller, in a different module."
     ),
-    "caliber.routes.services.invoke_service:839": (
+    "caliber.routes.services.invoke_service:844": (
         "`routes/services.py`'s service-invocation surface authenticates via "
         "a per-service bearer token (`_lock_service_configuration`/"
         "`_validate_service_token_in_session`, both called earlier in this "
@@ -197,13 +197,13 @@ _REVIEWED_BARE_LOOKUPS: dict[str, str] = {
         "inventory. The invoked workflow's own visibility is not the "
         "applicable gate here."
     ),
-    "caliber.routes.services.service_openapi:1147": (
+    "caliber.routes.services.service_openapi:1152": (
         "Same per-service bearer-token gate as `invoke_service` above "
         "(`_lock_service_configuration`/`_validate_service_token_in_session`, "
         "called earlier in this function) -- also listed in "
         "`scope_inference.py::_PUBLIC_ROUTES` for the same reason."
     ),
-    "caliber.routes.skills.get_skill_workspace:1131": (
+    "caliber.routes.skills.get_skill_workspace:1146": (
         "`target_agent_id` is computed via `skill_target_agent_id(skill.name)`, "
         "deterministically derived from `skill.name` of the `CaliberSkill` "
         "row this same function already resolved through "
@@ -216,7 +216,7 @@ _REVIEWED_BARE_LOOKUPS: dict[str, str] = {
         "does not and should not auto-clear it -- recorded here by hand "
         "instead."
     ),
-    "caliber.routes.workflow_versions._run_workflow_version_sync:904": (
+    "caliber.routes.workflow_versions._run_workflow_version_sync:922": (
         "The parent workflow was already authorized a few lines above via "
         "`_get_version_or_404(session, version_id, request=request)`, which "
         "calls `_deps.py::scoped_child_or_404` -- itself gated on this exact "
