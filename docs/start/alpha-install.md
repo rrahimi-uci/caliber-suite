@@ -145,6 +145,9 @@ curl -s -b jar -X POST $B/prompts -H 'content-type: application/json' \
 
 With a release wheel, open `http://127.0.0.1:5001/caliber/` and sign in as `admin` / `admin`.
 
+For the Python SDK or `caliberctl`, create a token under **Settings → API tokens** in the UI and use it
+as `CALIBER_TOKEN`. The command line cannot issue the first one.
+
 ## Real LLM and evaluation
 
 Evidence you can trust needs a real evaluator and a real model. Install the extra, set the key,

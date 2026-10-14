@@ -17,6 +17,12 @@ caliberctl whoami
 caliberctl workflow run --workflow-id WF-123 --input '{"claim_id": "C-1"}'
 ```
 
+**Where the first token comes from.** `caliberctl token create` needs a token to run, so the first
+one is issued in the browser: sign in, open **Settings → API tokens**, name it, choose the scopes it
+needs, and copy the secret when it is shown (it is shown once). Use it as `CALIBER_TOKEN` or pass
+`--token`. The same page lists your tokens and can rotate or revoke them; a revoked token stops
+working immediately and `caliberctl whoami` then exits with the unauthenticated code.
+
 `caliberctl` is a thin wrapper. It invents no backend semantics: where a command
 appears to decide something, it is translating a state the server reported into
 an exit code.

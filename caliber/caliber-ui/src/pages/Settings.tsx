@@ -5,6 +5,7 @@ import { BarChart3, ExternalLink, KeyRound, RefreshCw, Rocket, Server } from "lu
 import { caliberApi } from "@/api/caliberApi";
 import type { AssistantConfig, SkillRuntimeMode } from "@/api/assistantTypes";
 import type { LlmSetupStatus, LlmSetupUpdate, SystemService } from "@/api/types";
+import { ApiTokensTab } from "@/components/ApiTokensTab";
 import { PageHeader } from "@/components/PageHeader";
 import { PageTabs, type PageTab } from "@/components/PageTabs";
 import {
@@ -21,6 +22,7 @@ import {
 const TABS: PageTab[] = [
   { key: "assistant", label: "Aria" },
   { key: "providers", label: "Providers", icon: <KeyRound className="h-4 w-4" /> },
+  { key: "tokens", label: "API tokens", icon: <KeyRound className="h-4 w-4" /> },
   { key: "services", label: "Services", icon: <Server className="h-4 w-4" /> },
   { key: "versioning", label: "Versioning", icon: <Rocket className="h-4 w-4" /> },
   { key: "allure", label: "Allure Report", icon: <BarChart3 className="h-4 w-4" /> },
@@ -158,6 +160,7 @@ export function Settings(): JSX.Element {
           onSave={(payload) => providerMutation.mutateAsync(payload)}
         />
       )}
+      {activeTab === "tokens" && <ApiTokensTab />}
       {activeTab === "services" && <ServicesTab />}
       {activeTab === "versioning" && <VersioningSettingsTab />}
       {activeTab === "allure" && <AllureReportTab />}

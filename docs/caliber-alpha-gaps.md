@@ -705,11 +705,12 @@ deferral.
 - **Fix:** Add an "API tokens" section on Administration (or a user page) built on the existing routes, and link it from `docs/sdk/cli.md` and `docs/sdk/guide.md`.
 - **Files:** `caliberApi.ts`, `pages/Administration.tsx` (or a new page), types, tests, SDK docs.
 - **Deps:** None.
-- **Acceptance:**
-  - [ ] Create shows the secret once.
-  - [ ] That token authenticates `caliberctl whoami`.
-  - [ ] Revoke makes it return 401.
-  - [ ] Over-scoped requests surface the server's refusal (Vitest).
+- **Status: implemented.** `caliberApi.ts` (`listAccessTokens`, `createAccessToken`, `revokeAccessToken`, `rotateAccessToken`), `api/types.ts`, new `components/ApiTokensTab.tsx` as **Settings → API tokens** (open to every signed-in user, unlike Administration), and the "first token" pointer in `docs/sdk/cli.md`, `docs/sdk/guide.md` and `docs/start/alpha-install.md`. The secret lives only in component state until dismissed. Tests: `api-tokens-tab.test.tsx`, a Settings tab test, and a real-server CLI test in `test_sdk_against_server.py`.
+- **Acceptance criteria:**
+  - [x] Create shows the secret once: shown after create, absent from the list, gone from the page after dismissal (Vitest).
+  - [x] That token authenticates `caliberctl whoami`: a token issued with `POST /auth/tokens` is the only credential for `caliberctl --token ... whoami` against the real application (pytest).
+  - [x] Revoke makes it stop working: after the page's revoke call, `caliberctl whoami` exits with the unauthenticated code. (The server answers an unusable credential on `/me` with an anonymous identity, and the CLI turns that into exit 6; routes that require authentication answer 401, covered by `test_personal_access_tokens.py`.)
+  - [x] Over-scoped requests surface the server's refusal: the 403 detail is rendered, and no secret panel appears (Vitest). The UI also offers only the scopes the user holds.
 
 ### P1-08
 
