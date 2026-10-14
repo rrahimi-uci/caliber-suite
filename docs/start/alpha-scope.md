@@ -8,7 +8,7 @@ product_area: docs
 stability: beta
 prerequisites:
   - None
-reviewed_on: 2026-10-13
+reviewed_on: 2026-10-14
 version_applicability: 0.1.0a1 alpha
 tags:
   - alpha
@@ -17,6 +17,12 @@ tags:
 ---
 
 # Alpha scope and known limitations
+
+> **Release status (2026-10-14):** `0.1.0a1` is the version prepared on `main`.
+> The `caliber-v0.1.0a1` tag and downloadable release assets have not been
+> published. The capabilities below describe the current code and its CI proof;
+> use [Alpha install](alpha-install.md) to build wheels from a checkout until
+> the prerelease is available.
 
 CALIBER `0.1.0a1` is an alpha. This page says what it does, what it does not do, and what to
 watch for, so you judge it against what it claims. It is the short version of the
@@ -101,8 +107,8 @@ These are real and deliberate for the alpha. Read them before you rely on the pr
   decision reads it.
 - **No HA, no performance targets, no SSO or MFA, no multi-tenant hosting.**
 - **Backups are documented, not rehearsed.** See [Backup and recovery](../operate/backup-and-recovery.md).
-- **No upgrade guarantees** from earlier tags, and the packages are not on PyPI: install from the release
-  wheels.
+- **No upgrade guarantees** from earlier tags, and the packages are not on PyPI. Build wheels from a
+  checkout until the prerelease assets are published.
 - **Preview areas may change** or be removed without notice.
 
 ## Where to go next
