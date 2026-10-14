@@ -190,11 +190,13 @@ scripts/verify-alpha-install.sh --wheel-dir ./wheels
 | `admin`/`admin` is rejected | no account was created | set the two bootstrap lines in step 5, or a password source, on a fresh database |
 | Creating a prompt or applying answers 503 "MLflow tracking server unreachable" | MLflow is not running, or `MLFLOW_TRACKING_URI` is wrong | start MLflow (step 4) or correct the URI, then retry; nothing was changed |
 | `/readiness` lists `promoter` | a `fake` promoter was configured | set `CALIBER_PROMOTER_PROVIDER=mlflow` |
+| `/readiness` says "registered tool modules are unrestricted" | `CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST` is empty, so any importable module can be registered as a tool | set it to the module prefixes you trust, for example `caliber.*,mycompany.tools.*`; see [Who is trusted to write tools](../use/tools.md#who-is-trusted-to-write-tools) |
 | `pip install caliber-sdk` finds nothing | the packages are not on PyPI | install from the wheels as in step 2 |
 
 ## Next
 
 - [5-minute quickstart](five-minute-quickstart.md)
 - [Skills: the journey step by step](../use/skills.md#the-skill-journey-step-by-step)
+- [Tools: the journey, and who is trusted to write them](../use/tools.md#the-tool-journey-step-by-step)
 - [Local bring-up](../operate/local-bring-up.md)
 - [Configuration and provider setup](../operate/configuration-and-provider-setup.md)

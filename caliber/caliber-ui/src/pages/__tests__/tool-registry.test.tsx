@@ -76,6 +76,56 @@ afterEach(() => {
 afterAll(() => server.close());
 
 describe("ToolRegistry list", () => {
+  it("labels CALIBER's own tools, and says why a memory tool cannot be used yet", async () => {
+    const reason = "Agent memory is off. Set CALIBER_MEMORY_ENABLED=true and restart CALIBER.";
+    const tools: ToolDefinition[] = [
+      makeTool({ tool_id: "TL-mine", name: "lookup_order" }),
+      makeTool({
+        tool_id: "TL-grep",
+        name: "grep_files",
+        owner: "@caliber",
+        builtin: true,
+        availability: "available",
+        availability_reason: null,
+      }),
+      makeTool({
+        tool_id: "TL-mem",
+        name: "memory_search",
+        owner: "@caliber",
+        module_path: "caliber.workflows.memory_tools",
+        builtin: true,
+        availability: "unavailable",
+        availability_reason: reason,
+      }),
+    ];
+    server.use(http.get(`${API_BASE}/tools`, () => HttpResponse.json(envelope(tools))));
+
+    renderRegistry();
+    const mine = await screen.findByTestId("tool-row-lookup_order");
+    const grep = screen.getByTestId("tool-row-grep_files");
+    const memory = screen.getByTestId("tool-row-memory_search");
+
+    // An admin-registered tool carries no origin badge at all.
+    expect(within(mine).queryByTestId("tool-builtin-badge")).not.toBeInTheDocument();
+    expect(within(mine).queryByTestId("tool-unavailable-badge")).not.toBeInTheDocument();
+
+    // A seeded tool that works is labelled built-in.
+    expect(within(grep).getByTestId("tool-builtin-badge")).toBeInTheDocument();
+    expect(within(grep).queryByTestId("tool-unavailable-badge")).not.toBeInTheDocument();
+
+    // A seeded memory tool is built-in, unavailable, and the reason is on the card.
+    expect(within(memory).getByTestId("tool-builtin-badge")).toBeInTheDocument();
+    expect(within(memory).getByTestId("tool-unavailable-badge")).toHaveAttribute("title", reason);
+    expect(within(memory).getByTestId("tool-unavailable-reason")).toHaveTextContent(reason);
+
+    // The list view carries the same labels.
+    await userEvent.setup().click(screen.getByRole("button", { name: /list/i }));
+    const listed = await screen.findByTestId("tool-list-row-memory_search");
+    expect(within(listed).getByTestId("tool-builtin-badge")).toBeInTheDocument();
+    expect(within(listed).getByTestId("tool-unavailable-badge")).toBeInTheDocument();
+    expect(within(listed).getByTestId("tool-unavailable-reason")).toHaveTextContent(reason);
+  });
+
   it("filters the registry, toggles list/grid view, and opens a tool's workspace", async () => {
     const tools: ToolDefinition[] = [
       makeTool(),

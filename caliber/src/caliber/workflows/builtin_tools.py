@@ -16,6 +16,8 @@ from caliber.db.models import CaliberToolRegistry
 from caliber.ids import new_tool_id
 
 BUILTIN_TOOL_MODULE = "caliber.workflows.demo_tools"
+INGESTION_TOOL_MODULE = "caliber.workflows.ingestion_tools"
+MEMORY_TOOL_MODULE = "caliber.workflows.memory_tools"
 BUILTIN_TOOL_OWNER = "@caliber"
 BUILTIN_TOOL_VERSION = "1.0"
 
@@ -118,7 +120,7 @@ def register_builtin_tools(session: Session) -> int:
                     "Extract plain text from a PDF/DOCX/PPTX/XLSX/Markdown/text document "
                     "for ingestion into document-processing workflows."
                 ),
-                module_path="caliber.workflows.ingestion_tools",
+                module_path=INGESTION_TOOL_MODULE,
                 callable_name="extract_document",
                 side_effect_level="read",
                 requires_approval=False,
@@ -167,7 +169,7 @@ def register_builtin_tools(session: Session) -> int:
                 name=name,
                 version=BUILTIN_TOOL_VERSION,
                 description=description,
-                module_path="caliber.workflows.memory_tools",
+                module_path=MEMORY_TOOL_MODULE,
                 callable_name=name,
                 side_effect_level=side_effect,
                 requires_approval=side_effect != "read",
@@ -183,11 +185,58 @@ def register_builtin_tools(session: Session) -> int:
     return created
 
 
+#: The tool names CALIBER seeds itself. A built-in is recognised by name *and* owner *and*
+#: module, because an owner is free text on registration and a user-registered tool must not
+#: be able to pass itself off as one.
+MEMORY_TOOL_NAMES = frozenset({"memory_search", "memory_list", "list_entities", "memory_add"})
+BUILTIN_TOOL_NAMES = frozenset(BUILTIN_TOOL_SIDE_EFFECTS) | {"extract_document"} | MEMORY_TOOL_NAMES
+_BUILTIN_TOOL_MODULES = frozenset({BUILTIN_TOOL_MODULE, INGESTION_TOOL_MODULE, MEMORY_TOOL_MODULE})
+
+MEMORY_UNAVAILABLE_REASON = (
+    "Agent memory is off, so this tool answers with an error. "
+    "Set CALIBER_MEMORY_ENABLED=true and restart CALIBER to use it."
+)
+
+
+def is_builtin_tool(*, name: str, owner: str, module_path: str) -> bool:
+    """Whether a registry row is one CALIBER seeded, as opposed to one an admin registered."""
+    return (
+        owner == BUILTIN_TOOL_OWNER
+        and name in BUILTIN_TOOL_NAMES
+        and module_path in _BUILTIN_TOOL_MODULES
+    )
+
+
+def tool_availability(
+    *, name: str, owner: str, module_path: str, memory_enabled: bool
+) -> tuple[str, str | None]:
+    """``("available", None)`` or ``("unavailable", reason)`` for the registry list.
+
+    The memory tools are seeded as ``active`` whether or not memory is enabled, but while it
+    is off each one only returns an error dict. Listing them as ordinary active tools lets a
+    workflow author wire one in and learn at run time that it does nothing.
+    """
+    if (
+        not memory_enabled
+        and name in MEMORY_TOOL_NAMES
+        and is_builtin_tool(name=name, owner=owner, module_path=module_path)
+    ):
+        return "unavailable", MEMORY_UNAVAILABLE_REASON
+    return "available", None
+
+
 __all__ = [
     "BUILTIN_TOOL_DESCRIPTIONS",
     "BUILTIN_TOOL_MODULE",
+    "BUILTIN_TOOL_NAMES",
     "BUILTIN_TOOL_OWNER",
     "BUILTIN_TOOL_SIDE_EFFECTS",
     "BUILTIN_TOOL_VERSION",
+    "INGESTION_TOOL_MODULE",
+    "MEMORY_TOOL_MODULE",
+    "MEMORY_TOOL_NAMES",
+    "MEMORY_UNAVAILABLE_REASON",
+    "is_builtin_tool",
     "register_builtin_tools",
+    "tool_availability",
 ]

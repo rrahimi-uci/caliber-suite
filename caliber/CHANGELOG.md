@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **The Tools list says which tools CALIBER seeded and which cannot work yet, and the docs say who is trusted.**
+  `GET /tools` returns `builtin`, `availability` and `availability_reason`. A fresh install lists sixteen tools;
+  the four agent-memory tools are now marked **Unavailable**, with the reason, while `CALIBER_MEMORY_ENABLED` is
+  off, because they only return an error. The seeded tools are marked **Built-in**. `docs/use/tools.md` states
+  the trust boundary (tool authors are trusted; the sandbox is a process boundary, not a container; set
+  `CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST`), and a browser spec drives register, run, calibrate, baseline and
+  use in a workflow.
+
 - **A skill's calibration can be reviewed, applied and rolled back in the browser.** Calibrating a skill used to
   end at "Calibration queued": the candidate could be reviewed and applied only through the API, and the skill
   workspace had no version history. The Runs stage now lists the skill's calibration runs with the diff, the

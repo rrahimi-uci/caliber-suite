@@ -32,6 +32,48 @@ sandbox and approval boundaries.
 | call the tool from a workflow | connect it through a workflow node | [Workflows](../use/workflows.md) |
 | govern side effects | inspect approval and runtime policy boundaries | [Trust and governance](../use/trust-and-governance.md) |
 
+## The tool journey, step by step
+
+This is the loop the alpha supports end to end for a tool, with each step as a page action.
+`caliber/caliber-ui/e2e/tool-journey.spec.ts` drives it on the shipped defaults.
+
+| # | Step | In the page (Tools) | What you should see |
+| --- | --- | --- | --- |
+| 1 | Register | **Register Tool**, then the wizard: name, module, callable, input schema | the tool's detail page |
+| 2 | Run it | **Run** on the detail page, with a JSON object as input | the tool's output, produced by the sandbox |
+| 3 | Save fixtures | open the tool, **Fixtures**: add cases with an input and an assertion | the cases are saved against the tool |
+| 4 | Calibrate | **Fixtures**: **Run calibration** | "Pass rate 100% — 2/2 passed", or which cases failed |
+| 5 | Pin a baseline | **Test Runs**: **Set as baseline** on a run | the run carries a **Baseline** marker, and later runs are compared to it |
+| 6 | Use it in a workflow | reference the tool from an agent node in a workflow version | the workflow appears under **Publish**, **Where used** |
+
+Two things about the Tools list. A fresh install lists sixteen tools that CALIBER seeded itself, and each
+is labelled **Built-in**, so you can tell them from the ones an admin registered. Four of them are the
+agent-memory tools (`memory_search`, `memory_list`, `list_entities`, `memory_add`). While agent memory is
+off (`CALIBER_MEMORY_ENABLED` is not `true`) they are labelled **Unavailable**, with the reason on the
+row, because wiring one into a workflow would only make it return an error at run time.
+
+## Who is trusted to write tools
+
+Read this before you let anyone register a tool.
+
+- **Tool authors are trusted.** A registered tool is code, imported from a Python module and called. Only a
+  global admin can register, change or archive a tool, and that is the whole of the trust model: CALIBER
+  does not defend itself against an admin who registers a malicious tool.
+- **The sandbox is a process boundary, not a container.** By default each call runs in a separate Python
+  interpreter with an empty environment, a private working directory, resource limits and a wall-clock
+  deadline that kills the process group. It is **not** a container, virtual machine or seccomp boundary:
+  the child keeps ambient filesystem and network access on the host. That is appropriate for tool authors
+  you trust and is not isolation from ones you do not. Set `CALIBER_TOOL_SANDBOX_BACKEND` to a backend you
+  provide if you need OS-enforced isolation.
+- **Restrict which modules a tool may come from.** `CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST` is a
+  comma-separated list of module prefixes, for example `caliber.*,mycompany.tools.*`. It ships empty, which
+  means any importable module may be registered, and `/readiness` reports that as "registered tool modules
+  are unrestricted". Set it for anything beyond a local trial.
+- **Side effects need approval.** A tool that writes or acts on an external system is registered with
+  approval required, and the sandbox mocks it in preview runs.
+- **Workflows add a second boundary of the same kind.** A `python_code` node is authorable by operators.
+  Preview refuses it and a published run blocks `import`, but that is containment, not isolation.
+
 ## 1. What tools are for in CALIBER
 
 Tools are versioned callable assets. They are not just snippets attached to a

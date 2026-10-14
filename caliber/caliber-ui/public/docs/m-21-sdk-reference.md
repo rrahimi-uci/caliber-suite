@@ -11616,6 +11616,9 @@ them rather than defining them.
 | `successor_tool_id` | `str | None` | `None` |
 | `created_at` | `str | None` | `None` |
 | `updated_at` | `str | None` | `None` |
+| `builtin` | `bool` | `False` |
+| `availability` | `str` | `'available'` |
+| `availability_reason` | `str | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `CalibrationJob`
