@@ -180,5 +180,6 @@ scripts/verify-alpha-install.sh --wheel-dir ./wheels
 ## Next
 
 - [5-minute quickstart](m-37-five-minute-quickstart.md)
+- [Skills: the journey step by step](m-40-use-skills.md#the-skill-journey-step-by-step)
 - [Local bring-up](m-32-local-bring-up.md)
 - [Configuration and provider setup](m-48-configuration-and-provider-setup.md)
