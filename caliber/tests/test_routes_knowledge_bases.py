@@ -2359,3 +2359,188 @@ def test_delete_knowledge_base_requires_operator_scope(
 
     db_session.expire_all()
     assert db_session.get(knowledge_service.CaliberKnowledgeBase, "KB-rbac-delete") is not None
+
+
+# ---------------------------------------------------------------------------
+# Fail fast when the object store cannot serve a build (alpha gap P1-12)
+# ---------------------------------------------------------------------------
+
+
+def _kb_row_counts(db_session) -> tuple[int, int, int]:
+    from caliber.db.models import (
+        CaliberKnowledgeBase,
+        CaliberKnowledgeBaseRun,
+        CaliberKnowledgeBaseVersion,
+    )
+
+    db_session.expire_all()
+    return (
+        db_session.query(CaliberKnowledgeBase).count(),
+        db_session.query(CaliberKnowledgeBaseVersion).count(),
+        db_session.query(CaliberKnowledgeBaseRun).count(),
+    )
+
+
+def _allow_embeddings(monkeypatch: pytest.MonkeyPatch) -> None:
+    monkeypatch.setattr(
+        knowledge_service,
+        "build_embedding_backend",
+        lambda model_id: _DummyEmbedder(model_id),
+    )
+    monkeypatch.setattr(
+        knowledge_service, "ensure_embedding_backend_runtime_available", lambda **_kw: None
+    )
+
+
+def _credentialless_s3(monkeypatch: pytest.MonkeyPatch):
+    """A real boto3 client with no credential source at all, and no metadata-service wait."""
+    for name in ("AWS_ACCESS_KEY_ID", "AWS_SECRET_ACCESS_KEY", "AWS_SESSION_TOKEN", "AWS_PROFILE"):
+        monkeypatch.delenv(name, raising=False)
+    monkeypatch.setenv("AWS_EC2_METADATA_DISABLED", "true")
+    monkeypatch.setenv("AWS_SHARED_CREDENTIALS_FILE", "/nonexistent/credentials")
+    monkeypatch.setenv("AWS_CONFIG_FILE", "/nonexistent/config")
+    return boto3.client("s3", region_name="us-east-1")
+
+
+def test_create_without_object_store_credentials_is_a_503_and_persists_nothing(
+    client: TestClient, db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _allow_embeddings(monkeypatch)
+    client.app.state.object_store_client = _credentialless_s3(monkeypatch)
+
+    response = client.post(KB, json=_kb_create_payload("No Creds", "any-bucket"))
+
+    assert response.status_code == 503, response.text
+    detail = response.json()["detail"]
+    assert "object store is not configured or unreachable" in detail
+    assert "CALIBER_OBJECT_STORE_ACCESS_KEY_SOURCE" in detail
+    assert "nothing was created" in detail
+    assert _kb_row_counts(db_session) == (0, 0, 0)
+
+
+@mock_aws
+def test_create_with_a_missing_bucket_is_a_503_naming_the_bucket(
+    client: TestClient, db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _allow_embeddings(monkeypatch)
+    _wire_moto(client)  # a reachable store, but the bucket was never created
+
+    response = client.post(KB, json=_kb_create_payload("Missing Bucket", "no-such-bucket"))
+
+    assert response.status_code == 503, response.text
+    assert "bucket 'no-such-bucket' does not exist" in response.json()["detail"]
+    assert _kb_row_counts(db_session) == (0, 0, 0)
+
+
+def test_create_with_an_unreachable_endpoint_is_a_fast_503_that_leaks_no_endpoint(
+    client: TestClient, db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import time
+
+    from botocore.config import Config
+
+    _allow_embeddings(monkeypatch)
+    monkeypatch.setenv("AWS_ACCESS_KEY_ID", "test")
+    monkeypatch.setenv("AWS_SECRET_ACCESS_KEY", "test")
+    client.app.state.object_store_client = boto3.client(
+        "s3",
+        region_name="us-east-1",
+        endpoint_url="http://user:hunter2@127.0.0.1:1",
+        config=Config(connect_timeout=2, retries={"max_attempts": 1}),
+    )
+
+    started = time.monotonic()
+    response = client.post(KB, json=_kb_create_payload("Down Store", "any-bucket"))
+    elapsed = time.monotonic() - started
+
+    assert response.status_code == 503, response.text
+    detail = response.json()["detail"]
+    assert "endpoint cannot be reached" in detail
+    assert "hunter2" not in detail
+    assert "127.0.0.1" not in detail
+    assert elapsed < 15
+    assert _kb_row_counts(db_session) == (0, 0, 0)
+
+
+def test_create_with_a_denied_bucket_says_access_was_denied(
+    client: TestClient, db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    from botocore.exceptions import ClientError
+
+    _allow_embeddings(monkeypatch)
+
+    class _Denied:
+        def head_bucket(self, **_kwargs: object) -> None:
+            raise ClientError({"Error": {"Code": "403", "Message": "Forbidden"}}, "HeadBucket")
+
+    client.app.state.object_store_client = _Denied()
+
+    response = client.post(KB, json=_kb_create_payload("Denied", "locked"))
+
+    assert response.status_code == 503
+    assert "access to bucket 'locked' was denied" in response.json()["detail"]
+    assert _kb_row_counts(db_session) == (0, 0, 0)
+
+
+def test_an_unclassified_object_store_failure_names_only_the_exception_class(
+    client: TestClient, db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _allow_embeddings(monkeypatch)
+
+    class _Odd:
+        def head_bucket(self, **_kwargs: object) -> None:
+            raise RuntimeError("secret internal detail")
+
+    client.app.state.object_store_client = _Odd()
+
+    response = client.post(KB, json=_kb_create_payload("Odd", "any-bucket"))
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "RuntimeError" in detail
+    assert "secret internal detail" not in detail
+    assert _kb_row_counts(db_session) == (0, 0, 0)
+
+
+@mock_aws
+def test_a_reachable_bucket_still_creates_the_knowledge_base(
+    client: TestClient, db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bucket = "kb-reachable"
+    _wire_kb_create(client, monkeypatch, bucket)
+
+    response = client.post(KB, json=_kb_create_payload("Reachable", bucket))
+
+    assert response.status_code == 201, response.text
+    assert _kb_row_counts(db_session)[0] == 1
+
+
+@mock_aws
+def test_a_new_version_is_refused_when_the_store_goes_away(
+    client: TestClient, db_session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    bucket = "kb-version-probe"
+    _wire_kb_create(client, monkeypatch, bucket)
+    created = client.post(KB, json=_kb_create_payload("Versioned", bucket))
+    assert created.status_code == 201, created.text
+    kb_id = created.json()["data"]["knowledge_base"]["knowledge_base_id"]
+    before = _kb_row_counts(db_session)
+
+    from botocore.exceptions import EndpointConnectionError
+
+    class _Gone:
+        def head_bucket(self, **_kwargs: object) -> None:
+            raise EndpointConnectionError(endpoint_url="http://object-store.internal:9000")
+
+    client.app.state.object_store_client = _Gone()
+    response = client.post(
+        f"{KB}/{kb_id}/versions",
+        json={
+            "chunking_strategy": "recursive",
+            "embedding_model": "sentence-transformers/all-MiniLM-L6-v2",
+        },
+    )
+
+    assert response.status_code == 503, response.text
+    assert "object store is not configured or unreachable" in response.json()["detail"]
+    assert _kb_row_counts(db_session) == before

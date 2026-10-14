@@ -840,9 +840,10 @@ deferral.
   - Reuse the object-store status query on the KB page.
 - **Files:** `knowledge/service.py`, `routes/knowledge_bases.py`, `pages/KnowledgeBases.tsx`.
 - **Deps:** [P1-10](#p1-10). Part of the knowledge-base support item [P1-23](#p1-23).
-- **Acceptance:**
-  - [ ] A route test with no credentials: 503 with a named reason, and no KB row or run is created.
-  - [ ] Vitest: the offline banner renders and Create is disabled.
+- **Status: implemented.** `knowledge/service.py` (`_ensure_object_store_reachable` runs one `head_bucket` on the source bucket in `create_knowledge_base` and `create_version`, before any row is written; `_object_store_unavailable_message` says whether credentials, the bucket, access or the endpoint is the problem and never includes the endpoint URL or a secret; the existing route mapping turns the `KnowledgeDependencyError` into 503) and `pages/KnowledgeBases.tsx` (an offline banner with the detail, and Create disabled, when the bucket list fails). Tests: a block at the end of `test_routes_knowledge_bases.py` and two Vitest cases in `knowledge-bases.test.tsx`. A stand-in client with no `head_bucket` skips the probe; real boto clients always have it.
+- **Acceptance criteria:**
+  - [x] A route test with no credentials: 503 with a named reason, and no KB, version or run row is created. Also covered: a missing bucket, a denied bucket, an unreachable endpoint (fast, no endpoint or userinfo in the message), an unclassified failure (class name only), a reachable bucket still creating, and a new version refused when the store goes away.
+  - [x] Vitest: the offline banner renders and Create is disabled; no banner when the buckets load.
 
 ### P1-13
 

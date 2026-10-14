@@ -16,6 +16,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   "OPENAI_API_KEY is not set" with what to do. A plan with no steps is flagged when it is created and refused
   (409) when approved or executed, and "test set" now plans `eval_dataset.create`.
 
+- **Creating a knowledge base fails fast when the object store cannot serve it.** Sources are always
+  object-store paths, but on an install with no object store, `POST /knowledge-bases` returned 201 after a long
+  pause and queued a build that later failed with `NoCredentialsError`, leaving a knowledge base that could never
+  be ready. Create and new-version now probe the source bucket first and answer 503 "The object store is not
+  configured or unreachable", saying whether credentials, the bucket, access or the endpoint is wrong (never the
+  endpoint URL), and persist nothing. The Knowledge Bases page shows the same reason in an offline banner and
+  disables Create when the bucket list fails.
+
 - **Apply no longer deadlocks against MLflow on a shared SQLite file.** `POST /jobs/{id}/apply`
   held its claim and approval row in an uncommitted write transaction across the call that
   registers the new prompt version, and MLflow does that through its own engine; on one SQLite

@@ -76,6 +76,13 @@ def _identity() -> CaliberIdentity:
     return CaliberIdentity(user_id="@test", scopes=frozenset({"caliber.admin"}))
 
 
+class _ReachableStore:
+    """An object store whose bucket answers, for tests about something other than the store."""
+
+    def head_bucket(self, **_kwargs: object) -> dict[str, object]:
+        return {}
+
+
 def _service(
     app_config: CaliberConfig,
     session_factory: sessionmaker[Session],
@@ -667,7 +674,7 @@ def test_create_version_without_sources_400(
     )
     _seed_kb(db_session, source_manifest=[])  # no sources to inherit
     db_session.commit()
-    service = _service(app_config, session_factory)
+    service = _service(app_config, session_factory, object_store_client=_ReachableStore())
     payload = KnowledgeBaseVersionCreateRequest(
         chunking_strategy="recursive",
         embedding_model="sentence-transformers/all-MiniLM-L6-v2",
@@ -1577,7 +1584,7 @@ def test_create_version_queues_build_when_enabled(
     queued_config = app_config.model_copy(
         update={"background_tasks_enabled": True, "knowledge_build_queue_enabled": True}
     )
-    service = _service(queued_config, session_factory)
+    service = _service(queued_config, session_factory, object_store_client=_ReachableStore())
     payload = KnowledgeBaseVersionCreateRequest(
         chunking_strategy="recursive",
         embedding_model="sentence-transformers/all-MiniLM-L6-v2",

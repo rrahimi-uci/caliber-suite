@@ -939,6 +939,7 @@ class KnowledgeBaseService:
     ) -> KnowledgeBaseBuildResultSchema:
         queue_build = self._should_enqueue_builds()
         self._ensure_embedding_runtime_available()
+        self._ensure_object_store_reachable(payload.source_bucket)
         source_manifest = [_selection_dict(item.kind, item.path) for item in payload.sources]
         fingerprint = _fingerprint_sources(payload.source_bucket, source_manifest)
         knowledge_base_id = new_knowledge_base_id()
@@ -1067,6 +1068,7 @@ class KnowledgeBaseService:
             knowledge_base = self._require_visible_knowledge_base(
                 session, knowledge_base_id, identity
             )
+            self._ensure_object_store_reachable(knowledge_base.source_bucket)
             versions = (
                 session.execute(
                     select(CaliberKnowledgeBaseVersion)
@@ -4267,6 +4269,27 @@ class KnowledgeBaseService:
             allow_flagged_local_embeddings=self._config.allow_flagged_local_embeddings
         )
 
+    def _ensure_object_store_reachable(self, bucket: str) -> None:
+        """Refuse a build that cannot read its source bucket, before anything is persisted.
+
+        Sources are always object-store paths. On an install with no object store, create
+        used to return 201 and queue a build that later failed with ``NoCredentialsError``,
+        leaving a knowledge base that could never become ready (alpha gap P1-12). One
+        ``head_bucket`` proves the endpoint, the credentials and the bucket together. The
+        message says which of them is wrong and never includes the endpoint URL, which can
+        carry credentials.
+        """
+        client = self._object_store()
+        head_bucket = getattr(client, "head_bucket", None)
+        if head_bucket is None:  # a stand-in client that cannot probe; real clients can
+            return
+        try:
+            head_bucket(Bucket=bucket)
+        except KnowledgeDependencyError:
+            raise
+        except Exception as exc:
+            raise KnowledgeDependencyError(_object_store_unavailable_message(exc, bucket)) from exc
+
     def _reranker_backend(self) -> Any:
         """The cached cross-encoder reranker, built lazily, or ``None`` if disabled."""
         if not self._config.knowledge_rerank_enabled:
@@ -5387,6 +5410,38 @@ def _fingerprint_sources(bucket: str, source_manifest: list[dict[str, str]]) -> 
         sort_keys=True,
     )
     return hashlib.sha256(payload.encode("utf-8")).hexdigest()
+
+
+def _object_store_unavailable_message(exc: Exception, bucket: str) -> str:
+    """Why the object store cannot serve a build, without leaking its endpoint or keys."""
+    name = type(exc).__name__
+    code = ""
+    response = getattr(exc, "response", None)
+    if isinstance(response, dict):
+        code = str(response.get("Error", {}).get("Code", ""))
+    if name == "NoCredentialsError" or "credentials" in str(exc).lower():
+        reason = (
+            "no object-store credentials are configured. Set "
+            "CALIBER_OBJECT_STORE_ACCESS_KEY_SOURCE and CALIBER_OBJECT_STORE_SECRET_KEY_SOURCE"
+        )
+    elif code in {"404", "NoSuchBucket", "NotFound"}:
+        reason = f"bucket {bucket!r} does not exist"
+    elif code in {"403", "AccessDenied", "Forbidden"}:
+        reason = f"access to bucket {bucket!r} was denied"
+    elif name in {
+        "EndpointConnectionError",
+        "ConnectTimeoutError",
+        "ReadTimeoutError",
+    } or isinstance(exc, (ConnectionError, TimeoutError)):
+        reason = (
+            "the object-store endpoint cannot be reached. Check CALIBER_OBJECT_STORE_ENDPOINT_URL"
+        )
+    else:
+        reason = f"it failed with {name}"
+    return (
+        f"The object store is not configured or unreachable: {reason}. "
+        "Knowledge bases read their sources from an S3-compatible bucket, so nothing was created."
+    )
 
 
 def _object_store_path(bucket: str, key: str) -> str:

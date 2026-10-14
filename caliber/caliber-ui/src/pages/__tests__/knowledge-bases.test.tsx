@@ -1286,6 +1286,47 @@ describe("Knowledge Bases page", () => {
     ).toBeDisabled();
   });
 
+  it("shows an offline banner and disables Create when the object store cannot be listed (alpha P1-12)", async () => {
+    server.use(
+      http.get(`${KB}/options`, () =>
+        HttpResponse.json(envelope(knowledgeOptions(true, "http://127.0.0.1:8082"))),
+      ),
+      http.get(`${KB}`, () => HttpResponse.json(envelope([]))),
+      http.get(`${OS}/buckets`, () =>
+        HttpResponse.json({ detail: "could not reach the object store" }, { status: 502 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await user.click(await screen.findByTestId("kb-new-knowledge-base"));
+
+    const banner = await screen.findByTestId("kb-object-store-offline");
+    expect(banner).toHaveTextContent("The object store is not configured or unreachable");
+    expect(banner).toHaveTextContent("could not reach the object store");
+    expect(banner).toHaveTextContent("CALIBER_OBJECT_STORE_");
+    expect(screen.getByRole("button", { name: "Create knowledge base" })).toBeDisabled();
+  });
+
+  it("shows no offline banner when the buckets load", async () => {
+    server.use(
+      http.get(`${KB}/options`, () =>
+        HttpResponse.json(envelope(knowledgeOptions(true, "http://127.0.0.1:8082"))),
+      ),
+      http.get(`${KB}`, () => HttpResponse.json(envelope([]))),
+      http.get(`${OS}/buckets`, () =>
+        HttpResponse.json(envelope([{ name: "reports", creation_date: NOW }])),
+      ),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await user.click(await screen.findByTestId("kb-new-knowledge-base"));
+    await screen.findByRole("option", { name: "reports" });
+
+    expect(screen.queryByTestId("kb-object-store-offline")).not.toBeInTheDocument();
+  });
+
   it("names the knowledge base a new version will be added to", async () => {
     // #238 stopped a stale selection from *becoming* the version target. It
     // did not make the target legible: the "New version" control read
