@@ -50,7 +50,7 @@ from caliber.workflows.calibration import (
     generate_workflow_calibration_candidates,
     resolve_workflow_calibration_examples,
 )
-from caliber.workflows.judge import build_llm_judge_scorer
+from caliber.workflows.judge import build_llm_judge_scorer, llm_judge_status
 from caliber.workflows.manifest import WorkflowManifest, parse_manifest
 from caliber.workflows.promoter import (
     build_executor,
@@ -248,6 +248,25 @@ def _workflow_manifest_executor_factory(
             raise ValueError(f"failed to resolve workflow executor: {exc}") from exc
 
     return _factory
+
+
+def workflow_eval_provenance(config: CaliberConfig | None) -> dict[str, Any]:
+    """Say what produced a workflow evaluation's numbers (alpha gap P1-22, after P0-4).
+
+    ``simulated`` is true when the executor is the deterministic fake one, which is
+    chosen whenever the LLM provider is ``fake``: the candidate and baseline are then
+    "replayed" through canned outputs, so the scores are not evidence about a model.
+    ``scorer`` is ``structural`` unless the LLM judge is enabled and available; a
+    structural score checks that the run completed and used its tools, not that the
+    output was good. Both are stored with the results so a reader of the review, the
+    audit trail or the SDK cannot mistake a replay for a measurement.
+    """
+    provider = (getattr(config, "llm_provider", None) or "fake").strip().lower() or "fake"
+    return {
+        "provider": provider,
+        "simulated": provider in ("fake", "deterministic"),
+        "scorer": "llm_judge" if llm_judge_status(config)["available"] else "structural",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -579,7 +598,7 @@ def run_workflow_eval(
     if not isinstance(candidate_manifest, dict) or not isinstance(baseline_manifest, dict):
         raise WorkflowStageError(f"job {job.job_id!r} candidate is missing manifests")
     if candidate.get("calibration") is True:
-        return _run_workflow_calibration_eval(session, job, actor=actor)
+        return _run_workflow_calibration_eval(session, job, actor=actor, config=config)
 
     item = session.get(CaliberVerificationItem, job.primary_item_id)
     # `P2` (isolation closure, item 5): see `run_workflow_candidate` above.
@@ -635,6 +654,7 @@ def run_workflow_eval(
         "n_examples": result.n_examples,
         "gate": result.gate,
         "workflow": True,
+        **workflow_eval_provenance(config),
     }
 
     if not result.passed:
@@ -711,7 +731,11 @@ def _calibration_eval_payload(
 
 
 def _run_workflow_calibration_eval(
-    session: Session, job: CaliberRefinementJob, *, actor: str = "system"
+    session: Session,
+    job: CaliberRefinementJob,
+    *,
+    actor: str = "system",
+    config: CaliberConfig | None = None,
 ) -> CaliberRefinementJob:
     """Reuse selected calibration winner evidence and terminate at candidate_ready."""
     candidate = job.candidate or {}
@@ -747,6 +771,7 @@ def _run_workflow_calibration_eval(
         "calibration_winner_id": winner_id,
         "calibration_low_confidence": bool(candidate.get("calibration_low_confidence", False)),
         "calibration_patch_id": candidate.get("calibration_patch_id"),
+        **workflow_eval_provenance(config),
     }
 
     if not passed:
@@ -796,4 +821,5 @@ __all__ = [
     "run_workflow_candidate",
     "run_workflow_diagnosis",
     "run_workflow_eval",
+    "workflow_eval_provenance",
 ]

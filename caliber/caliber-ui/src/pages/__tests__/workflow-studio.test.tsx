@@ -2581,6 +2581,71 @@ describe("WorkflowDetail calibration", () => {
     );
   });
 
+  it("badges a calibration run whose evaluation was simulated and scored structurally", async () => {
+    const baseJob = {
+      job_id: "RFN-CAL-SIM",
+      agent_id: "support-agent",
+      workflow_id: "WF-1",
+      primary_item_id: "FB-SIM",
+      mlflow_run_id: null,
+      artifact_type: "workflow_manifest",
+      optimizer_type: null,
+      status: "candidate_ready",
+      current_stage: "done",
+      attempt_count: 1,
+      error_message: null,
+      total_tokens: 0,
+      cost_usd: 0,
+      bundle_targets: [],
+      bundle_expansion_count: 0,
+      diagnosis: null,
+      candidate: null,
+      eval_results: {
+        workflow: true,
+        calibration: true,
+        n_examples: 4,
+        gate: { passed: true },
+        provider: "fake",
+        simulated: true,
+        scorer: "structural",
+      },
+      calibration_spec: { objective: { maximize: "quality", epsilon: 0.02 } },
+      created_at: NOW,
+      updated_at: NOW,
+    };
+    const measuredJob = {
+      ...baseJob,
+      job_id: "RFN-CAL-REAL",
+      eval_results: {
+        ...baseJob.eval_results,
+        provider: "openai",
+        simulated: false,
+        scorer: "llm_judge",
+      },
+    };
+    server.use(
+      http.get(`${API_BASE}/jobs`, () => HttpResponse.json(envelope([baseJob, measuredJob]))),
+      ...detailHandlers(),
+    );
+
+    renderAt(<WorkflowDetail />, "/workflows/WF-1", "/workflows/:workflowId");
+    await userEvent.click(await screen.findByTestId("workflow-calibrate"));
+    await screen.findAllByTestId("workflow-calibration-run");
+
+    const [simulated, measured] = screen.getAllByTestId("workflow-calibration-run");
+    expect(simulated).toHaveTextContent("RFN-CAL-SIM");
+    expect(within(simulated!).getByTestId("workflow-calibration-simulated")).toHaveAttribute(
+      "title",
+      expect.stringContaining("not evidence"),
+    );
+    expect(within(simulated!).getByTestId("workflow-calibration-structural")).toBeInTheDocument();
+
+    // A run measured by a real provider and judged by the LLM carries neither badge.
+    expect(measured).toHaveTextContent("RFN-CAL-REAL");
+    expect(within(measured!).queryByTestId("workflow-calibration-simulated")).not.toBeInTheDocument();
+    expect(within(measured!).queryByTestId("workflow-calibration-structural")).not.toBeInTheDocument();
+  });
+
   it("hydrates a deep-linked run from workflow detail query params", async () => {
     const deepLinkedRun = makeRun({
       workflow_run_id: "WR-DEEP-LINK",

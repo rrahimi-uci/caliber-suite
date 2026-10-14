@@ -61,6 +61,19 @@ _REMOTE_STORAGE_SCHEMES = frozenset({"s3", "gs", "az", "azure"})
 _REMOTE_STORAGE_BACKENDS = frozenset({"s3", "gs", "az", "azure"})
 
 
+def workflow_storage_is_remote(config: Any) -> bool:
+    """Whether workflow storage is off this host, by the same rule the readiness probe uses.
+
+    The explicit backend wins; a remote URI scheme is an additional trigger, so neither
+    signal can hide a remote store from the other.
+    """
+    storage = getattr(config, "workflow_storage", None)
+    backend = str(getattr(storage, "backend", "") or "").strip().lower()
+    storage_uri = str(getattr(storage, "base_uri", "") or "")
+    scheme = storage_uri.split("://", 1)[0].lower() if "://" in storage_uri else ""
+    return backend in _REMOTE_STORAGE_BACKENDS or scheme in _REMOTE_STORAGE_SCHEMES
+
+
 @dataclass(frozen=True)
 class Check:
     """One dependency's verdict."""
@@ -498,4 +511,5 @@ __all__ = [
     "Check",
     "ReadinessReport",
     "collect_readiness",
+    "workflow_storage_is_remote",
 ]

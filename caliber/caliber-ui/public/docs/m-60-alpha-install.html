@@ -155,6 +155,12 @@ export CALIBER_LLM_PROVIDER=openai
 export CALIBER_LLM_API_KEY_ENV=OPENAI_API_KEY
 export CALIBER_EVAL_PROVIDER=mlflow</code></pre>
 <p>Restart CALIBER. <code>/readiness</code> then lists nothing under <code>simulated</code>. A real model with the fake evaluator is refused at startup unless you set <code>CALIBER_ALLOW_SIMULATED_PROVIDERS=true</code>.</p>
+<h2 id="waits-approvals-and-queued-runs">Waits, approvals and queued runs<a class="anchor" href="#waits-approvals-and-queued-runs" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>Three settings are off in the steps above. They decide whether a workflow run can pause:</p>
+<pre class="language-bash"><code class="language-bash">export CALIBER_WORKFLOW_RUN_QUEUE_ENABLED=true
+export CALIBER_WORKFLOW_RUN_CHECKPOINTING_ENABLED=true
+export CALIBER_WORKFLOW_RUN_RUNTIME_APPROVALS_ENABLED=true</code></pre>
+<p>With them off, runs execute synchronously and a <strong>Human Approval</strong>, <strong>Wait Until</strong> or <strong>Wait For Event</strong> node cannot pause the run. <code>GET /capabilities</code> reports <code>workflow_runs.approval_readiness.status</code> as <code>configuration_required</code>, naming each missing setting under <code>blockers</code>, and the workflow palette marks those nodes "Needs the run queue". Turning them on lets a run stop at an approval, an event or a time and resume later. Each Human Approval node's own <code>required_role</code> still decides who may approve; with <code>CALIBER_APPROVAL_ALLOW_SELF_APPROVAL</code> unset, the person who started a run cannot approve it. The docker stack sets all three.</p>
 <h2 id="docker-instead">Docker instead<a class="anchor" href="#docker-instead" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>If you would rather run the whole stack in containers, use <code>make start</code> from a source checkout. The container entrypoint runs the migration and sets the roles and providers for you. See <a href="m-32-local-bring-up.html">Local bring-up</a>.</p>
 <h2 id="check-it-yourself">Check it yourself<a class="anchor" href="#check-it-yourself" aria-hidden="true" tabindex="-1">#</a></h2>

@@ -3683,6 +3683,14 @@ class WorkflowComponentSetupCheckSchema(BaseModel):
     minimum: float | None = None
 
 
+class WorkflowComponentRequirementSchema(BaseModel):
+    """One prerequisite of a workflow node and whether this server meets it."""
+
+    id: str
+    label: str
+    met: bool | None = None
+
+
 class WorkflowComponentSchema(BaseModel):
     """Server-backed metadata for one workflow component in the designer."""
 
@@ -3696,6 +3704,11 @@ class WorkflowComponentSchema(BaseModel):
     starter_node: dict[str, Any] | None = None
     fields: list[WorkflowComponentFieldSchema] = Field(default_factory=list)
     setup_checks: list[WorkflowComponentSetupCheckSchema] = Field(default_factory=list)
+    #: Requirement ids this node needs (see ``component_catalog.REQUIREMENT_LABELS``).
+    requires: list[str] = Field(default_factory=list)
+    #: The same requirements with their label and whether the running configuration meets
+    #: them (``null`` when the configuration cannot say). Filled by the route per request.
+    requirements: list[WorkflowComponentRequirementSchema] = Field(default_factory=list)
 
 
 class WorkflowComponentCatalogSchema(BaseModel):

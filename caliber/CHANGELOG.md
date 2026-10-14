@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Workflow nodes say what they need, and workflow calibration says it is simulated.** The palette marks each
+  node whose prerequisite this server lacks ("Needs a real LLM", "Needs an object store", "Needs the run
+  queue", and so on), resolved against the running configuration, and `GET /workflow-components` returns the
+  requirements. A workflow calibration's `eval_results` now carries `provider`, `simulated` and `scorer`: under
+  the default fake LLM the evaluation is replayed rather than measured and is scored structurally, and the
+  workflow page badges it. The install page documents the run queue, checkpointing and approval settings, and
+  the alpha-journey check now also runs the workflow studio and skill/tool builder browser specs.
+
 - **The Tools list says which tools CALIBER seeded and which cannot work yet, and the docs say who is trusted.**
   `GET /tools` returns `builtin`, `availability` and `availability_reason`. A fresh install lists sixteen tools;
   the four agent-memory tools are now marked **Unavailable**, with the reason, while `CALIBER_MEMORY_ENABLED` is

@@ -35,6 +35,15 @@ const GROUP_ICONS: Record<string, LucideIcon> = {
   Utilities: Wrench,
 };
 
+/** Short name for each prerequisite, for the palette badge; the full sentence is the tooltip. */
+export const REQUIREMENT_SHORT_NAMES: Record<string, string> = {
+  real_llm: "a real LLM",
+  object_store: "an object store",
+  mcp_server: "an MCP server",
+  entrypoint_allowlist: "an allowlist",
+  run_queue: "the run queue",
+};
+
 /** Resolve a group's header icon, falling back to a neutral "boxes" glyph. */
 function groupIcon(group: string): LucideIcon {
   return GROUP_ICONS[group] ?? Boxes;
@@ -186,6 +195,22 @@ export function NodePalette({ onAddNode, components = null }: NodePaletteProps):
                       Legacy
                     </span>
                   )}
+                  {(componentMap.get(item.type)?.requirements ?? [])
+                    .filter((requirement) => requirement.met !== true)
+                    .map((requirement) => (
+                      <span
+                        key={requirement.id}
+                        data-testid={`palette-needs-${item.type}-${requirement.id}`}
+                        title={requirement.label}
+                        className={`rounded-full border px-2 py-0.5 font-semibold ${
+                          requirement.met === false
+                            ? "border-amber-300 bg-amber-50 text-amber-800"
+                            : "border-zinc-200 bg-zinc-50 text-zinc-600"
+                        }`}
+                      >
+                        Needs {REQUIREMENT_SHORT_NAMES[requirement.id] ?? requirement.id}
+                      </span>
+                    ))}
                   {(item.fieldCount ?? 0) > 0 && (
                     <span className="rounded-full border border-zinc-200 bg-zinc-50 px-2 py-0.5 font-medium text-zinc-600">
                       {item.fieldCount} field{item.fieldCount === 1 ? "" : "s"}

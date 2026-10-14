@@ -74,6 +74,7 @@ from caliber.schemas import (
     WorkflowBenchmarkReportSchema,
     WorkflowBenchmarkReportUpdateRequest,
     WorkflowComponentCatalogSchema,
+    WorkflowComponentRequirementSchema,
     WorkflowCreateRequest,
     WorkflowCronPreviewSchema,
     WorkflowImportRequest,
@@ -85,7 +86,10 @@ from caliber.schemas import (
     WorkflowVersionSchema,
 )
 from caliber.storage import VISIBLE_STATUSES, StorageError, parse_ref
-from caliber.workflows.component_catalog import build_workflow_component_catalog
+from caliber.workflows.component_catalog import (
+    build_workflow_component_catalog,
+    component_requirements,
+)
 from caliber.workflows.cron import next_fires, validate_cron
 from caliber.workflows.deployment_bundle import require_valid_bundle, verify_bundle
 from caliber.workflows.manifest import (
@@ -283,6 +287,12 @@ async def get_workflow(request: Request) -> JSONResponse:
 async def list_workflow_components(request: Request) -> JSONResponse:
     require_user(request)
     catalog = WorkflowComponentCatalogSchema.model_validate(build_workflow_component_catalog())
+    config = request.app.state.config
+    for component in catalog.components:
+        component.requirements = [
+            WorkflowComponentRequirementSchema.model_validate(item)
+            for item in component_requirements(component.type, config)
+        ]
     return envelope_response(catalog)
 
 

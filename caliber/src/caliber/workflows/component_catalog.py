@@ -84,6 +84,96 @@ _COMPONENT_ORDER: tuple[tuple[str, type[BaseModel]], ...] = (
     ("note", NoteNode),
 )
 
+#: What a node needs before it can do its job (alpha gap P1-22). Every node type has an
+#: entry, empty when it needs nothing beyond the base install, so a new type fails
+#: ``tests/test_workflow_component_requirements.py`` until someone decides. The ids are
+#: resolved against the running configuration by :func:`evaluate_requirements`.
+_COMPONENT_REQUIRES: dict[str, tuple[str, ...]] = {
+    "start": (),
+    "file_input": (),
+    "folder_input": (),
+    "input_bucket": ("object_store",),
+    "output_bucket": ("object_store",),
+    "output_folder": (),
+    "wait_until": ("run_queue",),
+    "wait_for_event": ("run_queue",),
+    "parallel": (),
+    "join": (),
+    "for_each": (),
+    "loop": (),
+    "error_boundary": (),
+    "subworkflow": (),
+    "tool": (),
+    "mcp_resource": ("mcp_server",),
+    "webhook": (),
+    "api_request": (),
+    "knowledge_query": ("object_store",),
+    "knowledge_build": ("object_store",),
+    "template": (),
+    "data_transform": (),
+    "review_queue_enqueue": (),
+    "external_app": ("entrypoint_allowlist",),
+    "python_code": (),
+    "output": (),
+    "agent": ("real_llm",),
+    "router": (),
+    "guardrail": (),
+    "human_approval": ("run_queue",),
+    "note": (),
+}
+
+#: One sentence per requirement id, shown in the palette and the inspector.
+REQUIREMENT_LABELS: dict[str, str] = {
+    "real_llm": (
+        "A real LLM provider. With the default fake provider an agent only echoes a canned reply."
+    ),
+    "object_store": (
+        "A remote object store (MinIO or S3). Without one its buckets cannot be read or written."
+    ),
+    "mcp_server": "A registered MCP server that CALIBER can reach.",
+    "entrypoint_allowlist": (
+        "CALIBER_EXTERNAL_APP_ENTRYPOINT_ALLOWLIST naming the entrypoint. Until it is set "
+        "every entrypoint is refused."
+    ),
+    "run_queue": (
+        "CALIBER_WORKFLOW_RUN_QUEUE_ENABLED=true, with checkpointing, so a run can pause "
+        "and resume. Without them this node cannot wait."
+    ),
+}
+
+
+def evaluate_requirements(config: Any) -> dict[str, bool | None]:
+    """Whether each requirement id is met by ``config``: ``True``, ``False`` or ``None``.
+
+    ``None`` means the configuration cannot say. An MCP server is registered data, not
+    configuration, so the palette shows the requirement without claiming it is unmet. A met
+    requirement means *configured*, not reachable: reachability is what ``/readiness``
+    probes.
+    """
+    from caliber.observability.readiness import workflow_storage_is_remote  # noqa: PLC0415
+
+    provider = (getattr(config, "llm_provider", None) or "fake").strip().lower()
+    return {
+        "real_llm": provider not in ("", "fake", "deterministic"),
+        "object_store": workflow_storage_is_remote(config),
+        "mcp_server": None,
+        "entrypoint_allowlist": bool(
+            str(getattr(config, "external_app_entrypoint_allowlist", "") or "").strip()
+        ),
+        "run_queue": bool(getattr(config, "workflow_run_queue_enabled", False))
+        and bool(getattr(config, "workflow_run_checkpointing_enabled", False)),
+    }
+
+
+def component_requirements(node_type: str, config: Any) -> list[dict[str, Any]]:
+    """The requirements of one node type, each with its label and whether ``config`` meets it."""
+    status = evaluate_requirements(config)
+    return [
+        {"id": requirement, "label": REQUIREMENT_LABELS[requirement], "met": status[requirement]}
+        for requirement in _COMPONENT_REQUIRES[node_type]
+    ]
+
+
 _COMPONENT_LABELS: dict[str, str] = {
     "start": "Start",
     "file_input": "File Input",
@@ -1171,6 +1261,7 @@ def _build_component_item(*, node_type: str, model_cls: type[BaseModel]) -> dict
         "starter_node": _normalize_json_value(_DESIGNER_STARTER_NODES.get(node_type)),
         "fields": fields,
         "setup_checks": list(_COMPONENT_SETUP_CHECKS.get(node_type, ())),
+        "requires": list(_COMPONENT_REQUIRES[node_type]),
         "legacy": node_type in _LEGACY_COMPONENTS,
         "legacy_replacement": _LEGACY_COMPONENTS.get(node_type),
     }

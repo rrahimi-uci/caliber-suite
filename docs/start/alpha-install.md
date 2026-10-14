@@ -164,6 +164,24 @@ export CALIBER_EVAL_PROVIDER=mlflow
 Restart CALIBER. `/readiness` then lists nothing under `simulated`. A real model with the fake
 evaluator is refused at startup unless you set `CALIBER_ALLOW_SIMULATED_PROVIDERS=true`.
 
+## Waits, approvals and queued runs
+
+Three settings are off in the steps above. They decide whether a workflow run can pause:
+
+```bash
+export CALIBER_WORKFLOW_RUN_QUEUE_ENABLED=true
+export CALIBER_WORKFLOW_RUN_CHECKPOINTING_ENABLED=true
+export CALIBER_WORKFLOW_RUN_RUNTIME_APPROVALS_ENABLED=true
+```
+
+With them off, runs execute synchronously and a **Human Approval**, **Wait Until** or **Wait For Event**
+node cannot pause the run. `GET /capabilities` reports `workflow_runs.approval_readiness.status` as
+`configuration_required`, naming each missing setting under `blockers`, and the workflow palette marks
+those nodes "Needs the run queue". Turning them on lets a run stop at an approval, an event or a time and
+resume later. Each Human Approval node's own `required_role` still decides who may approve; with
+`CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` unset, the person who started a run cannot approve it. The docker
+stack sets all three.
+
 ## Docker instead
 
 If you would rather run the whole stack in containers, use `make start` from a source checkout.

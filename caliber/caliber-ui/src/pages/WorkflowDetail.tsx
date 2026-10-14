@@ -910,6 +910,7 @@ function WorkflowCalibrationRunsList({
               CALIBRATION_RUN_STATUS_BADGE[run.status] ??
               "bg-slate-100 text-slate-500 ring-slate-200/60";
             const summary = calibrationRunEvalSummary(run);
+            const evidence = workflowCalibrationView(run);
             const isApplying = applyingJobId === run.job_id;
             return (
               <li
@@ -925,6 +926,24 @@ function WorkflowCalibrationRunsList({
                     {run.status.replace(/_/g, " ")}
                   </span>
                   {summary && <span className="text-slate-500">{summary}</span>}
+                  {evidence?.simulated === true && (
+                    <span
+                      data-testid="workflow-calibration-simulated"
+                      title={`Simulated evaluation, not evidence: the ${evidence.evalProvider ?? "fake"} executor replays canned outputs, so these scores were not measured on a model.`}
+                      className="inline-flex items-center rounded-md bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-800 ring-1 ring-amber-200/70"
+                    >
+                      Simulated evaluation
+                    </span>
+                  )}
+                  {evidence?.scorer === "structural" && (
+                    <span
+                      data-testid="workflow-calibration-structural"
+                      title="Structural scoring checks that the run completed and used its tools. It does not grade the quality of the output."
+                      className="inline-flex items-center rounded-md bg-slate-100 px-2 py-0.5 text-[10px] font-semibold text-slate-600 ring-1 ring-slate-200/70"
+                    >
+                      Structural score
+                    </span>
+                  )}
                 </div>
                 {run.status === "candidate_ready" && (
                   <button
