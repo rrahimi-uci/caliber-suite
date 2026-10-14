@@ -97,6 +97,7 @@ export CALIBER_TOKEN=calpat_...
 
 caliberctl whoami
 caliberctl workflow run --workflow-id WF-123 --input '{"claim_id": "C-1"}'</code></pre>
+<p><strong>Where the first token comes from.</strong> <code>caliberctl token create</code> needs a token to run, so the first one is issued in the browser: sign in, open <strong>Settings → API tokens</strong>, name it, choose the scopes it needs, and copy the secret when it is shown (it is shown once). Use it as <code>CALIBER_TOKEN</code> or pass <code>--token</code>. The same page lists your tokens and can rotate or revoke them; a revoked token stops working immediately and <code>caliberctl whoami</code> then exits with the unauthenticated code.</p>
 <p><code>caliberctl</code> is a thin wrapper. It invents no backend semantics: where a command appears to decide something, it is translating a state the server reported into an exit code.</p>
 <h3 id="exit-codes-are-the-interface">Exit codes are the interface<a class="anchor" href="#exit-codes-are-the-interface" aria-hidden="true" tabindex="-1">#</a></h3>
 <p>A CLI for CI jobs that only ever exits 0 or 1 forces every caller to parse its output. This one has ten codes:</p>

@@ -336,4 +336,22 @@ describe("Settings page", () => {
     const openLink = screen.getByRole("link", { name: "Open Allure report" });
     expect(openLink).toHaveAttribute("href", "http://localhost:5252/allure");
   });
+
+  it("has an API tokens tab, open to every signed-in user, that lists tokens and offers create", async () => {
+    server.use(
+      http.get(`${API_BASE}/me`, () =>
+        HttpResponse.json(
+          envelope({ user_id: "@ana", scopes: ["caliber.viewer"], is_admin: false }),
+        ),
+      ),
+      http.get(`${API_BASE}/auth/tokens`, () => HttpResponse.json(envelope({ tokens: [] }))),
+    );
+    renderPage();
+
+    await userEvent.click(await screen.findByRole("button", { name: "API tokens" }));
+
+    expect(await screen.findByTestId("api-tokens-tab")).toBeInTheDocument();
+    expect(await screen.findByRole("button", { name: "Create token" })).toBeInTheDocument();
+    expect(await screen.findByText("You have not created any tokens yet.")).toBeInTheDocument();
+  });
 });

@@ -66,6 +66,40 @@ export interface CSRFTokenResponse {
   ttl_seconds: number;
 }
 
+/** A personal access token's metadata. It never carries the secret. */
+export interface PersonalAccessToken {
+  token_id: string;
+  user_id: string;
+  name: string;
+  scopes: string[];
+  created_at: string | null;
+  created_by: string | null;
+  expires_at: string | null;
+  last_used_at: string | null;
+  revoked_at: string | null;
+  revoked_reason: string | null;
+  rotated_from: string | null;
+  active: boolean;
+  project_id: string | null;
+}
+
+/** The one response that carries the plaintext secret, returned exactly once. */
+export interface IssuedPersonalAccessToken extends PersonalAccessToken {
+  token: string;
+}
+
+export interface PersonalAccessTokenList {
+  tokens: PersonalAccessToken[];
+}
+
+export interface PersonalAccessTokenCreate {
+  name: string;
+  scopes: string[];
+  /** ISO-8601; omit for a token that does not expire. */
+  expires_at?: string;
+  project_id?: string;
+}
+
 export interface CurrentUserInfo {
   user_id: string;
   scopes: string[];

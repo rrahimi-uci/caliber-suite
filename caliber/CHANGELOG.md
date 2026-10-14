@@ -155,6 +155,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Settings → API tokens.** A signed-in user can create, list, rotate and revoke personal access
+  tokens in the web app. The secret is shown once, when a token is created or rotated, and is not kept
+  anywhere afterwards. Only the scopes the user holds are offered, and the server's refusal for an
+  over-scoped request is shown as-is. This is the on-ramp for the SDK and `caliberctl`: the command line
+  needs a token to issue a token, so the first one had to come from somewhere else and nothing in the UI
+  did it. The SDK, CLI and alpha-install docs now say where to get it.
+
 - **Alpha install page and verification.** `docs/start/alpha-install.md` takes a second person from
   the release wheels to a logged-in administrator who can create a project and a prompt, with no
   checkout and no Docker. `scripts/verify-alpha-install.sh` executes the page in a scratch directory

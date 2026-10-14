@@ -125,6 +125,11 @@ human timescale, and carry the user's full authority.
 sdk/caliber-sdk/examples/tokens.py#issue_scoped_token
 ```
 
+The first token has to come from somewhere other than the SDK, since issuing one needs a credential.
+Sign in to the web app and open **Settings → API tokens** to create it: choose the scopes, copy the
+secret (shown once), and pass it as `CALIBER_TOKEN` or `token=`. The same page lists, rotates and
+revokes your tokens.
+
 **Scopes are a ceiling, not a grant.** The effective authority is what the token
 requested *intersected with* what its owner holds at request time. So a token
 cannot exceed its owner, and demoting the owner narrows every token they hold —

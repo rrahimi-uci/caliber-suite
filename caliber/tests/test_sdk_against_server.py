@@ -591,6 +591,48 @@ def cli_main(client: TestClient, monkeypatch: pytest.MonkeyPatch):
     return caliber_cli_cli.main
 
 
+@pytest.fixture
+def cli_as_token_only(client: TestClient, monkeypatch: pytest.MonkeyPatch):
+    """``caliberctl`` against the real application with no identity header, so the
+    personal access token is the only credential in play."""
+    anonymous = TestClient(client.app, headers={"X-CALIBER-User": ""})
+
+    def patched(*args: object, **kwargs: object) -> object:
+        kwargs["http_client"] = anonymous
+        return caliber_sdk.CaliberClient(*args, **kwargs)
+
+    monkeypatch.setattr(caliber_cli_cli, "CaliberClient", patched)
+    monkeypatch.setenv("CALIBER_BASE_URL", "http://testserver")
+    monkeypatch.setenv("CALIBER_TOKEN", "")
+    yield caliber_cli_cli.main
+    anonymous.close()
+
+
+def test_a_token_issued_over_rest_authenticates_caliberctl_until_it_is_revoked(
+    client: TestClient, cli_as_token_only: object, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """The Settings page's token flow, against the real server (alpha gap P1-07).
+
+    The page issues a token with ``POST /auth/tokens``. ``caliberctl`` cannot issue the
+    first one (it needs a token to run ``token create``), so that token has to work in
+    the CLI, and revoking it has to stop it.
+    """
+    prefix = "/ajax-api/2.0/mlflow/caliber"
+    issued = client.post(
+        f"{prefix}/auth/tokens",
+        json={"name": "from-the-settings-page", "scopes": ["caliber.viewer"]},
+    ).json()["data"]
+
+    assert cli_as_token_only(["--token", issued["token"], "whoami"]) == exits.OK  # type: ignore[operator]
+    assert "from-the-settings-page" not in capsys.readouterr().err
+
+    revoked = client.delete(f"{prefix}/auth/tokens/{issued['token_id']}")
+    assert revoked.status_code == 200
+    assert revoked.json()["data"]["revoked"] is True
+
+    assert cli_as_token_only(["--token", issued["token"], "whoami"]) == exits.UNAUTHENTICATED  # type: ignore[operator]
+
+
 def test_the_cli_drives_the_governance_verbs_against_the_real_server(
     cli_main: object, sdk: object
 ) -> None:

@@ -146,6 +146,7 @@ curl -s -b jar -X POST $B/projects -H 'content-type: application/json' \
 curl -s -b jar -X POST $B/prompts -H 'content-type: application/json' \
   -d '{"name":"my-first-prompt","template":"Answer briefly: {{question}}"}'</code></pre>
 <p>With a release wheel, open <code>http://127.0.0.1:5001/caliber/</code> and sign in as <code>admin</code> / <code>admin</code>.</p>
+<p>For the Python SDK or <code>caliberctl</code>, create a token under <strong>Settings → API tokens</strong> in the UI and use it as <code>CALIBER_TOKEN</code>. The command line cannot issue the first one.</p>
 <h2 id="real-llm-and-evaluation">Real LLM and evaluation<a class="anchor" href="#real-llm-and-evaluation" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Evidence you can trust needs a real evaluator and a real model. Install the extra, set the key, and switch both providers:</p>
 <pre class="language-bash"><code class="language-bash">pip install --find-links ./wheels "caliber-suite[llm]"

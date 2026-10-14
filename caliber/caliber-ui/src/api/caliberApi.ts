@@ -34,6 +34,10 @@ import type {
   ApiErrorBody,
   CSRFTokenResponse,
   CurrentUserInfo,
+  IssuedPersonalAccessToken,
+  PersonalAccessToken,
+  PersonalAccessTokenCreate,
+  PersonalAccessTokenList,
   DashboardSummary,
   Envelope,
   EvalDataset,
@@ -1121,6 +1125,40 @@ export const caliberApi = {
   /** GET /dashboard/summary */
   getDashboardSummary(signal?: AbortSignal): Promise<DashboardSummary> {
     return request<DashboardSummary>("/dashboard/summary", { signal });
+  },
+
+  /** GET /auth/tokens — the signed-in user's access tokens (never a secret). */
+  async listAccessTokens(signal?: AbortSignal): Promise<PersonalAccessToken[]> {
+    const body = await request<PersonalAccessTokenList>("/auth/tokens", { signal });
+    return body.tokens;
+  },
+
+  /** POST /auth/tokens — issue a token. The response carries the secret exactly once. */
+  createAccessToken(
+    payload: PersonalAccessTokenCreate,
+  ): Promise<IssuedPersonalAccessToken> {
+    return request<IssuedPersonalAccessToken>("/auth/tokens", {
+      method: "POST",
+      body: payload,
+    });
+  },
+
+  /** DELETE /auth/tokens/{id} — revoke; the token stops authenticating immediately. */
+  revokeAccessToken(
+    tokenId: string,
+  ): Promise<{ token_id: string; revoked: boolean }> {
+    return request<{ token_id: string; revoked: boolean }>(
+      `/auth/tokens/${encodeURIComponent(tokenId)}`,
+      { method: "DELETE" },
+    );
+  },
+
+  /** POST /auth/tokens/{id}/rotate — replace with a new secret, same name and scopes. */
+  rotateAccessToken(tokenId: string): Promise<IssuedPersonalAccessToken> {
+    return request<IssuedPersonalAccessToken>(
+      `/auth/tokens/${encodeURIComponent(tokenId)}/rotate`,
+      { method: "POST" },
+    );
   },
 
   /** GET /me */
