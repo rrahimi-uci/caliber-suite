@@ -211,13 +211,27 @@ settings: change the first-boot password immediately and never carry them into a
 
 🔗 Open the native-development UI at **`http://127.0.0.1:5001/caliber/`**.
 
-## Supported v1 journey: governed prompt refinement
+## Supported alpha journey: governed prompt refinement
 
-CALIBER's canonical v1 path is **governed prompt refinement**: production trace → flagged assessment →
-verify → diagnose → optimize → evaluate → apply → promote. This is the end-to-end reference journey for
-v1; other asset families implement subsets of that lifecycle. The supported local development path runs
-standalone CALIBER (`uvicorn caliber.server:create_app --factory --reload`) separately from its backing
-services, which can run via Compose.
+The journey the alpha supports, and proves in CI on every change, is: **author a prompt → build a test set →
+calibrate to get a candidate with evaluation evidence → review and apply it to the live alias → see what is
+live and why → roll it back.** Each step is an action in the app (Prompts, Test Sets, the prompt's
+Calibration stage, the review dialog, Releases) and has a typed Python SDK equivalent. See
+[Alpha install](docs/start/alpha-install.md) to get there and
+[Alpha scope and limitations](docs/start/alpha-scope.md) for what is in, what is preview, and what to
+watch for.
+
+One thing the older description of this loop claimed does **not** exist in the alpha: nothing watches
+production traces and starts a refinement from a flagged one. Calibration starts from a prompt and a test
+set that you create. The trace-to-refinement automation is out of scope for this release, and verifying an
+item in the verification queue does not start a job.
+
+With the shipped defaults the language model and the evaluator are simulated, so a candidate's scores are
+canned. The app says so on every screen that shows them. Real evidence needs a real model and evaluator
+([Real LLM and evaluation](docs/start/alpha-install.md#real-llm-and-evaluation)). The supported local
+development path runs standalone CALIBER
+(`uvicorn caliber.server:create_app --factory --reload`) separately from its backing services, which can
+run via Compose.
 
 On a fresh local database, sign in with **username `admin` and password `admin`**. Change
 the password immediately in **Administration**; the bootstrap runs only while the account

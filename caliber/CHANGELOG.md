@@ -181,6 +181,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Alpha scope and limitations, and a backup page that names every store.** A new "Alpha scope and known
+  limitations" page states what the alpha does, what is preview or out, and what to watch for: no
+  trace-to-refinement automation, traces visible to every signed-in user, no two-person Apply, CSRF off by
+  default, simulated defaults, SQLite only with a separate MLflow store. The README no longer describes a
+  trace-to-verify loop that the alpha does not have. The backup page now covers the MLflow backend store (where
+  prompt versions and aliases live, which the old page omitted, so following it lost every prompt version), the
+  MLflow artifact root, the object store, workflow storage and the secret encryption key, with a command for each,
+  a restore checklist and a plain "not rehearsed" statement.
+
 - **The app says what is supported and what is not.** The sidebar now leads with the core journey (Prompts,
   Test Sets, Evaluations, Releases), then Skills, Tools, Workflows and Knowledge Bases, and marks MCP Servers,
   OpenAPI Integrations, Cookbooks and Aria Plans with a Preview pill, a page-header badge and a banner. On the

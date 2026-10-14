@@ -16,6 +16,11 @@ window.DOCS_DATA = {
           "newtab": false
         },
         {
+          "href": "m-61-alpha-scope.html",
+          "label": "Alpha scope and limitations",
+          "newtab": false
+        },
+        {
           "href": "m-37-five-minute-quickstart.html",
           "label": "5-minute quickstart",
           "newtab": false
@@ -1198,6 +1203,32 @@ window.DOCS_DATA = {
       "nav_hidden": false
     },
     {
+      "href": "m-61-alpha-scope.html",
+      "label": "Alpha scope and limitations",
+      "section": "Start here",
+      "section_id": "start",
+      "summary": "What the 0.1.0a1 alpha does, what is in, preview or out, and the known limitations to read before relying on it.",
+      "audience": [
+        "developer",
+        "operator",
+        "decision-maker"
+      ],
+      "doc_type": "concept",
+      "prerequisites": [
+        "None"
+      ],
+      "stability": "beta",
+      "reviewed_on": "2026-10-13",
+      "version_applicability": "0.1.0a1 alpha",
+      "tags": [
+        "alpha",
+        "scope",
+        "limitations"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
       "href": "m-31-auth-and-project-scoping.html",
       "label": "Auth and project scoping",
       "section": "Build & integrate",
@@ -1467,7 +1498,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment or disaster-recovery review"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-13",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "backup",

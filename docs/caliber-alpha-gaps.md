@@ -923,11 +923,12 @@ deferral.
   - Rewrite the backup page.
 - **Files:** `README.md`, `docs/reports/two-week-alpha-release-notes.md`, `docs/operate/backup-and-recovery.md`, `docs/operate/storage-and-state.md`, `docs/build/auth-and-project-scoping.md`, `routes/observability.py`.
 - **Deps:** All P0s (the content must match the fixed behaviour).
-- **Acceptance:**
-  - [ ] Every journey step in the README maps to an existing UI action (reviewer checklist in the PR).
-  - [ ] The limitations list is present.
-  - [ ] The backup page names the MLflow backend store and artifacts, with SQLite and Postgres commands.
-  - [ ] Docs contract tests pass.
+- **Status: implemented.** New `docs/start/alpha-scope.md` ("Alpha scope and known limitations", registered in the docs site) states the journey, the supported setups, the maturity table and the limitations: no trace-to-refinement automation, traces visible to every signed-in user, no two-person Apply, CSRF off by default, simulated defaults, SQLite only with a separate MLflow store, the process-boundary tool sandbox, the object store prerequisite, and no HA, rehearsed backup or upgrade guarantee. The README journey section now describes the alpha journey and says plainly that no trace watcher exists; `docs/refinement-loop.md` carries the same note; `docs/reports/two-week-alpha-release-notes.md` is marked superseded; `docs/operate/backup-and-recovery.md` is rewritten to name every store (the MLflow backend store, where prompt versions and aliases live, the MLflow artifact root, the object store, workflow storage and the secret encryption key) with PostgreSQL, SQLite, file and bucket commands, a restore checklist and a "not rehearsed" statement, and no longer links a disaster-recovery plan that does not exist; `docs/operate/storage-and-state.md` and `docs/build/auth-and-project-scoping.md` state the same facts; the `post_feedback` docstring no longer claims polling.
+- **Acceptance criteria:**
+  - [x] Every journey step in the README maps to an existing UI action. Reviewer checklist: Prompts (New prompt, Author), Test Sets (page and the Workspace Test Sets stage), the prompt's Calibration stage (Start Calibration Run), the review dialog (Review & apply, Apply candidate), Releases (What's live now), the version row's Roll back. The `user-prompt-journey` Playwright spec drives each of them.
+  - [x] The limitations list is present (`docs/start/alpha-scope.md`).
+  - [x] The backup page names the MLflow backend store and artifacts, with SQLite and PostgreSQL commands.
+  - [x] Docs contract tests pass.
 
 ### P1-16
 

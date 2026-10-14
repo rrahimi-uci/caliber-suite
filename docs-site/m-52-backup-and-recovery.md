@@ -3,49 +3,99 @@
 
 # Backup and recovery
 
-Use this page when you need the operator view of what CALIBER state must be
-preserved, what can be rebuilt, and where the disaster-recovery boundary stops
-and asset-specific rollback begins.
+Use this page when you need to know what CALIBER state must be preserved, how to copy
+each part, and where disaster recovery stops and asset-specific rollback begins.
+
+**Not rehearsed.** The commands below are standard tools for each store and are correct as
+written, but the alpha has not run a full restore drill. Treat your first restore as a test,
+not a procedure, and rehearse it before you depend on it.
 
 ## At a glance
 
-| Surface | Preserve it? | Why it matters |
-| --- | --- | --- |
-| Metadata database | yes | control-plane records, governed state, releases, jobs, and references |
-| Object store data | yes | uploads, previews, extracted artifacts, and log sink material |
-| Workflow storage | yes | run workspaces and file-backed workflow evidence |
-| Generated docs/UI assets | rebuildable | these come from repository sources and build outputs |
+| State | Where it lives | Holds | Preserve it? |
+| --- | --- | --- | --- |
+| CALIBER database | `CALIBER_DATABASE_URL` | projects, members, accounts, jobs, approvals, release operations, the audit log, test sets, skills, workflows, knowledge-base metadata | yes |
+| **MLflow backend store** | the `--backend-store-uri` you gave `mlflow server` | **prompt versions and their aliases**, experiments, runs and traces | **yes** |
+| MLflow artifact root | the `--default-artifact-root` of your `mlflow server` | run and trace artifacts | yes |
+| Object store | the S3 or MinIO buckets named in `CALIBER_OBJECT_STORE_*` | uploads, knowledge-base sources and built indexes, log sink files | yes, if you use them |
+| Workflow storage | `CALIBER_WORKFLOW_STORAGE_*` | run workspaces and file-backed workflow evidence | yes, if you use workflows |
+| Secret encryption key | the source named by `CALIBER_SECRET_ENCRYPTION_KEY_SOURCE` | the key that decrypts stored secrets | yes, **separately** |
+| Generated docs and UI assets | repository build output | nothing unique | no, rebuild |
 
-## 1. Back up the state that cannot be re-derived safely
+The row to notice is the MLflow backend store. **Prompt versions and the `prod` alias live there, not
+in the CALIBER database.** The CALIBER database holds the audit log and the release records that point
+at those versions. A backup of the CALIBER database alone restores a history that names versions the
+registry no longer has.
 
-The safest minimum backup set is:
+## 1. Back up the stores together
 
-- metadata database
-- object-store content
-- workflow storage
+Take the CALIBER database and the MLflow backend store at the same point in time, so releases
+recorded in one match the versions in the other. If they share one database or one SQLite file,
+one backup covers both.
 
-Without those together, a restore may recover only part of the product state.
+### PostgreSQL
+
+```bash
+# CALIBER database
+pg_dump --format=custom --file=caliber.dump "$CALIBER_DATABASE_URL"
+# MLflow backend store: the same URI you passed to `mlflow server --backend-store-uri`
+# (skip if it is the same database as above)
+pg_dump --format=custom --file=mlflow.dump "$MLFLOW_BACKEND_STORE_URI"
+```
+
+Use a libpq URL (`postgresql://user@host/db`); replace the `+psycopg` driver suffix if your URL has one.
+Restore with `pg_restore --clean --if-exists --dbname="$TARGET_URL" caliber.dump`.
+
+### SQLite
+
+```bash
+# Online, consistent copy; safe while the server runs
+sqlite3 caliber.db ".backup 'caliber.backup.db'"
+sqlite3 mlflow.db  ".backup 'mlflow.backup.db'"
+```
+
+Copying the file with `cp` while the server is writing can produce a torn copy. Use `.backup`, or stop
+the server first. Restore by putting the backup file back at the path in the URL.
+
+### Files and buckets
+
+```bash
+# MLflow artifact root and workflow storage on local disk
+rsync -a /path/to/mlflow-artifacts/ /backup/mlflow-artifacts/
+rsync -a /path/to/workflow-storage/ /backup/workflow-storage/
+
+# Object-store buckets (MinIO shown; use `aws s3 sync` for AWS S3)
+mc mirror --preserve local/caliber-bucket /backup/caliber-bucket
+```
+
+### The secret encryption key
+
+Back up the key behind `CALIBER_SECRET_ENCRYPTION_KEY_SOURCE` somewhere other than the database backup.
+Without it, restored secrets cannot be decrypted.
 
 ## 2. Distinguish disaster recovery from feature rollback
 
-Recovery of the deployment itself is not the same as rolling back a governed
-asset release. Use the disaster-recovery plan to restore the platform, then use
-asset-specific rollback or release controls where needed.
+Restoring the deployment is not the same as rolling back a governed release. After a restore,
+use the product's own controls: roll a prompt back from its version history, or use the recovery
+console on the Releases page for a release that was left incomplete.
 
-## 3. Verify restores, not just backups
+## 3. After a restore
 
-The useful operator question is not “did a backup job run?” but “can this
-deployment restore to a usable, trustworthy state?”
+Run `caliber-migrate` against the restored CALIBER database so its schema matches the installed
+release, then verify:
 
-After a restore rehearsal, verify:
-
-- readiness
-- storage access
-- release and review history visibility
+- `GET /ajax-api/2.0/mlflow/caliber/readiness` reports `ready: true`, including the `schema` check
+- the version history of a prompt you know (Prompts, then its Author stage) shows the versions and the
+  live badge you expect
+- the Releases page lists what was live, and the Audit Log shows the history
+- on the Releases page, **Reconcile releases** reports nothing incomplete. A release that was in flight
+  when the backup was taken can be left `applying` or `prepared`, and the console resolves it against the
+  registry.
 
 ## 4. Related docs
 
 - [Storage and state](m-49-storage-and-state.md)
 - [Health and readiness](m-50-health-and-readiness.md)
+- [Alpha scope and limitations](m-61-alpha-scope.md)
 - [Operations runbook](m-19-runbook.md)
 - [The refinement loop](m-00-refinement-loop.md)

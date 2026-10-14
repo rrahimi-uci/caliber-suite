@@ -332,9 +332,11 @@ async def get_trace(request: Request) -> JSONResponse:
 async def post_feedback(request: Request) -> JSONResponse:
     """Attach a human feedback assessment to a trace (mlflow.log_feedback).
 
-    Lets reviewers score/annotate a trace from CALIBER — the assessment lands on
-    the MLflow trace and feeds CALIBER's assessment-polling / refinement loop, so
-    the human-in-the-loop stays in-app. Returns the trace's refreshed assessments.
+    Lets reviewers score/annotate a trace from CALIBER. The assessment is recorded on
+    the MLflow trace and in the audit log, and the trace's refreshed assessments are
+    returned. It does **not** start a refinement: no poller reads assessments back, and
+    the flagged-trace to calibration loop is out of scope for the alpha (see
+    ``docs/start/alpha-scope.md``).
     """
     user = require_user(request)
     trace_id = str(request.path_params["trace_id"])

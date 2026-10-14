@@ -101,6 +101,12 @@
       "nav_order": 14
     },
     {
+      "href": "m-61-alpha-scope.html",
+      "label": "Alpha scope and limitations",
+      "section": "start",
+      "nav_order": 14.5
+    },
+    {
       "href": "m-37-five-minute-quickstart.html",
       "label": "5-minute quickstart",
       "section": "start",

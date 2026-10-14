@@ -107,6 +107,16 @@ weak receives a permission error. `caliber.admin` can read every project's jobs
 but, like every other role-gated action, is not an implicit member, so applying
 or rolling back needs a real role in that project.
 
+### What the alpha does not enforce
+
+- **Traces are not project-scoped.** The observability pages and the trace and metric routes are open
+  to every signed-in user, so anyone who can sign in can read traces and their payloads.
+- **Apply has no second approver.** An `owner` or `editor` reviews and applies in one step. The approval
+  record created at Apply time is an audit and rollback anchor that names who applied.
+- **CSRF protection is off by default.** `CALIBER_CSRF_ENABLED` is false unless you set it, which assumes
+  a loopback or trusted-network deployment. Enable it, with a signing secret, before exposing CALIBER more
+  widely. See [Alpha scope and limitations](../start/alpha-scope.md).
+
 ## 4. SDK path
 
 If you are writing Python, use the SDK unless you specifically need the raw

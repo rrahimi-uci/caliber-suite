@@ -23,6 +23,11 @@ tags:
 
 > **v1 scope:** The concrete prompt-refinement path described here is the supported v1 reference journey. CALIBER runs as a standalone service (Topology B) against a separately running MLflow server over HTTP. Other asset families implement subsets of this lifecycle.
 
+> **Alpha note:** in the `0.1.0a1` alpha the loop starts at stage ②, not at a flagged trace. Nothing watches
+> production traces, there is no "flag this trace" action, and verifying an item does not start a job.
+> You start a calibration from a prompt and a test set, and stages ② to ⑥ run as described. See
+> [Alpha scope and limitations](start/alpha-scope.md).
+
 ## At a glance
 
 Every other topic in this documentation — prompts, tools, skills, MCP servers, workflows, knowledge bases, test sets, evaluation, calibration, governance, and the Aria copilot — supports one product motion: **turn a flagged production response into a measured candidate with an attributable deployment decision**. The concrete prompt-refinement path below has six numbered stages and two human decisions: verification and review/apply. The seven-term `Signal → Evidence → Candidate → Measurement → Decision → Release → Trace` chain in the [layered architecture](../ARCHITECTURE.md) is an abstract lifecycle map, not a second seven-stage worker pipeline: the incoming trace and feedback supply its signal, evidence assembly is folded into the transition from Verify toward Diagnose, and the next trace closes the loop after stage 6. Other asset families implement subsets of the lifecycle and must not be assumed to share its aliases, gates, or rollback semantics.
