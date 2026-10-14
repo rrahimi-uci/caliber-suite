@@ -1235,47 +1235,47 @@ ticked with linked evidence.
 ### Security and correctness
 
 - [x] **P0-1** closed. A non-member gets 404 and a viewer gets 403 on every job, alias, rollback and test-run route, and a regression test guards the job routes.
-- [ ] **P1-01** closed. Project-bound PATs cannot act outside their project on any route.
+- [x] **P1-01** closed. Project-bound PATs cannot act outside their project on any route.
 - [x] **P0-2** closed. Apply succeeds with CALIBER and MLflow on the same SQLite file in a test and in the browser journey, and the Day 9 attribution is corrected.
 - [x] **P0-3** closed. With no provider env, Apply moves the real MLflow alias. No audit row claims a release that did not occur.
-- [ ] **P0-4** closed. Simulated eval results carry `provider` and `simulated` everywhere they are persisted, report true example counts, and show a non-dismissible badge in the review dialog.
-- [ ] **P1-02** closed. Prompt create, version, delete, Settings key change and trace feedback are audited.
+- [x] **P0-4** closed. Simulated eval results carry `provider` and `simulated` everywhere they are persisted, report true example counts, and show a non-dismissible badge in the review dialog.
+- [x] **P1-02** closed. Prompt create, version, delete, Settings key change and trace feedback are audited.
 
 ### Install and operate
 
-- [ ] **P0-5** closed. `docs/start/alpha-install.md` exists and `scripts/verify-alpha-install.sh` passes in CI: migrate → admin login with `is_admin:true` → create project → create prompt.
-- [ ] The docker stack (`make start`) was brought up on the release candidate commit and the journey ran. The result is recorded in the release PR.
-- [ ] **P1-03** closed. Readiness reports a `schema` blocker on an unmigrated DB.
-- [ ] **P1-04** closed. With MLflow down, writes fail in under 45 s with a clear message, and the UI shows the blocker.
-- [ ] **P1-09** closed. A user can get from the default install to a real evaluation by following the docs, and Settings shows the provider per subsystem.
+- [x] **P0-5** closed. `docs/start/alpha-install.md` exists and `scripts/verify-alpha-install.sh` passes in CI: migrate → admin login with `is_admin:true` → create project → create prompt.
+- [ ] The docker stack (`make start`) was brought up on the release candidate commit and the journey ran. The result is recorded in the release PR. (Passed on `main` by `workflow_dispatch` and on every stack-smoke PR run, and is recorded in #484; re-run it on the tag commit.)
+- [x] **P1-03** closed. Readiness reports a `schema` blocker on an unmigrated DB.
+- [x] **P1-04** closed. With MLflow down, writes fail in under 45 s with a clear message, and the UI shows the blocker.
+- [x] **P1-09** closed. A user can get from the default install to a real evaluation by following the docs, and Settings shows the provider per subsystem.
 
 ### Journey proof
 
-- [ ] **P0-6** closed. The `alpha-journey` CI check runs both the seeded spec and the user-created-prompt spec, and is green on the tag commit.
-- [ ] **P1-19** closed. The SDK drives the same journey against an in-process server in CI.
+- [ ] **P0-6** closed (all but the tag-commit run). The `alpha-journey` CI check runs both the seeded spec and the user-created-prompt spec, and is green on the tag commit.
+- [x] **P1-19** closed. The SDK drives the same journey against an in-process server in CI.
 - [ ] The full backend suite, UI unit tests, SDK, CLI and plugin-SDK suites, docs validation, type check, lint, security scan and wheel build are green on the tag commit. Backend coverage is ≥ 90%.
-- [ ] **P1-16** closed. Required status checks are enabled on `main`.
-- [ ] **P1-17** closed. CI installs and boots the built wheel. A scheduled compose smoke exists and has passed at least once.
+- [x] **P1-16** closed. Required status checks are enabled on `main`.
+- [x] **P1-17** closed. CI installs and boots the built wheel. A scheduled compose smoke exists and has passed at least once.
 
 ### Honest product surface
 
-- [ ] **P1-05, P1-06, P1-07, P1-08** closed. The health light is truthful, storing a secret works, PATs can be issued from the UI, and the login form shows truthful errors.
-- [ ] **P1-10** closed. The preview, record-only and experimental labels match §2.2 in the UI, CLI help, docs chips and README.
-- [ ] **P1-11, P1-12** closed. Aria is hidden or explained without an engine, 0-step plans cannot complete, and KB create fails fast without an object store.
-- [ ] **P1-13, P1-14** closed. Releases shows the live prompt, and a released version links to its job, evidence, dataset version and applier.
-- [ ] **P1-15** closed. The README journey, scope note, known limitations and backup page match actual behaviour.
+- [x] **P1-05, P1-06, P1-07, P1-08** closed. The health light is truthful, storing a secret works, PATs can be issued from the UI, and the login form shows truthful errors.
+- [x] **P1-10** closed. The preview, record-only and experimental labels match §2.2 in the UI, CLI help, docs chips and README.
+- [x] **P1-11, P1-12** closed. Aria is hidden or explained without an engine, 0-step plans cannot complete, and KB create fails fast without an object store.
+- [x] **P1-13, P1-14** closed. Releases shows the live prompt, and a released version links to its job, evidence, dataset version and applier.
+- [x] **P1-15** closed. The README journey, scope note, known limitations and backup page match actual behaviour.
 
 ### Extended tier
 
 - [x] **P1-24** closed. Isolation and audit tests exist for skills, tools, workflows and knowledge bases, and every cross-project write they found is fixed. One exception is recorded rather than fixed and needs an owner decision: `/gate-verdicts` keys a verdict by a free-form string that names no artifact, so no project can be derived. Nothing reads it for a decision and the UI has no consumer (P2 backlog).
-- [ ] **P1-20** closed. The skill journey spec is green in CI, and the SDK drives it.
-- [ ] **P1-21** closed. The tool trust boundary is documented, the tool journey spec is green, and seeded tools are labelled.
-- [ ] **P1-22** closed. The workflow specs are green in CI, runtime settings are documented, node prerequisites are visible, and workflow calibration evidence is marked.
-- [ ] **P1-23** closed. Knowledge-base prerequisites are documented, the journey ran on the docker stack, and a MinIO+PostgreSQL CI job is green.
+- [x] **P1-20** closed. The skill journey spec is green in CI, and the SDK drives it.
+- [x] **P1-21** closed. The tool trust boundary is documented, the tool journey spec is green, and seeded tools are labelled.
+- [x] **P1-22** closed. The workflow specs are green in CI, runtime settings are documented, node prerequisites are visible, and workflow calibration evidence is marked.
+- [x] **P1-23** closed. Knowledge-base prerequisites are documented, the journey ran on the docker stack, and a MinIO+PostgreSQL CI job is green.
 
 ### Release cut
 
-- [ ] **P1-18** closed. The SDK/CLI docs install from release assets, and the CLI pins `caliber-sdk`.
+- [x] **P1-18** closed. The SDK/CLI docs install from release assets, and the CLI pins `caliber-sdk`.
 - [ ] **P0-7** closed:
   - The tag `caliber-v0.1.0a1` is a GitHub **prerelease** carrying the server wheel and sdist plus the SDK, CLI and plugin-SDK wheels.
   - The `0.1.0a1` changelog section is dated.
