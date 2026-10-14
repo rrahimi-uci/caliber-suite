@@ -44,7 +44,7 @@ from caliber.db.models import (
     CaliberWorkflowFile,
     CaliberWorkflowRun,
 )
-from caliber.resource_access import require_project_access
+from caliber.resource_access import ACTION_EXECUTE, require_project_access
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -94,7 +94,9 @@ def _storage_http(exc: StorageError) -> HTTPException:
     return HTTPException(status_code=status, detail=str(exc))
 
 
-def _require_run(session: Session, run_id: str, *, request: Request) -> CaliberWorkflowRun:
+def _require_run(
+    session: Session, run_id: str, *, request: Request, action: str | None = None
+) -> CaliberWorkflowRun:
     """Resolve the run, but only if its parent workflow is visible to the caller (C3).
 
     This was a bare ``session.get``, and it is the most consequential instance of the C3
@@ -105,6 +107,9 @@ def _require_run(session: Session, run_id: str, *, request: Request) -> CaliberW
 
     ``request`` is keyword-only and required: an optional scope argument is one a caller
     forgets, and here the forgotten case serves artifact content across a project boundary.
+
+    ``action`` is the project action a route that *adds* to the run's files needs on the
+    workflow's project (alpha gap P1-24); read routes leave it ``None``.
     """
     run = scoped_child_or_404(
         session,
@@ -114,6 +119,7 @@ def _require_run(session: Session, run_id: str, *, request: Request) -> CaliberW
         child_label="workflow run",
         parent_model=CaliberWorkflow,
         parent_pk=CaliberWorkflow.workflow_id,
+        action=action,
     )
     return cast("CaliberWorkflowRun", run)
 
@@ -246,7 +252,7 @@ async def run_upload(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     try:
         with factory() as session:
-            run = _require_run(session, run_id, request=request)
+            run = _require_run(session, run_id, request=request, action=ACTION_EXECUTE)
             scoped_service = service
             if run.project_id:
                 project = session.get(CaliberProject, run.project_id)
@@ -383,7 +389,7 @@ async def register_artifact(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     service = get_working_dir_service(request)
     with factory() as session:
-        _require_run(session, run_id, request=request)
+        _require_run(session, run_id, request=request, action=ACTION_EXECUTE)
         row = _file_for_run_or_404(session, run_id, file_id)
         row.status = "artifact"
         row.kind = "artifact"

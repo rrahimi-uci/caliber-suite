@@ -75,7 +75,12 @@ from caliber.ids import (
     new_skill_id,
     new_skill_test_run_id,
 )
-from caliber.resource_access import require_project_access_if_scoped
+from caliber.resource_access import (
+    ACTION_EXECUTE,
+    ACTION_WRITE_EVIDENCE,
+    ACTION_WRITE_RUNTIME,
+    require_project_access_if_scoped,
+)
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -181,7 +186,9 @@ _XML_TAG_RE = re.compile(r"<[a-zA-Z/]")
 _SKILL_VAR_RE = re.compile(r"\{\{\s*([a-zA-Z0-9_.-]+)\s*\}\}")
 
 
-def _visible_skill_or_404(session: Session, request: Request, skill_id: str) -> CaliberSkill:
+def _visible_skill_or_404(
+    session: Session, request: Request, skill_id: str, *, action: str | None = None
+) -> CaliberSkill:
     """Resolve one skill through the same visibility policy as ``list_skills``.
 
     `P2` (isolation closure, item 1): ``list_skills`` already scopes via
@@ -193,12 +200,19 @@ def _visible_skill_or_404(session: Session, request: Request, skill_id: str) -> 
     every verb on one authorization rule and returns 404 so a forbidden id
     is indistinguishable from a missing one, matching
     ``routes/tools.py::_visible_tool_or_404``.
+
+    ``action`` is the project action a mutating route needs on the skill's project. A
+    member whose role lacks it answers 403 after visibility passed (alpha gap P1-24): a
+    viewer could previously record a baseline, rebind a skill or queue a calibration.
     """
+    identity = resolve_identity(request)
     row: CaliberSkill | None = get_visible(
-        session, CaliberSkill, CaliberSkill.skill_id, skill_id, resolve_identity(request)
+        session, CaliberSkill, CaliberSkill.skill_id, skill_id, identity
     )
     if row is None:
         raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+    if action is not None:
+        require_project_access_if_scoped(session, identity, row.project_id, action)
     return row
 
 
@@ -598,9 +612,10 @@ async def rollback_skill(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        skill = session.get(CaliberSkill, skill_id)
-        if skill is None:
-            raise HTTPException(status_code=404, detail=f"skill {skill_id!r} not found")
+        # Visibility and project role, not just the admin scope: a global admin is not an
+        # implicit member, and this was a bare ``session.get`` that let one roll back a
+        # skill in a project it did not belong to (alpha gap P1-24).
+        skill = _visible_skill_or_404(session, request, skill_id, action=ACTION_WRITE_RUNTIME)
 
         prior = _previous_skill_version(session, skill)
         if prior is None:
@@ -1009,7 +1024,7 @@ async def create_skill_test_run(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        _visible_skill_or_404(session, request, payload.skill_id)
+        _visible_skill_or_404(session, request, payload.skill_id, action=ACTION_WRITE_EVIDENCE)
 
         run = CaliberSkillTestRun(
             test_run_id=new_skill_test_run_id(),
@@ -1223,7 +1238,7 @@ async def set_skill_baseline(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        skill = _visible_skill_or_404(session, request, skill_id)
+        skill = _visible_skill_or_404(session, request, skill_id, action=ACTION_WRITE_EVIDENCE)
 
         run = session.get(CaliberSkillTestRun, payload.test_run_id)
         if run is None:
@@ -1297,7 +1312,7 @@ async def bind_skill(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        skill = _visible_skill_or_404(session, request, skill_id)
+        skill = _visible_skill_or_404(session, request, skill_id, action=ACTION_WRITE_RUNTIME)
 
         agent = None
         if payload.kind == "agent":
@@ -1366,7 +1381,7 @@ async def calibrate_skill(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        skill = _visible_skill_or_404(session, request, skill_id)
+        skill = _visible_skill_or_404(session, request, skill_id, action=ACTION_EXECUTE)
 
         # Auto-provision the hidden runtime identity for the skill so the
         # verification-item + refinement-job FKs (both reference

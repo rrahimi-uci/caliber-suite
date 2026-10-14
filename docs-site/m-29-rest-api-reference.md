@@ -531,7 +531,7 @@ Supported management routes that belong to the stable public automation surface.
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service/tokens` | `caliber.operator` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_service_tokens` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service/tokens` | `caliber.operator` | `workflow_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_service_tokens`; request body documented in OpenAPI |
 | `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/service/tokens/{token_id}` | `caliber.operator` | `token_id`, `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflows_workflow_id_service_tokens_token_id` |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/session-memory` | `caliber.operator` | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflows_workflow_id_session_memory` |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/session-memory` | project role | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflows_workflow_id_session_memory` |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/session-memory` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_session_memory` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/trigger` | project role (`resource.execute`) | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflows_workflow_id_trigger`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflows/{workflow_id}/versions` | any authenticated user | `workflow_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflows_workflow_id_versions` |
@@ -570,8 +570,8 @@ Supported management routes that belong to the stable public automation surface.
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/by-trace/{trace_id}` | any authenticated user | `trace_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_by_trace_trace_id` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/resume-by-event` | project role (`resource.execute`) | — | `202`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_resume_by_event`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_approval_approve`; request body documented in OpenAPI |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/reject` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_approval_reject`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/approve` | project role | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_approval_approve`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approval/reject` | project role | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_approval_reject`; request body documented in OpenAPI |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/approvals` | any authenticated user | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_runs_run_id_approvals` |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/artifacts` | `caliber.operator` | `run_id` | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_artifacts`; request body documented in OpenAPI |
 | `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-runs/{run_id}/cancel` | project role (`resource.execute`) | `run_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_runs_run_id_cancel`; request body documented in OpenAPI |
@@ -980,9 +980,9 @@ Supported but still moving route groups. Expect capability growth and narrower c
 | Method | Path | Required scope | Parameters | Responses | Details |
 | --- | --- | --- | --- | --- | --- |
 | `GET` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports` | any authenticated user | — | `200`, `400`, `401`, `403`, `404` | `operationId`: `get_workflow_benchmark_reports` |
-| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports` | `caliber.operator` | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_benchmark_reports`; request body documented in OpenAPI |
-| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports/{report_id}` | `caliber.operator` | `report_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflow_benchmark_reports_report_id` |
-| `PATCH` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports/{report_id}` | `caliber.operator` | `report_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_workflow_benchmark_reports_report_id`; request body documented in OpenAPI |
+| `POST` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports` | project role | — | `201`, `400`, `401`, `403`, `404` | `operationId`: `post_workflow_benchmark_reports`; request body documented in OpenAPI |
+| `DELETE` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports/{report_id}` | project role | `report_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `delete_workflow_benchmark_reports_report_id` |
+| `PATCH` | `/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports/{report_id}` | project role | `report_id` | `200`, `400`, `401`, `403`, `404` | `operationId`: `patch_workflow_benchmark_reports_report_id`; request body documented in OpenAPI |
 
 ### Internal routes
 

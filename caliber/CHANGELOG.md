@@ -9,6 +9,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **A project viewer can no longer publish, promote, approve, run or calibrate in skills, tools and workflows.**
+  Only the workflow, run and knowledge-base roots checked a project role, so a read-only member could publish a
+  workflow version, move the production alias, approve a pending production promotion, publish a workflow as a
+  service and mint a bearer token for it, run a tool, replace its test cases, record a skill baseline, rebind a
+  skill and queue a calibration; and a global admin who was not a member could roll back a skill in someone
+  else's project. Every mutating route of those families now needs the project role its action names
+  (`resource.write.runtime`, `.write.evidence`, `.execute`, `.publish`, `.approve`), and a non-member still
+  answers 404. A member whose role is too weak answers 403. The contract is documented in
+  "Auth and project scoping", and a new test sweeps every route as an outsider, a viewer, a reviewer, an editor
+  and a non-member admin. `/gate-verdicts` is not project-scoped (see the known limits).
+
 - **`/readiness` no longer reports 503 forever on the docker stack, and CI now boots both the wheel and the stack.**
   The object-store readiness probe listed an empty prefix, which the S3 backend rejects as `unsafe path: ''`, so
   any deployment using MinIO or S3 for workflow storage (the shipped docker stack) stayed not-ready. The probe now

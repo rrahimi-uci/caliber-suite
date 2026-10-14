@@ -302,6 +302,11 @@ def test_bare_lookup_call_site_count_is_pinned() -> None:
     (alpha gap P0-1): the prompt promote/rollback gate looks up the prompt's hidden
     target by name and immediately enforces the `release.apply` project role, the
     same shape as `create_prompt_version`.
+
+    `admin_only` 6 -> 5 is `routes.skills.rollback_skill` (alpha gap P1-24): it was a bare
+    lookup behind the admin scope alone, which let a global admin who was not a member roll a
+    skill back in another project. It now resolves through `_visible_skill_or_404` with the
+    `resource.write.runtime` project role.
     """
     from collections import Counter
 
@@ -309,12 +314,12 @@ def test_bare_lookup_call_site_count_is_pinned() -> None:
     counts = Counter(f.kind for f in findings)
     assert counts == {
         "gated": 9,
-        "admin_only": 6,
+        "admin_only": 5,
         "existence_only": 3,
         "role_gated_own_project": 2,
         "reviewed": 5,
     }
-    assert len(findings) == 25
+    assert len(findings) == 24
 
 
 def test_findings_only_cover_scoping_visibility_models() -> None:

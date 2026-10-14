@@ -34,6 +34,7 @@ from caliber.db.models import (
 )
 from caliber.db.scoping import get_visible
 from caliber.ids import new_item_id, new_job_id
+from caliber.resource_access import ACTION_EXECUTE, require_project_access_if_scoped
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
 from caliber.schemas import (
     RefinementJobSchema,
@@ -247,6 +248,11 @@ def enqueue_workflow_calibration_run(
     )
     if workflow is None:
         raise HTTPException(status_code=404, detail=f"workflow {workflow_id!r} not found")
+    if identity is not None:
+        # Queueing a calibration spends evaluation budget and produces a candidate for
+        # review, so it needs the execute role on the workflow's project (alpha gap
+        # P1-24). Direct internal callers with no identity keep their unscoped behavior.
+        require_project_access_if_scoped(session, identity, workflow.project_id, ACTION_EXECUTE)
     agent = (
         get_visible(
             session, CaliberAgentConfig, CaliberAgentConfig.agent_id, payload.agent_id, identity

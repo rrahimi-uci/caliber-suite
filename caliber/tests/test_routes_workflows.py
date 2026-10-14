@@ -777,7 +777,11 @@ def test_create_workflow_benchmark_report_rejects_duplicate_name_in_same_project
     """Same scope check as above, but with an active project header set --
     covers the pre-check's other branch (`project_id == active_project_id`
     rather than `project_id IS NULL`)."""
-    headers = {"X-CALIBER-Project": "PRJ-bakeoff"}
+    # A report is created into a real project the caller belongs to; naming one that does
+    # not exist is a 404 (alpha gap P1-24), so the project is created first.
+    project = client.post(f"{PREFIX}/projects", json={"name": "Bakeoff Project"})
+    assert project.status_code == 201, project.text
+    headers = {"X-CALIBER-Project": project.json()["data"]["project_id"]}
     first = client.post(
         f"{PREFIX}/workflow-benchmark-reports",
         json=_benchmark_report_payload("Project Bakeoff"),

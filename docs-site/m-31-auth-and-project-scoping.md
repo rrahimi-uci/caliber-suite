@@ -92,7 +92,35 @@ weak receives a permission error. `caliber.admin` can read every project's jobs
 but, like every other role-gated action, is not an implicit member, so applying
 or rolling back needs a real role in that project.
 
+### Skills, tools, workflows and knowledge bases follow the project
+
+The same rule covers every other project-scoped family: a caller who is not a member of the project
+receives a not-found response, and a member whose role is too weak receives a permission error that
+names the role. What each role may do on a mutating route:
+
+| Action | Project role needed |
+| --- | --- |
+| Create or change a skill, tool, workflow, workflow version or knowledge base; clear workflow session memory | `owner` or `editor` |
+| Publish a workflow version, promote or roll back an alias, publish or unpublish a workflow service, mint or revoke a service token | `owner` or `editor` |
+| Run a workflow or a tool, start a calibration, upload a file into a run | `owner`, `editor` or `reviewer` |
+| Record a test run or a baseline for a skill or tool; create or change a benchmark report | `owner`, `editor` or `reviewer` |
+| Approve or reject a pending production promotion, or a run waiting for approval | `owner` or `reviewer` |
+| Read, list, render, preview, validate, or query | any member |
+
+Creating a skill, tool, workflow or knowledge base is checked against the project named in
+`X-CALIBER-Project`. Registering, changing or archiving a tool, and changing or rolling back a skill, also
+need the global `caliber.admin` scope, which is checked first. Before this contract only the workflow,
+run and knowledge-base roots checked a project role, so a `viewer` could publish a workflow version, move
+a production alias, approve a pending production promotion, publish a workflow as a service and mint a
+bearer token for it, run a tool, replace its test cases, and queue a calibration. `tests/test_extended_family_isolation.py`
+sweeps every one of these routes as an outsider, a viewer, a reviewer and an editor.
+
 ### What the alpha does not enforce
+
+- **Gate verdicts are not project-scoped.** `GET` and `POST /gate-verdicts/{artifact_type}/{version_key}`
+  key a verdict by a free-form string that names no artifact, so no project can be derived from it, and any
+  operator can overwrite any verdict. The verdict is advisory: no Apply, promotion or release decision reads it,
+  and the UI has no consumer for it.
 
 - **Traces are not project-scoped.** The observability pages and the trace and metric routes are open
   to every signed-in user, so anyone who can sign in can read traces and their payloads.

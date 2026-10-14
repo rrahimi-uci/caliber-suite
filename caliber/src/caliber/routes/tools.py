@@ -48,7 +48,12 @@ from caliber.db.scoping import apply_visibility_filter, get_visible
 from caliber.egress import EgressPolicy
 from caliber.ids import new_tool_id, new_tool_test_run_id
 from caliber.orchestrator import calibration_drain
-from caliber.resource_access import require_project_access_if_scoped
+from caliber.resource_access import (
+    ACTION_EXECUTE,
+    ACTION_WRITE_EVIDENCE,
+    ACTION_WRITE_RUNTIME,
+    require_project_access_if_scoped,
+)
 from caliber.routes._deps import (
     envelope_response,
     get_session_factory,
@@ -156,7 +161,9 @@ async def list_tools(request: Request) -> JSONResponse:
     return envelope_response(items)
 
 
-def _visible_tool_or_404(session: Session, request: Request, tool_id: str) -> CaliberToolRegistry:
+def _visible_tool_or_404(
+    session: Session, request: Request, tool_id: str, *, action: str | None = None
+) -> CaliberToolRegistry:
     """Resolve one tool through the same visibility policy as the registry list.
 
     Tool list was scoped while most nested routes used bare primary-key reads. Knowing a
@@ -164,16 +171,20 @@ def _visible_tool_or_404(session: Session, request: Request, tool_id: str) -> Ca
     calibration, usage, workspace, and baseline changes even when the caller could not
     list the parent. A shared parent lookup keeps every verb on one authorization rule and
     returns 404 so a forbidden id is indistinguishable from a missing one.
+
+    ``action`` is the project action a mutating or executing route needs on the tool's
+    project. A member whose role lacks it answers 403 after visibility passed (alpha gap
+    P1-24): a viewer could previously run a tool, replace its fixtures or start a
+    calibration.
     """
+    identity = resolve_identity(request)
     row: CaliberToolRegistry | None = get_visible(
-        session,
-        CaliberToolRegistry,
-        CaliberToolRegistry.tool_id,
-        tool_id,
-        resolve_identity(request),
+        session, CaliberToolRegistry, CaliberToolRegistry.tool_id, tool_id, identity
     )
     if row is None:
         raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+    if action is not None:
+        require_project_access_if_scoped(session, identity, row.project_id, action)
     return row
 
 
@@ -198,6 +209,7 @@ def _resolve_running_calibration_job(
         )
         if tool is None:
             raise HTTPException(status_code=404, detail=f"tool {tool_id!r} not found")
+        require_project_access_if_scoped(session, identity, tool.project_id, ACTION_EXECUTE)
         job = session.get(CaliberCalibrationJob, job_id)
         if job is None or job.tool_id != tool_id:
             raise HTTPException(status_code=404, detail=f"calibration job {job_id!r} not found")
@@ -739,7 +751,7 @@ async def test_run_tool(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        tool = _visible_tool_or_404(session, request, tool_id)
+        tool = _visible_tool_or_404(session, request, tool_id, action=ACTION_EXECUTE)
         tool_data = ToolSchema.model_validate(tool)
 
     invocation = await run_in_threadpool(
@@ -761,7 +773,7 @@ async def save_tool_test_cases(request: Request) -> JSONResponse:
     cases = [case.model_dump() for case in payload.test_cases]
     factory = get_session_factory(request)
     with factory() as session:
-        tool = _visible_tool_or_404(session, request, tool_id)
+        tool = _visible_tool_or_404(session, request, tool_id, action=ACTION_WRITE_RUNTIME)
         if list(tool.test_cases or []) != cases:
             tool.test_cases = cases
             calibration_drain.invalidate_tool_calibration(session, tool)
@@ -830,7 +842,7 @@ async def submit_calibration(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        tool = _visible_tool_or_404(session, request, tool_id)
+        tool = _visible_tool_or_404(session, request, tool_id, action=ACTION_EXECUTE)
         saved_cases = list(tool.test_cases or [])
         if not saved_cases:
             raise HTTPException(
@@ -990,7 +1002,7 @@ async def calibrate_tool(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        tool = _visible_tool_or_404(session, request, tool_id)
+        tool = _visible_tool_or_404(session, request, tool_id, action=ACTION_EXECUTE)
         saved_cases = list(tool.test_cases or [])
         if not saved_cases:
             raise HTTPException(
@@ -1186,7 +1198,7 @@ async def create_tool_test_run(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        _visible_tool_or_404(session, request, payload.tool_id)
+        _visible_tool_or_404(session, request, payload.tool_id, action=ACTION_WRITE_EVIDENCE)
 
         run = CaliberToolTestRun(
             test_run_id=new_tool_test_run_id(),
@@ -1375,7 +1387,7 @@ async def set_tool_baseline(request: Request) -> JSONResponse:
 
     factory = get_session_factory(request)
     with factory() as session:
-        tool = _visible_tool_or_404(session, request, tool_id)
+        tool = _visible_tool_or_404(session, request, tool_id, action=ACTION_WRITE_EVIDENCE)
 
         run = _visible_tool_test_run_or_404(session, request, payload.test_run_id)
         if run.tool_id != tool_id:

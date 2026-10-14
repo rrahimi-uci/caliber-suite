@@ -267,6 +267,7 @@ def scoped_child_or_404(
     parent_model: Any,
     parent_pk: Any,
     parent_id_attr: str = "workflow_id",
+    action: str | None = None,
 ) -> Any:
     """Fetch ``child`` by id, but only if its **parent** is visible to the caller.
 
@@ -284,6 +285,11 @@ def scoped_child_or_404(
     * **An orphaned child (no resolvable parent) 404s too**, rather than being allowed
       through as "unscoped". Failing open on a dangling foreign key would make data
       corruption an access-control bypass.
+
+    ``action`` names the project action a *mutating* route needs on the parent's project
+    (for example ``resource.publish``). A member whose role lacks it answers 403, after
+    visibility has already passed, so a non-member still sees 404. Read routes leave it
+    ``None``. A parent with no project (a personal resource) has no role to check.
     """
     row = session.get(child, child_id)
     if row is None:
@@ -294,7 +300,14 @@ def scoped_child_or_404(
     from caliber.auth import resolve_identity  # noqa: PLC0415 - avoids an import cycle
     from caliber.db.scoping import get_visible  # noqa: PLC0415
 
-    parent = get_visible(session, parent_model, parent_pk, parent_id, resolve_identity(request))
+    identity = resolve_identity(request)
+    parent = get_visible(session, parent_model, parent_pk, parent_id, identity)
     if parent is None:
         raise HTTPException(status_code=404, detail=f"{child_label} {child_id!r} not found")
+    if action is not None:
+        from caliber.resource_access import require_project_access_if_scoped  # noqa: PLC0415
+
+        require_project_access_if_scoped(
+            session, identity, getattr(parent, "project_id", None), action
+        )
     return row
