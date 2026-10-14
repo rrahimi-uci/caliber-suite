@@ -40,15 +40,33 @@ function PlanList({ onOpen }: { onOpen: (id: string) => void }): JSX.Element {
   const [autonomy, setAutonomy] = useState<AriaAutonomy>("approve_plan");
   const [submitting, setSubmitting] = useState(false);
   const [actionError, setActionError] = useState<string | null>(null);
+  const [planWarning, setPlanWarning] = useState<string | null>(null);
+  // Whether Aria can answer at all. The planner itself is deterministic, but the assistant
+  // behind it needs an engine key, and without one every reply fails (alpha gap P1-11).
+  const ariaConfig = useApi(
+    useCallback(() => caliberApi.getAssistantConfig(), []),
+    [],
+  );
+  const ariaUnavailableReason =
+    ariaConfig.data?.configured === false
+      ? (ariaConfig.data.reason ?? "Aria is not configured on this deployment.")
+      : null;
 
   const decompose = async (): Promise<void> => {
     if (!goal.trim()) return;
     setSubmitting(true);
     setActionError(null);
+    setPlanWarning(null);
     try {
       const detail = await caliberApi.createAriaPlan({ goal: goal.trim(), autonomy });
-      setGoal("");
       refresh();
+      if (detail.warnings && detail.warnings.length > 0) {
+        // Nothing matched. Keep the goal in the box so it can be reworded, and say why,
+        // instead of opening an empty plan that looks ready to approve.
+        setPlanWarning(detail.warnings[0] ?? null);
+        return;
+      }
+      setGoal("");
       onOpen(detail.plan.plan_id);
     } catch (err) {
       setActionError(err instanceof ApiError ? err.message : "failed to decompose goal");
@@ -78,7 +96,7 @@ function PlanList({ onOpen }: { onOpen: (id: string) => void }): JSX.Element {
         </p>
       </div>
       <PreviewBanner>
-        Aria needs a configured LLM engine to answer; without one every reply fails.
+        {ariaUnavailableReason ?? "Aria needs a configured LLM engine to answer."}
       </PreviewBanner>
 
       <div className="mb-6 bg-white rounded-lg border border-surface-200 p-4">
@@ -116,6 +134,15 @@ function PlanList({ onOpen }: { onOpen: (id: string) => void }): JSX.Element {
           </button>
         </div>
         {actionError && <div className="mt-2 text-sm text-red-600">{actionError}</div>}
+        {planWarning && (
+          <div
+            role="alert"
+            data-testid="aria-plan-warning"
+            className="mt-2 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+          >
+            {planWarning}
+          </div>
+        )}
       </div>
 
       {error && (
@@ -289,7 +316,8 @@ function PlanDetail({
                 </button>
                 <button
                   type="button"
-                  disabled={pending}
+                  disabled={pending || steps.length === 0}
+                  title={steps.length === 0 ? "This plan has no steps, so there is nothing to approve." : undefined}
                   onClick={() => void run(() => caliberApi.approveAriaPlan(planId))}
                   className="text-sm font-medium text-white bg-caliber-purple px-3 py-1.5 rounded-md hover:bg-caliber-purple-dark disabled:opacity-50"
                 >

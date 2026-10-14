@@ -4,6 +4,7 @@
  * toggle.
  */
 
+import { caliberApi } from "@/api/caliberApi";
 import { AriaLogo } from "@/components/assistant/AriaLogo";
 import { useAssistantPanel } from "@/components/assistant/AssistantPanelContext";
 import { BrandAcronym, BRAND_ACRONYM_TEXT } from "@/components/BrandAcronym";
@@ -13,6 +14,7 @@ import {
   type HealthStatus,
 } from "@/components/useHealthStatus";
 import { WorkspaceSelector } from "@/components/WorkspaceSelector";
+import { useApiQuery } from "@/hooks/useApiQuery";
 
 import { useTheme } from "./useTheme";
 
@@ -30,6 +32,16 @@ export function TopBar({
   onLogout,
 }: TopBarProps): JSX.Element {
   const { open: assistantOpen, toggle: toggleAssistant } = useAssistantPanel();
+  // Aria cannot answer without an engine key. Offering it on every page anyway made the most
+  // visible control produce a provider error on a default install (alpha gap P1-11), so the
+  // toggle is disabled and says why. A server that does not report ``configured`` is treated
+  // as configured.
+  const ariaConfig = useApiQuery(["assistant", "config"], () => caliberApi.getAssistantConfig(), {
+    retry: false,
+    staleTime: 30_000,
+  });
+  const ariaUnavailable = ariaConfig.data?.configured === false;
+  const ariaReason = ariaConfig.data?.reason ?? "Aria is not configured on this deployment.";
   const { theme, toggle: toggleTheme } = useTheme();
   const staticPrefix =
     (typeof window !== "undefined" && window.__CALIBER_STATIC_PREFIX__) || "";
@@ -86,8 +98,12 @@ export function TopBar({
           type="button"
           aria-label="Ask Aria"
           aria-pressed={assistantOpen}
+          aria-describedby={ariaUnavailable ? "ask-aria-unavailable" : undefined}
+          disabled={ariaUnavailable}
+          title={ariaUnavailable ? ariaReason : undefined}
+          data-testid="ask-aria"
           onClick={toggleAssistant}
-          className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-semibold transition-all duration-200 ${
+          className={`inline-flex items-center gap-2 rounded-xl border px-3.5 py-2 text-sm font-semibold transition-all duration-200 disabled:cursor-not-allowed disabled:opacity-50 ${
             assistantOpen
               ? "border-caliber-300 bg-caliber-50 text-caliber-700 dark:border-caliber-500/70 dark:bg-caliber-500/15 dark:text-caliber-200"
               : "border-slate-200/60 bg-slate-50 text-slate-500 hover:bg-slate-100 hover:text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300 dark:hover:bg-white/10 dark:hover:text-slate-100"
@@ -96,6 +112,11 @@ export function TopBar({
           <AriaLogo className="h-5 w-5" alt="" />
           <span className="hidden sm:inline">Ask Aria</span>
         </button>
+        {ariaUnavailable && (
+          <span id="ask-aria-unavailable" className="sr-only">
+            {ariaReason}
+          </span>
+        )}
 
         <div className="h-4 w-px bg-slate-200 dark:bg-white/15" />
         {/* Health dot */}

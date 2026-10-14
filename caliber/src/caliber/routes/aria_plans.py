@@ -18,6 +18,7 @@ interactions.
 from __future__ import annotations
 
 from datetime import datetime, timezone
+from typing import Any
 
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
@@ -84,6 +85,26 @@ async def list_plans(request: Request) -> JSONResponse:
     return envelope_response(plans)
 
 
+_NO_STEPS_WARNING = (
+    "No platform steps matched this goal, so there is nothing to approve. Name what you want "
+    "created, for example 'create a test set' or 'create a judge', and the plan will list its steps."
+)
+
+
+def _refuse_empty_plan(detail: dict[str, Any], action: str) -> None:
+    """A plan with no steps cannot be approved or run.
+
+    It used to approve and execute straight to ``completed``, so a governed product
+    reported success for a no-op (alpha gap P1-11). Refused at both the approve and the
+    execute call, because a zero-step plan created before this check can still be stored.
+    """
+    if detail["plan"].get("step_count", 0) == 0:
+        raise HTTPException(
+            status_code=409,
+            detail=f"this plan has no steps, so it cannot be {action}. {_NO_STEPS_WARNING}",
+        )
+
+
 async def create_plan(request: Request) -> JSONResponse:
     actor = require_user(request)
     body = await parse_json_object(request)
@@ -101,6 +122,10 @@ async def create_plan(request: Request) -> JSONResponse:
         done_when=payload.done_when,
         context_refs=payload.context_refs,
     )
+    if detail["plan"]["step_count"] == 0:
+        # The planner found nothing to do for this goal. Saying so at creation is kinder
+        # than a plan that can be approved and "completed" without doing anything.
+        detail["warnings"] = [_NO_STEPS_WARNING]
     return envelope_response_dict(detail, status_code=201)
 
 
@@ -176,6 +201,7 @@ async def approve_plan(request: Request) -> JSONResponse:
         raise HTTPException(
             status_code=409, detail=f"plan is {detail['plan']['status']!r}, not draft"
         )
+    _refuse_empty_plan(detail, "approved")
     # `P2-A`: same `resource.execute` role floor as `update_plan` above --
     # visibility alone let any active project member, including a plain
     # `viewer`, approve a teammate's plan for execution.
@@ -259,6 +285,7 @@ async def execute_plan(request: Request) -> JSONResponse:
             status_code=409,
             detail=f"plan is {detail['plan']['status']!r}; approve it before executing",
         )
+    _refuse_empty_plan(detail, "executed")
     result = _executor.execute(
         session_factory=factory,
         config=_config(request),

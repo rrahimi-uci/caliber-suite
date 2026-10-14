@@ -9,6 +9,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **Aria no longer fails silently on a default install.** With no LLM key, every Aria turn replied `An error
+  occurred: OpenAIError` while "Ask Aria" was offered on every page, and a goal the planner could not map
+  produced an empty plan that approved and executed to `completed`. `GET /assistant/config` now reports
+  `configured` and `reason`; the "Ask Aria" button is disabled with the reason; a missing key reads
+  "OPENAI_API_KEY is not set" with what to do. A plan with no steps is flagged when it is created and refused
+  (409) when approved or executed, and "test set" now plans `eval_dataset.create`.
+
 - **Apply no longer deadlocks against MLflow on a shared SQLite file.** `POST /jobs/{id}/apply`
   held its claim and approval row in an uncommitted write transaction across the call that
   registers the new prompt version, and MLflow does that through its own engine; on one SQLite

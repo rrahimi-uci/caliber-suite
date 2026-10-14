@@ -815,11 +815,12 @@ deferral.
   - Add the synonym "test set" → `eval_dataset`.
 - **Files:** `routes/assistant.py`, `assistant/openai_engine.py`, `assistant/anthropic_engine.py`, `assistant/plans.py`, `routes/aria_plans.py`, `components/TopBar.tsx`, `components/Sidebar.tsx`.
 - **Deps:** [P1-10](#p1-10).
-- **Acceptance:**
-  - [ ] `configured:false` with no key (route test).
-  - [ ] The toggle is hidden or disabled (Vitest).
-  - [ ] A missing-key message names the variable.
-  - [ ] Executing a 0-step plan returns 409, and the plan never reaches `completed`.
+- **Status: implemented.** `routes/assistant.py` (`_engine_status`; `GET` and `PATCH /assistant/config` now carry `configured` and `reason`, and the reason names the key variable and says to restart), `assistant/service.py` (`assistant_failure_message`: a missing key reads "Aria cannot answer yet: OPENAI_API_KEY is not set..." instead of `An error occurred: OpenAIError`; other failures keep only the class name), `routes/aria_plans.py` (a plan with no steps is flagged with a `warnings` entry on creation and refused with 409 at approve and at execute) and `assistant/plans.py` ("test set", "test-set", "testset" and "eval dataset" now plan `eval_dataset.create`). UI: the TopBar "Ask Aria" toggle is disabled with the reason as a tooltip and an accessible description; the Aria Plans page banner shows the reason, an unmapped goal keeps its text and shows the warning instead of opening an empty plan, and Approve is disabled on a plan with no steps. Tests: `tests/test_aria_honesty.py` (23), `top-bar-aria.test.tsx`, `aria-plans.test.tsx`. The Plans nav entry stays: the planner is deterministic and needs no key, and the page now says what Aria itself needs.
+- **Acceptance criteria:**
+  - [x] `configured:false` with no key (route test, for OpenAI, auto resolved to OpenAI, Anthropic, and a disabled assistant; configured for a key, a custom key variable, fake and ollama).
+  - [x] The toggle is disabled with the reason (Vitest); a server that does not report `configured`, an unreadable config and a configured engine all leave it enabled.
+  - [x] A missing-key message names the variable (OpenAI, Anthropic and a generic key complaint, and it never echoes the raw exception).
+  - [x] Executing a 0-step plan returns 409, and the plan never reaches `completed` (including a zero-step plan already stored as `approved`).
 
 ### P1-12
 

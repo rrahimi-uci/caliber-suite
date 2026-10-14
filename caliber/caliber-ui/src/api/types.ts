@@ -1481,6 +1481,8 @@ export interface AriaPlanStep {
 export interface AriaPlanDetail {
   plan: AriaPlan;
   steps: AriaPlanStep[];
+  /** Set on creation when the planner found nothing to do for the goal. */
+  warnings?: string[];
 }
 
 export interface AriaPlanCreatePayload {

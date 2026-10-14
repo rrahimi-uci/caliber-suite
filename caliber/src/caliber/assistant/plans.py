@@ -50,6 +50,14 @@ class Planner(Protocol):
     def plan(self, goal: str, *, capabilities: Sequence[Capability]) -> list[PlannedStep]: ...
 
 
+#: Words a person uses for a domain whose registry key reads differently. The product
+#: calls ``eval_dataset`` a "test set", so "create a test set" must plan a step instead of
+#: matching nothing and producing an empty plan (alpha gap P1-11).
+_DOMAIN_SYNONYMS: dict[str, tuple[str, ...]] = {
+    "eval_dataset": ("test set", "test-set", "testset", "eval dataset"),
+}
+
+
 class HeuristicPlanner:
     """Deterministic, registry-driven planner (default; no LLM required).
 
@@ -71,7 +79,13 @@ class HeuristicPlanner:
                 continue
             domain = cap.key.split(".", 1)[0]
             needle = domain.replace("_", " ")
-            if needle in goal_l or domain in goal_l or cap.key in goal_l:
+            synonyms = _DOMAIN_SYNONYMS.get(domain, ())
+            if (
+                needle in goal_l
+                or domain in goal_l
+                or cap.key in goal_l
+                or any(word in goal_l for word in synonyms)
+            ):
                 inputs: dict[str, Any] = {}
                 dependencies: list[int] = []
                 for field_name in cap.required:
