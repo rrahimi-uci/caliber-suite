@@ -19,6 +19,16 @@ class Job:
     updated_at: str | None = None
     error: str | None = None
     result: dict[str, Any] | None = None
+    #: The candidate a refinement job produced (``content``, ``rationale``, ``diff_summary``).
+    candidate: dict[str, Any] | None = None
+    #: The evaluation evidence: scores, the gate decision, the dataset and the version it was
+    #: pinned to, and whether the evaluation was simulated (``provider``, ``simulated``).
+    eval_results: dict[str, Any] | None = None
+    #: For an applied job: the approval that anchors the release, who applied it, and the
+    #: prompt version it registered. ``None`` until the job is applied.
+    approval_id: str | None = None
+    applied_by: str | None = None
+    applied_version: int | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property

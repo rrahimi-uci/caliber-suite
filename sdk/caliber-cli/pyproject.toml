@@ -31,7 +31,9 @@ classifiers = [
 # console script installed by the library would land in PATH for everyone who
 # merely imports it.
 dependencies = [
-    "caliber-sdk",
+    # Bounded on purpose: an unbounded name is satisfied by whatever is published under it
+    # (nothing is yet, on PyPI), which is a dependency-confusion risk once an index is used.
+    "caliber-sdk>=0.1.0a1,<0.2",
 ]
 
 [project.optional-dependencies]

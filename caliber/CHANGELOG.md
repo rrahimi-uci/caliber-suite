@@ -9,6 +9,14 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- **The SDK and CLI install instructions work, and the SDK's journey is tested for real.** The docs said
+  `pip install caliber-sdk` and `pip install caliber-cli`, which find nothing because the packages are not
+  published, and `caliber-cli` depended on an unbounded `caliber-sdk`. The docs now install from the release
+  wheels, and `caliber-cli` requires `caliber-sdk>=0.1.0a1,<0.2`. A new test drives author, promote, test set,
+  calibrate, apply and roll back through the sync SDK against a real server and registry. The typed
+  `caliber_sdk.models.Job` now exposes `candidate`, `eval_results`, `approval_id`, `applied_by` and
+  `applied_version` instead of leaving them in `extra`.
+
 - **The Releases board lists released prompts, and a live version names its evidence.** "What's live now" showed
   only workflows and knowledge bases, so it said "Nothing deployed yet" right after a prompt Apply. It now lists
   each prompt alias with the version CALIBER last released (from the durable release-operation ledger; a rollback

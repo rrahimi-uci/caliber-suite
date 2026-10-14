@@ -107,6 +107,18 @@ cd "$WORK"
 source alpha/bin/activate
 pip install -q --find-links "$WHEEL_DIR" caliber-sdk caliber-cli caliber-suite
 
+# caliber-cli must carry a bounded requirement on caliber-sdk, so it cannot resolve to an
+# unrelated package of that name (alpha gap P1-18), and all three console entry points exist.
+python - <<'PY'
+from importlib.metadata import requires
+
+requirement = next(r for r in (requires("caliber-cli") or []) if r.startswith("caliber-sdk"))
+assert "<" in requirement and ">=" in requirement, f"caliber-cli requires {requirement!r}, unbounded"
+print("caliber-cli requires", requirement)
+PY
+command -v caliberctl >/dev/null || fail "caliberctl was not installed by caliber-cli"
+command -v caliber-migrate >/dev/null || fail "caliber-migrate was not installed by caliber-suite"
+
 # The checkout must not be on the import path: this proves the wheel is self-contained.
 python - <<PY
 import caliber, pathlib

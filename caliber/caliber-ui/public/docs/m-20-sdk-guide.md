@@ -34,9 +34,15 @@ use the [REST API overview](m-26-rest-api-overview.md), the
 
 ## Install
 
+The packages are not on PyPI yet. Install them from the `0.1.0a1` release wheels (the
+[Alpha install](m-60-alpha-install.md) page says where to get them), into a virtual environment:
+
 ```bash
-pip install caliber-sdk
+pip install --find-links ./wheels caliber-sdk
 ```
+
+`--find-links` points pip at the directory holding the downloaded wheels. Installing from an index
+by name finds nothing until the packages are published.
 
 ## Quickstart
 
@@ -84,7 +90,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install caliber-sdk
+      - run: pip install --find-links ./wheels caliber-sdk
       - env:
           CALIBER_BASE_URL: https://caliber.example.com
           CALIBER_TOKEN: ${{ secrets.CALIBER_TOKEN }}

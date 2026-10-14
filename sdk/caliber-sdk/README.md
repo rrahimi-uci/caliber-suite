@@ -10,8 +10,10 @@ server package.
 
 ## Install
 
+The package is not on PyPI yet. Install it from the `0.1.0a1` release wheels:
+
 ```bash
-pip install caliber-sdk
+pip install --find-links ./wheels caliber-sdk
 ```
 
 ## Quick start

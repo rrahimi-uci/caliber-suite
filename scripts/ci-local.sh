@@ -151,6 +151,7 @@ BACKEND_CORE_TESTS=(
   tests/test_alpha_install_contract.py
   tests/test_alpha_scope_claims.py
   tests/test_sdk_against_server.py
+  tests/test_sdk_prompt_journey.py
   tests/test_sdk_api_coverage.py
   tests/test_bare_lookup_inventory.py
   tests/test_plugin_contract.py

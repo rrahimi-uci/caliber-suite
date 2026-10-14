@@ -91,7 +91,9 @@
         </header>
 <p>Two things built on the Python SDK: a command-line tool for operators, and an asynchronous client for the case where being synchronous costs you a thread.</p>
 <h2 id="caliberctl">caliberctl<a class="anchor" href="#caliberctl" aria-hidden="true" tabindex="-1">#</a></h2>
-<pre class="language-bash"><code class="language-bash">pip install caliber-cli
+<pre class="language-bash"><code class="language-bash"># From the 0.1.0a1 release wheels; the packages are not on PyPI yet. caliber-cli needs
+# caliber-sdk (&gt;=0.1.0a1,&lt;0.2), which pip finds in the same directory.
+pip install --find-links ./wheels caliber-cli
 export CALIBER_BASE_URL=https://caliber.example.com
 export CALIBER_TOKEN=calpat_...
 
