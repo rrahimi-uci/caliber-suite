@@ -2679,6 +2679,10 @@ export const handlers = [
     );
   }),
 
+  // The skill workspace's Author stage shows the skill's version history.
+  http.get(`${API_BASE}/skills/:skillId/versions`, () =>
+    HttpResponse.json(envelope([])),
+  ),
   http.get(`${API_BASE}/prompts/:name/versions`, ({ params }) => {
     const name = String(params.name);
     return HttpResponse.json(

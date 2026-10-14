@@ -393,6 +393,58 @@ describe("Skills page", () => {
     expect(screen.getByLabelText("Skill summary")).toHaveValue("Updated summary");
   });
 
+  it("Author stage shows the version history and a rollback reloads the form", async () => {
+    // Applying a calibration candidate is undone from here, so the history has to be on the
+    // page that opens when a skill does (alpha gap P1-20).
+    let current = makeSkill({ version: 2, content: "Refined content." });
+    const rolledBack: number[] = [];
+    const versions = () => [
+      { skill_version_id: "SV-2", skill_id: "SK-policy", version_number: 2, content: current.content, summary: "s", created_by: "@admin", created_at: NOW },
+      { skill_version_id: "SV-1", skill_id: "SK-policy", version_number: 1, content: "Original content.", summary: "s", created_by: "@admin", created_at: NOW },
+    ];
+    server.use(
+      http.get(`${API_BASE}/skills`, () => HttpResponse.json(envelope([current]))),
+      http.get(`${API_BASE}/skills/SK-policy`, () => HttpResponse.json(envelope(current))),
+      http.get(`${API_BASE}/skills/SK-policy/workspace`, () =>
+        HttpResponse.json(
+          envelope({
+            version: current.version,
+            category: current.category,
+            status: current.status,
+            lifecycle: "Calibrated",
+            last_run: null,
+            baseline_run_id: null,
+            baseline_run: null,
+            bound_to: null,
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/skills/SK-policy/versions`, () => HttpResponse.json(envelope(versions()))),
+      http.get(`${API_BASE}/skills/test-runs`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/skills/SK-policy/rollback`, () => {
+        rolledBack.push(current.version);
+        current = { ...current, version: current.version + 1, content: "Original content." };
+        return HttpResponse.json(envelope(current));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderSkills();
+    await user.click(await screen.findByTestId("skill-open-policy-answering"));
+
+    // Version 2 is live and offers the rollback; version 1 does not.
+    const live = await screen.findByTestId("version-row-2");
+    expect(within(live).getByTestId("version-live-badge")).toBeInTheDocument();
+    expect(screen.getByLabelText("Skill content")).toHaveValue("Refined content.");
+
+    await user.click(within(live).getByTestId("version-rollback"));
+    await user.click(await screen.findByTestId("confirm-dialog-confirm"));
+
+    // The earlier content is back in the form, as a new version.
+    await waitFor(() => expect(screen.getByLabelText("Skill content")).toHaveValue("Original content."));
+    expect(rolledBack).toEqual([2]);
+  });
+
   it("Scenario Sets stage adds/removes cases and Trigger Tests runs ad-hoc + batch checks", async () => {
     const savedRuns: Array<Record<string, unknown>> = [];
     server.use(
@@ -597,6 +649,8 @@ describe("Skills page", () => {
         ),
       ),
       http.get(`${API_BASE}/skills/test-runs`, () => HttpResponse.json(envelope([runB, runA]))),
+      // The Runs stage also lists this skill's calibration runs.
+      http.get(`${API_BASE}/jobs`, () => HttpResponse.json(envelope([]))),
       http.get(`${API_BASE}/skills/test-runs/:testRunId`, ({ params }) =>
         HttpResponse.json(envelope(runDetails[String(params.testRunId)])),
       ),
@@ -665,6 +719,7 @@ describe("Skills page", () => {
         ),
       ),
       http.get(`${API_BASE}/skills/test-runs`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/jobs`, () => HttpResponse.json(envelope([]))),
       http.post(`${API_BASE}/skills/:skillId/calibrate`, () =>
         HttpResponse.json({ detail: "calibrate failed" }, { status: 500 }),
       ),

@@ -1,7 +1,7 @@
 import { defineConfig, devices } from "@playwright/test";
 
 /**
- * The alpha journey gate (alpha gap P0-6): the two specs that prove the product's one
+ * The alpha journey gate (alpha gap P0-6): the specs that prove the product's one
  * promise (find a problem, calibrate, review, apply, roll back) on an isolated server
  * with the shipped defaults: fake LLM, fake evaluator, real MLflow promoter, background
  * workers on.
@@ -10,6 +10,8 @@ import { defineConfig, devices } from "@playwright/test";
  *     Apply and rollback.
  *   - user-prompt-journey.spec.ts: nothing seeded; a prompt created in the UI is
  *     calibrated, reviewed, applied and rolled back.
+ *   - skill-journey.spec.ts: the same loop for a skill (alpha gap P1-20): render
+ *     preview, calibrate, review the simulated evidence, apply, roll back.
  *
  * Run with `npm run test:e2e:alpha`. It gets its own port and state directory, so it
  * never reuses (or disturbs) the server a developer has running for `npm run test:e2e`.
@@ -18,7 +20,11 @@ const PORT = Number(process.env["CALIBER_ALPHA_E2E_PORT"] ?? 5170);
 
 export default defineConfig({
   testDir: "./e2e",
-  testMatch: ["two-week-alpha-journey.spec.ts", "user-prompt-journey.spec.ts"],
+  testMatch: [
+    "two-week-alpha-journey.spec.ts",
+    "user-prompt-journey.spec.ts",
+    "skill-journey.spec.ts",
+  ],
   fullyParallel: false,
   workers: 1,
   timeout: 240_000,

@@ -25,6 +25,9 @@ import { ListRow, ListRows } from "@/components/ListRow";
 import { PageHeader } from "@/components/PageHeader";
 import { PageTabs, type PageTab } from "@/components/PageTabs";
 import { SearchInput } from "@/components/SearchInput";
+import { SkillCalibrationJobs } from "@/components/SkillCalibrationJobs";
+import { makeSkillVersionAdapter } from "@/components/versioning/adapters";
+import { VersionPanel } from "@/components/versioning/VersionPanel";
 import { FilterSelect } from "@/components/FilterSelect";
 import { ViewToggle } from "@/components/ViewToggle";
 import type {
@@ -675,6 +678,22 @@ function SkillWorkspace({
   }, [skillId, refreshDetail, refreshWorkspace]);
 
   const resolvedSkill = detail ?? skill;
+  // The version list reloads when the skill is saved or rolled back.
+  const [versionsKey, setVersionsKey] = useState(0);
+  const versionAdapter = useMemo(() => {
+    const base = makeSkillVersionAdapter(skillId ?? "");
+    return {
+      ...base,
+      // A rollback restores earlier content as a new version, so the form and the header
+      // have to reload too, not just the list.
+      rollback: async () => {
+        await base.rollback();
+        void refreshDetail();
+        void refreshWorkspace();
+        onChanged?.();
+      },
+    };
+  }, [skillId, refreshDetail, refreshWorkspace, onChanged]);
   // Create-mode header has no live status yet; show a Draft placeholder.
   const headerName = creating
     ? "New skill"
@@ -753,14 +772,22 @@ function SkillWorkspace({
             <SkillWizard onClose={() => onCreated?.()} />
           </div>
         ) : (
-          <SkillAuthorStage
-            skill={resolvedSkill}
-            onSaved={() => {
-              void refreshDetail();
-              void refreshWorkspace();
-              onChanged?.();
-            }}
-          />
+          <>
+            <SkillAuthorStage
+              skill={resolvedSkill}
+              onSaved={() => {
+                void refreshDetail();
+                void refreshWorkspace();
+                setVersionsKey((key) => key + 1);
+                onChanged?.();
+              }}
+            />
+            {/* Version history, with the rollback an Apply is undone by. */}
+            <div className="mt-6 rounded-2xl border border-slate-200/70 bg-white p-4 shadow-card">
+              <h3 className="mb-2 text-sm font-semibold text-slate-800">Version history</h3>
+              <VersionPanel adapter={versionAdapter} refreshKey={versionsKey} />
+            </div>
+          </>
         ))}
 
       {stage === "render" && resolvedSkill && (
@@ -790,6 +817,11 @@ function SkillWorkspace({
           skill={resolvedSkill}
           workspace={workspace}
           onAfterRun={() => void refreshWorkspace()}
+          onApplied={() => {
+            void refreshDetail();
+            void refreshWorkspace();
+            onChanged?.();
+          }}
         />
       )}
 
@@ -1478,10 +1510,13 @@ function SkillRunsStage({
   skill,
   workspace,
   onAfterRun,
+  onApplied,
 }: {
   skill: Skill;
   workspace: SkillWorkspaceResponse | null;
   onAfterRun: () => void;
+  /** A calibration candidate was applied: the skill's content and version changed. */
+  onApplied: () => void;
 }): JSX.Element {
   const skillId = skill.skill_id;
   const baselineRunId = workspace?.baseline_run_id ?? null;
@@ -1500,6 +1535,8 @@ function SkillRunsStage({
   const [calibrating, setCalibrating] = useState(false);
   const [calibrateMsg, setCalibrateMsg] = useState<string | null>(null);
   const [calibrateError, setCalibrateError] = useState<string | null>(null);
+  // Bumped when a run is queued, so the calibration list picks the new job up.
+  const [jobsReloadKey, setJobsReloadKey] = useState(0);
 
   const refreshHistory = useCallback(
     async (signal?: AbortSignal) => {
@@ -1600,6 +1637,7 @@ function SkillRunsStage({
       setCalibrateMsg(
         jobId ? `Calibration queued — job ${jobId}.` : "Calibration queued.",
       );
+      setJobsReloadKey((key) => key + 1);
       onAfterRun();
     } catch (err) {
       setCalibrateError(err instanceof Error ? err.message : "Failed to queue calibration");
@@ -1693,6 +1731,11 @@ function SkillRunsStage({
           {calibrateError}
         </div>
       )}
+      <SkillCalibrationJobs
+        skillName={skill.name}
+        reloadKey={jobsReloadKey}
+        onApplied={onApplied}
+      />
 
       {pinError && (
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">

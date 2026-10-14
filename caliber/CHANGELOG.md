@@ -7,6 +7,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **A skill's calibration can be reviewed, applied and rolled back in the browser.** Calibrating a skill used to
+  end at "Calibration queued": the candidate could be reviewed and applied only through the API, and the skill
+  workspace had no version history. The Runs stage now lists the skill's calibration runs with the diff, the
+  evidence (badged "Simulated evaluation — not evidence" when it is, with the real example count) and an
+  **Apply to skill** button, and the Author stage shows the version history with **Roll back**. A browser spec
+  and an SDK test drive the whole loop, and `docs/use/skills.md` walks it step by step.
+
 ### Fixed
 
 - **A project viewer can no longer publish, promote, approve, run or calibrate in skills, tools and workflows.**
