@@ -7,6 +7,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [0.1.0a1] - 2026-10-14
+
+First alpha. What it does, what it does not and the known limitations are in the
+[alpha scope note](../docs/start/alpha-scope.md); how it was verified is in
+[the release notes](../docs/reports/release-0.1.0a1-notes.md).
+
 ### Added
 
 - **Knowledge-base options tell the truth about embeddings, and the prerequisites are written down.** On an

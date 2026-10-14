@@ -1,5 +1,10 @@
 """Every distribution's declared version agrees with itself, and with the rest.
 
+The UI's ``package.json`` is included (alpha gap P0-7): it was ``0.1.0`` while the four Python
+packages were ``0.1.0a1``, so the release read as two different versions. npm needs semver, so
+``0.1.0a1`` is spelled ``0.1.0-alpha.1`` there; ``test_the_ui_package_declares_the_same_release``
+translates one into the other rather than comparing strings.
+
 Phase 5.5 of sdk-completeness-plan.md asks for a "server/SDK compatibility
 matrix, published and tested." There is no historical matrix to publish yet
 (see sdk/caliber-sdk/VERSIONING.md's "Server / SDK compatibility" section) --
@@ -88,3 +93,38 @@ def test_every_distribution_declares_a_consistent_version() -> None:
         "caliber, caliber-sdk, caliber-cli, and caliber-plugin-sdk are released "
         f"in lockstep (see VERSIONING.md) but disagree: {versions}"
     )
+
+
+_PEP440_PRE = re.compile(r"^(?P<base>\d+\.\d+\.\d+)(?:(?P<kind>a|b|rc)(?P<n>\d+))?$")
+_SEMVER_KIND = {"a": "alpha", "b": "beta", "rc": "rc"}
+
+
+def _semver_from_pep440(version: str) -> str:
+    """``0.1.0a1`` -> ``0.1.0-alpha.1``; a final release is unchanged."""
+    match = _PEP440_PRE.match(version)
+    assert match, f"cannot translate {version!r}: only X.Y.Z and X.Y.ZaN/bN/rcN are supported"
+    if match["kind"] is None:
+        return match["base"]
+    return f"{match['base']}-{_SEMVER_KIND[match['kind']]}.{match['n']}"
+
+
+def test_the_pep440_to_semver_translation() -> None:
+    assert _semver_from_pep440("0.1.0a1") == "0.1.0-alpha.1"
+    assert _semver_from_pep440("0.1.0b2") == "0.1.0-beta.2"
+    assert _semver_from_pep440("1.2.3rc4") == "1.2.3-rc.4"
+    assert _semver_from_pep440("1.2.3") == "1.2.3"
+
+
+def test_the_ui_package_declares_the_same_release() -> None:
+    """``package.json`` and the lockfile's root entry both name the release the wheels carry."""
+    import json
+
+    ui = REPO_ROOT / "caliber" / "caliber-ui"
+    expected = _semver_from_pep440(_pyproject_version(REPO_ROOT / "caliber" / "pyproject.toml"))
+    package = json.loads((ui / "package.json").read_text(encoding="utf-8"))
+    assert package["version"] == expected, (
+        f"caliber-ui/package.json is {package['version']!r}; the release is {expected!r}"
+    )
+    lock = json.loads((ui / "package-lock.json").read_text(encoding="utf-8"))
+    assert lock["version"] == expected
+    assert lock["packages"][""]["version"] == expected

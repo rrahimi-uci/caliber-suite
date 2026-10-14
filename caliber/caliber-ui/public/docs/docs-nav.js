@@ -204,6 +204,11 @@ window.DOCS_DATA = {
           "newtab": false
         },
         {
+          "href": "m-62-releasing.html",
+          "label": "Releasing",
+          "newtab": false
+        },
+        {
           "href": "m-19-runbook.html",
           "label": "Operations runbook",
           "newtab": false
@@ -1224,6 +1229,31 @@ window.DOCS_DATA = {
         "alpha",
         "scope",
         "limitations"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-62-releasing.html",
+      "label": "Releasing",
+      "section": "Operate CALIBER",
+      "section_id": "operate",
+      "summary": "How a CALIBER release is cut: version and tag names, what must be green first, building and attaching the wheels, and verifying the release as a tester would.",
+      "audience": [
+        "developer",
+        "operator"
+      ],
+      "doc_type": "how-to",
+      "prerequisites": [
+        "Push access to the repository and the GitHub CLI (`gh`) signed in as the owner"
+      ],
+      "stability": "beta",
+      "reviewed_on": "2026-10-14",
+      "version_applicability": "0.1.0a1 alpha",
+      "tags": [
+        "release",
+        "versioning",
+        "alpha"
       ],
       "newtab": false,
       "nav_hidden": false

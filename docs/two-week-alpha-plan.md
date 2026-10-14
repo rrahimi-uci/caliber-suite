@@ -137,7 +137,7 @@ a bug in the candidate path nobody has hit before.
 
 Three things, none of which require new engineering:
 
-- **Tagged.** A real git tag (e.g. `v0.1.0-alpha.1`), not a commit hash someone has to be told about.
+- **Tagged.** A real git tag, not a commit hash someone has to be told about. The tag is `caliber-v0.1.0a1`: it follows the repository's `caliber-v*` prefix and spells the version the way the wheels carry it (PEP 440). The `v0.1.0-alpha.1` used in the rest of this plan was the working name.
 - **Installable by someone else.** The wheel build already exists and is already proven in CI (`Wheel build (with bundled SPA)`); day 10 points it at the tag instead of a dev checkout, and a second person -- not the author -- installs and runs the journey from it.
 - **Honestly scoped in writing.** The one-page note below ships with the tag. This is the release notes doing the PRD's own job at alpha size: say what is true, not what is aspirational.
 
