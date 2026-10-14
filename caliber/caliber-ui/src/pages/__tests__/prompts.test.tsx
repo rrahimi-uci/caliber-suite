@@ -3782,6 +3782,109 @@ describe("Prompts — Workspace Test Sets stage", () => {
     expect(screen.getByText(/Select a prompt and click/)).toBeInTheDocument();
   });
 
+  describe("when the assistant returns something that is not a JSON array", () => {
+    function installAssistantReply(content: string): void {
+      server.use(
+        http.post(`${API_BASE}/assistant/sessions`, () =>
+          HttpResponse.json(
+            envelope({
+              session_id: "ASST-no-json-001",
+              title: "Test Gen",
+              owner: "@test",
+              status: "active",
+              goal: "",
+              metadata_: {},
+              active_draft_id: null,
+              created_at: new Date().toISOString(),
+              updated_at: new Date().toISOString(),
+            }),
+            { status: 201 },
+          ),
+        ),
+        http.post(`${API_BASE}/assistant/sessions/:sessionId/messages`, () =>
+          HttpResponse.json(
+            envelope({
+              assistant_message: {
+                message_id: "AMSG-no-json-001",
+                session_id: "ASST-no-json-001",
+                role: "assistant",
+                content,
+                metadata_: {},
+                sequence_number: 1,
+                created_at: new Date().toISOString(),
+              },
+              questions: [],
+              draft_updates: [],
+              run: null,
+            }),
+            { status: 201 },
+          ),
+        ),
+      );
+    }
+
+    async function generate(): Promise<void> {
+      const user = userEvent.setup();
+      renderPrompts();
+      await screen.findByRole("heading", { name: "Prompts" });
+      await openWorkspaceStage(user, "Test Sets");
+      await user.click(
+        await screen.findByRole("button", { name: /Generate Test Cases/i }),
+      );
+    }
+
+    it("says generation needs a real LLM when the LLM is simulated (alpha P1-09)", async () => {
+      installAssistantReply("I cannot help with that right now.");
+      server.use(
+        http.get(`${API_BASE}/readiness`, () =>
+          HttpResponse.json(
+            envelope({
+              providers: { llm: "fake", eval: "fake", promoter: "mlflow", artifact_store: "mlflow" },
+              simulated: ["llm", "eval"],
+              all_real: false,
+              tracing_enabled: true,
+              tracing_autolog_enabled: true,
+              workflow_llm_judge_enabled: false,
+            }),
+          ),
+        ),
+      );
+
+      await generate();
+
+      const message = await screen.findByText(/needs a real LLM provider/);
+      expect(message).toHaveTextContent("CALIBER_LLM_PROVIDER");
+      expect(message).toHaveTextContent("Test Sets page");
+      expect(screen.queryByText(/did not return a valid JSON array/)).not.toBeInTheDocument();
+    });
+
+    it("keeps the retry message when the LLM is real", async () => {
+      installAssistantReply("Sure! Here are some ideas, but not as JSON.");
+      // The default readiness handler reports every provider real.
+
+      await generate();
+
+      expect(
+        await screen.findByText("LLM did not return a valid JSON array. Try again."),
+      ).toBeInTheDocument();
+    });
+
+    it("keeps the retry message when readiness cannot be read", async () => {
+      installAssistantReply("not json");
+      server.use(
+        http.get(`${API_BASE}/readiness`, () =>
+          HttpResponse.json({ detail: "boom" }, { status: 500 }),
+        ),
+      );
+
+      await generate();
+
+      expect(
+        await screen.findByText("LLM did not return a valid JSON array. Try again."),
+      ).toBeInTheDocument();
+    });
+  });
+
   it("supports a custom number of test cases for generation", async () => {
     let generatedGoal: string | null = null;
 

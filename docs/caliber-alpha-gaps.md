@@ -753,10 +753,11 @@ deferral.
   - Map the `no predict_fn` error to "evaluation needs a real LLM provider: set CALIBER_LLM_PROVIDER and an API key".
 - **Files:** docs, `routes/settings.py`, `pages/Settings.tsx`, `eval/mlflow_runner.py` / `eval/provider.py`.
 - **Deps:** [P0-3](#p0-3), [P0-4](#p0-4), [P0-5](#p0-5).
-- **Acceptance:**
-  - [ ] Settings shows per-subsystem providers and the restart notice when `fake` (Vitest).
-  - [ ] Compose-style calibration without an LLM fails with the user-facing message (pytest).
-  - [ ] Generating test cases on the fake LLM shows the configuration message, not "did not return a valid JSON array" (Vitest).
+- **Status: implemented.** Docs: the "Real LLM and evaluation" block in `docs/start/alpha-install.md` and the evaluator note in `.env.example` (both from P0-4 and P0-5). `eval/mlflow_runner.py`: the missing-`predict_fn` error now says "evaluation needs a real LLM provider", names `CALIBER_LLM_PROVIDER`, and points at the alpha-install page. `Settings.tsx`: the Providers tab opens with an **Active providers** card (LLM, evaluation, release promoter and artifact store, each marked Real or Simulated, from `/readiness`), and a notice that providers are chosen at startup, so saving a key does not switch a simulated one to a real one, with the exact variables and "restart". `Prompts.tsx`: when generation returns no JSON array and readiness says the LLM is simulated, the Test Sets stage says generation needs a real LLM and points to adding cases by hand. Tests: Vitest in `settings.test.tsx` and `prompts.test.tsx`, pytest in `test_eval_mlflow_runner.py` and `test_orchestrator_eval.py`.
+- **Acceptance criteria:**
+  - [x] Settings shows per-subsystem providers and the restart notice when `fake` (Vitest), shows no notice when every provider is real, and still renders while readiness answers 503.
+  - [x] Compose-style calibration without an LLM fails with the user-facing message (pytest: the real `MLflowEvalProvider` with no `predict_fn` through `run_eval`; the worker stores that text as the job's error).
+  - [x] Generating test cases on a simulated LLM shows the configuration message, not "did not return a valid JSON array" (Vitest), and keeps the old retry message when the LLM is real or readiness cannot be read.
 
 ### P1-10
 

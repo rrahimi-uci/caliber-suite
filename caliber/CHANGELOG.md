@@ -162,6 +162,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   needs a token to issue a token, so the first one had to come from somewhere else and nothing in the UI
   did it. The SDK, CLI and alpha-install docs now say where to get it.
 
+- **Settings → Providers says what is actually running.** An "Active providers" card lists the LLM,
+  evaluation, release promoter and artifact store with Real or Simulated badges, and explains that providers
+  are chosen at startup, so saving an API key does not switch a simulated provider to a real one (it names
+  `CALIBER_LLM_PROVIDER` and `CALIBER_EVAL_PROVIDER` and says to restart). Previously the form said
+  "Configured" while evaluations still failed. A failed calibration on a real evaluator with a simulated LLM now
+  reads "evaluation needs a real LLM provider" with the variable to set, instead of naming a Python method.
+  "Generate Test Cases" on a simulated LLM says it needs a real LLM instead of "did not return a valid JSON
+  array. Try again."
+
 - **Alpha install page and verification.** `docs/start/alpha-install.md` takes a second person from
   the release wheels to a logged-in administrator who can create a project and a prompt, with no
   checkout and no Docker. `scripts/verify-alpha-install.sh` executes the page in a scratch directory
