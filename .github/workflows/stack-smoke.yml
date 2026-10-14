@@ -1,0 +1,50 @@
+name: Docker stack smoke
+
+# Builds the CALIBER and MLflow images, starts the documented compose stack and uses it.
+#
+# Why this is its own workflow: the stack breaks without a commit to this repository. An
+# unpinned MLflow dependency and a MinIO image change each sat on main until someone ran
+# the stack by hand (alpha gaps P0-5, P1-17), because `docker compose config` resolves YAML
+# and builds nothing. A weekly build catches upstream drift; running it on pull requests
+# that touch the stack catches our own changes before they merge.
+#
+# It is deliberately not part of ci.yml: it builds two images and pulls several gigabytes
+# (about four minutes on a hosted runner, much longer from a cold local machine), so it is
+# not a required check on every PR. scripts/ci-local.sh does
+# not mirror it for the same reason; run scripts/verify-compose-stack.sh to do so by hand.
+#
+# A failed scheduled run is reported by GitHub to the person who last edited the cron
+# line below. It never blocks a merge.
+
+on:
+  schedule:
+    # Mondays 05:17 UTC. An off-the-hour minute avoids the top-of-the-hour scheduler queue.
+    - cron: "17 5 * * 1"
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - "deploy/**"
+      - "caliber/deploy/**"
+      - "scripts/verify-compose-stack.sh"
+      - ".github/workflows/stack-smoke.yml"
+      - ".env.example"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: stack-smoke-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  stack:
+    name: Build and probe the compose stack
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v5
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Build both images, start the stack and probe it
+        run: scripts/verify-compose-stack.sh --timeout 1200

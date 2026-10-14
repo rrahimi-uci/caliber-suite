@@ -149,6 +149,7 @@ BACKEND_CORE_TESTS=(
   tests/test_aria_honesty.py
   tests/test_migrate_command.py
   tests/test_alpha_install_contract.py
+  tests/test_wheel_boot_script.py
   tests/test_alpha_scope_claims.py
   tests/test_sdk_against_server.py
   tests/test_sdk_prompt_journey.py
@@ -440,7 +441,9 @@ leaked = [
 if leaked:
     raise SystemExit("sdist contains local evidence/cache files: " + ", ".join(leaked[:10]))
 PY
-  echo "  distributions are clean and the wheel contains the SPA: $(basename "$whl")"
+  # Install the wheel alone into a fresh venv, migrate, boot, and fetch /health and the SPA.
+  (cd "$REPO_ROOT" && scripts/verify-wheel-boot.sh --python "${ALPHA_INSTALL_PYTHON:-python3}" "$CALIBER_DIR/$whl") || return 1
+  echo "  distributions are clean, the wheel contains the SPA, and it boots: $(basename "$whl")"
 }
 
 # gitleaks is what CI uses. Absent locally it is reported as skipped rather than passed:

@@ -187,6 +187,9 @@ async def _probe_tcp(host: str, port: int, label: str) -> str:
     return f"{label} {host}:{port} open"
 
 
+_PROBE_PREFIX = ".caliber-readiness-probe"
+
+
 def _probe_object_store_sync(config: Any) -> str:
     """Prove the configured bucket is reachable, not merely that a URL is set."""
     from caliber.storage import build_backend  # noqa: PLC0415
@@ -194,8 +197,11 @@ def _probe_object_store_sync(config: Any) -> str:
     backend = build_backend(config.workflow_storage)
     # A bounded ``list`` is the cheapest operation that exercises credentials,
     # endpoint, and bucket existence together — ``exists`` on a made-up key would
-    # pass against a bucket that does not exist on some backends.
-    backend.list("", limit=1)
+    # pass against a bucket that does not exist on some backends. The prefix must be a
+    # real relative path: every backend validates it, so an empty one is rejected as
+    # "unsafe path" and made the shipped MinIO stack report not-ready forever. A prefix
+    # that matches nothing returns an empty page, which is still a successful listing.
+    backend.list(_PROBE_PREFIX, limit=1)
     return "bucket listable"
 
 
