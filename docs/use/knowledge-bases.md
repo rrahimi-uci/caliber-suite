@@ -5,7 +5,7 @@ audience:
   - evaluator
 doc_type: how-to
 product_area: knowledge
-stability: ga
+stability: beta
 prerequisites:
   - A CALIBER deployment with knowledge-base access
 reviewed_on: 2026-08-10

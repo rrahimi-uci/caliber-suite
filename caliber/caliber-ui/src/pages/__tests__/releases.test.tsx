@@ -363,6 +363,27 @@ describe("Releases", () => {
     expect(noVersionEvent).not.toHaveTextContent("→");
   });
 
+  it("leads with what is live and labels the signoff factory record-only (alpha P1-10)", async () => {
+    server.use(
+      http.get(`${API_BASE}/releases/live`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/releases/timeline`, () => HttpResponse.json(envelope([]))),
+    );
+    renderPage();
+
+    const liveBoard = await screen.findByTestId("releases-live-board");
+    const factory = screen.getByTestId("release-signoff-factory");
+    // The release path comes first; the signoff block is last, not the top of the page.
+    expect(
+      liveBoard.compareDocumentPosition(factory) & Node.DOCUMENT_POSITION_FOLLOWING,
+    ).toBeTruthy();
+    expect(screen.getByTestId("releases-timeline").compareDocumentPosition(factory) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
+
+    const note = within(factory).getByTestId("release-signoff-record-only");
+    expect(note).toHaveTextContent("record-only");
+    expect(note).toHaveTextContent("does not deploy or roll back anything");
+    expect(within(factory).getByTestId("preview-badge")).toHaveTextContent("Preview");
+  });
+
   it("validates JSON criteria/evidence before submitting a new candidate", async () => {
     server.use(
       http.get(`${API_BASE}/releases/live`, () => HttpResponse.json(envelope([]))),

@@ -74,6 +74,7 @@ interface NavItemProps {
   icon: ReactNode;
   label: string;
   badge?: Badge;
+  preview?: boolean;
   small?: boolean;
   external?: boolean;
   onNavigate?: () => void;
@@ -95,7 +96,8 @@ const DOT_CLASS: Record<Badge["tone"], string> = {
 const NAV_ICON_CLASS = "h-[18px] w-[18px]";
 
 /** localStorage key holding the ids of the groups the user left open. */
-const OPEN_GROUPS_KEY = "caliber.nav.open-groups";
+// Versioned because the group ids changed (alpha gap P1-10); an old list would open nothing.
+const OPEN_GROUPS_KEY = "caliber.nav.open-groups.v2";
 
 // Whether the sidebar is collapsed to an icon rail. Read by NavItem/Section so
 // the collapsed styling doesn't have to be threaded through every call site.
@@ -103,11 +105,17 @@ const OPEN_GROUPS_KEY = "caliber.nav.open-groups";
 // so the mobile drawer always shows full labels.
 const CollapsedContext = createContext(false);
 
+/** Id of a preview pill, so its link can describe itself without changing its name. */
+function previewPillId(to: string): string {
+  return `nav-preview-${to.replace(/\W+/g, "-").replace(/^-|-$/g, "")}`;
+}
+
 function NavItem({
   to,
   icon,
   label,
   badge,
+  preview = false,
   small = false,
   external = false,
   onNavigate,
@@ -129,8 +137,25 @@ function NavItem({
             aria-hidden="true"
           />
         )}
+        {preview && (
+          <span
+            className={`absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-violet-400 ${collapsed ? "hidden md:block" : "hidden"}`}
+            aria-hidden="true"
+          />
+        )}
       </span>
       <span className={`flex-1 font-medium ${collapsed ? "md:hidden" : ""}`}>{label}</span>
+      {preview && (
+        <span
+          id={previewPillId(to)}
+          aria-hidden="true"
+          data-testid="nav-preview-pill"
+          className={`rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-700 ${collapsed ? "md:hidden" : ""}`}
+          title="Preview: works, but outside the supported alpha journey and may change"
+        >
+          Preview
+        </span>
+      )}
       {badge && badge.count > 0 && (
         <span
           className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-md ${TONE_CLASS[badge.tone]} ${collapsed ? "md:hidden" : ""}`}
@@ -153,6 +178,7 @@ function NavItem({
         className={className}
         onClick={onNavigate}
         title={collapsed ? label : undefined}
+        aria-describedby={preview ? previewPillId(to) : undefined}
       >
         {content}
       </a>
@@ -166,6 +192,7 @@ function NavItem({
       end={false}
       onClick={onNavigate}
       title={collapsed ? label : undefined}
+      aria-describedby={preview ? previewPillId(to) : undefined}
     >
       {content}
     </NavLink>
@@ -179,6 +206,8 @@ interface NavEntry {
   external?: boolean;
   /** Key resolved against the live badge map at render time. */
   badgeKey?: "plans";
+  /** Maturity label. Preview destinations get a pill (and a dot in the icon rail). */
+  tier?: "preview";
 }
 
 interface NavGroup {
@@ -198,56 +227,50 @@ interface NavGroup {
  */
 const NAV_GROUPS: NavGroup[] = [
   {
-    id: "build",
-    title: "Build",
+    id: "core",
+    title: "Core journey",
     items: [
-      { to: "/workflows", icon: <Workflow className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Workflows" },
-      { to: "/cookbooks", icon: <BookOpen className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Cookbooks" },
-      { to: "/agents", icon: <Bot className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Agents" },
-      { to: "/aria/plans", icon: <ListChecks className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Plans", badgeKey: "plans" },
+      { to: "/prompts", icon: <MessageSquareText className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Prompts" },
+      { to: "/eval-datasets", icon: <FlaskConical className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Test Sets" },
+      { to: "/evaluations", icon: <Gauge className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Evaluations" },
+      { to: "/releases", icon: <Rocket className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Releases" },
     ],
   },
   {
-    id: "resources",
-    title: "Resources",
+    id: "extended",
+    title: "Also in the alpha",
     items: [
-      { to: "/prompts", icon: <MessageSquareText className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Prompts" },
-      { to: "/tools", icon: <Wrench className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Tools" },
       { to: "/skills", icon: <Puzzle className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Skills" },
+      { to: "/tools", icon: <Wrench className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Tools" },
+      { to: "/workflows", icon: <Workflow className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Workflows" },
       { to: "/knowledge-bases", icon: <Library className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Knowledge Bases" },
       // Deliberately still "Object Store", not "Files": ``routes/files.py`` is a
       // different concept (workflow file staging and run-scoped uploads), and
       // the docs series is docs/07-object-store/. Renaming only the nav label
       // would collide with one and diverge from the other.
       { to: "/object-store", icon: <Database className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Object Store" },
-    ],
-  },
-  {
-    id: "integrations",
-    title: "Integrations",
-    items: [
-      { to: "/gateway", icon: <Network className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "LLM Gateway" },
-      { to: "/mcp-servers", icon: <PlugZap className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "MCP Servers" },
-      { to: "/openapi-integrations", icon: <Globe className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "OpenAPI Integrations" },
-    ],
-  },
-  {
-    id: "evaluate",
-    title: "Evaluate",
-    items: [
-      { to: "/eval-datasets", icon: <FlaskConical className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Test Sets" },
       { to: "/judges", icon: <Scale className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Judges" },
-      { to: "/evaluations", icon: <Gauge className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Evaluations" },
+      { to: "/agents", icon: <Bot className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Agents" },
     ],
   },
   {
     id: "operate",
     title: "Operate",
     items: [
-      { to: "/releases", icon: <Rocket className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Releases" },
       { to: "/observability", icon: <Activity className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Observability" },
       { to: "/review-queues", icon: <ClipboardCheck className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Review Queues" },
       { to: "/audit-log", icon: <ScrollText className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Audit Log" },
+    ],
+  },
+  {
+    id: "preview",
+    title: "Integrations and preview",
+    items: [
+      { to: "/gateway", icon: <Network className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "LLM Gateway" },
+      { to: "/mcp-servers", icon: <PlugZap className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "MCP Servers", tier: "preview" },
+      { to: "/openapi-integrations", icon: <Globe className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "OpenAPI Integrations", tier: "preview" },
+      { to: "/cookbooks", icon: <BookOpen className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Cookbooks", tier: "preview" },
+      { to: "/aria/plans", icon: <ListChecks className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Plans", badgeKey: "plans", tier: "preview" },
     ],
   },
   {
@@ -343,12 +366,12 @@ export function Sidebar({
   // Default to the active group alone: the point of the change is that the
   // first viewport stops showing every grouped destination at once.
   //
-  // Falling back to "build" matters. On the Dashboard no group is active, and
+  // Falling back to "core" matters. On the Dashboard no group is active, and
   // an empty default would open the app on six collapsed headers and zero
   // destinations — denser than asked for, and a worse first run than the
-  // problem being solved. Build is where the primary work starts.
+  // problem being solved. The core journey is where the primary work starts.
   const [openGroups, setOpenGroups] = useState<string[]>(
-    () => readOpenGroups() ?? [activeGroup ?? "build"],
+    () => readOpenGroups() ?? [activeGroup ?? "core"],
   );
 
   // Auto-open the group for the route the user lands on (a direct link to
@@ -526,6 +549,7 @@ function NavGroupSection({
               label={item.label}
               external={item.external}
               badge={item.badgeKey ? badges[item.badgeKey] : undefined}
+              preview={item.tier === "preview"}
               onNavigate={onNavigate}
             />
           ))}

@@ -92,6 +92,18 @@ describe("AriaPlans", () => {
     ).toBeGreaterThan(0);
   });
 
+  it("is labelled Preview, and says Aria needs a configured engine (alpha P1-10)", async () => {
+    server.use(
+      http.get(`${API_BASE}/aria/plans`, () => HttpResponse.json(envelope([makePlan()]))),
+    );
+    renderPage();
+    await screen.findByText("Create a faithfulness judge");
+
+    expect(screen.getByRole("heading", { name: "Aria Plans" })).toBeInTheDocument();
+    expect(screen.getByTestId("preview-badge")).toHaveTextContent("Preview");
+    expect(screen.getByTestId("preview-banner")).toHaveTextContent("configured LLM engine");
+  });
+
   it("decomposes a goal and opens the new plan's step DAG", async () => {
     server.use(
       http.get(`${API_BASE}/aria/plans`, () => HttpResponse.json(envelope([]))),

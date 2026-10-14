@@ -6,6 +6,7 @@ import { Link, useNavigate } from "react-router-dom";
 import { caliberApi } from "@/api/caliberApi";
 import type { CookbookReadinessCheck, CookbookRecipe } from "@/api/workflowTypes";
 import { PageHeader } from "@/components/PageHeader";
+import { PreviewBanner } from "@/components/PreviewBadge";
 import { SearchInput } from "@/components/SearchInput";
 import { useApiMutation, useApiQuery, useInvalidate } from "@/hooks/useApiQuery";
 import { showToast } from "@/lib/toast";
@@ -103,8 +104,10 @@ export function Cookbooks(): JSX.Element {
     <div className="space-y-6 animate-fade-in" data-testid="cookbook-catalog">
       <PageHeader
         title="Cookbooks"
+        preview
         subtitle="Install a governed, editable example—then review its bindings before activation"
       />
+      <PreviewBanner>Cookbooks are convenience examples, not part of the core release journey.</PreviewBanner>
 
       <div className="rounded-2xl border border-slate-200/60 bg-white p-4 shadow-card">
         <SearchInput

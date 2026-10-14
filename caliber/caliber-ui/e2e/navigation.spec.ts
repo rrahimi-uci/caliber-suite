@@ -4,25 +4,25 @@ import { goToSidebarRoute, signIn } from "./helpers";
 
 const EXPECTED_NAV_ORDER = [
   "Dashboard",
-  "Workflows",
-  "Cookbooks",
-  "Agents",
-  "Plans",
   "Prompts",
-  "Tools",
-  "Skills",
-  "Knowledge Bases",
-  "Object Store",
-  "LLM Gateway",
-  "MCP Servers",
-  "OpenAPI Integrations",
   "Test Sets",
-  "Judges",
   "Evaluations",
   "Releases",
+  "Skills",
+  "Tools",
+  "Workflows",
+  "Knowledge Bases",
+  "Object Store",
+  "Judges",
+  "Agents",
   "Observability",
   "Review Queues",
   "Audit Log",
+  "LLM Gateway",
+  "MCP Servers",
+  "OpenAPI Integrations",
+  "Cookbooks",
+  "Plans",
   "Administration",
   "Settings",
   "Docs",
@@ -56,7 +56,13 @@ const SIDEBAR_ROUTES = [
 ] as const;
 
 async function openAllGroups(page: Page): Promise<void> {
-  for (const group of ["Build", "Resources", "Integrations", "Evaluate", "Operate", "Admin"]) {
+  for (const group of [
+    "Core journey",
+    "Also in the alpha",
+    "Operate",
+    "Integrations and preview",
+    "Admin",
+  ]) {
     const toggle = page.getByRole("button", { name: group, exact: true });
     if ((await toggle.getAttribute("aria-expanded")) === "false") {
       await toggle.click();

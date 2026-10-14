@@ -5,7 +5,7 @@ audience:
   - evaluator
 doc_type: concept
 product_area: gateways
-stability: ga
+stability: beta
 prerequisites:
   - Layered architecture overview
 reviewed_on: 2026-08-20

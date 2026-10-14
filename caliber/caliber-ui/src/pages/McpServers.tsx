@@ -30,6 +30,7 @@ import { CalibrationPanel } from "@/components/CalibrationPanel";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FilterBar } from "@/components/FilterBar";
 import { PageHeader } from "@/components/PageHeader";
+import { PreviewBanner } from "@/components/PreviewBadge";
 import { PageTabs, type PageTab } from "@/components/PageTabs";
 import { SearchInput } from "@/components/SearchInput";
 import { FilterSelect } from "@/components/FilterSelect";
@@ -1662,6 +1663,7 @@ export function McpServers(): JSX.Element {
     <div className="space-y-6 animate-fade-in">
       <PageHeader
         title="MCP Servers"
+        preview
         subtitle="External tool servers that workflow agents can connect to for additional capabilities."
         actions={
           activeTab === "servers" ? (
@@ -1692,6 +1694,10 @@ export function McpServers(): JSX.Element {
           ) : undefined
         }
       />
+      <PreviewBanner>
+        MCP servers need an external server to connect to and are not part of the core release
+        journey.
+      </PreviewBanner>
 
       <PageTabs
         tabs={MCP_TABS}

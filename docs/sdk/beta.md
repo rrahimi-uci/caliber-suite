@@ -67,6 +67,12 @@ if job.awaits_human:
 
 ## Workspace release governance
 
+> **Experimental in the alpha.** Nothing in this build executes Workspace release evaluations, so an
+> evaluation you start stays `queued`. The API, SDK and `caliberctl workspace` are complete and tested, but
+> a Workspace release does not govern anything yet. The release path that works end to end is Apply and
+> Rollback on a prompt. The same applies to the release-candidate signoff on the Releases page and
+> `caliberctl release sign`: they record a decision and deploy or roll back nothing.
+
 A Workspace revision moves from reviewed to live only through explicit,
 typed governance steps: open a Change Request, evaluate the release against
 pinned digests, record a quality decision and a separate approval decision,
