@@ -1146,6 +1146,13 @@ class ToolSchema(BaseModel):
     successor_tool_id: str | None
     created_at: datetime
     updated_at: datetime
+    #: Seeded by CALIBER itself rather than registered by an admin. Set by the list and detail
+    #: routes; ``False`` wherever a row is serialized without that context.
+    builtin: bool = False
+    #: ``"available"`` or ``"unavailable"``. A seeded memory tool is unavailable while agent
+    #: memory is off: it is listed as active but only returns an error.
+    availability: str = "available"
+    availability_reason: str | None = None
 
 
 class ToolRegisterRequest(BaseModel):

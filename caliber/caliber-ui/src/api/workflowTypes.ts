@@ -1166,6 +1166,11 @@ export interface ToolDefinition {
   successor_tool_id: string | null;
   created_at: string;
   updated_at: string;
+  /** Seeded by CALIBER itself rather than registered by an admin (list and detail routes). */
+  builtin?: boolean;
+  /** A seeded memory tool is "unavailable" while agent memory is off. */
+  availability?: "available" | "unavailable";
+  availability_reason?: string | null;
 }
 
 export interface ValidationIssue {

@@ -26,6 +26,7 @@ import type {
   ToolWorkspaceResponse,
 } from "@/api/types";
 import { CalibrationPanel } from "@/components/CalibrationPanel";
+import { ToolOriginBadges, ToolUnavailableReason } from "@/components/ToolOriginBadges";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
 import { FilterBar } from "@/components/FilterBar";
 import { CodeBlock } from "@/components/workflows/CodeHighlight";
@@ -418,10 +419,18 @@ export function ToolRegistry(): JSX.Element {
                         </svg>
                       </span>
                     }
-                    title={<span className="font-mono">{tool.name}</span>}
+                    title={
+                      <span className="inline-flex flex-wrap items-center gap-1.5">
+                        <span className="font-mono">{tool.name}</span>
+                        <ToolOriginBadges tool={tool} />
+                      </span>
+                    }
                     subtitle={
-                      tool.description ||
-                      "No description yet. Register a tool summary so downstream users know when to call it."
+                      <>
+                        {tool.description ||
+                          "No description yet. Register a tool summary so downstream users know when to call it."}
+                        <ToolUnavailableReason tool={tool} />
+                      </>
                     }
                     columns={
                       <>
@@ -493,6 +502,7 @@ export function ToolRegistry(): JSX.Element {
                               v{tool.version}
                             </span>
                             <span className="font-mono text-[10px] text-slate-400">{tool.status}</span>
+                            <ToolOriginBadges tool={tool} />
                           </div>
                         </div>
                       </div>
@@ -503,6 +513,7 @@ export function ToolRegistry(): JSX.Element {
 
                     <p className="mt-3 line-clamp-3 text-xs leading-relaxed text-slate-500">
                       {tool.description || "No description yet. Register a tool summary so downstream users know when to call it."}
+                      <ToolUnavailableReason tool={tool} />
                     </p>
 
                     <div className="mt-3 flex flex-wrap gap-1.5">

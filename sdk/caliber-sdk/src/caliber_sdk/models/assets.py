@@ -157,6 +157,12 @@ class Tool:
     successor_tool_id: str | None = None
     created_at: str | None = None
     updated_at: str | None = None
+    #: Seeded by CALIBER itself rather than registered by an admin (list and detail only).
+    builtin: bool = False
+    #: ``"available"`` or ``"unavailable"``; a seeded memory tool is unavailable while agent
+    #: memory is off, and ``availability_reason`` says how to turn it on.
+    availability: str = "available"
+    availability_reason: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
 

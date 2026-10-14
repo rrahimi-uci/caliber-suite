@@ -79,7 +79,11 @@ from caliber.schemas import (
     ToolWorkspaceResponse,
     require_approval_for_side_effect,
 )
-from caliber.workflows.builtin_tools import register_builtin_tools
+from caliber.workflows.builtin_tools import (
+    is_builtin_tool,
+    register_builtin_tools,
+    tool_availability,
+)
 from caliber.workflows.ir import IRToolBinding
 from caliber.workflows.runtime import _resolve_bound_tool_callable
 from caliber.workflows.sandbox import make_preview_callable, should_mock_in_preview
@@ -157,8 +161,28 @@ async def list_tools(request: Request) -> JSONResponse:
             only=visibility_param(request),
         )
         rows = session.execute(stmt).scalars().all()
-        items = [ToolSchema.model_validate(r) for r in rows]
+        memory_enabled = bool(getattr(request.app.state.config, "memory_enabled", False))
+        items = [_with_availability(ToolSchema.model_validate(r), memory_enabled) for r in rows]
     return envelope_response(items)
+
+
+def _with_availability(schema: ToolSchema, memory_enabled: bool) -> ToolSchema:
+    """Mark a serialized tool as built-in and say whether it can do anything right now."""
+    availability, reason = tool_availability(
+        name=schema.name,
+        owner=schema.owner,
+        module_path=schema.module_path,
+        memory_enabled=memory_enabled,
+    )
+    return schema.model_copy(
+        update={
+            "builtin": is_builtin_tool(
+                name=schema.name, owner=schema.owner, module_path=schema.module_path
+            ),
+            "availability": availability,
+            "availability_reason": reason,
+        }
+    )
 
 
 def _visible_tool_or_404(
@@ -287,7 +311,8 @@ async def get_tool(request: Request) -> JSONResponse:
     factory = get_session_factory(request)
     with factory() as session:
         row = _visible_tool_or_404(session, request, tool_id)
-        data = ToolSchema.model_validate(row)
+        memory_enabled = bool(getattr(request.app.state.config, "memory_enabled", False))
+        data = _with_availability(ToolSchema.model_validate(row), memory_enabled)
     return envelope_response(data)
 
 

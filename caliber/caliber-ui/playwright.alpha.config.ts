@@ -12,6 +12,8 @@ import { defineConfig, devices } from "@playwright/test";
  *     calibrated, reviewed, applied and rolled back.
  *   - skill-journey.spec.ts: the same loop for a skill (alpha gap P1-20): render
  *     preview, calibrate, review the simulated evidence, apply, roll back.
+ *   - tool-journey.spec.ts: register a tool, run it, calibrate its fixtures, pin a
+ *     baseline, see it used by a workflow (alpha gap P1-21).
  *
  * Run with `npm run test:e2e:alpha`. It gets its own port and state directory, so it
  * never reuses (or disturbs) the server a developer has running for `npm run test:e2e`.
@@ -24,6 +26,7 @@ export default defineConfig({
     "two-week-alpha-journey.spec.ts",
     "user-prompt-journey.spec.ts",
     "skill-journey.spec.ts",
+    "tool-journey.spec.ts",
   ],
   fullyParallel: false,
   workers: 1,
