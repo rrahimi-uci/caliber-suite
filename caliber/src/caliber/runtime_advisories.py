@@ -7,6 +7,7 @@ in heavy optional stacks eagerly.
 
 from __future__ import annotations
 
+import importlib.util
 from dataclasses import dataclass
 from importlib import metadata as importlib_metadata
 
@@ -15,6 +16,14 @@ SUPPORTED_PYTHON_MAX_EXCLUSIVE = (3, 13)
 SUPPORTED_PYTHON_RANGE_LABEL = "3.10-3.12"
 DSPY_OPTIMIZER_OVERRIDE_ENV_VAR = "CALIBER_ALLOW_FLAGGED_DSPY_OPTIMIZERS"
 LOCAL_EMBEDDING_OVERRIDE_ENV_VAR = "CALIBER_ALLOW_FLAGGED_LOCAL_EMBEDDINGS"
+
+#: The importable names a local embedding build needs, with the name to install. The
+#: ``knowledge`` extra alone does not provide them; ``knowledge-local`` does.
+LOCAL_EMBEDDING_PACKAGES = (
+    ("sentence_transformers", "sentence-transformers"),
+    ("langchain_huggingface", "langchain-huggingface"),
+)
+LOCAL_EMBEDDING_EXTRA = "caliber-suite[knowledge,knowledge-local]"
 
 _DSPY_STACK_PACKAGES = frozenset({"diskcache", "litellm"})
 _LOCAL_EMBEDDING_STACK_PACKAGES = frozenset({"torch"})
@@ -177,6 +186,30 @@ def dspy_optimizer_block_reason(*, allow_flagged: bool = False) -> str | None:
         advisories=dspy_optimizer_runtime_advisories(),
         override_env_var=DSPY_OPTIMIZER_OVERRIDE_ENV_VAR,
         allow_flagged=allow_flagged,
+    )
+
+
+def local_embedding_missing_reason() -> str | None:
+    """Why local embeddings cannot run because a package is not installed, or ``None``.
+
+    ``local_embedding_block_reason`` is about packages that are installed and flagged. This
+    is the other half: the model list used to say every embedding model was available on an
+    install that could not import the library that runs it, and a knowledge base creation
+    then failed at build time (alpha gap P1-23). ``find_spec`` looks for the package without
+    importing it, so the check is as cheap as the options call it serves.
+    """
+    missing = [
+        install_name
+        for import_name, install_name in LOCAL_EMBEDDING_PACKAGES
+        if importlib.util.find_spec(import_name) is None
+    ]
+    if not missing:
+        return None
+    return (
+        f"Local embedding models need the optional package{'s' if len(missing) > 1 else ''} "
+        f"{' and '.join(repr(name) for name in missing)}, which "
+        f"{'are' if len(missing) > 1 else 'is'} not installed. Install "
+        f"{LOCAL_EMBEDDING_EXTRA}, pre-cache the model if the host is offline, and restart CALIBER."
     )
 
 

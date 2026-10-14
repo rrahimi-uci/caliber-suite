@@ -71,6 +71,7 @@ def test_knowledge_base_options_expose_chunkers_and_models(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _wire_moto(client)
+    monkeypatch.setattr(knowledge_service, "local_embedding_missing_reason", lambda: None)
     monkeypatch.setattr(
         knowledge_service,
         "local_embedding_block_reason",
@@ -122,6 +123,7 @@ def test_knowledge_base_options_flag_embedding_models_when_runtime_is_blocked(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
     _wire_moto(client)
+    monkeypatch.setattr(knowledge_service, "local_embedding_missing_reason", lambda: None)
     monkeypatch.setattr(
         knowledge_service,
         "local_embedding_block_reason",

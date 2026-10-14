@@ -9,6 +9,15 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Knowledge-base options tell the truth about embeddings, and the prerequisites are written down.** On an
+  install without `sentence-transformers` and `langchain-huggingface` every embedding model used to be listed as
+  available, creation returned 201, and the build failed later. The options now mark each model unavailable and
+  name the `knowledge-local` extra, and creation fails fast with the same message. `docs/use/knowledge-bases.md`
+  lists what a knowledge base needs before the first step (object store, embedding libraries, model download,
+  pgvector, AGE). A new weekly job runs the whole journey against the docker stack's real MinIO and PostgreSQL
+  with simulated embeddings. The default docker image does not include `knowledge-local`, so a real build needs
+  it added through `CALIBER_INSTALL_EXTRAS`.
+
 - **Workflow nodes say what they need, and workflow calibration says it is simulated.** The palette marks each
   node whose prerequisite this server lacks ("Needs a real LLM", "Needs an object store", "Needs the run
   queue", and so on), resolved against the running configuration, and `GET /workflow-components` returns the

@@ -108,7 +108,7 @@ from caliber.knowledge.schemas import (
 )
 from caliber.llm.models import DEFAULT_OPENAI_MODEL, reasoning_effort_for_model
 from caliber.observability.mlflow_tracing import get_tracer
-from caliber.runtime_advisories import local_embedding_block_reason
+from caliber.runtime_advisories import local_embedding_block_reason, local_embedding_missing_reason
 from caliber.secrets import resolve_secret
 from caliber.workflows.ingestion_tools import IngestionError, extract_document
 
@@ -311,9 +311,13 @@ class KnowledgeBaseService:
     def options(self) -> KnowledgeOptionsSchema:
         default_graph = self._default_graph_config()
         age_available = self._age_available()
-        embedding_block_reason = local_embedding_block_reason(
+        # A missing package outranks a flagged one: no override can make it available, so
+        # it must not be offered as something an operator can switch on.
+        embedding_missing_reason = local_embedding_missing_reason()
+        embedding_flagged_reason = local_embedding_block_reason(
             allow_flagged=self._config.allow_flagged_local_embeddings
         )
+        embedding_block_reason = embedding_missing_reason or embedding_flagged_reason
         retrieval_modes = [
             KnowledgeOptionSchema(
                 id="dense",
@@ -372,7 +376,9 @@ class KnowledgeBaseService:
                     tags=list(item.tags),
                     available=embedding_block_reason is None,
                     unavailable_reason=embedding_block_reason,
-                    requires_override=embedding_block_reason is not None,
+                    requires_override=(
+                        embedding_missing_reason is None and embedding_flagged_reason is not None
+                    ),
                 )
                 for item in list_embedding_model_specs()
             ],

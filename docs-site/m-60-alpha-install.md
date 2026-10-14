@@ -167,6 +167,21 @@ resume later. Each Human Approval node's own `required_role` still decides who m
 `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` unset, the person who started a run cannot approve it. The docker
 stack sets all three.
 
+## Knowledge bases need more than this page sets up
+
+A knowledge base reads its sources from an S3-compatible object store and embeds them with a local model,
+and neither comes with the steps above:
+
+- **An object store.** Run MinIO or point at S3 (`CALIBER_OBJECT_STORE_ENDPOINT_URL` and credentials). Without
+  one, creating a knowledge base answers 503 and names the object store.
+- **The embedding libraries.** `pip install --find-links ./wheels "caliber-suite[knowledge,knowledge-local]"`.
+  Without `knowledge-local` every embedding model shows as unavailable, with this extra named. The default docker
+  image installs `knowledge` only, so add `knowledge-local` to `CALIBER_INSTALL_EXTRAS` when you build it.
+- **The model.** The first build downloads it from Hugging Face; pre-cache it into `HF_HOME` on an offline host.
+- **PostgreSQL with pgvector** only if you turn on ANN search; **Apache AGE** only for graph retrieval.
+
+The full list, and what is and is not verified, is on [Knowledge bases](m-43-use-knowledge-bases.md#before-the-first-step-what-a-knowledge-base-needs).
+
 ## Docker instead
 
 If you would rather run the whole stack in containers, use `make start` from a source checkout.
