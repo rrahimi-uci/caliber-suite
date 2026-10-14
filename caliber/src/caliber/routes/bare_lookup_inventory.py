@@ -176,7 +176,7 @@ class BareLookupFinding:
 #: Every entry below was traced by hand against the actual gating code (not
 #: just pattern-matched) as part of building this checker; see each comment.
 _REVIEWED_BARE_LOOKUPS: dict[str, str] = {
-    "caliber.routes.aria_plans._record_plan_authorization_snapshot:224": (
+    "caliber.routes.aria_plans._record_plan_authorization_snapshot:250": (
         "Persists a one-time authorization snapshot onto a plan already "
         "resolved through `assistant/plans.py::PlanService.get_plan`, which "
         "calls `get_visible(session, CaliberAriaPlan, ...)` keyed on the "

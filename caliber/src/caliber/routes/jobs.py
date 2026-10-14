@@ -231,7 +231,12 @@ def _apply_summaries(
             .where(CaliberApprovalRequest.job_id.in_(job_ids))
             .where(CaliberApprovalRequest.status == "approved")
             .order_by(
-                CaliberApprovalRequest.created_at.desc(), CaliberApprovalRequest.approval_id.desc()
+                # ``approved_at`` is set in Python with microseconds; ``created_at`` is a
+                # database timestamp with one-second resolution on SQLite, so two approvals
+                # minted in the same second tied and the random id broke the tie.
+                CaliberApprovalRequest.approved_at.desc(),
+                CaliberApprovalRequest.created_at.desc(),
+                CaliberApprovalRequest.approval_id.desc(),
             )
         )
         .scalars()
@@ -248,7 +253,11 @@ def _apply_summaries(
             )
             .where(CaliberReleaseOperation.status == "applied")
             .where(CaliberReleaseOperation.operation_type == "promote")
-            .order_by(CaliberReleaseOperation.created_at.desc())
+            .order_by(
+                CaliberReleaseOperation.applied_at.desc(),
+                CaliberReleaseOperation.created_at.desc(),
+                CaliberReleaseOperation.operation_id.desc(),
+            )
         )
         .scalars()
         .all()

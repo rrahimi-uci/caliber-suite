@@ -26,6 +26,7 @@ from __future__ import annotations
 import json
 import os
 import sys
+import time
 import urllib.error
 import urllib.request
 
@@ -41,6 +42,7 @@ REQUIRED_GATES = (
     "Lint & format",
     "Type check",
     "Backend smoke",
+    "Backend core journey",
     "Migration parity (PostgreSQL)",
     "Docs validation",
     "UI (test + build)",
@@ -57,6 +59,30 @@ DID_NOT_RUN = {"skipped", None}
 API = "https://api.github.com"
 
 
+#: Transient answers from the GitHub API. A 5xx during an incident turned a green run's ledger
+#: red ("could not read this run's jobs: HTTP Error 502") and took a manual re-run to clear,
+#: so reads are retried a few times before failing closed.
+_RETRYABLE_STATUS = {500, 502, 503, 504}
+_ATTEMPTS = 4
+
+
+def _read_json(request: urllib.request.Request) -> dict:
+    last: Exception | None = None
+    for attempt in range(_ATTEMPTS):
+        try:
+            with urllib.request.urlopen(request, timeout=30) as response:
+                return json.load(response)  # type: ignore[no-any-return]
+        except urllib.error.HTTPError as exc:
+            if exc.code not in _RETRYABLE_STATUS:
+                raise
+            last = exc
+        except (urllib.error.URLError, TimeoutError) as exc:
+            last = exc
+        time.sleep(min(2**attempt, 8))
+    assert last is not None
+    raise last
+
+
 def fetch_jobs(repo: str, run_id: str, token: str) -> list[dict]:
     jobs: list[dict] = []
     page = 1
@@ -70,8 +96,7 @@ def fetch_jobs(repo: str, run_id: str, token: str) -> list[dict]:
                 "X-GitHub-Api-Version": "2022-11-28",
             },
         )
-        with urllib.request.urlopen(request, timeout=30) as response:
-            payload = json.load(response)
+        payload = _read_json(request)
         batch = payload.get("jobs", [])
         jobs.extend(batch)
         if len(jobs) >= payload.get("total_count", len(jobs)) or not batch:

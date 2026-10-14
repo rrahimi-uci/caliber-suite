@@ -396,6 +396,64 @@ jobs:
           --no-cov
           -q
 
+  # The core journey and the contracts that guard it, on every PR. Before this job a PR ran
+  # only the 106-test smoke set, and the full suite, the SDK-against-server tests and the
+  # route-gate inventories ran only after merge. Two merges went red that way (one kept
+  # ``main`` red for 22 days), and a line-number shift in a reviewed allowlist went red the
+  # same way while this job was being added. The set below is the release path end to end:
+  # authorization, Apply, readiness, releases, evidence, the SDK and CLI against the real
+  # application, and the inventories that pin route gating (alpha gap P1-16).
+  backend-core:
+    name: Backend core journey
+    runs-on: ubuntu-latest
+    needs: [lint, type-check]
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: caliber/pyproject.toml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install package + dev extras
+        run: uv pip install --system -e ".[$CALIBER_CI_EXTRAS]"
+      - name: Install the client, CLI, and plugin SDKs
+        # Without these the cross-package tests skip, and a skipped test is not coverage.
+        working-directory: .
+        run: |
+          uv pip install --system -e sdk/caliber-sdk
+          uv pip install --system -e sdk/caliber-cli
+          uv pip install --system -e sdk/caliber-plugin-sdk
+      - name: Run the core-journey and contract tests
+        run: >-
+          pytest -n auto --dist loadgroup --no-cov -q
+          tests/test_routes_jobs_apply.py
+          tests/test_routes_jobs_isolation.py
+          tests/test_routes_jobs.py
+          tests/test_job_route_gate_ratchet.py
+          tests/test_apply_shared_sqlite_store.py
+          tests/test_routes_prompts.py
+          tests/test_routes_releases.py
+          tests/test_routes_releases_scoping.py
+          tests/test_release_traceability.py
+          tests/test_orchestrator_eval.py
+          tests/test_simulated_provider_guard.py
+          tests/test_schema_readiness.py
+          tests/test_readiness_probes.py
+          tests/test_personal_access_tokens.py
+          tests/test_pat_binding_gates.py
+          tests/test_settings_routes.py
+          tests/test_mlflow_unreachable.py
+          tests/test_aria_honesty.py
+          tests/test_migrate_command.py
+          tests/test_alpha_install_contract.py
+          tests/test_alpha_scope_claims.py
+          tests/test_sdk_against_server.py
+          tests/test_sdk_api_coverage.py
+          tests/test_bare_lookup_inventory.py
+          tests/test_plugin_contract.py
+
   # `docs/workspace-plan.md` section 15.2: "Each schema step has a
   # fresh-install test, upgrade test from the preceding revision, and
   # ORM-metadata parity test on SQLite and PostgreSQL. The current migration
@@ -1201,6 +1259,7 @@ jobs:
       - ui
       - compose
       - package
+      - backend-core
       - alpha-install
       - alpha-journey
       - security

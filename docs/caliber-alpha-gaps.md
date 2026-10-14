@@ -950,9 +950,10 @@ deferral.
   - Require the gate ledger, `Wheel build` and `alpha-journey` on `main`.
 - **Files:** `.github/workflows/ci.yml`, repo settings.
 - **Deps:** [P0-6](#p0-6).
-- **Acceptance:**
-  - [ ] A PR that breaks `tests/test_routes_jobs_apply.py` shows a failing required check.
-  - [ ] The protection API lists the contexts.
+- **Status: implemented in the workflow; the protection change is applied after merge (see the PR).** `.github/workflows/ci.yml` gains the `backend-core` job ("Backend core journey", 24 test files: release authorization, Apply, readiness, releases, evidence, settings, the SDK and CLI against the real application, the SDK-to-API coverage test and the route-gate inventories) on every PR; it is a required gate in `gate_ledger.py` and in the ledger's `needs`; `scripts/ci-local.sh` mirrors it and `test_ci_local_parity.py` fails if the two test lists differ. The ledger now retries a transient GitHub API 5xx instead of failing a green run. While the job was being built it caught a real defect that had reached `main`: the line-keyed bare-lookup allowlist went stale when an earlier slice added a helper above the call site, and the existing PR checks did not run that test.
+- **Acceptance criteria:**
+  - [x] A PR that breaks `tests/test_routes_jobs_apply.py` shows a failing required check: the job runs that file and a failure fails "Backend core journey", which the ledger also requires.
+  - [ ] The protection API lists the contexts (applied after this PR merges, so the new context has reported at least once; recorded in the PR).
 
 ### P1-17
 
