@@ -35,6 +35,7 @@ def test_prepare_transformers_runtime_env_preserves_existing_value(
 def test_embedding_runtime_availability_raises_when_local_stack_is_blocked(
     monkeypatch,
 ) -> None:
+    monkeypatch.setattr(knowledge_embeddings, "local_embedding_missing_reason", lambda: None)
     monkeypatch.setattr(
         knowledge_embeddings,
         "local_embedding_block_reason",
@@ -48,6 +49,7 @@ def test_embedding_runtime_availability_raises_when_local_stack_is_blocked(
 def test_embedding_runtime_availability_honors_override(
     monkeypatch,
 ) -> None:
+    monkeypatch.setattr(knowledge_embeddings, "local_embedding_missing_reason", lambda: None)
     monkeypatch.setattr(
         knowledge_embeddings,
         "local_embedding_block_reason",

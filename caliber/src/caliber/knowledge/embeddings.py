@@ -7,7 +7,7 @@ from dataclasses import dataclass
 from functools import cached_property
 from typing import Any
 
-from caliber.runtime_advisories import local_embedding_block_reason
+from caliber.runtime_advisories import local_embedding_block_reason, local_embedding_missing_reason
 
 
 class KnowledgeDependencyError(RuntimeError):
@@ -130,6 +130,9 @@ def ensure_embedding_backend_runtime_available(
 ) -> None:
     """Fail fast when the local embedding runtime is unavailable or blocked."""
 
+    missing_reason = local_embedding_missing_reason()
+    if missing_reason is not None:
+        raise KnowledgeDependencyError(missing_reason)
     block_reason = local_embedding_block_reason(allow_flagged=allow_flagged_local_embeddings)
     if block_reason is not None:
         raise KnowledgeDependencyError(block_reason)

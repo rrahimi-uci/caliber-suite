@@ -26,6 +26,9 @@ on:
       - "deploy/**"
       - "caliber/deploy/**"
       - "scripts/verify-compose-stack.sh"
+      - "scripts/verify-knowledge-stack.sh"
+      - "caliber/tests/test_knowledge_stack_journey.py"
+      - "caliber/src/caliber/knowledge/**"
       - ".github/workflows/stack-smoke.yml"
       - ".env.example"
 
@@ -48,3 +51,28 @@ jobs:
           python-version: "3.11"
       - name: Build both images, start the stack and probe it
         run: scripts/verify-compose-stack.sh --timeout 1200
+
+  knowledge:
+    name: Knowledge-base journey on MinIO and PostgreSQL
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    # Every other knowledge-base test uses moto and SQLite. This runs create, build, version,
+    # query and roll back against the stack's real MinIO and PostgreSQL (alpha gap P1-23). The
+    # embeddings are a simulated test double: it proves storage, build and routes, not
+    # retrieval quality.
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: caliber/pyproject.toml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.11"
+      - name: Install CALIBER with the knowledge extras
+        working-directory: caliber
+        run: |
+          uv venv .venv --python 3.11
+          uv pip install --python .venv/bin/python -e ".[dev,s3,postgres,knowledge]"
+      - name: Start MinIO and PostgreSQL and run the journey
+        run: scripts/verify-knowledge-stack.sh --python "$PWD/caliber/.venv/bin/python"
