@@ -149,6 +149,7 @@ BACKEND_CORE_TESTS=(
   tests/test_aria_honesty.py
   tests/test_migrate_command.py
   tests/test_alpha_install_contract.py
+  tests/test_alpha_scope_claims.py
   tests/test_sdk_against_server.py
   tests/test_sdk_api_coverage.py
   tests/test_bare_lookup_inventory.py
