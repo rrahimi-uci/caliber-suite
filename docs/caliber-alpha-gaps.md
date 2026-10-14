@@ -950,10 +950,10 @@ deferral.
   - Require the gate ledger, `Wheel build` and `alpha-journey` on `main`.
 - **Files:** `.github/workflows/ci.yml`, repo settings.
 - **Deps:** [P0-6](#p0-6).
-- **Status: implemented in the workflow; the protection change is applied after merge (see the PR).** `.github/workflows/ci.yml` gains the `backend-core` job ("Backend core journey", 24 test files: release authorization, Apply, readiness, releases, evidence, settings, the SDK and CLI against the real application, the SDK-to-API coverage test and the route-gate inventories) on every PR; it is a required gate in `gate_ledger.py` and in the ledger's `needs`; `scripts/ci-local.sh` mirrors it and `test_ci_local_parity.py` fails if the two test lists differ. The ledger now retries a transient GitHub API 5xx instead of failing a green run. While the job was being built it caught a real defect that had reached `main`: the line-keyed bare-lookup allowlist went stale when an earlier slice added a helper above the call site, and the existing PR checks did not run that test.
+- **Status: implemented.** The workflow change merged in #474, and the required contexts were then applied to `main` (see below). `.github/workflows/ci.yml` gains the `backend-core` job ("Backend core journey", 24 test files: release authorization, Apply, readiness, releases, evidence, settings, the SDK and CLI against the real application, the SDK-to-API coverage test and the route-gate inventories) on every PR; it is a required gate in `gate_ledger.py` and in the ledger's `needs`; `scripts/ci-local.sh` mirrors it and `test_ci_local_parity.py` fails if the two test lists differ. The ledger now retries a transient GitHub API 5xx instead of failing a green run. While the job was being built it caught a real defect that had reached `main`: the line-keyed bare-lookup allowlist went stale when an earlier slice added a helper above the call site, and the existing PR checks did not run that test.
 - **Acceptance criteria:**
   - [x] A PR that breaks `tests/test_routes_jobs_apply.py` shows a failing required check: the job runs that file and a failure fails "Backend core journey", which the ledger also requires.
-  - [ ] The protection API lists the contexts (applied after this PR merges, so the new context has reported at least once; recorded in the PR).
+  - [x] The protection API lists the contexts. After #474 merged, `PUT /repos/{repo}/branches/main/protection` set `required_status_checks` to these 13 contexts, with `strict: false` so a PR does not need to be rebased onto every merge: Lint & format, Type check, Backend smoke, Backend core journey, Migration parity (PostgreSQL), Docs validation, UI (test + build), Compose merged-config validation, Wheel build (with bundled SPA), Security scan, Alpha install (wheels, no checkout), Alpha journey (browser), Gate execution ledger. Every other protection setting was carried over unchanged (pull request required with zero approvals, no force pushes, no deletions, admins not enforced); `GET .../protection/required_status_checks` reads them back. To undo: `gh api -X DELETE repos/{repo}/branches/main/protection/required_status_checks`.
 
 ### P1-17
 
@@ -997,9 +997,10 @@ deferral.
   - Owner decision: reserve the PyPI names.
 - **Files:** `sdk/caliber-cli/pyproject.toml`, `docs/sdk/guide.md`, `docs/sdk/cli.md`, `sdk/*/README.md`.
 - **Deps:** [P0-7](#p0-7).
-- **Acceptance:**
-  - [ ] The documented commands install all three packages in a clean venv.
-  - [ ] CLI metadata carries a bounded requirement.
+- **Status: implemented, except reserving the PyPI names, which is an owner decision.** `sdk/caliber-cli/pyproject.toml` now requires `caliber-sdk>=0.1.0a1,<0.2`; `docs/sdk/guide.md` (install and the CI snippet), `docs/sdk/cli.md`, `sdk/caliber-sdk/README.md` and `sdk/caliber-cli/README.md` install with `pip install --find-links ./wheels` and say the packages are not on PyPI yet; `scripts/verify-alpha-install.sh` now also asserts the installed `caliber-cli` metadata carries a bounded `caliber-sdk` requirement and that `caliberctl` and `caliber-migrate` exist. Tests: `sdk/caliber-cli/tests/test_packaging.py` (bounded requirement, the repository's SDK satisfies it, the README installs from wheels).
+- **Acceptance criteria:**
+  - [x] The documented commands install all three packages in a clean venv: the `Alpha install` job builds the three wheels and installs them with `pip install --find-links`, in a fresh venv, in CI.
+  - [x] CLI metadata carries a bounded requirement.
 
 ### P1-19
 
@@ -1012,9 +1013,10 @@ deferral.
 - **Fix:** Add `test_the_sdk_drives_the_prompt_calibration_journey` in `caliber/tests/test_sdk_against_server.py`. It covers create → dataset → calibration (fake + opt-in, one worker tick) → wait → apply (mlflow on temp SQLite) → rollback, asserting the live version.
 - **Files:** `caliber/tests/test_sdk_against_server.py`.
 - **Deps:** [P0-2](#p0-2), [P0-3](#p0-3), [P1-16](#p1-16).
-- **Acceptance:**
-  - [ ] The test passes offline.
-  - [ ] Renaming a calibration-run payload key breaks it.
+- **Status: implemented.** `tests/test_sdk_prompt_journey.py` drives the loop through the sync SDK against the real application with its worker, the real MLflow prompt registry on a temporary SQLite store and the real `MLflowPromoter`: `prompts.create` and `promote` (v1 live), a test set with three examples, `create_calibration_run` (MetaPrompt), `jobs.wait` to `candidate_ready`, `jobs.apply` (v2 live, not simulated, under 30 s) and `prompts.rollback` (v1 live), asserting the registry's `prod` version after each step. It runs in a subprocess for the same MLflow-mapper reason as the shared-store test and is part of the "Backend core journey" gate. While writing it the typed `Job` was found to hide the candidate and evaluation evidence in `extra`; `caliber_sdk.models.Job` now has `candidate`, `eval_results`, `approval_id`, `applied_by` and `applied_version`. The generated SDK reference is regenerated.
+- **Acceptance criteria:**
+  - [x] The test passes offline (about 15 s).
+  - [x] Renaming a calibration-run payload key breaks it: with `eval_dataset_id` changed to `eval_dataset` the run fails with a 400 `CaliberValidationError` (verified once; the original is restored).
 
 ### P1-20
 
