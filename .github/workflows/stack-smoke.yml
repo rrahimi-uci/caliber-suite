@@ -8,8 +8,9 @@ name: Docker stack smoke
 # and builds nothing. A weekly build catches upstream drift; running it on pull requests
 # that touch the stack catches our own changes before they merge.
 #
-# It is deliberately not part of ci.yml: it takes about 15 minutes and pulls several
-# gigabytes of images, so it is not a required check on every PR. scripts/ci-local.sh does
+# It is deliberately not part of ci.yml: it builds two images and pulls several gigabytes
+# (about four minutes on a hosted runner, much longer from a cold local machine), so it is
+# not a required check on every PR. scripts/ci-local.sh does
 # not mirror it for the same reason; run scripts/verify-compose-stack.sh to do so by hand.
 #
 # A failed scheduled run is reported by GitHub to the person who last edited the cron
