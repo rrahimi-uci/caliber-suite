@@ -319,24 +319,28 @@ def test_a_live_worker_reaps_rows_that_stayed_stale_past_the_window(
     db_session: Session,
 ) -> None:
     """The reported symptom: 32 rows left by container restarts kept /readiness red
-    while a healthy worker served. After the grace period they are gone."""
+    while a healthy worker served. They no longer block readiness, and after the grace
+    period they are gone."""
     record_heartbeat(db_session, worker_id="w-live", now=NOW)
     for index in range(32):
         record_heartbeat(
             db_session, worker_id=f"w-old-{index}", now=NOW - timedelta(seconds=3600 + index)
         )
-    assert _collect(db_session).healthy is False
+    before = _collect(db_session)
+    assert before.healthy is True, before.degraded_reasons  # a live worker is serving
+    assert before.workers_stale == 32  # but the stale rows are still reported
 
     removed = _reap(db_session)
 
     assert removed == 32
     assert _ids(db_session) == {"w-live"}
-    assert _collect(db_session).healthy is True
+    assert _collect(db_session).workers_stale == 0
 
 
-def test_a_recently_stale_worker_is_still_reported_not_reaped(db_session: Session) -> None:
+def test_a_recently_stale_worker_is_still_listed_not_reaped(db_session: Session) -> None:
     """Replacing a worker must not hide that one just died: inside the grace period the
-    row stays, and readiness still names it."""
+    row stays and is listed with ``alive: false``, though a live worker keeps readiness
+    green."""
     record_heartbeat(db_session, worker_id="w-live", now=NOW)
     record_heartbeat(db_session, worker_id="w-just-died", now=NOW - timedelta(seconds=120))
 
@@ -344,8 +348,34 @@ def test_a_recently_stale_worker_is_still_reported_not_reaped(db_session: Sessio
 
     assert _ids(db_session) == {"w-live", "w-just-died"}
     health = _collect(db_session)
+    assert health.healthy is True, health.degraded_reasons
+    assert health.workers_stale == 1
+    listed = {worker["worker_id"]: worker["alive"] for worker in health.workers}
+    assert listed == {"w-live": True, "w-just-died": False}
+
+
+def test_a_stale_row_beside_a_live_worker_does_not_block_readiness(db_session: Session) -> None:
+    """A restart leaves one stale row behind (the new process registers under a new id).
+    Capacity is reduced, not lost, so the instance stays in rotation."""
+    record_heartbeat(db_session, worker_id="w-live", now=NOW)
+    record_heartbeat(db_session, worker_id="w-restarted-away", now=NOW - timedelta(seconds=120))
+
+    health = _collect(db_session)
+
+    assert health.healthy is True, health.degraded_reasons
+    assert health.degraded_reasons == []
+
+
+def test_the_stale_worker_is_named_when_nothing_else_is_serving(db_session: Session) -> None:
+    """The outage keeps its reason, and the names."""
+    record_heartbeat(db_session, worker_id="w-only", now=NOW - timedelta(seconds=120))
+
+    health = _collect(db_session)
+
     assert health.healthy is False
-    assert any("w-just-died" in reason for reason in health.degraded_reasons)
+    assert any(
+        "stopped reporting" in reason and "w-only" in reason for reason in health.degraded_reasons
+    ), health.degraded_reasons
 
 
 def test_the_reap_boundary_is_the_window_itself(db_session: Session) -> None:

@@ -210,15 +210,16 @@ effect ledger's suppression budget.
 `…/checkpoints` first to see what a resume would replay.
 
 A worker that exits uncleanly (killed, out of memory, host asleep) leaves its row in
-`caliber_worker_heartbeats`, and each stale row adds a `stopped reporting` reason, so
-`/caliber/readiness` is 503 on `workflow_queue` while it exists. A restarted worker registers under a
-new id, and every live workflow-run worker deletes rows of its own kind that have been stale for at
-least five minutes (five times the staleness window, with a five-minute floor), checking once a minute.
-So readiness recovers on its own a few minutes after a replacement is reporting. It stays red when no
-worker is alive, which is the outage. A clean stop removes its own row.
+`caliber_worker_heartbeats`. A restarted worker registers under a new id, so a restart leaves one stale
+row behind. While another worker is reporting, stale rows do not affect `/caliber/readiness` (capacity is
+reduced, the queue is still draining); they stay listed in `GET /caliber/system/queue` with `alive: false`
+and are counted in `workers_stale`. Every live workflow-run worker deletes rows of its own kind that have
+been stale for at least five minutes (five times the staleness window, with a five-minute floor), checking
+once a minute. When no worker is reporting, `/caliber/readiness` is 503 on `workflow_queue` and names the
+stopped workers, which is the outage. A clean stop removes its own row.
 
-**Verify.** `queued` falls, `workers_alive` is non-zero, `stale_leases` is zero, and no
-`stopped reporting` reason remains.
+**Verify.** `queued` falls, `workers_alive` is non-zero, `stale_leases` is zero, and `/caliber/readiness`
+no longer reports `workflow_queue`.
 
 > `workers_alive` counts workers that registered **or** hold a fresh claim — the union,
 > not a choice. During an upgrade an old worker may hold a claim without registering,
