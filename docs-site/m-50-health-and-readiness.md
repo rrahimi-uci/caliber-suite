@@ -35,7 +35,7 @@ apply to the configuration is reported as skipped (`ready: null`) and never bloc
 | `mlflow` | when an `http://` or `https://` tracking server is configured (`MLFLOW_TRACKING_URI`) | the tracking server's `/health` answers with anything below HTTP 500 |
 | `object_store` | when workflow storage is remote: `CALIBER_WORKFLOW_STORAGE_BACKEND` is `s3`, `gs`, `az` or `azure`, or `CALIBER_WORKFLOW_STORAGE_BASE_URI` has one of those schemes | the bucket can be listed. `s3` with no bucket named is a blocker, reported without a probe. |
 | `event_bus` | when the event backend is `nats` or `redis` and its URL is set | the broker's port accepts a connection |
-| `workflow_queue` | when the run queue is enabled (`CALIBER_WORKFLOW_RUN_QUEUE_ENABLED`) | the queue is draining, at least one worker heartbeat is fresh, and no registered worker has stopped reporting |
+| `workflow_queue` | when the run queue is enabled (`CALIBER_WORKFLOW_RUN_QUEUE_ENABLED`) | the queue is draining and at least one worker heartbeat is fresh (a stale row beside a live worker is reported in `/system/queue`, not here) |
 | `providers` | never | informational: reports not ready while any of `llm`, `eval`, `promoter` or `artifact_store` is simulated, and names them |
 | `code_execution_allowlists` | never | informational: reports not ready while `CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST` is unset (any module may be registered as a tool) or `CALIBER_EXTERNAL_APP_ENTRYPOINT_ALLOWLIST` is unset (every `external_app` entrypoint is refused) |
 
@@ -46,14 +46,14 @@ A simulated provider or an unset allowlist does not turn readiness to 503.
 the database answers, even when the schema is missing, and 503 (`status: degraded`, `db: down`) when
 the database does not answer. Use readiness for go or no-go decisions.
 
-**A worker that died keeps readiness red.** Each workflow-run worker writes a heartbeat
-row to `caliber_worker_heartbeats` and removes it on a clean stop. A worker that exits uncleanly
-(killed, out of memory, host asleep) leaves its row, and each stale row adds a blocking
-`workflow_queue` reason (`N registered worker(s) stopped reporting: <ids>`). A restarted worker registers
-under a new id, so a live workflow-run worker deletes rows of its kind that have been stale for at least
-five minutes (five times the staleness window, with a five-minute floor), checking once a minute. A
-worker that died shows as degraded for those minutes, and readiness recovers by itself once a replacement
-is reporting. When no worker is alive nothing reaps, so a deployment that lost its last worker stays red.
+**A worker that died.** Each workflow-run worker writes a heartbeat row to `caliber_worker_heartbeats`
+and removes it on a clean stop. A worker that exits uncleanly (killed, out of memory, host asleep) leaves
+its row, and a restarted worker registers under a new id, so a restart leaves one stale row behind. While
+another worker is reporting, stale rows do not block readiness: capacity is reduced, not lost, and they
+stay visible in `GET /system/queue` (`workers_stale`, and `alive: false` per worker). A live workflow-run
+worker deletes rows of its kind that have been stale for at least five minutes (five times the staleness
+window, with a five-minute floor), checking once a minute. When no worker is reporting, `workflow_queue`
+blocks readiness with `N registered worker(s) stopped reporting: <ids>`, which is the outage.
 
 ## 2. What to verify after boot
 

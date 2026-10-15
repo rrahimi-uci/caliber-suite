@@ -417,11 +417,11 @@ The behaviors that matter most in operation are these:
   `external_app_entrypoint_allowlist` (all entrypoints refused). The response also keeps
   the `providers`, `simulated`, `all_real`, and tracing flags the SPA honesty banner
   reads, so simulated providers show up without failing the probe.
-- A dead worker keeps `workflow_queue`, and so readiness, red while its row exists. A worker that
-  stops without a clean shutdown leaves its `caliber_worker_heartbeats` row behind as the signal. A
-  live worker of the same kind removes rows that stayed stale for five times the staleness window
-  (at least five minutes), so readiness recovers a few minutes after a replacement is reporting; with
-  no live worker nothing reaps, and it stays red.
+- A dead worker blocks `workflow_queue`, and so readiness, only while no other worker is reporting. A
+  worker that stops without a clean shutdown leaves its `caliber_worker_heartbeats` row behind; beside a
+  live worker the row is listed (`workers_stale`, `alive: false`) but does not block, and the live worker
+  removes rows that stayed stale for five times the staleness window (at least five minutes). With no
+  live worker nothing reaps and the stopped workers are named in the blocker.
 - `GET /system/services` probes MLflow, the object store, AI Gateway, the
   database, NATS, and the graph console when one is configured, so operators can
   separate a CALIBER

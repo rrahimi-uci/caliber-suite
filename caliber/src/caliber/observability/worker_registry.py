@@ -18,14 +18,14 @@ Staleness is judged against the worker's own poll interval rather than a second
 configured threshold, so the verdict cannot drift from the cadence it is measuring
 (see :func:`stale_after_seconds`).
 
-A stale row is the outage signal only while nobody has replaced the worker. A
-container that is killed and restarted gets a new ``worker_id`` (the id embeds an
-address that changes every start), so every unclean restart used to leave one more
-row behind, and ``/readiness`` stayed red for as long as any of them existed, even
-with a healthy worker serving. A *live* worker therefore reaps rows of its own kind
-that have been stale for a good while (:func:`reap_stale_workers`): the readiness
-signal stays red while a worker is gone and nothing replaced it, and recovers by
-itself once a replacement has been reporting past the grace period.
+A stale row is the outage signal only while nothing else is serving. A container that is
+killed and restarted gets a new ``worker_id`` (the id embeds an address that changes every
+start), so every unclean restart leaves one more row behind. Beside a live worker those rows
+are reported (``workers_stale``, ``alive: false``) but do not block ``/readiness``
+(:mod:`caliber.observability.queue_health`): capacity is reduced, not lost. A *live* worker
+also reaps rows of its own kind that have been stale for a good while
+(:func:`reap_stale_workers`), so they do not accumulate. When no worker is alive nothing
+reaps and the stopped workers are named in the blocker.
 
 A heartbeat write must never break a tick: :func:`record_heartbeat` swallows and logs
 failures. Losing an observability write is an operational nuisance; failing a run

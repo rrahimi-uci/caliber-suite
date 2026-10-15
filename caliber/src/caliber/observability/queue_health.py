@@ -207,8 +207,13 @@ def collect_queue_health(
         reasons.append(f"{queued} run(s) queued with no live worker")
     if stale:
         reasons.append(f"{stale} running run(s) past lease with no fresh heartbeat")
-    if stale_registered:
-        # Named, because "which worker stopped" is the actionable part.
+    if stale_registered and not alive_ids:
+        # Named, because "which worker stopped" is the actionable part. Only a fault when
+        # nothing else is serving: a worker that stopped while another keeps draining the
+        # queue is reduced capacity, not an outage, and a restart always leaves one such row
+        # behind (the new process registers under a new id). Those rows stay in ``workers``
+        # and ``workers_stale`` and a live worker reaps them (``reap_stale_workers``), but
+        # they must not take a serving instance out of rotation.
         names = ", ".join(sorted(record.worker_id for record in stale_registered))
         reasons.append(f"{len(stale_registered)} registered worker(s) stopped reporting: {names}")
     if require_worker and not alive_ids:

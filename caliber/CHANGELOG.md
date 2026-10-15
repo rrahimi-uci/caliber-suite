@@ -62,12 +62,13 @@ First alpha. What it does, what it does not and the known limitations are in the
 
 ### Fixed
 
-- **`/readiness` no longer stays red for good after a worker restart.** A restarted container registers its
+- **`/readiness` no longer goes red because of a worker restart.** A restarted container registers its
   workflow-run worker under a new id, and each unclean exit left a heartbeat row that nothing removed, so a
-  healthy worker could sit beside dozens of stale rows and `/readiness` reported `Workflow queue unhealthy (N
-  registered worker(s) stopped reporting)` indefinitely. A live worker now deletes rows of its kind that stayed
-  stale for five times the staleness window (at least five minutes), checking once a minute. A worker that just
-  died still shows as degraded for those minutes, and a deployment whose last worker is gone stays red.
+  healthy worker could sit beside stale rows and `/readiness` reported `Workflow queue unhealthy (N
+  registered worker(s) stopped reporting)` indefinitely. A stale row beside a live worker is now only
+  reported (`workers_stale` and `alive: false` in `/system/queue`); it blocks readiness when no worker is
+  reporting. A live worker also deletes rows of its kind that stayed stale for five times the staleness
+  window (at least five minutes), checking once a minute.
 
 - **A project viewer can no longer publish, promote, approve, run or calibrate in skills, tools and workflows.**
   Only the workflow, run and knowledge-base roots checked a project role, so a read-only member could publish a
