@@ -225,6 +225,51 @@ def test_capabilities_decodes_the_nested_workflow_block() -> None:
     assert capabilities.tier_of("nonexistent") is None
 
 
+def test_capabilities_decodes_the_feature_flags() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope(
+            {
+                "features": {
+                    "cookbooks": {
+                        "enabled": True,
+                        "env_var": "CALIBER_FEATURE_COOKBOOKS",
+                        "label": "Cookbooks",
+                        "stability": "preview",
+                    },
+                    "aria": {
+                        "enabled": False,
+                        "env_var": "CALIBER_FEATURE_ARIA",
+                        "label": "Aria assistant and plans",
+                        "stability": "preview",
+                    },
+                    "broken": "not an object",
+                },
+            }
+        )
+
+    with client_with(handler) as caliber:
+        capabilities = caliber.capabilities_info.get()
+
+    assert capabilities.feature_enabled("cookbooks") is True
+    assert capabilities.feature_enabled("aria") is False
+    assert capabilities.features["aria"].env_var == "CALIBER_FEATURE_ARIA"
+    assert capabilities.features["cookbooks"].stability == "preview"
+    # An unknown id and a malformed entry are off, never an exception.
+    assert capabilities.feature_enabled("nonexistent") is False
+    assert "broken" not in capabilities.features
+
+
+def test_capabilities_from_a_server_without_flags_has_every_feature_off() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope({"workflow_runs": {"queue_enabled": False}})
+
+    with client_with(handler) as caliber:
+        capabilities = caliber.capabilities_info.get()
+
+    assert capabilities.features == {}
+    assert capabilities.feature_enabled("aria") is False
+
+
 # --- projects -------------------------------------------------------------
 
 

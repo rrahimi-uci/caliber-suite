@@ -7,8 +7,8 @@ doc_type: how-to
 product_area: mcp
 stability: beta
 prerequisites:
-  - A CALIBER deployment with MCP access
-reviewed_on: 2026-10-14
+  - A CALIBER deployment with MCP access (CALIBER_FEATURE_INTEGRATIONS=true)
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - mcp
@@ -18,6 +18,12 @@ tags:
 ---
 
 # MCP servers
+
+> **Disabled by default.** MCP servers are a preview area and are off by default; enable with
+> `CALIBER_FEATURE_INTEGRATIONS=true` and restart CALIBER (the same flag turns on OpenAPI integrations). While
+> it is off, the `/mcp-servers*` routes answer 404 (`reason_code: feature_disabled`), the MCP Servers page is
+> hidden, and a workflow MCP node is reported as unavailable ("A registered MCP server that CALIBER can reach (needs CALIBER_FEATURE_INTEGRATIONS=true)"). Enabling the
+> flag means you accept preview behavior. See [Feature flags](../start/alpha-scope.md#feature-flags).
 
 Use this page when the practical question is how to connect CALIBER to an MCP
 server, verify the discovered tools, and govern what remote tools may do.
@@ -68,6 +74,7 @@ too weak a role gets 403 and a person outside the project gets 404.
 
 | Symptom | First thing to check |
 | --- | --- |
+| There is no MCP Servers page, or a call answers 404 with `reason_code: feature_disabled` | `CALIBER_FEATURE_INTEGRATIONS` is off (the default); set it to `true` and restart |
 | The server connects but tools do not appear | discovery or transport mismatch |
 | Tools appear but cannot run | the tool has no policy yet (the default is denied), or it needs approval, or its secret-source configuration is wrong |
 | The same tool behaves differently across environments | endpoint, credentials, or server version drift |

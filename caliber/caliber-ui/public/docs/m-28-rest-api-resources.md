@@ -12,7 +12,7 @@ does this capability live?" before you drop into per-route details.
 | --- | --- |
 | `/health`, `/readiness` | Liveness (a bare `status`/`version`/`db` body; 503 when the database probe fails) and dependency readiness (503 while a required dependency, including the database schema, is not ready) |
 | `/auth`, `/csrf`, `/me` | Authentication, token/session plumbing, caller identity |
-| `/capabilities`, `/openapi.json`, `/settings` | Surface discovery, stability metadata, runtime configuration |
+| `/capabilities`, `/openapi.json`, `/settings` | Surface discovery, stability metadata (`/capabilities` also reports which preview areas are on, under `features`), runtime configuration |
 | `/dashboard/summary` | Overview aggregates used by the UI |
 
 ## Authoring and runtime assets
@@ -22,13 +22,13 @@ does this capability live?" before you drop into per-route details.
 | `/prompts` | Prompt registry, aliases, versions (each version row carries the `provenance` Apply recorded: job, dataset, evaluation provider, simulated or not), and refinement-related authoring |
 | `/tools` | Tool registry, tests, calibration, and policy; list and detail responses add `builtin` (seeded by CALIBER), `availability` and `availability_reason` (for example the agent-memory tools while memory is off) |
 | `/skills` | Skill registry, versions, packaging, tests, and calibration |
-| `/mcp-servers` | Managed MCP definitions, inventories, connection tests, and governed tool invocation |
+| `/mcp-servers` | Managed MCP definitions, inventories, connection tests, and governed tool invocation. Preview: off by default (`CALIBER_FEATURE_INTEGRATIONS`) |
 | `/workflows`, `/workflow-components`, `/workflow-templates` | Workflow registry, composition, and templates; `/workflow-components` lists each node type with its `requires` ids and `requirements` (`id`, `label`, `met`), resolved against the running configuration |
 | `/workflow-versions`, `/workflow-runs`, `/workflows/{id}/deployments` | Version lifecycle, execution, approvals, and deployment |
 | `/services` and `/workflows/{id}/service` | Publish a workflow as an external HTTP service, invoke it, and inspect service tokens/OpenAPI |
 | `/workflow-files`, `/workflow-cron-preview`, `/workflow-promotions`, `/workflow-benchmark-reports` | Run-workspace files, schedule preview, promotion approval/rejection, and benchmark reports |
 | `/agents` | Agent records that verification items, refinement jobs, and approvals hang off |
-| `/openapi-integrations` | Governed import of external OpenAPI contracts: pinned snapshots, operation classification, dependency detection, curated tool drafts, and publication into the tool registry |
+| `/openapi-integrations` | Governed import of external OpenAPI contracts: pinned snapshots, operation classification, dependency detection, curated tool drafts, and publication into the tool registry. Preview: off by default (`CALIBER_FEATURE_INTEGRATIONS`) |
 
 ## Data, knowledge, and evidence
 
@@ -52,7 +52,7 @@ does this capability live?" before you drop into per-route details.
 | --- | --- |
 | `/jobs` | Durable background jobs (`eval_results` carries `provider` and `simulated`, and for workflow evaluations `scorer`), apply targets (an applied job also returns `approval_id`, `applied_by` and `applied_version`), request-changes (send a `candidate_ready` job back for another pass), and quality-reviews (a human go/no-go on the candidate, distinct from the machine eval gate) |
 | `/rework-tasks` and `/projects/{id}/rework-tasks` | Owned, recoverable work auto-created when a refinement job is terminally rejected: list/get/claim/resolve/reassign; project routes enforce workspace visibility and role policy |
-| `/releases` | Candidates, evaluation, waivers, signoff, reporting, and reconcile operations; `GET /releases/live` lists what is live (workflow deployments, each knowledge base's active version, and the prompt version last released to each alias) |
+| `/releases` | Candidates, evaluation, waivers, signoff, reporting, and reconcile operations; `GET /releases/live` lists what is live (workflow deployments, each knowledge base's active version, and the prompt version last released to each alias). The candidate and report-job routes (`/releases/candidates*`, `/releases/report-jobs*`) are record-only and off by default (`CALIBER_FEATURE_RELEASE_CANDIDATES`, which also gates `/projects/{id}/releases*`); live, timeline and operations are core |
 | `/{family}/{id}/rollback` | Per-family rollback operations on `/prompts`, `/skills`, `/agents`, `/knowledge-bases`, and `/workflows/{id}/deployments/{alias}` |
 | `/observability/*`, `/metrics`, `/events/stream` | Traces, experiments, metrics, and SSE |
 | `/audit-log` | Read-only audit explorer and export |
@@ -65,11 +65,14 @@ does this capability live?" before you drop into per-route details.
 
 ## Assistant and agentic surfaces
 
+These families are previews and are **off by default**: a disabled one answers 404 with
+`reason_code: feature_disabled`. `GET /capabilities` reports each under `features`.
+
 | Route family | Purpose |
 | --- | --- |
-| `/assistant/*` | Session-based assistant interactions, drafts, queue, and attachments |
-| `/aria/plans`, `/aria/interactions`, `/aria/capabilities` | Goal-plan decomposition, approval, execution, polling, and human questions |
-| `/cookbooks` | Cookbook catalog and installation |
+| `/assistant/*` | Session-based assistant interactions, drafts, queue, and attachments. Off by default (`CALIBER_FEATURE_ARIA`) |
+| `/aria/plans`, `/aria/interactions`, `/aria/capabilities` | Goal-plan decomposition, approval, execution, polling, and human questions. Off by default (`CALIBER_FEATURE_ARIA`) |
+| `/cookbooks` | Cookbook catalog and installation. Off by default (`CALIBER_FEATURE_COOKBOOKS`) |
 
 ## How this maps to the SDK
 

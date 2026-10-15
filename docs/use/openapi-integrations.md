@@ -7,8 +7,8 @@ doc_type: how-to
 product_area: openapi-integrations
 stability: beta
 prerequisites:
-  - A CALIBER deployment with admin or operator scope
-reviewed_on: 2026-10-14
+  - A CALIBER deployment with admin or operator scope and CALIBER_FEATURE_INTEGRATIONS=true
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - openapi
@@ -18,6 +18,12 @@ tags:
 ---
 
 # OpenAPI Integrations
+
+> **Disabled by default.** OpenAPI integrations are a preview area and are off by default; enable with
+> `CALIBER_FEATURE_INTEGRATIONS=true` and restart CALIBER (the same flag turns on MCP servers). While it is off,
+> the `/openapi-integrations*` routes answer 404 (`reason_code: feature_disabled`) and the OpenAPI
+> Integrations page is hidden. Tools already published from an integration stay in the tool registry. Enabling
+> the flag means you accept preview behavior. See [Feature flags](../start/alpha-scope.md#feature-flags).
 
 Use this page when the practical question is how to bring a third-party
 OpenAPI spec into CALIBER, decide which operations should become agent-facing
@@ -85,6 +91,7 @@ leaving the draft in an ambiguous state.
 
 | Symptom | First thing to check |
 | --- | --- |
+| There is no OpenAPI Integrations page, or a call answers 404 with `reason_code: feature_disabled` | `CALIBER_FEATURE_INTEGRATIONS` is off (the default); set it to `true` and restart |
 | Import from a URL fails immediately | the host is blocked by egress policy (loopback, link-local, private range) — allowlist it if intentional |
 | A draft won't publish | its server URL is unset, or the operation requires auth and no binding is set, or a bound secret reference does not resolve |
 | A draft is ready but publish is refused | check the selected project's `access_role`/`permissions`; `owner` or `editor` is required for project publication |

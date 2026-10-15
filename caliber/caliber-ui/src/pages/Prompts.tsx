@@ -17,6 +17,7 @@ import { Link } from "react-router-dom";
 
 import { caliberApi } from "@/api/caliberApi";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FeatureDisabledNotice } from "@/components/FeatureGate";
 import { FilterBar } from "@/components/FilterBar";
 import { applySuccessMessage } from "@/lib/applyMessage";
 import { LIVE_ALIAS, SINGLE_ENVIRONMENT } from "@/lib/environment";
@@ -38,6 +39,7 @@ import { PromptDiagnosisTab } from "@/components/PromptDiagnosisTab";
 import { VersionPanel } from "@/components/versioning/VersionPanel";
 import { makePromptVersionAdapter } from "@/components/versioning/adapters";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useFeature } from "@/hooks/useFeature";
 import { useViewMode } from "@/hooks/useViewMode";
 import type {
   AgentConfig,
@@ -1660,6 +1662,16 @@ function PromptWorkspace({
   onPromptCreated: (created: PromptCreateResult) => void;
 }): JSX.Element {
   const [stage, setStage] = useState<WorkspaceStage>("author");
+  // The Playground chats with the prompt through the Aria assistant, so it exists only when the
+  // ``aria`` feature flag is on.
+  const ariaEnabled = useFeature("aria").enabled;
+  const stages = useMemo(
+    () =>
+      ariaEnabled
+        ? WORKSPACE_STAGES
+        : WORKSPACE_STAGES.filter((tab) => tab.key !== "playground"),
+    [ariaEnabled],
+  );
   const [workspace, setWorkspace] = useState<PromptWorkspaceResponse | null>(
     null,
   );
@@ -1765,7 +1777,7 @@ function PromptWorkspace({
       </div>
 
       <PageTabs
-        tabs={WORKSPACE_STAGES}
+        tabs={stages}
         active={stage}
         onChange={(k) => setStage(k as WorkspaceStage)}
       />
@@ -1785,7 +1797,7 @@ function PromptWorkspace({
           />
         ))}
 
-      {stage === "playground" && prompt && (
+      {stage === "playground" && prompt && ariaEnabled && (
         <PromptChatPlayground
           prompts={prompts}
           loading={loading}
@@ -2087,6 +2099,7 @@ function PromptRunsStage({
     alias,
   );
 
+  const ariaEnabled = useFeature("aria").enabled;
   const [history, setHistory] = useState<PromptTestRunSummary[]>([]);
   const [loadingHistory, setLoadingHistory] = useState(true);
 
@@ -2330,52 +2343,58 @@ function PromptRunsStage({
   return (
     <div className="space-y-4">
       {/* ── Run + compare control bar ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-caliber-100 bg-caliber-50/60 px-4 py-3">
-        <div className="text-sm text-caliber-800">
-          Run <span className="font-mono">{promptName}</span> against its{" "}
-          {datasetId ? (
-            <span className="font-medium">pinned test set</span>
-          ) : (
-            <span className="font-medium">last run&apos;s cases</span>
-          )}
-          , then pin a run as the baseline to compare against.
+      {/* Running goes through the Aria assistant and judge; without the feature the saved runs,
+          baseline and comparison below still work, but nothing new can be run. */}
+      {ariaEnabled ? (
+        <div className="flex flex-wrap items-center justify-between gap-3 rounded-lg border border-caliber-100 bg-caliber-50/60 px-4 py-3">
+          <div className="text-sm text-caliber-800">
+            Run <span className="font-mono">{promptName}</span> against its{" "}
+            {datasetId ? (
+              <span className="font-medium">pinned test set</span>
+            ) : (
+              <span className="font-medium">last run&apos;s cases</span>
+            )}
+            , then pin a run as the baseline to compare against.
+          </div>
+          <button
+            type="button"
+            onClick={() => void runTests()}
+            disabled={running || templateLoading}
+            className="inline-flex items-center gap-2 rounded-md bg-caliber-600 px-4 py-2 text-sm font-medium text-white hover:bg-caliber-700 disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {running ? (
+              <>
+                <svg
+                  className="h-4 w-4 animate-spin"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                >
+                  <circle
+                    className="opacity-25"
+                    cx="12"
+                    cy="12"
+                    r="10"
+                    stroke="currentColor"
+                    strokeWidth="4"
+                  />
+                  <path
+                    className="opacity-75"
+                    fill="currentColor"
+                    d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
+                  />
+                </svg>
+                {runProgress.total > 0
+                  ? `Running ${runProgress.current}/${runProgress.total}…`
+                  : "Running…"}
+              </>
+            ) : (
+              "Run tests"
+            )}
+          </button>
         </div>
-        <button
-          type="button"
-          onClick={() => void runTests()}
-          disabled={running || templateLoading}
-          className="inline-flex items-center gap-2 rounded-md bg-caliber-600 px-4 py-2 text-sm font-medium text-white hover:bg-caliber-700 disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {running ? (
-            <>
-              <svg
-                className="h-4 w-4 animate-spin"
-                viewBox="0 0 24 24"
-                fill="none"
-              >
-                <circle
-                  className="opacity-25"
-                  cx="12"
-                  cy="12"
-                  r="10"
-                  stroke="currentColor"
-                  strokeWidth="4"
-                />
-                <path
-                  className="opacity-75"
-                  fill="currentColor"
-                  d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z"
-                />
-              </svg>
-              {runProgress.total > 0
-                ? `Running ${runProgress.current}/${runProgress.total}…`
-                : "Running…"}
-            </>
-          ) : (
-            "Run tests"
-          )}
-        </button>
-      </div>
+      ) : (
+        <FeatureDisabledNotice feature="aria" what="Running a test set against this prompt" />
+      )}
 
       {runError && (
         <div className="rounded-md border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
@@ -2613,7 +2632,9 @@ function PromptRunsStage({
           <div className="text-xs text-zinc-400 animate-pulse">Loading…</div>
         ) : history.length === 0 ? (
           <div className="rounded-lg border border-dashed border-zinc-300 bg-zinc-50 px-4 py-6 text-center text-xs text-zinc-400">
-            No saved runs yet. Run tests above to capture one.
+            {ariaEnabled
+              ? "No saved runs yet. Run tests above to capture one."
+              : "No saved runs yet."}
           </div>
         ) : (
           <div className="overflow-hidden rounded-lg border border-zinc-200 bg-white divide-y divide-zinc-100">
@@ -4843,6 +4864,9 @@ export function PromptTestCases({
   const [selectedModel, setSelectedModel] = useState("");
   const [config, setConfig] = useState<AssistantConfig | null>(null);
   const [configLoading, setConfigLoading] = useState(true);
+  // Generating cases, and running them through the judge, both go through the Aria assistant
+  // (``/assistant/*``), so with the ``aria`` feature flag off this stage explains itself instead.
+  const ariaEnabled = useFeature("aria").enabled;
 
   // Test case state
   const [testCases, setTestCases] = useState<TestCase[]>([]);
@@ -4879,6 +4903,7 @@ export function PromptTestCases({
   }, []);
 
   useEffect(() => {
+    if (!ariaEnabled) return undefined;
     let cancelled = false;
     caliberApi
       .getAssistantConfig()
@@ -4894,7 +4919,7 @@ export function PromptTestCases({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [ariaEnabled]);
 
   // When uncontrolled, default to the first agent with a prompt. When the
   // parent controls the agent (shared scope) or a prompt is locked, it owns the
@@ -5204,6 +5229,21 @@ export function PromptTestCases({
   const passCount = results.filter((r) => r.verdict === "pass").length;
   const failCount = results.filter((r) => r.verdict === "fail").length;
   const partialCount = results.filter((r) => r.verdict === "partial").length;
+
+  if (!ariaEnabled) {
+    return (
+      <FeatureDisabledNotice
+        feature="aria"
+        what="Generating and running test cases here"
+      >
+        Build a test set by hand on the{" "}
+        <Link to="/eval-datasets" className="font-medium underline">
+          Test Sets
+        </Link>{" "}
+        page, then calibrate against it.
+      </FeatureDisabledNotice>
+    );
+  }
 
   if (loading && effectivePrompts.length === 0) {
     return (
@@ -6031,6 +6071,9 @@ export function PromptOptimizationTab({
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [uploadSuccess, setUploadSuccess] = useState<string | null>(null);
 
+  // Assistant-guided calibration (resolve intent, build a plan, execute it) is Aria: with the
+  // ``aria`` feature flag off the panel is not rendered and no session is restored or polled.
+  const ariaEnabled = useFeature("aria").enabled;
   const [assistantSessionId, setAssistantSessionId] = useState<string | null>(
     null,
   );
@@ -6070,7 +6113,7 @@ export function PromptOptimizationTab({
   }, [options]);
 
   useEffect(() => {
-    if (!selectedAgentId) {
+    if (!selectedAgentId || !ariaEnabled) {
       setAssistantSessionId(null);
       return;
     }
@@ -6086,7 +6129,7 @@ export function PromptOptimizationTab({
     setAssistantIntentExecution(null);
     setAssistantOperationStatus(null);
     setAssistantIntentError(null);
-  }, [selectedAgentId]);
+  }, [selectedAgentId, ariaEnabled]);
 
   useEffect(() => {
     if (!selectedPrompt) return;
@@ -7026,207 +7069,209 @@ export function PromptOptimizationTab({
         </div>
       )}
 
-      <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-4">
-        <div className="flex items-center justify-between gap-3">
-          <h2 className="text-sm font-semibold text-sky-900">
-            Assistant-Guided Calibration
-          </h2>
-          {assistantSessionId && (
-            <span className="text-[11px] text-sky-700">
-              Session: <span className="font-mono">{assistantSessionId}</span>
-            </span>
+      {ariaEnabled && (
+        <div className="rounded-lg border border-sky-200 bg-sky-50/60 p-4">
+          <div className="flex items-center justify-between gap-3">
+            <h2 className="text-sm font-semibold text-sky-900">
+              Assistant-Guided Calibration
+            </h2>
+            {assistantSessionId && (
+              <span className="text-[11px] text-sky-700">
+                Session: <span className="font-mono">{assistantSessionId}</span>
+              </span>
+            )}
+          </div>
+
+          <p className="mt-1 text-xs text-sky-800">
+            Describe what you want to calibrate. The assistant resolves intent,
+            builds a plan, then executes it with confirmation.
+          </p>
+
+          <div className="mt-3">
+            <label className="mb-1 block text-xs font-medium text-sky-900">
+              Assistant intent request
+            </label>
+            <textarea
+              aria-label="Assistant intent request"
+              value={assistantIntentInput}
+              onChange={(event) => setAssistantIntentInput(event.target.value)}
+              rows={2}
+              placeholder="Example: Calibrate support-agent against support-v1 dataset for faithfulness and answer relevance."
+              className="w-full rounded-md border border-sky-200 bg-white px-3 py-2 text-sm text-zinc-900"
+            />
+          </div>
+
+          <div className="mt-3 flex flex-wrap items-center gap-2">
+            <button
+              type="button"
+              onClick={() => void resolveIntentWithAssistant()}
+              disabled={resolvingIntent || planningIntent || executingIntent}
+              className="rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-800 hover:bg-sky-100 disabled:opacity-60"
+            >
+              {resolvingIntent ? "Analyzing…" : "Analyze Intent"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void createPlanWithAssistant()}
+              disabled={planningIntent || executingIntent}
+              className="rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-800 hover:bg-sky-100 disabled:opacity-60"
+            >
+              {planningIntent ? "Planning…" : "Build Plan"}
+            </button>
+            <button
+              type="button"
+              onClick={() => void executePlanWithAssistant()}
+              disabled={executingIntent || !assistantIntentPlan?.ready}
+              className="rounded-md bg-sky-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-800 disabled:opacity-60"
+            >
+              {executingIntent ? "Executing…" : "Execute Confirmed Plan"}
+            </button>
+          </div>
+
+          {assistantIntentError && (
+            <div className="mt-3 rounded border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
+              {assistantIntentError}
+            </div>
+          )}
+
+          {(assistantIntentResolve ||
+            assistantIntentPlan ||
+            assistantOperationStatus) && (
+            <div className="mt-3 grid gap-2 md:grid-cols-3">
+              <div className="rounded border border-sky-200 bg-white px-2.5 py-2 text-xs">
+                <div className="font-semibold text-zinc-800">Resolved Intent</div>
+                {assistantIntentResolve ? (
+                  <>
+                    <div className="mt-1 text-zinc-700">
+                      {assistantIntentResolve.intent.name}
+                    </div>
+                    <div className="text-zinc-500">
+                      Confidence{" "}
+                      {(assistantIntentResolve.intent.confidence * 100).toFixed(
+                        0,
+                      )}
+                      %
+                    </div>
+                    {assistantIntentResolve.questions.length > 0 && (
+                      <div className="mt-1 text-zinc-600">
+                        Questions: {assistantIntentResolve.questions.join(" | ")}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="mt-1 text-zinc-500">
+                    Analyze intent to see classifier output.
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded border border-sky-200 bg-white px-2.5 py-2 text-xs">
+                <div className="font-semibold text-zinc-800">Plan</div>
+                {assistantIntentPlan ? (
+                  <>
+                    <div className="mt-1 text-zinc-700">
+                      {assistantIntentPlan.intent.name}
+                    </div>
+                    <div className="text-zinc-500">
+                      Plan ID{" "}
+                      <span className="font-mono">
+                        {assistantIntentPlan.plan_id}
+                      </span>
+                    </div>
+                    <div className="text-zinc-500">
+                      Status {assistantIntentPlan.ready ? "ready" : "needs input"}
+                    </div>
+                    {assistantIntentPlan.missing_slots.length > 0 && (
+                      <div className="mt-1 text-amber-700">
+                        Missing: {assistantIntentPlan.missing_slots.join(", ")}
+                      </div>
+                    )}
+                    <div className="mt-1 text-zinc-600">
+                      Applied {assistantIntentPlan.slots.length} slot values to
+                      the run form.
+                    </div>
+                  </>
+                ) : (
+                  <div className="mt-1 text-zinc-500">
+                    Build a plan to populate run configuration.
+                  </div>
+                )}
+              </div>
+
+              <div className="rounded border border-sky-200 bg-white px-2.5 py-2 text-xs">
+                <div className="font-semibold text-zinc-800">Operation</div>
+                {assistantOperationStatus ? (
+                  <>
+                    <div className="mt-1 text-zinc-700">
+                      {assistantOperationStatus.intent_name}
+                    </div>
+                    <div
+                      className={`font-medium ${statusTone(assistantOperationStatus.status)}`}
+                    >
+                      {assistantOperationStatus.status}
+                    </div>
+                    <div className="text-zinc-500">
+                      Op{" "}
+                      <span className="font-mono">
+                        {assistantOperationStatus.operation_id}
+                      </span>
+                    </div>
+                    {assistantIntentExecution && (
+                      <div className="mt-1 text-zinc-600">
+                        Last action: {assistantIntentExecution.executed_action}
+                      </div>
+                    )}
+                    {(assistantResultType || assistantResultStatus) && (
+                      <div className="mt-1 text-zinc-600">
+                        Result {assistantResultType ?? "operation"}
+                        {assistantResultStatus && (
+                          <span
+                            className={`ml-1 font-medium ${statusTone(assistantResultStatus)}`}
+                          >
+                            {assistantResultStatus}
+                          </span>
+                        )}
+                      </div>
+                    )}
+                    {assistantResultSummary && (
+                      <div className="mt-1 text-zinc-600">
+                        {assistantResultSummary}
+                      </div>
+                    )}
+                    {assistantResultWarnings.length > 0 && (
+                      <div className="mt-1 text-amber-700">
+                        {assistantResultWarnings.slice(0, 2).join(" ")}
+                      </div>
+                    )}
+                    {(assistantTraceId || assistantCorrelationId) && (
+                      <div className="mt-1 space-y-0.5 text-[11px] text-zinc-500">
+                        {assistantTraceId && (
+                          <div>
+                            Trace{" "}
+                            <span className="font-mono">{assistantTraceId}</span>
+                          </div>
+                        )}
+                        {assistantCorrelationId && (
+                          <div>
+                            Correlation{" "}
+                            <span className="font-mono">
+                              {assistantCorrelationId}
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="mt-1 text-zinc-500">
+                    Execute a plan to create an operation.
+                  </div>
+                )}
+              </div>
+            </div>
           )}
         </div>
-
-        <p className="mt-1 text-xs text-sky-800">
-          Describe what you want to calibrate. The assistant resolves intent,
-          builds a plan, then executes it with confirmation.
-        </p>
-
-        <div className="mt-3">
-          <label className="mb-1 block text-xs font-medium text-sky-900">
-            Assistant intent request
-          </label>
-          <textarea
-            aria-label="Assistant intent request"
-            value={assistantIntentInput}
-            onChange={(event) => setAssistantIntentInput(event.target.value)}
-            rows={2}
-            placeholder="Example: Calibrate support-agent against support-v1 dataset for faithfulness and answer relevance."
-            className="w-full rounded-md border border-sky-200 bg-white px-3 py-2 text-sm text-zinc-900"
-          />
-        </div>
-
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-          <button
-            type="button"
-            onClick={() => void resolveIntentWithAssistant()}
-            disabled={resolvingIntent || planningIntent || executingIntent}
-            className="rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-800 hover:bg-sky-100 disabled:opacity-60"
-          >
-            {resolvingIntent ? "Analyzing…" : "Analyze Intent"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void createPlanWithAssistant()}
-            disabled={planningIntent || executingIntent}
-            className="rounded-md border border-sky-300 bg-white px-3 py-1.5 text-xs font-medium text-sky-800 hover:bg-sky-100 disabled:opacity-60"
-          >
-            {planningIntent ? "Planning…" : "Build Plan"}
-          </button>
-          <button
-            type="button"
-            onClick={() => void executePlanWithAssistant()}
-            disabled={executingIntent || !assistantIntentPlan?.ready}
-            className="rounded-md bg-sky-700 px-3 py-1.5 text-xs font-medium text-white hover:bg-sky-800 disabled:opacity-60"
-          >
-            {executingIntent ? "Executing…" : "Execute Confirmed Plan"}
-          </button>
-        </div>
-
-        {assistantIntentError && (
-          <div className="mt-3 rounded border border-red-200 bg-red-50 px-2.5 py-1.5 text-xs text-red-700">
-            {assistantIntentError}
-          </div>
-        )}
-
-        {(assistantIntentResolve ||
-          assistantIntentPlan ||
-          assistantOperationStatus) && (
-          <div className="mt-3 grid gap-2 md:grid-cols-3">
-            <div className="rounded border border-sky-200 bg-white px-2.5 py-2 text-xs">
-              <div className="font-semibold text-zinc-800">Resolved Intent</div>
-              {assistantIntentResolve ? (
-                <>
-                  <div className="mt-1 text-zinc-700">
-                    {assistantIntentResolve.intent.name}
-                  </div>
-                  <div className="text-zinc-500">
-                    Confidence{" "}
-                    {(assistantIntentResolve.intent.confidence * 100).toFixed(
-                      0,
-                    )}
-                    %
-                  </div>
-                  {assistantIntentResolve.questions.length > 0 && (
-                    <div className="mt-1 text-zinc-600">
-                      Questions: {assistantIntentResolve.questions.join(" | ")}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="mt-1 text-zinc-500">
-                  Analyze intent to see classifier output.
-                </div>
-              )}
-            </div>
-
-            <div className="rounded border border-sky-200 bg-white px-2.5 py-2 text-xs">
-              <div className="font-semibold text-zinc-800">Plan</div>
-              {assistantIntentPlan ? (
-                <>
-                  <div className="mt-1 text-zinc-700">
-                    {assistantIntentPlan.intent.name}
-                  </div>
-                  <div className="text-zinc-500">
-                    Plan ID{" "}
-                    <span className="font-mono">
-                      {assistantIntentPlan.plan_id}
-                    </span>
-                  </div>
-                  <div className="text-zinc-500">
-                    Status {assistantIntentPlan.ready ? "ready" : "needs input"}
-                  </div>
-                  {assistantIntentPlan.missing_slots.length > 0 && (
-                    <div className="mt-1 text-amber-700">
-                      Missing: {assistantIntentPlan.missing_slots.join(", ")}
-                    </div>
-                  )}
-                  <div className="mt-1 text-zinc-600">
-                    Applied {assistantIntentPlan.slots.length} slot values to
-                    the run form.
-                  </div>
-                </>
-              ) : (
-                <div className="mt-1 text-zinc-500">
-                  Build a plan to populate run configuration.
-                </div>
-              )}
-            </div>
-
-            <div className="rounded border border-sky-200 bg-white px-2.5 py-2 text-xs">
-              <div className="font-semibold text-zinc-800">Operation</div>
-              {assistantOperationStatus ? (
-                <>
-                  <div className="mt-1 text-zinc-700">
-                    {assistantOperationStatus.intent_name}
-                  </div>
-                  <div
-                    className={`font-medium ${statusTone(assistantOperationStatus.status)}`}
-                  >
-                    {assistantOperationStatus.status}
-                  </div>
-                  <div className="text-zinc-500">
-                    Op{" "}
-                    <span className="font-mono">
-                      {assistantOperationStatus.operation_id}
-                    </span>
-                  </div>
-                  {assistantIntentExecution && (
-                    <div className="mt-1 text-zinc-600">
-                      Last action: {assistantIntentExecution.executed_action}
-                    </div>
-                  )}
-                  {(assistantResultType || assistantResultStatus) && (
-                    <div className="mt-1 text-zinc-600">
-                      Result {assistantResultType ?? "operation"}
-                      {assistantResultStatus && (
-                        <span
-                          className={`ml-1 font-medium ${statusTone(assistantResultStatus)}`}
-                        >
-                          {assistantResultStatus}
-                        </span>
-                      )}
-                    </div>
-                  )}
-                  {assistantResultSummary && (
-                    <div className="mt-1 text-zinc-600">
-                      {assistantResultSummary}
-                    </div>
-                  )}
-                  {assistantResultWarnings.length > 0 && (
-                    <div className="mt-1 text-amber-700">
-                      {assistantResultWarnings.slice(0, 2).join(" ")}
-                    </div>
-                  )}
-                  {(assistantTraceId || assistantCorrelationId) && (
-                    <div className="mt-1 space-y-0.5 text-[11px] text-zinc-500">
-                      {assistantTraceId && (
-                        <div>
-                          Trace{" "}
-                          <span className="font-mono">{assistantTraceId}</span>
-                        </div>
-                      )}
-                      {assistantCorrelationId && (
-                        <div>
-                          Correlation{" "}
-                          <span className="font-mono">
-                            {assistantCorrelationId}
-                          </span>
-                        </div>
-                      )}
-                    </div>
-                  )}
-                </>
-              ) : (
-                <div className="mt-1 text-zinc-500">
-                  Execute a plan to create an operation.
-                </div>
-              )}
-            </div>
-          </div>
-        )}
-      </div>
+      )}
 
       <div className="grid gap-5 lg:grid-cols-[1.3fr_1fr]">
         <div className="space-y-4 rounded-lg border border-zinc-200 bg-white p-4">

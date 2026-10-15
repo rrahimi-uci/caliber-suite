@@ -163,6 +163,13 @@ services:
       CALIBER_OBJECT_STORE_ACCESS_KEY_SOURCE: AWS_ACCESS_KEY_ID
       CALIBER_OBJECT_STORE_SECRET_KEY_SOURCE: AWS_SECRET_ACCESS_KEY
 
+      # Alpha feature flags: the areas the alpha does not stand behind are OFF unless
+      # the host/root .env turns them on (see docs/start/alpha-scope.md).
+      CALIBER_FEATURE_ARIA: ${CALIBER_FEATURE_ARIA:-false}
+      CALIBER_FEATURE_INTEGRATIONS: ${CALIBER_FEATURE_INTEGRATIONS:-false}
+      CALIBER_FEATURE_COOKBOOKS: ${CALIBER_FEATURE_COOKBOOKS:-false}
+      CALIBER_FEATURE_RELEASE_CANDIDATES: ${CALIBER_FEATURE_RELEASE_CANDIDATES:-false}
+
       # Provider selection + LLM key pass-through (from host/root .env).
       # Default to CALIBER's fake provider so the stack boots cleanly even
       # when no OpenAI-compatible secret is present. Override with

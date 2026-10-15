@@ -8,7 +8,7 @@ product_area: governance
 stability: ga
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - qa
@@ -139,7 +139,7 @@ quality story.
 | Manually-flagged Stage ① Verify | `routes/verification.py` + `CaliberVerificationItem` | `/verification-queue` list/get/create/verify/dismiss/duplicate/batch for a concern raised separately from an already-running job. Verifying does not create a refinement job. |
 | Curated human-review queues | `routes/review_queues.py` + `CaliberReviewQueue` (migration 0054), FE `ReviewQueues.tsx` | Dedicated CRUD, the workflow `review_queue_enqueue` component, submit/writeback, and provenance-bearing alignment export. |
 | Authored judges | `routes/judges.py` + `CaliberJudge` (migration 0053), FE `Judges.tsx` | `/test-run` and `/alignment`; Human Alignment imports completed binary queue labels rather than requiring transcription. |
-| Release signoff | `routes/releases.py`, `CaliberReleaseCandidate`, `CaliberReleaseSignoff`, `CaliberReleaseReportJob`, FE `Releases.tsx` | Server-computed criteria/blockers, accountable waivers, required rollback target, immutable go/no-go snapshot, and durable Allure-compatible evidence. In the alpha this is preview and record-only: signing off records a decision and does not deploy or roll back anything (the Releases page says so). |
+| Release signoff | `routes/releases.py`, `CaliberReleaseCandidate`, `CaliberReleaseSignoff`, `CaliberReleaseReportJob`, FE `Releases.tsx` | Server-computed criteria/blockers, accountable waivers, required rollback target, immutable go/no-go snapshot, and durable Allure-compatible evidence. In the alpha this is record-only and off by default (enable with `CALIBER_FEATURE_RELEASE_CANDIDATES=true`): signing off records a decision and does not deploy or roll back anything (the Releases page says so). |
 | Durable artifact QA state | `CaliberVerificationItem` + `VerificationItemSchema` | Source of truth for artifact-scoped QA items linked to traces, sessions, workflows, and assessments. |
 | Refinement and replay evidence | `CaliberRefinementJob`, `CaliberRegressionRun`, `regression.py` | Tracks staged diagnosis and candidate evaluation separately from final promotion history. |
 | Promotion and rollback provenance | `apply.py`, `promoter.py`, `CaliberApprovalRequest`, `CaliberRollbackCheckpoint` | Applies only ready candidates and stores rollback anchors before mutation. Apply is intent-first: the claim and the approval anchor are committed before the provider call (see section 4). |

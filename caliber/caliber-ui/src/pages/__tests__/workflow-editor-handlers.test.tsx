@@ -7,6 +7,7 @@ import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { showToast } from "@/lib/toast";
 import { WorkflowEditor, newNode } from "@/pages/WorkflowEditor";
+import { capabilitiesBody } from "@/test/handlers";
 import { server } from "@/test/server";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
@@ -7187,5 +7188,46 @@ describe("WorkflowEditor handler branches", () => {
     expect(showToast.error).toHaveBeenCalledWith(
       'Unsupported workflow node type "experimental_step". Refresh the page or update the workflow component catalog before adding it.',
     );
+  });
+});
+
+/**
+ * MCP servers sit behind the ``integrations`` feature flag (off by default): with it off,
+ * ``GET /mcp-servers`` answers 404, so the editor must not ask for them.
+ */
+describe("WorkflowEditor MCP servers and the integrations feature flag", () => {
+  function serveEditor(integrations: boolean): { mcpReads: () => number } {
+    let reads = 0;
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () =>
+        HttpResponse.json(capabilitiesBody({ integrations })),
+      ),
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion())),
+      ),
+      http.get(`${API_BASE}/mcp-servers`, () => {
+        reads += 1;
+        return HttpResponse.json(envelope([]));
+      }),
+    );
+    return { mcpReads: () => reads };
+  }
+
+  it("does not request MCP servers when the integrations feature is off", async () => {
+    const { mcpReads } = serveEditor(false);
+    renderEditor();
+    expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
+
+    // Let capabilities (and every other bootstrap query) settle before asserting an absence.
+    await new Promise((resolve) => setTimeout(resolve, 100));
+    expect(mcpReads()).toBe(0);
+  });
+
+  it("requests MCP servers once the integrations feature is on", async () => {
+    const { mcpReads } = serveEditor(true);
+    renderEditor();
+    expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
+
+    await waitFor(() => expect(mcpReads()).toBeGreaterThan(0));
   });
 });

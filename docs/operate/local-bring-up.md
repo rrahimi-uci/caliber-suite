@@ -7,7 +7,7 @@ product_area: operations
 stability: ga
 prerequisites:
   - Repository checkout
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - setup
@@ -58,6 +58,11 @@ Then verify:
   the `mlflow-gateway` container exits and Compose restarts it in a loop, and the Gateway page reports
   it unreachable ([Operator troubleshooting](../operate/troubleshooting.md#3-the-gateway-reports-unreachable)).
   CALIBER itself does not depend on it.
+
+The stack starts with the preview areas **off**: Aria and plans, MCP servers, OpenAPI integrations, cookbooks, and
+release-candidate signoff are off by default, so their navigation entries are hidden. To try one, set the variable in
+the suite-root `.env` (`.env.example` documents them) and run `make start` again; see
+[Preview areas](#preview-areas-are-off-by-default) below.
 
 To prove a fresh clone does all of this, `scripts/verify-compose-stack.sh` builds the CALIBER and MLflow
 images, starts the stack from the example environment as its own Compose project
@@ -117,6 +122,23 @@ Then move to:
 
 - [Health and readiness](../operate/health-and-readiness.md)
 - [Configuration and provider setup](../operate/configuration-and-provider-setup.md)
+
+## Preview areas are off by default
+
+Four server-side flags keep the areas the alpha does not stand behind switched off, on both paths above:
+
+| Variable | Turns on |
+| --- | --- |
+| `CALIBER_FEATURE_ARIA` | The Aria assistant and plans |
+| `CALIBER_FEATURE_INTEGRATIONS` | MCP servers and OpenAPI integrations |
+| `CALIBER_FEATURE_COOKBOOKS` | Cookbooks |
+| `CALIBER_FEATURE_RELEASE_CANDIDATES` | Release-candidate signoff and Workspace releases |
+
+Set the variable to `true`, `1`, `yes` or `on`, and restart CALIBER, because the flags are read once at startup.
+In the full suite, put them in the suite-root `.env`; Compose passes them through to the CALIBER container, and
+they default to false. For the standalone path, export them before `uvicorn`. Confirm with `features` in
+`GET /ajax-api/2.0/mlflow/caliber/capabilities`. Enabling a flag means you accept that area's preview behavior;
+see [Feature flags](../start/alpha-scope.md#feature-flags).
 
 ## 4. First local login
 

@@ -1,10 +1,15 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { MemoryRouter } from "react-router-dom";
+import type { ReactNode } from "react";
+import { useState } from "react";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { caliberApi } from "@/api/caliberApi";
 import type { ToolDefinition } from "@/api/workflowTypes";
 import { ToolPlayground, ToolTests } from "@/pages/ToolRegistry";
+import { capabilityFeatures } from "@/test/handlers";
 
 const NOW = "2026-01-01T00:00:00Z";
 
@@ -44,6 +49,26 @@ function makeTool(overrides: Partial<ToolDefinition> = {}): ToolDefinition {
 afterEach(() => {
   vi.restoreAllMocks();
 });
+
+/** The LLM-judged lane goes through Aria, so ``ToolTests`` reads the alpha feature flags. */
+function Providers({ children }: { children: ReactNode }): JSX.Element {
+  const [client] = useState(
+    () => new QueryClient({ defaultOptions: { queries: { retry: false, gcTime: 0 } } }),
+  );
+  return (
+    <QueryClientProvider client={client}>
+      <MemoryRouter>{children}</MemoryRouter>
+    </QueryClientProvider>
+  );
+}
+
+function mockCapabilities(aria: boolean): ReturnType<typeof vi.spyOn> {
+  return vi.spyOn(caliberApi, "getCapabilities").mockResolvedValue({
+    features: capabilityFeatures({ aria }),
+    workflow_runs: {},
+    sync_workflow_version_run: true,
+  } as never);
+}
 
 describe("ToolPlayground panel", () => {
   it("renders empty/loading states", () => {
@@ -93,6 +118,10 @@ describe("ToolPlayground panel", () => {
 });
 
 describe("ToolTests panel", () => {
+  beforeEach(() => {
+    mockCapabilities(true);
+  });
+
   it("generates and runs unit tests with judge scoring", async () => {
     vi.spyOn(caliberApi, "getAssistantConfig").mockResolvedValue({
       engine: "fake",
@@ -184,7 +213,7 @@ describe("ToolTests panel", () => {
     }));
 
     const user = userEvent.setup();
-    render(<ToolTests tools={[makeTool()]} loading={false} />);
+    render(<ToolTests tools={[makeTool()]} loading={false} />, { wrapper: Providers });
     expect(await screen.findByText("No generated unit tests yet.")).toBeInTheDocument();
 
     await user.click(screen.getByTestId("tool-tests-generate"));
@@ -261,9 +290,9 @@ describe("ToolTests panel", () => {
     vi.spyOn(caliberApi, "testRunTool").mockRejectedValue(new Error("runtime down"));
 
     const user = userEvent.setup();
-    render(<ToolTests tools={[makeTool()]} loading={false} />);
+    render(<ToolTests tools={[makeTool()]} loading={false} />, { wrapper: Providers });
 
-    await user.click(screen.getByTestId("tool-tests-generate"));
+    await user.click(await screen.findByTestId("tool-tests-generate"));
     expect(await screen.findByText(/JSON array/)).toBeInTheDocument();
 
     await user.click(screen.getByTestId("tool-tests-generate"));
@@ -275,10 +304,46 @@ describe("ToolTests panel", () => {
     });
   });
 
-  it("shows loading and empty states", () => {
-    const { rerender } = render(<ToolTests tools={[]} loading />);
-    expect(screen.getByText("Loading tools…")).toBeInTheDocument();
+  it("shows loading and empty states", async () => {
+    const { rerender } = render(<ToolTests tools={[]} loading />, { wrapper: Providers });
+    expect(await screen.findByText("Loading tools…")).toBeInTheDocument();
     rerender(<ToolTests tools={[]} loading={false} />);
     expect(screen.getByText("No tools registered yet.")).toBeInTheDocument();
+  });
+
+  describe("when the Aria feature is off (the alpha default)", () => {
+    async function settle(): Promise<void> {
+      await act(async () => {
+        await new Promise((resolve) => setTimeout(resolve, 30));
+      });
+    }
+
+    it("explains that generating and judging need Aria, and calls the assistant for nothing", async () => {
+      vi.restoreAllMocks();
+      const capabilities = mockCapabilities(false);
+      const configRead = vi.spyOn(caliberApi, "getAssistantConfig");
+      render(<ToolTests tools={[makeTool()]} loading={false} />, { wrapper: Providers });
+
+      const note = await screen.findByTestId("feature-disabled-notice");
+      expect(note).toHaveTextContent("Generating and judging unit tests with an LLM needs");
+      expect(note).toHaveTextContent("CALIBER_FEATURE_ARIA=true");
+      expect(screen.queryByTestId("tool-tests-generate")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("tool-tests-run")).not.toBeInTheDocument();
+      await settle();
+      expect(capabilities).toHaveBeenCalled();
+      expect(configRead).not.toHaveBeenCalled();
+    });
+
+    it("offers no generate or run controls while capabilities are unknown", async () => {
+      vi.restoreAllMocks();
+      vi.spyOn(caliberApi, "getCapabilities").mockReturnValue(new Promise(() => {}));
+      const configRead = vi.spyOn(caliberApi, "getAssistantConfig");
+      render(<ToolTests tools={[makeTool()]} loading={false} />, { wrapper: Providers });
+
+      await settle();
+      expect(screen.queryByTestId("tool-tests-generate")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("feature-disabled-notice")).not.toBeInTheDocument();
+      expect(configRead).not.toHaveBeenCalled();
+    });
   });
 });

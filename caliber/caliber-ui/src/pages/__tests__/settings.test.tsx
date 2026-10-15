@@ -3,9 +3,10 @@ import { cleanup, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
-import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { Settings } from "@/pages/Settings";
+import { capabilitiesBody } from "@/test/handlers";
 import { server } from "@/test/server";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
@@ -421,5 +422,70 @@ describe("Settings page", () => {
     await userEvent.click(await screen.findByRole("button", { name: "Providers" }));
 
     expect(await screen.findByTestId("provider-row-eval")).toHaveTextContent("mlflow");
+  });
+});
+
+describe("Settings page with the Aria feature off (the alpha default)", () => {
+  let assistantConfigReads: number;
+
+  beforeEach(() => {
+    assistantConfigReads = 0;
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () => HttpResponse.json(capabilitiesBody({}))),
+      http.get(`${API_BASE}/assistant/config`, () => {
+        assistantConfigReads += 1;
+        return HttpResponse.json(
+          { detail: "disabled", status_code: 404, reason_code: "feature_disabled" },
+          { status: 404 },
+        );
+      }),
+    );
+  });
+
+  it("opens on Providers, with no Aria tab, and never reads the assistant config", async () => {
+    renderPage();
+
+    // The first thing a clean install has to set up, not an assistant that is not there.
+    expect(await screen.findByLabelText("OpenAI API key")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Providers" })).toBeInTheDocument();
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Aria" })).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Aria defaults")).not.toBeInTheDocument();
+    expect(
+      screen.getByText("Manage live provider credentials without leaving the workspace."),
+    ).toBeInTheDocument();
+    expect(assistantConfigReads).toBe(0);
+  });
+
+  it("offers the Aria tab, first and open by default, when the feature is on", async () => {
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () =>
+        HttpResponse.json(capabilitiesBody({ aria: true })),
+      ),
+      http.get(`${API_BASE}/assistant/config`, () =>
+        HttpResponse.json(
+          envelope({
+            engine: "openai",
+            model: "gpt-4o-mini",
+            provider: "openai",
+            reasoning: "medium",
+            enabled: true,
+            disabled_intents: [],
+            disabled_domains: [],
+            available_models: [{ id: "gpt-4o-mini", name: "GPT-4o Mini", provider: "openai" }],
+          }),
+        ),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByText("Aria defaults")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Aria" })).toBeInTheDocument();
+    expect(
+      screen.getByText(
+        "Manage assistant defaults and live provider credentials without leaving the workspace.",
+      ),
+    ).toBeInTheDocument();
   });
 });

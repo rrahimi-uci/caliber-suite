@@ -272,6 +272,31 @@ def test_capabilities_decodes_the_extensibility_block_the_same_as_the_sync_clien
     assert extensibility.plugins[0].is_active
 
 
+def test_capabilities_decodes_the_feature_flags_the_same_as_the_sync_client() -> None:
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope(
+            {
+                "features": {
+                    "aria": {
+                        "enabled": True,
+                        "env_var": "CALIBER_FEATURE_ARIA",
+                        "label": "Aria assistant and plans",
+                        "stability": "preview",
+                    }
+                }
+            }
+        )
+
+    async def main() -> Any:
+        async with client_with(handler) as caliber:
+            return await caliber.capabilities_info.get()
+
+    capabilities = run(main())
+    assert capabilities.feature_enabled("aria") is True
+    assert capabilities.features["aria"].label == "Aria assistant and plans"
+    assert capabilities.feature_enabled("cookbooks") is False
+
+
 def test_a_server_without_the_extensibility_block_decodes_to_an_empty_one_async() -> None:
     """An older server predates the field; that is not an error on the async
     path either (parity with the sync client's equivalent test)."""

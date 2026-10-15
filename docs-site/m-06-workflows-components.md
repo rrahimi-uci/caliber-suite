@@ -311,7 +311,7 @@ unknown. "Configured" means the setting is present, not that the service answers
 | --- | --- | --- |
 | **Agent** | A real LLM provider; the default fake provider only echoes a canned reply | `CALIBER_LLM_PROVIDER` is not `fake` or `deterministic` |
 | **Input Bucket**, **Output Bucket**, **Knowledge Query**, **Knowledge Build** | A remote object store (MinIO or S3) | workflow storage is remote: the backend is `s3`, `gs`, `az`, or `azure`, or its base URI has such a scheme (`workflow_storage_is_remote` in `observability/readiness.py`) |
-| **MCP Resource** | A registered MCP server that CALIBER can reach | Never resolved: an MCP server is registered data, so the palette shows the requirement without claiming it is unmet |
+| **MCP Resource** | `CALIBER_FEATURE_INTEGRATIONS=true` (it is off by default), and a registered MCP server that CALIBER can reach | Unmet while `CALIBER_FEATURE_INTEGRATIONS` is off ("A registered MCP server that CALIBER can reach (needs CALIBER_FEATURE_INTEGRATIONS=true)"). Once it is on, the server is never resolved: an MCP server is registered data, so the palette shows the requirement without claiming it is unmet |
 | **External App** | `CALIBER_EXTERNAL_APP_ENTRYPOINT_ALLOWLIST` naming the entrypoint; until it is set every entrypoint is refused | the allowlist is non-empty |
 | **Human Approval**, **Wait Until**, **Wait For Event** | `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED=true` with checkpointing, so a run can pause and resume | the run queue and `CALIBER_WORKFLOW_RUN_CHECKPOINTING_ENABLED` are both on |
 

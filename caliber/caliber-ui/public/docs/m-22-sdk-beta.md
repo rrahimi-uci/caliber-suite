@@ -9,6 +9,14 @@ and payload keys will not change without a deprecation. This page covers the
 release governance, and the agentic loop — which are complete and tested but
 whose shapes may still move.
 
+> **Disabled by default.** Four of the areas on this page are off by default on the server: Aria
+> (`CALIBER_FEATURE_ARIA`), MCP servers and OpenAPI integrations (`CALIBER_FEATURE_INTEGRATIONS`), cookbooks
+> (`CALIBER_FEATURE_COOKBOOKS`), and release-candidate signoff and Workspace releases
+> (`CALIBER_FEATURE_RELEASE_CANDIDATES`). Against a server that has the flag off, their calls raise
+> `CaliberNotFoundError` with `reason_code == "feature_disabled"`. Read `features` from the capabilities
+> response first; see [Feature flags and disabled areas](m-20-sdk-guide.md#feature-flags-and-disabled-areas) and
+> [Feature flags](m-61-alpha-scope.md#feature-flags).
+
 Ask the deployment rather than assuming, because the tier is a property of the
 running server and not of the SDK version:
 
@@ -52,6 +60,11 @@ if job.awaits_human:
 ```
 
 ## Workspace release governance
+
+> **Disabled by default.** Workspace releases are off by default; enable with
+> `CALIBER_FEATURE_RELEASE_CANDIDATES=true` on the server. While it is off, the `/projects/{id}/releases*`
+> routes (releases and their operations) answer 404 with `reason_code: feature_disabled`. Importing,
+> revisions and Change Requests are not behind the flag.
 
 > **Experimental in the alpha.** Nothing in this build executes Workspace release evaluations, so an
 > evaluation you start stays `queued`. The API, SDK and `caliberctl workspace` are complete and tested, but
@@ -184,6 +197,10 @@ Workspace-named surface going forward.
 
 ## The agentic loop
 
+> **Disabled by default.** Aria is a preview area and is off by default; enable with
+> `CALIBER_FEATURE_ARIA=true` on the server. While it is off, every `caliber.aria` call raises
+> `CaliberNotFoundError` with `reason_code == "feature_disabled"`.
+
 Aria takes an intent, proposes a plan, and executes it only once someone
 approves. The approval is a distinct call, not a flag on the request, because
 "the script kept going" is not a record that anyone agreed:
@@ -197,6 +214,10 @@ be refused at execution time by policy, so reading capabilities first turns a
 runtime rejection into a decision you made.
 
 ## Cookbooks
+
+> **Disabled by default.** Cookbooks are a preview area and are off by default; enable with
+> `CALIBER_FEATURE_COOKBOOKS=true` on the server. Some cookbooks also need another flag (for example the Aria
+> cookbooks need `CALIBER_FEATURE_ARIA`); each cookbook's README names its flags.
 
 Cookbooks are complete, installable example workflows. Each one reports
 **readiness** computed from the live environment: whether a model provider is
@@ -215,6 +236,10 @@ model bindings, connector bindings, and side-effecting tools, and an operator
 should see those before anything executes.
 
 ## Integrations
+
+> **Disabled by default.** MCP servers and OpenAPI integrations are a preview area and are off by default;
+> enable with `CALIBER_FEATURE_INTEGRATIONS=true` on the server. The other resources in the table
+> (`gateway`, `knowledge_bases`, `object_store`) are not behind the flag.
 
 | Resource | What it is |
 | --- | --- |

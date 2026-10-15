@@ -8,7 +8,7 @@ product_area: assistant
 stability: beta
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - assistant
@@ -18,6 +18,13 @@ tags:
 ---
 
 # Assistant (Aria) Architecture
+
+> **Disabled by default.** Aria, the assistant and its goal-plans, is a preview area and is off by default;
+> enable with `CALIBER_FEATURE_ARIA=true` and restart CALIBER. While it is off, the `/assistant/*` and `/aria/*`
+> routes answer 404 (`reason_code: feature_disabled`) and the Aria panel and the Plans page are hidden. The
+> routes stay registered, so the OpenAPI document and the SDK describe them in every deployment.
+> `CALIBER_ASSISTANT_ENABLED` is a separate setting that decides whether an enabled assistant accepts requests.
+> See [Feature flags](../start/alpha-scope.md#feature-flags).
 
 ## At a glance
 

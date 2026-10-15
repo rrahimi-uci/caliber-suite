@@ -130,7 +130,7 @@ REQUIREMENT_LABELS: dict[str, str] = {
     "object_store": (
         "A remote object store (MinIO or S3). Without one its buckets cannot be read or written."
     ),
-    "mcp_server": "A registered MCP server that CALIBER can reach.",
+    "mcp_server": "A registered MCP server that CALIBER can reach (needs CALIBER_FEATURE_INTEGRATIONS=true).",
     "entrypoint_allowlist": (
         "CALIBER_EXTERNAL_APP_ENTRYPOINT_ALLOWLIST naming the entrypoint. Until it is set "
         "every entrypoint is refused."
@@ -146,7 +146,9 @@ def evaluate_requirements(config: Any) -> dict[str, bool | None]:
     """Whether each requirement id is met by ``config``: ``True``, ``False`` or ``None``.
 
     ``None`` means the configuration cannot say. An MCP server is registered data, not
-    configuration, so the palette shows the requirement without claiming it is unmet. A met
+    configuration, so with MCP integrations enabled the palette shows the requirement
+    without claiming it is unmet; with them disabled (``CALIBER_FEATURE_INTEGRATIONS``,
+    off by default in the alpha) no server can be registered, so it is ``False``. A met
     requirement means *configured*, not reachable: reachability is what ``/readiness``
     probes.
     """
@@ -156,7 +158,7 @@ def evaluate_requirements(config: Any) -> dict[str, bool | None]:
     return {
         "real_llm": provider not in ("", "fake", "deterministic"),
         "object_store": workflow_storage_is_remote(config),
-        "mcp_server": None,
+        "mcp_server": None if getattr(config, "feature_integrations_enabled", False) else False,
         "entrypoint_allowlist": bool(
             str(getattr(config, "external_app_entrypoint_allowlist", "") or "").strip()
         ),

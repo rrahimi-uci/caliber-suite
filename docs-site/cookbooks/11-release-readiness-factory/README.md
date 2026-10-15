@@ -1,5 +1,7 @@
 # Release Signoff Factory
 
+> **Prerequisite flags:** `CALIBER_FEATURE_COOKBOOKS=true` opens the Cookbooks gallery and `CALIBER_FEATURE_RELEASE_CANDIDATES=true` for the **Release signoff factory** section of Releases and the `/releases/candidates` API (record-only; both off by default).
+
 ## Demo objective
 
 Create a durable release candidate, compute an evidence-backed readiness score,
@@ -44,8 +46,8 @@ decision, and retain an Allure-compatible report.
 
 ## Recipe
 
-1. Open **Core journey › Releases** and scroll to the **Release signoff factory**
-   section (it carries a Preview badge and the *Preview, record-only* note).
+1. With `CALIBER_FEATURE_RELEASE_CANDIDATES=true` set, open **Core journey › Releases** and scroll to the
+   **Release signoff factory** section (it carries a Preview badge and the *Preview, record-only* note).
 2. Click **New candidate**. Enter the **Release candidate name**, the artifact type
    (Workflow / Prompt / Skill / Knowledge base), the **Artifact ID or registry
    name**, the **Candidate version**, the **Rollback version**, and the required

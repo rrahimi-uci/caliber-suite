@@ -86,6 +86,20 @@ def test_caliber_container_retains_its_documented_runtime_hardening() -> None:
     assert environment["CALIBER_ASSISTANT_REASONING"].endswith(":-high}")
 
 
+def test_the_compose_service_passes_the_alpha_feature_flags_through_defaulting_to_off() -> None:
+    """The unsupported areas ship off (``caliber.features``): the stack must not enable them
+    by omission, and an operator must be able to turn one on from the root ``.env``."""
+    from caliber.features import FEATURES
+
+    caliber = _compose(REPO_ROOT / "deploy" / "caliber" / "compose.yaml")["services"]["caliber"]
+    environment = caliber["environment"]
+    for flag in FEATURES:
+        assert environment.get(flag.env_var) == f"${{{flag.env_var}:-false}}", flag.env_var
+    example = (REPO_ROOT / ".env.example").read_text()
+    for flag in FEATURES:
+        assert f"# {flag.env_var}=true" in example, f"{flag.env_var} is not in .env.example"
+
+
 def test_caliber_image_is_reproducible_and_unprivileged() -> None:
     dockerfile = (REPO_ROOT / "deploy" / "caliber" / "Dockerfile").read_text()
 

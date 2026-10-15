@@ -1,5 +1,7 @@
 # Support Triage Copilot
 
+> **Prerequisite flags:** `CALIBER_FEATURE_COOKBOOKS=true` opens the Cookbooks gallery and `CALIBER_FEATURE_INTEGRATIONS=true` for the GitHub MCP `issue_write` step, which reuses the cookbook 05 server (both off by default; the installed example's API Request starter does not need it).
+
 ## Demo objective
 
 An end-to-end support assistant that returns one of four outcomes:

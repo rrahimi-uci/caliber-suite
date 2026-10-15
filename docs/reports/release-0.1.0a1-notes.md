@@ -9,6 +9,7 @@ stability: beta
 summary: Draft release notes for CALIBER 0.1.0a1, pending the alpha tag, release assets, and tag-commit verification.
 prerequisites:
   - Read the Alpha scope and limitations page, which is the authority on what the alpha claims
+reviewed_on: 2026-10-15
 tags:
   - release-notes
   - alpha
@@ -16,7 +17,7 @@ tags:
 
 # CALIBER 0.1.0a1 (alpha)
 
-> **Draft for the release cut (2026-10-14).** The tag and GitHub prerelease do not exist yet.
+> **Draft for the release cut (2026-10-15).** The tag and GitHub prerelease do not exist yet.
 > The checks below describe current `main` and must be rerun or confirmed on the tag commit
 > before these notes are published. The asset list below is the planned release contents.
 
@@ -48,6 +49,26 @@ set, calibrate the prompt to get a candidate with evaluation evidence, review it
 alias, see what is live and what put it there, and roll it back, with an audit trail. Skills, tools,
 workflows and knowledge bases are in the alpha too, each with its own journey. Projects, roles and access
 tokens decide who may do what, and a person outside a project cannot see its resources.
+
+## Preview areas are off by default
+
+The areas the alpha does not stand behind are switched **off** in a default deployment, so a fresh install shows
+only what the alpha supports. Four server-side flags turn them on; each is read at startup, defaults to false,
+and is passed through by the Docker stack from the environment (`.env.example` documents them):
+
+| Variable | Turns on |
+| --- | --- |
+| `CALIBER_FEATURE_ARIA` | The Aria assistant and plans (preview) |
+| `CALIBER_FEATURE_INTEGRATIONS` | MCP servers and OpenAPI integrations (preview) |
+| `CALIBER_FEATURE_COOKBOOKS` | Cookbooks (preview) |
+| `CALIBER_FEATURE_RELEASE_CANDIDATES` | Release-candidate signoff and Workspace releases (record-only and experimental) |
+
+While a flag is off, the web app hides the area and the API answers 404 with `reason_code: feature_disabled` and the
+variable to set; `GET /capabilities` reports all four under `features`, and the Python SDK exposes them as
+`Capabilities.features`. The live board, the release timeline and release operations are not behind a flag. Turning a
+flag on means you accept that area's preview behavior, and some cookbooks need more than one flag (the Aria labs need
+`CALIBER_FEATURE_ARIA`). How to enable them is in [Alpha install](../start/alpha-install.md#enabling-preview-areas)
+and the full description is under [Feature flags](../start/alpha-scope.md#feature-flags).
 
 With the default configuration the model and the evaluator are simulated. Calibration still runs and returns a
 candidate, but the scores are canned and every screen, audit row and release record says so.

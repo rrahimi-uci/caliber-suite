@@ -5,6 +5,8 @@
 
 import { lazy, Suspense, useCallback, useState, type ReactNode } from "react";
 
+import { useFeature } from "@/hooks/useFeature";
+
 import { EdgeToggle } from "./EdgeToggle";
 import { Sidebar } from "./Sidebar";
 import { TopBar } from "./TopBar";
@@ -51,9 +53,13 @@ function AppShellLayout({
   healthPollIntervalMs,
 }: AppShellProps): JSX.Element {
   const {
-    open: assistantOpen,
+    open: persistedAssistantOpen,
     effectiveWidth: assistantWidth,
   } = useAssistantPanel();
+  // The panel's open state is persisted, so a browser that left it open can come back to a
+  // deployment where Aria is off. Without the feature there is no panel to reserve margin for.
+  const ariaEnabled = useFeature("aria").enabled;
+  const assistantOpen = ariaEnabled && persistedAssistantOpen;
   const health = useHealthStatus(healthPollIntervalMs);
   const [drawerOpen, setDrawerOpen] = useState(false);
   const closeDrawer = (): void => setDrawerOpen(false);
@@ -120,9 +126,11 @@ function AppShellLayout({
           <div className="min-w-0 p-5 sm:p-8">{children}</div>
         </main>
       </div>
-      <Suspense fallback={null}>
-        <CaliberAssistantPanel />
-      </Suspense>
+      {ariaEnabled && (
+        <Suspense fallback={null}>
+          <CaliberAssistantPanel />
+        </Suspense>
+      )}
     </>
   );
 }

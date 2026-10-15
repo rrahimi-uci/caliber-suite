@@ -81,8 +81,8 @@ caliberctl token revoke PAT-9 --yes      # revokes
 | `promotion approve \| reject` | Act on a pending gated promotion (see `workflow promote`). |
 | `gate-verdict show \| record` | Advisory per-version evaluation verdicts (`prompt`/`workflow`/`skill`). |
 | `job list \| wait` | Background jobs, including the ones that wait for you. |
-| `release list \| sign` | Release candidates and go / no-go. |
-| `cookbook list \| install` | Example workflows, with readiness checked first. |
+| `release list \| sign` | Release candidates and go / no-go. Off by default (`CALIBER_FEATURE_RELEASE_CANDIDATES`): a disabled area exits 1 with `feature_disabled`. |
+| `cookbook list \| install` | Example workflows, with readiness checked first. Off by default (`CALIBER_FEATURE_COOKBOOKS`). |
 | `prompt list \| show` | Governed prompts and their live versions. |
 | `service show \| publish \| unpublish` | Publish a workflow as an HTTP service, or withdraw it. |
 | `plugin list` | Optimizers, and plugins installed but not enabled. |

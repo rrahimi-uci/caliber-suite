@@ -2,6 +2,7 @@ import { Fragment, useEffect, useMemo, useRef, useState } from "react";
 import { Copy, LayoutTemplate, PencilLine, Sparkles } from "lucide-react";
 
 import { caliberApi } from "@/api/caliberApi";
+import { useFeature } from "@/hooks/useFeature";
 import { LIVE_ALIAS, SINGLE_ENVIRONMENT } from "@/lib/environment";
 import type {
   PromptCreateResult,
@@ -126,6 +127,7 @@ export function PromptBuilder({
   onCreated,
 }: PromptBuilderProps): JSX.Element {
   const [mode, setMode] = useState<BuilderMode>("fork");
+  const ariaEnabled = useFeature("aria").enabled;
   const [pastedTemplate, setPastedTemplate] = useState("");
   // "Describe it": the assistant drafts a starting prompt, then hands off to the
   // manual builder so the user runs the same compose/validate/save/calibrate.
@@ -1102,28 +1104,31 @@ export function PromptBuilder({
               </span>
             </button>
 
-            <button
-              type="button"
-              onClick={() => {
-                setMode("describe");
-                setCreateError(null);
-                setDraftError(null);
-              }}
-              className="group flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-caliber-400 hover:bg-caliber-50/40"
-            >
-              <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-violet-50 text-caliber-purple">
-                <Sparkles className="h-5 w-5" strokeWidth={1.85} />
-              </span>
-              <span className="min-w-0">
-                <span className="block text-sm font-semibold text-slate-900">
-                  Describe it
+            {/* "Describe it" drafts through the Aria assistant (``/assistant/prompt-draft``). */}
+            {ariaEnabled && (
+              <button
+                type="button"
+                onClick={() => {
+                  setMode("describe");
+                  setCreateError(null);
+                  setDraftError(null);
+                }}
+                className="group flex items-start gap-3 rounded-2xl border border-slate-200 bg-white p-4 text-left transition-colors hover:border-caliber-400 hover:bg-caliber-50/40"
+              >
+                <span className="grid h-9 w-9 shrink-0 place-items-center rounded-xl bg-violet-50 text-caliber-purple">
+                  <Sparkles className="h-5 w-5" strokeWidth={1.85} />
                 </span>
-                <span className="mt-1 block text-xs leading-relaxed text-slate-500">
-                  Tell CALIBER the task; it drafts the prompt, then you refine,
-                  validate, and calibrate it the same way.
+                <span className="min-w-0">
+                  <span className="block text-sm font-semibold text-slate-900">
+                    Describe it
+                  </span>
+                  <span className="mt-1 block text-xs leading-relaxed text-slate-500">
+                    Tell CALIBER the task; it drafts the prompt, then you refine,
+                    validate, and calibrate it the same way.
+                  </span>
                 </span>
-              </span>
-            </button>
+              </button>
+            )}
 
             <button
               type="button"

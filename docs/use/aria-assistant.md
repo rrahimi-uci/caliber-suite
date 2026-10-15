@@ -7,8 +7,8 @@ doc_type: how-to
 product_area: assistant
 stability: beta
 prerequisites:
-  - A CALIBER deployment with Aria access
-reviewed_on: 2026-10-14
+  - A CALIBER deployment with Aria access (CALIBER_FEATURE_ARIA=true)
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - aria
@@ -19,9 +19,21 @@ tags:
 
 # Aria assistant
 
+> **Disabled by default.** Aria is a preview area and is off by default; enable with `CALIBER_FEATURE_ARIA=true`
+> and restart CALIBER. While it is off, the `/assistant/*` and `/aria/*` routes answer 404
+> (`reason_code: feature_disabled`) and the Aria panel and the Plans page are hidden. Once it is on,
+> `CALIBER_ASSISTANT_ENABLED` and a configured engine still decide whether Aria answers. Enabling the flag means
+> you accept preview behavior. See [Feature flags](../start/alpha-scope.md#feature-flags).
+
 Use this page when you need the practical operator or user path for Aria:
 start a session, understand supervised tool use, and know why a session paused,
 waited, or required review.
+
+With Aria off, a few helpers inside otherwise supported pages go away too, because they call the assistant
+(`/assistant/*`): the **Ask Aria** button, the Aria tab in Settings, **Describe it** prompt drafting, the prompt
+Playground, generating and running test cases inside the prompt workspace, the tool unit-test generator, and
+Assistant-Guided Calibration. Each is hidden or shows a "disabled in this deployment" notice. The core journey does
+not need them: build a test set by hand on the Test Sets page, calibrate, review and Apply.
 
 ## At a glance
 
@@ -69,6 +81,7 @@ deploy and spend actions are never callable by the model during the authoring tu
 | The assistant paused instead of finishing | a human approval or review boundary was reached |
 | A tool Aria does not offer, or refuses to call | its tier is not allowed in the current interaction and approval mode, or it requires approval (a published OpenAPI tool that requires approval is never offered as a direct Aria tool) |
 | Aria answered, but you cannot justify the answer | inspect the evidence, tool trace, or retrieval path |
+| There is no Aria panel or Plans page, or a call answers 404 with `reason_code: feature_disabled` | `CALIBER_FEATURE_ARIA` is off (the default); set it to `true` and restart |
 
 ## 4. Related docs
 

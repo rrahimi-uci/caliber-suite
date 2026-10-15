@@ -7,7 +7,7 @@ product_area: sdk
 stability: ga
 prerequisites:
   - A running CALIBER deployment
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - sdk
@@ -17,6 +17,15 @@ tags:
 ---
 
 # SDK recipes
+
+> **Disabled by default.** The cookbooks are a preview area and are off by default; enable with
+> `CALIBER_FEATURE_COOKBOOKS=true` on the server and restart it. Recipes 01 to 16 each install their catalog
+> entry with `caliber.cookbooks.install`, so against a default server they fail with a 404 whose `reason_code`
+> is `feature_disabled`. Some recipes use other preview areas as well: recipe 05 needs
+> `CALIBER_FEATURE_INTEGRATIONS` (MCP servers), recipe 11 needs `CALIBER_FEATURE_RELEASE_CANDIDATES`, and
+> recipes 12 to 15 and 17 need `CALIBER_FEATURE_ARIA`. Read `features` from the capabilities response first
+> (see the [SDK guide](guide.md#feature-flags-and-disabled-areas)). See also
+> [Feature flags](../start/alpha-scope.md#feature-flags).
 
 These recipes are the SDK-native counterparts to the platform cookbook gallery.
 Each example uses only `caliber-sdk` plus Python's standard library.

@@ -2,7 +2,7 @@
   "steps": [
     {
       "where": "(outside the app) Run-id manifest",
-      "do": "This scenario is an <strong>operator process</strong> that ends in the in-product <strong>Releases</strong> record (a Preview, <em>record-only</em> page — signing off records a decision and deploys nothing). Start by opening the staging sheet <a href=\"../cookbooks/11-release-readiness-factory/assets/dataset/run-id-manifest.json\">run-id-manifest.json</a>. You will paste real evidence references (run ids, review states) into it across the next steps, then enter them on the release candidate. Leave a field empty until you have verified it — an empty required field means that evidence is missing.",
+      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_RELEASE_CANDIDATES=true</code> on the CALIBER server and restart it; the release signoff factory is off by default. This scenario is an <strong>operator process</strong> that ends in the in-product <strong>Releases</strong> record (a Preview, <em>record-only</em> page — signing off records a decision and deploys nothing). Start by opening the staging sheet <a href=\"../cookbooks/11-release-readiness-factory/assets/dataset/run-id-manifest.json\">run-id-manifest.json</a>. You will paste real evidence references (run ids, review states) into it across the next steps, then enter them on the release candidate. Leave a field empty until you have verified it — an empty required field means that evidence is missing.",
       "fill": [
         [
           "release_tag",

@@ -16,8 +16,23 @@ const WORKERS = Number.parseInt(
   10,
 );
 
+// The alpha ships four areas off by default (Aria, MCP and OpenAPI integrations, cookbooks,
+// release-candidate signoff; ``caliber/features.py``). This is the full suite, and it covers
+// those areas (navigation, the MCP quick connect, the Aria panel, the cookbook journeys), so the
+// server it starts has every flag on. ``playwright.alpha.config.ts`` is the run on the defaults.
+// A server reused through CALIBER_E2E_USE_EXISTING_SERVER must be started with these set too.
+const FEATURE_FLAGS = {
+  CALIBER_FEATURE_ARIA: "true",
+  CALIBER_FEATURE_INTEGRATIONS: "true",
+  CALIBER_FEATURE_COOKBOOKS: "true",
+  CALIBER_FEATURE_RELEASE_CANDIDATES: "true",
+};
+
 export default defineConfig({
   testDir: "./e2e",
+  // The flag-off posture is its own run (``playwright.alpha.config.ts``); against this
+  // flags-on server its assertions would be false.
+  testIgnore: ["feature-flags.spec.ts"],
   fullyParallel: false,
   workers: Number.isFinite(WORKERS) && WORKERS > 0 ? WORKERS : DEFAULT_WORKERS,
   timeout: 90_000,
@@ -46,6 +61,7 @@ export default defineConfig({
     : {
         command: "bash ../scripts/run-playwright-server.sh",
         cwd: CONFIG_DIR,
+        env: FEATURE_FLAGS,
         url: `http://127.0.0.1:${PORT}/ajax-api/2.0/mlflow/caliber/health`,
         timeout: 360_000,
         reuseExistingServer: true,

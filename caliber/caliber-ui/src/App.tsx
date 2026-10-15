@@ -16,6 +16,11 @@
  * chunk. The `<Suspense>` fallback is a minimal loading skeleton. Each
  * route is wrapped in `<RouteErrorBoundary>` so a crash in one page
  * doesn't take down the entire SPA.
+ *
+ * The routes for the alpha's feature-flagged areas (MCP servers, OpenAPI
+ * integrations, cookbooks, Aria plans) are wrapped in `<FeatureGate>`: a
+ * deployment that has not turned the area on shows a "disabled in this
+ * deployment" panel, not the page and not a 404 from its first API call.
  */
 
 import {
@@ -43,6 +48,7 @@ import {
 } from "@/auth/localAuth";
 import { DashboardSummaryProvider } from "@/components/DashboardSummaryContext";
 import { RouteErrorBoundary } from "@/components/ErrorBoundary";
+import { FeatureGate } from "@/components/FeatureGate";
 import { ProviderBanner } from "@/components/ProviderBanner";
 import { AppShell } from "@/components/AppShell";
 import { useDashboardSummary } from "@/hooks/useDashboardSummary";
@@ -333,16 +339,34 @@ function AuthenticatedApp({
               <Route path="/administration" element={<Administration />} />
               <Route path="/tools" element={<ToolRegistry />} />
               <Route path="/tools/:toolId" element={<ToolDetail />} />
-              <Route path="/mcp-servers" element={<McpServers />} />
+              <Route
+                path="/mcp-servers"
+                element={
+                  <FeatureGate feature="integrations">
+                    <McpServers />
+                  </FeatureGate>
+                }
+              />
               <Route
                 path="/openapi-integrations"
-                element={<OpenApiIntegrations />}
+                element={
+                  <FeatureGate feature="integrations">
+                    <OpenApiIntegrations />
+                  </FeatureGate>
+                }
               />
               <Route path="/object-store" element={<ObjectStore />} />
               <Route path="/observability" element={<Observability />} />
               <Route path="/knowledge-bases" element={<KnowledgeBases />} />
               <Route path="/workflows" element={<Workflows />} />
-              <Route path="/cookbooks" element={<Cookbooks />} />
+              <Route
+                path="/cookbooks"
+                element={
+                  <FeatureGate feature="cookbooks">
+                    <Cookbooks />
+                  </FeatureGate>
+                }
+              />
               <Route path="/agents" element={<Agents />} />
               <Route path="/agents/:agentId" element={<AgentDetail />} />
               <Route
@@ -370,7 +394,14 @@ function AuthenticatedApp({
               />
               <Route path="/judges" element={<Judges />} />
               <Route path="/review-queues" element={<ReviewQueues />} />
-              <Route path="/aria/plans" element={<AriaPlans />} />
+              <Route
+                path="/aria/plans"
+                element={
+                  <FeatureGate feature="aria">
+                    <AriaPlans />
+                  </FeatureGate>
+                }
+              />
               <Route path="/evaluations" element={<Evaluations />} />
               <Route
                 path="/evaluations/:runId"

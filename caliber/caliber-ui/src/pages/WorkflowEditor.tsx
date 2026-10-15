@@ -68,6 +68,7 @@ import {
 } from "@/components/workflows/WorkflowSessionMemoryPanel";
 import { useEventStream, type CaliberEvent } from "@/hooks/useEventStream";
 import { useApiMutation, useApiQuery, useInvalidate } from "@/hooks/useApiQuery";
+import { useFeature } from "@/hooks/useFeature";
 import {
   buildNodePalette,
   buildNodeExecutionBadgeMap,
@@ -1871,10 +1872,13 @@ export function WorkflowEditor(): JSX.Element {
     (signal) => caliberApi.listEvalDatasets({ status: "active" }, signal),
     { enabled: editorBootstrapReady },
   );
+  // MCP servers sit behind the ``integrations`` feature flag: with it off, ``/mcp-servers``
+  // answers 404, so the editor does not ask (and an MCP node simply has no servers to pick).
+  const integrationsEnabled = useFeature("integrations").enabled;
   const mcpServersQuery = useApiQuery(
     ["mcp-servers"],
     (signal) => caliberApi.listMcpServers(undefined, signal),
-    { enabled: editorBootstrapReady },
+    { enabled: editorBootstrapReady && integrationsEnabled },
   );
   const workflowComponentsQuery = useApiQuery(
     ["workflow-components"],

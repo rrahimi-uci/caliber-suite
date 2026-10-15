@@ -64,7 +64,14 @@ def test_a_default_install_meets_none_of_the_optional_prerequisites() -> None:
     assert status["real_llm"] is False  # the fake provider
     assert status["object_store"] is False  # local workflow storage
     assert status["entrypoint_allowlist"] is False  # fail-closed until set
-    assert status["mcp_server"] is None  # registered data, not configuration
+    # MCP integrations are a preview area that ships off, so no server can be registered.
+    assert status["mcp_server"] is False
+
+
+def test_an_mcp_node_needs_the_integrations_flag_then_a_registered_server() -> None:
+    enabled = evaluate_requirements(_config(CALIBER_FEATURE_INTEGRATIONS="true"))
+    # With the flag on, a server is registered data, which the config cannot judge.
+    assert enabled["mcp_server"] is None
 
 
 def test_the_run_queue_needs_checkpointing_as_well() -> None:

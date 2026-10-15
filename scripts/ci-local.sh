@@ -166,6 +166,7 @@ BACKEND_CORE_TESTS=(
   tests/test_sdk_api_coverage.py
   tests/test_bare_lookup_inventory.py
   tests/test_plugin_contract.py
+  tests/test_feature_flags.py
 )
 
 job_backend_core() {

@@ -534,7 +534,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "refinement",
@@ -631,7 +631,7 @@ window.DOCS_DATA = {
       "label": "MCP architecture",
       "section": "Architecture",
       "section_id": "architecture",
-      "summary": "Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use.",
+      "summary": "Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use. Preview: off by default; enable with CALIBER_FEATURE_INTEGRATIONS.",
       "audience": [
         "architect",
         "developer",
@@ -642,7 +642,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "mcp",
@@ -695,7 +695,7 @@ window.DOCS_DATA = {
         "Workflow Studio or manifest familiarity"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "workflows",
@@ -911,7 +911,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "qa",
@@ -927,7 +927,7 @@ window.DOCS_DATA = {
       "label": "OpenAPI Integrations architecture",
       "section": "Architecture",
       "section_id": "architecture",
-      "summary": "Governed import of third-party OpenAPI specs, deterministic operation classification and dependency detection, curated tool-draft generation, and publication into the existing tool registry through a declarative HTTP executor.",
+      "summary": "Governed import of third-party OpenAPI specs, deterministic operation classification and dependency detection, curated tool-draft generation, and publication into the existing tool registry through a declarative HTTP executor. Preview: off by default; enable with CALIBER_FEATURE_INTEGRATIONS.",
       "audience": [
         "architect",
         "developer",
@@ -939,7 +939,7 @@ window.DOCS_DATA = {
         "MCP architecture"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "openapi",
@@ -980,7 +980,7 @@ window.DOCS_DATA = {
       "label": "Assistant architecture",
       "section": "Architecture",
       "section_id": "architecture",
-      "summary": "Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution.",
+      "summary": "Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution. Preview: off by default; enable with CALIBER_FEATURE_ARIA.",
       "audience": [
         "architect",
         "developer",
@@ -991,7 +991,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "assistant",
@@ -1016,7 +1016,7 @@ window.DOCS_DATA = {
         "A running CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "api",
@@ -1040,7 +1040,7 @@ window.DOCS_DATA = {
         "A running CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "api",
@@ -1065,7 +1065,7 @@ window.DOCS_DATA = {
         "A CALIBER API integration question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "api",
@@ -1090,7 +1090,7 @@ window.DOCS_DATA = {
         "A CALIBER API integration question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "api",
@@ -1120,7 +1120,7 @@ window.DOCS_DATA = {
         "A CALIBER question to answer"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "onboarding",
@@ -1171,7 +1171,7 @@ window.DOCS_DATA = {
         "Either a local repository checkout or a reachable CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "quickstart",
@@ -1196,7 +1196,7 @@ window.DOCS_DATA = {
         "Python 3.10, 3.11 or 3.12 and the three CALIBER wheels (release assets or a source checkout)"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "0.1.0a1 alpha",
       "tags": [
         "install",
@@ -1399,7 +1399,7 @@ window.DOCS_DATA = {
         "Repository checkout"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "setup",
@@ -1425,7 +1425,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment plan or checkout"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "configuration",
@@ -1503,7 +1503,7 @@ window.DOCS_DATA = {
         "A CALIBER failure or degraded runtime question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "troubleshooting",
@@ -1609,7 +1609,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment with tool access"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "tools",
@@ -1635,7 +1635,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment with skill access"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "skills",
@@ -1651,7 +1651,7 @@ window.DOCS_DATA = {
       "label": "MCP servers",
       "section": "Use CALIBER",
       "section_id": "use",
-      "summary": "The practical path for connecting CALIBER to MCP servers, verifying discovered tools, and governing remote tool use.",
+      "summary": "The practical path for connecting CALIBER to MCP servers, verifying discovered tools, and governing remote tool use. Preview: off by default; enable with CALIBER_FEATURE_INTEGRATIONS.",
       "audience": [
         "system-user",
         "developer",
@@ -1659,10 +1659,10 @@ window.DOCS_DATA = {
       ],
       "doc_type": "how-to",
       "prerequisites": [
-        "A CALIBER deployment with MCP access"
+        "A CALIBER deployment with MCP access (CALIBER_FEATURE_INTEGRATIONS=true)"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "mcp",
@@ -1678,7 +1678,7 @@ window.DOCS_DATA = {
       "label": "OpenAPI Integrations",
       "section": "Use CALIBER",
       "section_id": "use",
-      "summary": "The practical five-step flow for importing an OpenAPI spec, curating tool drafts, and publishing governed tools from it.",
+      "summary": "The practical five-step flow for importing an OpenAPI spec, curating tool drafts, and publishing governed tools from it. Preview: off by default; enable with CALIBER_FEATURE_INTEGRATIONS.",
       "audience": [
         "system-user",
         "developer",
@@ -1686,10 +1686,10 @@ window.DOCS_DATA = {
       ],
       "doc_type": "how-to",
       "prerequisites": [
-        "A CALIBER deployment with admin or operator scope"
+        "A CALIBER deployment with admin or operator scope and CALIBER_FEATURE_INTEGRATIONS=true"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "openapi",
@@ -1716,7 +1716,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment with workflow access"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "workflows",
@@ -1743,7 +1743,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment with knowledge-base access"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "knowledge",
@@ -1821,10 +1821,10 @@ window.DOCS_DATA = {
       ],
       "doc_type": "how-to",
       "prerequisites": [
-        "A CALIBER deployment with Aria access"
+        "A CALIBER deployment with Aria access (CALIBER_FEATURE_ARIA=true)"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "aria",
@@ -1852,7 +1852,7 @@ window.DOCS_DATA = {
         "A change candidate, review question, or release decision"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "review",
@@ -1905,7 +1905,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment or integration configuration question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "env",
@@ -1930,7 +1930,7 @@ window.DOCS_DATA = {
         "Python 3.10+"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "sdk",
@@ -1980,7 +1980,7 @@ window.DOCS_DATA = {
         "A running CALIBER deployment"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "sdk",
@@ -2031,7 +2031,7 @@ window.DOCS_DATA = {
         "A running CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "sdk",
@@ -2057,7 +2057,7 @@ window.DOCS_DATA = {
         "A running CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "sdk",

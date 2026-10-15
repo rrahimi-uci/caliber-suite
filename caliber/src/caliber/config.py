@@ -1035,6 +1035,47 @@ class CaliberConfig(BaseModel):
     # Caliber Assistant
     # ------------------------------------------------------------------
 
+    # ------------------------------------------------------------------
+    # Alpha feature flags (see ``caliber.features``)
+    # ------------------------------------------------------------------
+
+    feature_aria_enabled: bool = Field(
+        default=False,
+        description=(
+            "Turn on the Aria assistant and plans (preview). Off by default: the "
+            "``/assistant`` and ``/aria`` routes answer 404 ``feature_disabled`` and the "
+            "SPA hides them. Independent of ``assistant_enabled``, which still decides "
+            "whether an enabled assistant accepts requests."
+        ),
+    )
+    feature_integrations_enabled: bool = Field(
+        default=False,
+        description=(
+            "Turn on MCP servers and OpenAPI integrations (preview). Off by default: "
+            "the ``/mcp-servers`` and ``/openapi-integrations`` routes answer 404 "
+            "``feature_disabled``, the SPA hides them, and workflow MCP nodes are "
+            "reported as unavailable."
+        ),
+    )
+    feature_cookbooks_enabled: bool = Field(
+        default=False,
+        description=(
+            "Turn on the guided cookbook labs (preview). Off by default: the "
+            "``/cookbooks`` routes answer 404 ``feature_disabled`` and the SPA hides "
+            "the gallery."
+        ),
+    )
+    feature_release_candidates_enabled: bool = Field(
+        default=False,
+        description=(
+            "Turn on release-candidate signoff and workspace releases (record-only and "
+            "experimental: they record a decision and deploy nothing). Off by default: "
+            "``/releases/candidates``, ``/releases/report-jobs`` and "
+            "``/projects/{id}/releases`` answer 404 ``feature_disabled``. The live "
+            "board, the timeline and release operations are not affected."
+        ),
+    )
+
     assistant_enabled: bool = Field(
         default=True,
         description="Whether Caliber Assistant routes should accept requests.",
@@ -2009,6 +2050,14 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     (
         "CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT",
         "auth_bootstrap_allow_insecure_default",
+        _flag,
+    ),
+    ("CALIBER_FEATURE_ARIA", "feature_aria_enabled", _flag),
+    ("CALIBER_FEATURE_INTEGRATIONS", "feature_integrations_enabled", _flag),
+    ("CALIBER_FEATURE_COOKBOOKS", "feature_cookbooks_enabled", _flag),
+    (
+        "CALIBER_FEATURE_RELEASE_CANDIDATES",
+        "feature_release_candidates_enabled",
         _flag,
     ),
     ("CALIBER_ASSISTANT_ENABLED", "assistant_enabled", _flag),

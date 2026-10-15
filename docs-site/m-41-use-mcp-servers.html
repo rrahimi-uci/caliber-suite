@@ -6,7 +6,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MCP servers | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
-  <meta name="description" content="The practical path for connecting CALIBER to MCP servers, verifying discovered tools, and governing remote tool use.">
+  <meta name="description" content="The practical path for connecting CALIBER to MCP servers, verifying discovered tools, and governing remote tool use. Preview: off by default; enable with CALIBER_FEATURE_INTEGRATIONS.">
   <link rel="icon" type="image/png" href="caliber-icon.png">
   <script>
     (function () {
@@ -81,14 +81,15 @@
         <header class="doc-header">
           <div class="doc-eyebrow">Use CALIBER</div>
           <h1 id="top">MCP servers</h1>
-          <p class="doc-summary">The practical path for connecting CALIBER to MCP servers, verifying discovered tools, and governing remote tool use.</p>
-          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">System user</span><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">Operator</span><span class="doc-meta-chip doc-meta-chip-type">How To</span><span class="doc-meta-chip doc-meta-chip-stability">BETA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">A CALIBER deployment with MCP access</span></div><div class="doc-meta-notes">Reviewed 2026-10-14 · current main branch docs contract</div></div>
+          <p class="doc-summary">The practical path for connecting CALIBER to MCP servers, verifying discovered tools, and governing remote tool use. Preview: off by default; enable with CALIBER_FEATURE_INTEGRATIONS.</p>
+          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">System user</span><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">Operator</span><span class="doc-meta-chip doc-meta-chip-type">How To</span><span class="doc-meta-chip doc-meta-chip-stability">BETA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">A CALIBER deployment with MCP access (CALIBER_FEATURE_INTEGRATIONS=true)</span></div><div class="doc-meta-notes">Reviewed 2026-10-15 · current main branch docs contract</div></div>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
               Copy page
             </button>
           </div>
         </header>
+<blockquote class="callout"><p><strong>Disabled by default.</strong> MCP servers are a preview area and are off by default; enable with <code>CALIBER_FEATURE_INTEGRATIONS=true</code> and restart CALIBER (the same flag turns on OpenAPI integrations). While it is off, the <code>/mcp-servers*</code> routes answer 404 (<code>reason_code: feature_disabled</code>), the MCP Servers page is hidden, and a workflow MCP node is reported as unavailable ("A registered MCP server that CALIBER can reach (needs CALIBER_FEATURE_INTEGRATIONS=true)"). Enabling the flag means you accept preview behavior. See <a href="m-61-alpha-scope.html#feature-flags">Feature flags</a>.</p></blockquote>
 <p>Use this page when the practical question is how to connect CALIBER to an MCP server, verify the discovered tools, and govern what remote tools may do.</p>
 <h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
 <div class="table-wrap"><table><thead><tr><th>Task</th><th>Start here</th><th>Deep reference</th></tr></thead><tbody><tr><td>register or configure a server</td><td>define connection and transport details</td><td><a href="m-05-mcp.html">MCP architecture</a></td></tr><tr><td>verify tool discovery</td><td>inspect the discovered inventory</td><td><a href="m-05-mcp.html">MCP architecture</a></td></tr><tr><td>govern remote actions</td><td>apply approval and policy boundaries</td><td><a href="m-33-trust-and-governance.html">Trust and governance</a></td></tr><tr><td>use MCP tools in assistant or workflows</td><td>wire them into the target surface</td><td><a href="m-46-use-aria-assistant.html">Aria assistant</a>, <a href="m-42-use-workflows.html">Workflows</a></td></tr></tbody></table></div>
@@ -100,7 +101,7 @@
 <h2 id="2-common-tasks">2. Common tasks<a class="anchor" href="#2-common-tasks" aria-hidden="true" tabindex="-1">#</a></h2>
 <div class="table-wrap"><table><thead><tr><th>You want to...</th><th>Read this next</th></tr></thead><tbody><tr><td>connect a new MCP server</td><td><a href="m-05-mcp.html">MCP architecture</a></td></tr><tr><td>confirm the right tools are visible</td><td><a href="m-05-mcp.html">MCP architecture</a></td></tr><tr><td>allow only a narrow capability such as issue creation</td><td><a href="m-33-trust-and-governance.html">Trust and governance</a></td></tr><tr><td>debug an agentic flow using MCP tools</td><td><a href="m-55-developer-troubleshooting.html">Developer troubleshooting</a></td></tr></tbody></table></div>
 <h2 id="3-common-failure-modes">3. Common failure modes<a class="anchor" href="#3-common-failure-modes" aria-hidden="true" tabindex="-1">#</a></h2>
-<div class="table-wrap"><table><thead><tr><th>Symptom</th><th>First thing to check</th></tr></thead><tbody><tr><td>The server connects but tools do not appear</td><td>discovery or transport mismatch</td></tr><tr><td>Tools appear but cannot run</td><td>the tool has no policy yet (the default is denied), or it needs approval, or its secret-source configuration is wrong</td></tr><tr><td>The same tool behaves differently across environments</td><td>endpoint, credentials, or server version drift</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Symptom</th><th>First thing to check</th></tr></thead><tbody><tr><td>There is no MCP Servers page, or a call answers 404 with <code>reason_code: feature_disabled</code></td><td><code>CALIBER_FEATURE_INTEGRATIONS</code> is off (the default); set it to <code>true</code> and restart</td></tr><tr><td>The server connects but tools do not appear</td><td>discovery or transport mismatch</td></tr><tr><td>Tools appear but cannot run</td><td>the tool has no policy yet (the default is denied), or it needs approval, or its secret-source configuration is wrong</td></tr><tr><td>The same tool behaves differently across environments</td><td>endpoint, credentials, or server version drift</td></tr></tbody></table></div>
 <h2 id="4-related-docs">4. Related docs<a class="anchor" href="#4-related-docs" aria-hidden="true" tabindex="-1">#</a></h2>
 <ul><li><a href="m-33-trust-and-governance.html">Trust and governance</a></li><li><a href="m-46-use-aria-assistant.html">Aria assistant</a></li><li><a href="m-42-use-workflows.html">Workflows</a></li><li><a href="m-05-mcp.html">MCP architecture</a></li></ul>
         <footer>

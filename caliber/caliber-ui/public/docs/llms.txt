@@ -17,8 +17,8 @@ The pages below are the published architecture, workflow, and strategy documenta
 - [Prompts](m-38-use-prompts.md): The task-oriented entry point for prompt assets in CALIBER: author, evaluate, calibrate, release, and recover without starting from deep architecture.
 - [Tools](m-39-use-tools.md): The practical guide to defining, testing, governing, and using callable tools in workflows and assistant surfaces.
 - [Skills](m-40-use-skills.md): The task-oriented guide to packaging reusable instructions, testing selection behavior, and using skills with assistant and workflow flows.
-- [MCP servers](m-41-use-mcp-servers.md): The practical path for connecting CALIBER to MCP servers, verifying discovered tools, and governing remote tool use.
-- [OpenAPI Integrations](m-58-use-openapi-integrations.md): The practical five-step flow for importing an OpenAPI spec, curating tool drafts, and publishing governed tools from it.
+- [MCP servers](m-41-use-mcp-servers.md): The practical path for connecting CALIBER to MCP servers, verifying discovered tools, and governing remote tool use. Preview: off by default; enable with CALIBER_FEATURE_INTEGRATIONS.
+- [OpenAPI Integrations](m-58-use-openapi-integrations.md): The practical five-step flow for importing an OpenAPI spec, curating tool drafts, and publishing governed tools from it. Preview: off by default; enable with CALIBER_FEATURE_INTEGRATIONS.
 - [Workflows](m-42-use-workflows.md): The user and operator path for authoring, previewing, running, deploying, and debugging workflows in CALIBER.
 - [Knowledge bases](m-43-use-knowledge-bases.md): The practical guide for ingesting knowledge, improving retrieval quality, and connecting grounded content to assistant or workflow behavior.
 - [Evaluation and test sets](m-44-use-evaluation-and-test-sets.md): The practical trust loop: define evidence, run scorecards, inspect judges, and decide what still needs review before live change.
@@ -73,7 +73,7 @@ The pages below are the published architecture, workflow, and strategy documenta
 - [Prompts architecture](m-02-prompts.md): Non-live MLflow Prompt Registry authoring, render/test history, hidden runtime targets, queued optimizer-backed calibration, and durable alias release/reconciliation.
 - [Tools architecture](m-03-tools.md): Versioned callable registry, bounded subprocess test runs, fixture suites and baselines, and deterministic replay calibration.
 - [Skills architecture](m-04-skills.md): Reusable instruction assets with packaging, render/selection tests, deterministic runtime selection, and agent-free calibration.
-- [MCP architecture](m-05-mcp.md): Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use.
+- [MCP architecture](m-05-mcp.md): Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use. Preview: off by default; enable with CALIBER_FEATURE_INTEGRATIONS.
 - [Workflows architecture](m-06-workflows.md): Manifest authoring, compile/preview/run, versioning and deployments, queued runtime execution, checkpoints, and workflow-as-a-service.
 - [Object store](m-07-object-store.md): MinIO/S3 console and the storage substrate behind uploads, previews, extraction, and artifact browsing.
 - [Knowledge bases architecture](m-08-knowledge-bases.md): Versioned RAG corpora with ingestion, chunking, embeddings, hybrid retrieval, and calibration. Apache AGE graph extraction and cross-encoder reranking are optional and off by default; a build needs an S3-compatible bucket, the knowledge-local extra and an embedding-model download.
@@ -83,8 +83,8 @@ The pages below are the published architecture, workflow, and strategy documenta
 - [Observability architecture](m-09-observability.md): MLflow traces, feedback, Prometheus metrics, SSE, durable SLO incidents, webhook settlement/dead letters, service visibility, and trace retention.
 - [Gateways](m-10-gateways.md): External MLflow AI Gateway discovery, governed guardrail configuration, trace-derived usage, per-model pricing, and CALIBER routing visibility.
 - [QA plan](m-13-qa-plan.md): Runtime QA state, runtime approvals, engineering validation suites, and the merged Allure evidence model.
-- [Assistant architecture](m-12-assistant.md): Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution.
-- [OpenAPI Integrations architecture](m-57-openapi-integrations.md): Governed import of third-party OpenAPI specs, deterministic operation classification and dependency detection, curated tool-draft generation, and publication into the existing tool registry through a declarative HTTP executor.
+- [Assistant architecture](m-12-assistant.md): Aria's session model, the permissioned agentic tool loop, interaction and approval modes, governed drafts, and transparent execution. Preview: off by default; enable with CALIBER_FEATURE_ARIA.
+- [OpenAPI Integrations architecture](m-57-openapi-integrations.md): Governed import of third-party OpenAPI specs, deterministic operation classification and dependency detection, curated tool-draft generation, and publication into the existing tool registry through a declarative HTTP executor. Preview: off by default; enable with CALIBER_FEATURE_INTEGRATIONS.
 
 ## Strategy
 

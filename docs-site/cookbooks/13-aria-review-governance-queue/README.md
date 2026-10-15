@@ -1,5 +1,7 @@
 # Aria: Human-Review Queue from Intent
 
+> **Prerequisite flags:** `CALIBER_FEATURE_COOKBOOKS=true` opens the Cookbooks gallery and `CALIBER_FEATURE_ARIA=true` for **Plans** and the `/aria/*` API (both off by default).
+
 ## Demo objective
 
 Give Aria one sentence and have it plan and create a real human-**review
@@ -31,12 +33,12 @@ Read [`../ARIA-AUTONOMY.md`](../ARIA-AUTONOMY.md) and [`../FEASIBILITY.md`](../F
 
 ## Prerequisites
 
-- Aria Plans available (sidebar **Integrations and preview › Plans**, a Preview
-  page) and the operator role. No model provider is needed to create the queue.
+- Aria Plans enabled (`CALIBER_FEATURE_ARIA=true`; sidebar **Integrations and
+  preview › Plans**, a Preview page) and the operator role. No model provider is needed to create the queue.
 
 ## Recipe (UI-first, with API fallbacks)
 
-1. **State the intent.** Sidebar **Plans** → **Goal**. Paste the canonical intent
+1. **State the intent.** With `CALIBER_FEATURE_ARIA=true` set, sidebar **Plans** → **Goal**. Paste the canonical intent
    from [`assets/intent.md`](assets/intent.md):
    *"Set up a review queue for human labeling of agent replies for safety,
    citation, and tone."* **Autonomy** = **Stop before each change**, then click

@@ -92,7 +92,9 @@ async function navigateVia(
       }
     }
   }
-  await user.click(screen.getByRole("link", { name }));
+  // ``findBy``: a feature-flagged destination (MCP Servers) is only listed once the capabilities
+  // request has said its flag is on.
+  await user.click(await screen.findByRole("link", { name }));
 }
 
 beforeAll(() => {

@@ -11,7 +11,7 @@ product_area: docs
 stability: ga
 prerequisites:
   - A CALIBER question to answer
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - onboarding
@@ -30,10 +30,16 @@ before dropping into deep reference or architecture pages.
 | --- | --- | --- |
 | Developer / integrator | [SDK guide](../sdk/guide.md) | [Auth and project scoping](../build/auth-and-project-scoping.md), [SDK vs REST API](../build/sdk-vs-rest-api.md), [Developer troubleshooting](../build/developer-troubleshooting.md) |
 | Operator / admin | [Local bring-up guide](../operate/local-bring-up.md) | [Alpha install](alpha-install.md), [Configuration and provider setup](../operate/configuration-and-provider-setup.md), [Health and readiness](../operate/health-and-readiness.md), [Operations runbook](../runbook.md) |
-| System user | [Workflows](../use/workflows.md) | [Prompts](../use/prompts.md), [Knowledge bases](../use/knowledge-bases.md), [Aria assistant](../use/aria-assistant.md) |
+| System user | [Workflows](../use/workflows.md) | [Prompts](../use/prompts.md), [Knowledge bases](../use/knowledge-bases.md), [Aria assistant](../use/aria-assistant.md) (preview; off by default, enable with `CALIBER_FEATURE_ARIA`) |
 | Evaluator / governance user | [Trust and governance guide](../use/trust-and-governance.md) | [Evaluation](../14-evaluation/architecture.md), [Calibration](../15-calibration/architecture.md), [QA plan](../13-qa-plan/architecture.md) |
 | Architect | [Architecture reader guide](../architecture/index.md) | [Layered architecture](../../ARCHITECTURE.md), [Platform](../01-caliber/architecture.md), [Refinement loop](../refinement-loop.md) |
 | Decision-maker | [Decision-maker overview](../start/decision-maker-overview.md) | [Alpha scope and limitations](alpha-scope.md), [Competitive analysis](../competitive-analysis.md), [Roadmap](../roadmap.md) |
+
+> **Preview areas are off by default.** Aria and plans, MCP servers, OpenAPI integrations, cookbooks, and
+> release-candidate signoff with Workspace releases sit behind server-side flags: `CALIBER_FEATURE_ARIA`,
+> `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` and `CALIBER_FEATURE_RELEASE_CANDIDATES`. A page
+> below that sends you to one of them assumes the operator has enabled it; see
+> [Feature flags](alpha-scope.md#feature-flags).
 
 ## 1. If you are integrating with CALIBER
 

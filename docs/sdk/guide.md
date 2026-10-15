@@ -6,7 +6,7 @@ product_area: sdk
 stability: ga
 prerequisites:
   - Python 3.10+
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - sdk
@@ -360,6 +360,41 @@ except CaliberAPIError as exc:
     else:
         raise  # not yet a stable code -- fall back to detail/status_code
 ```
+
+## Feature flags and disabled areas
+
+The server keeps the areas the alpha does not stand behind **off by default**: Aria (`aria`), MCP servers and
+OpenAPI integrations (`integrations`), cookbooks (`cookbooks`) and release-candidate signoff with Workspace
+releases (`release_candidates`). The resources that wrap them (`caliber.aria`, `caliber.mcp_servers`,
+`caliber.openapi_integrations`, `caliber.cookbooks`, the candidate and report-job methods of `caliber.releases`,
+and `caliber.workspaces.releases`) still exist in the SDK, but against a server with the flag off every one of
+those calls raises `CaliberNotFoundError` (404) whose `reason_code` is `feature_disabled` and whose `detail`
+names the variable to set, for example `CALIBER_FEATURE_COOKBOOKS`.
+
+Feature detection should read the capabilities response rather than provoke that error. `GET /capabilities`
+returns `features`, an object keyed by the four ids; each entry has `enabled`, `env_var`, `label` and
+`stability` (`preview` or `record_only`). The SDK decodes it as `Capabilities.features`, and
+`Capabilities.feature_enabled(id)` answers a single question. A server that predates the flags returns no
+`features`, and an unknown id counts as off.
+
+```python
+from caliber_sdk import CaliberNotFoundError
+
+features = caliber.capabilities_info.get()
+if features.feature_enabled("cookbooks"):
+    recipes = caliber.cookbooks.list()
+
+try:
+    caliber.aria.capabilities()
+except CaliberNotFoundError as exc:
+    if exc.reason_code == "feature_disabled":
+        ...  # Aria is off in this deployment; exc.detail names CALIBER_FEATURE_ARIA
+    else:
+        raise  # an ordinary 404
+```
+
+The live Releases board, the timeline and release operations are core and not behind a flag. See
+[Feature flags](../start/alpha-scope.md#feature-flags) for what turning each one on means.
 
 ## Anything not yet modelled
 

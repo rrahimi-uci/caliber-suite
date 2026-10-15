@@ -82,7 +82,14 @@ function envelope<T>(data: T): { data: T } {
   return { data };
 }
 
-function renderSidebar(initialPath = "/"): void {
+/**
+ * Resolves when the sidebar has asked for the Aria plans. That poll only starts once
+ * ``/capabilities`` has said Aria is on, so by then every flagged destination is rendered too:
+ * the previews arrive with the capabilities, and a test must not look for them before that.
+ */
+let flagsReady: Promise<void> = Promise.resolve();
+
+async function renderSidebar(initialPath = "/"): Promise<void> {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
@@ -96,6 +103,7 @@ function renderSidebar(initialPath = "/"): void {
       </MemoryRouter>
     </QueryClientProvider>,
   );
+  await flagsReady;
 }
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
@@ -103,18 +111,26 @@ afterEach(() => {
   cleanup();
   server.resetHandlers();
   window.localStorage.clear();
+  flagsReady = Promise.resolve();
 });
 afterAll(() => server.close());
 
 function stubPlans(): void {
-  server.use(http.get(`${API_BASE}/aria/plans`, () => HttpResponse.json(envelope([]))));
+  flagsReady = new Promise((resolve) => {
+    server.use(
+      http.get(`${API_BASE}/aria/plans`, () => {
+        resolve();
+        return HttpResponse.json(envelope([]));
+      }),
+    );
+  });
 }
 
 describe("Sidebar navigation groups", () => {
   it("reaches every destination once all groups are open", async () => {
     stubPlans();
     const user = userEvent.setup();
-    renderSidebar();
+    await renderSidebar();
 
     for (const id of GROUP_IDS) {
       const toggle = await screen.findByTestId(`nav-group-toggle-${id}`);
@@ -137,7 +153,7 @@ describe("Sidebar navigation groups", () => {
   it("leads with the core journey, then the extended areas, operations, and previews", async () => {
     stubPlans();
     const user = userEvent.setup();
-    renderSidebar();
+    await renderSidebar();
 
     for (const id of GROUP_IDS) {
       const toggle = await screen.findByTestId(`nav-group-toggle-${id}`);
@@ -154,7 +170,7 @@ describe("Sidebar navigation groups", () => {
   it("puts the integrations and the previews together at the end of the work areas", async () => {
     stubPlans();
     const user = userEvent.setup();
-    renderSidebar();
+    await renderSidebar();
 
     await user.click(await screen.findByTestId("nav-group-toggle-preview"));
     const panel = document.getElementById("nav-group-preview");
@@ -167,7 +183,7 @@ describe("Sidebar navigation groups", () => {
   it("labels exactly the scope decision's preview areas, in the nav", async () => {
     stubPlans();
     const user = userEvent.setup();
-    renderSidebar();
+    await renderSidebar();
     for (const id of GROUP_IDS) {
       const toggle = await screen.findByTestId(`nav-group-toggle-${id}`);
       if (toggle.getAttribute("aria-expanded") === "false") await user.click(toggle);
@@ -192,7 +208,7 @@ describe("Sidebar navigation groups", () => {
   it("keeps a preview link's accessible name free of the pill, and describes it", async () => {
     stubPlans();
     const user = userEvent.setup();
-    renderSidebar();
+    await renderSidebar();
     await user.click(await screen.findByTestId("nav-group-toggle-preview"));
 
     const link = screen.getByRole("link", { name: "Cookbooks" });
@@ -219,7 +235,7 @@ describe("Sidebar navigation groups", () => {
 
   it("opens the group holding the current route and leaves the rest closed", async () => {
     stubPlans();
-    renderSidebar("/mcp-servers");
+    await renderSidebar("/mcp-servers");
 
     expect(await screen.findByTestId("nav-group-toggle-preview")).toHaveAttribute(
       "aria-expanded",
@@ -235,7 +251,7 @@ describe("Sidebar navigation groups", () => {
 
   it("falls back to the core journey when no group owns the route", async () => {
     stubPlans();
-    renderSidebar("/");
+    await renderSidebar("/");
 
     // Dashboard sits outside every group. Opening nothing would greet a new
     // user with five headers and zero destinations.
@@ -249,12 +265,12 @@ describe("Sidebar navigation groups", () => {
   it("persists which groups the user opened", async () => {
     stubPlans();
     const user = userEvent.setup();
-    renderSidebar();
+    await renderSidebar();
     await user.click(await screen.findByTestId("nav-group-toggle-extended"));
     expect(screen.getByText("Judges")).toBeInTheDocument();
 
     cleanup();
-    renderSidebar();
+    await renderSidebar();
 
     expect(await screen.findByTestId("nav-group-toggle-extended")).toHaveAttribute(
       "aria-expanded",
@@ -266,7 +282,7 @@ describe("Sidebar navigation groups", () => {
   it("opens and closes a group from the keyboard", async () => {
     stubPlans();
     const user = userEvent.setup();
-    renderSidebar();
+    await renderSidebar();
 
     const toggle = await screen.findByTestId("nav-group-toggle-operate");
     toggle.focus();
@@ -281,7 +297,7 @@ describe("Sidebar navigation groups", () => {
 
   it("associates each toggle with the panel it controls", async () => {
     stubPlans();
-    renderSidebar();
+    await renderSidebar();
 
     for (const id of GROUP_IDS) {
       const toggle = await screen.findByTestId(`nav-group-toggle-${id}`);
@@ -316,7 +332,7 @@ describe("Sidebar navigation groups", () => {
       ),
     );
     const user = userEvent.setup();
-    renderSidebar("/observability");
+    await renderSidebar("/observability");
 
     // Operate owns this route, so the preview group — which holds Plans — starts closed.
     const badge = await screen.findByLabelText(/awaiting your input/i);

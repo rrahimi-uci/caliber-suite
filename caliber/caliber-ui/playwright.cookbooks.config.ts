@@ -2,6 +2,12 @@ import { defineConfig, devices } from "@playwright/test";
 
 const PORT = Number(process.env["CALIBER_COOKBOOK_E2E_PORT"] ?? 5160);
 
+// Cookbooks are a feature-flagged area (off by default; ``caliber/features.py``). These journeys
+// are the one run that is *about* them, so the server starts with the flag on. The other areas
+// stay at their defaults: the journeys build skills, a review queue and cookbook drafts, and
+// touch no MCP, OpenAPI, Aria or release-candidate screen.
+const FEATURE_FLAGS = { CALIBER_FEATURE_COOKBOOKS: "true" };
+
 export default defineConfig({
   testDir: "./e2e/cookbooks",
   fullyParallel: false,
@@ -19,6 +25,7 @@ export default defineConfig({
   },
   webServer: {
     command: `MLFLOW_PORT=${PORT} MLFLOW_WORKERS=1 CALIBER_E2E_ENV_FILE=/dev/null CALIBER_DATABASE_URL= CALIBER_E2E_TMP_ROOT=$PWD/../.tmp/cookbooks-ui-only CALIBER_SKIP_KNOWLEDGE_WARMUP=1 CALIBER_BACKGROUND_TASKS_ENABLED=false CALIBER_ASSISTANT_ENGINE=fake bash ../scripts/run-playwright-server.sh`,
+    env: FEATURE_FLAGS,
     url: `http://127.0.0.1:${PORT}/ajax-api/2.0/mlflow/caliber/health`,
     timeout: 360_000,
     reuseExistingServer: false,

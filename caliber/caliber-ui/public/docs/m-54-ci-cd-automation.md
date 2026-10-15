@@ -57,7 +57,9 @@ The current CI pipeline keeps this explicit:
 - `gate-ledger` records which of the required gates actually ran
 - the full backend suite, the Python 3.10 and 3.12 compatibility legs, the MLflow
   integration slice and the browser cookbook journeys run on pushes to `main`,
-  not on pull requests
+  not on pull requests. The cookbook journeys start the server with
+  `CALIBER_FEATURE_COOKBOOKS=true`; the alpha journey starts it with every feature flag at its
+  default (off) to prove the clean release
 - Pages publishes only after CI succeeds on `main`, so the public HTML comes
   from a commit that already passed the docs gate
 - `.github/workflows/stack-smoke.yml` builds the CALIBER and MLflow images and

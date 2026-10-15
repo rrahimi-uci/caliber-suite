@@ -526,6 +526,9 @@ class TestAssistantAuth:
         config = CaliberConfig.load(
             environ={
                 "CALIBER_DATABASE_URL": f"sqlite+pysqlite:///{tmp_path / 'disabled.db'}",
+                # Aria itself is on (the alpha flag); the assistant setting under test
+                # is the separate ``assistant_enabled`` switch.
+                "CALIBER_FEATURE_ARIA": "true",
                 "CALIBER_ASSISTANT_ENABLED": "false",
                 "CALIBER_ASSISTANT_DISABLED_INTENTS": "generate_test_cases",
                 "CALIBER_ASSISTANT_DISABLED_DOMAINS": "prompt",

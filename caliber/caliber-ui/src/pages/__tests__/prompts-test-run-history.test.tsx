@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -13,6 +14,7 @@ import type {
 // history, replay) rather than re-driving the LLM generate/run flow.
 vi.mock("@/api/caliberApi", () => ({
   caliberApi: {
+    getCapabilities: vi.fn(),
     getAssistantConfig: vi.fn(),
     updateAssistantConfig: vi.fn(),
     getPrompt: vi.fn(),
@@ -100,14 +102,32 @@ function detail(overrides: Partial<PromptTestRunDetail> = {}): PromptTestRunDeta
 }
 
 function renderRunner(): void {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
   render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <PromptTestCases prompts={[supportPrompt]} loading={false} />
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <PromptTestCases prompts={[supportPrompt]} loading={false} />
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 
 beforeEach(() => {
+  // Generating and running test cases go through Aria, so the runner needs the ``aria`` flag on.
+  mockApi.getCapabilities.mockResolvedValue({
+    features: {
+      aria: {
+        enabled: true,
+        env_var: "CALIBER_FEATURE_ARIA",
+        label: "Aria assistant and plans",
+        stability: "preview",
+      },
+    },
+    workflow_runs: {},
+    sync_workflow_version_run: true,
+  } as never);
   mockApi.getAssistantConfig.mockResolvedValue({
     engine: "fake",
     model: "gpt-4o-mini",

@@ -18,6 +18,7 @@ import {
   normalizeAssistantReasoningValue,
 } from "@/components/assistant/assistantConfigUi";
 import { useApiMutation, useApiQuery, useInvalidate } from "@/hooks/useApiQuery";
+import { useFeature } from "@/hooks/useFeature";
 import { showToast } from "@/lib/toast";
 import {
   readDefaultAssistantSkillMode,
@@ -102,10 +103,25 @@ const SKILL_MODE_OPTIONS: Array<{ value: SkillRuntimeMode; label: string; help: 
 ];
 
 export function Settings(): JSX.Element {
-  const [activeTab, setActiveTab] = useState("assistant");
+  // The Aria tab (and its ``/assistant/config`` call) exists only when the ``aria`` feature flag
+  // is on. Until the user picks a tab, the default follows the flag: Aria when it is on,
+  // Providers (the first thing a clean alpha has to set up) when it is not.
+  const ariaEnabled = useFeature("aria").enabled;
+  const [pickedTab, setActiveTab] = useState<string | null>(null);
+  const activeTab =
+    pickedTab && (ariaEnabled || pickedTab !== "assistant")
+      ? pickedTab
+      : ariaEnabled
+        ? "assistant"
+        : "providers";
+  const tabs = useMemo(
+    () => (ariaEnabled ? TABS : TABS.filter((tab) => tab.key !== "assistant")),
+    [ariaEnabled],
+  );
   const { data: assistantConfig, isLoading: assistantLoading } = useApiQuery<AssistantConfig>(
     QK.assistantConfig,
     () => caliberApi.getAssistantConfig(),
+    { enabled: ariaEnabled },
   );
   const { data: llmSetup, isLoading: llmLoading } = useApiQuery<LlmSetupStatus>(
     QK.llmSetup,
@@ -144,9 +160,13 @@ export function Settings(): JSX.Element {
     <div className="space-y-6">
       <PageHeader
         title="Settings"
-        subtitle="Manage assistant defaults and live provider credentials without leaving the workspace."
+        subtitle={
+          ariaEnabled
+            ? "Manage assistant defaults and live provider credentials without leaving the workspace."
+            : "Manage live provider credentials without leaving the workspace."
+        }
       />
-      <PageTabs tabs={TABS} active={activeTab} onChange={setActiveTab} />
+      <PageTabs tabs={tabs} active={activeTab} onChange={setActiveTab} />
       {activeTab === "assistant" && (
         <AssistantSettingsTab
           config={assistantConfig ?? null}

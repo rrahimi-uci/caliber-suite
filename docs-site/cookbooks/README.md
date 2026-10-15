@@ -1,8 +1,10 @@
 # CALIBER Cookbooks
 
 Sixteen build-along recipes that teach the CALIBER platform end-to-end. Every
-recipe is also a versioned system example: open **Cookbooks**, review its live
-readiness checks, and install it as a paused workflow plus editable draft. Live
+recipe is also a versioned system example: with `CALIBER_FEATURE_COOKBOOKS=true`
+set on the server (see [Feature flags](#feature-flags-read-first)), open
+**Cookbooks**, review its live readiness checks, and install it as a paused
+workflow plus editable draft. Live
 models, connectors, workers, secrets, and traces remain deployment prerequisites;
 the product does not represent an unavailable dependency as ready. The generated
 [`capabilities.json`](capabilities.json) is derived from the runtime catalog.
@@ -16,7 +18,8 @@ the product does not represent an unavailable dependency as ready. The generated
 > matrix (what ships ✅ / is partial ⚠️ / is aspirational ❌) plus the reusable
 > recipe conventions every `README.md` depends on. Read it before building.
 >
-> **Aria track (12–15):** [`ARIA-AUTONOMY.md`](ARIA-AUTONOMY.md) covers the
+> **Aria track (12–15):** needs `CALIBER_FEATURE_ARIA=true`.
+> [`ARIA-AUTONOMY.md`](ARIA-AUTONOMY.md) covers the
 > scenarios where you give **Aria** a one-line intent and it plans + creates the
 > artifacts, with you filling each step's inputs in the plan's form and approving
 > each change (bounded by Aria's real capability registry).
@@ -24,6 +27,27 @@ the product does not represent an unavailable dependency as ready. The generated
 > **Review:** [`CRITIQUE-REPORT.md`](CRITIQUE-REPORT.md) is the implementability
 > critique — every scenario checked against the shipped code, the defects found
 > + fixed, and a per-scenario verdict.
+
+## Feature flags (read first)
+
+The Cookbooks gallery, and several of the areas the labs build on, are preview or
+record-only areas of the alpha and are **off by default** on the server. Each is a
+variable you set to `true` before starting CALIBER (the Docker stack passes them
+through from the environment), and a restart picks it up:
+
+| Variable | Turns on | Labs that need it |
+| --- | --- | --- |
+| `CALIBER_FEATURE_COOKBOOKS` | the Cookbooks gallery and `/cookbooks` API (installing a lab) | all 16 |
+| `CALIBER_FEATURE_ARIA` | the Aria assistant and **Plans** | 12, 13, 14, 15; 01 (steps 3, 4, 6 and 8: Playground, test generation and test runs call the Aria assistant); 09 only if Aria narrates the diagnosis |
+| `CALIBER_FEATURE_INTEGRATIONS` | MCP servers and OpenAPI integrations | 05; 07 (the GitHub MCP `issue_write` step); 08 only for its optional MCP evidence nodes |
+| `CALIBER_FEATURE_RELEASE_CANDIDATES` | release-candidate signoff on **Releases** (record-only) | 11 |
+
+Labs 02, 03, 04, 06, 10 and 16 need only `CALIBER_FEATURE_COOKBOOKS`. Every lab
+README repeats its own flags in a **Prerequisite flags** line under the title. A
+disabled area answers 404 with `reason_code: feature_disabled`, and
+`GET /capabilities` lists all four under `features`. Turning a flag on means you
+accept that area's preview behavior; see
+[Alpha scope](../../docs/start/alpha-scope.md#feature-flags).
 
 ## Folder contract
 
@@ -74,7 +98,8 @@ Scenario 16 (`16-observability-triage`) is README-only: it has a `README.md`
 ## How to execute one scenario
 
 1. Read `scenario.yaml` for objective, dependencies, and demo scope.
-2. Open **Cookbooks** and inspect the recipe's readiness checks.
+2. With `CALIBER_FEATURE_COOKBOOKS=true` set, open **Cookbooks** and inspect the
+   recipe's readiness checks.
 3. Follow `README.md` step-by-step (it carries the exact UI nav + API fallbacks).
 4. Build to `build.yaml` (the contract); each `build.yaml` has a `feasibility:`
    block at the top noting substitutions verified against the live code.

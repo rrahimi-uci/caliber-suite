@@ -186,11 +186,42 @@ and neither comes with the steps above:
 
 The full list, and what is and is not verified, is on [Knowledge bases](m-43-use-knowledge-bases.md#before-the-first-step-what-a-knowledge-base-needs).
 
+## Enabling preview areas
+
+The install above leaves the preview areas **off**: MCP servers, OpenAPI integrations, cookbooks, the Aria
+assistant and plans, and release-candidate signoff with workspace releases. Their navigation entries are
+hidden and their routes answer 404 with `reason_code: feature_disabled`. To try one, export its variable
+next to the other settings in step 5 and restart CALIBER:
+
+```bash
+export CALIBER_FEATURE_ARIA=true                # Aria assistant and plans (preview)
+export CALIBER_FEATURE_INTEGRATIONS=true        # MCP servers and OpenAPI integrations (preview)
+export CALIBER_FEATURE_COOKBOOKS=true           # Cookbooks (preview)
+export CALIBER_FEATURE_RELEASE_CANDIDATES=true  # release-candidate signoff and workspace releases
+```
+
+Turn on only what you want to try. Each variable defaults to false, is read once at startup, and accepts
+`true`, `1`, `yes` or `on`. Enabling one means you accept that area's preview behavior (it may change, a
+signoff records a decision and deploys nothing, a workspace release evaluation never runs); see
+[Feature flags](m-61-alpha-scope.md#feature-flags). Some cookbooks need more than the cookbooks flag, for
+example the Aria labs need `CALIBER_FEATURE_ARIA`; each lab's README names its flags.
+
+To confirm what the server picked up, sign in as in step 6 and read `features` from the capabilities
+response. Each of the four ids carries `enabled`, `env_var`, `label` and `stability`:
+
+```bash
+curl -s -b jar $B/capabilities
+```
+
 ## Docker instead
 
 If you would rather run the whole stack in containers, use `make start` from a source checkout.
 The container entrypoint runs the migration and sets the roles and providers for you. See
 [Local bring-up](m-32-local-bring-up.md).
+
+The four `CALIBER_FEATURE_*` variables pass through from the environment to the container and default to
+false there as well. Set them in the suite-root `.env` (`.env.example` documents them), then run
+`make start` again; the container reads them at startup. The preview areas are off in the stack until you do.
 
 ## Check it yourself
 

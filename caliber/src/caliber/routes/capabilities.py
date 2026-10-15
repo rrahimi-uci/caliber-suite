@@ -19,10 +19,12 @@ from caliber.extensibility.entrypoints import (
     ALLOWLIST_ENV_VAR,
     available_optimizer_plugins,
 )
+from caliber.features import capabilities_block, feature_enabled
 from caliber.routes._deps import envelope_response
 from caliber.routes.openapi import stability_summary
 from caliber.schemas import (
     ExtensibilityCapabilitySchema,
+    FeatureFlagSchema,
     OpenApiIntegrationsCapabilitySchema,
     OptimizerPluginSchema,
     PlatformCapabilitiesSchema,
@@ -126,6 +128,10 @@ async def get_capabilities(request: Request) -> JSONResponse:
         },
     )
     payload = PlatformCapabilitiesSchema(
+        features={
+            feature_id: FeatureFlagSchema(**block)
+            for feature_id, block in capabilities_block(config).items()
+        },
         workflow_runs=workflow_capabilities,
         sync_workflow_version_run=True,
         artifact_families=ARTIFACT_FAMILY_CAPABILITIES,
@@ -135,7 +141,7 @@ async def get_capabilities(request: Request) -> JSONResponse:
         sdk_stability=stability_summary(),
         extensibility=await run_in_threadpool(_extensibility),
         openapi_integrations=OpenApiIntegrationsCapabilitySchema(
-            enabled=True,
+            enabled=feature_enabled(config, "integrations"),
             stability="beta",
             import_sources=["inline_text"],
             publication_backend="tool_registry_openapi_http",

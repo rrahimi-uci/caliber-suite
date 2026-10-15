@@ -7,7 +7,7 @@ product_area: skills
 stability: ga
 prerequisites:
   - A CALIBER deployment with skill access
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - skills
@@ -27,8 +27,8 @@ selection behavior, and understand how they shape assistant or workflow output.
 | --- | --- | --- |
 | package a reusable instruction asset | define the skill surface and tests | [Skills architecture](../04-skills/architecture.md) |
 | verify the right skill is selected | run trigger/selection coverage | [Skills architecture](../04-skills/architecture.md) |
-| use a skill with Aria | inspect the assistant flow | [Aria assistant](../use/aria-assistant.md) |
-| use a skill in examples | follow a cookbook or SDK recipe | [SDK recipes](../sdk/cookbooks.md) |
+| use a skill with Aria | inspect the assistant flow (Aria is off by default; enable with `CALIBER_FEATURE_ARIA`) | [Aria assistant](../use/aria-assistant.md) |
+| use a skill in examples | follow a cookbook or SDK recipe (the cookbooks are off by default; enable with `CALIBER_FEATURE_COOKBOOKS`) | [SDK recipes](../sdk/cookbooks.md) |
 
 ## The skill journey, step by step
 
@@ -75,7 +75,7 @@ guidance separate from the rest of the workflow or assistant logic.
 | --- | --- |
 | author or update a skill | [Skills architecture](../04-skills/architecture.md) |
 | verify trigger behavior | [Skills architecture](../04-skills/architecture.md) |
-| understand how the assistant chooses or applies a skill | [Aria assistant](../use/aria-assistant.md) |
+| understand how the assistant chooses or applies a skill (Aria is off by default) | [Aria assistant](../use/aria-assistant.md) |
 | package skill logic for developer workflows | [SDK recipes](../sdk/cookbooks.md) |
 
 ## 3. Common failure modes

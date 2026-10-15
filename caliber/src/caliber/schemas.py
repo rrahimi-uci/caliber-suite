@@ -3268,9 +3268,23 @@ class OpenApiIntegrationsCapabilitySchema(BaseModel):
     runtime_backend: str = "python_callable_and_openapi_http"
 
 
+class FeatureFlagSchema(BaseModel):
+    """One gated alpha area (see :mod:`caliber.features`)."""
+
+    enabled: bool
+    env_var: str
+    label: str
+    #: ``preview`` or ``record_only``.
+    stability: str
+
+
 class PlatformCapabilitiesSchema(BaseModel):
     """Response payload for ``GET /caliber/capabilities``."""
 
+    #: Every gated area, on or off, keyed by id (``aria``, ``integrations``,
+    #: ``cookbooks``, ``release_candidates``). The SPA hides a disabled area; an SDK
+    #: can feature-detect without provoking a ``feature_disabled`` 404.
+    features: dict[str, FeatureFlagSchema] = Field(default_factory=dict)
     workflow_runs: WorkflowRunCapabilitySchema
     sync_workflow_version_run: bool = True
     artifact_families: dict[str, dict[str, object]] = Field(default_factory=dict)

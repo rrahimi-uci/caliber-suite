@@ -1,5 +1,7 @@
 # Precision Skills
 
+> **Prerequisite flags:** `CALIBER_FEATURE_COOKBOOKS=true` opens the Cookbooks gallery (a preview area, off by default). This lab needs no other flag.
+
 ## Demo objective
 
 A narrow skill that activates only on intended queries and applies response

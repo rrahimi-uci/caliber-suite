@@ -55,6 +55,7 @@ import {
 import { NavLink, useLocation } from "react-router-dom";
 
 import { caliberApi } from "@/api/caliberApi";
+import type { FeatureId } from "@/api/workflowTypes";
 import {
   HEALTH_DOT,
   HEALTH_TITLE,
@@ -62,6 +63,7 @@ import {
   type HealthStatus,
 } from "@/components/useHealthStatus";
 import { useApiQuery } from "@/hooks/useApiQuery";
+import { useFeatureFlags } from "@/hooks/useFeature";
 
 interface Badge {
   count: number;
@@ -208,11 +210,21 @@ interface NavEntry {
   badgeKey?: "plans";
   /** Maturity label. Preview destinations get a pill (and a dot in the icon rail). */
   tier?: "preview";
+  /**
+   * The alpha feature flag this destination sits behind. It is hidden unless the server
+   * reports the flag on; its route is wrapped in ``FeatureGate`` for the deep-link case.
+   */
+  feature?: FeatureId;
 }
 
 interface NavGroup {
   id: string;
   title: string;
+  /**
+   * The title when no preview destination is left in the group (every flag off). "Integrations
+   * and preview" over the LLM Gateway alone would promise previews that are not there.
+   */
+  titleWithoutPreview?: string;
   items: NavEntry[];
 }
 
@@ -265,12 +277,13 @@ const NAV_GROUPS: NavGroup[] = [
   {
     id: "preview",
     title: "Integrations and preview",
+    titleWithoutPreview: "Integrations",
     items: [
       { to: "/gateway", icon: <Network className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "LLM Gateway" },
-      { to: "/mcp-servers", icon: <PlugZap className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "MCP Servers", tier: "preview" },
-      { to: "/openapi-integrations", icon: <Globe className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "OpenAPI Integrations", tier: "preview" },
-      { to: "/cookbooks", icon: <BookOpen className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Cookbooks", tier: "preview" },
-      { to: "/aria/plans", icon: <ListChecks className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Plans", badgeKey: "plans", tier: "preview" },
+      { to: "/mcp-servers", icon: <PlugZap className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "MCP Servers", tier: "preview", feature: "integrations" },
+      { to: "/openapi-integrations", icon: <Globe className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "OpenAPI Integrations", tier: "preview", feature: "integrations" },
+      { to: "/cookbooks", icon: <BookOpen className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Cookbooks", tier: "preview", feature: "cookbooks" },
+      { to: "/aria/plans", icon: <ListChecks className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Plans", badgeKey: "plans", tier: "preview", feature: "aria" },
     ],
   },
   {
@@ -288,11 +301,32 @@ function matchesPath(pathname: string, to: string): boolean {
   return pathname === to || pathname.startsWith(`${to}/`);
 }
 
+/**
+ * Which group a path belongs to. Deliberately computed over *every* group, not just the
+ * visible ones: a deep link to a flagged area (which shows the "disabled" panel) should still
+ * open the group it would live in, and the first render, before capabilities arrive, must pick
+ * the same group the settled sidebar will.
+ */
 function activeGroupId(pathname: string): string | null {
   const group = NAV_GROUPS.find((candidate) =>
     candidate.items.some((item) => !item.external && matchesPath(pathname, item.to)),
   );
   return group ? group.id : null;
+}
+
+/**
+ * ``NAV_GROUPS`` with every destination whose feature flag is off removed, and any group left
+ * empty dropped. ``isEnabled`` is false for every flag while capabilities load or fail, so a
+ * clean alpha never shows a flagged destination, not even for a moment.
+ */
+function visibleNavGroups(isEnabled: (id: FeatureId) => boolean): NavGroup[] {
+  return NAV_GROUPS.flatMap((group) => {
+    const items = group.items.filter((item) => !item.feature || isEnabled(item.feature));
+    if (items.length === 0) return [];
+    const hasPreview = items.some((item) => item.tier === "preview");
+    const title = !hasPreview && group.titleWithoutPreview ? group.titleWithoutPreview : group.title;
+    return [{ ...group, title, items }];
+  });
 }
 
 function readOpenGroups(): string[] | null {
@@ -340,10 +374,15 @@ export function Sidebar({
   // below-gate confirm). Surfaced on the Plans nav so an in-flight plan that
   // stopped for you isn't lost when you navigate away from chat. Resilient: any
   // fetch failure simply shows no badge.
+  //
+  // Only when Aria is on: with the flag off ``/aria/plans`` answers 404, and polling it every
+  // thirty seconds forever would be the loudest way to say so.
+  const featureFlags = useFeatureFlags();
+  const ariaEnabled = featureFlags.isEnabled("aria");
   const plansNav = useApiQuery(
     ["aria", "plans", "needs-you"],
     (signal) => caliberApi.listAriaPlans(null, signal),
-    { refetchInterval: 30_000, staleTime: 15_000, retry: false },
+    { refetchInterval: 30_000, staleTime: 15_000, retry: false, enabled: ariaEnabled },
   );
   const pausedCount = (plansNav.data ?? []).filter((p) => p.status === "paused").length;
 
@@ -361,6 +400,7 @@ export function Sidebar({
     [pausedCount],
   );
 
+  const navGroups = useMemo(() => visibleNavGroups(featureFlags.isEnabled), [featureFlags]);
   const activeGroup = activeGroupId(location.pathname);
 
   // Default to the active group alone: the point of the change is that the
@@ -412,7 +452,7 @@ export function Sidebar({
           onNavigate={onNavigate}
         />
 
-        {NAV_GROUPS.map((group) => (
+        {navGroups.map((group) => (
           <NavGroupSection
             key={group.id}
             group={group}

@@ -2,7 +2,7 @@
   "steps": [
     {
       "where": "Integrations and preview › Plans",
-      "do": "Open Aria's planner. Click <strong>Plans</strong> in the left sidebar (under the <strong>Integrations and preview</strong> group; the page carries a <strong>Preview</strong> badge). This opens the <strong>Aria Plans</strong> page, where you hand Aria a one-line goal and it decomposes it into platform steps you approve before anything runs.",
+      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_ARIA=true</code> on the CALIBER server and restart it; Aria and the Plans page are off by default. Open Aria's planner. Click <strong>Plans</strong> in the left sidebar (under the <strong>Integrations and preview</strong> group; the page carries a <strong>Preview</strong> badge). This opens the <strong>Aria Plans</strong> page, where you hand Aria a one-line goal and it decomposes it into platform steps you approve before anything runs.",
       "see": "The Aria Plans page with a <strong>Goal</strong> textarea, an <strong>Autonomy</strong> selector, and a <strong>Decompose goal</strong> button.",
       "asset": "Aria Plans page open"
     },

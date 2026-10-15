@@ -1,4 +1,4 @@
-import { render, screen, waitFor, within } from "@testing-library/react";
+import { act, render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import {
@@ -14,7 +14,11 @@ import {
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
-import { Prompts } from "@/pages/Prompts";
+import {
+  getAssistantOptimizationSessionStorageKey,
+  Prompts,
+} from "@/pages/Prompts";
+import { capabilitiesBody } from "@/test/handlers";
 import { server } from "@/test/server";
 
 // This suite exercises the dormant multi-stage (dev/staging/prod) prompt UI:
@@ -99,7 +103,9 @@ async function openWorkspaceStage(
   await user.click(await screen.findByRole("button", { name: promptName }));
   await screen.findByTestId("workspace-header");
   if (stage !== "Author") {
-    await user.click(screen.getByRole("button", { name: stage }));
+    // ``findBy``: the Playground stage is behind the ``aria`` feature flag, so its tab appears
+    // once ``/capabilities`` has answered.
+    await user.click(await screen.findByRole("button", { name: stage }));
   }
 }
 
@@ -455,7 +461,9 @@ describe("Prompts", () => {
       "Calibration",
       "Bind",
     ]) {
-      expect(screen.getByRole("button", { name: stage })).toBeInTheDocument();
+      expect(
+        await screen.findByRole("button", { name: stage }),
+      ).toBeInTheDocument();
     }
   });
 
@@ -989,7 +997,7 @@ describe("Prompts", () => {
     await screen.findByRole("heading", { name: "Prompts" });
 
     await openCreate(user);
-    await user.click(screen.getByRole("button", { name: /Describe it/i }));
+    await user.click(await screen.findByRole("button", { name: /Describe it/i }));
 
     await user.type(
       screen.getByLabelText("Task description"),
@@ -4641,7 +4649,9 @@ describe("Prompts — Workspace", () => {
       "Calibration",
       "Bind",
     ]) {
-      expect(screen.getByRole("button", { name: stage })).toBeInTheDocument();
+      expect(
+        await screen.findByRole("button", { name: stage }),
+      ).toBeInTheDocument();
     }
 
     // "← Back to prompts" returns to the inventory.
@@ -4698,7 +4708,7 @@ describe("Prompts — Workspace", () => {
     expect(screen.queryByLabelText("Select a prompt")).not.toBeInTheDocument();
 
     // Playground: model selector, no prompt picker.
-    await user.click(screen.getByRole("button", { name: "Playground" }));
+    await user.click(await screen.findByRole("button", { name: "Playground" }));
     expect(await screen.findByLabelText("Select model")).toBeInTheDocument();
     expect(screen.queryByLabelText("Select a prompt")).not.toBeInTheDocument();
 
@@ -4791,5 +4801,118 @@ describe("Prompts — Workspace", () => {
     expect(
       screen.getByRole("button", { name: "Save & promote" }),
     ).toBeInTheDocument();
+  });
+});
+
+/**
+ * Everything on the Prompts page that goes through the Aria assistant (the Playground chat,
+ * generating and running test cases, "Describe it", assistant-guided calibration) sits behind the
+ * ``aria`` feature flag, which is off by default. With it off the page must say so where the
+ * control would have been, and must not call ``/assistant/*`` (that route answers 404).
+ */
+describe("Prompts — with the Aria feature off (the alpha default)", () => {
+  let assistantCalls: string[];
+
+  beforeEach(() => {
+    assistantCalls = [];
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () => HttpResponse.json(capabilitiesBody({}))),
+      http.all(`${API_BASE}/assistant/*`, ({ request }) => {
+        assistantCalls.push(`${request.method} ${new URL(request.url).pathname}`);
+        return HttpResponse.json(
+          { detail: "disabled", status_code: 404, reason_code: "feature_disabled" },
+          { status: 404 },
+        );
+      }),
+    );
+  });
+
+  it("drops the Playground stage and explains the Test Sets stage, with a way to build a set by hand", async () => {
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Test Sets");
+
+    const notice = await screen.findByTestId("feature-disabled-notice");
+    expect(notice).toHaveTextContent("Generating and running test cases here needs");
+    expect(notice).toHaveTextContent("CALIBER_FEATURE_ARIA=true");
+    expect(within(notice).getByRole("link", { name: "Test Sets" })).toHaveAttribute(
+      "href",
+      "/eval-datasets",
+    );
+    expect(
+      screen.queryByRole("button", { name: /Generate Test Cases/i }),
+    ).not.toBeInTheDocument();
+
+    // The other stages remain; the chat does not.
+    for (const stage of ["Author", "Test Sets", "Runs", "Calibration", "Bind"]) {
+      expect(screen.getByRole("button", { name: stage })).toBeInTheDocument();
+    }
+    expect(screen.queryByRole("button", { name: "Playground" })).not.toBeInTheDocument();
+    expect(assistantCalls).toEqual([]);
+  });
+
+  it("keeps run history and the baseline on the Runs stage, but cannot start a run", async () => {
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Runs");
+
+    expect(await screen.findByTestId("feature-disabled-notice")).toHaveTextContent(
+      "Running a test set against this prompt needs",
+    );
+    expect(await screen.findByTestId("workspace-run-history")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Run tests" })).not.toBeInTheDocument();
+    expect(assistantCalls).toEqual([]);
+  });
+
+  it("keeps manual calibration and drops the assistant-guided panel", async () => {
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Calibration");
+
+    expect(await screen.findByText("Run Configuration")).toBeInTheDocument();
+    // Settle past the capabilities answer before asserting an absence.
+    await waitFor(() =>
+      expect(screen.queryByRole("button", { name: "Playground" })).not.toBeInTheDocument(),
+    );
+    expect(screen.queryByText("Assistant-Guided Calibration")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText("Assistant intent request")).not.toBeInTheDocument();
+    expect(assistantCalls).toEqual([]);
+  });
+
+  it("does not restore a stored assistant calibration session when Aria is off", async () => {
+    window.localStorage.setItem(
+      getAssistantOptimizationSessionStorageKey("support-agent"),
+      "ASST-stale",
+    );
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Calibration");
+
+    expect(await screen.findByText("Run Configuration")).toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    // The stale session id would have been read back and its latest plan fetched.
+    expect(assistantCalls).toEqual([]);
+  });
+
+  it("offers no 'Describe it' on-ramp when creating a prompt", async () => {
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openCreate(user);
+
+    expect(await screen.findByRole("button", { name: /Write \/ paste/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Build from template/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Start from existing/i })).toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(screen.queryByRole("button", { name: /Describe it/i })).not.toBeInTheDocument();
+    expect(assistantCalls).toEqual([]);
   });
 });
