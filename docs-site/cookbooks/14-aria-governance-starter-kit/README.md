@@ -1,5 +1,7 @@
 # Aria: Governance Starter Kit from Intent
 
+> **Prerequisite flags:** `CALIBER_FEATURE_COOKBOOKS=true` opens the Cookbooks gallery and `CALIBER_FEATURE_ARIA=true` for **Plans** and the `/aria/*` API (both off by default).
+
 ## Demo objective
 
 Give Aria ONE sentence and watch it plan and stand up a whole governance
@@ -42,12 +44,12 @@ Read [`../ARIA-AUTONOMY.md`](../ARIA-AUTONOMY.md) and [`../FEASIBILITY.md`](../F
 ## Prerequisites
 
 - A configured model provider for the judge to run in **Evaluations** (creating
-  the kit needs none). Aria Plans available (sidebar **Integrations and preview ›
-  Plans**, a Preview page) and the operator role.
+  the kit needs none). Aria Plans enabled (`CALIBER_FEATURE_ARIA=true`; sidebar
+  **Integrations and preview › Plans**, a Preview page) and the operator role.
 
 ## Recipe (UI-first, with API fallbacks)
 
-1. **State the intent.** Sidebar **Plans** → **Goal**. Paste the canonical
+1. **State the intent.** With `CALIBER_FEATURE_ARIA=true` set, sidebar **Plans** → **Goal**. Paste the canonical
    intent from [`assets/intent.md`](assets/intent.md):
    *"Stand up our governance starter kit: a judge for answer faithfulness, an
    eval dataset to score against, and a review queue for human checks."*

@@ -28,6 +28,7 @@ import type {
 import { CalibrationPanel } from "@/components/CalibrationPanel";
 import { ToolOriginBadges, ToolUnavailableReason } from "@/components/ToolOriginBadges";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
+import { FeatureDisabledNotice } from "@/components/FeatureGate";
 import { FilterBar } from "@/components/FilterBar";
 import { CodeBlock } from "@/components/workflows/CodeHighlight";
 import { ListRow, ListRows } from "@/components/ListRow";
@@ -38,6 +39,7 @@ import { SearchInput } from "@/components/SearchInput";
 import { FilterSelect } from "@/components/FilterSelect";
 import { ViewToggle } from "@/components/ViewToggle";
 import { useApiMutation, useApiQuery, useInvalidate } from "@/hooks/useApiQuery";
+import { useFeature } from "@/hooks/useFeature";
 import { useViewMode } from "@/hooks/useViewMode";
 import { getActiveProjectId } from "@/workspace/activeWorkspace";
 import { ToolWizard } from "./ToolWizard";
@@ -1138,8 +1140,12 @@ export function ToolTests({
   const [running, setRunning] = useState(false);
   const [progress, setProgress] = useState({ current: 0, total: 0 });
   const [error, setError] = useState<string | null>(null);
+  // Generating cases and judging them both go through the Aria assistant (``/assistant/*``), so
+  // with the ``aria`` feature flag off this panel explains itself and calls nothing.
+  const ariaEnabled = useFeature("aria").enabled;
 
   useEffect(() => {
+    if (!ariaEnabled) return undefined;
     let cancelled = false;
     caliberApi.getAssistantConfig()
       .then((value) => {
@@ -1154,7 +1160,7 @@ export function ToolTests({
     return () => {
       cancelled = true;
     };
-  }, []);
+  }, [ariaEnabled]);
 
   if (!selectedId && tools.length > 0) {
     setSelectedId(tools[0]!.tool_id);
@@ -1305,6 +1311,10 @@ export function ToolTests({
       setRunning(false);
     }
   };
+
+  if (!ariaEnabled) {
+    return <FeatureDisabledNotice feature="aria" what="Generating and judging unit tests with an LLM" />;
+  }
 
   if (loading && tools.length === 0) {
     return <div className="text-sm text-zinc-400 animate-pulse py-10 text-center">Loading tools…</div>;

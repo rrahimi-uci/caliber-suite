@@ -82,7 +82,7 @@
           <div class="doc-eyebrow">Build &amp; integrate</div>
           <h1 id="top">CALIBER Python SDK</h1>
           <p class="doc-summary">Install, authenticate, scope to a project, and call the management API from Python — with every snippet taken from the executable examples the SDK test suite runs.</p>
-          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip doc-meta-chip-type">Tutorial</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">Python 3.10+</span></div><div class="doc-meta-notes">Reviewed 2026-10-14 · current main branch docs contract</div></div>
+          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip doc-meta-chip-type">Tutorial</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">Python 3.10+</span></div><div class="doc-meta-notes">Reviewed 2026-10-15 · current main branch docs contract</div></div>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
               Copy page
@@ -313,6 +313,23 @@ instructions: instructions must reference at least one evaluation variable</code
         <span class="tok-punctuation">.</span><span class="tok-punctuation">.</span><span class="tok-punctuation">.</span>  <span class="tok-comment"># some other migrated, named failure</span>
     <span class="tok-keyword">else</span><span class="tok-punctuation">:</span>
         <span class="tok-keyword">raise</span>  <span class="tok-comment"># not yet a stable code -- fall back to detail/status_code</span></code></pre>
+<h2 id="feature-flags-and-disabled-areas">Feature flags and disabled areas<a class="anchor" href="#feature-flags-and-disabled-areas" aria-hidden="true" tabindex="-1">#</a></h2>
+<p>The server keeps the areas the alpha does not stand behind <strong>off by default</strong>: Aria (<code>aria</code>), MCP servers and OpenAPI integrations (<code>integrations</code>), cookbooks (<code>cookbooks</code>) and release-candidate signoff with Workspace releases (<code>release_candidates</code>). The resources that wrap them (<code>caliber.aria</code>, <code>caliber.mcp_servers</code>, <code>caliber.openapi_integrations</code>, <code>caliber.cookbooks</code>, the candidate and report-job methods of <code>caliber.releases</code>, and <code>caliber.workspaces.releases</code>) still exist in the SDK, but against a server with the flag off every one of those calls raises <code>CaliberNotFoundError</code> (404) whose <code>reason_code</code> is <code>feature_disabled</code> and whose <code>detail</code> names the variable to set, for example <code>CALIBER_FEATURE_COOKBOOKS</code>.</p>
+<p>Feature detection should read the capabilities response rather than provoke that error. <code>GET /capabilities</code> returns <code>features</code>, an object keyed by the four ids; each entry has <code>enabled</code>, <code>env_var</code>, <code>label</code> and <code>stability</code> (<code>preview</code> or <code>record_only</code>). The SDK decodes it as <code>Capabilities.features</code>, and <code>Capabilities.feature_enabled(id)</code> answers a single question. A server that predates the flags returns no <code>features</code>, and an unknown id counts as off.</p>
+<pre class="language-python"><code class="language-python"><span class="tok-keyword">from</span> caliber_sdk <span class="tok-keyword">import</span> CaliberNotFoundError
+
+features <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>capabilities_info<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+<span class="tok-keyword">if</span> features<span class="tok-punctuation">.</span><span class="tok-function">feature_enabled</span><span class="tok-punctuation">(</span><span class="tok-string">"cookbooks"</span><span class="tok-punctuation">)</span><span class="tok-punctuation">:</span>
+    recipes <span class="tok-operator">=</span> caliber<span class="tok-punctuation">.</span>cookbooks<span class="tok-punctuation">.</span><span class="tok-function">list</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+
+<span class="tok-keyword">try</span><span class="tok-punctuation">:</span>
+    caliber<span class="tok-punctuation">.</span>aria<span class="tok-punctuation">.</span><span class="tok-function">capabilities</span><span class="tok-punctuation">(</span><span class="tok-punctuation">)</span>
+<span class="tok-keyword">except</span> CaliberNotFoundError <span class="tok-keyword">as</span> exc<span class="tok-punctuation">:</span>
+    <span class="tok-keyword">if</span> exc<span class="tok-punctuation">.</span>reason_code <span class="tok-operator">=</span><span class="tok-operator">=</span> <span class="tok-string">"feature_disabled"</span><span class="tok-punctuation">:</span>
+        <span class="tok-punctuation">.</span><span class="tok-punctuation">.</span><span class="tok-punctuation">.</span>  <span class="tok-comment"># Aria is off in this deployment; exc.detail names CALIBER_FEATURE_ARIA</span>
+    <span class="tok-keyword">else</span><span class="tok-punctuation">:</span>
+        <span class="tok-keyword">raise</span>  <span class="tok-comment"># an ordinary 404</span></code></pre>
+<p>The live Releases board, the timeline and release operations are core and not behind a flag. See <a href="m-61-alpha-scope.html#feature-flags">Feature flags</a> for what turning each one on means.</p>
 <h2 id="anything-not-yet-modelled">Anything not yet modelled<a class="anchor" href="#anything-not-yet-modelled" aria-hidden="true" tabindex="-1">#</a></h2>
 <p><code>client.raw</code> reaches any endpoint under <code>/ajax-api/2.0/mlflow/caliber</code>:</p>
 <pre class="language-python"><code class="language-python">caliber<span class="tok-punctuation">.</span>raw<span class="tok-punctuation">.</span><span class="tok-function">get</span><span class="tok-punctuation">(</span><span class="tok-string">"/observability/traces"</span><span class="tok-punctuation">)</span>

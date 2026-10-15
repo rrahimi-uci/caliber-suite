@@ -53,8 +53,8 @@ const FEATURES: Feature[] = [
         <path d="M6 6h.01M6 18h.01M12 9v6" />
       </svg>
     ),
-    title: "MCP Servers",
-    desc: "Connect external systems through MCP and expose governed tools and data to your agents.",
+    title: "MCP Servers (preview)",
+    desc: "Off by default in the alpha. When enabled, connect external systems through MCP and expose governed tools and data to your agents.",
     gradient: "from-sky-500/10 to-sky-600/5",
   },
   {

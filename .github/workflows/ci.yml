@@ -465,6 +465,7 @@ jobs:
           tests/test_sdk_api_coverage.py
           tests/test_bare_lookup_inventory.py
           tests/test_plugin_contract.py
+          tests/test_feature_flags.py
 
   # `docs/workspace-plan.md` section 15.2: "Each schema step has a
   # fresh-install test, upgrade test from the preceding revision, and

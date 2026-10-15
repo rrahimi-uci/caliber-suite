@@ -12,6 +12,7 @@ import { caliberApi } from "@/api/caliberApi";
 import type { RefinementJob } from "@/api/types";
 import { useDashboardSummaryContext } from "@/components/DashboardSummaryContext";
 import { useApi } from "@/hooks/useApi";
+import { useFeature } from "@/hooks/useFeature";
 import {
   humanizeWorkflowCalibrationLabel as humanizeLabel,
   workflowCalibrationView,
@@ -103,6 +104,7 @@ type WorkflowCalibrationData = NonNullable<ReturnType<typeof workflowCalibration
 
 export function Dashboard(): JSX.Element {
   const { data, error, loading, refresh } = useDashboardSummaryContext();
+  const ariaEnabled = useFeature("aria").enabled;
 
   const jobsState = useApi(
     useCallback((signal: AbortSignal) => caliberApi.listJobs({}, signal), []),
@@ -256,36 +258,41 @@ export function Dashboard(): JSX.Element {
             />
           </div>
 
-          <div className="mt-6 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
-            <ReliabilityTile
-              label="Execution success"
-              value={executionRate}
-              detail={
-                // Three distinct states, and collapsing any two of them makes
-                // the tile lie: no SLO payload means we do not know, a zero
-                // denominator means nothing has run, and anything else is a
-                // real measurement.
-                !assistantSlo
-                  ? "Awaiting signal"
-                  : assistantSlo.executions_total === 0
-                    ? "No assistant runs yet"
-                    : `${assistantSlo.executions_completed}/${assistantSlo.executions_total} completed`
-              }
-              tone={rateTone(executionRate, 0.9, 0.75)}
-            />
-            <ReliabilityTile
-              label="Publish success"
-              value={publishRate}
-              detail={
-                !assistantSlo
-                  ? "Awaiting signal"
-                  : assistantSlo.publish_total === 0
-                    ? "Nothing published yet"
-                    : `${assistantSlo.publish_success}/${assistantSlo.publish_total} published`
-              }
-              tone={rateTone(publishRate, 0.9, 0.75)}
-            />
-          </div>
+          {/* The reliability tiles are Aria's execution and publish SLOs; with the feature
+              off there is no assistant to measure, so the tiles would read "No assistant runs
+              yet" forever. */}
+          {ariaEnabled && (
+            <div className="mt-6 grid gap-3 rounded-lg border border-slate-200 bg-slate-50 p-4 sm:grid-cols-2">
+              <ReliabilityTile
+                label="Execution success"
+                value={executionRate}
+                detail={
+                  // Three distinct states, and collapsing any two of them makes
+                  // the tile lie: no SLO payload means we do not know, a zero
+                  // denominator means nothing has run, and anything else is a
+                  // real measurement.
+                  !assistantSlo
+                    ? "Awaiting signal"
+                    : assistantSlo.executions_total === 0
+                      ? "No assistant runs yet"
+                      : `${assistantSlo.executions_completed}/${assistantSlo.executions_total} completed`
+                }
+                tone={rateTone(executionRate, 0.9, 0.75)}
+              />
+              <ReliabilityTile
+                label="Publish success"
+                value={publishRate}
+                detail={
+                  !assistantSlo
+                    ? "Awaiting signal"
+                    : assistantSlo.publish_total === 0
+                      ? "Nothing published yet"
+                      : `${assistantSlo.publish_success}/${assistantSlo.publish_total} published`
+                }
+                tone={rateTone(publishRate, 0.9, 0.75)}
+              />
+            </div>
+          )}
         </Panel>
 
         <Panel

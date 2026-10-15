@@ -78,16 +78,20 @@
             a <strong>UI mockup</strong>, an <strong>assets table</strong>, and <strong>quality gates</strong>.</li>
           <li>Every <strong>green link</strong> opens the copy-paste asset file in that cookbook's
             <code>assets/</code> folder — paste its contents into the matching field.</li>
+          <li><strong>Preview areas are off by default.</strong> Each cookbook's notes name the feature flags it needs
+            (<code>CALIBER_FEATURE_COOKBOOKS</code> for the gallery; <code>CALIBER_FEATURE_ARIA</code>,
+            <code>CALIBER_FEATURE_INTEGRATIONS</code> or <code>CALIBER_FEATURE_RELEASE_CANDIDATES</code> where a lab uses that area).
+            Set them on the server and restart.</li>
         </ul>
       </div>
       <div class="callout">
-        <strong>The UI-first promise.</strong> Open <strong>Cookbooks</strong> to install any of the 16 recipes as a paused workflow and editable draft. Review readiness before activation.
+        <strong>The UI-first promise.</strong> With <code>CALIBER_FEATURE_COOKBOOKS=true</code> set on the server (off by default), open <strong>Cookbooks</strong> to install any of the 16 recipes as a paused workflow and editable draft. Review readiness before activation.
         <ul>
           <li><strong>Datasets</strong> fill from real runs: <code>Observability → open a trace → Add to test set</code>.</li>
           <li><strong>Deterministic logic</strong> uses Data Transform for decisions, JSON Schema, mapping, confidence, and fixtures; Python Code remains a bounded extension.</li>
           <li><strong>The Prompt Playground is a live chat</strong> (it calls the model); prompt regression is scored on the prompt's <code>Runs</code> stage, while <code>Evaluations</code> scores a Test Set with deterministic graders.</li>
           <li><strong>Judges</strong> are for LLM-graded criteria; deterministic checks are <strong>scorers</strong> or assertions.</li>
-          <li><strong>Aria</strong> (12–15) plans from one sentence in <code>Plans</code>; you create each artifact in its own page.</li>
+          <li><strong>Aria</strong> (12–15) plans from one sentence in <code>Plans</code> (needs <code>CALIBER_FEATURE_ARIA=true</code>, off by default); you create each artifact in its own page.</li>
         </ul>
       </div>
     </div>

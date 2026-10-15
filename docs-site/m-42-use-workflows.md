@@ -22,15 +22,16 @@ underlying implementation model.
 All thirty-one node types are in the palette, and most work on a base install. These need something more,
 and the palette marks each one that this server does not yet have with a "Needs ..." badge ("Needs a real LLM",
 "Needs an object store", "Needs an MCP server", "Needs an allowlist", "Needs the run queue"). The full sentence
-is on hover and in the component reference. The MCP badge always shows, because a registered MCP server is data
-that configuration cannot check.
+is on hover and in the component reference. While `CALIBER_FEATURE_INTEGRATIONS` is off (the default), an MCP
+node is reported as unavailable ("A registered MCP server that CALIBER can reach (needs CALIBER_FEATURE_INTEGRATIONS=true)"). Once it is on, the MCP badge always shows,
+because a registered MCP server is data that configuration cannot check.
 
 | Node | Needs | If it is missing |
 | --- | --- | --- |
 | `agent` | a real LLM provider | the default fake provider echoes a canned reply, and a calibration of the workflow is marked "Simulated evaluation" |
 | `input_bucket`, `output_bucket` | a remote object store (MinIO or S3) | the bucket cannot be read or written |
 | `knowledge_query`, `knowledge_build` | a remote object store, and for a query a built knowledge base version | the node fails at run time |
-| `mcp_resource` | a registered MCP server that CALIBER can reach | the node fails at run time |
+| `mcp_resource` | `CALIBER_FEATURE_INTEGRATIONS=true` (off by default) and a registered MCP server that CALIBER can reach | the node is unavailable ("A registered MCP server that CALIBER can reach (needs CALIBER_FEATURE_INTEGRATIONS=true)") until the flag is on, and fails at run time if no server is reachable |
 | `external_app` | `CALIBER_EXTERNAL_APP_ENTRYPOINT_ALLOWLIST` naming the entrypoint | every entrypoint is refused until the allowlist is set |
 | `human_approval`, `wait_until`, `wait_for_event` | the run queue and checkpointing (`CALIBER_WORKFLOW_RUN_QUEUE_ENABLED=true` and `CALIBER_WORKFLOW_RUN_CHECKPOINTING_ENABLED=true`) | the run cannot pause; see [Waits, approvals and queued runs](m-60-alpha-install.md#waits-approvals-and-queued-runs) |
 

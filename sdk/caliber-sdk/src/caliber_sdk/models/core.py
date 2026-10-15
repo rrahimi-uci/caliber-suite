@@ -206,6 +206,22 @@ class Extensibility:
 
 
 @dataclass
+class FeatureFlag:
+    """One gated alpha area, on or off in this deployment.
+
+    A disabled area answers ``404`` with ``reason_code == "feature_disabled"``; reading
+    this first lets a caller avoid provoking that.
+    """
+
+    enabled: bool = False
+    env_var: str = ""
+    label: str = ""
+    #: ``preview`` or ``record_only``.
+    stability: str = ""
+    extra: dict[str, Any] = field(default_factory=dict)
+
+
+@dataclass
 class Capabilities:
     """Runtime feature flags plus the SDK stability tiers.
 
@@ -220,7 +236,15 @@ class Capabilities:
     artifact_families: dict[str, Any] = field(default_factory=dict)
     sdk_stability: dict[str, list[str]] = field(default_factory=dict)
     extensibility: Extensibility = field(default_factory=Extensibility)
+    #: Gated areas (``aria``, ``integrations``, ``cookbooks``, ``release_candidates``),
+    #: keyed by id. Empty against a server that predates the flags.
+    features: dict[str, FeatureFlag] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
+
+    def feature_enabled(self, feature_id: str) -> bool:
+        """Whether a gated area is on. An unknown id, or a server without flags, is off."""
+        flag = self.features.get(feature_id)
+        return bool(flag and flag.enabled)
 
     def tier_of(self, tag: str) -> str | None:
         """Which stability tier an API tag falls in, or ``None`` if unknown."""

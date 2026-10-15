@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { cleanup, render, screen, waitFor } from "@testing-library/react";
+import { act, cleanup, render, screen, waitFor } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import {
   afterAll,
@@ -13,6 +13,7 @@ import {
 
 import { AssistantPanelProvider } from "@/components/assistant/AssistantPanelContext";
 import { TopBar } from "@/components/TopBar";
+import { capabilitiesBody } from "@/test/handlers";
 import { server } from "@/test/server";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
@@ -76,7 +77,7 @@ describe("TopBar Ask Aria", () => {
     );
     renderTopBar();
 
-    const button = screen.getByRole("button", { name: "Ask Aria" });
+    const button = await screen.findByRole("button", { name: "Ask Aria" });
     await waitFor(() => expect(button).toBeDisabled());
     expect(button).toHaveAttribute(
       "title",
@@ -95,7 +96,7 @@ describe("TopBar Ask Aria", () => {
     );
     renderTopBar();
 
-    const button = screen.getByRole("button", { name: "Ask Aria" });
+    const button = await screen.findByRole("button", { name: "Ask Aria" });
     await waitFor(() => expect(button).toBeDisabled());
     expect(button).toHaveAttribute(
       "title",
@@ -111,7 +112,7 @@ describe("TopBar Ask Aria", () => {
     );
     renderTopBar();
 
-    const button = screen.getByRole("button", { name: "Ask Aria" });
+    const button = await screen.findByRole("button", { name: "Ask Aria" });
     // Give the query time to settle; the button must never have been disabled.
     await waitFor(() => expect(button).toBeEnabled());
     expect(button).not.toHaveAttribute("title");
@@ -121,7 +122,7 @@ describe("TopBar Ask Aria", () => {
     // The default test handler predates the field.
     renderTopBar();
 
-    const button = screen.getByRole("button", { name: "Ask Aria" });
+    const button = await screen.findByRole("button", { name: "Ask Aria" });
     await waitFor(() => expect(button).toBeEnabled());
   });
 
@@ -133,6 +134,46 @@ describe("TopBar Ask Aria", () => {
     );
     renderTopBar();
 
-    expect(screen.getByRole("button", { name: "Ask Aria" })).toBeEnabled();
+    expect(await screen.findByRole("button", { name: "Ask Aria" })).toBeEnabled();
+  });
+});
+
+/** Let the capabilities request finish and its re-render land, inside ``act``. */
+async function settle(): Promise<void> {
+  await act(async () => {
+    await new Promise((resolve) => setTimeout(resolve, 50));
+  });
+}
+
+describe("TopBar Ask Aria and the aria feature flag", () => {
+  it("has no Ask Aria button, and never reads the assistant config, when the flag is off", async () => {
+    let configReads = 0;
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () => HttpResponse.json(capabilitiesBody({}))),
+      http.get(`${API_BASE}/assistant/config`, () => {
+        configReads += 1;
+        return HttpResponse.json(config({}));
+      }),
+    );
+    renderTopBar();
+
+    // The rest of the bar is there; Aria is not, and stays absent once capabilities have loaded.
+    expect(screen.getByRole("button", { name: /Switch to (dark|light) mode/ })).toBeInTheDocument();
+    await settle();
+    expect(screen.queryByRole("button", { name: "Ask Aria" })).not.toBeInTheDocument();
+    expect(configReads).toBe(0);
+  });
+
+  it("has no Ask Aria button while capabilities are loading, or when they cannot be loaded", async () => {
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () =>
+        HttpResponse.json({ detail: "boom" }, { status: 500 }),
+      ),
+    );
+    renderTopBar();
+
+    expect(screen.queryByRole("button", { name: "Ask Aria" })).not.toBeInTheDocument();
+    await settle();
+    expect(screen.queryByRole("button", { name: "Ask Aria" })).not.toBeInTheDocument();
   });
 });

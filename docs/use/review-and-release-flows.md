@@ -9,7 +9,7 @@ product_area: governance
 stability: ga
 prerequisites:
   - A change candidate, review question, or release decision
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - review
@@ -19,6 +19,13 @@ tags:
 ---
 
 # Review and release flows
+
+> **Disabled by default: release-candidate signoff and Workspace releases.** Review, Apply, rollback, the live
+> board, the release timeline and release operations are core and always on. The release-candidate signoff
+> (record-only) and Workspace releases (experimental) are off by default; enable with
+> `CALIBER_FEATURE_RELEASE_CANDIDATES=true` and restart CALIBER. See
+> [Release-candidate signoff and Workspace releases](#release-candidate-signoff-and-workspace-releases) below
+> and [Feature flags](../start/alpha-scope.md#feature-flags).
 
 Use this page when you need the practical path from candidate evidence to human
 review, explicit apply, release, or rollback.
@@ -57,6 +64,22 @@ the explicit human decision, and these are its rules:
 - **Sending it back.** `POST /jobs/{job_id}/request-changes` returns a `candidate_ready` job to the candidate
   stage with your notes. It needs `owner`, `editor` or `reviewer`.
 
+## Release-candidate signoff and Workspace releases
+
+These two areas are **off by default**. Enable them with `CALIBER_FEATURE_RELEASE_CANDIDATES=true` and
+restart CALIBER; turning the flag on means you accept their alpha behavior, below.
+
+| Area | Routes it gates | What it does in this build |
+| --- | --- | --- |
+| Release-candidate signoff (record-only) | `/releases/candidates*` and `/releases/report-jobs*`, and the candidate section of the Releases page | Assembles criteria, evidence and waivers, computes a readiness score on the server, and records a go or no-go signoff with a rationale. A signoff **records a decision** and deploys or rolls back nothing |
+| Workspace releases (experimental) | `/projects/{id}/releases*` (and `caliberctl workspace release`) | The API and SDK are complete, but nothing in this build executes a release evaluation, so an evaluation you start stays `queued` |
+
+While the flag is off, a call to any of those routes answers HTTP 404 with `reason_code: feature_disabled`,
+and the Releases page shows only the live board, the timeline and release operations. Those are core and not
+behind the flag, and neither are `GET /releases/live`, `GET /releases/timeline` and
+`GET /releases/operations`. `GET /capabilities` reports the flag as `features.release_candidates`, so a client
+can check it first. The path that governs a release end to end is Apply and rollback, above.
+
 ## 2. Common tasks
 
 | You want to... | Read this next |
@@ -72,6 +95,7 @@ the explicit human decision, and these are its rules:
 | Evidence exists, but nobody can apply it | review and apply are separate from evaluation |
 | A release is stuck in an uncertain state | use the runbook instead of retrying ad hoc |
 | A rollback path is unclear | inspect the asset-specific control path first |
+| The Releases page has no candidate section, or `/releases/candidates` answers 404 with `reason_code: feature_disabled` | `CALIBER_FEATURE_RELEASE_CANDIDATES` is off (the default); set it to `true` and restart |
 
 ## 4. Related docs
 

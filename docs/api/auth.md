@@ -6,7 +6,7 @@ product_area: api
 stability: ga
 prerequisites:
   - A running CALIBER deployment
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - api
@@ -149,6 +149,21 @@ Some routes also set a machine-readable `reason_code` next to `detail`
 (`{"detail": ..., "status_code": 409, "reason_code": "..."}`). It is optional and
 additive: most routes do not set it yet, so treat its absence as normal and fall
 back to `detail` and the status code.
+
+One code is always set: a route of an area that this deployment has turned off
+answers 404 with `reason_code: feature_disabled`, and `detail` names the variable
+that enables it. The preview and record-only areas (Aria, MCP servers and OpenAPI
+integrations, cookbooks, release-candidate signoff and Workspace releases) are off
+by default. Read `features` from `GET /capabilities` to check before you call, and
+treat this 404 as "not enabled here" rather than "no such record":
+
+```json
+{
+  "detail": "Aria assistant and plans is disabled in this deployment. Set CALIBER_FEATURE_ARIA=true to enable it.",
+  "status_code": 404,
+  "reason_code": "feature_disabled"
+}
+```
 
 A 429 carries a `Retry-After` header. When MLflow is unreachable, the prompt
 routes and Apply answer 503 with a fixed message naming `MLFLOW_TRACKING_URI`,

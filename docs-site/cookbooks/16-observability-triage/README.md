@@ -1,5 +1,7 @@
 # Cookbook 16 — Production Observability & Triage
 
+> **Prerequisite flags:** `CALIBER_FEATURE_COOKBOOKS=true` opens the Cookbooks gallery (a preview area, off by default). This lab needs no other flag; the cookbook 07 workflow it observes needs `CALIBER_FEATURE_INTEGRATIONS=true` only for its GitHub MCP step, which cookbook 09 does not have.
+
 **Track:** Operate · **Level:** Core · **Time:** 30–45 min
 
 **Surfaces:** Observability · Review Queues · Test Sets · Evaluations

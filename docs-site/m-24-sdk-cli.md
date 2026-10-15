@@ -108,12 +108,17 @@ visible in the process list), `--project` (default `$CALIBER_PROJECT`), `--json`
 | `promotion approve \| reject` | Act on a pending gated promotion (see `workflow promote`). |
 | `gate-verdict show \| record` | Advisory per-version evaluation verdicts (`prompt`/`workflow`/`skill`). |
 | `job list \| wait` | Background jobs, including the ones that wait for you. |
-| `release list \| sign` | Release candidates and go / no-go. **Preview, record-only:** a signoff records a decision and does not deploy or roll back anything. |
-| `cookbook list \| install` | Example workflows, with readiness checked first. |
+| `release list \| sign` | Release candidates and go / no-go. **Record-only, off by default** (enable with `CALIBER_FEATURE_RELEASE_CANDIDATES=true` on the server): a signoff records a decision and does not deploy or roll back anything. |
+| `cookbook list \| install` | Example workflows, with readiness checked first. **Preview, off by default** (enable with `CALIBER_FEATURE_COOKBOOKS=true` on the server). |
 | `prompt list \| show` | Governed prompts and the registry coordinate each resolves to. |
 | `service show \| publish \| unpublish` | A workflow's external HTTP service. |
 | `plugin list` | Optimizers, and plugins installed but not enabled. |
-| `workspace import \| package \| cr \| release` | Git-backed Workspace lifecycle: import jobs, revision packages, Change Request review, and environment releases. Every leaf requires `--project`. **Experimental:** release evaluation has no executor in this build, so a `workspace release` stays queued. |
+| `workspace import \| package \| cr \| release` | Git-backed Workspace lifecycle: import jobs, revision packages, Change Request review, and environment releases. Every leaf requires `--project`. **Experimental:** release evaluation has no executor in this build, so a `workspace release` stays queued, and `workspace release` is off by default (enable with `CALIBER_FEATURE_RELEASE_CANDIDATES=true` on the server). |
+
+A command whose area is switched off on the server (`release`, `cookbook`, `workspace release`) fails with
+exit code `1` and the server's message: a 404 whose `reason_code` is `feature_disabled` and whose `detail` names
+the variable to set. `caliberctl capabilities` shows the same flags under `features`. See
+[Feature flags](m-61-alpha-scope.md#feature-flags).
 
 Choices worth knowing about:
 

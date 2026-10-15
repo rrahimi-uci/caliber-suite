@@ -7,6 +7,7 @@
 
 import { http, HttpResponse } from "msw";
 
+import type { FeatureId, FeatureInfo } from "@/api/workflowTypes";
 import { templateManifest } from "@/lib/workflowGraph";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
@@ -15,6 +16,63 @@ const WORKFLOW_TEMPLATE_NAME_MARKER = "__CALIBER_WORKFLOW_NAME__";
 
 function envelope<T>(data: T): { data: T } {
   return { data };
+}
+
+/**
+ * The ``features`` block of ``GET /capabilities``: the four alpha-gated areas
+ * (``caliber/features.py``). Literals, not derived from the SPA's own fallbacks, so a test
+ * that asserts the disabled panel's text is checking against what the server sends.
+ */
+export function capabilityFeatures(
+  enabled: Partial<Record<FeatureId, boolean>> = {},
+): Record<FeatureId, FeatureInfo> {
+  const on = (id: FeatureId): boolean => enabled[id] ?? false;
+  return {
+    aria: {
+      enabled: on("aria"),
+      env_var: "CALIBER_FEATURE_ARIA",
+      label: "Aria assistant and plans",
+      stability: "preview",
+    },
+    integrations: {
+      enabled: on("integrations"),
+      env_var: "CALIBER_FEATURE_INTEGRATIONS",
+      label: "MCP servers and OpenAPI integrations",
+      stability: "preview",
+    },
+    cookbooks: {
+      enabled: on("cookbooks"),
+      env_var: "CALIBER_FEATURE_COOKBOOKS",
+      label: "Cookbooks",
+      stability: "preview",
+    },
+    release_candidates: {
+      enabled: on("release_candidates"),
+      env_var: "CALIBER_FEATURE_RELEASE_CANDIDATES",
+      label: "Release-candidate signoff and workspace releases",
+      stability: "record_only",
+    },
+  };
+}
+
+/** A full ``GET /capabilities`` body with the given areas on (default: all off, the alpha default). */
+export function capabilitiesBody(
+  enabled: Partial<Record<FeatureId, boolean>> = {},
+): { data: Record<string, unknown> } {
+  return envelope({
+    features: capabilityFeatures(enabled),
+    workflow_runs: {
+      queue_enabled: true,
+      supports_async_submit: true,
+      supports_cancel: true,
+      supports_retry: true,
+      supports_resume: true,
+      runtime_approvals_enabled: true,
+      checkpointing_enabled: true,
+      event_backend: "memory",
+    },
+    sync_workflow_version_run: true,
+  });
 }
 
 const WORKFLOW_TEMPLATE_FIXTURES = [
@@ -1425,19 +1483,14 @@ export const handlers = [
   }),
 
   http.get(`${API_BASE}/capabilities`, () => {
+    // Every alpha-gated area on, so the suites that exercise those areas keep working.
+    // Tests of the default (clean-alpha) posture override this with ``capabilitiesBody()``.
     return HttpResponse.json(
-      envelope({
-        workflow_runs: {
-          queue_enabled: true,
-          supports_async_submit: true,
-          supports_cancel: true,
-          supports_retry: true,
-          supports_resume: true,
-          runtime_approvals_enabled: true,
-          checkpointing_enabled: true,
-          event_backend: "memory",
-        },
-        sync_workflow_version_run: true,
+      capabilitiesBody({
+        aria: true,
+        integrations: true,
+        cookbooks: true,
+        release_candidates: true,
       }),
     );
   }),

@@ -10804,7 +10804,7 @@ sdk/caliber-sdk/examples/quickstart.py#quickstart
 
 **Public exports**
 
-`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `RELEASE_EVALUATION_TERMINAL_STATES`, `RELEASE_OPERATION_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceEnvironment`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceConnection`, `WorkspaceSourceReconciliationResult`, `WorkspaceSourceState`, `WorkspaceVersionTag`, `decode`, `decode_list`
+`FAILED_RUN_STATES`, `IMPORT_JOB_TERMINAL_STATES`, `RELEASE_EVALUATION_TERMINAL_STATES`, `RELEASE_OPERATION_TERMINAL_STATES`, `STABILITY_BETA`, `STABILITY_GA`, `STABILITY_INTERNAL`, `TERMINAL_RUN_STATES`, `Account`, `Agent`, `AriaInteraction`, `AriaPlan`, `AriaPlanDetail`, `AriaPlanStep`, `AuditEntry`, `Bucket`, `CalibrationJob`, `Capabilities`, `CookbookRecipe`, `CursorPage`, `ErrorBody`, `EvalDataset`, `EvalExample`, `Evaluation`, `Extensibility`, `FeatureFlag`, `FieldError`, `Identity`, `IssuedToken`, `Job`, `Judge`, `JudgeAlignment`, `KnowledgeBase`, `LlmSetupStatus`, `McpServer`, `OpenApiIntegration`, `OpenApiIntegrationVersion`, `OpenApiOperation`, `OpenApiOperationDependency`, `OpenApiToolDraft`, `OptimizerPlugin`, `Page`, `PersonalAccessToken`, `PlatformAdminInventory`, `Project`, `ProjectFile`, `ProjectFolder`, `ProjectMember`, `Prompt`, `QualityReview`, `RegisteredOptimizer`, `ReleaseCandidate`, `ReviewQueue`, `ReworkTask`, `RuntimeSettings`, `RuntimeSettingsSummary`, `SessionInfo`, `Skill`, `SkillRender`, `SkillSelection`, `SkillVersion`, `Stability`, `StoredObject`, `Tool`, `Trace`, `VerificationBatchResult`, `VerificationItem`, `Workflow`, `WorkflowRun`, `WorkflowRunCapabilities`, `WorkflowService`, `WorkflowVersion`, `WorkspaceBreakGlassApplyResult`, `WorkspaceChangeRequest`, `WorkspaceChangeRequestCheck`, `WorkspaceChangeRequestComment`, `WorkspaceChangeRequestHead`, `WorkspaceChangeRequestReview`, `WorkspaceChangeRequestReviewer`, `WorkspaceEnvironment`, `WorkspaceExternalReviewAttestation`, `WorkspaceImportJob`, `WorkspaceImportReconciliation`, `WorkspaceRelease`, `WorkspaceReleaseDecision`, `WorkspaceReleaseEvaluation`, `WorkspaceReleaseEvidence`, `WorkspaceReleaseOperation`, `WorkspaceReleaseOperationItem`, `WorkspaceReleaseOperationResult`, `WorkspaceRevision`, `WorkspaceRevisionDiff`, `WorkspaceRevisionResource`, `WorkspaceSource`, `WorkspaceSourceCapabilities`, `WorkspaceSourceConnection`, `WorkspaceSourceReconciliationResult`, `WorkspaceSourceState`, `WorkspaceVersionTag`, `decode`, `decode_list`
 
 ### Module `caliber_sdk.models.common`
 
@@ -11243,9 +11243,20 @@ uniformity the platform does not have.
 | `artifact_families` | `dict[str, Any]` | `field(default_factory=dict)` |
 | `sdk_stability` | `dict[str, list[str]]` | `field(default_factory=dict)` |
 | `extensibility` | [`Extensibility`](#extensibility) | `field(default_factory=Extensibility)` |
+| `features` | `dict[str, FeatureFlag]` | `field(default_factory=dict)` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 **Methods**
+
+###### `feature_enabled(feature_id: str) -> bool`
+
+Whether a gated area is on. An unknown id, or a server without flags, is off.
+
+| Parameter | Kind | Type | Default |
+| --- | --- | --- | --- |
+| `feature_id` | positional-or-keyword | `str` | `—` |
+
+**Returns:** `bool`
 
 ###### `tier_of(tag: str) -> str | None`
 

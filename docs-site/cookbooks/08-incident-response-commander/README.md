@@ -1,5 +1,7 @@
 # Incident Response Copilot
 
+> **Prerequisite flags:** `CALIBER_FEATURE_COOKBOOKS=true` opens the Cookbooks gallery (a preview area, off by default). `CALIBER_FEATURE_INTEGRATIONS=true` is needed only if you use the optional MCP evidence nodes.
+
 ## Demo objective
 
 An incident workflow that gathers deployment/runtime evidence, separates facts

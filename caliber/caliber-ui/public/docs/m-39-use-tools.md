@@ -81,7 +81,7 @@ they may touch real external systems.
 | --- | --- |
 | package a new callable | [Tools architecture](m-03-tools.md) |
 | use a tool in a flow | [Workflows](m-42-use-workflows.md) |
-| expose the tool to an agentic surface | [Aria assistant](m-46-use-aria-assistant.md) |
+| expose the tool to an agentic surface (Aria is off by default; enable with `CALIBER_FEATURE_ARIA`) | [Aria assistant](m-46-use-aria-assistant.md) |
 | audit why a tool call was blocked or paused | [Trust and governance](m-33-trust-and-governance.md) |
 
 ## 3. Common failure modes

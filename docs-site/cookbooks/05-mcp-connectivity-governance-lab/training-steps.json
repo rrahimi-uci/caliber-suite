@@ -2,7 +2,7 @@
   "steps": [
     {
       "where": "MCP Servers",
-      "do": "Open the MCP Servers page and find the quick-connect catalog of 8 templates. You will use the <strong>GitHub</strong> tile because it ships both a safe read tool (<code>search_repositories</code>) and a risky write tool (<code>issue_write</code>) — perfect for proving a policy block.",
+      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_INTEGRATIONS=true</code> on the CALIBER server and restart it; MCP servers are off by default. Open the MCP Servers page and find the quick-connect catalog of 8 templates. You will use the <strong>GitHub</strong> tile because it ships both a safe read tool (<code>search_repositories</code>) and a risky write tool (<code>issue_write</code>) — perfect for proving a policy block.",
       "see": "A catalog grid; the GitHub tile (test id <code>catalog-github</code>) sits alongside PostgreSQL, pgvector, Apache AGE, MinIO, Hugging Face, Ollama, and Playwright.",
       "asset": "MCP catalog"
     },

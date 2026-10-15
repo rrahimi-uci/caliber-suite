@@ -3,6 +3,13 @@
 
 # MCP Architecture
 
+> **Disabled by default.** The MCP integration layer is a preview area and is off by default; enable with
+> `CALIBER_FEATURE_INTEGRATIONS=true` and restart CALIBER (the flag also covers OpenAPI integrations). While it
+> is off, the `/mcp-servers*` routes answer 404 (`reason_code: feature_disabled`), the MCP Servers page is
+> hidden, and a workflow `mcp_resource` node is reported as unavailable ("A registered MCP server that CALIBER can reach (needs CALIBER_FEATURE_INTEGRATIONS=true)"). The
+> routes stay registered, so the OpenAPI document and the SDK describe them in every deployment. See
+> [Feature flags](m-61-alpha-scope.md#feature-flags).
+
 ## At a glance
 
 | Dimension                   | MCP integration layer                                                                                                                                                                                                                                                        |

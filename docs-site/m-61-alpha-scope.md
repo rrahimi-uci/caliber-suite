@@ -3,7 +3,7 @@
 
 # Alpha scope and known limitations
 
-> **Release status (2026-10-14):** `0.1.0a1` is the version prepared on `main`.
+> **Release status (2026-10-15):** `0.1.0a1` is the version prepared on `main`.
 > The `caliber-v0.1.0a1` tag and downloadable release assets have not been
 > published. The capabilities below describe the current code and its CI proof;
 > use [Alpha install](m-60-alpha-install.md) to build wheels from a checkout until
@@ -50,10 +50,68 @@ journey is proven in CI on every change, offline, on the simulated defaults.
 | --- | --- |
 | Core journey | Prompts, test sets, evaluations, calibration, review and Apply, projects and roles, access tokens, audit log, release timeline, readiness |
 | Also in the alpha | Skills, tools (trusted authors), workflows, knowledge bases and the object-store console |
-| Preview (marked in the app) | MCP servers, OpenAPI integrations, cookbooks, the Aria assistant and plans |
-| Record-only | Release-candidate signoff on the Releases page: it records a decision and deploys nothing |
-| Experimental | Workspace releases: release evaluation has no executor in this build |
+| Preview (off by default) | MCP servers and OpenAPI integrations (off by default; enable with `CALIBER_FEATURE_INTEGRATIONS`), cookbooks (off by default; enable with `CALIBER_FEATURE_COOKBOOKS`), the Aria assistant and plans (off by default; enable with `CALIBER_FEATURE_ARIA`). Marked "Preview" in the app once enabled |
+| Record-only (off by default) | Release-candidate signoff on the Releases page: it records a decision and deploys nothing (off by default; enable with `CALIBER_FEATURE_RELEASE_CANDIDATES`) |
+| Experimental (off by default) | Workspace releases: release evaluation has no executor in this build (off by default; enable with `CALIBER_FEATURE_RELEASE_CANDIDATES`) |
 | Not in the alpha | Memory, and the flagged-trace to refinement loop |
+
+The live board, the release timeline and release operations on the Releases page are core and always on. Only
+the release-candidate signoff and workspace releases are behind a flag.
+
+## Feature flags
+
+The areas above that the alpha does not stand behind are **off by default** and sit behind four server-side
+flags. A flag is read once at startup from the process environment, like the other `CALIBER_*` settings, so
+restart CALIBER after you change one. It is on for `true`, `1`, `yes` or `on` (any case) and off for anything
+else, including unset.
+
+| Flag id | Variable | What it turns on |
+| --- | --- | --- |
+| `aria` | `CALIBER_FEATURE_ARIA` | The Aria assistant and plans (preview): the `/assistant/*` and `/aria/*` routes, the Aria panel and the Plans page |
+| `integrations` | `CALIBER_FEATURE_INTEGRATIONS` | MCP servers and OpenAPI integrations (preview): the `/mcp-servers*` and `/openapi-integrations*` routes and their pages. While it is off, a workflow MCP node is reported as unavailable ("A registered MCP server that CALIBER can reach (needs CALIBER_FEATURE_INTEGRATIONS=true)") |
+| `cookbooks` | `CALIBER_FEATURE_COOKBOOKS` | Cookbooks (preview): the `/cookbooks*` routes and the Cookbooks page |
+| `release_candidates` | `CALIBER_FEATURE_RELEASE_CANDIDATES` | Release-candidate signoff and workspace releases (record-only and experimental): the `/releases/candidates*`, `/releases/report-jobs*` and `/projects/{id}/releases*` routes and the candidate part of the Releases page |
+
+For example, to try Aria and the cookbooks:
+
+```bash
+export CALIBER_FEATURE_ARIA=true
+export CALIBER_FEATURE_COOKBOOKS=true
+```
+
+Things to know before you turn one on:
+
+- **Turning a flag on means you accept the behavior of that area.** Preview areas may change or be removed
+  without notice. A release-candidate signoff records a decision and deploys or rolls back nothing, and a
+  workspace release evaluation stays queued because nothing in this build executes it. Enabling a flag does
+  not move an area into the supported journey.
+- **The areas depend on each other.** The sixteen cookbooks build on other areas, so a lab can need more than
+  `CALIBER_FEATURE_COOKBOOKS`: labs 12 to 15 need `CALIBER_FEATURE_ARIA`, lab 05 and the GitHub write step of
+  lab 07 need `CALIBER_FEATURE_INTEGRATIONS`, and lab 11 needs `CALIBER_FEATURE_RELEASE_CANDIDATES`. Each lab's
+  README names the flags it needs.
+- **Aria also backs a few helpers inside supported pages.** The **Ask Aria** button, **Describe it** prompt
+  drafting, the prompt Playground, test-case generation and test runs inside the prompt workspace, and the tool
+  unit-test generator call the assistant, so with `CALIBER_FEATURE_ARIA` off they are hidden or show a "disabled in
+  this deployment" notice. The core journey does not need them: build the test set by hand on the Test Sets page.
+- **A disabled area answers 404.** Every route of a disabled area returns HTTP 404 with the machine-readable
+  `reason_code` `feature_disabled`, so a client can tell "this deployment has it off" from "no such record"
+  (the body is shown below).
+- **Feature detection.** `GET /capabilities` returns a `features` object keyed by the four ids, each with
+  `enabled`, `env_var`, `label` and `stability`, so a client reads the flags without provoking a 404. The web
+  app does the same: it hides the navigation entries of a disabled area and shows a "disabled in this
+  deployment" panel if you open one of its URLs directly.
+- **The Docker stack passes the variables through.** The four variables default to false there too; set them
+  in the suite-root `.env` (see `.env.example`). See [Alpha install](m-60-alpha-install.md#enabling-preview-areas).
+
+A call to a route of a disabled area looks like this:
+
+```json
+{
+  "detail": "Cookbooks is disabled in this deployment. Set CALIBER_FEATURE_COOKBOOKS=true to enable it.",
+  "status_code": 404,
+  "reason_code": "feature_disabled"
+}
+```
 
 ## Known limitations
 
@@ -91,7 +149,7 @@ These are real and deliberate for the alpha. Read them before you rely on the pr
 - **Backups are documented, not rehearsed.** See [Backup and recovery](m-52-backup-and-recovery.md).
 - **No upgrade guarantees** from earlier tags, and the packages are not on PyPI. Build wheels from a
   checkout until the prerelease assets are published.
-- **Preview areas may change** or be removed without notice.
+- **Preview areas may change** or be removed without notice. They are off by default; see [Feature flags](#feature-flags).
 
 ## Where to go next
 

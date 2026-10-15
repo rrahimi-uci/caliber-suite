@@ -8,6 +8,7 @@ from ..models._decode import decode, decode_list
 from ..models.core import (
     Capabilities,
     Extensibility,
+    FeatureFlag,
     Identity,
     LlmSetupStatus,
     OptimizerPlugin,
@@ -44,7 +45,19 @@ class CapabilitiesAPI(Resource):
                 WorkflowRunCapabilities, payload.get("workflow_runs")
             )
             capabilities.extensibility = self._decode_extensibility(payload.get("extensibility"))
+            capabilities.features = self._decode_features(payload.get("features"))
         return capabilities
+
+    @staticmethod
+    def _decode_features(payload: Any) -> dict[str, FeatureFlag]:
+        """Each gated area is its own small object; older servers send none."""
+        if not isinstance(payload, dict):
+            return {}
+        return {
+            str(feature_id): decode(FeatureFlag, block)
+            for feature_id, block in payload.items()
+            if isinstance(block, dict)
+        }
 
     @staticmethod
     def _decode_extensibility(payload: Any) -> Extensibility:

@@ -1,5 +1,7 @@
 # Governed Tool Connectivity (MCP)
 
+> **Prerequisite flags:** `CALIBER_FEATURE_COOKBOOKS=true` opens the Cookbooks gallery and `CALIBER_FEATURE_INTEGRATIONS=true` for the **MCP Servers** page and the `/mcp-servers` API (both off by default).
+
 ## Demo objective
 
 A governed MCP integration with one trusted read-only tool and explicit policy
@@ -48,7 +50,7 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
 
 ## Recipe (UI-first, with API fallbacks)
 
-1. **Quick-connect.** `MCP Servers`, click the **GitHub** catalog tile (test id
+1. **Quick-connect.** With `CALIBER_FEATURE_INTEGRATIONS=true` set, `MCP Servers`, click the **GitHub** catalog tile (test id
    `catalog-github`). In the dialog, name the server and supply
    the token env var; **Register**. The GitHub tile uses the official remote
    Streamable HTTP endpoint (`https://api.githubcopilot.com/mcp/`), not the

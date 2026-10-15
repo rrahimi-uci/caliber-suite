@@ -1,5 +1,7 @@
 # Aria: Triage & Recalibrate Loop
 
+> **Prerequisite flags:** `CALIBER_FEATURE_COOKBOOKS=true` opens the Cookbooks gallery and `CALIBER_FEATURE_ARIA=true` for **Plans** and the `/aria/*` API (both off by default).
+
 ## Demo objective
 
 Give Aria ONE sentence about weak workflow runs and watch it plan and (1) create
@@ -53,12 +55,12 @@ Read [`../ARIA-AUTONOMY.md`](../ARIA-AUTONOMY.md) and [`../FEASIBILITY.md`](../F
 - The **flagged trace ids** (read from **Observability**) and the target
   **`workflow_id` + `agent_id`** (from that SCN-07 workflow).
 - The operator role, a configured model provider, and a refinement worker for
-  the calibration job; Aria Plans available (sidebar **Integrations and preview
-  › Plans**, a Preview page).
+  the calibration job; Aria Plans enabled (`CALIBER_FEATURE_ARIA=true`; sidebar
+  **Integrations and preview › Plans**, a Preview page).
 
 ## Recipe (UI-first, with API fallbacks)
 
-1. **State the intent.** Sidebar **Plans** → **Goal**. Paste the canonical
+1. **State the intent.** With `CALIBER_FEATURE_ARIA=true` set, sidebar **Plans** → **Goal**. Paste the canonical
    intent from [`assets/intent.md`](assets/intent.md):
    *"Our workflow's recent runs look weak — set up a review queue for the
    flagged traces and kick off a workflow calibration."*

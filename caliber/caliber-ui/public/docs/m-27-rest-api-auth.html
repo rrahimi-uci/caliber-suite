@@ -82,7 +82,7 @@
           <div class="doc-eyebrow">Build &amp; integrate</div>
           <h1 id="top">REST API authentication and conventions</h1>
           <p class="doc-summary">Bearer authentication, trusted-header deployments, project scoping, CSRF, envelopes, pagination, request ids, and error shapes.</p>
-          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip doc-meta-chip-type">Reference</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">A running CALIBER deployment</span></div><div class="doc-meta-notes">Reviewed 2026-10-14 · current main branch docs contract</div></div>
+          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip doc-meta-chip-type">Reference</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">A running CALIBER deployment</span></div><div class="doc-meta-notes">Reviewed 2026-10-15 · current main branch docs contract</div></div>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
               Copy page
@@ -136,6 +136,12 @@
   <span class="tok-key">"status_code"</span><span class="tok-punctuation">:</span> <span class="tok-number">403</span>
 <span class="tok-punctuation">}</span></code></pre>
 <p>Some routes also set a machine-readable <code>reason_code</code> next to <code>detail</code> (<code>{"detail": ..., "status_code": 409, "reason_code": "..."}</code>). It is optional and additive: most routes do not set it yet, so treat its absence as normal and fall back to <code>detail</code> and the status code.</p>
+<p>One code is always set: a route of an area that this deployment has turned off answers 404 with <code>reason_code: feature_disabled</code>, and <code>detail</code> names the variable that enables it. The preview and record-only areas (Aria, MCP servers and OpenAPI integrations, cookbooks, release-candidate signoff and Workspace releases) are off by default. Read <code>features</code> from <code>GET /capabilities</code> to check before you call, and treat this 404 as "not enabled here" rather than "no such record":</p>
+<pre class="language-json"><code class="language-json"><span class="tok-punctuation">{</span>
+  <span class="tok-key">"detail"</span><span class="tok-punctuation">:</span> <span class="tok-string">"Aria assistant and plans is disabled in this deployment. Set CALIBER_FEATURE_ARIA=true to enable it."</span><span class="tok-punctuation">,</span>
+  <span class="tok-key">"status_code"</span><span class="tok-punctuation">:</span> <span class="tok-number">404</span><span class="tok-punctuation">,</span>
+  <span class="tok-key">"reason_code"</span><span class="tok-punctuation">:</span> <span class="tok-string">"feature_disabled"</span>
+<span class="tok-punctuation">}</span></code></pre>
 <p>A 429 carries a <code>Retry-After</code> header. When MLflow is unreachable, the prompt routes and Apply answer 503 with a fixed message naming <code>MLFLOW_TRACKING_URI</code>, and nothing was changed.</p>
 <p>Validation failures use a structured 400 body:</p>
 <pre class="language-json"><code class="language-json"><span class="tok-punctuation">{</span>

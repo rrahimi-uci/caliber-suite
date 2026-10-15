@@ -7,6 +7,15 @@ environment-gated, and what remains deliberately bounded. The runtime-owned
 catalog is exported to [`capabilities.json`](capabilities.json); that generated
 inventory, rather than this prose, is the authoritative recipe list.
 
+> **Preview areas are off by default.** Aria and Plans, MCP servers and OpenAPI
+> integrations, the Cookbooks gallery, and release-candidate signoff sit behind
+> `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS`
+> and `CALIBER_FEATURE_RELEASE_CANDIDATES`. Every ✅ below that touches one of them
+> assumes its flag is on; each recipe README names the flags it needs, and the
+> table is in [`README.md`](README.md#feature-flags-read-first). The Playground
+> and the prompt workspace's test generation and runs call the Aria assistant, so
+> they need `CALIBER_FEATURE_ARIA` too.
+
 API base for all endpoints: `/ajax-api/2.0/mlflow/caliber`.
 SPA routes are under `/caliber`. A fresh local install seeds an `admin` / `admin` bootstrap login only when `auth_bootstrap_allow_insecure_default` is enabled (off by default; a local loopback launcher may opt in); otherwise provide the bootstrap admin password through the configured secret source.
 

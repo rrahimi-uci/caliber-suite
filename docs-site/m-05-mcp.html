@@ -6,7 +6,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>MCP Architecture | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
-  <meta name="description" content="Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use.">
+  <meta name="description" content="Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use. Preview: off by default; enable with CALIBER_FEATURE_INTEGRATIONS.">
   <link rel="icon" type="image/png" href="caliber-icon.png">
   <script>
     (function () {
@@ -81,14 +81,15 @@
         <header class="doc-header">
           <div class="doc-eyebrow">Architecture</div>
           <h1 id="top">MCP Architecture</h1>
-          <p class="doc-summary">Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use.</p>
-          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Architect</span><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">Evaluator</span><span class="doc-meta-chip doc-meta-chip-type">Concept</span><span class="doc-meta-chip doc-meta-chip-stability">BETA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">Layered architecture overview</span></div><div class="doc-meta-notes">Reviewed 2026-10-14 · current main branch docs contract</div></div>
+          <p class="doc-summary">Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use. Preview: off by default; enable with CALIBER_FEATURE_INTEGRATIONS.</p>
+          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Architect</span><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">Evaluator</span><span class="doc-meta-chip doc-meta-chip-type">Concept</span><span class="doc-meta-chip doc-meta-chip-stability">BETA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">Layered architecture overview</span></div><div class="doc-meta-notes">Reviewed 2026-10-15 · current main branch docs contract</div></div>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
               Copy page
             </button>
           </div>
         </header>
+<blockquote class="callout"><p><strong>Disabled by default.</strong> The MCP integration layer is a preview area and is off by default; enable with <code>CALIBER_FEATURE_INTEGRATIONS=true</code> and restart CALIBER (the flag also covers OpenAPI integrations). While it is off, the <code>/mcp-servers*</code> routes answer 404 (<code>reason_code: feature_disabled</code>), the MCP Servers page is hidden, and a workflow <code>mcp_resource</code> node is reported as unavailable ("A registered MCP server that CALIBER can reach (needs CALIBER_FEATURE_INTEGRATIONS=true)"). The routes stay registered, so the OpenAPI document and the SDK describe them in every deployment. See <a href="m-61-alpha-scope.html#feature-flags">Feature flags</a>.</p></blockquote>
 <h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
 <div class="table-wrap"><table><thead><tr><th>Dimension</th><th>MCP integration layer</th></tr></thead><tbody><tr><td><strong>What it is</strong></td><td>A mediated layer that turns external MCP servers into governed, inspectable CALIBER runtime dependencies.</td></tr><tr><td><strong>Where state lives</strong></td><td>A single<code>CaliberMcpServer</code> row carries connection metadata, <code>discovered_tools</code>, <code>tool_policies</code>, <code>tool_test_cases</code>, and <code>tool_calibrations</code>.</td></tr><tr><td><strong>Key surfaces</strong></td><td>Routes under<code>/ajax-api/2.0/mlflow/caliber</code> (<code>routes/mcp_servers.py</code>), the <code>McpServers.tsx</code> UI, and the <code>mcp_gateway.py</code> transport gateway.</td></tr><tr><td><strong>Runtime model</strong></td><td>One gateway serves both operator tooling and the workflow runtime; invoke and calibrate share the<code>_invoke_mcp_tool()</code> path over stdio, SSE, and streamable HTTP.</td></tr><tr><td><strong>Trust / safety</strong></td><td>Boundary-crossing operations require the<code>admin</code> scope. The central gateway enforces status, discovered-tool membership, allow/deny policy, command/host allowlists, executable availability, and process-local rate limits. Local stdio is containment, not an OS sandbox.</td></tr><tr><td><strong>Calibration</strong></td><td>Saved per-tool test cases and calibration summaries are CALIBER-local overlays kept on the server row, distinct from the remote tool implementation.</td></tr></tbody></table></div>
 <p>The sections below start from this picture and drill down into the scope, boundaries, data model, APIs, lifecycle, and trust posture in detail.</p>

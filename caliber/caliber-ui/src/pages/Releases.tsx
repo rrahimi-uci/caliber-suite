@@ -35,6 +35,7 @@ import {
   useApiQuery,
   useInvalidate,
 } from "@/hooks/useApiQuery";
+import { useFeature } from "@/hooks/useFeature";
 import { SCOPE_ADMIN, SCOPE_OPERATOR, hasScope } from "@/lib/scopes";
 import { relativeTime } from "@/lib/time";
 import { useRef, useState } from "react";
@@ -336,6 +337,7 @@ function ReleaseCandidateCard({
 export function Releases(): JSX.Element {
   const invalidate = useInvalidate();
   const [recoveryError, setRecoveryError] = useState<string | null>(null);
+  const releaseCandidatesEnabled = useFeature("release_candidates").enabled;
   const meQuery = useApiQuery(["me"], (signal) => caliberApi.getMe(signal));
   // ``GET /me`` returns the *effective* scope set (auth.py expands the
   // hierarchy before responding), so an admin already carries
@@ -786,7 +788,11 @@ export function Releases(): JSX.Element {
         </ul>
       </section>
 
-      <ReleaseSignoffFactory canOperate={canOperate} canAdmin={canAdmin} />
+      {/* Record-only signoff sits behind the ``release_candidates`` feature flag. With it off
+          the section is not mounted, so nothing calls ``/releases/candidates`` (it answers 404). */}
+      {releaseCandidatesEnabled && (
+        <ReleaseSignoffFactory canOperate={canOperate} canAdmin={canAdmin} />
+      )}
     </div>
   );
 }

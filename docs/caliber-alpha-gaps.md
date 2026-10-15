@@ -9,8 +9,8 @@ stability: draft
 summary: Evidence-based gap analysis and execution plan for tagging CALIBER Suite as a Minimal Viable Alpha (MVA) — scope, journeys, P0/P1/P2 gaps with acceptance criteria, and exit criteria.
 prerequisites:
   - Read docs/two-week-alpha-plan.md and docs/reports/two-week-alpha-release-notes.md for the narrower journey this plan generalizes
-reviewed_on: 2026-10-14
-version_applicability: gap baseline at dfe48481471; completion checklist updated through 97c2815f2d1
+reviewed_on: 2026-10-15
+version_applicability: gap baseline at dfe48481471; completion checklist updated through 97c2815f2d1, plus P1-25
 tags:
   - alpha
   - release-readiness
@@ -25,6 +25,8 @@ tags:
 > `dfe48481471`/`68fb0a7bbfe`. Section 8 records the later fixes: P0-1 through
 > P0-5 and P1-01 through P1-24 are closed, while P0-6 still needs a green run on
 > the tag commit and P0-7 still needs the tag, assets, and release verification.
+> P1-25 (feature flags for the unsupported areas) is implemented, and its
+> test-evidence criteria are still to be confirmed (§8).
 > `caliber-v0.1.0a1` has not been published. See
 > [Alpha scope and limitations](start/alpha-scope.md) for the current capability
 > boundary and [Releasing](operate/releasing.md) for the remaining release steps.
@@ -46,7 +48,8 @@ The alpha has two tiers ([§2.2](#22-scope-decision)). The **core** tier is the 
 lifecycle, where every blocker sits. The **extended** tier (skills, tools, workflows and
 knowledge bases) is built and passes its tests; what it lacks is proof, prerequisites
 and labelling, which [§6](#6-p1--required-for-a-credible-usable-alpha) covers as P1
-items P1-20 to P1-24.
+items P1-20 to P1-24. [P1-25](#p1-25) later put the preview, record-only and experimental
+areas behind feature flags that are off by default.
 
 ## How to use this document
 
@@ -139,14 +142,14 @@ sync Python SDK, do the following with an audit trail and honest failure reporti
 | Audit log, release timeline, recovery console, readiness | **IN** | Traceability and honest recovery. |
 | Sync Python SDK | **IN** | "Equivalently via SDK". The sync client has 0 coverage gaps against the API. |
 | `caliberctl` | **IN (read/ops verbs only)** | Missing apply and rollback verbs are P2; the SDK covers them. |
-| Release-candidate "signoff factory" (Releases page, top) | **LABEL as record-only** | A GO signoff changes nothing `[exec]`. |
-| Workspace / Change Requests / environment promotion | **LABEL experimental (API/SDK/CLI)** | No UI. Release evaluation never executes on a live server `[exec]`. |
+| Release-candidate "signoff factory" (Releases page, top) | **LABEL as record-only** | A GO signoff changes nothing `[exec]`. Off by default behind `CALIBER_FEATURE_RELEASE_CANDIDATES` ([P1-25](#p1-25)). |
+| Workspace / Change Requests / environment promotion | **LABEL experimental (API/SDK/CLI)** | No UI. Release evaluation never executes on a live server `[exec]`. Workspace releases (`/projects/{id}/releases*`) are off by default behind `CALIBER_FEATURE_RELEASE_CANDIDATES` ([P1-25](#p1-25)). |
 | Skills (author, render test, calibrate, apply as new version, rollback) | **IN (extended)** | Works offline; shares the prompt job/promoter/release machinery, so P0-1 and P0-4 cover it. Needs proof and docs ([P1-20](#p1-20)). |
 | Tools and the subprocess sandbox | **IN (extended, trusted authors)** | Works offline; registration is admin-only. The sandbox is a process boundary, not isolation, and the alpha must say so ([P1-21](#p1-21)). |
 | Workflows (design, validate, preview, publish, run, deploy, promote, rollback) | **IN (extended)** | Works live with the fake executor; 1,545 tests. Needs CI proof, runtime-queue docs, node prerequisites and honest calibration ([P1-22](#p1-22)). |
 | Knowledge bases and the object-store console | **IN (extended, infrastructure-gated)** | Requires an S3/MinIO bucket, the `knowledge-local` extra and (for ANN) PostgreSQL. Must fail fast without them ([P1-12](#p1-12), [P1-23](#p1-23)). |
-| MCP servers, OpenAPI integrations, cookbooks | **LABEL preview** | Work in tests and live checks, but need external servers or are convenience surfaces. |
-| Aria assistant and plans | **HIDE unless an engine is configured**, otherwise LABEL | Every reply is `OpenAIError` on the default install `[exec]`. |
+| MCP servers, OpenAPI integrations, cookbooks | **LABEL preview** | Work in tests and live checks, but need external servers or are convenience surfaces. Off by default behind `CALIBER_FEATURE_INTEGRATIONS` and `CALIBER_FEATURE_COOKBOOKS` ([P1-25](#p1-25)). |
+| Aria assistant and plans | **HIDE unless an engine is configured**, otherwise LABEL | Every reply is `OpenAIError` on the default install `[exec]`. Off by default behind `CALIBER_FEATURE_ARIA` ([P1-25](#p1-25)). |
 | Memory (mem0) | **OUT** (already off; clean 503) | — |
 | Flagged trace → verification → refinement | **OUT for alpha (document)** | No poller, no UI flag action, and verify creates no job. |
 
@@ -233,10 +236,10 @@ Status legend:
 | Workflows: author → validate → compile → preview → publish → run → deploy | ✅ (live, fake executor) | 1,545 tests; all steps 200/201 live; approvals `configuration_required` without the run queue (`routes/capabilities.py:111`) | IN (ext.) | [P1-22](#p1-22) |
 | Workflow calibration (manifest replay) | ⚠️ | Structural scorer and `min_overall_delta=0.0` by default (`orchestrator/workflow_stages.py:595-599`); unlabelled | IN (ext.) | [P1-22](#p1-22) |
 | Knowledge bases: ingest, build, activate, query, rollback | ❌ on default install; ☑️ with an object store (tests) | 343 tests (fakes for pgvector/AGE); live default install: 201, then build `NoCredentialsError` after ~82 s | IN (ext., gated) | [P1-12](#p1-12), [P1-23](#p1-23) |
-| MCP servers, OpenAPI integrations, cookbooks | ✅ (tests + live) | 336 / 135 / 47 tests pass; MCP needs reachable servers (loopback blocked) | label | [P1-10](#p1-10) |
-| Aria chat / plans | ❌ on default install | Replies are `OpenAIError`; a 0-step plan "completes" | hide/label | [P1-11](#p1-11) |
-| Workspace releases | ❌ on live server | Evaluation stays `queued` (no executor) | label | [P1-10](#p1-10) |
-| Release-candidate signoff | ⚠️ (no effect) | Self-signoff GO 201; timeline and operations empty | label | [P1-10](#p1-10) |
+| MCP servers, OpenAPI integrations, cookbooks | ✅ (tests + live) | 336 / 135 / 47 tests pass; MCP needs reachable servers (loopback blocked) | label | [P1-10](#p1-10), [P1-25](#p1-25) |
+| Aria chat / plans | ❌ on default install | Replies are `OpenAIError`; a 0-step plan "completes" | hide/label | [P1-11](#p1-11), [P1-25](#p1-25) |
+| Workspace releases | ❌ on live server | Evaluation stays `queued` (no executor) | label | [P1-10](#p1-10), [P1-25](#p1-25) |
+| Release-candidate signoff | ⚠️ (no effect) | Self-signoff GO 201; timeline and operations empty | label | [P1-10](#p1-10), [P1-25](#p1-25) |
 | Sync SDK | ✅ (mocks) / ⚠️ (vs server) | Core-journey methods never run against a server | IN | [P1-19](#p1-19) |
 | SDK/CLI install | ❌ | Docs say `pip install` (PyPI 404); CLI depends on unpinned `caliber-sdk` | IN | [P1-18](#p1-18) |
 
@@ -1182,6 +1185,45 @@ deferral.
   - [x] Any failure it exposed is fixed in the same PR (see Status).
   - [x] Each family's create, publish/promote and rollback actions write an audit row (route tests). Knowledge-base activate and rollback are asserted by `test_cov90_knowledge_service.py` and `test_routes_releases.py`; the new file adds the create.
 
+### P1-25
+
+- **Gap:** Feature flags for unsupported areas: the areas the alpha labels preview, record-only or experimental are still fully reachable on a default install
+- **Category:** Scope / product honesty / deployment configuration.
+- **Current state:**
+  - [P1-10](#p1-10) labelled MCP servers, OpenAPI integrations, cookbooks, Aria and plans, the release-candidate signoff and Workspace releases, and [P1-11](#p1-11) disabled the Aria toggle when no engine is configured. Labelling does not remove anything: on a default install every one of those areas is still in the navigation, still served by the API, and still a way to reach behaviour the alpha does not stand behind (a signoff that deploys nothing, a Workspace release evaluation that stays `queued`, plans against a simulated engine).
+  - The sixteen cookbook labs build on those same areas: lab 05 and the GitHub write step of lab 07 use MCP servers, lab 11 uses the release-candidate signoff, labs 12 to 15 use Aria plans, and lab 01 uses the Playground and test generation that call the Aria assistant. The gallery is part of the surface, not a separate one.
+  - A tester who opens the alpha cannot tell from the product which areas the release is meant to be judged by, and an operator has no switch to give a team only the supported journey.
+- **Expected alpha state:**
+  - Four server-side flags, all off by default and read at startup like other `CALIBER_*` variables: `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` and `CALIBER_FEATURE_RELEASE_CANDIDATES` (config fields `feature_<id>_enabled`).
+  - A call to a route of a disabled area answers HTTP 404 with `reason_code: feature_disabled` and the variable to set. Aria covers `/assistant/*` and `/aria/*`; integrations covers `/mcp-servers*` and `/openapi-integrations*`; cookbooks covers `/cookbooks*`; release candidates covers `/releases/candidates*`, `/releases/report-jobs*` and `/projects/{id}/releases*`. The live board, the release timeline and release operations stay on.
+  - `GET /capabilities` returns `features`, keyed by the four ids, each with `enabled`, `env_var`, `label` and `stability`, and the SDK decodes it.
+  - The web app hides a disabled area's navigation entries and shows a "disabled in this deployment" panel on a direct URL; workflow MCP nodes are reported as unavailable while integrations is off.
+  - The Docker stack passes the four variables through from the environment (default false) and `.env.example` documents them.
+  - The docs say that preview areas are "off by default; enable with" the named variable, that turning one on means accepting preview behaviour, which cookbooks need which flags, and the `feature_disabled` contract.
+- **Evidence:** `[read]` the flag definitions in `caliber/src/caliber/features.py` and the `feature_<id>_enabled` fields in `config.py`; the cookbook labs' steps for the per-lab flags (each lab README names its flags). Test evidence for the behaviour is listed under the acceptance criteria and is not claimed by this entry until confirmed.
+- **Why it matters:** [§2.2](#22-scope-decision) says out-of-scope features must be labelled. A label still asks the tester to read it. A flag makes the default install match the scope decision, so the release is judged by the supported journey, and a team that wants a preview area opts in knowingly.
+- **Recommended fix:**
+  1. Add `caliber/src/caliber/features.py` with the four flags, one ASGI middleware that refuses by path prefix with the 404 body above (so a new route in a gated area is refused until someone decides otherwise), and the `features` block of `/capabilities`.
+  2. Add the four config fields and environment variables, and pass them through `deploy/caliber/compose.yaml` with default false; document them in `.env.example`.
+  3. In the SPA, hide navigation entries and the controls that depend on a disabled area, and show a panel on a direct URL. Add the typed `features` field to the SDK.
+  4. Document the flags in the alpha scope, install, configuration, API, SDK, CLI and cookbook pages, the release notes and the changelog.
+- **Priority:** P1. It does not block the tag by itself, but it is what makes the §2.2 preview, record-only and experimental rows true of a default install.
+- **Files:** `caliber/src/caliber/features.py` (new), `config.py`, `server.py`, `routes/capabilities.py`, `schemas.py`, `workflows/component_catalog.py`, the SDK `models/core.py` and `resources/system.py`, the SPA (`components/FeatureGate.tsx`, `hooks/useFeature.ts`, `App.tsx`, `Sidebar.tsx`, the pages that use the gated areas), `deploy/caliber/compose.yaml`, `.env.example`, and the docs listed in the Status.
+- **Dependencies:** [P1-10](#p1-10) (the labels and the preview list the flags map onto), [P1-11](#p1-11) (the Aria gating this extends).
+- **Status: implemented by this change.** The four flags are off by default; the contract (variables, gated route prefixes, the 404 body, `features` in `/capabilities`, the SPA behaviour and the Compose pass-through) is as under "Expected alpha state". The docs were updated in the same change: `docs/start/alpha-scope.md` (the maturity table and a Feature flags section), `docs/start/alpha-install.md` (Enabling preview areas, including the Compose path), `docs/reference/config-and-environment.md` (the four variables with defaults), the Aria, MCP, OpenAPI, workflow, release and cookbook how-to and module pages (a "Disabled by default" note), the API and SDK pages (`features` and `reason_code: feature_disabled`), every cookbook README (a **Prerequisite flags** line), the release notes and the changelog. The per-lab flags are: all sixteen need `CALIBER_FEATURE_COOKBOOKS`; 12 to 15 also need `CALIBER_FEATURE_ARIA`; 01 also needs it for its Playground, test-generation and test-run steps; 05 and 07 (the GitHub MCP write step) need `CALIBER_FEATURE_INTEGRATIONS`, and 08 only for its optional MCP nodes; 11 needs `CALIBER_FEATURE_RELEASE_CANDIDATES`.
+  - Test evidence is recorded against each criterion below. The shipped default is proven by `tests/test_feature_flags.py` (86 tests, in the Backend core journey list), the browser journeys by the alpha Playwright config (which unsets every flag) and `e2e/feature-flags.spec.ts`.
+- **Acceptance criteria:**
+  - [x] The docs name all four variables with their defaults (`docs/reference/config-and-environment.md`), and the scope page's maturity table says each preview, record-only and experimental area is "off by default; enable with" its variable.
+  - [x] The `feature_disabled` 404 body and the `features` shape are documented on the scope, API and SDK pages.
+  - [x] Every cookbook README names the flags its lab needs, and the cookbook index lists them in one table.
+  - [x] The release notes and the changelog describe the flags and how to enable them.
+  - [x] With none of the four set, every route in each gated prefix answers 404 with `reason_code: feature_disabled` and the variable to set, and each route answers normally with its flag on. `tests/test_feature_flags.py` drives a representative route of each prefix both ways, pins path ownership including the edges, and a coverage test walks every route of the gated modules (`assistant`, `aria_plans`, `mcp_servers`, `openapi_integrations`, `cookbooks`, `workspace_releases`, `workspace_release_operations`, and the candidate routes in `releases.py`) and fails if one is not covered by its flag.
+  - [x] `GET /capabilities` returns `features` with `enabled`, `env_var`, `label` and `stability` for each of the four ids (`tests/test_feature_flags.py`), and `Capabilities.features` decodes it on the sync and async clients (`sdk/caliber-sdk/tests/test_resources_core.py`, `test_async_client.py`).
+  - [x] The SPA hides a disabled area's navigation entries and shows the "disabled in this deployment" panel on a direct URL (Vitest: `sidebar-feature-flags.test.tsx`, `feature-gate.test.tsx`, `useFeature.test.tsx`, plus flag-off cases on the app shell, Prompts, Releases, Settings and the workflow editor, which also assert that no gated route is called).
+  - [x] The Compose file passes the four variables through with default false, and `.env.example` documents them (`tests/test_deployment_contract.py`).
+  - [x] The browser journeys still pass on the flags-off default, and the specs for a gated area set its flag. Run locally against this branch: the alpha config (flags unset) passed 16 of 16 (feature-flags, user-prompt, skill, tool, build-workflows, workflow-studio) and the cookbooks config 4 of 4. The CI result is recorded on the pull request.
+  - [x] Every setting the configuration reference documents, including the four `CALIBER_FEATURE_*` variables, exists in `config.py` (`test_config_reference_settings_exist_in_repo_configuration`).
+
 ---
 
 ## 7. Execution plan
@@ -1212,6 +1254,7 @@ validation, self-review). Slices in the same wave can run in parallel.
 | 4 | MLflow outage behaviour | P1-04 | |
 | 4 | Lineage + SDK journey test + PAT UI + Settings provider panel | P1-14, P1-19, P1-07, P1-09 (UI) | |
 | 5 | Alpha docs truth + backup page | P1-15 | Written against the final behaviour. |
+| 5 | Feature flags for the unsupported areas | P1-25 | After P1-10 and P1-11 (the labels and the Aria gate it builds on); the docs in the same PR, before the release cut. |
 | 5 | Release cut | P0-7 | Last. |
 
 ### 7.2 Dependency graph (P0)
@@ -1273,6 +1316,7 @@ ticked with linked evidence.
 - [x] **P1-11, P1-12** closed. Aria is hidden or explained without an engine, 0-step plans cannot complete, and KB create fails fast without an object store.
 - [x] **P1-13, P1-14** closed. Releases shows the live prompt, and a released version links to its job, evidence, dataset version and applier.
 - [x] **P1-15** closed. The README journey, scope note, known limitations and backup page match actual behaviour.
+- [x] **P1-25** closed. The preview, record-only and experimental areas are off by default behind `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` and `CALIBER_FEATURE_RELEASE_CANDIDATES`; a disabled area answers 404 `feature_disabled`; `/capabilities` reports `features`; the SPA hides disabled areas; and the docs say how to enable each one. Evidence is under the P1-25 acceptance criteria.
 
 ### Extended tier
 

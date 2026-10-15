@@ -6,6 +6,7 @@ import {
   render,
   screen,
   waitFor,
+  within,
 } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -28,6 +29,7 @@ import {
   getStoredAuthSession,
   saveLocalAuthSession,
 } from "@/auth/localAuth";
+import { capabilitiesBody } from "@/test/handlers";
 import { server } from "@/test/server";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
@@ -1327,7 +1329,7 @@ describe("App shell end-to-end journeys", () => {
     const main = screen.getByRole("main");
     expect(main).toHaveAttribute("data-assistant-open", "false");
 
-    await userEvent.click(screen.getByRole("button", { name: "Ask Aria" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Ask Aria" }));
     expect(await screen.findByTestId("assistant-panel")).toBeInTheDocument();
     expect(main).toHaveAttribute("data-assistant-open", "true");
 
@@ -1368,7 +1370,7 @@ describe("App shell end-to-end journeys", () => {
     ).toBeInTheDocument();
 
     const main = screen.getByRole("main");
-    await userEvent.click(screen.getByRole("button", { name: "Ask Aria" }));
+    await userEvent.click(await screen.findByRole("button", { name: "Ask Aria" }));
     expect(await screen.findByTestId("assistant-panel")).toBeInTheDocument();
     expect(main).toHaveAttribute("data-assistant-width", "380");
 
@@ -1445,5 +1447,130 @@ describe("App shell end-to-end journeys", () => {
     expect(
       screen.getByRole("link", { name: "Go to the dashboard" }),
     ).toHaveAttribute("href", "/");
+  });
+});
+
+/**
+ * The alpha's feature-flagged areas (Aria, MCP and OpenAPI integrations, cookbooks) are off by
+ * default. Through the real router, a deployment that has not turned one on must show a
+ * "disabled" panel at its URL, hide its chrome, and never call the routes behind it.
+ */
+describe("App shell: feature-flagged areas", () => {
+  const DISABLED_ROUTES: Array<{ path: string; label: string; env: string }> = [
+    { path: "/mcp-servers", label: "MCP servers and OpenAPI integrations", env: "CALIBER_FEATURE_INTEGRATIONS" },
+    { path: "/openapi-integrations", label: "MCP servers and OpenAPI integrations", env: "CALIBER_FEATURE_INTEGRATIONS" },
+    { path: "/cookbooks", label: "Cookbooks", env: "CALIBER_FEATURE_COOKBOOKS" },
+    { path: "/aria/plans", label: "Aria assistant and plans", env: "CALIBER_FEATURE_ARIA" },
+  ];
+  const GATED_API = [
+    `${API_BASE}/assistant/*`,
+    `${API_BASE}/aria/*`,
+    `${API_BASE}/mcp-servers`,
+    `${API_BASE}/mcp-servers/*`,
+    `${API_BASE}/openapi-integrations`,
+    `${API_BASE}/openapi-integrations/*`,
+    `${API_BASE}/cookbooks`,
+    `${API_BASE}/cookbooks/*`,
+    `${API_BASE}/releases/candidates`,
+    `${API_BASE}/releases/candidates/*`,
+  ];
+
+  /** Serve capabilities with the given areas on, and record every call to a gated route. */
+  function serveCapabilities(enabled: Parameters<typeof capabilitiesBody>[0]): string[] {
+    const gatedCalls: string[] = [];
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () => HttpResponse.json(capabilitiesBody(enabled))),
+      ...GATED_API.map((pattern) =>
+        http.all(pattern, ({ request }) => {
+          gatedCalls.push(`${request.method} ${new URL(request.url).pathname}`);
+          return HttpResponse.json(
+            {
+              detail: "disabled",
+              status_code: 404,
+              reason_code: "feature_disabled",
+            },
+            { status: 404 },
+          );
+        }),
+      ),
+    );
+    return gatedCalls;
+  }
+
+  for (const route of DISABLED_ROUTES) {
+    it(`explains that ${route.path} is disabled instead of rendering it, and calls nothing`, async () => {
+      const gatedCalls = serveCapabilities({});
+      renderApp(route.path);
+
+      const panel = await screen.findByTestId("feature-disabled-panel");
+      expect(
+        within(panel).getByRole("heading", { name: "This area is disabled in this deployment" }),
+      ).toBeInTheDocument();
+      expect(panel).toHaveTextContent(route.label);
+      expect(panel).toHaveTextContent(`${route.env}=true`);
+      expect(within(panel).getByRole("link", { name: "Back to the dashboard" })).toHaveAttribute(
+        "href",
+        "/",
+      );
+      // Not a blank page, not "Page not found", and no redirect away from the URL.
+      expect(screen.queryByTestId("route-not-found")).not.toBeInTheDocument();
+      expect(screen.getByTestId("current-path")).toHaveTextContent(route.path);
+      expect(gatedCalls).toEqual([]);
+    });
+  }
+
+  it("follows the link back to the dashboard", async () => {
+    serveCapabilities({});
+    renderApp("/cookbooks");
+
+    await userEvent.click(await screen.findByRole("link", { name: "Back to the dashboard" }));
+    await waitFor(() =>
+      expect(screen.getByTestId("current-path")).toHaveTextContent(/^\/$/),
+    );
+    expect(screen.queryByTestId("feature-disabled-panel")).not.toBeInTheDocument();
+  });
+
+  it("renders the page once the area is switched on", async () => {
+    serveCapabilities({ cookbooks: true });
+    server.use(
+      http.get(`${API_BASE}/cookbooks`, () =>
+        HttpResponse.json(
+          envelope({ schema_version: 1, catalog_version: "test", recipes: [] }),
+        ),
+      ),
+    );
+    renderApp("/cookbooks");
+
+    expect(await screen.findByRole("heading", { name: "Cookbooks" })).toBeInTheDocument();
+    expect(screen.queryByTestId("feature-disabled-panel")).not.toBeInTheDocument();
+  });
+
+  it("gates each area on its own flag, not on the others", async () => {
+    serveCapabilities({ integrations: true });
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([]))),
+    );
+    renderApp("/cookbooks");
+
+    const panel = await screen.findByTestId("feature-disabled-panel");
+    expect(panel).toHaveTextContent("CALIBER_FEATURE_COOKBOOKS=true");
+  });
+
+  it("has no Aria launcher or panel when Aria is off, even if the panel was left open", async () => {
+    window.localStorage.setItem("caliber.assistant.panel.open", "true");
+    const gatedCalls = serveCapabilities({});
+    renderApp("/prompts");
+
+    expect(await screen.findByRole("heading", { name: "Prompts" })).toBeInTheDocument();
+    const main = screen.getByRole("main");
+    // Let capabilities resolve, then check nothing Aria appeared and no margin is reserved for it.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(screen.queryByRole("button", { name: "Ask Aria" })).not.toBeInTheDocument();
+    expect(screen.queryByTestId("assistant-panel")).not.toBeInTheDocument();
+    expect(main).toHaveAttribute("data-assistant-open", "false");
+    expect(gatedCalls).toEqual([]);
+    window.localStorage.removeItem("caliber.assistant.panel.open");
   });
 });

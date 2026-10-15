@@ -42,6 +42,7 @@ from caliber.eval.provider import build_provider as build_eval_provider
 from caliber.events.bus import EventBus
 from caliber.events.nats_bus import build_event_bus
 from caliber.events.webhooks import WebhookDispatcher, build_dispatcher
+from caliber.features import FeatureGateMiddleware
 from caliber.github_workspace_provider import GitHubWorkspaceSourceProvider
 from caliber.integrations.openapi.executor import (
     bind_egress_policy as bind_openapi_egress_policy,
@@ -691,7 +692,13 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         config=resolved,
         event_bus=event_bus,
     )
-    aria_plan_worker = AriaPlanWorker(session_factory=session_factory, config=resolved)
+    # Aria is off by default in the alpha (``caliber.features``); without it there is no
+    # plan to resume, so the poller is not started either.
+    aria_plan_worker = (
+        AriaPlanWorker(session_factory=session_factory, config=resolved)
+        if resolved.feature_aria_enabled
+        else None
+    )
     knowledge_build_worker = KnowledgeBaseWorker(
         session_factory=session_factory,
         config=resolved,
@@ -858,6 +865,9 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
             exempt_paths=frozenset({HEALTH_PATH, CSRF_PATH, GITHUB_WEBHOOK_PATH}),
             dev_user=resolved.dev_user,
         )
+    # Outermost, so a disabled preview area answers 404 before CSRF or rate limiting
+    # have an opinion about a request to something this deployment does not serve.
+    app.add_middleware(FeatureGateMiddleware, config=resolved)
     app.state.config = resolved
     app.state.engine = engine
     app.state.session_factory = session_factory

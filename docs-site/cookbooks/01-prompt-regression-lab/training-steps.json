@@ -31,7 +31,7 @@
     },
     {
       "where": "Prompts › intake-classifier › Playground",
-      "do": "Do a quick live sanity check. The <strong>Playground</strong> is a chat surface: pick a model, type a representative ticket, and send it to confirm the prompt actually emits one strict-JSON record. (This is a real model call, not a scored run — scored regression runs happen on the Runs stage.)",
+      "do": "<strong>Needs <code>CALIBER_FEATURE_ARIA=true</code></strong> (off by default; without it the Playground tab is hidden). Do a quick live sanity check. The <strong>Playground</strong> is a chat surface: pick a model, type a representative ticket, and send it to confirm the prompt actually emits one strict-JSON record. (This is a real model call, not a scored run — scored regression runs happen on the Runs stage.)",
       "fill": [
         ["Model", "pick your configured chat model (the gateway default)"],
         ["Message", "<code>I was charged twice after upgrading to the Team plan this morning.</code>"]
@@ -42,7 +42,7 @@
     },
     {
       "where": "Prompts › intake-classifier › Test Sets",
-      "do": "Build the golden <strong>test set</strong> this prompt is scored against. The Test Sets stage generates labeled cases for the open prompt; you then run them here and save them as a reusable dataset. Generate a batch and eyeball them against the labeled cases in the dataset file. (Hand-entering rows one-by-one is done elsewhere via Observability › Add to test set; here you generate, run, and save in one pass.)",
+      "do": "<strong>Needs <code>CALIBER_FEATURE_ARIA=true</code></strong> (off by default; without it this stage shows a notice and the Runs stage cannot run new tests, so build the test set by hand on the Test Sets page and score it on Evaluations). Build the golden <strong>test set</strong> this prompt is scored against. The Test Sets stage generates labeled cases for the open prompt; you then run them here and save them as a reusable dataset. Generate a batch and eyeball them against the labeled cases in the dataset file. (Hand-entering rows one-by-one is done elsewhere via Observability › Add to test set; here you generate, run, and save in one pass.)",
       "fill": [
         ["Number of Test Cases", "pick a count (e.g. <code>8</code>) covering billing/account/how-to plus an injection case, mirroring the labeled rows in <a href=\"../cookbooks/01-prompt-regression-lab/assets/dataset/intake-classifier.jsonl\">intake-classifier.jsonl</a>"]
       ],

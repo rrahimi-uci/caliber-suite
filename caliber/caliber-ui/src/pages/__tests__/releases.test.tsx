@@ -1,5 +1,5 @@
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
-import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
+import { act, fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { http, HttpResponse } from "msw";
 import { MemoryRouter } from "react-router-dom";
 import {
@@ -14,6 +14,7 @@ import {
 } from "vitest";
 
 import { Releases } from "@/pages/Releases";
+import { capabilitiesBody } from "@/test/handlers";
 import { server } from "@/test/server";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
@@ -371,7 +372,7 @@ describe("Releases", () => {
     renderPage();
 
     const liveBoard = await screen.findByTestId("releases-live-board");
-    const factory = screen.getByTestId("release-signoff-factory");
+    const factory = await screen.findByTestId("release-signoff-factory");
     // The release path comes first; the signoff block is last, not the top of the page.
     expect(
       liveBoard.compareDocumentPosition(factory) & Node.DOCUMENT_POSITION_FOLLOWING,
@@ -791,5 +792,74 @@ describe("Releases", () => {
       "Admin scope is required to resolve effects.",
     );
     expect(within(effect).queryByRole("button")).not.toBeInTheDocument();
+  });
+});
+
+/**
+ * Release-candidate signoff is record-only and sits behind the ``release_candidates`` feature
+ * flag (off by default). The release board, the timeline and the recovery queues do not: they are
+ * the release path the alpha supports.
+ */
+describe("Releases with the release_candidates feature off (the alpha default)", () => {
+  let candidateCalls: string[];
+
+  beforeEach(() => {
+    candidateCalls = [];
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () => HttpResponse.json(capabilitiesBody({}))),
+      http.get(`${API_BASE}/releases/live`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/releases/timeline`, () => HttpResponse.json(envelope([]))),
+      http.all(`${API_BASE}/releases/candidates*`, ({ request }) => {
+        candidateCalls.push(`${request.method} ${new URL(request.url).pathname}`);
+        return HttpResponse.json(
+          { detail: "disabled", status_code: 404, reason_code: "feature_disabled" },
+          { status: 404 },
+        );
+      }),
+    );
+  });
+
+  it("keeps the live board and timeline, drops the signoff section, and never asks for candidates", async () => {
+    renderPage();
+
+    expect(await screen.findByTestId("releases-live-board")).toBeInTheDocument();
+    expect(screen.getByTestId("releases-timeline")).toBeInTheDocument();
+    // Settle past the capabilities answer before asserting an absence.
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(screen.queryByTestId("release-signoff-factory")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("release-signoff-record-only")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "New candidate" })).not.toBeInTheDocument();
+    expect(candidateCalls).toEqual([]);
+  });
+
+  it("shows the signoff section once the flag is on", async () => {
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () =>
+        HttpResponse.json(capabilitiesBody({ release_candidates: true })),
+      ),
+      http.get(`${API_BASE}/releases/candidates`, () => HttpResponse.json(envelope([]))),
+    );
+    renderPage();
+
+    expect(await screen.findByTestId("release-signoff-factory")).toBeInTheDocument();
+    expect(screen.getByTestId("releases-live-board")).toBeInTheDocument();
+  });
+
+  it("shows no signoff section when capabilities cannot be loaded", async () => {
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () =>
+        HttpResponse.json({ detail: "boom", status_code: 500 }, { status: 500 }),
+      ),
+    );
+    renderPage();
+
+    expect(await screen.findByTestId("releases-live-board")).toBeInTheDocument();
+    await act(async () => {
+      await new Promise((resolve) => setTimeout(resolve, 50));
+    });
+    expect(screen.queryByTestId("release-signoff-factory")).not.toBeInTheDocument();
+    expect(candidateCalls).toEqual([]);
   });
 });

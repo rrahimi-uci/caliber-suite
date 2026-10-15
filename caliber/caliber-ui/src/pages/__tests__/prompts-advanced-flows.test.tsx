@@ -1,3 +1,4 @@
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
@@ -58,13 +59,21 @@ const billingPrompt: PromptInfo = {
   source: "caliber",
 };
 
+// The test-case and calibration panels read the alpha feature flags (Aria drives test-case
+// generation and assistant-guided calibration), which come from ``GET /capabilities``; the
+// default test handler reports every flag on.
 function renderWithRouter(ui: JSX.Element): void {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
   render(
-    <MemoryRouter
-      future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-    >
-      {ui}
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter
+        future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
+      >
+        {ui}
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
 

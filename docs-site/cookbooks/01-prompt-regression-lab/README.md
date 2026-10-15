@@ -1,5 +1,7 @@
 # Trustworthy Intake Classifier
 
+> **Prerequisite flags:** `CALIBER_FEATURE_COOKBOOKS=true` opens the Cookbooks gallery and `CALIBER_FEATURE_ARIA=true` for steps 3, 4, 6 and 8: the prompt Playground, **Generate Test Cases**, **Run Tests & Judge** and **Run tests** call the Aria assistant. Both are off by default; without Aria, build the test set by hand on **Test Sets** and score it on **Evaluations** (*What to score* = Prompt version).
+
 ## Demo objective
 
 A prompt that classifies inbound text into a stable JSON shape:

@@ -9,7 +9,7 @@ stability: beta
 prerequisites:
   - Layered architecture overview
   - MCP architecture
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - openapi
@@ -20,6 +20,13 @@ tags:
 ---
 
 # OpenAPI Integrations Architecture
+
+> **Disabled by default.** OpenAPI integrations are a preview area and are off by default; enable with
+> `CALIBER_FEATURE_INTEGRATIONS=true` and restart CALIBER (the flag also covers MCP servers). While it is off,
+> the `/openapi-integrations*` routes answer 404 (`reason_code: feature_disabled`), the OpenAPI Integrations
+> page is hidden, and `GET /capabilities` reports `openapi_integrations.enabled` as false. The routes stay
+> registered, so the OpenAPI document and the SDK describe them in every deployment. See
+> [Feature flags](../start/alpha-scope.md#feature-flags).
 
 ## At a glance
 

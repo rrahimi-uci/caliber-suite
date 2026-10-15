@@ -7,7 +7,7 @@ product_area: operations
 stability: ga
 prerequisites:
   - A CALIBER deployment plan or checkout
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - configuration
@@ -35,6 +35,7 @@ and event backend.
 | Object store (connection only) | `CALIBER_OBJECT_STORE_ENDPOINT_URL`, `_REGION`, `_ACCESS_KEY_SOURCE`, `_SECRET_KEY_SOURCE`, `_FORCE_PATH_STYLE` | [Object store](../07-object-store/architecture.md) |
 | Workflow file storage | `CALIBER_WORKFLOW_STORAGE_*` | [Storage and state](../operate/storage-and-state.md) |
 | Event backend | `CALIBER_WORKFLOW_RUN_EVENT_BACKEND` (`in_process` by default; `database`, `nats` or `redis`; the Compose stack sets `nats` and `./start.sh` rejects `redis`) | [Workflows architecture](../06-workflows/architecture.md) |
+| Preview areas (off by default) | `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS`, `CALIBER_FEATURE_RELEASE_CANDIDATES` | [Feature flags](../start/alpha-scope.md#feature-flags) |
 
 ## 1. Configure the core runtime first
 
@@ -63,6 +64,13 @@ is refused at startup unless `CALIBER_ALLOW_SIMULATED_PROVIDERS=true`, and so is
 
 Use [Config and environment reference](../reference/config-and-environment.md)
 when you need the representative variable names in one place.
+
+Aria, MCP servers, OpenAPI integrations, cookbooks, and release-candidate signoff with Workspace releases are
+**off by default**. Provider settings alone do not bring them back: Aria needs `CALIBER_FEATURE_ARIA=true`
+before an engine matters, and an MCP server needs `CALIBER_FEATURE_INTEGRATIONS=true`. The four variables are
+read at startup, so restart CALIBER after changing one. See
+[Feature flags](../start/alpha-scope.md#feature-flags) and the
+[Config and environment reference](../reference/config-and-environment.md#8-feature-flags).
 
 ## 3. Treat secret values as sources, not literals
 

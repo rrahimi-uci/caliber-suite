@@ -15,6 +15,19 @@ First alpha. What it does, what it does not and the known limitations are in the
 
 ### Added
 
+- **The preview, record-only and experimental areas are off by default, behind four feature flags.** Aria and plans
+  (`CALIBER_FEATURE_ARIA`), MCP servers and OpenAPI integrations (`CALIBER_FEATURE_INTEGRATIONS`), cookbooks
+  (`CALIBER_FEATURE_COOKBOOKS`), and release-candidate signoff with Workspace releases
+  (`CALIBER_FEATURE_RELEASE_CANDIDATES`) used to be fully reachable on a default install, marked only by labels.
+  Each is now a `feature_<id>_enabled` setting that defaults to false. While one is off, every route of its area
+  answers 404 with `reason_code: feature_disabled` and the variable to set, the web app hides its navigation entries
+  and shows a "disabled in this deployment" panel on a direct URL, and a workflow MCP node is reported as unavailable.
+  `GET /capabilities` returns `features` (`enabled`, `env_var`, `label`, `stability` for each of the four ids), and
+  `caliber-sdk` decodes it as `Capabilities.features`. The Docker stack passes the four variables through from the
+  environment, `.env.example` documents them, and the live board, the release timeline and release operations stay on.
+  Existing deployments that used these areas must set the variable and restart. The install, scope, API, SDK, CLI,
+  configuration and cookbook docs say how to enable each one and which cookbooks need which flag.
+
 - **Knowledge-base options tell the truth about embeddings, and the prerequisites are written down.** On an
   install without `sentence-transformers` and `langchain-huggingface` every embedding model used to be listed as
   available, creation returned 201, and the build failed later. The options now mark each model unavailable and

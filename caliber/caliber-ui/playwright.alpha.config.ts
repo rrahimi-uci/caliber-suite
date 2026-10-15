@@ -17,6 +17,13 @@ import { defineConfig, devices } from "@playwright/test";
  *   - build-workflows.spec.ts and workflow-studio.spec.ts (alpha gap P1-22): the skill
  *     and tool builders, and the workflow studio from template to run, approval, and
  *     the wait-for-event and wait-until resumes, with the run queue on.
+ *   - feature-flags.spec.ts: the four feature-flagged areas (Aria, MCP and OpenAPI
+ *     integrations, cookbooks, release-candidate signoff) are off, hidden and refused.
+ *
+ * The server starts with NO `CALIBER_FEATURE_*` variable: the whole point of this gate is that
+ * the clean release (every flagged area off) carries the journey. The command unsets them so a
+ * variable exported in a developer's shell cannot turn an area on and make the gate lie. The
+ * full suite (`playwright.config.ts`) and the cookbook journeys turn the flags they need on.
  *
  * Run with `npm run test:e2e:alpha`. It gets its own port and state directory, so it
  * never reuses (or disturbs) the server a developer has running for `npm run test:e2e`.
@@ -32,6 +39,7 @@ export default defineConfig({
     "tool-journey.spec.ts",
     "build-workflows.spec.ts",
     "workflow-studio.spec.ts",
+    "feature-flags.spec.ts",
   ],
   // The object store needs MinIO, which this harness does not start; the stack smoke covers it.
   grepInvert: /object store/,
@@ -49,7 +57,7 @@ export default defineConfig({
     viewport: { width: 1440, height: 900 },
   },
   webServer: {
-    command: `MLFLOW_PORT=${PORT} MLFLOW_WORKERS=1 CALIBER_E2E_ENV_FILE=/dev/null CALIBER_DATABASE_URL= CALIBER_E2E_TMP_ROOT=$PWD/../.tmp/alpha-journey CALIBER_SKIP_KNOWLEDGE_WARMUP=1 bash ../scripts/run-playwright-server.sh`,
+    command: `unset CALIBER_FEATURE_ARIA CALIBER_FEATURE_INTEGRATIONS CALIBER_FEATURE_COOKBOOKS CALIBER_FEATURE_RELEASE_CANDIDATES; MLFLOW_PORT=${PORT} MLFLOW_WORKERS=1 CALIBER_E2E_ENV_FILE=/dev/null CALIBER_DATABASE_URL= CALIBER_E2E_TMP_ROOT=$PWD/../.tmp/alpha-journey CALIBER_SKIP_KNOWLEDGE_WARMUP=1 bash ../scripts/run-playwright-server.sh`,
     url: `http://127.0.0.1:${PORT}/ajax-api/2.0/mlflow/caliber/health`,
     timeout: 360_000,
     reuseExistingServer: false,

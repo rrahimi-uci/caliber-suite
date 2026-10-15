@@ -8,7 +8,7 @@ product_area: calibration
 stability: ga
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - refinement
@@ -77,6 +77,6 @@ The loop runs over the artifacts the following sections document:
 - **Data & knowledge** — what those artifacts run against: the [Object store](07-object-store/architecture.md) and [Knowledge bases](08-knowledge-bases/architecture.md).
 - **Quality & trust** — how candidate evidence is produced: [Test sets](11-test-sets/architecture.md) provide examples, [Evaluation](14-evaluation/architecture.md) scores supported targets, and [Calibration](15-calibration/architecture.md) documents prompt/skill optimization plus the separate workflow and tool loops.
 - **Operations** — how it's watched and governed once live: [Observability](09-observability/architecture.md), [Gateways](10-gateways/architecture.md), and the [QA plan](13-qa-plan/architecture.md).
-- **Aria** — the [embedded copilot](12-assistant/architecture.md) that can drive parts of this loop under permission.
+- **Aria** — the [embedded copilot](12-assistant/architecture.md) that can drive parts of this loop under permission. It is a preview area, off by default; enable with `CALIBER_FEATURE_ARIA`.
 
 > **New here?** Start with the [Platform](01-caliber/architecture.md) overview for the standalone-service topology and runtime, then this page for *what* the canonical refinement path does, then dip into whichever artifact you're working with.

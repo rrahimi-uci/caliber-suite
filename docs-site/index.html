@@ -6,7 +6,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
   <meta name="description"
-    content="CALIBER is an MLflow-integrated control plane for trusted agentic workflows. Design, verify, calibrate, evaluate, publish, and observe prompts, tools, skills, workflows, and knowledge bases (plus preview MCP servers, OpenAPI integrations and the Aria assistant) from one browser platform, deployed as a standalone service. This is an alpha: the default language model and evaluator are simulated.">
+    content="CALIBER is an MLflow-integrated control plane for trusted agentic workflows. Design, verify, calibrate, evaluate, publish, and observe prompts, tools, skills, workflows, and knowledge bases (plus MCP servers, OpenAPI integrations, cookbooks and the Aria assistant, which are preview areas that are off by default) from one browser platform, deployed as a standalone service. This is an alpha: the default language model and evaluator are simulated.">
   <link rel="icon" type="image/png" href="caliber-icon.png">
   <script>
     // Resolve theme before first paint to avoid a flash of the wrong mode.
@@ -108,7 +108,7 @@
             </div>
             <div class="hero-highlight">
               <strong>Govern &amp; observe</strong>
-              <span>Runtime approvals, RBAC, durable prompt-release recovery, MLflow tracing, and a preview Aria assistant that needs a configured engine.</span>
+              <span>Runtime approvals, RBAC, durable prompt-release recovery, MLflow tracing, and a preview Aria assistant that is off by default (enable with CALIBER_FEATURE_ARIA) and needs a configured engine.</span>
             </div>
           </div>
         </section>
@@ -310,8 +310,8 @@
                 </a>
                 <a class="ref-card ref-row" href="m-46-use-aria-assistant.html">
                   <span class="ref-row-kicker">Use CALIBER</span>
-                  <span class="ref-row-title">Aria assistant (preview)</span>
-                  <span class="ref-row-summary">The supervised assistant path for sessions, tool use, approvals, and review boundaries.</span>
+                  <span class="ref-row-title">Aria assistant (preview, off by default)</span>
+                  <span class="ref-row-summary">The supervised assistant path for sessions, tool use, approvals, and review boundaries. Enable with CALIBER_FEATURE_ARIA.</span>
                 </a>
                 <a class="ref-card ref-row" href="m-33-trust-and-governance.html">
                   <span class="ref-row-kicker">Use CALIBER</span>
@@ -399,8 +399,8 @@
                 </a>
                 <a class="ref-card ref-row" href="m-16-cookbooks.html">
                   <span class="ref-row-kicker">Examples</span>
-                  <span class="ref-row-title">Cookbook gallery (preview)</span>
-                  <span class="ref-row-summary">The platform cookbook catalog with every scenario, readiness requirement, and installable recipe.</span>
+                  <span class="ref-row-title">Cookbook gallery (preview, off by default)</span>
+                  <span class="ref-row-summary">The platform cookbook catalog with every scenario, readiness requirement, and installable recipe. Enable with CALIBER_FEATURE_COOKBOOKS.</span>
                 </a>
               </div>
             </section>

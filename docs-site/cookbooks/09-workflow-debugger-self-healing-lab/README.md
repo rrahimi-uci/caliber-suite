@@ -1,5 +1,7 @@
 # Self-Healing Workflows
 
+> **Prerequisite flags:** `CALIBER_FEATURE_COOKBOOKS=true` opens the Cookbooks gallery (a preview area, off by default). This lab needs no other flag; `CALIBER_FEATURE_ARIA=true` is needed only if you ask Aria to narrate the diagnosis.
+
 ## Demo objective
 
 A repeatable operator playbook for debugging workflow failures and applying

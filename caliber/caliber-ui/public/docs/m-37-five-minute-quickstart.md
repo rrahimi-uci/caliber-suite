@@ -14,7 +14,7 @@ you decide which deeper guide you need.
 | Run CALIBER locally | `make setup`, `make start` | [Local bring-up](m-32-local-bring-up.md) |
 | Verify a shared deployment | open the UI and check readiness | [Choose your CALIBER path](m-30-choose-your-path.md) |
 | Make the first Python call | [SDK guide](m-20-sdk-guide.md) | [Auth and project scoping](m-31-auth-and-project-scoping.md) |
-| Tour the product before integrating | [Guided walkthrough](walkthrough.html) | [Trust and governance](m-33-trust-and-governance.md) |
+| Tour the product before integrating | [Guided walkthrough](walkthrough.html) (its Aria, MCP and cookbook steps need those areas enabled; see [Feature flags](m-61-alpha-scope.md#feature-flags)) | [Trust and governance](m-33-trust-and-governance.md) |
 
 ## 1. If you have a local checkout
 
@@ -38,6 +38,13 @@ containers (MinIO, PostgreSQL, MLflow, the MLflow AI Gateway and CALIBER), and t
 
 Use [Local bring-up](m-32-local-bring-up.md) if you need the operator path
 instead of the shortest happy-path summary.
+
+The product shell you reach this way leaves the preview areas **off**: Aria and Plans, MCP servers, OpenAPI
+integrations, cookbooks, and release-candidate signoff are off by default. The shortest success is the core
+journey (prompt, test set, calibration, review, Apply), which needs none of them. To try one, enable it with
+`CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` or
+`CALIBER_FEATURE_RELEASE_CANDIDATES` set to `true`, as described in
+[Enabling preview areas](m-60-alpha-install.md#enabling-preview-areas).
 
 ## 2. If CALIBER is already running somewhere
 

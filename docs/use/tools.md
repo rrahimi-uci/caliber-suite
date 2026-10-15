@@ -8,7 +8,7 @@ product_area: tools
 stability: ga
 prerequisites:
   - A CALIBER deployment with tool access
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - tools
@@ -97,7 +97,7 @@ they may touch real external systems.
 | --- | --- |
 | package a new callable | [Tools architecture](../03-tools/architecture.md) |
 | use a tool in a flow | [Workflows](../use/workflows.md) |
-| expose the tool to an agentic surface | [Aria assistant](../use/aria-assistant.md) |
+| expose the tool to an agentic surface (Aria is off by default; enable with `CALIBER_FEATURE_ARIA`) | [Aria assistant](../use/aria-assistant.md) |
 | audit why a tool call was blocked or paused | [Trust and governance](../use/trust-and-governance.md) |
 
 ## 3. Common failure modes

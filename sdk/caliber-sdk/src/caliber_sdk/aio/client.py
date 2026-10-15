@@ -215,6 +215,7 @@ class AsyncCapabilitiesAPI(_AsyncResource):
             capabilities.extensibility = CapabilitiesAPI._decode_extensibility(
                 payload.get("extensibility")
             )
+            capabilities.features = CapabilitiesAPI._decode_features(payload.get("features"))
         return capabilities
 
 

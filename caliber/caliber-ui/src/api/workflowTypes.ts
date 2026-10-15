@@ -907,7 +907,30 @@ export interface CookbookInstallResult {
   activation_requires_review: boolean;
 }
 
+/**
+ * Ids of the alpha feature flags. Mirrors ``FEATURES`` in ``caliber/features.py``: four
+ * areas the alpha does not stand behind, each off by default and refused by the API
+ * (404 ``feature_disabled``) until the deployment turns it on.
+ */
+export type FeatureId = "aria" | "integrations" | "cookbooks" | "release_candidates";
+
+export type FeatureStability = "preview" | "record_only";
+
+/** One gated area, as ``GET /capabilities`` reports it. */
+export interface FeatureInfo {
+  enabled: boolean;
+  /** The server environment variable that turns the area on. */
+  env_var: string;
+  label: string;
+  stability: FeatureStability;
+}
+
 export interface PlatformCapabilities {
+  /**
+   * Every gated area, on or off. Optional on purpose: a server (or a test double) that does
+   * not report it is read as "every area is off", never as "every area is on".
+   */
+  features?: Partial<Record<FeatureId, FeatureInfo>>;
   workflow_runs: WorkflowRunCapabilities;
   sync_workflow_version_run: boolean;
   // Mirrors CAPABILITY_FIELDS in caliber/artifact_capabilities.py. `rollback` is

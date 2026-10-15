@@ -1,12 +1,23 @@
-import { render, screen, waitFor } from "@testing-library/react";
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
+import { act, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { MemoryRouter } from "react-router-dom";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { ApiError, caliberApi } from "@/api/caliberApi";
 import type { DashboardSummary } from "@/api/types";
 import { DashboardSummaryProvider } from "@/components/DashboardSummaryContext";
 import { Dashboard } from "@/pages/Overview";
+import { capabilityFeatures } from "@/test/handlers";
+
+/** Answer ``GET /capabilities`` with Aria on or off; the dashboard reads it for its SLO tiles. */
+function mockCapabilities(aria: boolean): ReturnType<typeof vi.spyOn> {
+  return vi.spyOn(caliberApi, "getCapabilities").mockResolvedValue({
+    features: capabilityFeatures({ aria }),
+    workflow_runs: {},
+    sync_workflow_version_run: true,
+  } as never);
+}
 
 function summary(overrides: Partial<DashboardSummary> = {}): DashboardSummary {
   return {
@@ -54,14 +65,24 @@ function renderDashboard({
   error?: ApiError | null;
   refresh?: () => void;
 } = {}): ReturnType<typeof render> {
+  const queryClient = new QueryClient({
+    defaultOptions: { queries: { retry: false, gcTime: 0 } },
+  });
   return render(
-    <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
-      <DashboardSummaryProvider value={{ data, loading, error, refresh }}>
-        <Dashboard />
-      </DashboardSummaryProvider>
-    </MemoryRouter>,
+    <QueryClientProvider client={queryClient}>
+      <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+        <DashboardSummaryProvider value={{ data, loading, error, refresh }}>
+          <Dashboard />
+        </DashboardSummaryProvider>
+      </MemoryRouter>
+    </QueryClientProvider>,
   );
 }
+
+beforeEach(() => {
+  // Aria on, as before the feature flags: the reliability tiles below are Aria's SLOs.
+  mockCapabilities(true);
+});
 
 afterEach(() => {
   vi.restoreAllMocks();
@@ -107,7 +128,7 @@ describe("Dashboard", () => {
 
     expect(await screen.findByText("Failed to load dashboard")).toBeInTheDocument();
     expect(screen.getByText("dashboard unavailable")).toBeInTheDocument();
-    expect(screen.getAllByText("Awaiting signal").length).toBeGreaterThan(0);
+    expect((await screen.findAllByText("Awaiting signal")).length).toBeGreaterThan(0);
     await user.click(screen.getByRole("button", { name: "Retry" }));
     expect(refresh).toHaveBeenCalledTimes(1);
   });
@@ -394,5 +415,47 @@ describe("Dashboard", () => {
     const card = (await screen.findByText("Fleet coverage")).parentElement!;
     expect(card).toHaveTextContent("—");
     expect(card).not.toHaveTextContent("0%");
+  });
+  describe("when the Aria feature is off (the alpha default)", () => {
+    /** Wait until capabilities have been fetched and the dashboard has re-rendered with them. */
+    async function settled(spy: ReturnType<typeof vi.spyOn>): Promise<void> {
+      await waitFor(() => expect(spy).toHaveBeenCalled());
+      await spy.mock.results[0]?.value;
+      await act(async () => {});
+    }
+
+    it("hides the assistant reliability tiles, which would read 'No assistant runs yet' forever", async () => {
+      vi.restoreAllMocks();
+      const capabilities = mockCapabilities(false);
+      renderDashboard();
+
+      await settled(capabilities);
+      expect(await screen.findByText("Fleet coverage")).toBeInTheDocument();
+      expect(screen.queryByTestId("reliability-execution-success")).not.toBeInTheDocument();
+      expect(screen.queryByTestId("reliability-publish-success")).not.toBeInTheDocument();
+      expect(screen.queryByText("No assistant runs yet")).not.toBeInTheDocument();
+    });
+
+    it("shows no reliability tiles while capabilities are still unknown", async () => {
+      vi.restoreAllMocks();
+      vi.spyOn(caliberApi, "getCapabilities").mockReturnValue(new Promise(() => {}));
+      renderDashboard();
+
+      expect(await screen.findByText("Fleet coverage")).toBeInTheDocument();
+      expect(screen.queryByTestId("reliability-execution-success")).not.toBeInTheDocument();
+    });
+
+    it("shows no reliability tiles when capabilities cannot be loaded", async () => {
+      vi.restoreAllMocks();
+      const capabilities = vi
+        .spyOn(caliberApi, "getCapabilities")
+        .mockRejectedValue(new Error("capabilities down"));
+      renderDashboard();
+
+      await waitFor(() => expect(capabilities).toHaveBeenCalled());
+      await act(async () => {});
+      expect(await screen.findByText("Fleet coverage")).toBeInTheDocument();
+      expect(screen.queryByTestId("reliability-execution-success")).not.toBeInTheDocument();
+    });
   });
 });

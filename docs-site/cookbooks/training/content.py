@@ -42,16 +42,20 @@ INTRO = {
             a <strong>UI mockup</strong>, an <strong>assets table</strong>, and <strong>quality gates</strong>.</li>
           <li>Every <strong>green link</strong> opens the copy-paste asset file in that cookbook's
             <code>assets/</code> folder — paste its contents into the matching field.</li>
+          <li><strong>Preview areas are off by default.</strong> Each cookbook's notes name the feature flags it needs
+            (<code>CALIBER_FEATURE_COOKBOOKS</code> for the gallery; <code>CALIBER_FEATURE_ARIA</code>,
+            <code>CALIBER_FEATURE_INTEGRATIONS</code> or <code>CALIBER_FEATURE_RELEASE_CANDIDATES</code> where a lab uses that area).
+            Set them on the server and restart.</li>
         </ul>
       </div>
       <div class="callout">
-        <strong>The UI-first promise.</strong> Open <strong>Cookbooks</strong> to install any of the 16 recipes as a paused workflow and editable draft. Review readiness before activation.
+        <strong>The UI-first promise.</strong> With <code>CALIBER_FEATURE_COOKBOOKS=true</code> set on the server (off by default), open <strong>Cookbooks</strong> to install any of the 16 recipes as a paused workflow and editable draft. Review readiness before activation.
         <ul>
           <li><strong>Datasets</strong> fill from real runs: <code>Observability → open a trace → Add to test set</code>.</li>
           <li><strong>Deterministic logic</strong> uses Data Transform for decisions, JSON Schema, mapping, confidence, and fixtures; Python Code remains a bounded extension.</li>
           <li><strong>The Prompt Playground is a live chat</strong> (it calls the model); prompt regression is scored on the prompt's <code>Runs</code> stage, while <code>Evaluations</code> scores a Test Set with deterministic graders.</li>
           <li><strong>Judges</strong> are for LLM-graded criteria; deterministic checks are <strong>scorers</strong> or assertions.</li>
-          <li><strong>Aria</strong> (12–15) plans from one sentence in <code>Plans</code>; you create each artifact in its own page.</li>
+          <li><strong>Aria</strong> (12–15) plans from one sentence in <code>Plans</code> (needs <code>CALIBER_FEATURE_ARIA=true</code>, off by default); you create each artifact in its own page.</li>
         </ul>
       </div>
     </div>
@@ -185,6 +189,7 @@ COOKBOOKS = [
             "caption": "Prompts workspace → Author stage",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_ARIA=true</code> is needed for the Playground, <strong>Generate Test Cases</strong>, <strong>Run Tests &amp; Judge</strong> and <strong>Run tests</strong> (they call the Aria assistant); both are off by default. Without Aria, build the test set by hand and score it on Evaluations.",
             "The Playground is a live chat — it <strong>calls</strong> the model; scored regression runs are on the prompt's Runs stage (not Evaluations, which scores datasets).",
             "Author rows in the dataset editor at <code>/eval-datasets/:id → + Add example</code>, or capture them from <code>Observability → Add to test set</code>.",
             "Calibration enqueues a background optimizer job; show the job id rather than waiting.",
@@ -288,6 +293,7 @@ COOKBOOKS = [
             "caption": "Skills workspace → Trigger Tests (deterministic)",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
             "Selection scoring is <strong>deterministic</strong> (no LLM) — this is the precision check; there is no LLM judge here.",
             "Skill names are kebab-case and must not start with <code>claude</code>/<code>anthropic</code>.",
             "Calibrate enqueues a background job; Scenario Sets is scaffolded — drive cases through Trigger Tests + Runs.",
@@ -401,6 +407,7 @@ COOKBOOKS = [
             "caption": "Workflow editor → Run Monitor (approval gate)",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
             "A registered tool needs an importable <code>module_path</code>+<code>callable_name</code>; the shipped <code>demo_tools</code> callables let you do this from the UI with no code.",
             "Field is <code>side_effect_level</code> (read/write/external_action); read tools need <code>allow_in_preview: true</code> to run live in the sandbox.",
             "The decision table is structured workflow source: versioned, inspectable, and executable without custom Python.",
@@ -500,6 +507,7 @@ COOKBOOKS = [
             "caption": "MCP Servers → Playground (policy refusal)",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_INTEGRATIONS=true</code> opens the MCP Servers page; both are off by default.",
             "On the <strong>direct invoke</strong> path only <code>allowed:false</code> blocks; <code>requires_approval</code> gates at <strong>workflow time</strong> (a human_approval node), not on direct invoke.",
             "Assertion types are <code>no_error</code>, <code>output_contains</code>, <code>equals</code>.",
             "Keep write-capable tools blocked by default until the read path is stable.",
@@ -614,6 +622,7 @@ COOKBOOKS = [
             "caption": "Object Store → Extract (Office docs)",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
             "Extract supports <code>.docx/.pptx/.xlsx</code> — not legacy <code>.doc/.ppt/.xls</code>. The readable “unsupported” error comes from the Object Store <strong>extract endpoint</strong>.",
             "Schema validation is deterministic (Data Transform node) — not an LLM judge.",
             "Binary .docx/.xlsx can't be authored as text; <code>assets/dataset/sources/</code> ships stand-ins + conversion notes.",
@@ -741,6 +750,7 @@ COOKBOOKS = [
             "caption": "Knowledge Base → Explore → Query (mode comparison)",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
             "Explore sub-views are <code>Query</code> / <code>Chunks</code> / <code>Graph</code>. AGE retrieval needs a manual <strong>Sync to AGE</strong> first.",
             "KB Calibrate runs inline and returns the four metrics immediately.",
             "<code>CitationFaithfulness</code> is a real LLM judge; the abstain/clarify behavior is enforced by the prompt contract.",
@@ -867,6 +877,7 @@ COOKBOOKS = [
             "caption": "Support copilot → Run Monitor (escalate_bug gate)",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_INTEGRATIONS=true</code> is needed for the GitHub MCP <code>issue_write</code> step; both are off by default.",
             "This is the integration showcase — <strong>reuse</strong> 01/02/03/05/06 rather than rebuilding.",
             "The external write is gated by the <code>human_approval</code> node (workflow-time), not by the prompt.",
             "Citations are enforced by the reply prompt contract and verified by the judge.",
@@ -976,6 +987,7 @@ COOKBOOKS = [
             "caption": "Incident copilot → Run Monitor (evidence + gated rollback)",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); <code>CALIBER_FEATURE_INTEGRATIONS=true</code> only for the optional MCP evidence nodes.",
             "Live connector nodes are configuration starters; fixture success is not evidence that a deployment endpoint is reachable.",
             "Rollback + external writes always require approval; read-only evidence gathering does not.",
             "The fact/hypothesis separation is enforced by the prompt's output contract.",
@@ -1075,6 +1087,7 @@ COOKBOOKS = [
             "caption": "Run Monitor → Debugger + retry lineage",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
             "Patching is <strong>manual</strong> — edit the manifest in the editor and save a new version; no Run Monitor control patches a failed run (a patch engine exists behind <code>propose-patch</code>, the CALIBER Patches tab and Aria's chat <code>propose_workflow_patch</code> tool, but no page calls it).",
             "Aria can <em>narrate</em> a diagnosis but cannot debug/patch a workflow as a capability.",
             "The most reliable demo failure is the <code>hitl_review</code> reject → retry → approve → resume loop.",
@@ -1200,6 +1213,7 @@ COOKBOOKS = [
             "caption": "Observability → traces filtered to Error",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
             "Observability <strong>Status</strong> options are All statuses / OK / Error / In progress; selecting a trace puts its id in the URL (<code>?trace=…</code>) — copy ids from there for the queue.",
             "Dataset rows can be authored in the editor at <code>/eval-datasets/:id → + Add example</code>, or captured via <strong>Add to test set → Add example</strong>.",
             "Review answers write back as MLflow <strong>assessments / expectations</strong> on the trace, so the trace becomes self-documenting.",
@@ -1306,6 +1320,7 @@ COOKBOOKS = [
             "caption": "Evaluations → Compare + review handoff",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
             "Human Alignment imports completed pass/fail queue labels and computes the metrics in-product.",
             "Populate datasets either in the editor at <code>/eval-datasets/:id → + Add example</code> or via Observability <code>Add to test set</code>.",
             "Imported rows retain their review provenance; excluded or incomplete labels are reported rather than silently coerced.",
@@ -1405,6 +1420,7 @@ COOKBOOKS = [
             "caption": "Releases → Release signoff factory (Preview, record-only)",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_RELEASE_CANDIDATES=true</code> shows the Release signoff factory on Releases; both are off by default.",
             "The server recomputes score and blockers from the stored criteria; the browser's aggregate is never trusted.",
             "The report job is durable Allure-compatible JSON; CI still owns the separate rendered HTML test report. Releases is Preview, record-only: signing off deploys or rolls back nothing.",
             "Map every blocker back to its owning cookbook and reopen that gate.",
@@ -1506,6 +1522,7 @@ COOKBOOKS = [
             "caption": "Plans → plan detail (decomposed from intent)",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_ARIA=true</code> opens Plans; both are off by default.",
             "Aria plans <strong>and</strong> executes: the planner leaves unknown fields empty, so each step pauses on an <strong>Aria needs information</strong> form (see ARIA-AUTONOMY.md).",
             "The default planner keys off domain words — keep “judge” and “eval dataset” literal in the intent.",
             "<code>eval_dataset.create</code> makes an empty test set; add rows from Observability afterward.",
@@ -1591,6 +1608,7 @@ COOKBOOKS = [
             "caption": "Review Queues → new queue (label schema)",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_ARIA=true</code> opens Plans; both are off by default.",
             "“review queue” triggers both <code>review_queue.create</code> and <code>review_queue.add_items</code>; click <strong>Skip step</strong> on the second if you have no traces.",
             "Question item fields: <code>key, title, type, options, required, target (feedback|expectation)</code>.",
             "The planner leaves the queue's name and questions empty; the plan's input form collects them (see ARIA-AUTONOMY.md).",
@@ -1691,6 +1709,7 @@ COOKBOOKS = [
             "caption": "Plans → flagship multi-capability plan",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_ARIA=true</code> opens Plans; both are off by default.",
             "The flagship “one sentence → whole governance setup” demo. The planner links <code>name</code> between steps, so all three artifacts are created under the judge's name.",
             "All three domain needles must appear in the intent for the default planner.",
             "Hand the judge + test set to cookbook 10 to actually score candidates.",
@@ -1792,6 +1811,7 @@ COOKBOOKS = [
             "caption": "Plans → running plan with an async parked step",
         },
         "notes": [
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_ARIA=true</code> opens Plans; both are off by default.",
             "This is a <strong>remediation</strong> loop — it operates on EXISTING ids (traces, workflow, agent). Build the subject workflow in cookbook 07 first.",
             "<code>workflow.calibrate</code> is Aria's async capability: the plan parks (<code>waiting_job</code>) and the plan worker resumes it (<code>POST …/poll</code> also works over the API).",
             "As elsewhere in the Aria track, the planner leaves the inputs empty and the plan's input forms collect them. The default evaluator and LLM are fake, so a default install's calibration scores are canned.",

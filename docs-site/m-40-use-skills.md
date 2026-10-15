@@ -12,8 +12,8 @@ selection behavior, and understand how they shape assistant or workflow output.
 | --- | --- | --- |
 | package a reusable instruction asset | define the skill surface and tests | [Skills architecture](m-04-skills.md) |
 | verify the right skill is selected | run trigger/selection coverage | [Skills architecture](m-04-skills.md) |
-| use a skill with Aria | inspect the assistant flow | [Aria assistant](m-46-use-aria-assistant.md) |
-| use a skill in examples | follow a cookbook or SDK recipe | [SDK recipes](m-25-sdk-cookbooks.md) |
+| use a skill with Aria | inspect the assistant flow (Aria is off by default; enable with `CALIBER_FEATURE_ARIA`) | [Aria assistant](m-46-use-aria-assistant.md) |
+| use a skill in examples | follow a cookbook or SDK recipe (the cookbooks are off by default; enable with `CALIBER_FEATURE_COOKBOOKS`) | [SDK recipes](m-25-sdk-cookbooks.md) |
 
 ## The skill journey, step by step
 
@@ -60,7 +60,7 @@ guidance separate from the rest of the workflow or assistant logic.
 | --- | --- |
 | author or update a skill | [Skills architecture](m-04-skills.md) |
 | verify trigger behavior | [Skills architecture](m-04-skills.md) |
-| understand how the assistant chooses or applies a skill | [Aria assistant](m-46-use-aria-assistant.md) |
+| understand how the assistant chooses or applies a skill (Aria is off by default) | [Aria assistant](m-46-use-aria-assistant.md) |
 | package skill logic for developer workflows | [SDK recipes](m-25-sdk-cookbooks.md) |
 
 ## 3. Common failure modes

@@ -35,7 +35,7 @@ prompt alias rotation. Audited rollback exists only where an asset records live-
 and its semantics remain asset-specific. The implementation reuses MLflow's
 Experiments, Traces, Assessments, Prompt Registry, Artifact Store, and `genai.evaluate`. It runs as a standalone ASGI service that integrates with MLflow over HTTP via `MLFLOW_TRACKING_URI`. The embedded `mlflow.app` mode is unsupported as a product or developer path.
 
-> 📖 **Live docs:** [`docs-site/index.html`](./docs-site/index.html) &nbsp;·&nbsp; 🏛️ **Layered architecture:** [HTML](./docs-site/m-00-layered-architecture.html) / [Markdown](./ARCHITECTURE.md) &nbsp;·&nbsp; 🧑‍🍳 **Learn by doing:** [16 Cookbooks](./docs-site/m-16-cookbooks.html)
+> 📖 **Live docs:** [`docs-site/index.html`](./docs-site/index.html) &nbsp;·&nbsp; 🏛️ **Layered architecture:** [HTML](./docs-site/m-00-layered-architecture.html) / [Markdown](./ARCHITECTURE.md) &nbsp;·&nbsp; 🧑‍🍳 **Learn by doing:** [16 Cookbooks](./docs-site/m-16-cookbooks.html) (preview; off by default, enable with `CALIBER_FEATURE_COOKBOOKS`)
 >
 > 🌍 **Published:** [rrahimi-uci.github.io/caliber-suite](https://rrahimi-uci.github.io/caliber-suite/) &nbsp;·&nbsp; 🧪 **Test report:** [`/tests/`](https://rrahimi-uci.github.io/caliber-suite/tests/) — the Allure report from the most recent successful `main` CI run
 >
@@ -111,14 +111,14 @@ surface; the repository audit records the exact current boundary.
 
 | Area | Highlights |
 | --- | --- |
-| ✍️ **Authoring** | **Prompts**, **Tools**, **Skills**, **MCP servers** — governed definitions with asset-specific testing and governance; versioning, gates, live aliases, and rollback apply only where each asset implements them |
+| ✍️ **Authoring** | **Prompts**, **Tools**, **Skills**, **MCP servers** (preview; off by default, enable with `CALIBER_FEATURE_INTEGRATIONS`) — governed definitions with asset-specific testing and governance; versioning, gates, live aliases, and rollback apply only where each asset implements them |
 | 🔀 **Workflows** | Visual **Studio**, queued runs, runtime approvals, checkpointing, and workflow-as-a-service |
 | 📚 **Knowledge bases** | Versioned RAG corpora — chunking, embeddings, **Apache AGE** graph extraction, hybrid retrieval + cross-encoder rerank |
 | 🧪 **Evaluation** | Scorecards, **custom LLM judges** (`make_judge`), structured human-review queues, enforced refinement-advancement gates, and advisory persisted version verdicts |
 | 🎛️ **Calibration** | Five implemented provider paths: the prompt form exposes MetaPrompt and GEPA; policy can select SkillMetaPrompt and DSPy BootstrapFewShot; DSPy MIPRO requires explicit configuration |
 | 🔭 **Observability** | MLflow tracing with multimodal attachments, SSE live events, service visibility, and trace retention |
 | 🛡️ **Governance** | RBAC, path-specific audited promotion/rollback, and the **LLM Gateway** surface (endpoint discovery, guardrails, per-model pricing, usage) |
-| 🤖 **Aria copilot** | An embedded, permissioned **agentic tool loop** (OpenAI + Claude) with durable goal-plans, async resume, and self-correction; plan gates support permission prompts and separation of duties where an operation is routed through a gated step |
+| 🤖 **Aria copilot** (preview; off by default, enable with `CALIBER_FEATURE_ARIA`) | An embedded, permissioned **agentic tool loop** (OpenAI + Claude) with durable goal-plans, async resume, and self-correction; plan gates support permission prompts and separation of duties where an operation is routed through a gated step |
 | 🧰 **SDK & CLI** | A typed Python client (`caliber-sdk`) with 100% coverage of the addressable management API, gated in CI so a new server route cannot ship without SDK coverage; a non-interactive operator CLI (`caliberctl`) covering the release-governance verbs (promote, rollback, gate verdicts); and a versioned deprecation policy. See [`sdk/`](./sdk/) |
 
 ---
@@ -211,6 +211,13 @@ settings: change the first-boot password immediately and never carry them into a
 
 🔗 Open the native-development UI at **`http://127.0.0.1:5001/caliber/`**.
 
+The preview areas are **off by default**: Aria and plans, MCP servers and OpenAPI integrations, cookbooks, and
+release-candidate signoff with Workspace releases are hidden in the app and refused by the API until you turn
+them on. Export `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` or
+`CALIBER_FEATURE_RELEASE_CANDIDATES` as `true` before starting `uvicorn` (or set it in the suite-root `.env` for
+the Docker stack) and restart. The Cookbooks below and the Aria, MCP and OpenAPI walkthroughs assume the matching
+flag is on; see [Feature flags](docs/start/alpha-scope.md#feature-flags).
+
 ## Supported alpha journey: governed prompt refinement
 
 The journey the alpha supports, and proves in CI on every change, is: **author a prompt → build a test set →
@@ -264,8 +271,8 @@ loopback launcher; any network-reachable deployment must leave
 | 🏠 **[Docs landing page](./docs-site/index.html)** | What CALIBER is, why it exists, and how it fits with MLflow |
 | 🏛️ **[Layered architecture](./docs-site/m-00-layered-architecture.html)** | Executive and architect map of the stack, governance chain, asset-family guarantees, topologies, execution, state, and trust boundaries |
 | 🚨 **[Operations runbook](./docs/runbook.md)** | On-call procedure for the recoveries CALIBER cannot complete alone — unsettled release intents, indeterminate external effects, a queue that stopped draining, per-family rollback — and what each triage surface does *not* prove |
-| 🧭 **[Walkthrough runbook](./docs-site/walkthrough.html)** | A copy-pasteable bring-up that tours every SPA page and builds a governed artifact with Aria |
-| 🧑‍🍳 **[Cookbooks](./docs-site/m-16-cookbooks.html)** | 16 step-by-step, UI-only recipes — prompt regression, precision skills, policy-safe tools, doc-to-JSON, governed MCP, grounded knowledge, support/incident copilots, self-healing workflows, observability & triage, trustworthy evaluation, release signoff, and four Aria goal-plan recipes |
+| 🧭 **[Walkthrough runbook](./docs-site/walkthrough.html)** | A copy-pasteable bring-up that tours the SPA pages and builds a governed artifact with Aria. Its Aria, MCP and cookbook steps need those preview areas enabled (off by default; enable with `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS` and `CALIBER_FEATURE_COOKBOOKS`) |
+| 🧑‍🍳 **[Cookbooks](./docs-site/m-16-cookbooks.html)** (preview; off by default, enable with `CALIBER_FEATURE_COOKBOOKS`; some labs need more flags, named in each README) | 16 step-by-step, UI-only recipes — prompt regression, precision skills, policy-safe tools, doc-to-JSON, governed MCP, grounded knowledge, support/incident copilots, self-healing workflows, observability & triage, trustworthy evaluation, release signoff, and four Aria goal-plan recipes |
 | 🎯 **[v1 product requirements](./docs/prd.md)** | The bounded v1.0.0 product contract: target users, supported prompt-refinement journey, non-goals, release requirements, and traceability to the GitHub delivery plan |
 | 🧰 **[SDK guide](./docs/sdk/guide.md)** | Install, authenticate, and drive `caliber-sdk` end to end — authoring vs. deploying, evidence and scoring, running workflows, deployment promote/rollback and gate verdicts, and error handling. Every code block is extracted from a tested example in [`sdk/caliber-sdk/examples/`](./sdk/caliber-sdk/examples/), not hand-written prose. See also [`caliberctl` and the async client](./docs/sdk/cli.md) and [`VERSIONING.md`](./sdk/caliber-sdk/VERSIONING.md) for the stability/deprecation policy. |
 | 📄 **[Technical paper](./paper/README.md)** | The architectural argument: the governed asset, the governance chain, why guarantees are per-family rather than uniform, and an explicit register of what the work does not establish |
@@ -303,12 +310,15 @@ CALIBER is **alpha**. `0.1.0a1` is the version prepared on `main`; the `caliber-
 | --- | --- |
 | **Core journey** (supported, proven end to end in CI) | Prompts (author, version, promote, roll back), test sets, evaluations, calibration, review and Apply, projects and roles, access tokens, audit log, release timeline, readiness |
 | **Also in the alpha** (supported, with stated prerequisites) | Skills, tools (trusted authors; the sandbox is a process boundary, not isolation), workflows, knowledge bases and the object-store console (need an S3 or MinIO bucket) |
-| **Preview** (works, outside the supported journey, may change; marked in the app) | MCP servers, OpenAPI integrations, cookbooks, the Aria assistant and plans |
-| **Record-only** | Release-candidate signoff on the Releases page: it records a decision and deploys nothing |
-| **Experimental** | Workspace releases (API, SDK, `caliberctl workspace`): release evaluation has no executor in this build |
+| **Preview** (works, outside the supported journey, may change; marked in the app; **off by default**) | MCP servers and OpenAPI integrations (off by default; enable with `CALIBER_FEATURE_INTEGRATIONS`), cookbooks (off by default; enable with `CALIBER_FEATURE_COOKBOOKS`), the Aria assistant and plans (off by default; enable with `CALIBER_FEATURE_ARIA`) |
+| **Record-only** (**off by default**) | Release-candidate signoff on the Releases page: it records a decision and deploys nothing (off by default; enable with `CALIBER_FEATURE_RELEASE_CANDIDATES`) |
+| **Experimental** (**off by default**) | Workspace releases (API, SDK, `caliberctl workspace`): release evaluation has no executor in this build (off by default; enable with `CALIBER_FEATURE_RELEASE_CANDIDATES`) |
 | **Not in the alpha** | Memory, and the flagged-trace to refinement loop |
 
-The full scope decision, with the reasoning, is in [`docs/caliber-alpha-gaps.md`](./docs/caliber-alpha-gaps.md).
+Turning one of the four flags on means you accept that area's preview behavior. The variables, the `404` with
+`reason_code: feature_disabled` that a disabled area answers, and `features` in `GET /capabilities` are on
+[Alpha scope and limitations](docs/start/alpha-scope.md#feature-flags). The full scope decision, with the
+reasoning, is in [`docs/caliber-alpha-gaps.md`](./docs/caliber-alpha-gaps.md).
 
 The platform spans prompts, tools, skills, MCP servers, workflows, knowledge bases, object storage, test
 sets, observability, evaluation, calibration, the LLM Gateway, RBAC, and Aria. The dated

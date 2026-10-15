@@ -22,7 +22,7 @@
     },
     {
       "where": "Integrations and preview › Plans › New goal",
-      "do": "In the sidebar, under <strong>Integrations and preview</strong> (the page carries a <strong>Preview</strong> badge), click <strong>Plans</strong>. Type Aria's one-line intent into the <strong>Goal</strong> box, verbatim — the phrase <code>review queue</code> proposes both queue steps and the word <code>workflow</code> (calibration) proposes the calibrate step. Set <strong>Autonomy</strong> to <strong>Stop before each change</strong> (the <code>ask_each</code> level).",
+      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_ARIA=true</code> on the CALIBER server and restart it; Aria and the Plans page are off by default. In the sidebar, under <strong>Integrations and preview</strong> (the page carries a <strong>Preview</strong> badge), click <strong>Plans</strong>. Type Aria's one-line intent into the <strong>Goal</strong> box, verbatim — the phrase <code>review queue</code> proposes both queue steps and the word <code>workflow</code> (calibration) proposes the calibrate step. Set <strong>Autonomy</strong> to <strong>Stop before each change</strong> (the <code>ask_each</code> level).",
       "fill": [
         [
           "Goal",

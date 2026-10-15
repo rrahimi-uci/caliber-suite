@@ -6,7 +6,7 @@ product_area: api
 stability: ga
 prerequisites:
   - A CALIBER API integration question
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: current main branch docs contract
 tags:
   - api
@@ -41,7 +41,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | --- | --- |
 | `GET /health` | Cheap liveness probe; a bare `{status, version, db}` body (no `data` envelope), 503 with `status: "degraded"` when the database probe fails |
 | `GET /readiness` | Dependency readiness; 503 while a required dependency (database, applied schema migrations, an HTTP MLflow, remote object storage, ...) is not ready, with `checks` and `blockers` in `data` |
-| `GET /capabilities` | Surface discovery and stability tiers |
+| `GET /capabilities` | Surface discovery and stability tiers, plus `features`: for each of `aria`, `integrations`, `cookbooks` and `release_candidates`, whether it is `enabled` and its `env_var`, `label` and `stability` |
 | `GET /openapi.json` | Full management API contract (authenticated; a raw document, not enveloped) |
 | `GET /settings/runtime` | Runtime configuration summary |
 | `GET /me` | Caller identity and effective session information |
@@ -60,8 +60,8 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | Rework tasks | `GET /rework-tasks`, `POST /rework-tasks/{id}/claim`, `.../resolve`, `.../reassign`; project-scoped `/projects/{id}/rework-tasks` lifecycle routes; `POST /jobs/{id}/request-changes` | Owned, recoverable work auto-created when a refinement job is terminally rejected; project routes hide tasks outside the source agent's workspace |
 | Quality reviews | `POST /jobs/{id}/quality-reviews`, `GET /jobs/{id}/quality-reviews` | A human go/no-go on a job's candidate, distinct from the machine eval gate; `no_go` creates a rework task |
 | Knowledge | `GET/POST /knowledge-bases`, `POST /knowledge/query` | Corpus lifecycle plus retrieval |
-| MCP | `GET/POST /mcp-servers`, tool inventory and invoke routes | Governed external tool connectivity |
-| Releases | `GET/POST /releases/candidates`, `POST /releases/candidates/{id}/signoffs`, `GET /releases/operations` | Signoff, waivers, and reconcile workflows |
+| MCP | `GET/POST /mcp-servers`, tool inventory and invoke routes | Governed external tool connectivity. Preview, off by default (`CALIBER_FEATURE_INTEGRATIONS`) |
+| Releases | `GET/POST /releases/candidates`, `POST /releases/candidates/{id}/signoffs`, `GET /releases/operations` | Signoff, waivers, and reconcile workflows. The candidate routes are record-only and off by default (`CALIBER_FEATURE_RELEASE_CANDIDATES`); `/releases/live`, `/releases/timeline` and `/releases/operations` are core |
 | Observability | `GET /observability/traces`, `GET /metrics`, `GET /events/stream` | Runtime evidence and live telemetry |
 | Projects and access | `GET /projects`, `GET /projects/{id}`, member CRUD under `/projects/{id}/members` | Project responses include `access_role` and `permissions`; membership changes are owner-only and also need `caliber.operator` |
 
@@ -70,6 +70,15 @@ datasets and judges check the caller's project role as well as the token scope: 
 non-member gets 404 and a member whose role is too weak (for example a `viewer`)
 gets 403. The role each action needs is listed in
 [Auth and project scoping](../build/auth-and-project-scoping.md#3-understand-project-access).
+
+## Feature-flagged areas
+
+Aria, MCP servers and OpenAPI integrations, cookbooks, and release-candidate signoff with Workspace releases are
+**off by default**. While one is off, every route of that area answers HTTP 404 with
+`reason_code: feature_disabled` and a `detail` that names the variable to set. The routes still appear in the
+served OpenAPI document. Call `GET /capabilities` and read `features` before you rely on one, rather than
+probing for the 404; the response also reports `openapi_integrations.enabled`, which follows the `integrations`
+flag. See [Feature flags](../start/alpha-scope.md#feature-flags) for the variables and what each one turns on.
 
 ## Workflow-service OpenAPI
 
@@ -86,7 +95,7 @@ the CALIBER management API itself.
 
 ## Practical integration order
 
-1. Call `GET /capabilities` to learn what the deployment exposes.
+1. Call `GET /capabilities` to learn what the deployment exposes, including which preview areas are on (`features`).
 2. Fetch `GET /openapi.json` if you are generating or inspecting the raw HTTP
    contract.
 3. Use Bearer auth plus `X-CALIBER-Project` when you need scoped automation.

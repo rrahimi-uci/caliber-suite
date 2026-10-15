@@ -461,6 +461,13 @@ def app_config(tmp_path: Path) -> CaliberConfig:
             # OpenAI/Claude). Tests have no API keys, so pin the deterministic
             # fake engine here — the one place fake is meant to be used.
             "CALIBER_ASSISTANT_ENGINE": "fake",
+            # The alpha ships its unsupported areas off (``caliber.features``). The
+            # suite exercises those routes, so the shared fixture turns them on;
+            # ``tests/test_feature_flags.py`` proves the shipped default.
+            "CALIBER_FEATURE_ARIA": "true",
+            "CALIBER_FEATURE_INTEGRATIONS": "true",
+            "CALIBER_FEATURE_COOKBOOKS": "true",
+            "CALIBER_FEATURE_RELEASE_CANDIDATES": "true",
             # Isolate the local workflow-storage root to the per-test tmp dir.
             # Without this the default (relative) ``file://./caliber-workspaces``
             # base URI makes any test that writes a workflow file pollute the
