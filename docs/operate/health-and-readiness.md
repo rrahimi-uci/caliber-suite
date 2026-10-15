@@ -63,9 +63,12 @@ the database does not answer. Use readiness for go or no-go decisions.
 
 **A worker that died keeps readiness red.** Each workflow-run worker writes a heartbeat
 row to `caliber_worker_heartbeats` and removes it on a clean stop. A worker that exits uncleanly
-(killed, out of memory, host asleep) leaves its row, and every stale row adds a blocking
-`workflow_queue` reason (`N registered worker(s) stopped reporting: <ids>`), even while a live worker is
-serving. Nothing prunes these rows: once you have confirmed the worker is gone, delete its row by hand.
+(killed, out of memory, host asleep) leaves its row, and each stale row adds a blocking
+`workflow_queue` reason (`N registered worker(s) stopped reporting: <ids>`). A restarted worker registers
+under a new id, so a live workflow-run worker deletes rows of its kind that have been stale for at least
+five minutes (five times the staleness window, with a five-minute floor), checking once a minute. A
+worker that died shows as degraded for those minutes, and readiness recovers by itself once a replacement
+is reporting. When no worker is alive nothing reaps, so a deployment that lost its last worker stays red.
 
 ## 2. What to verify after boot
 

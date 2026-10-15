@@ -8,7 +8,7 @@ product_area: docs
 stability: beta
 prerequisites:
   - None
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-15
 version_applicability: 0.1.0a1 alpha
 tags:
   - alpha
@@ -99,9 +99,6 @@ These are real and deliberate for the alpha. Read them before you rely on the pr
   unavailable. The default docker image installs `knowledge` but not `knowledge-local`, so it cannot build
   a knowledge base until you add it to `CALIBER_INSTALL_EXTRAS`. The storage and build path is tested
   against a real MinIO and PostgreSQL with simulated embeddings; no CI job exercises a real model.
-- **A killed worker keeps `/readiness` red.** A worker that exits uncleanly (killed, out of memory, host
-  asleep) leaves its heartbeat row, and every such row counts as a blocking queue problem until it is
-  deleted by hand, even while a live worker is serving. A clean stop is fine.
 - **Gate verdicts are not project-scoped.** `/gate-verdicts` keys a verdict by a free-form string that
   names no artifact, so any operator can overwrite any verdict. It is advisory: no release or promotion
   decision reads it.

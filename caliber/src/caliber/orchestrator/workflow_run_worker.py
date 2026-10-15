@@ -6,6 +6,7 @@ import asyncio
 import json
 import logging
 import threading
+import time
 from contextlib import suppress
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
@@ -61,6 +62,9 @@ from caliber.workspace_runtime_lineage import RuntimeLineageError, require_runti
 logger = logging.getLogger("caliber.orchestrator.workflow_run_worker")
 
 _CANCEL_SENTINEL = "__CALIBER_WORKFLOW_RUN_CANCELLED__"
+
+# How often a worker looks for heartbeat rows of workers it has outlived.
+_REAP_EVERY_SECONDS = 60.0
 
 
 def _step_to_dict(step: NodeStep) -> dict[str, Any]:
@@ -445,6 +449,7 @@ class WorkflowRunWorker:
         from caliber.observability.worker_registry import new_worker_id  # noqa: PLC0415
 
         self._worker_id = new_worker_id("workflow-run-worker", self)
+        self._last_reap = float("-inf")
         self._task: asyncio.Task[None] | None = None
         self._stopped = asyncio.Event()
         self._s3_client: Any = None  # lazily built for run-artifact persistence
@@ -514,6 +519,34 @@ class WorkflowRunWorker:
 
         with self._session_factory() as session:
             record_heartbeat(session, worker_id=self._worker_id, kind=KIND_WORKFLOW_RUN)
+            self._reap_replaced_workers(session)
+
+    def _reap_replaced_workers(self, session: Session) -> None:
+        """Drop heartbeat rows of workers this one has outlived, at most once a minute.
+
+        A restarted container registers under a new id, so each unclean restart left a
+        stale row that kept ``/readiness`` red while this worker was serving. This
+        worker has just reported, so it is alive; the rows it removes are old enough
+        that the outage was visible for a while first.
+        """
+        from caliber.observability.worker_registry import (  # noqa: PLC0415
+            KIND_WORKFLOW_RUN,
+            reap_stale_workers,
+            stale_after_seconds,
+        )
+
+        now = time.monotonic()
+        if now - self._last_reap < _REAP_EVERY_SECONDS:
+            return
+        self._last_reap = now
+        reap_stale_workers(
+            session,
+            worker_id=self._worker_id,
+            kind=KIND_WORKFLOW_RUN,
+            stale_after=stale_after_seconds(
+                self._interval_seconds, self._lease_duration.total_seconds()
+            ),
+        )
 
     def _deregister_liveness(self) -> None:
         """Drop the heartbeat row on a clean stop, so a planned shutdown is not
