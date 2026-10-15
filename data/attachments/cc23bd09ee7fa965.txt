@@ -1,3 +1,0 @@
-{"t":"2026-10-15T16:13:41.104Z","severity":"INFO","logger":"caliber.events.redis_bus","message":"Redis event bus connected (channel=caliber.test)"}
-{"t":"2026-10-15T16:13:41.105Z","severity":"INFO","logger":"caliber.events.redis_bus","message":"Redis event bus disconnected"}
-{"t":"2026-10-15T16:13:41.106Z","severity":"INFO","logger":"caliber.events.redis_bus","message":"Redis event bus disconnected"}
