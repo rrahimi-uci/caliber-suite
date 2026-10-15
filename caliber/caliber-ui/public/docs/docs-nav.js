@@ -1223,7 +1223,7 @@ window.DOCS_DATA = {
         "None"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-15",
       "version_applicability": "0.1.0a1 alpha",
       "tags": [
         "alpha",

@@ -18,6 +18,15 @@ Staleness is judged against the worker's own poll interval rather than a second
 configured threshold, so the verdict cannot drift from the cadence it is measuring
 (see :func:`stale_after_seconds`).
 
+A stale row is the outage signal only while nobody has replaced the worker. A
+container that is killed and restarted gets a new ``worker_id`` (the id embeds an
+address that changes every start), so every unclean restart used to leave one more
+row behind, and ``/readiness`` stayed red for as long as any of them existed, even
+with a healthy worker serving. A *live* worker therefore reaps rows of its own kind
+that have been stale for a good while (:func:`reap_stale_workers`): the readiness
+signal stays red while a worker is gone and nothing replaced it, and recovers by
+itself once a replacement has been reporting past the grace period.
+
 A heartbeat write must never break a tick: :func:`record_heartbeat` swallows and logs
 failures. Losing an observability write is an operational nuisance; failing a run
 because the observability table is unavailable is an outage this module would have
@@ -48,6 +57,14 @@ KIND_WORKFLOW_RUN = "workflow_run"
 #: be reported dead. Three cycles means two consecutive misses are tolerated.
 _STALE_INTERVAL_MULTIPLE = 3.0
 _STALE_FLOOR_SECONDS = 30.0
+
+
+#: A stale row older than this many multiples of the staleness window (and at least
+#: ``_REAP_FLOOR_SECONDS``) is deleted by a live worker of the same kind. Long enough
+#: that a restart shows as degraded for a while, short enough that it does not
+#: outlive the incident.
+_REAP_INTERVAL_MULTIPLE = 5.0
+_REAP_FLOOR_SECONDS = 300.0
 
 
 def new_worker_id(prefix: str, instance: object) -> str:
@@ -173,6 +190,57 @@ def deregister(session: Any, *, worker_id: str) -> None:
             logger.debug("rollback after deregister failure also failed", exc_info=True)
 
 
+def reap_after_seconds(stale_after: float) -> float:
+    """How old a heartbeat must be before a live worker deletes its row."""
+    return max(float(stale_after) * _REAP_INTERVAL_MULTIPLE, _REAP_FLOOR_SECONDS)
+
+
+def reap_stale_workers(
+    session: Any,
+    *,
+    worker_id: str,
+    kind: str = KIND_WORKFLOW_RUN,
+    stale_after: float,
+    now: datetime | None = None,
+) -> int:
+    """Delete rows of ``kind`` whose heartbeat is older than :func:`reap_after_seconds`.
+
+    Meant to be called by a worker that has just written its **own** fresh heartbeat,
+    so a reaped row can only belong to a worker that was replaced or lost while this
+    one kept reporting. It never touches the caller's row, never touches another kind,
+    and never reaps when no worker is alive (nothing calls it then), so a deployment
+    whose last worker died stays red. Never raises, like :func:`record_heartbeat`.
+    Returns the number of rows removed.
+    """
+    stamp = now or datetime.now(timezone.utc)
+    cutoff = stamp - timedelta(seconds=reap_after_seconds(stale_after))
+    try:
+        result = session.execute(
+            delete(CaliberWorkerHeartbeat).where(
+                CaliberWorkerHeartbeat.kind == kind,
+                CaliberWorkerHeartbeat.worker_id != worker_id,
+                CaliberWorkerHeartbeat.last_heartbeat_at < cutoff,
+            )
+        )
+        session.commit()
+    except Exception:
+        logger.warning("could not reap stale workers for %s", worker_id, exc_info=True)
+        try:
+            session.rollback()
+        except Exception:  # pragma: no cover
+            logger.debug("rollback after reap failure also failed", exc_info=True)
+        return 0
+    removed = int(result.rowcount or 0)
+    if removed:
+        logger.info(
+            "removed %d stale %s heartbeat row(s) older than %.0fs",
+            removed,
+            kind,
+            reap_after_seconds(stale_after),
+        )
+    return removed
+
+
 def list_workers(
     session: Any,
     *,
@@ -226,6 +294,8 @@ __all__ = [
     "WorkerRecord",
     "deregister",
     "list_workers",
+    "reap_after_seconds",
+    "reap_stale_workers",
     "record_heartbeat",
     "stale_after_seconds",
 ]

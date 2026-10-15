@@ -28,7 +28,7 @@ indeterminate, jump straight to the [Operations runbook](../runbook.md).
 | UI loads but product behavior is degraded | readiness, dependency posture | [Health and readiness](../operate/health-and-readiness.md) |
 | Workflow runs are not draining | event backend and worker state | [Operations runbook](../runbook.md) |
 | `/readiness` is 503 and the blocker names `schema` | the database was never migrated or is behind this release | run `caliber-migrate` with the same `CALIBER_DATABASE_URL` ([Health and readiness](../operate/health-and-readiness.md)) |
-| `/readiness` stays 503 on `workflow_queue` after a worker was killed | a stale row in `caliber_worker_heartbeats` | delete the dead worker's row by hand ([Health and readiness](../operate/health-and-readiness.md)) |
+| `/readiness` is 503 on `workflow_queue` after a worker was killed or restarted | a stale row in `caliber_worker_heartbeats` | wait about five minutes for a live worker to remove it; if no worker is alive, start one ([Health and readiness](../operate/health-and-readiness.md)) |
 | File upload or extraction fails | object-store and workflow-storage config | [Storage and state](../operate/storage-and-state.md) |
 | Local stack will not boot cleanly | port and dependency configuration | [Configuration and provider setup](../operate/configuration-and-provider-setup.md) |
 | Auth works in the browser but not automation | token, project scope, or CSRF model | [Developer troubleshooting](../build/developer-troubleshooting.md) |

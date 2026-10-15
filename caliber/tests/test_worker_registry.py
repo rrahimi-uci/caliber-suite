@@ -23,7 +23,7 @@ from __future__ import annotations
 from datetime import datetime, timedelta, timezone
 from unittest import mock
 
-from sqlalchemy.orm import Session
+from sqlalchemy.orm import Session, sessionmaker
 
 from caliber.db.models import CaliberWorkerHeartbeat, CaliberWorkflowRun
 from caliber.observability.queue_health import collect_queue_health
@@ -32,6 +32,8 @@ from caliber.observability.worker_registry import (
     deregister,
     list_workers,
     new_worker_id,
+    reap_after_seconds,
+    reap_stale_workers,
     record_heartbeat,
     stale_after_seconds,
 )
@@ -286,3 +288,127 @@ def test_two_processes_register_two_rows_not_one(db_session: Session) -> None:
 
     assert db_session.query(CaliberWorkerHeartbeat).count() == 2
     assert _collect(db_session).workers_alive == 2
+
+
+# ---------------------------------------------------------------------------
+# Reaping rows of workers that were replaced
+# ---------------------------------------------------------------------------
+
+STALE_AFTER = stale_after_seconds(INTERVAL, LEASE)
+
+
+def _ids(session: Session) -> set[str]:
+    session.expire_all()
+    return {row.worker_id for row in session.query(CaliberWorkerHeartbeat).all()}
+
+
+def _reap(session: Session, worker_id: str = "w-live", **kwargs):
+    return reap_stale_workers(
+        session, worker_id=worker_id, stale_after=STALE_AFTER, now=NOW, **kwargs
+    )
+
+
+def test_the_reap_window_is_longer_than_the_staleness_window() -> None:
+    """A stale row must be visible as a fault before anything may remove it."""
+    assert reap_after_seconds(STALE_AFTER) > STALE_AFTER
+    assert reap_after_seconds(STALE_AFTER) == 300.0  # the floor, at the default cadence
+    assert reap_after_seconds(600.0) == 3000.0  # scales with a slow cadence
+
+
+def test_a_live_worker_reaps_rows_that_stayed_stale_past_the_window(
+    db_session: Session,
+) -> None:
+    """The reported symptom: 32 rows left by container restarts kept /readiness red
+    while a healthy worker served. After the grace period they are gone."""
+    record_heartbeat(db_session, worker_id="w-live", now=NOW)
+    for index in range(32):
+        record_heartbeat(
+            db_session, worker_id=f"w-old-{index}", now=NOW - timedelta(seconds=3600 + index)
+        )
+    assert _collect(db_session).healthy is False
+
+    removed = _reap(db_session)
+
+    assert removed == 32
+    assert _ids(db_session) == {"w-live"}
+    assert _collect(db_session).healthy is True
+
+
+def test_a_recently_stale_worker_is_still_reported_not_reaped(db_session: Session) -> None:
+    """Replacing a worker must not hide that one just died: inside the grace period the
+    row stays, and readiness still names it."""
+    record_heartbeat(db_session, worker_id="w-live", now=NOW)
+    record_heartbeat(db_session, worker_id="w-just-died", now=NOW - timedelta(seconds=120))
+
+    assert _reap(db_session) == 0
+
+    assert _ids(db_session) == {"w-live", "w-just-died"}
+    health = _collect(db_session)
+    assert health.healthy is False
+    assert any("w-just-died" in reason for reason in health.degraded_reasons)
+
+
+def test_the_reap_boundary_is_the_window_itself(db_session: Session) -> None:
+    window = reap_after_seconds(STALE_AFTER)
+    record_heartbeat(db_session, worker_id="w-live", now=NOW)
+    record_heartbeat(db_session, worker_id="w-at-edge", now=NOW - timedelta(seconds=window))
+    record_heartbeat(db_session, worker_id="w-past-edge", now=NOW - timedelta(seconds=window + 1))
+
+    assert _reap(db_session) == 1
+
+    assert _ids(db_session) == {"w-live", "w-at-edge"}
+
+
+def test_reaping_never_touches_the_callers_row_or_another_kind(db_session: Session) -> None:
+    ancient = NOW - timedelta(days=2)
+    record_heartbeat(db_session, worker_id="w-live", now=ancient)  # the caller, however old
+    record_heartbeat(db_session, worker_id="k-other-kind", kind="knowledge_build", now=ancient)
+    record_heartbeat(db_session, worker_id="w-old", now=ancient)
+
+    assert _reap(db_session) == 1
+
+    assert _ids(db_session) == {"w-live", "k-other-kind"}
+
+
+def test_a_dead_only_deployment_stays_red_because_nothing_reaps(db_session: Session) -> None:
+    """Reaping is done by a live worker. When the last worker is gone nobody calls it,
+    so the outage is still reported however old the rows are."""
+    record_heartbeat(db_session, worker_id="w-dead", now=NOW - timedelta(days=2))
+
+    health = _collect(db_session)
+
+    assert health.healthy is False
+    assert _ids(db_session) == {"w-dead"}
+
+
+def test_a_reap_failure_never_breaks_the_caller(db_session: Session) -> None:
+    with mock.patch.object(db_session, "execute", side_effect=RuntimeError("db down")):
+        assert _reap(db_session) == 0
+    # The session is still usable afterwards.
+    record_heartbeat(db_session, worker_id="w-live", now=NOW)
+    assert _ids(db_session) == {"w-live"}
+
+
+def test_the_worker_reaps_on_its_liveness_tick_and_only_once_a_minute(
+    session_factory: sessionmaker,  # type: ignore[type-arg]
+    db_session: Session,
+) -> None:
+    from caliber.config import CaliberConfig
+    from caliber.orchestrator.workflow_run_worker import WorkflowRunWorker
+
+    worker = WorkflowRunWorker(session_factory, config=CaliberConfig())
+    long_ago = datetime.now(timezone.utc) - timedelta(days=1)
+    record_heartbeat(db_session, worker_id="w-restarted-away", now=long_ago)
+
+    worker._record_liveness()
+
+    assert _ids(db_session) == {worker._worker_id}
+
+    # A second dead row appearing straight after is left for the next minute's pass.
+    record_heartbeat(db_session, worker_id="w-second", now=long_ago)
+    worker._record_liveness()
+    assert _ids(db_session) == {worker._worker_id, "w-second"}
+
+    worker._last_reap = float("-inf")
+    worker._record_liveness()
+    assert _ids(db_session) == {worker._worker_id}

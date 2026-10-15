@@ -318,7 +318,9 @@ follow that rule and are worth sizing for:
   well as the instance (`worker_registry.new_worker_id`), because that key is
   shared by every process pointed at the same database. It is deliberately not a
   fresh UUID per start: an unclean exit leaves its row behind as the outage
-  signal, so a random id would accumulate one stale row per crash-restart.
+  signal. A restart still registers under a new id, so a live worker of the same
+  kind reaps rows that stayed stale for five times the staleness window (at
+  least five minutes), once a minute (`worker_registry.reap_stale_workers`).
 - **In-memory limits are per process.** The failed-login throttle
   (`routes/auth.py`) and the API `RateLimiter` (`rate_limit.py`) are token/attempt
   buckets behind a thread lock, not shared state, so their effective ceiling

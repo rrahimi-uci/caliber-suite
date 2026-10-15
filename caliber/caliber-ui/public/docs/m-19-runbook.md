@@ -197,10 +197,12 @@ effect ledger's suppression budget.
 `…/checkpoints` first to see what a resume would replay.
 
 A worker that exits uncleanly (killed, out of memory, host asleep) leaves its row in
-`caliber_worker_heartbeats`, and nothing prunes it. Every stale row adds the `stopped reporting`
-reason, so `/caliber/readiness` stays 503 on `workflow_queue` even while a live worker is
-serving. Once you have confirmed that worker is gone, delete its row by hand; a clean stop
-removes its own row.
+`caliber_worker_heartbeats`, and each stale row adds a `stopped reporting` reason, so
+`/caliber/readiness` is 503 on `workflow_queue` while it exists. A restarted worker registers under a
+new id, and every live workflow-run worker deletes rows of its own kind that have been stale for at
+least five minutes (five times the staleness window, with a five-minute floor), checking once a minute.
+So readiness recovers on its own a few minutes after a replacement is reporting. It stays red when no
+worker is alive, which is the outage. A clean stop removes its own row.
 
 **Verify.** `queued` falls, `workers_alive` is non-zero, `stale_leases` is zero, and no
 `stopped reporting` reason remains.

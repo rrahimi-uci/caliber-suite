@@ -88,8 +88,7 @@ required before publication:
 
 They are listed on [Alpha scope and limitations](../start/alpha-scope.md). The ones that most often surprise
 people: traces and MLflow data are visible to every signed-in user; Apply has no second approver; CSRF
-protection is off by default; a killed worker keeps `/readiness` red until its row is deleted; and
-`/gate-verdicts` is not project-scoped.
+protection is off by default; and `/gate-verdicts` is not project-scoped.
 
 What was found and deliberately left for later is in the P2 backlog of the
 [alpha gap analysis](../caliber-alpha-gaps.md).
