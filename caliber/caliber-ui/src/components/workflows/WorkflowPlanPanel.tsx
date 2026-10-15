@@ -94,9 +94,6 @@ export function WorkflowPlanPanel({
         <div>
           <div className="flex items-center gap-2">
             <span className="text-lg font-semibold text-zinc-900">Plan a workflow</span>
-            <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-700">
-              beta
-            </span>
           </div>
           <p className="mt-1 text-sm text-zinc-500">
             Describe what you want the workflow to do. Plan authors a starting graph from your goal —

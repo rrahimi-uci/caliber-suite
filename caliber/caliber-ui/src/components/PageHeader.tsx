@@ -7,7 +7,6 @@
 import type { ReactNode } from "react";
 import { Link } from "react-router-dom";
 
-import { PreviewBadge } from "@/components/PreviewBadge";
 
 export interface PageHeaderProps {
   title: string;
@@ -18,8 +17,6 @@ export interface PageHeaderProps {
   crumbs?: { label: string; to?: string }[];
   /** Hide the "Dashboard ›" breadcrumb (e.g. on the Dashboard page itself). */
   hideBreadcrumb?: boolean;
-  /** Mark the page as Preview: a pill beside the title. */
-  preview?: boolean;
 }
 
 function Chevron(): JSX.Element {
@@ -36,7 +33,6 @@ export function PageHeader({
   actions,
   crumbs,
   hideBreadcrumb = false,
-  preview = false,
 }: PageHeaderProps): JSX.Element {
   const trail = crumbs ?? [{ label: title }];
   return (
@@ -62,11 +58,8 @@ export function PageHeader({
       )}
       <div className="flex min-w-0 flex-wrap items-start justify-between gap-4">
         <div className="min-w-0 flex-1">
-          {/* The pill sits beside the heading, not inside it, so the heading's accessible
-              name stays the page title. */}
           <div className="flex flex-wrap items-center gap-3">
             <h1 className="text-2xl font-bold tracking-tight text-slate-900">{title}</h1>
-            {preview && <PreviewBadge />}
           </div>
           {subtitle && (
             <p className="mt-1 w-full break-words text-sm leading-relaxed text-slate-500">{subtitle}</p>

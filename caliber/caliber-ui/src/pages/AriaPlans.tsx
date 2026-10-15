@@ -8,7 +8,6 @@
 
 import { useCallback, useState } from "react";
 import { Link } from "react-router-dom";
-import { PreviewBadge, PreviewBanner } from "@/components/PreviewBadge";
 
 import { ApiError, caliberApi } from "@/api/caliberApi";
 import type { AriaAutonomy } from "@/api/types";
@@ -88,16 +87,21 @@ function PlanList({ onOpen }: { onOpen: (id: string) => void }): JSX.Element {
       <div className="mb-6">
         <div className="flex flex-wrap items-center gap-3">
           <h1 className="text-xl font-semibold text-gray-900">Aria Plans</h1>
-          <PreviewBadge />
         </div>
         <p className="text-sm text-gray-500 mt-0.5">
           Hand Aria a goal; it decomposes it into a plan of platform steps you can
           review and approve before anything runs.
         </p>
       </div>
-      <PreviewBanner>
-        {ariaUnavailableReason ?? "Aria needs a configured LLM engine to answer."}
-      </PreviewBanner>
+      {ariaUnavailableReason && (
+        <div
+          role="note"
+          data-testid="aria-unavailable-note"
+          className="mb-4 rounded-lg border border-slate-200 bg-slate-50 px-4 py-2.5 text-sm text-slate-700"
+        >
+          {ariaUnavailableReason}
+        </div>
+      )}
 
       <div className="mb-6 bg-white rounded-lg border border-surface-200 p-4">
         <label className="text-xs text-gray-500 block mb-1">Goal</label>

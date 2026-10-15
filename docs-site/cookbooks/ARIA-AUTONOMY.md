@@ -137,7 +137,7 @@ worker advances parked plans automatically (about every 10 seconds,
 Poll button — refresh the plan page.
 
 UI: sidebar **Integrations › Plans** → `/aria/plans`
-(`AriaPlans.tsx`; a Preview page). Buttons: **Decompose goal**, **Approve plan**,
+(`AriaPlans.tsx`). Buttons: **Decompose goal**, **Approve plan**,
 **Execute** / **Resume**, **Continue plan** / **Skip step** (input form),
 **Approve** / **Deny** (permission), **Accept** / **Reject** (confirm).
 

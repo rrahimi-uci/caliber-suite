@@ -29,7 +29,6 @@ import type {
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 
-import { PreviewBadge } from "@/components/PreviewBadge";
 import {
   useApiMutation,
   useApiQuery,
@@ -161,15 +160,13 @@ function ReleaseSignoffFactory({
         data-testid="release-signoff-record-only"
         className="rounded-lg border border-violet-200 bg-violet-50 px-4 py-2.5 text-sm text-violet-900"
       >
-        <strong className="font-semibold">Preview, record-only.</strong> Signing off a release
-        candidate records a decision. It does not deploy or roll back anything; the release path
+        Signing off a release candidate records a decision. It does not deploy or roll back anything; the release path
         above is Apply and Rollback on a prompt.
       </div>
       <div className="flex items-center justify-between gap-3">
         <div>
           <div className="flex items-center gap-2">
             <h2 className="text-sm font-semibold text-gray-700">Release signoff factory</h2>
-            <PreviewBadge />
           </div>
           <p className="text-xs text-gray-500">
             Weighted evidence, blockers, waivers, accountable decisions, rollback targets, and Allure output.

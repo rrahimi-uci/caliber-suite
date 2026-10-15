@@ -226,7 +226,7 @@ describe("OpenApiIntegrations", () => {
     expect(await screen.findByText("OAIV-1")).toBeInTheDocument();
   });
 
-  it("is labelled Preview in the header and with a banner (alpha P1-10)", async () => {
+  it("carries no maturity label in the header or a banner", async () => {
     server.use(
       http.get(`${API_BASE}/openapi-integrations`, () =>
         HttpResponse.json(envelope([baseIntegration()])),
@@ -235,8 +235,8 @@ describe("OpenApiIntegrations", () => {
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "OpenAPI Integrations" })).toBeInTheDocument();
-    expect(screen.getByTestId("preview-badge")).toHaveTextContent("Preview");
-    expect(screen.getByTestId("preview-banner")).toHaveTextContent("third-party");
+    expect(screen.queryByTestId("preview-badge")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("preview-banner")).not.toBeInTheDocument();
   });
 
   it("creates a new integration and opens it", async () => {

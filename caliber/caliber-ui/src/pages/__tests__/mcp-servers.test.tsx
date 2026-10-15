@@ -177,15 +177,15 @@ describe("McpServers", () => {
     expect(screen.getByTestId("mcp-row-MCP-2")).toBeInTheDocument();
   });
 
-  it("is labelled Preview in the header and with a banner (alpha P1-10)", async () => {
+  it("carries no maturity label in the header or a banner", async () => {
     server.use(
       http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([baseServer()]))),
     );
     renderPage();
 
     expect(await screen.findByRole("heading", { name: "MCP Servers" })).toBeInTheDocument();
-    expect(screen.getByTestId("preview-badge")).toHaveTextContent("Preview");
-    expect(screen.getByTestId("preview-banner")).toHaveTextContent("external server");
+    expect(screen.queryByTestId("preview-badge")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("preview-banner")).not.toBeInTheDocument();
   });
 
   it("opens quick-connect templates and registers a prefilled server", async () => {

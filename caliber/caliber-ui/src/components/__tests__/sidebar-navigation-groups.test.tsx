@@ -6,9 +6,6 @@
  * traded away for whitespace.
  */
 
-import { readFileSync } from "node:fs";
-import { resolve } from "node:path";
-
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { cleanup, render, screen, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
@@ -17,7 +14,6 @@ import { MemoryRouter } from "react-router-dom";
 import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
 
 import { Sidebar } from "@/components/Sidebar";
-import { PREVIEW_DESTINATIONS } from "@/lib/maturity";
 import { server } from "@/test/server";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
@@ -50,8 +46,8 @@ const ALL_DESTINATIONS = [
 
 const GROUP_IDS = ["core", "extended", "operate", "preview", "admin"];
 
-// The core journey leads, then the rest of the supported alpha, then operations, then
-// previews. A Preview pill is part of the link's text content.
+// The prompt lifecycle leads, then the other agent resources, then operations, then
+// integrations. No link carries a maturity label.
 const EXPECTED_NAV_LABELS = [
   "Dashboard",
   "Prompts",
@@ -69,10 +65,10 @@ const EXPECTED_NAV_LABELS = [
   "Review Queues",
   "Audit Log",
   "LLM Gateway",
-  "MCP ServersPreview",
-  "OpenAPI IntegrationsPreview",
-  "CookbooksPreview",
-  "PlansPreview",
+  "MCP Servers",
+  "OpenAPI Integrations",
+  "Cookbooks",
+  "Plans",
   "Administration",
   "Settings",
   "Docs",
@@ -180,7 +176,7 @@ describe("Sidebar navigation groups", () => {
     }
   });
 
-  it("labels exactly the scope decision's preview areas, in the nav", async () => {
+  it("shows no maturity label on any destination", async () => {
     stubPlans();
     const user = userEvent.setup();
     await renderSidebar();
@@ -189,48 +185,11 @@ describe("Sidebar navigation groups", () => {
       if (toggle.getAttribute("aria-expanded") === "false") await user.click(toggle);
     }
 
-    const labelled = screen
-      .getAllByTestId("nav-preview-pill")
-      .map((pill) => pill.closest("a")?.getAttribute("href"))
-      .sort();
-
-    // The same list the docs scope decision ("LABEL preview", section 2.2) names:
-    // MCP servers, OpenAPI integrations, cookbooks, and the Aria assistant and plans.
-    expect(labelled).toEqual([...PREVIEW_DESTINATIONS].sort());
-    // Prompt lifecycle destinations never carry the pill.
-    for (const core of ["/prompts", "/eval-datasets", "/evaluations", "/releases"]) {
-      const link = document.querySelector(`a[href="${core}"]`);
-      expect(link, `missing ${core}`).not.toBeNull();
-      expect(link?.querySelector('[data-testid="nav-preview-pill"]')).toBeNull();
-    }
-  });
-
-  it("keeps a preview link's accessible name free of the pill, and describes it", async () => {
-    stubPlans();
-    const user = userEvent.setup();
-    await renderSidebar();
-    await user.click(await screen.findByTestId("nav-group-toggle-preview"));
-
-    const link = screen.getByRole("link", { name: "Cookbooks" });
-    expect(link).toHaveAccessibleDescription("Preview");
-  });
-
-  it("ties the nav's preview set to the documented scope decision", () => {
-    const doc = readFileSync(
-      resolve(__dirname, "../../../../../docs/caliber-alpha-gaps.md"),
-      "utf8",
-    );
-    const labelRows = doc
-      .split("\n")
-      .filter((line) => line.startsWith("|") && /\*\*LABEL preview\*\*/.test(line));
-    expect(labelRows.length).toBeGreaterThan(0);
-    const row = labelRows.join(" ");
-    for (const phrase of ["MCP servers", "OpenAPI integrations", "cookbooks"]) {
-      expect(row).toContain(phrase);
-    }
-    expect(PREVIEW_DESTINATIONS).toEqual(
-      expect.arrayContaining(["/mcp-servers", "/openapi-integrations", "/cookbooks", "/aria/plans"]),
-    );
+    // A user is not asked to know what "alpha", "beta" or "preview" mean: every destination
+    // the deployment offers is listed plainly, and nothing says otherwise.
+    expect(screen.queryAllByTestId("nav-preview-pill")).toHaveLength(0);
+    const nav = document.querySelector("nav") as HTMLElement;
+    expect(nav.textContent ?? "").not.toMatch(/\b(alpha|beta|preview|experimental)\b/i);
   });
 
   it("opens the group holding the current route and leaves the rest closed", async () => {

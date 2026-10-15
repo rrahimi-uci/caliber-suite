@@ -76,7 +76,6 @@ interface NavItemProps {
   icon: ReactNode;
   label: string;
   badge?: Badge;
-  preview?: boolean;
   small?: boolean;
   external?: boolean;
   onNavigate?: () => void;
@@ -107,17 +106,11 @@ const OPEN_GROUPS_KEY = "caliber.nav.open-groups.v2";
 // so the mobile drawer always shows full labels.
 const CollapsedContext = createContext(false);
 
-/** Id of a preview pill, so its link can describe itself without changing its name. */
-function previewPillId(to: string): string {
-  return `nav-preview-${to.replace(/\W+/g, "-").replace(/^-|-$/g, "")}`;
-}
-
 function NavItem({
   to,
   icon,
   label,
   badge,
-  preview = false,
   small = false,
   external = false,
   onNavigate,
@@ -139,25 +132,8 @@ function NavItem({
             aria-hidden="true"
           />
         )}
-        {preview && (
-          <span
-            className={`absolute -bottom-1 -right-1 w-2 h-2 rounded-full bg-violet-400 ${collapsed ? "hidden md:block" : "hidden"}`}
-            aria-hidden="true"
-          />
-        )}
       </span>
       <span className={`flex-1 font-medium ${collapsed ? "md:hidden" : ""}`}>{label}</span>
-      {preview && (
-        <span
-          id={previewPillId(to)}
-          aria-hidden="true"
-          data-testid="nav-preview-pill"
-          className={`rounded-full bg-violet-100 px-1.5 py-0.5 text-[9px] font-semibold uppercase tracking-wide text-violet-700 ${collapsed ? "md:hidden" : ""}`}
-          title="Preview: works, but outside the supported alpha journey and may change"
-        >
-          Preview
-        </span>
-      )}
       {badge && badge.count > 0 && (
         <span
           className={`ml-auto text-[10px] font-bold px-1.5 py-0.5 rounded-md ${TONE_CLASS[badge.tone]} ${collapsed ? "md:hidden" : ""}`}
@@ -180,7 +156,6 @@ function NavItem({
         className={className}
         onClick={onNavigate}
         title={collapsed ? label : undefined}
-        aria-describedby={preview ? previewPillId(to) : undefined}
       >
         {content}
       </a>
@@ -194,7 +169,6 @@ function NavItem({
       end={false}
       onClick={onNavigate}
       title={collapsed ? label : undefined}
-      aria-describedby={preview ? previewPillId(to) : undefined}
     >
       {content}
     </NavLink>
@@ -208,8 +182,6 @@ interface NavEntry {
   external?: boolean;
   /** Key resolved against the live badge map at render time. */
   badgeKey?: "plans";
-  /** Maturity label. Preview destinations get a pill (and a dot in the icon rail). */
-  tier?: "preview";
   /**
    * The alpha feature flag this destination sits behind. It is hidden unless the server
    * reports the flag on; its route is wrapped in ``FeatureGate`` for the deep-link case.
@@ -274,10 +246,10 @@ const NAV_GROUPS: NavGroup[] = [
     title: "Integrations",
     items: [
       { to: "/gateway", icon: <Network className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "LLM Gateway" },
-      { to: "/mcp-servers", icon: <PlugZap className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "MCP Servers", tier: "preview", feature: "integrations" },
-      { to: "/openapi-integrations", icon: <Globe className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "OpenAPI Integrations", tier: "preview", feature: "integrations" },
-      { to: "/cookbooks", icon: <BookOpen className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Cookbooks", tier: "preview", feature: "cookbooks" },
-      { to: "/aria/plans", icon: <ListChecks className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Plans", badgeKey: "plans", tier: "preview", feature: "aria" },
+      { to: "/mcp-servers", icon: <PlugZap className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "MCP Servers", feature: "integrations" },
+      { to: "/openapi-integrations", icon: <Globe className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "OpenAPI Integrations", feature: "integrations" },
+      { to: "/cookbooks", icon: <BookOpen className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Cookbooks", feature: "cookbooks" },
+      { to: "/aria/plans", icon: <ListChecks className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Plans", badgeKey: "plans", feature: "aria" },
     ],
   },
   {
@@ -581,7 +553,6 @@ function NavGroupSection({
               label={item.label}
               external={item.external}
               badge={item.badgeKey ? badges[item.badgeKey] : undefined}
-              preview={item.tier === "preview"}
               onNavigate={onNavigate}
             />
           ))}

@@ -45,7 +45,7 @@ Read [`../ARIA-AUTONOMY.md`](../ARIA-AUTONOMY.md) and [`../FEASIBILITY.md`](../F
 
 - A configured model provider for the judge to run in **Evaluations** (creating
   the kit needs none). Aria Plans enabled (`CALIBER_FEATURE_ARIA=true`; sidebar
-  **Integrations › Plans**, a Preview page) and the operator role.
+  **Integrations › Plans**) and the operator role.
 
 ## Recipe (UI-first, with API fallbacks)
 
