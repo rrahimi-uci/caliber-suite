@@ -1,0 +1,7 @@
+INFO     caliber:server.py:558 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:599 CALIBER tracing: autolog enabled for openai
+WARNING  caliber:server.py:377 session auth is enabled but no account exists and no bootstrap password source is configured, so nobody can log in. Set CALIBER_AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV to the name of an environment variable holding the admin password, or for a local-only install set CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true together with CALIBER_AUTH_SESSION_COOKIE_SECURE=false
+INFO     caliber:server.py:345 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
+INFO     caliber:server.py:930 CALIBER assistant engine: fake (configured=fake)
+WARNING  caliber.routes.auth:auth.py:196 failed sign-in for 'admin' from testclient
+INFO     httpx2:_client.py:1085 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login "HTTP/1.1 401 Unauthorized"

@@ -1,0 +1,1 @@
+{"t":"2026-10-15T18:52:55.071Z","severity":"INFO","logger":"caliber.observability.worker_registry","message":"removed 32 stale workflow_run heartbeat row(s) older than 300s"}

@@ -1,8 +1,0 @@
-{"t":"2026-10-15T17:23:43.399Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-10-15T17:23:46.188Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-10-15T17:23:50.873Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
-{"t":"2026-10-15T17:23:53.536Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-10-15T17:23:56.744Z","severity":"INFO","logger":"botocore.credentials","message":"Found credentials in environment variables."}
-{"t":"2026-10-15T17:24:01.340Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets \"HTTP/1.1 201 Created\""}
-{"t":"2026-10-15T17:24:06.947Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/deps3/objects \"HTTP/1.1 201 Created\""}
-{"t":"2026-10-15T17:24:08.886Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/object-store/buckets/deps3/object/extract?key=book.xlsx \"HTTP/1.1 200 OK\""}

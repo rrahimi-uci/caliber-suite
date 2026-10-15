@@ -1,0 +1,1 @@
+WARNING  caliber.workspace_release_prompt_adapter:workspace_release_prompt_adapter.py:128 mlflow not installed; prompt adapter operations unavailable

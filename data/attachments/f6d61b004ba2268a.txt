@@ -1,0 +1,1 @@
+WARNING  caliber.extensibility.registry:registry.py:266 optimizer plugin acme-caliber-optimizers failed to load: AttributeError: module 'acme_caliber' has no attribute 'no_such_name'

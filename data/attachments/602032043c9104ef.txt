@@ -1,0 +1,2 @@
+INFO     caliber.workspace_import_worker:workspace_import_worker.py:247 workspace-import worker: best-effort source verification for WSS-import-worker failed: source verification temporarily unavailable
+INFO     caliber.workspace_import_worker:workspace_import_worker.py:339 workspace-import worker materialized WSI-35cb97aa -> revision WSR-a287663a (replayed=False)
