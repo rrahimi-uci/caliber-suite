@@ -1,0 +1,1 @@
+WARNING  caliber.routes.observability:observability.py:503 gateway usage search failed (boom); returning empty series

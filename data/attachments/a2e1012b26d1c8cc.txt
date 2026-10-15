@@ -1,0 +1,3 @@
+user_id   anonymous
+scopes    -
+is_admin  no
