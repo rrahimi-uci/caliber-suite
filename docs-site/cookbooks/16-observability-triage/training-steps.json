@@ -23,8 +23,8 @@
       "asset": "root cause (read from the trace)"
     },
     {
-      "where": "Core journey › Test Sets › New test set,  then  Operate › Observability › Add to test set",
-      "do": "Turn this failure into durable regression evidence. The Observability picker only attaches a trace to an <em>existing</em> test set — there is no create option there — so first create the set out-of-band: go to <strong>Core journey › Test Sets</strong>, click <strong>+ New Test Set</strong>, name it <code>prod-regression</code>, fill the required <strong>Owner</strong> with your handle, and Create. Then return to <strong>Observability</strong>, open the failing trace, click <strong>Add to test set</strong>, pick <code>prod-regression</code> from the <strong>Choose a test set…</strong> dropdown, and click <strong>Add example</strong>. The capture sends only the trace id: the trace's request becomes the input and its response becomes the expected — so for an error/regression trace you are capturing the <em>failing</em> output, and the correct gold expectation must be set by hand later (or via the from-trace API's optional <code>expected</code> override). Repeat for 2–3 representative failing traces so you have a small, real regression slice.",
+      "where": "Prompt lifecycle › Test Sets › New test set,  then  Operate › Observability › Add to test set",
+      "do": "Turn this failure into durable regression evidence. The Observability picker only attaches a trace to an <em>existing</em> test set — there is no create option there — so first create the set out-of-band: go to <strong>Prompt lifecycle › Test Sets</strong>, click <strong>+ New Test Set</strong>, name it <code>prod-regression</code>, fill the required <strong>Owner</strong> with your handle, and Create. Then return to <strong>Observability</strong>, open the failing trace, click <strong>Add to test set</strong>, pick <code>prod-regression</code> from the <strong>Choose a test set…</strong> dropdown, and click <strong>Add example</strong>. The capture sends only the trace id: the trace's request becomes the input and its response becomes the expected — so for an error/regression trace you are capturing the <em>failing</em> output, and the correct gold expectation must be set by hand later (or via the from-trace API's optional <code>expected</code> override). Repeat for 2–3 representative failing traces so you have a small, real regression slice.",
       "fill": [
         ["Test Sets → + New Test Set", "Name <code>prod-regression</code>, Owner <code>@you</code> (required), then Create"],
         ["Observability → Add to test set", "pick <code>prod-regression</code> from the <strong>Choose a test set…</strong> dropdown"]
@@ -68,13 +68,13 @@
       "asset": "triaged labels (written back to the trace)"
     },
     {
-      "where": "Core journey › Test Sets › prod-regression",
-      "do": "Confirm the regression slice. Open <strong>Test Sets</strong> (under <strong>Core journey</strong>) and select <code>prod-regression</code> — it now holds the failing examples you captured. This is the durable set you'll re-run after a fix ships to prove the regression is actually closed.",
+      "where": "Prompt lifecycle › Test Sets › prod-regression",
+      "do": "Confirm the regression slice. Open <strong>Test Sets</strong> (under <strong>Prompt lifecycle</strong>) and select <code>prod-regression</code> — it now holds the failing examples you captured. This is the durable set you'll re-run after a fix ships to prove the regression is actually closed.",
       "see": "The <code>prod-regression</code> test set lists your captured examples at version 1, each with the trace's request as the input and its response auto-derived as the expected (correct the gold by hand where needed).",
       "asset": "regression slice (durable)"
     },
     {
-      "where": "Core journey › Evaluations › Run evaluation",
+      "where": "Prompt lifecycle › Evaluations › Run evaluation",
       "do": "(Optional) Put a number on the failure. Click <strong>Run evaluation</strong>, pick <strong>Test set</strong> = <code>prod-regression</code>, give it a <strong>Label</strong> (e.g. <code>prod baseline</code>), check the deterministic grader <strong>Contains expected</strong>, and click <strong>Run</strong>. Open the run to read the current pass/fail — your operational baseline. After a fix ships, re-run the same set and confirm the failure rate drops.",
       "fill": [
         ["Test set", "<code>prod-regression</code>"],

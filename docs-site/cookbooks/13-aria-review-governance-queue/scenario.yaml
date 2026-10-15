@@ -15,7 +15,7 @@ caliber_surfaces:
   - Review Queues
   - Observability
 prerequisites:
-  - Aria Plans available (sidebar "Plans", under "Integrations and preview"). No model provider is needed to create the queue.
+  - Aria Plans available (sidebar "Plans", under "Integrations"). No model provider is needed to create the queue.
   - Flagged trace ids on hand if you intend to enqueue items (optional — the queue can be created first and filled later).
 time_to_first_value: 15-30 minutes
 success_criteria:

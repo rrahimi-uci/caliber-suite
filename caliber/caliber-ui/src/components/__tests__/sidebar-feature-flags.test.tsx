@@ -94,7 +94,7 @@ describe("Sidebar feature flags", () => {
       expect(await within(panel).findByText(label)).toBeInTheDocument();
     }
     expect(screen.getByTestId("nav-group-toggle-preview")).toHaveTextContent(
-      "Integrations and preview",
+      /^Integrations$/,
     );
   });
 
@@ -114,10 +114,7 @@ describe("Sidebar feature flags", () => {
       expect(screen.queryByText(label)).not.toBeInTheDocument();
     }
     expect(screen.queryByTestId("nav-preview-pill")).not.toBeInTheDocument();
-    // The group is not empty (LLM Gateway stays), so it stays, without "and preview".
-    expect(
-      screen.queryByText("Integrations and preview"),
-    ).not.toBeInTheDocument();
+    // The group is not empty (LLM Gateway stays), so it stays, with the same neutral title.
     // Aria is off, so the sidebar must not poll its plans (that route answers 404).
     expect(planPolls()).toBe(0);
   });
@@ -132,7 +129,7 @@ describe("Sidebar feature flags", () => {
     expect(within(panel).queryByText("Cookbooks")).not.toBeInTheDocument();
     expect(within(panel).queryByText("Plans")).not.toBeInTheDocument();
     expect(screen.getByTestId("nav-group-toggle-preview")).toHaveTextContent(
-      "Integrations and preview",
+      /^Integrations$/,
     );
     expect(planPolls()).toBe(0);
   });

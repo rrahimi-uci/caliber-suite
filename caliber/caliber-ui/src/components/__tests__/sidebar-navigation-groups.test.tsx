@@ -197,7 +197,7 @@ describe("Sidebar navigation groups", () => {
     // The same list the docs scope decision ("LABEL preview", section 2.2) names:
     // MCP servers, OpenAPI integrations, cookbooks, and the Aria assistant and plans.
     expect(labelled).toEqual([...PREVIEW_DESTINATIONS].sort());
-    // Core journey destinations never carry the pill.
+    // Prompt lifecycle destinations never carry the pill.
     for (const core of ["/prompts", "/eval-datasets", "/evaluations", "/releases"]) {
       const link = document.querySelector(`a[href="${core}"]`);
       expect(link, `missing ${core}`).not.toBeNull();

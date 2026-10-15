@@ -220,11 +220,6 @@ interface NavEntry {
 interface NavGroup {
   id: string;
   title: string;
-  /**
-   * The title when no preview destination is left in the group (every flag off). "Integrations
-   * and preview" over the LLM Gateway alone would promise previews that are not there.
-   */
-  titleWithoutPreview?: string;
   items: NavEntry[];
 }
 
@@ -240,7 +235,7 @@ interface NavGroup {
 const NAV_GROUPS: NavGroup[] = [
   {
     id: "core",
-    title: "Core journey",
+    title: "Prompt lifecycle",
     items: [
       { to: "/prompts", icon: <MessageSquareText className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Prompts" },
       { to: "/eval-datasets", icon: <FlaskConical className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Test Sets" },
@@ -250,7 +245,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     id: "extended",
-    title: "Also in the alpha",
+    title: "Agent resources",
     items: [
       { to: "/skills", icon: <Puzzle className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Skills" },
       { to: "/tools", icon: <Wrench className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Tools" },
@@ -276,8 +271,7 @@ const NAV_GROUPS: NavGroup[] = [
   },
   {
     id: "preview",
-    title: "Integrations and preview",
-    titleWithoutPreview: "Integrations",
+    title: "Integrations",
     items: [
       { to: "/gateway", icon: <Network className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "LLM Gateway" },
       { to: "/mcp-servers", icon: <PlugZap className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "MCP Servers", tier: "preview", feature: "integrations" },
@@ -323,9 +317,7 @@ function visibleNavGroups(isEnabled: (id: FeatureId) => boolean): NavGroup[] {
   return NAV_GROUPS.flatMap((group) => {
     const items = group.items.filter((item) => !item.feature || isEnabled(item.feature));
     if (items.length === 0) return [];
-    const hasPreview = items.some((item) => item.tier === "preview");
-    const title = !hasPreview && group.titleWithoutPreview ? group.titleWithoutPreview : group.title;
-    return [{ ...group, title, items }];
+    return [{ ...group, items }];
   });
 }
 

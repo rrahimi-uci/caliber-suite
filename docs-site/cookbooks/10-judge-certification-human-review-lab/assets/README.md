@@ -6,10 +6,10 @@ trusted to block releases. Build order:
 
 | # | Artifact | File | Create via |
 | --- | --- | --- | --- |
-| 1 | Eval dataset `judge-certification-set` | [`dataset/aggregated-outputs.jsonl`](dataset/aggregated-outputs.jsonl) | **Prefer harvest-from-trace.** For each SCN-07/08 run you want graded: `Core journey → Test Sets → New dataset`, then `POST /eval-datasets/{id}/examples/from-trace {trace_id}` (auto-extracts `inputs`/`outputs`/`expectations`). To seed without live traces, `POST /eval-datasets/{id}/examples` per line. |
-| 2 | Judge `FaithfulnessJudge` | [`judges/faithfulness-judge.judge.json`](judges/faithfulness-judge.judge.json) | `Also in the alpha → Judges → New judge`, paste fields. API: `POST /judges`. |
+| 1 | Eval dataset `judge-certification-set` | [`dataset/aggregated-outputs.jsonl`](dataset/aggregated-outputs.jsonl) | **Prefer harvest-from-trace.** For each SCN-07/08 run you want graded: `Prompt lifecycle → Test Sets → New dataset`, then `POST /eval-datasets/{id}/examples/from-trace {trace_id}` (auto-extracts `inputs`/`outputs`/`expectations`). To seed without live traces, `POST /eval-datasets/{id}/examples` per line. |
+| 2 | Judge `FaithfulnessJudge` | [`judges/faithfulness-judge.judge.json`](judges/faithfulness-judge.judge.json) | `Agent resources → Judges → New judge`, paste fields. API: `POST /judges`. |
 | 3 | Review queue `faithfulness-certification` | [`review/review-questions.json`](review/review-questions.json) | `Operate → Review Queues → New queue`, add the questions. API: `POST /review-queues`. |
-| 4 | (optional) Skill `rubric-question-writer` | [`skills/rubric-question-writer.md`](skills/rubric-question-writer.md) | `Also in the alpha → Skills → New skill`, paste body. API: `POST /skills`. Helps draft single-criterion questions; not required to run the gate. |
+| 4 | (optional) Skill `rubric-question-writer` | [`skills/rubric-question-writer.md`](skills/rubric-question-writer.md) | `Agent resources → Skills → New skill`, paste body. API: `POST /skills`. Helps draft single-criterion questions; not required to run the gate. |
 | 5 | Alignment evidence | [`alignment/alignment-worksheet.md`](alignment/alignment-worksheet.md) | Optional paper cross-check only; the Judges **Human alignment** mode imports completed queue labels (**Import labels**) and computes the metrics (**Check alignment**). |
 
 ## Run order (the certification loop)
@@ -24,7 +24,7 @@ trusted to block releases. Build order:
    is supported by `{{ expectations }}`. The instructions reference
    `{{ inputs }}`/`{{ outputs }}`/`{{ expectations }}` (the UI requires at least
    one). `FaithfulnessJudge` is the real `custom_judge` from `verification.yaml`.
-3. **Run baseline + candidate (step 3).** `Core journey → Evaluations → Run
+3. **Run baseline + candidate (step 3).** `Prompt lifecycle → Evaluations → Run
    evaluation` on the dataset with scorer `Judge.FaithfulnessJudge` — once on the
    baseline artifact, once on the candidate (e.g. before/after a prompt change).
    Capture both run ids; in the candidate scorecard, select the baseline to see

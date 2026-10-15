@@ -1,7 +1,7 @@
 workflow_goal: Provide deterministic release signoff based on scenario evidence and explicit thresholds.
 # Verified against the live build — see ../FEASIBILITY.md.
 feasibility:
-  - Releases (Core journey) is a Preview, record-only page - signing off records a decision and deploys or rolls back nothing.
+  - Releases (Prompt lifecycle) is a Preview, record-only page - signing off records a decision and deploys or rolls back nothing.
   - The release score IS computed in-product - POST candidates stores weighted criteria (weight, observed score, threshold, blocking, evidence_refs) and the server recomputes weighted_score = sum(weight x score) / sum(weight) plus the blockers (blocking criteria below threshold and not waived); status is ready only when weighted_score >= required_score and no blocker remains. There is no route that edits a candidate - Re-evaluate recomputes from stored criteria and waivers.
   - Evidence sources are real references (Evaluations run ids/scorecards, Review Queues completion, Observability traces) entered as criteria/evidence JSON; the "Generate Allure" button creates a durable in-product Allure-compatible JSON report job (with a SHA-256 of the candidate snapshot). The static Allure HTML at Settings -> Allure Report is separate CI evidence produced by the test tooling.
   - Waivers and final signoff are admin-only. The UI waiver form has a criterion key and a reason (the API also accepts expires_at; the UI has no expiry field). The planned action is not a UI field (the UI records promote_<artifact type> -> prod). Sign off GO needs a ready candidate, planned action, rollback target and a rationale of at least 8 characters.

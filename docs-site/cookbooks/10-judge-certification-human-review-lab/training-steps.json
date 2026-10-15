@@ -1,8 +1,8 @@
 {
   "steps": [
     {
-      "where": "Core journey › Test Sets",
-      "do": "First make an empty test set to hold the outputs you want to certify. Click <strong>Test Sets</strong> in the left sidebar (under <strong>Core journey</strong>), then start a new one. Once it exists you can open its detail page at <code>/eval-datasets/:id</code> and use <strong>+ Add example</strong> to author rows directly; in this lab you will instead harvest rows from real traces in the next step.",
+      "where": "Prompt lifecycle › Test Sets",
+      "do": "First make an empty test set to hold the outputs you want to certify. Click <strong>Test Sets</strong> in the left sidebar (under <strong>Prompt lifecycle</strong>), then start a new one. Once it exists you can open its detail page at <code>/eval-datasets/:id</code> and use <strong>+ Add example</strong> to author rows directly; in this lab you will instead harvest rows from real traces in the next step.",
       "fill": [
         [
           "Name",
@@ -47,8 +47,8 @@
       ]
     },
     {
-      "where": "Also in the alpha › Judges › + New Judge",
-      "do": "Create the automated judge. Open <strong>Judges</strong> (under <strong>Also in the alpha</strong>) and click <strong>+ New Judge</strong>. Paste the fields from <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/judges/faithfulness-judge.judge.json\">faithfulness-judge.judge.json</a>. The <strong>Instructions</strong> must reference at least one of <code>{{ inputs }}</code> / <code>{{ outputs }}</code> / <code>{{ expectations }}</code> — the form enforces this. Set <strong>Returns</strong> to <code>bool</code> so the verdict is pass(true)/fail(false).",
+      "where": "Agent resources › Judges › + New Judge",
+      "do": "Create the automated judge. Open <strong>Judges</strong> (under <strong>Agent resources</strong>) and click <strong>+ New Judge</strong>. Paste the fields from <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/judges/faithfulness-judge.judge.json\">faithfulness-judge.judge.json</a>. The <strong>Instructions</strong> must reference at least one of <code>{{ inputs }}</code> / <code>{{ outputs }}</code> / <code>{{ expectations }}</code> — the form enforces this. Set <strong>Returns</strong> to <code>bool</code> so the verdict is pass(true)/fail(false).",
       "fill": [
         [
           "Name",
@@ -78,8 +78,8 @@
       ]
     },
     {
-      "where": "Core journey › Evaluations › Run evaluation",
-      "do": "Score the dataset for the <strong>baseline</strong> artifact first. Open <strong>Evaluations</strong> (under <strong>Core journey</strong>) and click <strong>Run evaluation</strong>. Pick the test set and label this run as the baseline. Tick the built-in deterministic scorers you want under <strong>Graders</strong> (Exact match, Token F1, Contains expected, Non-empty) for the <code>overall_eval_score</code> the gate needs, and also tick <code>FaithfulnessJudge</code> under <strong>Custom LLM judges</strong> so the run records an automatic per-row faithfulness verdict (it executes as the <code>Judge.&lt;id&gt;</code> scorer).",
+      "where": "Prompt lifecycle › Evaluations › Run evaluation",
+      "do": "Score the dataset for the <strong>baseline</strong> artifact first. Open <strong>Evaluations</strong> (under <strong>Prompt lifecycle</strong>) and click <strong>Run evaluation</strong>. Pick the test set and label this run as the baseline. Tick the built-in deterministic scorers you want under <strong>Graders</strong> (Exact match, Token F1, Contains expected, Non-empty) for the <code>overall_eval_score</code> the gate needs, and also tick <code>FaithfulnessJudge</code> under <strong>Custom LLM judges</strong> so the run records an automatic per-row faithfulness verdict (it executes as the <code>Judge.&lt;id&gt;</code> scorer).",
       "fill": [
         [
           "Test set",
@@ -99,7 +99,7 @@
       "asset": "Baseline evaluation run id"
     },
     {
-      "where": "Core journey › Evaluations › Run evaluation",
+      "where": "Prompt lifecycle › Evaluations › Run evaluation",
       "do": "Score the same dataset again, this time for the <strong>candidate</strong> artifact (e.g. after a prompt change). Click <strong>Run evaluation</strong> a second time, pick the same test set and the same deterministic graders, and label it <code>candidate</code>.",
       "fill": [
         [
@@ -120,7 +120,7 @@
       "asset": "Candidate evaluation run id"
     },
     {
-      "where": "Core journey › Evaluations › (candidate run)",
+      "where": "Prompt lifecycle › Evaluations › (candidate run)",
       "do": "Open the candidate run from the Evaluations table to see its scorecard. Use the <strong>Compare to</strong> dropdown at the top to pick the baseline run — the per-example table now shows score deltas (pp) versus baseline for each scorer. Read the <strong>FaithfulnessJudge</strong> column: because you ran it as a <code>Judge.&lt;id&gt;</code> scorer, each row already carries an automatic pass/fail faithfulness verdict alongside the deterministic graders. In this dataset the partial-evidence rows <code>J03</code> and <code>J07</code> are the ones a strict reading marks <em>false</em> — confirm the judge flags them. Note this per-row judge verdict for the alignment check later.",
       "fill": [
         [
@@ -187,7 +187,7 @@
       "asset": "Completed, trace-linked reviewer answers"
     },
     {
-      "where": "Also in the alpha › Judges › FaithfulnessJudge › Try it › Human alignment",
+      "where": "Agent resources › Judges › FaithfulnessJudge › Try it › Human alignment",
       "do": "Compute alignment <strong>in the product</strong>. In <strong>Judges</strong>, click <strong>Try it</strong> on FaithfulnessJudge and switch to <strong>Human alignment</strong>. Choose the <code>faithfulness-certification</code> queue in the <strong>Import from Review Queue…</strong> dropdown, pick its pass/fail <code>faithful</code> question, and click <strong>Import labels</strong> — CALIBER loads each completed reviewer label (with queue, item, trace, question, reviewer and assessment provenance) as a row. Click <strong>Check alignment</strong>: the judge runs on each output and CALIBER reports <strong>agreement rate</strong>, <strong>Cohen's κ</strong>, and <strong>FP/FN</strong>. (You can also type rows by hand with <strong>+ Add example</strong>.) Expected shape: the five clear rows agree; <code>J03</code> and <code>J07</code> are the deliberate disagreements (judge fail, human pass). The offline <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/alignment/alignment-worksheet.md\">alignment-worksheet.md</a> is an optional paper cross-check.",
       "fill": [
         [
@@ -210,7 +210,7 @@
       "click": "Check alignment"
     },
     {
-      "where": "Operate › Observability  +  Core journey › Evaluations",
+      "where": "Operate › Observability  +  Prompt lifecycle › Evaluations",
       "do": "Close the loop on every disagreement. For each <code>agree? = no</code> row, harvest that reviewed trace back into the dataset: in <strong>Observability</strong> open the trace, find the <strong>Add to test set</strong> panel, choose <code>judge-certification-set</code> under <strong>Choose test set</strong>, and click <strong>Add example</strong> so the hard case becomes a permanent certification row. Then reword either the judge Instructions (in Judges) or the <code>faithful</code> question (in the Review Queue) so both express the same clarified criterion, re-run the Evaluations scorecard (with FaithfulnessJudge ticked) over the grown set for fresh per-row verdicts, and re-check alignment in the Judges Human-alignment view until it clears the gate.",
       "fill": [
         [
@@ -233,8 +233,8 @@
       ]
     },
     {
-      "where": "Also in the alpha › Skills › Build Skill",
-      "do": "(Optional) If you want help wording single-criterion questions, register the helper skill. Open <strong>Skills</strong> (under <strong>Also in the alpha</strong>), click <strong>Build Skill</strong>, and paste the body from <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/skills/rubric-question-writer.md\">rubric-question-writer.md</a> (the kebab-case name <code>rubric-question-writer</code>; <code>claude*</code>/<code>anthropic*</code> prefixes are rejected). This is not required to pass the gate.",
+      "where": "Agent resources › Skills › Build Skill",
+      "do": "(Optional) If you want help wording single-criterion questions, register the helper skill. Open <strong>Skills</strong> (under <strong>Agent resources</strong>), click <strong>Build Skill</strong>, and paste the body from <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/skills/rubric-question-writer.md\">rubric-question-writer.md</a> (the kebab-case name <code>rubric-question-writer</code>; <code>claude*</code>/<code>anthropic*</code> prefixes are rejected). This is not required to pass the gate.",
       "fill": [
         [
           "Name",

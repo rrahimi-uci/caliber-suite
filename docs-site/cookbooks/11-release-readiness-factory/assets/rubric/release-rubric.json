@@ -1,5 +1,5 @@
 {
-  "_comment": "Criteria guide for the SCN-11 release candidate on Releases (Core journey). Enter each dimension as a criterion in the candidate's criteria JSON (key, title, weight, observed score 0..1, threshold, blocking, evidence_refs); the server then computes weighted_score = sum(weight x score) / sum(weight) and the blockers, and sets the candidate ready or blocked. The status_to_factor mapping below is only a suggested way to derive each observed score from the evidence in dataset/run-id-manifest.json. Weights mirror verification.yaml; enter overall_release_score_min as the candidate's required score. Releases is Preview, record-only.",
+  "_comment": "Criteria guide for the SCN-11 release candidate on Releases (Prompt lifecycle). Enter each dimension as a criterion in the candidate's criteria JSON (key, title, weight, observed score 0..1, threshold, blocking, evidence_refs); the server then computes weighted_score = sum(weight x score) / sum(weight) and the blockers, and sets the candidate ready or blocked. The status_to_factor mapping below is only a suggested way to derive each observed score from the evidence in dataset/run-id-manifest.json. Weights mirror verification.yaml; enter overall_release_score_min as the candidate's required score. Releases is Preview, record-only.",
   "version": "1",
   "scoring": {
     "_comment": "Per dimension, mark a status and convert it to a suggested observed score (factor). The server computes overall = sum(weight * score) / sum(weight); the arithmetic in worked_example shows what it will report.",
@@ -10,7 +10,7 @@
       "key": "component_readiness",
       "weight": 0.30,
       "satisfied_by": "Component-level evidence is green and recorded: prompt/tool/skill scorecards from the upstream scenarios pass. Concretely, every SCN-07/08/09/10 eval_run_id is filled and its scorecard passes its own gate.",
-      "evidence_source": "dataset/run-id-manifest.json -> scenarios[].eval_run_id (Core journey -> Evaluations scorecards)",
+      "evidence_source": "dataset/run-id-manifest.json -> scenarios[].eval_run_id (Prompt lifecycle -> Evaluations scorecards)",
       "pass_if": "all required eval_run_id present AND each scorecard passes",
       "partial_if": "some scorecards pass, others missing or below their gate",
       "fail_if": "any required eval_run_id missing OR any scorecard fails"

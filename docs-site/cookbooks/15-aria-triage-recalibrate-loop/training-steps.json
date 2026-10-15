@@ -1,7 +1,7 @@
 {
   "steps": [
     {
-      "where": "Also in the alpha › Workflows (prerequisite)",
+      "where": "Agent resources › Workflows (prerequisite)",
       "do": "<strong>Prerequisite — this loop remediates things that already exist.</strong> Before starting, build and run the <strong>Support Triage Copilot</strong> from cookbook 07 so you have a real workflow with recent runs. You will need three real ids from it: a few <em>flagged trace ids</em>, the <em>workflow_id</em>, and an <em>agent_id</em> bound in that workflow. Aria does not create the subject workflow or its traces.",
       "see": "An existing workflow (from SCN-07) listed under <strong>Workflows</strong>, with recent runs you can open."
     },
@@ -21,8 +21,8 @@
       "see": "A filtered list of trace rows (each showing the trace <em>name</em> + an <em>ERROR</em> status badge). Selecting a row opens its detail and puts the full <code>trace_id</code> in the URL — keep those ids handy for the enqueue step."
     },
     {
-      "where": "Integrations and preview › Plans › New goal",
-      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_ARIA=true</code> on the CALIBER server and restart it; Aria and the Plans page are off by default. In the sidebar, under <strong>Integrations and preview</strong> (the page carries a <strong>Preview</strong> badge), click <strong>Plans</strong>. Type Aria's one-line intent into the <strong>Goal</strong> box, verbatim — the phrase <code>review queue</code> proposes both queue steps and the word <code>workflow</code> (calibration) proposes the calibrate step. Set <strong>Autonomy</strong> to <strong>Stop before each change</strong> (the <code>ask_each</code> level).",
+      "where": "Integrations › Plans › New goal",
+      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_ARIA=true</code> on the CALIBER server and restart it; Aria and the Plans page are off by default. In the sidebar, under <strong>Integrations</strong> (the page carries a <strong>Preview</strong> badge), click <strong>Plans</strong>. Type Aria's one-line intent into the <strong>Goal</strong> box, verbatim — the phrase <code>review queue</code> proposes both queue steps and the word <code>workflow</code> (calibration) proposes the calibrate step. Set <strong>Autonomy</strong> to <strong>Stop before each change</strong> (the <code>ask_each</code> level).",
       "fill": [
         [
           "Goal",
@@ -38,7 +38,7 @@
       "asset": "Aria plan (draft)"
     },
     {
-      "where": "Integrations and preview › Plans › PLAN-… (draft)",
+      "where": "Integrations › Plans › PLAN-… (draft)",
       "do": "Confirm Aria decomposed the sentence into the three remediation steps. Note the third step, <code>workflow.calibrate</code>, is Aria's first <strong>async</strong> capability. Compare against <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/expected-plan.json\">expected-plan.json</a>.",
       "fill": [
         [
@@ -63,19 +63,19 @@
       ]
     },
     {
-      "where": "Integrations and preview › Plans › PLAN-… (draft)",
+      "where": "Integrations › Plans › PLAN-… (draft)",
       "do": "Approve the plan shape. Click <strong>Approve plan</strong> in the top-right of the plan header.",
       "click": "Approve plan",
       "see": "The status badge flips from <strong>DRAFT</strong> to <strong>APPROVED</strong>, and an <strong>Execute</strong> button appears."
     },
     {
-      "where": "Integrations and preview › Plans › PLAN-… (approved)",
+      "where": "Integrations › Plans › PLAN-… (approved)",
       "do": "Start running the plan. Click <strong>Execute</strong>. Aria reaches the first step, <code>review_queue.create</code>, but the planner could not know your queue's name or question schema, so it pauses on a violet <strong>Aria needs information</strong> form with two buttons, <strong>Continue plan</strong> and <strong>Skip step</strong>. Each of the three steps works the same way: an input form for the fields the planner could not fill, then (under <em>ask_each</em>) an <strong>Approve</strong> / <strong>Deny</strong> prompt.",
       "click": "Execute",
       "see": "The <code>review_queue.create</code> row shows <em>WAITING INPUT</em> and an <strong>Aria needs information</strong> form is open above the step list."
     },
     {
-      "where": "Integrations and preview › Plans › PLAN-… (input form)",
+      "where": "Integrations › Plans › PLAN-… (input form)",
       "do": "Fill the review-queue form from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/review-queues/triage-review.queue.json\">triage-review.queue.json</a>: the <strong>name</strong>, a <strong>description</strong>, and the four-question <strong>questions</strong> JSON array (the form rejects invalid JSON). Note two special types: <code>failure_mode</code> is <em>categorical</em> (with options) and <code>expected_answer</code> uses target <strong>expectation</strong> (its answer becomes ground truth on the trace). Click <strong>Continue plan</strong>, then <strong>Approve</strong>.",
       "fill": [
         [
@@ -102,7 +102,7 @@
       ]
     },
     {
-      "where": "Integrations and preview › Plans › PLAN-… (input form)",
+      "where": "Integrations › Plans › PLAN-… (input form)",
       "do": "Enqueue the real flagged traces (the <code>review_queue.add_items</code> step). The planner linked this step's <code>queue_id</code> to the queue just created, so the form asks only for <strong>trace ids</strong> (a JSON array; optional experiment id and assignee). Enter the <strong>real</strong> trace ids you noted from Observability — replace the placeholders in <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/enqueue.json\">enqueue.json</a> — click <strong>Continue plan</strong>, then <strong>Approve</strong>.",
       "fill": [
         [
@@ -121,7 +121,7 @@
       ]
     },
     {
-      "where": "Integrations and preview › Plans › PLAN-… (input form)",
+      "where": "Integrations › Plans › PLAN-… (input form)",
       "do": "Kick off the workflow calibration (the <code>workflow.calibrate</code> step). Enter the <strong>real</strong> <code>workflow_id</code> and <code>agent_id</code> from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/calibrate.json\">calibrate.json</a> (the SCN-07 workflow and the agent bound in it), click <strong>Continue plan</strong>, then <strong>Approve</strong>. Approving enqueues a real workflow-calibration (refinement) job; the step <strong>parks</strong> in <em>WAITING JOB</em> and the plan stays <strong>RUNNING</strong> — it does not pause for a human.",
       "fill": [
         [
@@ -144,13 +144,13 @@
       ]
     },
     {
-      "where": "Integrations and preview › Plans › PLAN-… (waiting on a job)",
+      "where": "Integrations › Plans › PLAN-… (waiting on a job)",
       "do": "Let the async job run. This is the genuinely asynchronous part of the loop and there is nothing to click: the plan worker polls the job about every 10 seconds and resumes the plan by itself. Refresh the plan page (the Plans UI has no Poll button) until the step leaves <em>WAITING JOB</em>. The job counts as done when it reaches <code>candidate_ready</code> (or <code>applied</code>); <code>rejected</code>, <code>failed</code> or <code>error</code> fails the step and the plan. The plan does not apply the candidate. (Over the API, <code>POST /aria/plans/{id}/poll</code> advances it on demand.) With the default fake evaluator the job's scores are canned.",
       "see": "The <code>workflow.calibrate</code> row flips to <em>DONE</em> and the plan reaches <strong>COMPLETED</strong> with all three steps done.",
       "asset": "Plan resumed and completed after the async job"
     },
     {
-      "where": "Operate › Review Queues  +  Also in the alpha › Workflows",
+      "where": "Operate › Review Queues  +  Agent resources › Workflows",
       "do": "Final verification across surfaces. <strong>Review Queues › weak-runs-triage</strong> shows the flagged traces enqueued and ready to review. <strong>Workflows › (your workflow) › Calibration runs</strong> shows the calibration job at <em>candidate ready</em> (or <em>applied</em>). The Aria plan (under <strong>Plans</strong>, status <strong>COMPLETED</strong>, all three steps done) is the orchestration record for the whole triage → remediation loop.",
       "see": "A populated <code>weak-runs-triage</code> queue, a finished calibration run on the workflow, and a completed Aria plan — the governance → remediation loop end to end."
     },

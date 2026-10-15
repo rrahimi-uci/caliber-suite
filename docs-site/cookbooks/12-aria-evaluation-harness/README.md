@@ -36,7 +36,7 @@ Read [`../ARIA-AUTONOMY.md`](../ARIA-AUTONOMY.md) and [`../FEASIBILITY.md`](../F
 
 - A configured model provider for the judge to run in **Evaluations** (creating
   the judge and test set needs none). Aria Plans enabled (`CALIBER_FEATURE_ARIA=true`;
-  sidebar **Integrations and preview › Plans**, a Preview page); you need the
+  sidebar **Integrations › Plans**, a Preview page); you need the
   operator role to create judges and test sets.
 
 ## Recipe (UI-first, with API fallbacks)

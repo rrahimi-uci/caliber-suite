@@ -1222,7 +1222,7 @@ describe("App shell end-to-end journeys", () => {
 
     // Then we navigate through the *real* app router using the sidebar link,
     // validating that shell + route composition works end-to-end.
-    // Skills lives in the "Also in the alpha" group, which starts closed on /prompts.
+    // Skills lives in the "Agent resources" group, which starts closed on /prompts.
     await userEvent.click(screen.getByTestId("nav-group-toggle-extended"));
     await userEvent.click(screen.getByRole("link", { name: "Skills" }));
     expect(

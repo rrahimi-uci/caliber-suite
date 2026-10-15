@@ -136,7 +136,7 @@ worker advances parked plans automatically (about every 10 seconds,
 `POST /aria/plans/{id}/poll` does the same on demand. The **Plans** UI has no
 Poll button — refresh the plan page.
 
-UI: sidebar **Integrations and preview › Plans** → `/aria/plans`
+UI: sidebar **Integrations › Plans** → `/aria/plans`
 (`AriaPlans.tsx`; a Preview page). Buttons: **Decompose goal**, **Approve plan**,
 **Execute** / **Resume**, **Continue plan** / **Skip step** (input form),
 **Approve** / **Deny** (permission), **Accept** / **Reject** (confirm).

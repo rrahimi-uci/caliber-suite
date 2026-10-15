@@ -1,7 +1,7 @@
 """failing_node — Caliber workflow `python_code` node body (deliberate fault).
 
 This is NOT a registered tool. Paste the body of this module into a CALIBER
-**Python Code** node (`Also in the alpha → Workflows` → drag a *Python Code* node). It
+**Python Code** node (`Agent resources → Workflows` → drag a *Python Code* node). It
 needs no registration, versions with the workflow, and uses **stdlib only**.
 
 Its purpose is to MANUFACTURE a reproducible, code-level node failure for the
