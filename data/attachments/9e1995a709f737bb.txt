@@ -1,2 +1,0 @@
-{"t":"2026-10-15T18:55:55.715Z","severity":"INFO","logger":"caliber.workspace_import_worker","message":"workspace-import worker: best-effort source verification for WSS-import-worker failed: source verification temporarily unavailable","trace_id":"b2c456cae7f5cffd"}
-{"t":"2026-10-15T18:55:55.736Z","severity":"INFO","logger":"caliber.workspace_import_worker","message":"workspace-import worker materialized WSI-35cb97aa -> revision WSR-a287663a (replayed=False)","trace_id":"b2c456cae7f5cffd"}

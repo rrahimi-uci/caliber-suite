@@ -1,2 +1,0 @@
-INFO     caliber.observability.worker_registry:worker_registry.py:235 removed 1 stale workflow_run heartbeat row(s) older than 300s
-INFO     caliber.observability.worker_registry:worker_registry.py:235 removed 1 stale workflow_run heartbeat row(s) older than 300s
