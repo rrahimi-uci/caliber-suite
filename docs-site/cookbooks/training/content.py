@@ -1011,7 +1011,7 @@ COOKBOOKS = [
   V --> SLICE[Regression slice passes]""",
         "steps": [
             {
-                "where": "Compose › Workflows › New (template: hitl_review)",
+                "where": "Also in the alpha › Workflows › New (template: hitl_review)",
                 "do": "Create a workflow; in the Run Monitor, execute to <code>waiting_approval</code>, then Reject → <code>failed</code> (the reproducible recovery case).",
             },
             {
@@ -1029,14 +1029,14 @@ COOKBOOKS = [
             },
             {
                 "where": "Workflow editor",
-                "do": "Apply the smallest fix (node config / branch) and <strong>Save</strong> the draft (the editor has no “save as new version” — versions come from Publish); patching is manual, there is no auto-patch tool.",
+                "do": "Apply the smallest fix (node config / branch) and <strong>Save</strong> the draft (the editor has no “save as new version” — versions come from Publish); patching is manual here — no Run Monitor control turns a failed run into a patch.",
             },
             {
                 "where": "Run Monitor",
                 "do": "Run a Preview + real run of the failing input on the new version; confirm it now succeeds.",
             },
             {
-                "where": "Observe › Observability",
+                "where": "Operate › Observability",
                 "do": "Put the pre-fix and post-fix runs side by side; confirm the failing node is green and a small regression slice passes.",
             },
         ],
@@ -1075,7 +1075,7 @@ COOKBOOKS = [
             "caption": "Run Monitor → Debugger + retry lineage",
         },
         "notes": [
-            "Patching is <strong>manual</strong> — edit the manifest in the editor and save a new version; there is no <code>propose_workflow_patch</code> tool.",
+            "Patching is <strong>manual</strong> — edit the manifest in the editor and save a new version; no Run Monitor control patches a failed run (a patch engine exists behind <code>propose-patch</code>, the CALIBER Patches tab and Aria's chat <code>propose_workflow_patch</code> tool, but no page calls it).",
             "Aria can <em>narrate</em> a diagnosis but cannot debug/patch a workflow as a capability.",
             "The most reliable demo failure is the <code>hitl_review</code> reject → retry → approve → resume loop.",
         ],
@@ -1116,42 +1116,42 @@ COOKBOOKS = [
                 "asset": "existing runs/traces",
             },
             {
-                "where": "Observe › Observability",
+                "where": "Operate › Observability",
                 "do": "Open Observability and set the <strong>Status</strong> filter to <strong>Error</strong> to isolate failing runs; use the search box to scope by workflow name.",
                 "asset": "filtered error traces",
             },
             {
-                "where": "Observe › Observability",
+                "where": "Operate › Observability",
                 "do": "Open a failing trace; the <code>trace_id</code> lands in the URL (<code>?trace=…</code>). Read the node tree — the failing node, its inputs/outputs, duration — to find the root cause.",
                 "asset": "root cause (from trace)",
             },
             {
-                "where": "Observe › Observability",
+                "where": "Operate › Observability",
                 "do": "Capture the failing example: click <strong>Add to test set</strong>, choose/create <code>prod-regression</code>, set the expected output, and <strong>Add example</strong>. Repeat for 2–3 representative traces.",
                 "asset": "test set: prod-regression",
             },
             {
-                "where": "Observe › Review Queues › + New Queue",
+                "where": "Operate › Review Queues › + New Queue",
                 "do": "Create <code>prod-triage</code> and add the question schema (root_cause_known / failure_mode / severity / expected_output / reviewer_notes), then <strong>Create queue</strong>.",
                 "asset": "review queue: prod-triage",
             },
             {
-                "where": "Observe › Review Queues",
+                "where": "Operate › Review Queues",
                 "do": "Click <strong>Add traces to review</strong>, paste the flagged trace ids, and <strong>Enqueue</strong>.",
                 "asset": "enqueued trace ids",
             },
             {
-                "where": "Observe › Review Queues",
+                "where": "Operate › Review Queues",
                 "do": "Open a queued item, answer the questions, and <strong>Submit review</strong> — answers write back onto the trace as assessments/expectations.",
                 "asset": "triaged labels",
             },
             {
-                "where": "Evaluate › Test Sets",
+                "where": "Core journey › Test Sets",
                 "do": "Confirm <code>prod-regression</code> now holds the captured failing examples — the durable slice to re-run after a fix.",
                 "asset": "regression slice",
             },
             {
-                "where": "Evaluate › Evaluations",
+                "where": "Core journey › Evaluations",
                 "do": "(Optional) <strong>Run evaluation</strong> on <code>prod-regression</code> with the deterministic graders to baseline the failure rate; re-run after a fix to confirm it drops.",
                 "asset": "failure-rate baseline",
             },
@@ -1218,7 +1218,7 @@ COOKBOOKS = [
         "time": "45–70 min",
         "surfaces": ["Test Sets", "Judges", "Evaluations", "Review Queues", "Observability"],
         "build": "A governance lane that scores candidate outputs with an LLM judge, has humans review a "
-        "sample of the same traces, and tallies judge↔human alignment — feeding disagreements back "
+        "sample of the same traces, and computes judge↔human alignment — feeding disagreements back "
         "into the dataset.",
         "learn": [
             "Build a dataset by harvesting traces (from-trace)",
@@ -1234,21 +1234,21 @@ COOKBOOKS = [
   J[Judge: FaithfulnessJudge] -.run as scorer.-> V[Judge verdicts]
   EVc --> FLAG[Flagged examples]
   FLAG --> RQ[(Review Queue: human labels)]
-  V --> AL[Alignment tally: judge vs human]
+  V --> AL[Alignment: judge vs human]
   RQ --> AL""",
         "steps": [
             {
-                "where": "Observe › Observability",
+                "where": "Operate › Observability",
                 "do": "From candidate runs (07/08), open traces and <code>Add to test set</code> to aggregate a representative set (auto-extracts input/expected).",
                 "asset": "test set (from traces)",
             },
             {
-                "where": "Evaluate › Judges › New judge",
+                "where": "Also in the alpha › Judges › New judge",
                 "do": "Create <code>FaithfulnessJudge</code> — instructions reference <code>{{ inputs }}/{{ outputs }}/{{ expectations }}</code>, return <code>bool</code>.",
                 "asset": "judge: FaithfulnessJudge",
             },
             {
-                "where": "Evaluate › Evaluations › Run evaluation",
+                "where": "Core journey › Evaluations › Run evaluation",
                 "do": "Run the same dataset on the baseline artifact, then the candidate. Capture both run ids.",
             },
             {
@@ -1256,13 +1256,13 @@ COOKBOOKS = [
                 "do": "Open per-example results; in the candidate, select the baseline for deltas; flag the low/false examples.",
             },
             {
-                "where": "Observe › Review Queues › New queue",
+                "where": "Operate › Review Queues › New queue",
                 "do": "Create a queue with the same faithfulness question(s); enqueue the flagged traces; reviewers answer (answers write back to the trace).",
                 "asset": "review queue",
             },
             {
                 "where": "Judges › Human alignment",
-                "do": "Select the completed queue/question, click <strong>Import from Review Queue</strong>, then compute agreement, Cohen's κ, and FP/FN with retained provenance.",
+                "do": "Select the completed queue/question, pick the queue in the <strong>Import from Review Queue…</strong> dropdown, click <strong>Import labels</strong>, then <strong>Check alignment</strong> for agreement, Cohen's κ, and FP/FN with retained provenance.",
             },
         ],
         "assets": [
@@ -1317,49 +1317,50 @@ COOKBOOKS = [
         "slug": "release-signoff",
         "track": "Govern",
         "title": "Release Signoff Factory",
-        "subtitle": "Aggregate cross-cookbook evidence into a defensible go / no-go decision.",
+        "subtitle": "Aggregate cross-cookbook evidence into a defensible go / no-go decision (Preview, record-only).",
         "level": "Core",
         "time": "30–50 min",
         "surfaces": ["Releases", "Evaluations", "Review Queues", "Observability"],
         "build": "A durable release candidate with server-computed weighted criteria, blockers, accountable "
-        "waivers, rollback target, immutable go/no-go signoff, and Allure-compatible report evidence.",
+        "waivers, rollback target, immutable go/no-go signoff, and Allure-compatible report evidence. "
+        "Releases is a Preview, record-only page: signing off records a decision and deploys nothing.",
         "learn": [
             "Collect evidence from Evaluations + Review Queues",
             "Re-run critical slices and capture fresh run ids",
-            "Generate durable Allure-compatible evidence",
-            "Inspect the server-computed release score and blockers",
-            "Record an immutable decision with blockers + waivers",
+            "Enter criteria + evidence on a release candidate and read the server-computed score and blockers",
+            "Record an admin waiver (criterion key + reason) and generate Allure-compatible evidence",
+            "Sign off GO / NO-GO with a rationale (record-only)",
         ],
         "mermaid": """flowchart TD
   E1[Eval run ids 07/08/10] --> SC[Release candidate]
   E2[Review queues complete] --> SC
-  E3[Allure report loads] --> SC
+  E3[Criteria + evidence entered] --> SC
   E4[Re-run critical slices] --> SC
   SC --> D{"blockers = 0 and score >= 0.90?"}
   D -->|yes| GO[go]
   D -->|no| NG[no_go + blockers]""",
         "steps": [
             {
-                "where": "Evaluate › Evaluations",
+                "where": "Core journey › Evaluations",
                 "do": "Gather the scorecard run ids for each required cookbook; confirm each required review queue is fully answered.",
             },
             {
-                "where": "Operate › Releases",
-                "do": "Create a candidate with typed criteria/evidence, planned action, and rollback target. Inspect the server-computed score and blockers.",
+                "where": "Core journey › Releases",
+                "do": "Click <strong>New candidate</strong>; enter the artifact, candidate and rollback versions, required score, and criteria/evidence JSON (the UI records the planned action), then <strong>Create and evaluate candidate</strong>. Inspect the server-computed score and blockers.",
                 "asset": "release candidate",
             },
             {
-                "where": "Run Monitor (re-run)",
+                "where": "Workflows › Run Monitor (re-run)",
                 "do": "Re-execute the high-risk slices (07 approval branch, 08 rollback path); record the fresh run ids.",
             },
             {
                 "where": "Releases › candidate",
-                "do": "Use an admin waiver only with a criterion-specific reason and optional expiry; then generate the durable Allure-compatible report job.",
+                "do": "Use an admin waiver (<strong>Record waiver</strong>) only with a criterion key and a specific reason (the UI has no expiry field; write it into the reason); then click <strong>Generate Allure</strong> for the durable Allure-compatible report job.",
                 "asset": "waiver + report job",
             },
             {
                 "where": "Releases › candidate",
-                "do": "Sign <strong>go</strong> only when ready and rollback is defined; otherwise sign <strong>no-go</strong> with rationale. The final snapshot is immutable.",
+                "do": "Click <strong>Sign off GO</strong> only when the candidate is ready and rollback is defined; otherwise <strong>Sign off NO-GO</strong>, with a rationale of at least 8 characters. The final snapshot is immutable and nothing is deployed.",
                 "asset": "decision record",
             },
         ],
@@ -1367,45 +1368,45 @@ COOKBOOKS = [
             {
                 "type": "Run-id manifest",
                 "name": "required evidence",
-                "detail": "Per-cookbook required run ids + review completion + Allure status. <code>assets/dataset/</code>",
+                "detail": "Staging sheet for per-cookbook run ids + review completion + CI Allure status. <code>assets/dataset/</code>",
             },
             {
                 "type": "Rubric",
                 "name": "release-rubric",
-                "detail": "Weighted dimensions + gate thresholds + a worked example. <code>assets/rubric/</code>",
+                "detail": "Weighted dimensions to enter as criteria + gate thresholds + a worked example. <code>assets/rubric/</code>",
             },
             {
                 "type": "Decision record",
                 "name": "go / no-go",
-                "detail": "Template with per-dimension scores, blockers, waiver log. <code>assets/decision/</code>",
+                "detail": "Optional template for the signoff rationale, blockers and waiver notes. <code>assets/decision/</code>",
             },
             {
                 "type": "Prompt (optional)",
                 "name": "release-risk-summarizer",
-                "detail": "Drafts the rationale from your evidence notes.",
+                "detail": "Drafts the rationale from your evidence notes (never scores the release).",
             },
         ],
         "gates": [
             {"gate": "Overall release score", "target": "≥ 0.90"},
             {"gate": "Blocker count", "target": "= 0"},
-            {"gate": "Allure visible", "target": "report loads in-app"},
+            {"gate": "Allure evidence", "target": "report job generated on the candidate"},
         ],
         "mock": {
             "url": "/releases",
             "nav": "Releases",
             "title": "Release Signoff Factory",
-            "tabs": ["Candidate", "Evidence", "Signoff"],
-            "active_tab": "Candidate",
+            "tabs": [],
+            "active_tab": "",
             "fields": [
-                ("Report job", "completed · Allure-compatible JSON"),
-                ("Release score", "0.93 · blockers: 0 → GO"),
+                ("Candidate", "weighted score 93% · 0 blockers · status ready"),
+                ("Signoff rationale", "Accountable decision rationale (at least 8 characters)"),
             ],
-            "buttons": ["Generate Allure evidence", "Sign go"],
-            "caption": "Releases → governed signoff",
+            "buttons": ["New candidate", "Generate Allure", "Sign off GO"],
+            "caption": "Releases → Release signoff factory (Preview, record-only)",
         },
         "notes": [
             "The server recomputes score and blockers from the stored criteria; the browser's aggregate is never trusted.",
-            "The report job is durable Allure-compatible JSON; CI still owns the separate rendered HTML test report.",
+            "The report job is durable Allure-compatible JSON; CI still owns the separate rendered HTML test report. Releases is Preview, record-only: signing off deploys or rolls back nothing.",
             "Map every blocker back to its owning cookbook and reopen that gate.",
         ],
     },
@@ -1416,26 +1417,26 @@ COOKBOOKS = [
         "slug": "aria-eval-harness",
         "track": "Aria — Autonomous",
         "title": "Aria: Evaluation Harness from Intent",
-        "subtitle": "One sentence → Aria plans a faithfulness judge + a test set; you create them in the UI.",
+        "subtitle": "One sentence → Aria plans and creates a faithfulness judge + a test set; you fill the judge's fields and approve.",
         "level": "Aria",
         "time": "15–25 min",
         "surfaces": ["Plans", "Judges", "Test Sets", "Evaluations"],
         "build": "Give Aria a one-line intent; it decomposes the plan (<code>judge.create</code> + "
-        "<code>eval_dataset.create</code>) in the Plans page. You confirm the plan and create the judge "
-        "and test set in their own UI pages.",
+        "<code>eval_dataset.create</code>) in the Plans page. You approve the plan, fill the judge's "
+        "fields in the plan's input form, and approve each step.",
         "learn": [
             "Use the Plans page to turn an intent into a capability plan",
             "Read Aria's plan + autonomy dial",
             "Understand the planner needles (domain words)",
-            "Create the planned artifacts in the Judges / Test Sets UI",
-            "Where full hands-off autonomy stops today",
+            "Fill a step's inputs in the plan's “Aria needs information” form",
+            "See how step names are linked between steps",
         ],
         "mermaid": """flowchart LR
   I[/"Intent: a judge for faithfulness + an eval dataset"/] --> PL[Aria Plans: decompose]
   PL --> S1[step: judge.create]
   PL --> S2[step: eval_dataset.create]
-  S1 -.create in UI.-> JU[Judges › New judge]
-  S2 -.create in UI.-> TS[Test Sets › New dataset]""",
+  S1 -.input form + approve.-> JU[Judges: AnswerFaithfulness]
+  S2 -.name linked + approve.-> TS[Test Sets: AnswerFaithfulness]""",
         "steps": [
             {
                 "where": "Plans › New goal",
@@ -1449,20 +1450,20 @@ COOKBOOKS = [
             },
             {
                 "where": "Plans › Approve",
-                "do": "Approve the plan shape, then Execute to walk the steps (approve / deny each).",
+                "do": "Click <strong>Approve plan</strong>, then <strong>Execute</strong>.",
             },
             {
-                "where": "Evaluate › Judges › New judge",
-                "do": "Create <code>AnswerFaithfulness</code> from the spec the plan calls for (instructions reference the template vars, <code>bool</code>).",
+                "where": "Plans › input form",
+                "do": "Fill <strong>Aria needs information</strong> for <code>judge.create</code>: <code>AnswerFaithfulness</code>, instructions that reference the template vars, <code>bool</code>; <strong>Continue plan</strong>, then <strong>Approve</strong>.",
                 "asset": "judge: AnswerFaithfulness",
             },
             {
-                "where": "Evaluate › Test Sets › New dataset",
-                "do": "Create <code>support-faithfulness-eval</code> (empty); add rows later from Observability.",
+                "where": "Plans › interaction prompt",
+                "do": "<strong>Approve</strong> <code>eval_dataset.create</code> — it asks for nothing (its name is linked to the judge's), so an empty test set named <code>AnswerFaithfulness</code> is created; add rows later from Observability.",
                 "asset": "test set",
             },
             {
-                "where": "Evaluate › Evaluations",
+                "where": "Core journey › Evaluations",
                 "do": "(Follow-up) Run the dataset on the deterministic graders plus <code>AnswerFaithfulness</code> ticked under <strong>Custom LLM judges</strong> (cookbook 10 territory).",
             },
         ],
@@ -1475,12 +1476,12 @@ COOKBOOKS = [
             {
                 "type": "Judge",
                 "name": "AnswerFaithfulness",
-                "detail": "The judge.create payload — created via <code>Judges › New judge</code>. <code>assets/judges/</code>",
+                "detail": "The judge.create inputs — entered in the plan's input form. <code>assets/judges/</code>",
             },
             {
                 "type": "Test Set",
-                "name": "support-faithfulness-eval",
-                "detail": "The eval_dataset.create payload — created via <code>Test Sets › New dataset</code>.",
+                "name": "AnswerFaithfulness",
+                "detail": "Created by eval_dataset.create under the judge's name; <code>assets/datasets/</code> is the spec for a separately named set.",
             },
         ],
         "gates": [
@@ -1501,11 +1502,11 @@ COOKBOOKS = [
                 ("Steps", "1) judge.create   2) eval_dataset.create   ·   autonomy: ask_each"),
             ],
             "buttons": ["Approve", "Execute"],
-            "note": "Aria plans the steps; create each artifact in its own UI page (Judges / Test Sets).",
+            "note": "Aria plans the steps; fill the judge's inputs in the plan and approve each step.",
             "caption": "Plans → plan detail (decomposed from intent)",
         },
         "notes": [
-            "Aria's <strong>planning</strong> from intent is real; <strong>execution</strong> is via the artifact UI pages because the shipped planner emits empty step inputs (see ARIA-AUTONOMY.md).",
+            "Aria plans <strong>and</strong> executes: the planner leaves unknown fields empty, so each step pauses on an <strong>Aria needs information</strong> form (see ARIA-AUTONOMY.md).",
             "The default planner keys off domain words — keep “judge” and “eval dataset” literal in the intent.",
             "<code>eval_dataset.create</code> makes an empty test set; add rows from Observability afterward.",
         ],
@@ -1516,25 +1517,25 @@ COOKBOOKS = [
         "slug": "aria-review-queue",
         "track": "Aria — Autonomous",
         "title": "Aria: Human-Review Queue from Intent",
-        "subtitle": "One sentence → Aria plans a review queue with a safety / citation / tone label schema.",
+        "subtitle": "One sentence → Aria plans and creates a review queue with a safety / citation / tone label schema.",
         "level": "Aria",
         "time": "15–25 min",
         "surfaces": ["Plans", "Review Queues", "Observability"],
         "build": "Aria decomposes a review-governance intent into <code>review_queue.create</code> (+ "
-        "<code>add_items</code>); you create the queue with its question schema in the Review Queues UI.",
+        "<code>add_items</code>); you enter the queue's question schema in the plan's input form and approve.",
         "learn": [
             "Plan a governance queue from one intent",
             "Design a review question schema (pass_fail / categorical / numeric / text)",
             "See why “review queue” proposes two steps",
-            "Create the queue in the Review Queues UI",
+            "Enter the queue's schema in the plan's input form",
             "Skip the enqueue step when there are no traces yet",
         ],
         "mermaid": """flowchart LR
   I[/"Intent: review queue for safety, citation, tone"/] --> PL[Aria Plans]
   PL --> S1[step: review_queue.create]
   PL --> S2[step: review_queue.add_items]
-  S1 -.create in UI.-> RQ[Review Queues › New queue]
-  S2 -.deny if no traces.-> SK[skip]""",
+  S1 -.input form + approve.-> RQ[Review Queues: agent-reply-review]
+  S2 -.Skip step if no traces.-> SK[skip]""",
         "steps": [
             {
                 "where": "Plans › New goal",
@@ -1546,16 +1547,16 @@ COOKBOOKS = [
                 "do": "Confirm two steps appear (<code>review_queue.create</code> + <code>review_queue.add_items</code> — both from the “review queue” domain).",
             },
             {
-                "where": "Observe › Review Queues › New queue",
-                "do": "Create <code>agent-reply-review</code> with the question schema: <code>safety</code> (pass_fail, required), <code>severity</code> (categorical), <code>citation_ok</code> (pass_fail), <code>tone_ok</code> (pass_fail), <code>reviewer_notes</code> (text).",
+                "where": "Plans › Execute",
+                "do": "<strong>Execute</strong>; in the <strong>Aria needs information</strong> form for <code>review_queue.create</code> enter <code>agent-reply-review</code> and the question schema — <code>safety</code> (pass_fail, required), <code>severity</code> (categorical), <code>citation_ok</code> (pass_fail), <code>tone_ok</code> (pass_fail), <code>reviewer_notes</code> (text) — then <strong>Continue plan</strong> and <strong>Approve</strong>.",
                 "asset": "review queue",
             },
             {
-                "where": "Plans › Execute",
-                "do": "<strong>Deny</strong> each step — the shipped planner emits empty inputs, so Approve would fail validation; the plan completes and you build the queue in the Review Queues UI.",
+                "where": "Plans › add_items form",
+                "do": "The <code>add_items</code> form only asks for trace ids (its queue id is linked). With no traces yet, click <strong>Skip step</strong>; the plan completes.",
             },
             {
-                "where": "Observe › Review Queues",
+                "where": "Operate › Review Queues",
                 "do": "(Later) Enqueue real flagged traces and have reviewers answer; answers write back to each trace.",
             },
         ],
@@ -1568,7 +1569,7 @@ COOKBOOKS = [
             {
                 "type": "Review Queue",
                 "name": "agent-reply-review",
-                "detail": "The review_queue.create payload (question schema). <code>assets/review-queues/</code>",
+                "detail": "The review_queue.create inputs (question schema), entered in the plan's input form. <code>assets/review-queues/</code>",
             },
         ],
         "gates": [
@@ -1586,13 +1587,13 @@ COOKBOOKS = [
                 ("Question · severity", "categorical [low, medium, high]"),
             ],
             "buttons": ["Create queue", "Enqueue traces"],
-            "note": "Aria plans review_queue.create; build the schema here in the UI.",
+            "note": "Aria plans and creates the queue from the schema you enter in the plan.",
             "caption": "Review Queues → new queue (label schema)",
         },
         "notes": [
-            "“review queue” triggers both <code>review_queue.create</code> and <code>review_queue.add_items</code>; deny the second if you have no traces.",
+            "“review queue” triggers both <code>review_queue.create</code> and <code>review_queue.add_items</code>; click <strong>Skip step</strong> on the second if you have no traces.",
             "Question item fields: <code>key, title, type, options, required, target (feedback|expectation)</code>.",
-            "Aria plans; you create the queue in the Review Queues UI (planner emits empty inputs — see ARIA-AUTONOMY.md).",
+            "The planner leaves the queue's name and questions empty; the plan's input form collects them (see ARIA-AUTONOMY.md).",
         ],
     },
     {
@@ -1607,20 +1608,20 @@ COOKBOOKS = [
         "surfaces": ["Plans", "Judges", "Test Sets", "Review Queues", "Evaluations"],
         "build": "Aria decomposes a single intent into a whole evaluation+governance scaffold "
         "(<code>judge.create</code> + <code>eval_dataset.create</code> + <code>review_queue.create</code>); "
-        "you create the three artifacts in their UI pages.",
+        "you fill the judge's and queue's fields in the plan's input forms and approve each step.",
         "learn": [
             "Compose three capabilities in one plan from one intent",
             "Recognize the three planner needles in the goal",
-            "Create a judge, a test set, and a review queue in the UI",
+            "Fill the judge and queue input forms and approve each step",
             "Assemble a reusable governance starter kit",
             "Hand the kit to cookbook 10 for scoring",
         ],
         "mermaid": """flowchart TD
   I[/"Intent: judge + eval dataset + review queue"/] --> PL[Aria Plans]
-  PL --> J[judge.create] -.UI.-> JU[Judges]
-  PL --> D[eval_dataset.create] -.UI.-> TS[Test Sets]
-  PL --> Q[review_queue.create] -.UI.-> RQ[Review Queues]
-  PL --> A[review_queue.add_items] -.deny.-> SK[skip]""",
+  PL --> J[judge.create] -.input form.-> JU[Judges]
+  PL --> Q[review_queue.create] -.questions form.-> RQ[Review Queues]
+  PL --> D[eval_dataset.create] -.name linked.-> TS[Test Sets]
+  PL --> A[review_queue.add_items] -.Skip step.-> SK[skip]""",
         "steps": [
             {
                 "where": "Plans › New goal",
@@ -1629,26 +1630,22 @@ COOKBOOKS = [
             },
             {
                 "where": "Plans › plan detail",
-                "do": "Confirm the plan contains <code>judge.create</code>, <code>eval_dataset.create</code>, <code>review_queue.create</code> (+ an <code>add_items</code> step you'll deny).",
-            },
-            {
-                "where": "Evaluate › Judges › New judge",
-                "do": "Create <code>AnswerFaithfulness</code>.",
-                "asset": "judge",
-            },
-            {
-                "where": "Evaluate › Test Sets › New dataset",
-                "do": "Create <code>release-candidates-eval</code>.",
-                "asset": "test set",
-            },
-            {
-                "where": "Observe › Review Queues › New queue",
-                "do": "Create <code>governance-review</code> with faithful / citation / tone questions.",
-                "asset": "review queue",
+                "do": "Confirm the plan contains <code>judge.create</code>, <code>eval_dataset.create</code>, <code>review_queue.create</code> (+ an <code>add_items</code> step you'll skip).",
             },
             {
                 "where": "Plans › Execute",
-                "do": "Approve the three create steps; deny <code>review_queue.add_items</code>. The kit is complete.",
+                "do": "<strong>Execute</strong>; in the <strong>Aria needs information</strong> form for <code>judge.create</code> enter <code>AnswerFaithfulness</code> and its instructions, <strong>Continue plan</strong>, <strong>Approve</strong>.",
+                "asset": "judge",
+            },
+            {
+                "where": "Plans › input form",
+                "do": "For <code>review_queue.create</code> enter the faithful / citation / tone questions (its name is linked to the judge's), <strong>Continue plan</strong>, <strong>Approve</strong>.",
+                "asset": "review queue",
+            },
+            {
+                "where": "Plans › interaction prompts",
+                "do": "<strong>Approve</strong> <code>eval_dataset.create</code> (no form; name linked, so an empty test set is created) and click <strong>Skip step</strong> on <code>review_queue.add_items</code>. The kit is complete.",
+                "asset": "test set",
             },
         ],
         "assets": [
@@ -1657,21 +1654,21 @@ COOKBOOKS = [
                 "name": "one-liner",
                 "detail": "Contains all three needles: judge / eval dataset / review queue.",
             },
-            {"type": "Judge", "name": "AnswerFaithfulness", "detail": "Created via Judges UI."},
+            {"type": "Judge", "name": "AnswerFaithfulness", "detail": "Created by judge.create from the input form."},
             {
                 "type": "Test Set",
-                "name": "release-candidates-eval",
-                "detail": "Created via Test Sets UI.",
+                "name": "AnswerFaithfulness",
+                "detail": "Created by eval_dataset.create under the linked name (empty).",
             },
             {
                 "type": "Review Queue",
-                "name": "governance-review",
-                "detail": "Created via Review Queues UI.",
+                "name": "AnswerFaithfulness",
+                "detail": "Created by review_queue.create; questions from the input form, name linked from the judge.",
             },
         ],
         "gates": [
             {"gate": "Plan has all three creates", "target": "judge + dataset + queue"},
-            {"gate": "Kit exists", "target": "all three artifacts live in the UI"},
+            {"gate": "Kit exists", "target": "judge + test set + review queue created by the plan"},
         ],
         "mock": {
             "url": "/aria/plans",
@@ -1686,15 +1683,15 @@ COOKBOOKS = [
                 ),
                 (
                     "Steps",
-                    "judge.create · eval_dataset.create · review_queue.create · (add_items → deny)",
+                    "judge.create · review_queue.create · eval_dataset.create · (add_items → skip)",
                 ),
             ],
             "buttons": ["Approve", "Execute"],
-            "note": "One intent → a whole eval+governance scaffold. Create each in its UI page.",
+            "note": "One intent → a whole eval+governance scaffold, created through the plan's forms.",
             "caption": "Plans → flagship multi-capability plan",
         },
         "notes": [
-            "The flagship “one sentence → whole governance setup” demo. Build the three artifacts in their UI pages.",
+            "The flagship “one sentence → whole governance setup” demo. The planner links <code>name</code> between steps, so all three artifacts are created under the judge's name.",
             "All three domain needles must appear in the intent for the default planner.",
             "Hand the judge + test set to cookbook 10 to actually score candidates.",
         ],
@@ -1710,20 +1707,21 @@ COOKBOOKS = [
         "time": "20–35 min",
         "surfaces": ["Plans", "Review Queues", "Workflows", "Observability"],
         "build": "On an existing workflow with weak runs, Aria plans <code>review_queue.create</code> + "
-        "<code>add_items</code> + the async <code>workflow.calibrate</code>; you create the queue, enqueue "
-        "the flagged traces, trigger calibration, and watch the plan park + poll.",
+        "<code>add_items</code> + the async <code>workflow.calibrate</code>; you enter the queue schema, the "
+        "flagged trace ids and the workflow + agent ids in the plan's forms, then watch the plan park "
+        "and resume on its own.",
         "learn": [
             "Plan a remediation loop from one intent",
             "Operate on existing ids (traces, workflow, agent)",
             "Read flagged trace ids from Observability",
-            "Trigger a workflow calibration",
-            "Understand async parking + polling in Aria plans",
+            "Trigger a workflow calibration from the plan",
+            "Understand async parking and automatic resume in Aria plans",
         ],
         "mermaid": """flowchart LR
   I[/"Intent: review the flagged traces + calibrate the workflow"/] --> PL[Aria Plans]
-  PL --> Q[review_queue.create] -.UI.-> RQ[Review Queues]
+  PL --> Q[review_queue.create] -.input form.-> RQ[Review Queues]
   PL --> E[review_queue.add_items] -.real trace ids.-> ENQ[enqueue]
-  PL --> C[workflow.calibrate · async] --> POLL[park → poll → done]""",
+  PL --> C[workflow.calibrate · async] --> POLL[park → worker resumes → done]""",
         "steps": [
             {
                 "where": "Prereq (cookbook 07)",
@@ -1739,17 +1737,17 @@ COOKBOOKS = [
                 "do": "Confirm three steps: <code>review_queue.create</code>, <code>review_queue.add_items</code>, <code>workflow.calibrate</code>.",
             },
             {
-                "where": "Observe › Review Queues › New queue",
-                "do": "Create <code>weak-runs-triage</code> (resolution_correct / failure_mode / severity / expected_answer).",
+                "where": "Plans › Execute",
+                "do": "<strong>Execute</strong>; in the <strong>Aria needs information</strong> form for <code>review_queue.create</code> enter <code>weak-runs-triage</code> (resolution_correct / failure_mode / severity / expected_answer), <strong>Continue plan</strong>, <strong>Approve</strong>.",
                 "asset": "review queue",
             },
             {
-                "where": "Review Queues › Enqueue traces",
-                "do": "Enqueue the real flagged trace ids.",
+                "where": "Plans › input form",
+                "do": "For <code>review_queue.add_items</code> enter the real flagged trace ids (its queue id is linked); <strong>Continue plan</strong>, <strong>Approve</strong>.",
             },
             {
-                "where": "Workflows › calibration",
-                "do": "Trigger a workflow calibration on the real workflow + agent. In the Aria plan, this step parks (waiting_job); Poll until it resolves and the plan completes.",
+                "where": "Plans › input form",
+                "do": "For <code>workflow.calibrate</code> enter the real workflow id + agent id, <strong>Continue plan</strong>, <strong>Approve</strong>. The step parks (waiting_job) and the plan worker resumes it when the calibration job reaches candidate_ready/applied — nothing to click.",
                 "asset": "calibration job",
             },
         ],
@@ -1772,12 +1770,12 @@ COOKBOOKS = [
             {
                 "type": "Calibration",
                 "name": "workflow + agent",
-                "detail": "Existing ids; the async job parks + polls.",
+                "detail": "Existing ids; the async job parks the plan and the worker resumes it.",
             },
         ],
         "gates": [
             {"gate": "Queue + items exist", "target": "flagged traces enqueued"},
-            {"gate": "Calibration completes", "target": "async job resolves; plan completes"},
+            {"gate": "Calibration completes", "target": "job reaches candidate_ready/applied; plan completes"},
         ],
         "mock": {
             "url": "/aria/plans",
@@ -1787,16 +1785,16 @@ COOKBOOKS = [
             "active_tab": "Running",
             "fields": [
                 ("Steps", "review_queue.create ✓ · add_items ✓ · workflow.calibrate ⏳"),
-                ("workflow.calibrate", "waiting_job → poll until done"),
+                ("workflow.calibrate", "waiting_job → resumes when the job is candidate_ready/applied"),
             ],
-            "buttons": ["Poll", "Refresh"],
-            "note": "The calibrate step is async: it parks (waiting_job); poll until the job resolves.",
+            "buttons": ["Continue plan", "Approve"],
+            "note": "The calibrate step is async: it parks (waiting_job) and the plan worker resumes it; the Plans UI has no Poll button.",
             "caption": "Plans → running plan with an async parked step",
         },
         "notes": [
             "This is a <strong>remediation</strong> loop — it operates on EXISTING ids (traces, workflow, agent). Build the subject workflow in cookbook 07 first.",
-            "<code>workflow.calibrate</code> is Aria's async capability: the plan parks (<code>waiting_job</code>) and you poll until it resolves.",
-            "As elsewhere in the Aria track, create the queue + enqueue + calibration via the UI (planner emits empty inputs).",
+            "<code>workflow.calibrate</code> is Aria's async capability: the plan parks (<code>waiting_job</code>) and the plan worker resumes it (<code>POST …/poll</code> also works over the API).",
+            "As elsewhere in the Aria track, the planner leaves the inputs empty and the plan's input forms collect them. The default evaluator and LLM are fake, so a default install's calibration scores are canned.",
         ],
     },
 ]

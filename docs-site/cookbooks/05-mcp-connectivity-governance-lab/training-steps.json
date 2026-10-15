@@ -1,14 +1,14 @@
 {
   "steps": [
     {
-      "where": "Library › MCP Servers",
+      "where": "MCP Servers",
       "do": "Open the MCP Servers page and find the quick-connect catalog of 8 templates. You will use the <strong>GitHub</strong> tile because it ships both a safe read tool (<code>search_repositories</code>) and a risky write tool (<code>issue_write</code>) — perfect for proving a policy block.",
-      "see": "A catalog grid; the GitHub tile is <code>data-testid=\"catalog-github\"</code> alongside PostgreSQL, pgvector, Apache AGE, MinIO, Hugging Face, Ollama, and Playwright.",
+      "see": "A catalog grid; the GitHub tile (test id <code>catalog-github</code>) sits alongside PostgreSQL, pgvector, Apache AGE, MinIO, Hugging Face, Ollama, and Playwright.",
       "asset": "MCP catalog"
     },
     {
-      "where": "Library › MCP Servers › GitHub tile",
-      "do": "First add <code>api.githubcopilot.com</code> to the CALIBER server's <code>CALIBER_MCP_REMOTE_HOST_ALLOWLIST</code>. Click the <strong>GitHub</strong> catalog tile (<code>catalog-github</code>). The Add-server dialog opens pre-filled with GitHub's official remote Streamable HTTP endpoint; set the server name and supply your personal-access token, then submit.",
+      "where": "MCP Servers › GitHub tile",
+      "do": "First add <code>api.githubcopilot.com</code> to the CALIBER server's <code>CALIBER_MCP_REMOTE_HOST_ALLOWLIST</code>. Click the <strong>GitHub</strong> catalog tile. The Add-server dialog opens pre-filled with GitHub's official remote Streamable HTTP endpoint; set the server name and supply your personal-access token, then submit.",
       "fill": [
         ["Server name", "<code>github-readonly</code>"],
         ["Transport", "<code>streamable-http</code> (pre-filled)"],
@@ -20,15 +20,15 @@
       "asset": "mcp server: github-readonly"
     },
     {
-      "where": "Library › MCP Servers › github-readonly › Test",
+      "where": "MCP Servers › github-readonly › Test",
       "do": "On the server row click <strong>Test</strong> to verify the transport/auth, then let it discover the tool catalog. Inspect a couple of discovered tools and their input/output schemas so you know the read tool's required arguments.",
       "click": "Test",
       "see": "<code>Connected · N tools</code>. The discovered tool list shows <code>search_repositories</code> (read) and <code>issue_write</code> (write) with their JSON input/output schemas. Gate: <code>connection_success_rate = 1.0</code>.",
       "asset": "connection + discovered tools"
     },
     {
-      "where": "Library › MCP Servers › Playground",
-      "do": "Open the <strong>Playground</strong> tab, select server <code>github-readonly</code>, click <strong>Test Connection</strong> to discover its tools, then pick the read tool <code>search_repositories</code> from the discovered list. Fill its parameter inputs and click <strong>Invoke Tool</strong> to confirm a real, successful result. This is your one good read-tool invocation record.",
+      "where": "MCP Servers › Playground",
+      "do": "Open the <strong>Playground</strong> tab, select server <code>github-readonly</code>, click <strong>Test Connection</strong> to discover its tools, then pick the read tool <code>search_repositories</code> from the discovered list. Fill its parameter inputs and click <strong>Invoke Tool</strong> to confirm a real, successful result. The GitHub catalog tile pre-classifies its tools (reads allowed, writes marked write + requires approval); a tool without an explicit classification shows an <strong>Unclassified</strong> badge and its button reads “Classify Tool Before Invoking”. This is your one good read-tool invocation record.",
       "fill": [
         ["Tool", "<code>search_repositories</code> (select from the discovered tools)"],
         ["Arguments (golden)", "set <code>query</code> = <code>modelcontextprotocol/servers</code> — from the <code>golden</code> row of <a href=\"../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/mcp-tool-test-cases.jsonl\">mcp-tool-test-cases.jsonl</a>"]
@@ -39,7 +39,7 @@
       "assetlink": [{"href": "../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/mcp-tool-test-cases.jsonl", "label": "mcp-tool-test-cases.jsonl"}]
     },
     {
-      "where": "Library › MCP Servers › Playground › issue_write › Tool Policy",
+      "where": "MCP Servers › Playground › issue_write › Tool Policy",
       "do": "Now govern the risky write tool. Still in the Playground with <code>github-readonly</code> selected, pick the <code>issue_write</code> tool — its <strong>Tool Policy</strong> panel appears. Turn the <strong>Allow tool</strong> toggle OFF (sets <code>allowed:false</code>), then save. On the direct invoke path a block (<code>allowed:false</code>) is the only control that actually refuses execution — so use the block for a true read-only explorer. (<code>requires_approval</code> and <code>side_effect_level</code> are advisory on direct invoke; the block is what enforces.)",
       "fill": [
         ["Tool", "<code>issue_write</code> (select in Playground)"],
@@ -51,19 +51,19 @@
       "assetlink": [{"href": "../cookbooks/05-mcp-connectivity-governance-lab/assets/policy/github-issue-write.block.policy.json", "label": "github-issue-write.block.policy.json"}]
     },
     {
-      "where": "Library › MCP Servers › Playground",
-      "do": "Re-invoke the now-blocked tool to capture the enforcement record. With <code>issue_write</code> still selected, fill its parameters with a payload that <em>would</em> create an issue and click <strong>Invoke Tool</strong> — it must be refused, not executed. This proves <code>blocked_tool_enforcement = 1.0</code>.",
+      "where": "MCP Servers › Playground",
+      "do": "Capture the enforcement record for the now-blocked tool. In the Playground its <strong>Invoke Tool</strong> button is disabled (“Tool Blocked by Policy”) and a red <strong>Blocked</strong> badge shows, so the UI cannot send the call. Send a payload that <em>would</em> create an issue through the API instead (<code>POST /mcp-servers/{id}/invoke-tool</code>, admin scope) — it must be refused, not executed. This proves <code>blocked_tool_enforcement = 1.0</code>.",
       "fill": [
         ["Tool", "<code>issue_write</code> (selected in Playground)"],
         ["Arguments", "set <code>method</code>=<code>create</code>, <code>owner</code>=<code>rrahimi-uci</code>, <code>repo</code>=<code>caliber-suite</code>, <code>title</code>=<code>blocked test</code>, <code>body</code>=<code>should never be created</code> — the <code>PE01</code> row of <a href=\"../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/policy-enforcement-checks.jsonl\">policy-enforcement-checks.jsonl</a>"]
       ],
-      "click": "Invoke Tool",
-      "see": "A structured refusal: <code>success:false</code>, <code>result:null</code>, and an <code>error</code> stating the tool is blocked by policy — the tool never ran.",
+      "click": "POST invoke-tool (API)",
+      "see": "A structured refusal: <code>success:false</code>, <code>result:null</code>, <code>duration_ms:0</code>, and an <code>error</code> such as <code>MCP tool 'issue_write' is blocked by policy</code> — the tool never ran.",
       "asset": "blocked-tool enforcement record",
       "assetlink": [{"href": "../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/policy-enforcement-checks.jsonl", "label": "policy-enforcement-checks.jsonl"}]
     },
     {
-      "where": "Library › MCP Servers › Playground › search_repositories › Calibration",
+      "where": "MCP Servers › Playground › search_repositories › Calibration",
       "do": "Harden the read tool with a small saved suite. In the Playground with <code>search_repositories</code> selected, scroll to its <strong>Calibration</strong> panel. Use <strong>Add case</strong> to add a row per case; each row has a name, an <em>Input (JSON)</em> object (the tool arguments), and an <em>Assertion</em> of type <code>no_error</code>, <code>output_contains</code>, or <code>equals</code> (the latter two also take a value). Click <strong>Save cases</strong>. Important about the assertion model: there is <em>no</em> \"expects-error\" assertion — when an invoke errors, the case fails <em>before</em> any assertion runs (a gateway error short-circuits to a fail). So the two <code>negative</code> rows (N01 missing the required arg, N02 a malformed qualifier) are <strong>deliberately failing</strong> cases: they exist to show up as red lines in the pass-rate, not as green <code>output_contains:\"error\"</code> matches. The four golden/edge rows (G01/G02/E01/E02) are the ones expected to pass.",
       "fill": [
         ["Cases (Add case per row)", "Add the 6 cases from <a href=\"../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/mcp-tool-test-cases.jsonl\">mcp-tool-test-cases.jsonl</a> — four expected-pass (G01/G02 golden, E01/E02 edge) plus two intentionally-failing negatives (N01/N02). Send name + input + assertion type/value only"]
@@ -74,17 +74,17 @@
       "assetlink": [{"href": "../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/mcp-tool-test-cases.jsonl", "label": "mcp-tool-test-cases.jsonl"}]
     },
     {
-      "where": "Library › MCP Servers › Playground › search_repositories › Calibration",
+      "where": "MCP Servers › Playground › search_repositories › Calibration",
       "do": "Run the calibration. Click <strong>Run calibration</strong> in the same panel — each saved case is invoked and scored against its assertion <strong>inline</strong> (deterministic — no LLM judge), and a pass rate comes back immediately. Expect the pass-rate to land <em>below</em> 100% by design: the four golden/edge cases pass, and the two negative cases (N01/N02) fail because their invokes error out before any assertion can match. That red is the intended signal — it is the suite documenting how the tool misbehaves on bad input, not a defect in your setup.",
       "click": "Run calibration",
       "see": "An inline pass-rate report (<code>{pass_rate, total, passed}</code>) — four green cases and two red negatives, so <code>passed:4</code> of <code>total:6</code> (a <code>pass_rate</code> of <code>0.6667</code>, intentionally under 100%) with a per-case verdict on each row. This satisfies <code>at_least_one_read_tool_calibrated = true</code>.",
       "asset": "calibration run (read tool)"
     },
     {
-      "where": "Library › MCP Servers › Playground › History",
-      "do": "Confirm the governance story is recorded on the surface that actually captures it: the Playground <strong>History</strong> panel below the invoke form. MCP invokes do not emit MLflow spans, so they will <em>not</em> appear in <strong>Observe › Observability</strong> — read the evidence here instead. Each invocation you ran this session is listed newest-first; find the <code>search_repositories</code> read (<code>success:true</code>, green dot) and the <code>issue_write</code> write (<code>success:false</code>, red dot — refused by the policy block). Click any row to reload its arguments and result.",
-      "see": "A <strong>History</strong> list with one row per invoke: a green dot + <code>search_repositories</code> + a <code>duration_ms</code> for the successful read, and a red dot + <code>issue_write</code> + <code>0ms</code> for the blocked write. The <code>issue_write</code> tool still wears its red <strong>Blocked</strong> badge, and the <code>search_repositories</code> Calibration panel still shows its saved pass/fail verdicts — together these are your end-to-end enforcement evidence.",
-      "asset": "playground history (invoke + block)"
+      "where": "MCP Servers › Playground › History",
+      "do": "Confirm the evidence. The Playground <strong>History</strong> panel below the invoke form lists each invoke you ran from the Playground this session, newest first (it is in-memory browser state, lost on reload or <strong>Clear</strong>); find the <code>search_repositories</code> read (<code>success:true</code>, green dot). Click any row to reload its arguments and result. An executed invoke also emits a <code>TOOL</code> span named <code>mcp.&lt;server&gt;.search_repositories</code> in <strong>Observability</strong>; test-connection, discovery and the blocked refusal emit none, so the refusal lives in the API response you captured in the previous step.",
+      "see": "A <strong>History</strong> row with a green dot + <code>search_repositories</code> + a <code>duration_ms</code> for the successful read. The <code>issue_write</code> tool still wears its red <strong>Blocked</strong> badge with Invoke disabled, and the <code>search_repositories</code> Calibration panel still shows its saved pass/fail verdicts — together these are your end-to-end enforcement evidence.",
+      "asset": "playground history (read invoke) + blocked API response"
     }
   ]
 }

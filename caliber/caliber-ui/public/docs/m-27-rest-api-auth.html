@@ -42,7 +42,7 @@
           <span class="topbar-search-label">Search docs</span>
           <span class="keycap" data-doc-search-key>⌘K</span>
         </button>
-        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <a class="topbar-cta" href="m-37-five-minute-quickstart.html">Quickstart</a>
         <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
           <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
           <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
@@ -82,7 +82,7 @@
           <div class="doc-eyebrow">Build &amp; integrate</div>
           <h1 id="top">REST API authentication and conventions</h1>
           <p class="doc-summary">Bearer authentication, trusted-header deployments, project scoping, CSRF, envelopes, pagination, request ids, and error shapes.</p>
-          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip doc-meta-chip-type">Reference</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">A running CALIBER deployment</span></div><div class="doc-meta-notes">Reviewed 2026-08-10 · current main branch docs contract</div></div>
+          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip doc-meta-chip-type">Reference</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">A running CALIBER deployment</span></div><div class="doc-meta-notes">Reviewed 2026-10-14 · current main branch docs contract</div></div>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
               Copy page
@@ -93,21 +93,22 @@
 <h2 id="authentication-modes">Authentication modes<a class="anchor" href="#authentication-modes" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>CALIBER supports three identity patterns, but only two make sense for direct programmatic use:</p>
 <div class="table-wrap"><table><thead><tr><th>Mode</th><th>How it works</th><th>Use it when</th></tr></thead><tbody><tr><td>Bearer token</td><td><code>Authorization: Bearer &lt;token&gt;</code></td><td>normal automation and external integrations</td></tr><tr><td>Trusted header</td><td><code>X-CALIBER-User: &lt;user&gt;</code> plus optional <code>X-CALIBER-Proxy-Secret</code></td><td>only behind a trusted identity proxy in <code>trusted_header</code> deployments</td></tr><tr><td>Browser session</td><td>session cookie plus CSRF token</td><td>browser traffic and same-origin UI requests, not headless automation</td></tr></tbody></table></div>
-<p>Personal access tokens are the default automation credential. Trusted headers carry no proof by themselves and are ignored in the default <code>session</code> deployment mode.</p>
+<p>Personal access tokens (the <code>calpat_</code> prefix) are the default automation credential. Trusted headers carry no proof by themselves and are ignored in the default <code>session</code> deployment mode.</p>
+<p>A token's scopes are a ceiling: its effective authority is what it requested intersected with what its owner holds at request time, and a token cannot be issued with a scope its issuer lacks (403). A token can also be <strong>bound to one project</strong> by passing <code>project_id</code> when it is created (<code>POST /auth/tokens</code>); the issuer must already be able to see that project. A bound token that names a different project in <code>X-CALIBER-Project</code> or in the URL is refused with 403, and a bound token that names no project acts in its bound project. Unbound tokens, sessions and trusted-header identities are unaffected. The Workspace import routes (<code>/projects/{project_id}/revision-imports</code>) additionally refuse a personal access token that is not bound to that project; session callers are not affected.</p>
 <h2 id="core-headers">Core headers<a class="anchor" href="#core-headers" aria-hidden="true" tabindex="-1">#</a></h2>
-<div class="table-wrap"><table><thead><tr><th>Header</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Authorization: Bearer &lt;token&gt;</code></td><td>Personal access token or session token</td></tr><tr><td><code>X-CALIBER-Project: &lt;project_id&gt;</code></td><td>Active project/workspace scope</td></tr><tr><td><code>X-CALIBER-CSRF: &lt;token&gt;</code></td><td>Required for state-changing requests when CSRF enforcement applies</td></tr><tr><td><code>X-Request-Id: &lt;id&gt;</code></td><td>Optional caller-supplied correlation id; CALIBER also returns request ids on responses and errors</td></tr><tr><td><code>Accept: application/json</code></td><td>Preferred for management API calls</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Header</th><th>Meaning</th></tr></thead><tbody><tr><td><code>Authorization: Bearer &lt;token&gt;</code></td><td>Personal access token or session token</td></tr><tr><td><code>X-CALIBER-Project: &lt;project_id&gt;</code></td><td>Active project/workspace scope</td></tr><tr><td><code>X-CALIBER-CSRF: &lt;token&gt;</code></td><td>Required on <code>POST</code>, <code>PATCH</code>, <code>PUT</code> and <code>DELETE</code> when CSRF enforcement is enabled (it is off by default)</td></tr><tr><td><code>X-Request-Id: &lt;id&gt;</code></td><td>Optional caller-supplied correlation id; CALIBER also returns request ids on responses and errors</td></tr><tr><td><code>Accept: application/json</code></td><td>Preferred for management API calls</td></tr></tbody></table></div>
 <p>Example:</p>
 <pre class="language-bash"><code class="language-bash">curl -s \
   -H "Authorization: Bearer $CALIBER_TOKEN" \
   -H "X-CALIBER-Project: $CALIBER_PROJECT" \
   "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/workflows"</code></pre>
 <h2 id="csrf">CSRF<a class="anchor" href="#csrf" aria-hidden="true" tabindex="-1">#</a></h2>
-<p>CSRF exists for browser-style credentials. Bearer-token automation generally does not need to bootstrap it, but cookie-based writes do.</p>
+<p>CSRF enforcement is off by default (<code>CALIBER_CSRF_ENABLED</code>), and <code>GET /csrf</code> then answers <code>enabled: false</code>. When a deployment turns it on, every <code>POST</code>, <code>PATCH</code>, <code>PUT</code> and <code>DELETE</code> needs the header, except <code>GET /csrf</code> itself and the GitHub webhook route. That includes bearer-token calls: the middleware does not exempt them. The tokens are bound to the caller's identity and expire (<code>CALIBER_CSRF_TOKEN_TTL_SECONDS</code>), and a missing or invalid one is a 403. The SDK fetches a token and replays the write once when it sees that failure.</p>
 <p>Fetch a token with:</p>
 <pre class="language-bash"><code class="language-bash">curl -s \
   -H "Authorization: Bearer $CALIBER_TOKEN" \
   "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/csrf"</code></pre>
-<p>Then echo the returned token in <code>X-CALIBER-CSRF</code> on the write request.</p>
+<p>The response carries <code>enabled</code>, <code>token</code> and <code>ttl_seconds</code>. Echo the returned token in <code>X-CALIBER-CSRF</code> on the write request.</p>
 <h2 id="response-envelopes">Response envelopes<a class="anchor" href="#response-envelopes" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Most management API responses use the standard envelope:</p>
 <pre class="language-json"><code class="language-json"><span class="tok-punctuation">{</span>
@@ -116,23 +117,26 @@
     <span class="tok-key">"name"</span><span class="tok-punctuation">:</span> <span class="tok-string">"release-governance"</span>
   <span class="tok-punctuation">}</span>
 <span class="tok-punctuation">}</span></code></pre>
-<p>Lists also live under <code>data</code>:</p>
+<p>Lists usually live under <code>data</code> as well:</p>
 <pre class="language-json"><code class="language-json"><span class="tok-punctuation">{</span>
   <span class="tok-key">"data"</span><span class="tok-punctuation">:</span> <span class="tok-punctuation">[</span>
     <span class="tok-punctuation">{</span><span class="tok-key">"workflow_id"</span><span class="tok-punctuation">:</span> <span class="tok-string">"WF-123"</span><span class="tok-punctuation">}</span><span class="tok-punctuation">,</span>
     <span class="tok-punctuation">{</span><span class="tok-key">"workflow_id"</span><span class="tok-punctuation">:</span> <span class="tok-string">"WF-456"</span><span class="tok-punctuation">}</span>
   <span class="tok-punctuation">]</span>
 <span class="tok-punctuation">}</span></code></pre>
+<p>A few routes answer with a bare body instead of the envelope: <code>GET /health</code> returns <code>{"status", "version", "db"}</code> at the top level, and the OpenAPI documents are the raw document. <code>GET /health</code> answers 503 with <code>status: "degraded"</code> when the database probe fails. <code>GET /readiness</code> does use the envelope, and answers 503 (the body is still under <code>data</code>) when a required dependency is not ready; that includes a database that has not been migrated to the schema this release expects (run <code>caliber-migrate</code>) and an unreachable MLflow tracking server.</p>
 <h2 id="pagination-and-list-conventions">Pagination and list conventions<a class="anchor" href="#pagination-and-list-conventions" aria-hidden="true" tabindex="-1">#</a></h2>
-<p>List endpoints commonly accept:</p>
-<ul><li><code>?limit=&lt;n&gt;</code></li><li><code>?offset=&lt;n&gt;</code></li></ul>
-<p>Invalid values fall back to defaults rather than failing request parsing, so a consumer that cares about deterministic pagination should always send explicit values.</p>
+<p>Many list endpoints accept:</p>
+<ul><li><code>?limit=&lt;n&gt;</code> (default 500, at most 2000 on routes that share the common helper)</li><li><code>?offset=&lt;n&gt;</code></li></ul>
+<p>Invalid values fall back to defaults rather than failing request parsing, so a consumer that cares about deterministic pagination should always send explicit values. Pagination is not one shape across the API: some routes take only <code>limit</code>, the audit log returns its own envelope, the event streams take <code>after</code>, and the Workspace routes (<code>/projects/{project_id}/revisions</code>, <code>.../revision-imports</code> and similar) use <code>limit</code> plus an opaque <code>cursor</code> and return <code>next_cursor</code> next to <code>data</code>.</p>
 <h2 id="error-shapes">Error shapes<a class="anchor" href="#error-shapes" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>General route failures come back as:</p>
 <pre class="language-json"><code class="language-json"><span class="tok-punctuation">{</span>
   <span class="tok-key">"detail"</span><span class="tok-punctuation">:</span> <span class="tok-string">"forbidden"</span><span class="tok-punctuation">,</span>
   <span class="tok-key">"status_code"</span><span class="tok-punctuation">:</span> <span class="tok-number">403</span>
 <span class="tok-punctuation">}</span></code></pre>
+<p>Some routes also set a machine-readable <code>reason_code</code> next to <code>detail</code> (<code>{"detail": ..., "status_code": 409, "reason_code": "..."}</code>). It is optional and additive: most routes do not set it yet, so treat its absence as normal and fall back to <code>detail</code> and the status code.</p>
+<p>A 429 carries a <code>Retry-After</code> header. When MLflow is unreachable, the prompt routes and Apply answer 503 with a fixed message naming <code>MLFLOW_TRACKING_URI</code>, and nothing was changed.</p>
 <p>Validation failures use a structured 400 body:</p>
 <pre class="language-json"><code class="language-json"><span class="tok-punctuation">{</span>
   <span class="tok-key">"detail"</span><span class="tok-punctuation">:</span> <span class="tok-string">"request body validation failed"</span><span class="tok-punctuation">,</span>

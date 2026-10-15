@@ -12,7 +12,7 @@
 | **Runtime model** | The console talks to S3 directly via `routes/object_store.py`; scoped storage flows through `WorkingDirectoryService` over `local` or `s3` backends. |
 | **Key surfaces** | HTTP routes under `/ajax-api/2.0/mlflow/caliber`: `/object-store/...` console routes, `/workflow-files` and run-scoped file routes, and `/projects` workspace routes. |
 | **Reference grammar** | Runtime code uses `caliber://` refs resolved against physical objects, never raw bucket keys. |
-| **Trust / safety** | Reads need an authenticated user and visibility of the owning run or project; console mutations require `SCOPE_ADMIN` and scoped writes `SCOPE_OPERATOR`; `safe_relative_path` and `local_realpath_guard` block traversal/symlink escape. |
+| **Trust / safety** | Reads need an authenticated user and visibility of the owning run or project; console mutations require `SCOPE_ADMIN` and scoped writes `SCOPE_OPERATOR` plus the project role the action names; `safe_relative_path` and `local_realpath_guard` block traversal/symlink escape. |
 | **Extends via** | New backends implement the `StorageBackend` protocol through `build_backend(...)`. |
 
 The sections below start from this picture and drill down into the scope, boundaries, runtime paths, data model, surfaces, and trust boundaries in detail.
@@ -170,8 +170,19 @@ kind of file lands in a predictable, collision-free prefix:
   `tenant/{tenant}/project/{project}/workflow/{workflow}/runs/{run}/...`.
 - Playground runs use
   `tenant/{tenant}/project/{project}/playground/{run}/...`.
-- Project file refs are stored as `CaliberWorkflowFile` rows with `project_id`
-  and the chosen backend.
+- Project files use
+  `tenant/{tenant}/project/{project}/files/{segment}/.objects/{sha256}/{path}`, a
+  content-addressed object key, and resolve as
+  `caliber://projects/{project}/{kind}/{path}`. Re-uploading identical bytes returns
+  the existing record; different bytes at an existing ref get a
+  `.sha256-{12 hex}` sibling path instead of overwriting, so a ref already pinned
+  into a workflow manifest never changes. The row carries `project_id` with no run
+  binding and the project's chosen backend.
+- Dataset files use
+  `tenant/{tenant}/project/{project}/datasets/{dataset}/examples/{example}/...`.
+- `{segment}` comes from `KIND_TO_SEGMENT`: kinds `input`, `work`, `tmp`, and
+  `metadata` keep their name, while `artifact` and `log` become `artifacts` and
+  `logs`.
 
 A file's lifecycle is metadata-driven: the `status` field advances through a
 fixed set of states rather than being inferred from object listings:
@@ -238,6 +249,11 @@ Project workspace routes manage projects and their browsable file trees:
 - `POST /projects/{project_id}/members`
 - `PATCH /projects/{project_id}/members/{user_id}`
 - `DELETE /projects/{project_id}/members/{user_id}`
+- `POST /projects/{project_id}/archive`
+- `POST /projects/{project_id}/restore`
+- `POST /projects/{project_id}/transfer-ownership`
+- `GET /projects/{project_id}/environments` and the per-environment `GET`, `PATCH`,
+  `enable`, and `disable` routes under `/projects/{project_id}/environments/{name}`
 - `POST /projects/{project_id}/folders`
 - `GET /projects/{project_id}/files`
 - `POST /projects/{project_id}/files`
@@ -307,8 +323,16 @@ held to a higher bar than scoped file writes. The access rules are:
 - Object-store mutations require `SCOPE_ADMIN`.
 - Workflow and project file reads require an authenticated user *and* visibility
   of the resource the files hang off.
-- Workflow and project file writes require `SCOPE_OPERATOR` plus project
-  `resource.write.runtime` access (`owner` or `editor`) for the selected project.
+- Project file writes (staging upload, project upload and folder creation, and
+  object import) require `SCOPE_OPERATOR` plus project `resource.write.runtime`
+  access (`owner` or `editor`) for the selected project. Staging upload and
+  import also require an active project (`X-CALIBER-Project`): staging answers `400`
+  and import `409` without one, and an archived project answers `409`.
+- Run-scoped uploads and artifact registration (`/workflow-runs/{run_id}/files`,
+  `/workflow-runs/{run_id}/artifacts`) require `SCOPE_OPERATOR` plus
+  `resource.execute` (`owner`, `editor`, or `reviewer`) on the run's project, resolved
+  through the run's parent workflow. Playground uploads require `SCOPE_OPERATOR` and
+  have no project role check.
 
 On top of authorization, the module enforces a set of core protections at the
 boundary between CALIBER and untrusted storage:
@@ -354,8 +378,20 @@ how content is read back and rendered:
 Operational signals come from several layers, from connectivity probes to
 per-file telemetry to mirrored logs. The available signals are:
 
-- `GET /object-store/status` probes connectivity and returns a structured error
-  instead of throwing a transport exception.
+- `GET /object-store/status` probes connectivity with a bucket listing and returns
+  `connected`, `endpoint`, and either `bucket_count` or a structured `error` instead of
+  throwing a transport exception.
+- `GET /readiness` probes the *managed-storage* backend, not the console client. It is
+  required only when workflow storage is remote: the explicit
+  `workflow_storage.backend` (`s3`) or a remote `base_uri` scheme (`s3`, `gs`, `az`,
+  `azure`) triggers the probe, and neither signal can suppress the other
+  (`workflow_storage_is_remote` in `observability/readiness.py` applies the same rule
+  to the workflow palette). The probe lists the fixed prefix
+  `.caliber-readiness-probe` with `limit=1`, which exercises the endpoint,
+  credentials, and bucket together; an `s3` backend with no bucket reports not ready
+  without probing, and a local backend reports the check as skipped. The prefix must
+  be a real relative path because every backend validates it; an empty prefix was
+  rejected as an unsafe path and kept the MinIO docker stack permanently not ready.
 - `CaliberWorkflowFileEvent` records upload, download, delete, and artifact
   operations for scoped files.
 - `S3LogHandler` can mirror structured service logs into object storage as JSONL
@@ -368,8 +404,13 @@ managed-storage backend:
 
 - `CALIBER_OBJECT_STORE_*` configures the console and the general
   S3-compatible client.
-- `workflow_storage.*` configures the managed file-storage backend, bucket,
-  prefixes, limits, and retention behavior.
+- `workflow_storage.*` (`CALIBER_WORKFLOW_STORAGE_*`) configures the managed
+  file-storage backend, bucket, prefixes, limits, and retention behavior. The backend
+  defaults to `local` with `base_uri` `file://./caliber-workspaces` (ignored for `s3`),
+  and the defaults cap an upload at 250 MiB and a run at 2 GiB and 500 files.
+- The console client defaults to endpoint `http://localhost:9000`, region
+  `us-east-1`, path-style addressing on, and credential sources `MINIO_ROOT_USER`
+  and `MINIO_ROOT_PASSWORD`; the console's own upload and import cap is 250 MiB.
 
 That separation gives CALIBER operational flexibility:
 
@@ -377,7 +418,10 @@ That separation gives CALIBER operational flexibility:
 - It can store managed workflow and project files on local disk or another
   bucket.
 - It can point both at the same MinIO deployment when that is operationally
-  useful.
+  useful. The docker stack (`deploy/caliber/compose.yaml`) does: it sets
+  `CALIBER_WORKFLOW_STORAGE_BACKEND=s3` on the `caliber-workspaces` bucket
+  (`MINIO_WORKSPACES_BUCKET`) and `CALIBER_OBJECT_STORE_ENDPOINT_URL` on
+  `http://minio:9000`, with a separate public endpoint for presigned URLs.
 
 ## 9. Extension points and current constraints
 

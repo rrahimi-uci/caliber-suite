@@ -4,14 +4,14 @@ Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
 
 | # | Artifact | File | Create via UI + API |
 | --- | --- | --- | --- |
-| 1 | Tool `lookup_order` (read) | [`tools/lookup-order.tool.json`](tools/lookup-order.tool.json) | `Library → Tools → New tool` (Spec stage), paste the fields. API: `POST /tools` with the file body |
-| 2 | Tool `initiate_refund` (write) | [`tools/initiate-refund.tool.json`](tools/initiate-refund.tool.json) | `Library → Tools → New tool` (Spec stage). API: `POST /tools` with the file body. `side_effect_level=write` → mocked in sandbox, approval-gated in the workflow |
-| 3 | Decision node `decide_refund` | [`tools/decide_refund.py`](tools/decide_refund.py) | **Not a registered tool.** `Compose → Workflows` → drag a **Python Code** node, paste the file body. Versions with the workflow |
-| 4 | Eval dataset `refund-fixtures` | [`dataset/refund-fixtures.jsonl`](dataset/refund-fixtures.jsonl) | `Evaluate → Test Sets → New dataset`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line. Also reusable as tool fixtures (`PUT /tools/{id}/test-cases`) |
-| 5 | Prompt `refund-explanation` | [`prompts/refund-explanation.md`](prompts/refund-explanation.md) | `Library → Prompts → New prompt`, paste the body below the frontmatter. API: `POST /prompts {name, template, commit_message}` |
-| 6 | Skill `policy-reason-normalizer` | [`skills/policy-reason-normalizer.md`](skills/policy-reason-normalizer.md) | `Library → Skills → New skill`, paste name/summary/content. API: `POST /skills` |
-| 7 | Skill `customer-safe-refund-language` | [`skills/customer-safe-refund-language.md`](skills/customer-safe-refund-language.md) | `Library → Skills → New skill`. API: `POST /skills` |
-| 8 | Judge `ExplanationFaithfulness` | [`judges/explanation-faithfulness.judge.json`](judges/explanation-faithfulness.judge.json) | `Evaluate → Judges → New judge`, paste fields. API: `POST /judges` |
+| 1 | Tool `lookup_order` (read) | [`tools/lookup-order.tool.json`](tools/lookup-order.tool.json) | `Tools → Register Tool` (Spec stage), paste the fields; keep **Allow in Preview** on or the sandbox mocks this read tool. API: `POST /tools` with the file body |
+| 2 | Tool `initiate_refund` (write) | [`tools/initiate-refund.tool.json`](tools/initiate-refund.tool.json) | `Tools → Register Tool` (Spec stage). API: `POST /tools` with the file body (it carries `requires_approval: true`; a write tool without it is rejected with a `400`). `side_effect_level=write` → mocked in sandbox, approval-gated in the workflow |
+| 3 | Decision node `decide_refund` (optional) | [`tools/decide_refund.py`](tools/decide_refund.py) | **Not a registered tool, and the main recipe does not need it:** it uses a **Data Transform → Decision table** node (emits `{decision, matched, matched_rule}`). To get `reason_code` and `requires_approval` as well, `Workflows` → drag a **Python Code** node and paste the file body. Versions with the workflow |
+| 4 | Eval dataset `refund-fixtures` | [`dataset/refund-fixtures.jsonl`](dataset/refund-fixtures.jsonl) | `Test Sets → + New Test Set`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line. Also reusable as tool fixtures (`PUT /tools/{id}/test-cases`) |
+| 5 | Prompt `refund-explanation` | [`prompts/refund-explanation.md`](prompts/refund-explanation.md) | `Prompts → New prompt`, paste the body below the frontmatter. API: `POST /prompts {name, template, commit_message}` |
+| 6 | Skill `policy-reason-normalizer` | [`skills/policy-reason-normalizer.md`](skills/policy-reason-normalizer.md) | `Skills → Build Skill`, paste name/summary/content. API: `POST /skills` |
+| 7 | Skill `customer-safe-refund-language` | [`skills/customer-safe-refund-language.md`](skills/customer-safe-refund-language.md) | `Skills → Build Skill`. API: `POST /skills` |
+| 8 | Judge `ExplanationFaithfulness` | [`judges/explanation-faithfulness.judge.json`](judges/explanation-faithfulness.judge.json) | `Judges → + New Judge`, paste fields. API: `POST /judges` |
 
 ## How the pieces fit (read [`../README.md`](../README.md) for the full recipe)
 
@@ -21,7 +21,9 @@ Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
   scope each fixture input to just `{"order_id": ...}` and run the fixtures (4) as
   a deterministic Hardening suite (`POST /tools/{id}/calibrate`) and pin a
   baseline. Gate: fixture pass rate ≥ `0.97`.
-- **`decide_refund` is a `python_code` node, not a registered tool.** It is the
+- **The decision logic is a Decision table node; `decide_refund` is the optional
+  `python_code` alternative, not a registered tool.** The table node emits
+  `{decision, matched, matched_rule}` only. The `python_code` variant is the
   first node after START and parses the JSON run input directly (a python_code
   node receives the run input as an unparsed string). It holds the deterministic
   eligibility rules (refund window ≤ 30 days, auto-approve limit, fail-closed on
@@ -37,7 +39,9 @@ Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
   the `human_approval` node pauses **every** run that reaches it (it does not
   depend on `requires_approval`). Clearing a paused run takes two steps: Approve
   records the decision (the run stays `waiting_approval`), then a separate Resume
-  advances it. `lookup_order` stays as the Tools-sandbox demo and is not part of
+  advances it. Approve needs the `caliber.approver` scope and a different account
+  than the run's initiator (`403` otherwise, unless the server sets
+  `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true`). `lookup_order` stays as the Tools-sandbox demo and is not part of
   this decision chain.
 - **Explanation is optional and last.** Add the `refund-explanation` prompt (5)
   and the two skills (6–7) to phrase the decision without changing it, then

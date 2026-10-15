@@ -31,7 +31,8 @@ require reproducible evidence.
   created only at M4 (`caliber-v0.1.0`) and M6 (`caliber-v1.0.0`) after their
   gates pass. The one earlier tag is the alpha prerelease `caliber-v0.1.0a1`
   (see [Releasing](m-62-releasing.md)): it is not a formal product tag and
-  makes no pilot or production claim.
+  makes no pilot or production claim. As of 2026-10-14 version `0.1.0a1` is
+  prepared on `main`, but the tag and prerelease are not published.
 - The first-mile pilot tests current `main`; it is not a production-readiness
   or stability claim.
 - Every ticket must state exact scope, deliverables, acceptance criteria,
@@ -58,9 +59,35 @@ work.
 `docs/two-week-alpha-plan.md` proposed a lighter, earlier checkpoint alongside
 this milestone; its Days 1–9 executed against current `main`, with Day 10
 (cutting the actual release tag) left to the repo owner (see
-`docs/reports/two-week-alpha-day10-decision.md`). Per that plan's own
+`docs/reports/two-week-alpha-day10-decision.md`). That work has since been
+generalised into the `0.1.0a1` alpha (gap list in
+[`docs/caliber-alpha-gaps.md`](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/caliber-alpha-gaps.md), boundary in
+[Alpha scope and limitations](m-61-alpha-scope.md)); the tag and prerelease
+are still unpublished. Per that plan's own
 "Relationship to the existing roadmap" section, this is evidence feeding M1's
 discovery exit criterion below — it does not replace or shorten M1–M6.
+
+## Status against current main (2026-10-14)
+
+- **Tickets.** The GitHub issues and Project #2 cited in this roadmap no longer
+  resolve (the issue API answers "This issue was deleted", HTTP 410, for every
+  planning issue sampled between #56 and #159; the owner has no Project #2). The
+  `#nn` references are historical identifiers until the tickets are recreated
+  or the references removed.
+- **Gates.** The repository records no M1 exit decision: the
+  [PRD](m-59-v1-product-requirements.md) is still "draft for approval", and no controlled-pilot
+  (M4) or v1 (M6) decision exists. The only release work in the tree is the
+  `0.1.0a1` alpha prerelease, which is prepared but not published and is not
+  the M4 `caliber-v0.1.0` gate.
+- **What the code proves per requirement.** See the PRD's
+  [Implementation status against current main](m-59-v1-product-requirements.md#implementation-status-against-current-main).
+  In short: the durable prompt release state machine, the project-role
+  boundary on mutating routes, a CI-proven offline prompt journey and a wheel
+  that installs and boots without a checkout are built. The flagged-trace start
+  of the journey, a second approver, one-active-process enforcement, a measured
+  workload envelope and rehearsed recovery are not.
+- **Not claimed.** Nothing above changes the milestone dates or moves an
+  M2–M6 exit criterion to done.
 
 ## v1.0.0 MVP boundary and critical path
 

@@ -18,15 +18,15 @@ claim.
 
 | # | Artifact | File | Create via UI + API |
 | --- | --- | --- | --- |
-| 1 | Tool `lookup_account_state` (read) | [`tools/lookup-account-state.tool.json`](tools/lookup-account-state.tool.json) | `Library → Tools → New tool` (Spec stage), paste the fields. API: `POST /tools` with the file body. `side_effect_level=read` runs live in the sandbox. |
-| 2 | Tool `lookup_recent_incidents` (read) | [`tools/lookup-recent-incidents.tool.json`](tools/lookup-recent-incidents.tool.json) | `Library → Tools → New tool` (Spec stage). API: `POST /tools` with the file body |
-| 3 | Prompt `ticket-intake` | [`prompts/ticket-intake.md`](prompts/ticket-intake.md) | `Library → Prompts → New prompt`, paste the body below the frontmatter. API: `POST /prompts {name, template, commit_message}`. Bind to the `ticket_intake` agent node |
-| 4 | Prompt `support-reply` | [`prompts/support-reply.md`](prompts/support-reply.md) | `Library → Prompts → New prompt`, paste the body. API: `POST /prompts`. Bind to the `reply_generation` agent node — this is the prompt that carries the citation + approval contract |
-| 5 | Skill `support-tone-and-deflection` | [`skills/support-tone-and-deflection.md`](skills/support-tone-and-deflection.md) | `Library → Skills → New skill`, paste `summary` + `content` + `category` + `tags`. API: `POST /skills` |
-| 6 | Skill `high-risk-escalation-checklist` | [`skills/high-risk-escalation-checklist.md`](skills/high-risk-escalation-checklist.md) | `Library → Skills → New skill`. API: `POST /skills`. Holds the decision rules for when refund/external-write needs approval and when to `escalate_bug` |
-| 7 | Skill `citation-and-next-steps` | [`skills/citation-and-next-steps.md`](skills/citation-and-next-steps.md) | `Library → Skills → New skill`. API: `POST /skills`. **Shared with SCN-06** (see Reuse below) — this copy is retuned for the four support outcomes |
-| 8 | Eval dataset `support-ticket-cases` | [`dataset/ticket-cases.jsonl`](dataset/ticket-cases.jsonl) | `Evaluate → Test Sets → New dataset`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line |
-| 9 | Judge `GroundedSupportReply` | [`judges/grounded-support-reply.judge.json`](judges/grounded-support-reply.judge.json) | `Evaluate → Judges → New judge`, paste fields. API: `POST /judges`. The real `custom_judge` from [`../verification.yaml`](../verification.yaml) |
+| 1 | Tool `lookup_account_state` (read) | [`tools/lookup-account-state.tool.json`](tools/lookup-account-state.tool.json) | `Tools → Register Tool` (Spec stage), paste the fields. API: `POST /tools` with the file body. `side_effect_level=read` runs live in the sandbox. |
+| 2 | Tool `lookup_recent_incidents` (read) | [`tools/lookup-recent-incidents.tool.json`](tools/lookup-recent-incidents.tool.json) | `Tools → Register Tool` (Spec stage). API: `POST /tools` with the file body |
+| 3 | Prompt `ticket-intake` | [`prompts/ticket-intake.md`](prompts/ticket-intake.md) | `Prompts → New prompt`, paste the body below the frontmatter. API: `POST /prompts {name, template, commit_message}`. Bind to the `ticket_intake` agent node |
+| 4 | Prompt `support-reply` | [`prompts/support-reply.md`](prompts/support-reply.md) | `Prompts → New prompt`, paste the body. API: `POST /prompts`. Bind to the `reply_generation` agent node — this is the prompt that carries the citation + approval contract |
+| 5 | Skill `support-tone-and-deflection` | [`skills/support-tone-and-deflection.md`](skills/support-tone-and-deflection.md) | `Skills → Build Skill`, paste `summary` + `content` + `category` + `tags`. API: `POST /skills` |
+| 6 | Skill `high-risk-escalation-checklist` | [`skills/high-risk-escalation-checklist.md`](skills/high-risk-escalation-checklist.md) | `Skills → Build Skill`. API: `POST /skills`. Holds the decision rules for when refund/external-write needs approval and when to `escalate_bug` |
+| 7 | Skill `citation-and-next-steps` | [`skills/citation-and-next-steps.md`](skills/citation-and-next-steps.md) | `Skills → Build Skill`. API: `POST /skills`. **Shared with SCN-06** (see Reuse below) — this copy is retuned for the four support outcomes |
+| 8 | Eval dataset `support-ticket-cases` | [`dataset/ticket-cases.jsonl`](dataset/ticket-cases.jsonl) | `Test Sets → + New Test Set`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line |
+| 9 | Judge `GroundedSupportReply` | [`judges/grounded-support-reply.judge.json`](judges/grounded-support-reply.judge.json) | `Judges → + New Judge`, paste fields. API: `POST /judges`. The real `custom_judge` from [`../verification.yaml`](../verification.yaml) |
 
 External write tool (`issue_write`) is **not** authored here — it is the
 **GitHub MCP** server's tool, governed in SCN-05 (see Reuse). Set it
@@ -54,7 +54,7 @@ build the minimal version from the referenced scenario).
 ## How the pieces fit (read [`../README.md`](../README.md) for the full recipe)
 
 - **Start from the `hitl_review` template.** It ships the `human_approval` gate
-  already wired. `Compose → Workflows → New` → template `hitl_review`, then add
+  already wired. `Workflows → New Workflow` → template `hitl_review`, then add
   the nodes from [`../build.yaml`](../build.yaml):
   `ticket_intake (agent: prompt ticket-intake) → account_lookup (tool:
   lookup_account_state) → incident_lookup (tool: lookup_recent_incidents) →
@@ -67,7 +67,7 @@ build the minimal version from the referenced scenario).
   initiate_refund`); `escalate_bug` goes through `human_approval → issue_write`.
 - **Approval is enforced by the gate, not the prompt.** `support-reply` only
   *flags* `requires_approval`; the actual block is the `human_approval` node. With
-  approval **rejected** (`run-reject`), no external write fires (run ends
+  approval **rejected** (**Reject**), no external write fires (run ends
   blocked/failed) — that is the `approval_required_for_refund_or_external_write`
   rule_check, observable in the trace.
 - **Citations come from the contract.** `support-reply` forbids any uncited
@@ -75,9 +75,10 @@ build the minimal version from the referenced scenario).
   a reply that asserts an uncited claim, leaks internal jargon, or self-authorizes
   a refund/write — covering the `citations_required_for_external_claims` rule_check.
 - **Evaluate.** Create the `support-ticket-cases` dataset from
-  [`dataset/ticket-cases.jsonl`](dataset/ticket-cases.jsonl), then `Evaluate →
-  Evaluations → Run evaluation` with scorers = `contains_expected` (on
-  `expectations.decision`) + `Judge.GroundedSupportReply`. Route low-scoring runs
+  [`dataset/ticket-cases.jsonl`](dataset/ticket-cases.jsonl), then `Evaluations →
+  Run evaluation` with scorers = `contains_expected` (on
+  `expectations.decision`) + the `GroundedSupportReply` judge (scorer token
+  `Judge.<judge_id>`, listed by name under **Custom LLM judges**). Route low-scoring runs
   to a **Review Queue** and answer them. Gates ([`../verification.yaml`](../verification.yaml)):
   `grounded_reply_score_min ≥ 0.90`, `approval_compliance = 1.0`,
   `escalation_precision_min ≥ 0.85`.
@@ -95,9 +96,11 @@ build the minimal version from the referenced scenario).
   is the narrow one-line trigger text the deterministic selector reads.
 - **Tool files** (`tools/*.tool.json`): the `POST /tools` body —
   `{name, version, module_path, callable_name, input_schema, output_schema,
-  side_effect}`; `module_path` + `callable_name` must be importable. `side_effect`
-  ∈ `read`|`write`|`external_action` (`read` runs live in the sandbox;
-  `write`/`external_action` are mocked there and approval-gated in a workflow).
+  side_effect_level}`; `module_path` + `callable_name` must be importable.
+  `side_effect_level` ∈ `read`|`write`|`external_action` (`read` runs live in the sandbox;
+  `write`/`external_action` are mocked there and approval-gated in a workflow; a
+  `read` tool is mocked unless `allow_in_preview` is true, and a `write` tool
+  must carry `requires_approval: true`).
 - **Dataset files** (`dataset/*.jsonl`): one example per line,
   `{"id", "tags", "inputs", "expectations"}` — the shape Evaluations scorers +
   judges read (`{{ inputs }}`, `{{ outputs }}`, `{{ expectations }}`). `inputs` is

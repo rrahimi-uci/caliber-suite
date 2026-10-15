@@ -7,8 +7,11 @@ intents:
     expected_plan_steps: [judge.create, eval_dataset.create]
   - id: A12-natural
     goal: "Set up faithfulness scoring for our support answers, with a test set to run it on."
-    note: "Natural phrasing. Relies on an LLM planner to map 'test set' -> eval_dataset and 'faithfulness scoring' -> judge. The default HeuristicPlanner needs the literal words 'judge' and 'eval dataset' — use A12-canonical for the deterministic path."
-# What you supply when Aria pauses (one interaction per mutate step):
+    note: "Natural phrasing. The default HeuristicPlanner recognises 'test set' (-> eval_dataset.create) but not 'faithfulness scoring' (-> judge.create, which needs the literal word 'judge'), so this plans only one step. Use A12-canonical for the deterministic path."
+# What you enter when Aria pauses on the "Aria needs information" form (the `inputs` of the
+# judge.create step). eval_dataset.create has no form: its name is linked from judge.create, so the
+# test set is created as AnswerFaithfulness; the values below are the reference spec if you create a
+# separately named set yourself.
 interaction_answers:
   judge.create:
     name: AnswerFaithfulness
@@ -19,5 +22,5 @@ interaction_answers:
     description: "Held-out support Q/A for faithfulness scoring. Add example rows after creation, then run Evaluations."
 done_when:
   - a judge named AnswerFaithfulness is active in Judges
-  - an eval dataset named support-faithfulness-eval exists in Test Sets
+  - an empty test set named AnswerFaithfulness (the judge step's name) exists in Test Sets
   - the Aria plan shows both steps completed

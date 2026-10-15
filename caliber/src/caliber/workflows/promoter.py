@@ -2395,15 +2395,12 @@ def _tool_sandbox_blockers(
     So the same version could be refused for its MCP dependency and accepted for
     its Python tool, which is an inconsistency rather than a policy.
 
-    It is **opt-in**, unlike the MCP rule, and the asymmetry is deliberate: MCP
-    servers are a deliberate integration a few deployments configure, while
-    registered tools are ubiquitous. Defaulting this on refused every existing
-    prod promotion that uses a tool — 8 tests caught exactly that — which is a
-    migration, not a gate. So
-    ``CALIBER_TOOL_SANDBOX_REQUIRE_EXTERNAL_ISOLATION_FOR_ENVIRONMENT_CLASSES``
-    starts empty and a deployment whose authors are not as trusted as its
-    operators turns it on, satisfying it the same way MCP does: point
-    ``CALIBER_TOOL_SANDBOX_BACKEND`` at a factory supplying OS-enforced isolation.
+    Like the MCP rule, it applies to the ``production`` environment class by
+    default: ``CALIBER_TOOL_SANDBOX_REQUIRE_EXTERNAL_ISOLATION_FOR_ENVIRONMENT_CLASSES``
+    defaults to ``production``. A deployment satisfies it the same way MCP does:
+    point ``CALIBER_TOOL_SANDBOX_BACKEND`` at a factory supplying OS-enforced
+    isolation. A deployment whose authors are as trusted as its operators can set
+    the variable to an empty string to restore the never-refuse behaviour.
     """
     resolved = config or CaliberConfig()
     raw = str(

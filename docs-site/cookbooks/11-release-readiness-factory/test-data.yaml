@@ -7,9 +7,8 @@ required_inputs:
       - scn08
       - scn10
   - review_queue_summary
-  - allure_report_path
 edge_cases:
-  - allure_report_generated_but_not_served
+  - report_job_generated_before_a_waiver_so_the_snapshot_hash_is_stale
   - scenario_slice_passes_locally_but_missing_saved_run
 negative_cases:
   - missing_required_run_id

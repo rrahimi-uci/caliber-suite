@@ -49,8 +49,9 @@ Those planes give the module a deliberately broad mandate. Its responsibilities
 are to do the following:
 
 - Capture durable QA signals from prompt optimization, prompt calibration, skill
-  calibration, workflow calibration, assistant promotion proposals, and human
-  trace feedback.
+  calibration, workflow calibration, assistant promotion proposals, and manually
+  flagged verification items. Human trace feedback is recorded on the trace and in
+  the audit log but is not yet turned into queue items automatically.
 - Move artifact-level issues through the triage -> evidence -> diagnosis ->
   candidate -> eval -> apply lifecycle with replay-safe provenance. Applications
   originating in refinement retain their signal-to-job lineage; direct release
@@ -122,12 +123,12 @@ quality story.
 | Manually-flagged Stage ① Verify | `routes/verification.py` + `CaliberVerificationItem` | `/verification-queue` list/get/create/verify/dismiss/duplicate/batch for a concern raised separately from an already-running job. Verifying does not create a refinement job. |
 | Curated human-review queues | `routes/review_queues.py` + `CaliberReviewQueue` (migration 0054), FE `ReviewQueues.tsx` | Dedicated CRUD, the workflow `review_queue_enqueue` component, submit/writeback, and provenance-bearing alignment export. |
 | Authored judges | `routes/judges.py` + `CaliberJudge` (migration 0053), FE `Judges.tsx` | `/test-run` and `/alignment`; Human Alignment imports completed binary queue labels rather than requiring transcription. |
-| Release signoff | `routes/releases.py`, `CaliberReleaseCandidate`, `CaliberReleaseSignoff`, `CaliberReleaseReportJob`, FE `Releases.tsx` | Server-computed criteria/blockers, accountable waivers, required rollback target, immutable go/no-go snapshot, and durable Allure-compatible evidence. |
+| Release signoff | `routes/releases.py`, `CaliberReleaseCandidate`, `CaliberReleaseSignoff`, `CaliberReleaseReportJob`, FE `Releases.tsx` | Server-computed criteria/blockers, accountable waivers, required rollback target, immutable go/no-go snapshot, and durable Allure-compatible evidence. In the alpha this is preview and record-only: signing off records a decision and does not deploy or roll back anything (the Releases page says so). |
 | Durable artifact QA state | `CaliberVerificationItem` + `VerificationItemSchema` | Source of truth for artifact-scoped QA items linked to traces, sessions, workflows, and assessments. |
 | Refinement and replay evidence | `CaliberRefinementJob`, `CaliberRegressionRun`, `regression.py` | Tracks staged diagnosis and candidate evaluation separately from final promotion history. |
-| Promotion and rollback provenance | `apply.py`, `promoter.py`, `CaliberApprovalRequest`, `CaliberRollbackCheckpoint` | Applies only ready candidates and stores rollback anchors before mutation. |
+| Promotion and rollback provenance | `apply.py`, `promoter.py`, `CaliberApprovalRequest`, `CaliberRollbackCheckpoint` | Applies only ready candidates and stores rollback anchors before mutation. Apply is intent-first: the claim and the approval anchor are committed before the provider call (see section 4). |
 | Runtime approvals and checkpoints | `routes/workflow_runs.py`, `CaliberRuntimeApprovalRequest`, `CaliberWorkflowRunCheckpoint` | Governs paused live workflow runs and resume-safe recovery. |
-| Feedback bridge from traces | `routes/observability.py`, `mlflow_client.py`, `CaliberRuntimeLock` | Human review lands on traces first and can later feed QA-oriented persistence. |
+| Feedback bridge from traces | `routes/observability.py`, `mlflow_client.py`, `CaliberRuntimeLock` | Human review lands on the MLflow trace as an assessment plus a `trace.feedback` audit row. Nothing reads it back into the queue yet: there is no feedback poller in this build. |
 | Repo-root validation orchestration | `Makefile`, `test-all.sh` | Defines the canonical full-suite entry points and final failure semantics. |
 | Backend Python tests | `caliber/Makefile`, `caliber/tests/`, `pyproject.toml` | Runs pytest with shared defaults, Allure emission, and the clean-exit wrapper. |
 | Frontend unit/component tests | `package.json`, `vitest.config.ts`, `src/test/*` | Uses jsdom, Testing Library, MSW, and serialized workers for deterministic UI coverage. |
@@ -164,7 +165,7 @@ flowchart LR
     subgraph RQ["Runtime QA control plane"]
         P[Prompt / Skill / Workflow<br/>calibration routes]:::ctrl
         A[Assistant promotion proposal]:::ctrl
-        FB[Observability feedback<br/>on traces]:::ext
+        FB[Observability feedback<br/>on traces<br/>(MLflow + audit only)]:::ext
         VQ[(CaliberVerificationItem)]:::store
         JOB[(CaliberRefinementJob)]:::store
         REG[(CaliberRegressionRun)]:::store
@@ -178,7 +179,6 @@ flowchart LR
 
         P --> VQ --> JOB --> REG --> APP --> APPR --> PROV
         A --> VQ
-        FB --> VQ
         RUN --> CK
         RUN --> RA
         QUI --> JOB
@@ -267,7 +267,7 @@ they belong to.
 | Evidence/reporting | `caliber/allure-results/` | Raw backend Allure results emitted by pytest. |
 | Evidence/reporting | `caliber/caliber-ui/allure-results/` | Shared raw frontend Allure results for Vitest and Playwright. |
 | Evidence/reporting | `caliber/caliber-ui/allure-report/` | Generated HTML report served locally and in-product. |
-| Engineering validation | `.tmp/playwright-server-$MLFLOW_PORT/` | Per-port E2E bootstrap state, PID files, logs, DB path, and locks. |
+| Engineering validation | `caliber/.tmp/playwright-server-$MLFLOW_PORT/` | Per-port E2E bootstrap state, PID files, logs, DB path, and locks. |
 
 A handful of semantic rules govern how this state behaves, and they hold
 consistently across the plane:
@@ -277,9 +277,24 @@ consistently across the plane:
 - Verification items preserve origin metadata such as `trace_id`, `session_id`,
   `workflow_id`, `artifact_ref`, and `submitted_context`, so that QA can route
   back to the original asset or execution.
-- Refinement jobs own the staged lifecycle and can terminate in
-  `candidate_ready`, `applied`, `failed`, or `rejected` states, all of which are
-  surfaced by `routes/jobs.py`.
+- Refinement jobs own the staged lifecycle. `routes/jobs.py` accepts the status
+  filters `queued`, `running`, `applying`, `awaiting_approval`, `candidate_ready`,
+  `applied`, `completed`, `rejected`, `failed`, and `cancelled`; `candidate_ready`
+  (the eval gate cleared) and `applied` (an operator promoted the candidate) are
+  the two states the Apply flow cares about.
+- Apply is intent-first. `POST /jobs/{job_id}/apply` moves the job from
+  `candidate_ready` to `applying` with a conditional write and commits that claim
+  together with the born-approved `CaliberApprovalRequest` anchor before the
+  promoter is called, so the write lock is never held across the provider call
+  (on a SQLite file shared with MLflow it used to deadlock). A failure with no
+  release operation returns the job to `candidate_ready`, withdraws the unused
+  approval, and writes an `apply_failed` audit row; once a release operation
+  exists the job stays `applying` and the release reconciler settles it. The
+  janitor returns a job stranded in `applying` with no release operation to
+  `candidate_ready` after 1800 seconds (`DEFAULT_APPLYING_STALE_SECONDS`).
+- `CaliberVerificationItem.project_id` is inherited from the item's agent
+  (migration 0113); reads and actions on `/verification-queue` are limited to
+  items with no project or in the caller's active project (admins bypass).
 - Runtime approval rows are never reused for artifact promotion history, which
   prevents live-run control flow from mutating promotion provenance.
 - The engineering test plane is file- and process-oriented rather than
@@ -371,6 +386,8 @@ Its canonical entry points are:
 - `cd caliber/caliber-ui && npm test`
 - `cd caliber/caliber-ui && npm run test:full:stable`
 - `cd caliber/caliber-ui && npm run test:e2e`
+- `cd caliber/caliber-ui && npm run test:e2e:alpha`
+- `cd caliber/caliber-ui && npm run test:e2e:cookbooks`
 - `cd caliber/caliber-ui && npm run test:e2e:workflow-platform`
 - `cd caliber/caliber-ui && npm run test:e2e:age`
 - `cd caliber/caliber-ui && npm run allure:generate:all`
@@ -470,7 +487,11 @@ each sensitive action to an explicit scope and feature flag.
 
 The QA plan enforces the following authorization rules:
 
-- Calibration and apply routes require `SCOPE_OPERATOR`.
+- Calibration and apply routes require `SCOPE_OPERATOR`. Job routes also enforce
+  project visibility and role from the job's agent's project: a non-member gets
+  404, and a member without the needed role gets 403 (`release.apply` for Apply,
+  `release.evaluate` for request-changes) before any claim, promoter call, or
+  audit write.
 - Runtime approval decision routes also require `SCOPE_OPERATOR`, and the queue,
   runtime-approval, and checkpointing feature flags must allow the action.
 - Observability feedback requires an authenticated user and records that actor
@@ -486,7 +507,11 @@ unsafe state and unsafe execution from leaking across the plane:
 - Vitest defaults to an MSW-backed local trust boundary rather than a live
   backend dependency.
 - Playwright only reuses an existing server when explicitly configured to do so;
-  otherwise it boots an isolated local instance with per-port state.
+  otherwise it boots an isolated local instance with per-port state. The alpha
+  journey config (`playwright.alpha.config.ts`, `npm run test:e2e:alpha`, the CI
+  `alpha-journey` job) uses its own port (`CALIBER_ALPHA_E2E_PORT`, default 5170)
+  and state directory with the shipped defaults (fake LLM and evaluator, real
+  MLflow promoter).
 - The E2E bootstrap loads only a small allowlist of `.env` values rather than
   importing the entire ambient environment.
 
@@ -496,7 +521,10 @@ that what operators read can be trusted:
 - Assessment ingest is idempotent because `assessment_id` is unique on
   `CaliberVerificationItem`.
 - Audit records are appended for item creation, job creation, approval
-  decisions, promotions, and rollbacks.
+  decisions, promotions, rollbacks, failed applies (`apply_failed`), and trace
+  feedback (`trace.feedback`). A promotion made with the `fake` promoter is
+  recorded with `simulated: true` and the Apply response carries `simulated`, so a
+  simulated release cannot be mistaken for a real one.
 - `pytest_clean_exit.py` calls `os._exit()` only after pytest has already
   computed the real result, which avoids a misleading
   interpreter-finalization crash without masking genuine failures.
@@ -537,7 +565,7 @@ Operators rely on the following signals:
 - Release-candidate report jobs are separate durable JSON evidence. They bind
   criterion outcomes and evidence links to a SHA-256 candidate snapshot; they do
   not replace suite exit codes or the rendered engineering-test HTML report.
-- Playwright bootstrap state under `.tmp/playwright-server-$MLFLOW_PORT/` is the
+- Playwright bootstrap state under `caliber/.tmp/playwright-server-$MLFLOW_PORT/` is the
   first operational inspection point when the browser harness flakes.
 
 These signals reflect that the planes operate at different tempos, and the
@@ -548,8 +576,8 @@ distinctions matter when diagnosing an issue:
   resume or failure.
 - Engineering validation is usually developer- or CI-triggered and culminates in
   exit codes plus report artifacts.
-- Observability feedback remains durable even when downstream queue-ingest
-  mechanics are unavailable or still evolving.
+- Observability feedback remains durable (MLflow assessment plus audit row) even
+  though no downstream queue-ingest path exists yet.
 
 ## 9. Extension points and current constraints
 
@@ -577,9 +605,11 @@ plainly so that future work can weigh them deliberately:
   (`routes/review_queues.py`, `CaliberReviewQueue`/`CaliberReviewItem`, migration
   0054); the feature-specific calibration routes remain the path that creates
   refinement jobs.
-- The normalized assessment client and runtime-lock schema clearly prepare for a
-  feedback-poller path, but a standalone co-located poller implementation is not
-  as obvious as the newer modules in this checkout.
+- The normalized assessment client and runtime-lock schema prepare for a
+  feedback-poller path, but no poller is implemented: nothing watches MLflow for
+  flagged traces, and `POST /observability/traces/{trace_id}/feedback` only
+  records the assessment and an audit row (the alpha scope page lists the
+  flagged-trace to refinement loop as not in the alpha).
 - `CaliberApprovalRequest` now represents apply-time provenance rather than the
   older multi-review governance workflow, so older approval-queue mental models
   are stale for the current codebase.

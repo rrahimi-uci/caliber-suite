@@ -6,7 +6,7 @@ product_area: api
 stability: ga
 prerequisites:
   - A running CALIBER deployment
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - api
@@ -32,9 +32,20 @@ programmatic use:
 | Trusted header | `X-CALIBER-User: <user>` plus optional `X-CALIBER-Proxy-Secret` | only behind a trusted identity proxy in `trusted_header` deployments |
 | Browser session | session cookie plus CSRF token | browser traffic and same-origin UI requests, not headless automation |
 
-Personal access tokens are the default automation credential. Trusted headers
-carry no proof by themselves and are ignored in the default `session`
-deployment mode.
+Personal access tokens (the `calpat_` prefix) are the default automation
+credential. Trusted headers carry no proof by themselves and are ignored in the
+default `session` deployment mode.
+
+A token's scopes are a ceiling: its effective authority is what it requested
+intersected with what its owner holds at request time, and a token cannot be
+issued with a scope its issuer lacks (403). A token can also be **bound to one
+project** by passing `project_id` when it is created (`POST /auth/tokens`); the
+issuer must already be able to see that project. A bound token that names a
+different project in `X-CALIBER-Project` or in the URL is refused with 403, and
+a bound token that names no project acts in its bound project. Unbound tokens,
+sessions and trusted-header identities are unaffected. The Workspace import
+routes (`/projects/{project_id}/revision-imports`) additionally refuse a personal
+access token that is not bound to that project; session callers are not affected.
 
 ## Core headers
 
@@ -42,7 +53,7 @@ deployment mode.
 | --- | --- |
 | `Authorization: Bearer <token>` | Personal access token or session token |
 | `X-CALIBER-Project: <project_id>` | Active project/workspace scope |
-| `X-CALIBER-CSRF: <token>` | Required for state-changing requests when CSRF enforcement applies |
+| `X-CALIBER-CSRF: <token>` | Required on `POST`, `PATCH`, `PUT` and `DELETE` when CSRF enforcement is enabled (it is off by default) |
 | `X-Request-Id: <id>` | Optional caller-supplied correlation id; CALIBER also returns request ids on responses and errors |
 | `Accept: application/json` | Preferred for management API calls |
 
@@ -57,8 +68,13 @@ curl -s \
 
 ## CSRF
 
-CSRF exists for browser-style credentials. Bearer-token automation generally
-does not need to bootstrap it, but cookie-based writes do.
+CSRF enforcement is off by default (`CALIBER_CSRF_ENABLED`), and `GET /csrf`
+then answers `enabled: false`. When a deployment turns it on, every `POST`,
+`PATCH`, `PUT` and `DELETE` needs the header, except `GET /csrf` itself and the
+GitHub webhook route. That includes bearer-token calls: the middleware does not
+exempt them. The tokens are bound to the caller's identity and expire
+(`CALIBER_CSRF_TOKEN_TTL_SECONDS`), and a missing or invalid one is a 403. The
+SDK fetches a token and replays the write once when it sees that failure.
 
 Fetch a token with:
 
@@ -68,7 +84,8 @@ curl -s \
   "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/csrf"
 ```
 
-Then echo the returned token in `X-CALIBER-CSRF` on the write request.
+The response carries `enabled`, `token` and `ttl_seconds`. Echo the returned
+token in `X-CALIBER-CSRF` on the write request.
 
 ## Response envelopes
 
@@ -83,7 +100,7 @@ Most management API responses use the standard envelope:
 }
 ```
 
-Lists also live under `data`:
+Lists usually live under `data` as well:
 
 ```json
 {
@@ -94,16 +111,28 @@ Lists also live under `data`:
 }
 ```
 
+A few routes answer with a bare body instead of the envelope: `GET /health`
+returns `{"status", "version", "db"}` at the top level, and the OpenAPI documents
+are the raw document. `GET /health` answers 503 with `status: "degraded"` when
+the database probe fails. `GET /readiness` does use the envelope, and answers
+503 (the body is still under `data`) when a required dependency is not ready;
+that includes a database that has not been migrated to the schema this release
+expects (run `caliber-migrate`) and an unreachable MLflow tracking server.
+
 ## Pagination and list conventions
 
-List endpoints commonly accept:
+Many list endpoints accept:
 
-- `?limit=<n>`
+- `?limit=<n>` (default 500, at most 2000 on routes that share the common helper)
 - `?offset=<n>`
 
 Invalid values fall back to defaults rather than failing request parsing, so a
 consumer that cares about deterministic pagination should always send explicit
-values.
+values. Pagination is not one shape across the API: some routes take only
+`limit`, the audit log returns its own envelope, the event streams take `after`,
+and the Workspace routes (`/projects/{project_id}/revisions`,
+`.../revision-imports` and similar) use `limit` plus an opaque `cursor` and
+return `next_cursor` next to `data`.
 
 ## Error shapes
 
@@ -115,6 +144,15 @@ General route failures come back as:
   "status_code": 403
 }
 ```
+
+Some routes also set a machine-readable `reason_code` next to `detail`
+(`{"detail": ..., "status_code": 409, "reason_code": "..."}`). It is optional and
+additive: most routes do not set it yet, so treat its absence as normal and fall
+back to `detail` and the status code.
+
+A 429 carries a `Retry-After` header. When MLflow is unreachable, the prompt
+routes and Apply answer 503 with a fixed message naming `MLFLOW_TRACKING_URI`,
+and nothing was changed.
 
 Validation failures use a structured 400 body:
 

@@ -20,6 +20,14 @@ The product decision is deliberately narrower than the repository's alpha
 surface. It prioritizes an operable and recoverable path over broad lifecycle
 coverage or distributed scale.
 
+**Tracking links (checked 2026-10-14).** The GitHub issues and Project #2 cited
+in this document no longer resolve: the issue API answers "This issue was
+deleted" (HTTP 410) for every planning issue sampled (#56-#58, #60, #78, #100,
+#102, #119, #130, #142, #151, #152, #153, #154, #157, #159) and the owner has
+no Project #2. Treat the `#nn` references below as historical identifiers;
+this document and the roadmap are the surviving trace until the tickets are
+recreated or the references are removed.
+
 ## Problem and users
 
 Agent-development teams can observe a poor model or agent outcome but often
@@ -136,6 +144,25 @@ test commands, dependencies, and completion evidence.
 | PRD-07 | #57 / #69–#72, #77 | #131–#142, #158 | Measured envelope; backpressure; recovery objectives; restore, rollback, incident, regression, acceptance, upgrade, and v1 decision evidence |
 | PRD-08 | [#58](https://github.com/rrahimi-uci/caliber-suite/issues/58) / #73–#75 | #126–#128, #143–#149 | Decision records or bounded prototypes after #142; no v1 release dependency |
 
+## Implementation status against current main
+
+Checked 2026-10-14 against the repository at the time of this review. This
+table records what the code and its tests prove; it is not a release or support
+claim, and nothing here moves a requirement out of "planned" for v1. The alpha
+(`0.1.0a1`, prepared but not published) deliberately starts the journey at a
+prompt and a test set, not at a flagged trace ([alpha scope](m-61-alpha-scope.md)).
+
+| PRD requirement | Built in current main | Not built or not proven |
+| --- | --- | --- |
+| PRD-01 | Capability tiers (core, extended, preview, record-only, experimental) are written down in [alpha scope](m-61-alpha-scope.md) and labelled in the app. | The v1 provider profile (#154) is not selected: the LLM and evaluator default to `fake` (`eval_provider` in `config.py`); a real-provider path is documented in [Alpha install](m-60-alpha-install.md#real-llm-and-evaluation). |
+| PRD-02 | A prompt journey (author, test set, calibrate, review, apply, roll back) runs offline in CI as the `Alpha journey (browser)` check (`caliber/caliber-ui/e2e/`, `playwright.alpha.config.ts`); a seeded two-week journey spec also exists (`two-week-alpha-journey.spec.ts`). | The v1 journey's first stages: nothing watches traces or flags one, and `POST /verification-queue/{id}/verify` does not start a job (`routes/verification.py`). |
+| PRD-03 | Prompt Apply, promote and rollback commit a durable `CaliberReleaseOperation` (`release_operations.py`; `version_before`, `version_after` and the `reconcile_required` status) before calling MLflow, with operator reconcile/resolve routes (`routes/releases.py`) and a reconciler (`orchestrator/release_reconciler.py`). | A second approver: one project `owner` or `editor` can review and apply (alpha scope). The persisted gate verdict stays advisory. Other asset families keep their own release semantics. |
+| PRD-04 | `caliber-sdk` reaches every addressable API operation (`sdk/caliber-sdk/coverage_allowlist.toml` has no `[[gap]]` entries; `caliber/tests/test_sdk_api_coverage.py`); `caliberctl` covers workflow promote/rollback, gate verdicts and workspace release; `X-Request-Id` correlation (`observability/trace.py`) and `/readiness` (`routes/health.py`) exist. | The "deliberately small" contract: the SDK covers the whole API surface rather than a documented subset, and there is no failure-taxonomy or cancellation/retry/restart contract matrix. |
+| PRD-05 | Version `0.1.0a1` is prepared in lockstep across the four packages and the UI; CI builds the wheel with the bundled SPA, installs it with no checkout and boots it (`Wheel build` and `Alpha install` checks; `scripts/verify-wheel-boot.sh`, `scripts/verify-alpha-install.sh`). | The tag, release assets and tag-commit verification; a human controlled-pilot decision (#121); the release is an alpha prerelease, not `caliber-v0.1.0`. |
+| PRD-06 | The admin/admin bootstrap is off unless `CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT` is set; simulated providers are refused at startup unless `CALIBER_ALLOW_SIMULATED_PROVIDERS=true`; project roles gate every mutating route of prompts, jobs, skills, tools, workflows and knowledge bases (outsider, viewer, reviewer, editor sweep; see `caliber/CHANGELOG.md`). | Traces and metrics are visible to every signed-in user; CSRF is off by default; no code enforces one active CALIBER process (no loop-owner guard found); no SSO or MFA. |
+| PRD-07 | `/readiness` reports provider and dependency state, including worker heartbeats (`observability/readiness.py`); backup and recovery procedures are written down ([Backup and recovery](m-52-backup-and-recovery.md)). | Backups are documented, not rehearsed; no measured workload envelope, HA or performance targets, upgrade guarantee, incident drill or acceptance packet. |
+| PRD-08 | Not applicable: post-v1 work stays unbuilt by design. | Everything in the requirement. |
+
 ## Release gates and timeline
 
 The [roadmap](m-18-roadmap.md) owns dates and capacity. The PRD gates those
@@ -154,13 +181,13 @@ milestones as follows:
 
 | Item | Status | Required handling |
 | --- | --- | --- |
-| Current repository maturity | Observed alpha/current-main state | Do not treat UI pages, routes, or unit tests alone as support evidence. |
+| Current repository maturity | Observed alpha/current-main state | Do not treat UI pages, routes, or unit tests alone as support evidence. The alpha boundary is [Alpha scope and limitations](m-61-alpha-scope.md); [Implementation status against current main](#implementation-status-against-current-main) records what the code proves per requirement. |
 | Provider compatibility | Planned contract | #154 selects and verifies one real provider path and one deterministic test path. |
 | Worker/event topology | Open decision | #151 must select the supported model before the v1 topology is certified. |
 | External release consistency | Known non-transactional boundary | #152 and #137 must prove settlement, rollback, or operator reconciliation. |
 | Performance envelope | Unknown until measured | #131 and #134 must publish the supported workload; #132 is conditional on measurement. |
 | Deployment/upgrade | Missing v1 artifact | #157 and #158 must provide an operator-owned reference deployment and observed rollback boundary. |
-| Two-week alpha checkpoint | Proposal executed, Days 1–9 | `docs/two-week-alpha-plan.md`'s Days 1–9 ran against current `main` as evidence feeding M1's discovery exit criterion; Day 10 (the release tag) is left to the repo owner. It does not change this PRD's supported v1 journey, scope, or milestones. |
+| Two-week alpha checkpoint | Proposal executed, Days 1–9; followed by the `0.1.0a1` alpha release preparation | `docs/two-week-alpha-plan.md`'s Days 1–9 ran against current `main` as evidence feeding M1's discovery exit criterion. Version `0.1.0a1` is since prepared on `main` (notes, changelog, [releasing procedure](m-62-releasing.md)); the `caliber-v0.1.0a1` tag and prerelease are not published. It does not change this PRD's supported v1 journey, scope, or milestones, and it is not the M4 `caliber-v0.1.0` controlled-pilot gate. |
 
 ## Approval and change control
 

@@ -6,7 +6,7 @@ product_area: sdk
 stability: beta
 prerequisites:
   - A running CALIBER deployment
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - sdk
@@ -127,7 +127,7 @@ jobs:
           CALIBER_TOKEN: ${{ secrets.CALIBER_PROJECT_PAT }}
         run: |
           curl --fail-with-body -sS \
-            -X POST "$CALIBER_BASE_URL/projects/$CALIBER_PROJECT_ID/revision-imports" \
+            -X POST "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/projects/$CALIBER_PROJECT_ID/revision-imports" \
             -H "Authorization: Bearer $CALIBER_TOKEN" \
             -H "Idempotency-Key: push-${{ github.sha }}" \
             -F "repository=${{ github.repository }}" \

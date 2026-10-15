@@ -8,7 +8,7 @@ product_area: mcp
 stability: beta
 prerequisites:
   - A CALIBER deployment with MCP access
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - mcp
@@ -37,6 +37,24 @@ MCP lets CALIBER connect to externally hosted tool surfaces without baking each
 integration directly into the core product. That increases power, but it also
 raises the need for connection tests, inventories, and policy enforcement.
 
+A server uses one of three transports: `stdio`, `sse` or `streamable-http`. The workflow from the API is
+`POST /mcp-servers`, then `POST /mcp-servers/{server_id}/test-connection`, then
+`POST /mcp-servers/{server_id}/discover-tools`, then a per-tool policy with
+`PATCH /mcp-servers/{server_id}/tools/{tool_name}/policy`.
+
+**A discovered tool is denied until you classify it.** Discovery establishes that the tool exists, not that
+it may run: with no policy a tool is `allowed: false`. The policy carries `allowed`, `side_effect_level` and
+`requires_approval`, and an allowed tool whose `side_effect_level` is `write` or `external_action` must set
+`requires_approval` (the PATCH answers 400 otherwise). A local `stdio` server is containment, not isolation;
+only a managed sidecar or a non-loopback HTTPS endpoint counts as an external execution boundary when a
+production-class alias is promoted.
+
+Inside a project, creating, changing or deleting a server and changing a tool policy need the global
+`caliber.admin` scope and `editor` or `owner`. Testing the connection, discovering tools and invoking a tool
+need `caliber.admin` and `reviewer`, `editor` or `owner`. Saving a tool's test cases needs `caliber.operator`
+and `editor` or `owner`, and calibrating a tool needs `caliber.operator` and `reviewer` or above. A member with
+too weak a role gets 403 and a person outside the project gets 404.
+
 ## 2. Common tasks
 
 | You want to... | Read this next |
@@ -51,7 +69,7 @@ raises the need for connection tests, inventories, and policy enforcement.
 | Symptom | First thing to check |
 | --- | --- |
 | The server connects but tools do not appear | discovery or transport mismatch |
-| Tools appear but cannot run | policy, approval, or secret-source configuration |
+| Tools appear but cannot run | the tool has no policy yet (the default is denied), or it needs approval, or its secret-source configuration is wrong |
 | The same tool behaves differently across environments | endpoint, credentials, or server version drift |
 
 ## 4. Related docs

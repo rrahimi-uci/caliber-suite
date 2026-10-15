@@ -2,7 +2,7 @@ id: SCN-13
 slug: aria-review-governance-queue
 name: "Aria: Human-Review Queue from Intent"
 track: aria
-objective: Give Aria a single clear intent and have it autonomously plan and create a structured human-review queue for labeling agent replies — end to end, with only human confirmation of the question schema.
+objective: Give Aria a single clear intent and have it plan and create a structured human-review queue for labeling agent replies — end to end, with the question schema entered in the plan's input form.
 why_it_matters:
   - Shows Aria turning one sentence about governance into a real, structured review queue via plan -> approve -> execute.
   - Stands up the human-in-the-loop labeling surface (safety / citation / tone) that feeds expectations + assessments back onto traces, bounded honestly by Aria's real capability registry.
@@ -15,12 +15,12 @@ caliber_surfaces:
   - Review Queues
   - Observability
 prerequisites:
-  - Aria Plans available (sidebar "Plans"). An LLM planner, if enabled, also needs a configured model provider; the default HeuristicPlanner does not.
+  - Aria Plans available (sidebar "Plans", under "Integrations and preview"). No model provider is needed to create the queue.
   - Flagged trace ids on hand if you intend to enqueue items (optional — the queue can be created first and filled later).
 time_to_first_value: 15-30 minutes
 success_criteria:
   - From the intent alone, Aria drafts a plan containing review_queue.create (and, same domain, review_queue.add_items).
-  - After approval and answering the create interaction with a real question schema, a real active review queue exists.
+  - After approval and entering a real question schema in the create step's input form, a real active review queue exists.
 demo_profile:
   recommended_sequence_index: 13
   tier: aria
@@ -31,4 +31,4 @@ demo_profile:
   showcase_capabilities:
     - Aria plan decompose -> approve -> execute
     - autonomous human-review queue creation from a single intent
-    - honest same-domain planning (create + add_items) with deny-to-skip
+    - honest same-domain planning (create + add_items) with Skip step

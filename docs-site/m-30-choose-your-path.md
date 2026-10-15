@@ -11,11 +11,11 @@ before dropping into deep reference or architecture pages.
 | Reader | Start here | Then go to |
 | --- | --- | --- |
 | Developer / integrator | [SDK guide](m-20-sdk-guide.md) | [Auth and project scoping](m-31-auth-and-project-scoping.md), [SDK vs REST API](m-36-sdk-vs-rest-api.md), [Developer troubleshooting](m-55-developer-troubleshooting.md) |
-| Operator / admin | [Local bring-up guide](m-32-local-bring-up.md) | [Configuration and provider setup](m-48-configuration-and-provider-setup.md), [Health and readiness](m-50-health-and-readiness.md), [Operations runbook](m-19-runbook.md) |
+| Operator / admin | [Local bring-up guide](m-32-local-bring-up.md) | [Alpha install](m-60-alpha-install.md), [Configuration and provider setup](m-48-configuration-and-provider-setup.md), [Health and readiness](m-50-health-and-readiness.md), [Operations runbook](m-19-runbook.md) |
 | System user | [Workflows](m-42-use-workflows.md) | [Prompts](m-38-use-prompts.md), [Knowledge bases](m-43-use-knowledge-bases.md), [Aria assistant](m-46-use-aria-assistant.md) |
 | Evaluator / governance user | [Trust and governance guide](m-33-trust-and-governance.md) | [Evaluation](m-14-evaluation.md), [Calibration](m-15-calibration.md), [QA plan](m-13-qa-plan.md) |
 | Architect | [Architecture reader guide](m-34-architecture-reader-guide.md) | [Layered architecture](m-00-layered-architecture.md), [Platform](m-01-platform.md), [Refinement loop](m-00-refinement-loop.md) |
-| Decision-maker | [Decision-maker overview](m-35-decision-maker-overview.md) | [Competitive analysis](m-17-competitive-analysis.md), [Roadmap](m-18-roadmap.md) |
+| Decision-maker | [Decision-maker overview](m-35-decision-maker-overview.md) | [Alpha scope and limitations](m-61-alpha-scope.md), [Competitive analysis](m-17-competitive-analysis.md), [Roadmap](m-18-roadmap.md) |
 
 ## 1. If you are integrating with CALIBER
 
@@ -78,5 +78,6 @@ Start from the platform shape and the market position, not the route modules.
 Recommended path:
 
 1. [Decision-maker overview](m-35-decision-maker-overview.md)
-2. [Competitive analysis](m-17-competitive-analysis.md)
-3. [Roadmap](m-18-roadmap.md)
+2. [Alpha scope and limitations](m-61-alpha-scope.md)
+3. [Competitive analysis](m-17-competitive-analysis.md)
+4. [Roadmap](m-18-roadmap.md)

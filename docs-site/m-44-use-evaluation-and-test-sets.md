@@ -21,6 +21,12 @@ review before live change.
 CALIBER separates evidence from rollout. Evaluation tells you how something
 performed against a known set of cases. It does not release or apply a change.
 
+Inside a project, creating or changing a test set, its examples or a judge needs `reviewer`, `editor` or
+`owner`, and running an evaluation needs the same roles. A `viewer` can read but gets 403 on these, and a person
+outside the project gets 404. When a result is produced by a simulated provider (the shipped default) it is
+recorded with `provider` and `simulated`, the comparison shows "Simulated evaluation — not evidence", and a
+banner at the top of the app says evaluation scores are canned, not measurements.
+
 ## 2. Common tasks
 
 | You want to... | Read this next |

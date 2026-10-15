@@ -8,7 +8,7 @@ product_area: mcp
 stability: beta
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - mcp
@@ -261,21 +261,31 @@ boundary. The following controls apply:
   to the remote server, they are deliberately treated as the
   highest-privilege operations.
 - Only the saved test cases and calibration endpoints are `operator`-scoped.
+- For a server that belongs to a project, a project role check applies on top of the
+  scope. Create, update, delete, tool-policy updates, and saved test cases need a role
+  that may write the asset (`resource.write.runtime`); connection tests, discovery,
+  invocation, and calibration need a role that may execute it (`resource.execute`). A
+  member whose role is too weak receives `403`.
 - Policy overlays can explicitly block a remote tool even when the remote server
   still advertises it.
 - Invocation is fail closed when the server is not active, discovery has not
   established the tool inventory, the requested tool is outside that inventory,
   or its policy blocks it. Per-tool minute limits are enforced in process; they
   are not a distributed quota across replicas.
-- Stdio execution accepts only explicitly configured executables. The default
-  permits `${PYTHON}` only for allowlisted `-m` modules, rejects Python `-c` and
-  unlisted scripts, blocks process-injection environment variables, avoids a
+- Stdio execution accepts only explicitly configured executables
+  (`CALIBER_MCP_STDIO_COMMAND_ALLOWLIST`, default `${PYTHON}`). The default
+  permits `${PYTHON}` only for allowlisted `-m` modules
+  (`CALIBER_MCP_STDIO_PYTHON_MODULE_ALLOWLIST`, default `caliber.mcp_servers.db`), rejects Python `-c` and
+  unlisted scripts (`CALIBER_MCP_STDIO_PYTHON_SCRIPT_ALLOWLIST`, empty by default), blocks process-injection environment variables, avoids a
   shell, replaces every environment key the MCP SDK would otherwise inherit,
   uses an operator-controlled safe `PATH`, resolves launchers to absolute paths,
   and starts in a fresh private working directory.
-- Remote transports require an exact host allowlist. Non-loopback plain HTTP is
-  rejected unless an operator explicitly enables it; embedded URI credentials
-  are rejected.
+- Remote transports require an exact host allowlist
+  (`CALIBER_MCP_REMOTE_HOST_ALLOWLIST`, default `localhost,127.0.0.1,::1`).
+  Non-loopback plain HTTP is rejected unless an operator explicitly enables it
+  (`CALIBER_MCP_ALLOW_INSECURE_HTTP`); embedded URI credentials are rejected.
+  Readiness also resolves the host through the same egress policy the workflow
+  HTTP guard uses and reports a host that lands in a blocked address category.
 - The UI supports no authentication or an environment-backed bearer token.
   Basic and custom-header auth remain API-configured for existing integrations;
   OAuth is rejected because CALIBER does not implement a token exchange/refresh
@@ -291,8 +301,11 @@ boundary. The following controls apply:
   has no approval checkpoint. Approval-required calls belong in a governed
   workflow run; the admin-only playground remains an intentional break-glass
   surface.
-- Aliases in `CALIBER_MCP_REQUIRE_EXTERNAL_ISOLATION_FOR_ALIASES` (default:
-  `prod`) reject local stdio containment. A non-loopback HTTPS server or the
+- Aliases whose environment class is in
+  `CALIBER_MCP_REQUIRE_EXTERNAL_ISOLATION_FOR_ENVIRONMENT_CLASSES` (default:
+  `production`), or that appear in the additional legacy list
+  `CALIBER_MCP_REQUIRE_EXTERNAL_ISOLATION_FOR_ALIASES` (default: `prod`), reject
+  local stdio containment. A non-loopback HTTPS server or the
   deployment operator's explicitly attested, separately isolated sidecar is
   required. Local wrappers, including the recognized bubblewrap containment
   profile, never count as a production boundary.
@@ -327,7 +340,7 @@ operators can read directly:
   row.
 - The cached discovered tool catalog, which gives the UI a stable view to
   render.
-- The per-tool effective policy returned by `GET /tools`.
+- The per-tool effective policy returned by `GET /mcp-servers/{server_id}/tools`.
 - The calibration summaries stored on the server row.
 - The invocation duration and gateway error text returned to the caller.
 
@@ -347,7 +360,9 @@ separate container, runs each as uid/gid 65532 with a read-only root, temporary
 dedicated Docker-internal network shared with CALIBER and PostgreSQL, which
 blocks ordinary external egress. The PostgreSQL, pgvector, and Apache AGE
 catalog presets point at those internal services. CALIBER allowlists and
-operator-attests only those three hostnames as managed sidecars. This is a
+operator-attests only those three hostnames (`mcp-db-relational`, `mcp-db-vector`,
+`mcp-db-graph`) as managed sidecars through the compose defaults for
+`CALIBER_MCP_REMOTE_HOST_ALLOWLIST` and `CALIBER_MCP_MANAGED_SIDECAR_HOSTS`. This is a
 shipped process/container boundary, but it is not end-to-end TLS or mutual
 isolation from the API/database peers on that internal network; deployments
 that change the compose topology must reassess that attestation.

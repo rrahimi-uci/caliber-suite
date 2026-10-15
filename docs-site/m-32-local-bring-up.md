@@ -25,11 +25,30 @@ make setup
 make start
 ```
 
+`make start` runs `./start.sh`, which brings up the Compose `app` profile and the NATS bus:
+MinIO (with its buckets created), PostgreSQL with pgvector and Apache AGE, MLflow on `:5000`, the
+MLflow AI Gateway on `:5002` and CALIBER on `:5001`. Every published port is bound to `127.0.0.1`.
+The CALIBER container runs `alembic upgrade head` before it serves, so this path needs no manual
+migration. It seeds `admin` / `admin` on the first boot only, for loopback use.
+`./start.sh` rebuilds the images and recreates the app containers by default; `make start CLEAN_START=0 BUILD=0`
+reuses them.
+
 Then verify:
 
-- CALIBER UI loads
+- CALIBER UI loads at `http://localhost:5001/caliber/`
 - login succeeds
-- readiness reports a usable local posture
+- readiness reports a usable local posture. The stack sets the LLM provider to `fake`, so expect
+  `llm` under `simulated`; the evaluator, promoter and artifact store are `mlflow`.
+- the gateway is serving. With no `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in the suite-root `.env`
+  the `mlflow-gateway` container exits and Compose restarts it in a loop, and the Gateway page reports
+  it unreachable ([Operator troubleshooting](m-51-operator-troubleshooting.md#3-the-gateway-reports-unreachable)).
+  CALIBER itself does not depend on it.
+
+To prove a fresh clone does all of this, `scripts/verify-compose-stack.sh` builds the CALIBER and MLflow
+images, starts the stack from the example environment as its own Compose project
+(`caliber-stack-smoke`) and checks MLflow, `/health`, `/readiness`, the SPA, login, a project and a
+prompt. `.github/workflows/stack-smoke.yml` runs it weekly, on manual dispatch and on pull requests
+that change `deploy/`. It is not a required check.
 
 ## 2. Standalone development path
 

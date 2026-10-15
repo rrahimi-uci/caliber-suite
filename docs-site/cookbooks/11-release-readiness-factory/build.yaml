@@ -1,25 +1,26 @@
 workflow_goal: Provide deterministic release signoff based on scenario evidence and explicit thresholds.
 # Verified against the live build — see ../FEASIBILITY.md.
 feasibility:
-  - Evidence sources are real (Evaluations run ids/scorecards, Review Queues completion, Observability traces, in-app Allure at Settings -> Allure Report).
-  - There is NO built-in release-scoring engine — the operator computes the release_rubric by hand (optionally narrated by a release-risk-summarizer prompt or an Aria Plan).
-  - Allure is generated externally (make allure-report) and only served in-app (GET /observability/allure-report); regenerate before the demo.
-  - The "workflow" here is the operator process (collect -> verify -> score -> decide), not a built workflow graph; a GitHub MCP write can open a blocker issue (approval-gated).
+  - Releases (Core journey) is a Preview, record-only page - signing off records a decision and deploys or rolls back nothing.
+  - The release score IS computed in-product - POST candidates stores weighted criteria (weight, observed score, threshold, blocking, evidence_refs) and the server recomputes weighted_score = sum(weight x score) / sum(weight) plus the blockers (blocking criteria below threshold and not waived); status is ready only when weighted_score >= required_score and no blocker remains. There is no route that edits a candidate - Re-evaluate recomputes from stored criteria and waivers.
+  - Evidence sources are real references (Evaluations run ids/scorecards, Review Queues completion, Observability traces) entered as criteria/evidence JSON; the "Generate Allure" button creates a durable in-product Allure-compatible JSON report job (with a SHA-256 of the candidate snapshot). The static Allure HTML at Settings -> Allure Report is separate CI evidence produced by the test tooling.
+  - Waivers and final signoff are admin-only. The UI waiver form has a criterion key and a reason (the API also accepts expires_at; the UI has no expiry field). The planned action is not a UI field (the UI records promote_<artifact type> -> prod). Sign off GO needs a ready candidate, planned action, rollback target and a rationale of at least 8 characters.
+  - The "workflow" here is the operator process (collect -> create candidate -> waive -> report -> decide), not a built workflow graph; a GitHub MCP write can open a blocker issue (approval-gated).
 manual_flow:
   - step: collect_evidence
     action: gather required scenario run ids and review outcomes
   - step: rerun_critical_slices
     action: re-execute high-risk scenario subsets
-  - step: refresh_allure
-    action: regenerate and verify in-app Allure report visibility
-  - step: score_release
-    action: compute release rubric and blocker count
+  - step: create_candidate
+    action: New candidate - enter the artifact, versions, required score, criteria JSON (weights, observed scores, thresholds, blocking flags) and evidence JSON; Create and evaluate candidate
+  - step: waive_and_report
+    action: an admin records a criterion waiver if policy permits; Generate Allure
   - step: decide
-    action: publish go/no-go with rationale and blockers
+    action: an admin signs off GO (only while ready) or NO-GO with rationale
 components:
   prompts:
     optional:
-      - release-risk-summarizer prompt
+      - release-risk-summarizer prompt   # narrates evidence you supply; the score itself is computed by the server
   skills:
     optional:
       - release-risk-summarizer
@@ -31,19 +32,19 @@ components:
     nodes:
       - collect_inputs
       - verify_artifacts
-      - score
+      - create_candidate   # server computes weighted score + blockers
       - decision
 contracts:
   input_schema:
     type: object
-    required: [scenario_run_ids, review_summary, allure_report_path]
+    required: [scenario_run_ids, review_summary]
   output_schema:
     type: object
     required: [release_score, blocker_count, decision, rationale]
 failure_modes:
   - missing_required_evidence
-  - allure_not_visible
-  - blocker_count_nonzero_but_decision_go
+  - allure_report_job_not_generated
+  - blocker_count_nonzero_but_decision_go   # the server refuses a GO signoff unless the candidate is ready
 fallbacks:
   - force decision=no_go when required evidence is missing.
   - create blocker artifact before rerun.

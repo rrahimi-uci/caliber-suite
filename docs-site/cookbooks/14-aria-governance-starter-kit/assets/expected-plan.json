@@ -5,23 +5,23 @@
     {
       "capability_key": "judge.create",
       "tier": "mutate",
-      "interaction": "confirm/refine the judge spec (judges/answer-faithfulness.judge.json)"
+      "interaction": "input form (Aria needs information): enter the judge fields from judges/answer-faithfulness.judge.json, then Approve"
     },
     {
       "capability_key": "review_queue.create",
       "tier": "mutate",
-      "interaction": "confirm/refine the review-queue question schema (review-queues/governance-review.queue.json)"
+      "interaction": "input form: enter questions (and optional description) from review-queues/governance-review.queue.json, then Approve; name is linked from judge.create"
     },
     {
       "capability_key": "eval_dataset.create",
       "tier": "mutate",
-      "interaction": "confirm/refine the dataset spec (datasets/release-candidates.dataset.json)"
+      "interaction": "no input form: name is linked from review_queue.create, so just Approve (datasets/release-candidates.dataset.json is a reference spec)"
     },
     {
       "capability_key": "review_queue.add_items",
       "tier": "mutate",
-      "interaction": "DENY this step (answer {approved:false}) — no traces to enqueue yet. It is proposed only because it shares the 'review queue' domain. Supply {queue_id, trace_ids} instead if you already have traces."
+      "interaction": "SKIP this step (Skip step / answer {approved:false}) — no traces to enqueue yet. It is proposed only because it shares the 'review queue' domain. Enter trace_ids instead if you already have traces; queue_id is linked from review_queue.create."
     }
   ],
-  "notes": "Step order follows registry order; there are no inter-step dependencies in the default planner. The 'review queue' needle matches both review_queue.create and review_queue.add_items, so both appear. Under autonomy=ask_each each mutate step raises one interaction before it runs (deny add_items). Under approve_plan/auto_guarded the steps run automatically once approved — so for this scenario prefer ask_each so you can deny add_items."
+  "notes": "Step order follows registry order; the planner links required fields by output name: review_queue.create.name <- judge.create, eval_dataset.create.name <- review_queue.create, review_queue.add_items.queue_id <- review_queue.create (depends_on set accordingly). The 'review queue' needle matches both review_queue.create and review_queue.add_items, so both appear. judge.create, review_queue.create and add_items raise input interactions for their unfilled fields; under autonomy=ask_each each step then also raises an Approve/Deny permission interaction (skip add_items). Under approve_plan/auto_guarded the steps run automatically after their input forms — so for this scenario prefer ask_each so you can skip add_items."
 }

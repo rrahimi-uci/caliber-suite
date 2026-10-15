@@ -8,7 +8,7 @@ product_area: governance
 stability: ga
 prerequisites:
   - A CALIBER deployment or design question
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - trust
@@ -67,6 +67,21 @@ Use the deep references when you need the exact execution model:
 - [Calibration](../15-calibration/architecture.md)
 - [Refinement loop](../refinement-loop.md)
 
+## Simulated evidence is labelled
+
+The shipped defaults use a fake language model, evaluator and promoter, so a fresh install runs the whole loop
+on canned numbers. CALIBER records what produced each score and says so where you decide:
+
+- Every evaluation result stores `provider` and `simulated`, and a skill or prompt review shows "Simulated
+  evaluation — not evidence".
+- A workflow calibration also stores `scorer` (`structural` unless the LLM judge is enabled and available) and
+  shows **Simulated evaluation** and **Structural score** badges.
+- A banner at the top of the app names any simulated provider. It cannot be dismissed while the evaluator or the
+  promoter is simulated, because then the scores are canned or Apply changes nothing in the registry. It also
+  names a blocking dependency when readiness reports one.
+- Apply's response and audit rows carry `simulated`, so a release made through the fake promoter cannot be
+  mistaken for a real one.
+
 ## 4. Human authority stays explicit
 
 CALIBER separates:
@@ -75,6 +90,13 @@ CALIBER separates:
 - candidate generation
 - approval or review
 - live apply / release
+
+In a project these are different roles. Anyone who is a member can read, and `viewer` can do nothing else.
+`reviewer` can record evidence, run evaluations and calibrations, request changes on a candidate and approve a
+run that is waiting for approval. `editor` and `owner` can author assets, publish, and Apply a candidate. Apply
+has no second approver: an `owner` or `editor` reviews and applies in one step, and the approval record it
+creates is an audit and rollback anchor. A member whose role is too weak gets 403 and a person outside the
+project gets 404; the per-action table is in [Auth and project scoping](../build/auth-and-project-scoping.md).
 
 That is why the governance story must be read across several surfaces rather
 than only one route family.

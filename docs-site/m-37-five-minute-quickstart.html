@@ -42,7 +42,7 @@
           <span class="topbar-search-label">Search docs</span>
           <span class="keycap" data-doc-search-key>⌘K</span>
         </button>
-        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <a class="topbar-cta" href="m-37-five-minute-quickstart.html">Quickstart</a>
         <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
           <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
           <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
@@ -82,7 +82,7 @@
           <div class="doc-eyebrow">Start here</div>
           <h1 id="top">5-minute quickstart</h1>
           <p class="doc-summary">The shortest path to a real CALIBER success: bring up the local stack, verify readiness, or jump into the right next guide.</p>
-          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">System user</span><span class="doc-meta-chip">Operator</span><span class="doc-meta-chip doc-meta-chip-type">Tutorial</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">Either a local repository checkout or a reachable CALIBER deployment</span></div><div class="doc-meta-notes">Reviewed 2026-08-10 · current main branch docs contract</div></div>
+          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">System user</span><span class="doc-meta-chip">Operator</span><span class="doc-meta-chip doc-meta-chip-type">Tutorial</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">Either a local repository checkout or a reachable CALIBER deployment</span></div><div class="doc-meta-notes">Reviewed 2026-10-14 · current main branch docs contract</div></div>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
               Copy page
@@ -91,21 +91,21 @@
         </header>
 <p>Use this page when you want the shortest path to a real CALIBER success before you decide which deeper guide you need.</p>
 <h2 id="at-a-glance">At a glance<a class="anchor" href="#at-a-glance" aria-hidden="true" tabindex="-1">#</a></h2>
-<div class="table-wrap"><table><thead><tr><th>Goal</th><th>Start here</th><th>Then go to</th></tr></thead><tbody><tr><td>Install the alpha from wheels (no checkout, no Docker)</td><td><a href="m-60-alpha-install.html">Alpha install</a></td><td><a href="m-32-local-bring-up.html">Local bring-up</a></td></tr><tr><td>Run CALIBER locally</td><td><code>make setup</code>, <code>make start</code></td><td><a href="m-32-local-bring-up.html">Local bring-up</a></td></tr><tr><td>Verify a shared deployment</td><td>open the UI and check readiness</td><td><a href="m-30-choose-your-path.html">Choose your CALIBER path</a></td></tr><tr><td>Make the first Python call</td><td><a href="m-20-sdk-guide.html">SDK guide</a></td><td><a href="m-31-auth-and-project-scoping.html">Auth and project scoping</a></td></tr><tr><td>Tour the product before integrating</td><td><a href="walkthrough.html">Guided walkthrough</a></td><td><a href="m-33-trust-and-governance.html">Trust and governance</a></td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Goal</th><th>Start here</th><th>Then go to</th></tr></thead><tbody><tr><td>Install the alpha from wheels (no Docker; until the <code>0.1.0a1</code> release assets are published you build the wheels from a checkout)</td><td><a href="m-60-alpha-install.html">Alpha install</a></td><td><a href="m-32-local-bring-up.html">Local bring-up</a></td></tr><tr><td>Run CALIBER locally</td><td><code>make setup</code>, <code>make start</code></td><td><a href="m-32-local-bring-up.html">Local bring-up</a></td></tr><tr><td>Verify a shared deployment</td><td>open the UI and check readiness</td><td><a href="m-30-choose-your-path.html">Choose your CALIBER path</a></td></tr><tr><td>Make the first Python call</td><td><a href="m-20-sdk-guide.html">SDK guide</a></td><td><a href="m-31-auth-and-project-scoping.html">Auth and project scoping</a></td></tr><tr><td>Tour the product before integrating</td><td><a href="walkthrough.html">Guided walkthrough</a></td><td><a href="m-33-trust-and-governance.html">Trust and governance</a></td></tr></tbody></table></div>
 <h2 id="1-if-you-have-a-local-checkout">1. If you have a local checkout<a class="anchor" href="#1-if-you-have-a-local-checkout" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Bring up the default local stack:</p>
 <pre class="language-bash"><code class="language-bash">make setup
 make start</code></pre>
 <p>Then verify:</p>
-<ul><li>CALIBER UI loads at <code>http://127.0.0.1:5001/caliber/</code></li><li>the readiness surface responds</li><li>you can log in and reach the product shell</li></ul>
-<p><code>make start</code> runs the database migration for you. If you run CALIBER natively instead, run <code>caliber-migrate</code> before <code>uvicorn</code> (see <a href="m-60-alpha-install.html">Alpha install</a>).</p>
+<ul><li>CALIBER UI loads at <code>http://127.0.0.1:5001/caliber/</code></li><li>the readiness surface responds (<code>/ajax-api/2.0/mlflow/caliber/readiness</code>); a database that is unmigrated or out of date reports as not ready</li><li>you can log in and reach the product shell</li></ul>
+<p><code>make setup</code> needs Python 3.10 to 3.12, Node and npm. <code>make start</code> needs Docker: it brings up the suite's containers (MinIO, PostgreSQL, MLflow, the MLflow AI Gateway and CALIBER), and the CALIBER container runs <code>alembic upgrade head</code> before it serves, so you do not migrate by hand. If you run CALIBER natively instead, run <code>caliber-migrate</code> before <code>uvicorn</code> (see <a href="m-60-alpha-install.html">Alpha install</a>).</p>
 <p>Use <a href="m-32-local-bring-up.html">Local bring-up</a> if you need the operator path instead of the shortest happy-path summary.</p>
 <h2 id="2-if-caliber-is-already-running-somewhere">2. If CALIBER is already running somewhere<a class="anchor" href="#2-if-caliber-is-already-running-somewhere" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Do not start with architecture. Start by answering one practical question: what are you here to do?</p>
 <p>Use one of these next pages:</p>
 <ul><li><a href="m-30-choose-your-path.html">Choose your CALIBER path</a></li><li><a href="m-20-sdk-guide.html">SDK guide</a></li><li><a href="m-33-trust-and-governance.html">Trust and governance</a></li><li><a href="walkthrough.html">Guided walkthrough</a></li></ul>
 <h2 id="3-verify-that-the-system-is-usable">3. Verify that the system is usable<a class="anchor" href="#3-verify-that-the-system-is-usable" aria-hidden="true" tabindex="-1">#</a></h2>
-<p>For operators, the meaningful check is readiness rather than simple process health.</p>
+<p>For operators, the meaningful check is readiness rather than simple process health. Readiness probes the database and its schema, MLflow when an HTTP tracking server is configured, and the object store, event bus and workflow queue when they are configured. Simulated providers and unset code-execution allowlists are reported but do not fail it.</p>
 <p>Use:</p>
 <ul><li><a href="m-50-health-and-readiness.html">Health and readiness</a></li><li><a href="m-32-local-bring-up.html">Local bring-up</a></li></ul>
 <h2 id="4-pick-the-right-next-track">4. Pick the right next track<a class="anchor" href="#4-pick-the-right-next-track" aria-hidden="true" tabindex="-1">#</a></h2>

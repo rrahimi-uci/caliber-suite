@@ -1,8 +1,8 @@
 {
   "steps": [
     {
-      "where": "Evaluate › Test Sets",
-      "do": "First make an empty test set to hold the outputs you want to certify. Click <strong>Test Sets</strong> in the left sidebar (under the <strong>Evaluate</strong> group), then start a new one. Once it exists you can open its detail page at <code>/eval-datasets/:id</code> and use <strong>+ Add example</strong> to author rows directly; in this lab you will instead harvest rows from real traces in the next step.",
+      "where": "Core journey › Test Sets",
+      "do": "First make an empty test set to hold the outputs you want to certify. Click <strong>Test Sets</strong> in the left sidebar (under <strong>Core journey</strong>), then start a new one. Once it exists you can open its detail page at <code>/eval-datasets/:id</code> and use <strong>+ Add example</strong> to author rows directly; in this lab you will instead harvest rows from real traces in the next step.",
       "fill": [
         [
           "Name",
@@ -28,8 +28,8 @@
       ]
     },
     {
-      "where": "Observe › Observability",
-      "do": "Now harvest real run outputs into that test set. Open <strong>Observability</strong> (under <strong>Observe</strong>) and click a trace from a SCN-07 or SCN-08 run in the trace list on the left; its detail panel opens on the right. In that panel find the <strong>Add to test set</strong> section, pick your set under <strong>Choose test set</strong>, and click <strong>Add example</strong> (it captures the trace's request as the input and its response as the expected answer). The shipped <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/dataset/aggregated-outputs.jsonl\">aggregated-outputs.jsonl</a> shows the <code>{ inputs, outputs, expectations }</code> shape (the eight rows J01-J08) for reference.",
+      "where": "Operate › Observability",
+      "do": "Now harvest real run outputs into that test set. Open <strong>Observability</strong> (under <strong>Operate</strong>) and click a trace from a SCN-07 or SCN-08 run in the trace list on the left; its detail panel opens on the right. In that panel find the <strong>Add to test set</strong> section, pick your set under <strong>Choose test set</strong>, and click <strong>Add example</strong> (it captures the trace's request as the input and its response as the expected answer). The shipped <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/dataset/aggregated-outputs.jsonl\">aggregated-outputs.jsonl</a> shows the <code>{ inputs, outputs, expectations }</code> shape (the eight rows J01-J08) for reference.",
       "fill": [
         [
           "Choose test set",
@@ -47,8 +47,8 @@
       ]
     },
     {
-      "where": "Evaluate › Judges › + New Judge",
-      "do": "Create the automated judge. Open <strong>Judges</strong> (under <strong>Evaluate</strong>) and click <strong>+ New Judge</strong>. Paste the fields from <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/judges/faithfulness-judge.judge.json\">faithfulness-judge.judge.json</a>. The <strong>Instructions</strong> must reference at least one of <code>{{ inputs }}</code> / <code>{{ outputs }}</code> / <code>{{ expectations }}</code> — the form enforces this. Set <strong>Returns</strong> to <code>bool</code> so the verdict is pass(true)/fail(false).",
+      "where": "Also in the alpha › Judges › + New Judge",
+      "do": "Create the automated judge. Open <strong>Judges</strong> (under <strong>Also in the alpha</strong>) and click <strong>+ New Judge</strong>. Paste the fields from <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/judges/faithfulness-judge.judge.json\">faithfulness-judge.judge.json</a>. The <strong>Instructions</strong> must reference at least one of <code>{{ inputs }}</code> / <code>{{ outputs }}</code> / <code>{{ expectations }}</code> — the form enforces this. Set <strong>Returns</strong> to <code>bool</code> so the verdict is pass(true)/fail(false).",
       "fill": [
         [
           "Name",
@@ -78,8 +78,8 @@
       ]
     },
     {
-      "where": "Evaluate › Evaluations › Run evaluation",
-      "do": "Score the dataset for the <strong>baseline</strong> artifact first. Open <strong>Evaluations</strong> (under <strong>Evaluate</strong>) and click <strong>Run evaluation</strong>. Pick the test set and label this run as the baseline. Tick the built-in deterministic scorers you want under <strong>Graders</strong> (Exact match, Token F1, Contains expected, Non-empty) for the <code>overall_eval_score</code> the gate needs, and also tick <code>FaithfulnessJudge</code> under <strong>Custom LLM judges</strong> so the run records an automatic per-row faithfulness verdict (it executes as the <code>Judge.&lt;id&gt;</code> scorer).",
+      "where": "Core journey › Evaluations › Run evaluation",
+      "do": "Score the dataset for the <strong>baseline</strong> artifact first. Open <strong>Evaluations</strong> (under <strong>Core journey</strong>) and click <strong>Run evaluation</strong>. Pick the test set and label this run as the baseline. Tick the built-in deterministic scorers you want under <strong>Graders</strong> (Exact match, Token F1, Contains expected, Non-empty) for the <code>overall_eval_score</code> the gate needs, and also tick <code>FaithfulnessJudge</code> under <strong>Custom LLM judges</strong> so the run records an automatic per-row faithfulness verdict (it executes as the <code>Judge.&lt;id&gt;</code> scorer).",
       "fill": [
         [
           "Test set",
@@ -99,7 +99,7 @@
       "asset": "Baseline evaluation run id"
     },
     {
-      "where": "Evaluate › Evaluations › Run evaluation",
+      "where": "Core journey › Evaluations › Run evaluation",
       "do": "Score the same dataset again, this time for the <strong>candidate</strong> artifact (e.g. after a prompt change). Click <strong>Run evaluation</strong> a second time, pick the same test set and the same deterministic graders, and label it <code>candidate</code>.",
       "fill": [
         [
@@ -120,20 +120,20 @@
       "asset": "Candidate evaluation run id"
     },
     {
-      "where": "Evaluate › Evaluations › (candidate run)",
-      "do": "Open the candidate run from the Evaluations table to see its scorecard. Use the <strong>Compare to</strong> dropdown at the top to pick the baseline run — the per-example table now shows score deltas (pp) versus baseline for each scorer. Read the <strong>FaithfulnessJudge</strong> column: because you ran it as a <code>Judge.&lt;id&gt;</code> scorer, each row already carries an automatic pass/fail faithfulness verdict alongside the deterministic graders. In this dataset the partial-evidence rows <code>J03</code> and <code>J07</code> are the ones a strict reading marks <em>false</em> — confirm the judge flags them. Note this per-row judge verdict for the alignment tally later.",
+      "where": "Core journey › Evaluations › (candidate run)",
+      "do": "Open the candidate run from the Evaluations table to see its scorecard. Use the <strong>Compare to</strong> dropdown at the top to pick the baseline run — the per-example table now shows score deltas (pp) versus baseline for each scorer. Read the <strong>FaithfulnessJudge</strong> column: because you ran it as a <code>Judge.&lt;id&gt;</code> scorer, each row already carries an automatic pass/fail faithfulness verdict alongside the deterministic graders. In this dataset the partial-evidence rows <code>J03</code> and <code>J07</code> are the ones a strict reading marks <em>false</em> — confirm the judge flags them. Note this per-row judge verdict for the alignment check later.",
       "fill": [
         [
           "Compare to",
           "baseline run id (from the previous step)"
         ]
       ],
-      "see": "Per-example rows show Input / Expected / Prediction / the deterministic grader scores / Result, plus a delta vs. baseline. Note the overall score for the gate, and flag every row your by-hand FaithfulnessJudge verdict marks false — these are your candidate cases for human review.",
-      "asset": "Per-example scorecard with baseline deltas + by-hand judge verdicts"
+      "see": "Per-example rows show Input / Expected / Prediction / the deterministic grader scores / Result, plus a delta vs. baseline. Note the overall score for the gate, and flag every row the FaithfulnessJudge column marks false — these are your candidate cases for human review.",
+      "asset": "Per-example scorecard with baseline deltas + judge verdicts"
     },
     {
-      "where": "Observe › Review Queues › + New Queue",
-      "do": "Create the human-review queue using the same faithfulness criterion. Open <strong>Review Queues</strong> (under <strong>Observe</strong>) and click <strong>+ New Queue</strong>. Fill the name and description, then click <strong>+ Add question</strong> to add each question from <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/review/review-questions.json\">review-questions.json</a>. Map the gating <code>faithful</code> question's type to <strong>pass_fail</strong> and target <strong>feedback</strong>; the two free-text questions use type <strong>text</strong>. Keep the <code>faithful</code> wording aligned with the judge so a reviewer \"no\" equals a judge \"false\".",
+      "where": "Operate › Review Queues › + New Queue",
+      "do": "Create the human-review queue using the same faithfulness criterion. Open <strong>Review Queues</strong> (under <strong>Operate</strong>) and click <strong>+ New Queue</strong>. Fill the name and description, then click <strong>+ Add question</strong> to add each question from <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/review/review-questions.json\">review-questions.json</a>. Map the gating <code>faithful</code> question's type to <strong>pass_fail</strong> and target <strong>feedback</strong>; the two free-text questions use type <strong>text</strong>. Keep the <code>faithful</code> wording aligned with the judge so a reviewer \"no\" equals a judge \"false\".",
       "fill": [
         [
           "Name",
@@ -141,7 +141,7 @@
         ],
         [
           "Description",
-          "Human review of sampled traces against the FaithfulnessJudge criterion. Reviewers answer the same faithfulness question the judge's Instructions encode, so the human verdict and your by-hand judge verdict can be laid side by side. Answers write back onto each trace."
+          "Human review of sampled traces against the FaithfulnessJudge criterion. Reviewers answer the same faithfulness question the judge's Instructions encode, so the human verdict and the judge verdict can be laid side by side. Answers write back onto each trace."
         ],
         [
           "Question 1 — key / title / type / target",
@@ -167,7 +167,7 @@
       ]
     },
     {
-      "where": "Observe › Review Queues › faithfulness-certification",
+      "where": "Operate › Review Queues › faithfulness-certification",
       "do": "Enqueue the sampled traces. Open the queue and find the <strong>Add traces to review</strong> field. Paste the trace ids of the flagged false rows plus a few clear passes (sample at least the gate's minimum of 3 traces), separated by spaces or commas, then click <strong>Enqueue</strong>. You can read each trace id from the candidate scorecard's per-example detail (or from Observability).",
       "fill": [
         [
@@ -180,27 +180,23 @@
       "asset": "Enqueued review items (trace-linked)"
     },
     {
-      "where": "Observe › Review Queues › faithfulness-certification",
-      "do": "Answer each item as a reviewer. For every enqueued trace, read the input/output/evidence and answer the <code>faithful</code> question by clicking <strong>Pass</strong> or <strong>Fail</strong> (the pass_fail control renders as Pass/Fail buttons; add the unsupported-claim quote in the text field when you click Fail), then click <strong>Submit review</strong>. Your answers write back onto each trace as MLflow assessments, so they sit next to your by-hand judge verdict.",
+      "where": "Operate › Review Queues › faithfulness-certification",
+      "do": "Answer each item as a reviewer. For every enqueued trace, read the input/output/evidence and answer the <code>faithful</code> question by clicking <strong>Pass</strong> or <strong>Fail</strong> (the pass_fail control renders as Pass/Fail buttons; add the unsupported-claim quote in the text field when you click Fail), then click <strong>Submit review</strong>. Your answers write back onto each trace as MLflow assessments, so they can be imported as human labels in the next step.",
       "click": "Submit review",
       "see": "Each item flips to answered; the <code>faithful</code> answer is now recorded on the trace. Repeat until every sampled item is answered.",
       "asset": "Completed, trace-linked reviewer answers"
     },
     {
-      "where": "Evaluate › Judges › FaithfulnessJudge › Human alignment",
-      "do": "Compute alignment <strong>in the product</strong>. Open the FaithfulnessJudge and switch to <strong>Human alignment</strong>: for each sampled trace enter the judge's output and the reviewer's <code>faithful</code> pass/fail label, then run it — CALIBER reports <strong>agreement rate</strong>, <strong>Cohen's κ</strong>, and <strong>FP/FN</strong> for you. One honest gap: it does <strong>not</strong> auto-pull the labels from the Review Queue, so you still transcribe each reviewer's Pass/Fail (read from the trace / the queue item) by hand. Expected shape: the five clear rows agree; <code>J03</code> and <code>J07</code> are the deliberate disagreements (judge fail, human pass). The offline <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/alignment/alignment-worksheet.md\">alignment-worksheet.md</a> is an optional paper fallback.",
+      "where": "Also in the alpha › Judges › FaithfulnessJudge › Try it › Human alignment",
+      "do": "Compute alignment <strong>in the product</strong>. In <strong>Judges</strong>, click <strong>Try it</strong> on FaithfulnessJudge and switch to <strong>Human alignment</strong>. Choose the <code>faithfulness-certification</code> queue in the <strong>Import from Review Queue…</strong> dropdown, pick its pass/fail <code>faithful</code> question, and click <strong>Import labels</strong> — CALIBER loads each completed reviewer label (with queue, item, trace, question, reviewer and assessment provenance) as a row. Click <strong>Check alignment</strong>: the judge runs on each output and CALIBER reports <strong>agreement rate</strong>, <strong>Cohen's κ</strong>, and <strong>FP/FN</strong>. (You can also type rows by hand with <strong>+ Add example</strong>.) Expected shape: the five clear rows agree; <code>J03</code> and <code>J07</code> are the deliberate disagreements (judge fail, human pass). The offline <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/alignment/alignment-worksheet.md\">alignment-worksheet.md</a> is an optional paper cross-check.",
       "fill": [
         [
-          "Judge output (per row)",
-          "the FaithfulnessJudge output/verdict for that sampled trace"
-        ],
-        [
-          "Human label (per row)",
-          "pass/fail read from each trace's faithful answer (the reviewer's Pass/Fail)"
+          "Review queue / question",
+          "<code>faithfulness-certification</code> / <code>faithful</code> (the pass/fail label)"
         ],
         [
           "Computed by CALIBER",
-          "agreement rate, Cohen's κ, and FP/FN — you no longer tally the cross-tab by hand"
+          "agreement rate, Cohen's κ, and FP/FN over the imported rows — no by-hand tally"
         ]
       ],
       "see": "The Human-alignment panel shows Agreement %, Cohen's κ, and FP/FN. Gate: <code>agreement ≥ 0.80</code> over <code>≥ 3</code> reviewed traces, and <code>overall_eval_score ≥ 0.85</code> on the deterministic scorecard.",
@@ -210,10 +206,11 @@
           "href": "../cookbooks/10-judge-certification-human-review-lab/assets/alignment/alignment-worksheet.md",
           "label": "alignment-worksheet.md"
         }
-      ]
+      ],
+      "click": "Check alignment"
     },
     {
-      "where": "Observe › Observability  +  Evaluate › Evaluations",
+      "where": "Operate › Observability  +  Core journey › Evaluations",
       "do": "Close the loop on every disagreement. For each <code>agree? = no</code> row, harvest that reviewed trace back into the dataset: in <strong>Observability</strong> open the trace, find the <strong>Add to test set</strong> panel, choose <code>judge-certification-set</code> under <strong>Choose test set</strong>, and click <strong>Add example</strong> so the hard case becomes a permanent certification row. Then reword either the judge Instructions (in Judges) or the <code>faithful</code> question (in the Review Queue) so both express the same clarified criterion, re-run the Evaluations scorecard (with FaithfulnessJudge ticked) over the grown set for fresh per-row verdicts, and re-check alignment in the Judges Human-alignment view until it clears the gate.",
       "fill": [
         [
@@ -236,8 +233,8 @@
       ]
     },
     {
-      "where": "Library › Skills › Build Skill",
-      "do": "(Optional) If you want help wording single-criterion questions, register the helper skill. Open <strong>Skills</strong> (under <strong>Library</strong>), click <strong>Build Skill</strong>, and paste the body from <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/skills/rubric-question-writer.md\">rubric-question-writer.md</a> (the kebab-case name <code>rubric-question-writer</code>; <code>claude*</code>/<code>anthropic*</code> prefixes are rejected). This is not required to pass the gate.",
+      "where": "Also in the alpha › Skills › Build Skill",
+      "do": "(Optional) If you want help wording single-criterion questions, register the helper skill. Open <strong>Skills</strong> (under <strong>Also in the alpha</strong>), click <strong>Build Skill</strong>, and paste the body from <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/skills/rubric-question-writer.md\">rubric-question-writer.md</a> (the kebab-case name <code>rubric-question-writer</code>; <code>claude*</code>/<code>anthropic*</code> prefixes are rejected). This is not required to pass the gate.",
       "fill": [
         [
           "Name",

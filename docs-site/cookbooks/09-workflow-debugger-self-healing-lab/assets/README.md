@@ -6,11 +6,11 @@ apply a manual patch → validate**. Build order:
 
 | # | Artifact | File | Create via |
 | --- | --- | --- | --- |
-| 1 | Python Code node body `failing_node` (manufactures a reproducible node fault) | [`tools/failing_node.py`](tools/failing_node.py) | `Compose → Workflows` → drag a **Python Code** node → paste the module body. No registration; it versions with the workflow. |
-| 2 | Eval dataset `failing-inputs` (inputs that reproduce failures + expected root cause) | [`dataset/failing-inputs.jsonl`](dataset/failing-inputs.jsonl) | `Evaluate → Test Sets → New dataset`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line. |
-| 3 | Prompt `diagnosis-summary` (optional — narrates the diagnosis) | [`prompts/diagnosis-summary.md`](prompts/diagnosis-summary.md) | `Library → Prompts → New prompt`, paste the body below the frontmatter. API: `POST /prompts {name, template, commit_message}`. |
-| 4 | Skill `workflow-failure-triage` (optional — symptom→node→probe checklist) | [`skills/workflow-failure-triage.md`](skills/workflow-failure-triage.md) | `Library → Skills → New skill`, paste content below the frontmatter. API: `POST /skills`. |
-| 5 | Judge `RootCauseQuality` (optional — grades diagnosis grounding) | [`judges/root-cause-quality.judge.json`](judges/root-cause-quality.judge.json) | `Evaluate → Judges → New judge`, paste fields. API: `POST /judges`. |
+| 1 | Python Code node body `failing_node` (manufactures a reproducible node fault) | [`tools/failing_node.py`](tools/failing_node.py) | `Also in the alpha → Workflows` → drag a **Python Code** node → paste the module body. No registration; it versions with the workflow. |
+| 2 | Eval dataset `failing-inputs` (inputs that reproduce failures + expected root cause) | [`dataset/failing-inputs.jsonl`](dataset/failing-inputs.jsonl) | `Core journey → Test Sets → New dataset`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line. |
+| 3 | Prompt `diagnosis-summary` (optional — narrates the diagnosis) | [`prompts/diagnosis-summary.md`](prompts/diagnosis-summary.md) | `Core journey → Prompts → New prompt`, paste the body below the frontmatter. API: `POST /prompts {name, template, commit_message}`. |
+| 4 | Skill `workflow-failure-triage` (optional — symptom→node→probe checklist) | [`skills/workflow-failure-triage.md`](skills/workflow-failure-triage.md) | `Also in the alpha → Skills → New skill`, paste content below the frontmatter. API: `POST /skills`. |
+| 5 | Judge `RootCauseQuality` (optional — grades diagnosis grounding) | [`judges/root-cause-quality.judge.json`](judges/root-cause-quality.judge.json) | `Also in the alpha → Judges → New judge`, paste fields. API: `POST /judges`. |
 
 > Items 3–5 are **optional**: they let you score *whether a diagnosis is
 > evidence-grounded* in Evaluations. The core demo (reproduce → localize → patch
@@ -24,10 +24,13 @@ apply a manual patch → validate**. Build order:
   markers), **retry lineage** ("Attempt N of M"), and the controls
   `run-execute` / `run-reject` / `run-approve` / `run-retry` / `run-resume` /
   `resume-by-event`.
-- ⚠️ **Patching is MANUAL**: there is **no** `propose_workflow_patch` tool and
-  the semantic patch API is not wired to the UI. A "patch" = edit the manifest
-  in the editor and **save a new version**. Every fix below is a manual editor
-  edit.
+- ⚠️ **Patching is MANUAL here**: no Run Monitor control turns a failed run into
+  a patch. A semantic patch engine exists (`POST /workflow-versions/{id}/propose-patch`,
+  the workflow's **CALIBER Patches** tab, workflow **Calibrate**, and a
+  `propose_workflow_patch` tool in Aria's chat assistant that only proposes a
+  patch for an assistant workflow draft), but no UI page calls the propose-patch
+  route. A "patch" here = edit the manifest in the editor and **save a new
+  version**. Every fix below is a manual editor edit.
 - ⚠️ **Aria / Aria Plans cannot debug or patch a workflow** as a capability. Use
   Aria, if at all, **only to narrate** the diagnosis (or generate the
   `diagnosis-summary` text). The actual recovery is the human operator driving
@@ -47,7 +50,7 @@ fault and a manual code patch.
 
 This exercises the full recovery loop on a shipped template, no code needed.
 
-1. **Create the workflow.** `Compose → Workflows → New from template →
+1. **Create the workflow.** `Also in the alpha → Workflows → New from template →
    `hitl_review`. Its nodes are `start → agent → pii_guard (guardrail) → review
    (human_approval) → final`; the approval node id is **`review`**.
    - API: `POST /workflows {template_id: "hitl_review", ...}`.
@@ -82,7 +85,7 @@ This exercises the full recovery loop on a shipped template, no code needed.
 ### Option B — node-level exception → manual code patch (real node fault)
 
 This manufactures a genuine node exception, then fixes it by **editing the node
-and saving a new version** (the manual patch — there is no patch tool).
+and saving a new version** (the manual patch — no Run Monitor control patches a failed run).
 
 1. **Build the workflow.** New `blank` workflow → drag a **Python Code** node,
    id **`failing_node`** → paste the body of
@@ -104,7 +107,7 @@ and saving a new version** (the manual patch — there is no patch tool).
    which switches the node from *indexing* the required keys (raises) to
    *validating* them and returning a structured `rejected_input` result instead
    of throwing. **Save a new version** of the workflow. This save **is** the
-   patch — there is no `propose_workflow_patch` tool.
+   patch — no Run Monitor control patches a failed run.
 5. **Validate.** Run a **Preview** + a real `run-execute` of the SAME failing
    input (WF02 / WF03) on the new version → confirm it now **`completed`s** with
    `status = "rejected_input"` instead of crashing. Then re-run a small
@@ -124,7 +127,7 @@ To put a number on diagnosis quality:
 2. Author the [`diagnosis-summary`](prompts/diagnosis-summary.md) prompt; its
    variables map 1:1 onto the dataset `inputs` keys.
 3. Create the [`RootCauseQuality`](judges/root-cause-quality.judge.json) judge.
-4. `Evaluate → Evaluations → Run evaluation`: dataset = `failing-inputs`,
+4. `Core journey → Evaluations → Run evaluation`: dataset = `failing-inputs`,
    candidate = the `diagnosis-summary` output, deterministic graders plus the
    `RootCauseQuality` judge ticked under **Custom LLM judges** (it runs as a
    `Judge.<id>` scorer for an automatic per-row verdict): a row passes only when

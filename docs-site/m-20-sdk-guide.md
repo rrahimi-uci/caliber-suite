@@ -27,7 +27,7 @@ use the [REST API overview](m-26-rest-api-overview.md), the
 | **Typing** | Ships `py.typed`; `mypy --strict` clean. |
 | **Auth** | Personal access token (recommended), or a trusted-proxy header. |
 | **Errors** | Non-2xx becomes a typed exception carrying status, detail, method, URL, and a request id. |
-| **Retries** | Idempotent methods only, capped exponential backoff, honouring `Retry-After`. |
+| **Retries** | Idempotent methods only (`GET`, `HEAD`, `OPTIONS`), on a transport error or a 429, 502, 503 or 504. Two retries by default (`max_retries`), exponential backoff, honouring a numeric `Retry-After`. |
 | **Long-running work** | Waiters that poll with backoff and never sleep past your deadline. |
 | **Coverage** | Every GA surface, plus `client.raw` for anything not yet modelled. |
 | **Project access** | Typed `client.projects.list_members()`, `add_member()`, `update_member()`, and `remove_member()` methods. |
@@ -57,6 +57,13 @@ it — an invalid or revoked credential comes back as an anonymous identity, not
 an exception — so the check is on the value, not a `try`. And
 `capabilities` answers "may I call this?" without downloading the full OpenAPI
 document.
+
+`client.health()` and `client.readiness()` are the liveness and dependency probes.
+`/health` is the one route with a bare body (`status`, `version`, `db`), so
+`health()` returns it as is; it never carries a `data` wrapper to strip. Both
+raise a `CaliberServerError` on a 503 (a failed database probe, or a required
+dependency that is not ready, such as an unmigrated database), and the decoded
+body is on `exc.payload`.
 
 ## Configuration
 
@@ -117,7 +124,8 @@ client.projects.update_member(project.project_id, "@bob", role="reviewer")
 ```
 
 The four project roles are `owner`, `editor`, `reviewer`, and `viewer`. Only an
-owner can add, update, or remove members. `remove_member()` deactivates the
+owner (who also holds the `caliber.operator` scope) can add, update, or remove
+members. `remove_member()` deactivates the
 membership and returns `True` when the server confirms the removal. The async
 client exposes the same four membership methods on `AsyncCaliberClient.projects`.
 
@@ -141,14 +149,20 @@ requested *intersected with* what its owner holds at request time. So a token
 cannot exceed its owner, and demoting the owner narrows every token they hold —
 immediately, without revoking anything. Omit `scopes` to inherit the owner's.
 
-Requesting a scope you do not hold is refused at issue time rather than quietly
+Requesting a scope you do not hold is refused at issue time (403) rather than quietly
 narrowed, because a token that claims authority it can never exercise fails far
 from its cause.
 
+Pass `project_id` to `tokens.create()` to bind a token to one project you can
+already see. A bound token that names a different project is refused with a 403,
+and one that names none acts in its bound project. Use a bound token for CI that
+imports Workspace revisions: those routes refuse an unbound personal access token.
+
 ## CSRF
 
-Handled for you. If a write is refused for want of a token, the client fetches
-one and replays the request exactly once. A 403 that is *not* about CSRF is not
+Handled for you. CSRF enforcement is off by default on the server; where it is
+enabled it covers bearer-token writes as well. If a write is refused for want of
+a token, the client fetches one and replays the request exactly once. A 403 that is *not* about CSRF is not
 mistaken for one, so a genuine permission failure surfaces immediately instead
 of looping.
 

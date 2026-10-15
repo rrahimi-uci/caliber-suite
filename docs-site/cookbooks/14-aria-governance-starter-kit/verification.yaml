@@ -2,7 +2,8 @@
 feasibility:
   - These gates check Aria's PLAN and the REAL artifacts it created; there is no LLM judge OF Aria here.
   - Plan + step status + interactions are observable via GET /aria/plans/{id} and /aria/plans/{id}/interactions.
-  - The kit is complete with judge + eval_dataset + review_queue created. review_queue.add_items is expected to be DENIED (no traces yet) and does not count toward the kit.
+  - The kit is complete with judge + eval_dataset + review_queue created. review_queue.add_items is expected to be skipped (Skip step / Deny; no traces yet) and does not count toward the kit.
+  - The planner links `name` between steps, so the test set and the review queue are created under the judge's name (AnswerFaithfulness); gate on the plan steps and the new rows in Test Sets / Review Queues.
 evaluation:
   plan_checks:
     - plan_decomposed_from_intent

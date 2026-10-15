@@ -3,6 +3,7 @@ name: support-tone-and-citation
 summary: "Voice and citation rules for customer-facing support replies (billing, refunds, account, how-to); NOT for engineering, code, API, infra, or schema questions."
 category: customer_support
 tags: [support, tone, citation, escalation, customer-facing]
+should_not_trigger: [stack trace, signing key, database index, sql migration, latency metrics, unit test]
 render_variables: [user_message, audience, policy_context]
 ---
 

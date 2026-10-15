@@ -29,6 +29,12 @@ That distinction matters because CALIBER separates:
 - candidate generation
 - live release
 
+Inside a project, roles decide who can move a prompt. Creating a prompt or a version needs `editor` or `owner`
+(plus `caliber.operator`), and deleting a prompt also needs `editor` or `owner` plus `caliber.admin`. Making a
+version live (setting an alias) and rolling back need `editor` or `owner`, because both are the `release.apply`
+action. A member whose role is too weak gets 403 and a person outside the project gets 404. See
+[Auth and project scoping](m-31-auth-and-project-scoping.md).
+
 ## 2. Common tasks
 
 | You want to... | Read this next |

@@ -21,7 +21,9 @@ evidence* — entirely in the CALIBER UI, no code:
    assessments/expectations.
 4. **Baseline** — (optional) **Run evaluation** on `prod-regression` with the
    deterministic graders to put a number on the failure rate; re-run after a fix
-   ships to prove it dropped.
+   ships to prove it dropped. Evaluations generates the predictions with the
+   model, so this step needs a configured real model provider (the default LLM is
+   fake, and **Evaluations** returns a 400 without one).
 
 ## Prerequisite
 
@@ -33,8 +35,8 @@ at least one that errors or is rejected — so Observability has OK and Error tr
 
 | # | Asset | File | UI surface |
 | --- | --- | --- | --- |
-| 1 | Triage question schema | [`assets/review-queues/triage-review.review-questions.json`](assets/review-queues/triage-review.review-questions.json) | `Observe → Review Queues → + New Queue` (key / title / type / options / required / target) |
-| 2 | Regression-row shape | [`assets/dataset/prod-regression.sample.jsonl`](assets/dataset/prod-regression.sample.jsonl) | `Observe → Observability → Add to test set → Add example` (rows are captured from traces, not pasted) |
+| 1 | Triage question schema | [`assets/review-queues/triage-review.review-questions.json`](assets/review-queues/triage-review.review-questions.json) | `Operate → Review Queues → + New Queue` (key / title / type / options / required / target) |
+| 2 | Regression-row shape | [`assets/dataset/prod-regression.sample.jsonl`](assets/dataset/prod-regression.sample.jsonl) | `Operate → Observability → Add to test set → Add example` (rows are captured from traces, not pasted) |
 
 ## Quality gates
 

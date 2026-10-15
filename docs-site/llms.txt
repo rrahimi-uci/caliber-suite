@@ -1,6 +1,6 @@
 # CALIBER
 
-> MLflow-integrated control plane for building, evaluating, calibrating, governing, and observing trusted agentic workflows — prompts, tools, skills, MCP servers, workflows, knowledge bases, and the Aria copilot — in embedded-plugin or standalone-service topologies.
+> MLflow-integrated control plane for building, evaluating, calibrating, governing, and observing trusted agentic workflows — prompts, tools, skills, MCP servers, workflows, knowledge bases, and the Aria copilot — as a standalone service (the embedded plugin mode is not supported in the alpha).
 
 The pages below are the published architecture, workflow, and strategy documentation. Each link is a flattened Markdown copy built for programmatic access.
 
@@ -35,7 +35,7 @@ The pages below are the published architecture, workflow, and strategy documenta
 - [Error handling and retries](m-53-error-handling-and-retries.md): The practical integration policy for CALIBER failures: classify them correctly, use waiters where available, and retry only what is actually safe to retry.
 - [Beta and agentic surfaces](m-22-sdk-beta.md): Integrations, operations, cookbooks, and the Aria loop — and the property that shapes all of them: work that stops for a person is neither running nor finished.
 - [Writing a plugin](m-23-sdk-plugins.md): Add an optimizer to CALIBER from your own distribution — the contract, the conformance suite, and why installing a plugin deliberately does not enable it.
-- [CLI and async client](m-24-sdk-cli.md): caliberctl for operator flows, where its six exit codes come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both.
+- [CLI and async client](m-24-sdk-cli.md): caliberctl for operator flows, where its ten exit codes (0 to 9) come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both.
 - [REST API overview](m-26-rest-api-overview.md): Where the management API lives, when to integrate at the HTTP layer, and where the served OpenAPI documents fit.
 - [Authentication and conventions](m-27-rest-api-auth.md): Bearer authentication, trusted-header deployments, project scoping, CSRF, envelopes, pagination, request ids, and error shapes.
 - [CI/CD automation](m-54-ci-cd-automation.md): The repository-grounded automation path for CALIBER development: docs generation, focused contract tests, and the human-review boundaries that remain deliberate.
@@ -76,7 +76,7 @@ The pages below are the published architecture, workflow, and strategy documenta
 - [MCP architecture](m-05-mcp.md): Managed MCP server definitions, transport-aware configuration, connection tests, discovered tool inventories, and policy-managed remote tool use.
 - [Workflows architecture](m-06-workflows.md): Manifest authoring, compile/preview/run, versioning and deployments, queued runtime execution, checkpoints, and workflow-as-a-service.
 - [Object store](m-07-object-store.md): MinIO/S3 console and the storage substrate behind uploads, previews, extraction, and artifact browsing.
-- [Knowledge bases architecture](m-08-knowledge-bases.md): Versioned RAG corpora with ingestion, chunking, embeddings, Apache AGE graph extraction, hybrid retrieval, pgvector ANN + cross-encoder reranking at scale, and calibration.
+- [Knowledge bases architecture](m-08-knowledge-bases.md): Versioned RAG corpora with ingestion, chunking, embeddings, hybrid retrieval, and calibration. Apache AGE graph extraction and cross-encoder reranking are optional and off by default; a build needs an S3-compatible bucket, the knowledge-local extra and an embedding-model download.
 - [Test sets architecture](m-11-test-sets.md): Versioned evaluation datasets with a hand-curation row editor, trace-to-example capture, MLflow GenAI dataset sync, and the shared evidence base for scoring.
 - [Evaluation architecture](m-14-evaluation.md): Dataset scorecards with selectable custom LLM judges, artifact-targeted runs (prompt/skill), a judge playground + human-alignment (agreement/kappa), per-example results, and fail-closed evaluation.
 - [Calibration architecture](m-15-calibration.md): Asset-specific evidence loops: provider-and-EvalProvider refinement for prompts and skills, manifest replay for workflows, and revision-fenced deterministic tool suites inline or queued.

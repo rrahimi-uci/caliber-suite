@@ -2,7 +2,9 @@ workflow_goal: Enforce deterministic business logic first, then optionally add L
 # Verified against the live build — see ../FEASIBILITY.md.
 feasibility:
   - Tools must be importable Python (module_path+callable_name); there is no inline tool editor. Use shipped caliber.workflows.demo_tools callables, or put logic in a python_code workflow node.
-  - decide_refund is best implemented as a python_code node (deterministic eligibility) so it versions with the workflow.
+  - The installable draft implements the policy as a Data Transform decision_table node (policy_decision), which emits {decision, matched, matched_rule} and no requires_approval. decide_refund as a python_code node is the optional alternative that also emits reason_code/requires_approval.
+  - Sandbox runs a read tool live only with allow_in_preview=true; otherwise it is mocked. POST /tools rejects write/external_action without requires_approval=true (400).
+  - Approve needs the caliber.approver scope and an account other than the run initiator (403 unless CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true).
   - The write tool (initiate_refund) is mocked in the sandbox and becomes approval-gated in a workflow — exactly the safety behavior this scenario wants.
   - Deterministic Hardening runs inline (POST /tools/{id}/calibrate); the LLM-judge lane is queued.
   - approval_gate = the human_approval node; start the workflow from the hitl_review template.
@@ -28,7 +30,7 @@ components:
   tools:
     - lookup_order_state   # realize as caliber.workflows.demo_tools:lookup_order (read)
     - lookup_risk_flags    # realize as a python_code node, or a registered read callable
-    - decide_refund        # realize as a python_code node (deterministic eligibility) — recommended
+    - decide_refund        # optional python_code node; the installed draft uses a Data Transform decision_table instead
     - initiate_refund      # caliber.workflows.demo_tools:initiate_refund (write -> mocked/approval-gated)
   mcp:
     optional:
@@ -37,13 +39,15 @@ components:
     template: hitl_review        # ships the human_approval gate
     nodes:
       - tool_lookup              # tool node: lookup_order
-      - deterministic_decision   # python_code node: decide_refund
-      - approval_gate            # human_approval node (high-risk cases only)
+      - deterministic_decision   # Data Transform decision_table (or the optional python_code decide_refund)
+      - approval_gate            # human_approval node (pauses every run that reaches it)
       - explanation_optional     # agent/prompt; must not change the decision
 contracts:
   input_schema:
     type: object
     required: [order_id, account_id]
+  # The decision_table node emits only {decision, matched, matched_rule}; reason_code and
+  # requires_approval come from the optional python_code variant (assets/tools/decide_refund.py).
   output_schema:
     type: object
     required: [decision, reason_code, requires_approval]

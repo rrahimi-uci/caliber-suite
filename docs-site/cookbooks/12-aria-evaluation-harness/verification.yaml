@@ -2,6 +2,7 @@
 feasibility:
   - These gates check Aria's PLAN and the REAL artifacts it created; there is no LLM judge OF Aria here.
   - Plan + step status + interactions are observable via GET /aria/plans/{id} and /aria/plans/{id}/interactions.
+  - The test set takes the judge's name (the planner links eval_dataset.create name from judge.create), so eval_dataset_created is checked by the plan step and a new row in Test Sets, not by a separate name.
 evaluation:
   plan_checks:
     - plan_decomposed_from_intent

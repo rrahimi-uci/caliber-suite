@@ -12,7 +12,7 @@ and knowledge bases —
 **in one place, on infrastructure you already run.**
 
 [![CI](https://github.com/rrahimi-uci/caliber-suite/actions/workflows/ci.yml/badge.svg)](https://github.com/rrahimi-uci/caliber-suite/actions/workflows/ci.yml)
-[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./caliber/LICENSE)
+[![License](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](./LICENSE)
 [![Python](https://img.shields.io/badge/Python-3.10%20–%203.12-3776AB?logo=python&logoColor=white)](./caliber/README.md)
 [![MLflow](https://img.shields.io/badge/MLflow-≥3.15-0194E2?logo=mlflow&logoColor=white)](https://mlflow.org)
 [![PostgreSQL](https://img.shields.io/badge/PostgreSQL-17-4169E1?logo=postgresql&logoColor=white)](https://www.postgresql.org)
@@ -172,7 +172,7 @@ flowchart TB
 
 ## 🚀 Quickstart
 
-> **Installing the alpha from wheels, with no checkout and no Docker?** Use [Alpha install](docs/start/alpha-install.md). It is the one install path that a script verifies end to end.
+> **Installing the alpha from wheels, with no Docker?** Use [Alpha install](docs/start/alpha-install.md). It is the one install path that a script verifies end to end. The `caliber-v0.1.0a1` tag and release assets are not published yet, so that page builds the wheels from a source checkout until they are.
 
 ```bash
 # ── Backing services (terminal 1, from the repo root) ──
@@ -248,7 +248,7 @@ loopback launcher; any network-reachable deployment must leave
 | Path | What it is |
 | --- | --- |
 | 📦 [`caliber/`](./caliber/) | The Python package for the standalone CALIBER service — runtime code, unsupported embedded-compatibility coverage, Alembic migrations, the React SPA, tests, and packaging. See its [README](./caliber/README.md) for install + dev. |
-| 🧰 [`sdk/`](./sdk/) | Three independently-versioned, independently-installable packages: [`caliber-sdk`](./sdk/caliber-sdk/) (the typed Python client — zero server dependencies, gated at 100% addressable API coverage), [`caliber-cli`](./sdk/caliber-cli/) (`caliberctl`, a non-interactive operator CLI built on `caliber-sdk` alone), and [`caliber-plugin-sdk`](./sdk/caliber-plugin-sdk/) (experimental contracts for third-party optimizer extensions, with no dependency on the server or client SDK). |
+| 🧰 [`sdk/`](./sdk/) | Three independently-installable packages, all at the same `0.1.0a1` version (a lockstep test enforces it): [`caliber-sdk`](./sdk/caliber-sdk/) (the typed Python client — zero server dependencies, gated at 100% addressable API coverage), [`caliber-cli`](./sdk/caliber-cli/) (`caliberctl`, a non-interactive operator CLI built on `caliber-sdk` alone), and [`caliber-plugin-sdk`](./sdk/caliber-plugin-sdk/) (experimental contracts for third-party optimizer extensions, with no dependency on the server or client SDK). |
 | 🌐 [`docs-site/`](./docs-site/) | The published documentation site: the [landing page](./docs-site/index.html); the generated HTML/Markdown documentation corpus built from root [`ARCHITECTURE.md`](./ARCHITECTURE.md) plus [`docs/`](./docs/) by [`build-docs.mjs`](./docs-site/build-docs.mjs); the **[Cookbooks](./docs-site/m-16-cookbooks.html)** — a card index plus 16 step-by-step recipe pages sourced from [`docs-site/cookbooks/`](./docs-site/cookbooks/); the [walkthrough](./docs-site/walkthrough.html) runbook; and click-through slide decks. Also synced into the SPA and served in-app at `/caliber/docs/`. |
 | 📐 [`docs/`](./docs/) | Source-of-truth documentation for architecture, build/integration, operations, use-case guides, SDK/API reference, strategy, and dated audit reports. The architecture corpus still centers on per-area `architecture.md` files plus the [workflow components reference](./docs/06-workflows/components.md); the broader docs tree also includes start/build/use/operate/sdk/api guides, roadmap material, and repository reports. Conventions live in [`docs/STYLE.md`](./docs/STYLE.md); the machine index is `docs-site/llms.txt`. |
 | 📄 [`paper/`](./paper/) | LaTeX source for the technical report *CALIBER: A Layered Control Plane for Governed Releases of AI-Agent Resources* — the architectural argument behind this repository, its per-family guarantee surface, and an explicit account of what it does **not** establish. Also holds the generated [seminar deck](./paper/slides/). See [`paper/README.md`](./paper/README.md). |
@@ -297,7 +297,7 @@ primitives):
 
 ## ✅ Project status
 
-CALIBER is **alpha** (`0.1.0a1`). What that means area by area:
+CALIBER is **alpha**. `0.1.0a1` is the version prepared on `main`; the `caliber-v0.1.0a1` tag and release assets have not been published yet. What the alpha means area by area:
 
 | Maturity | Areas |
 | --- | --- |
@@ -439,6 +439,6 @@ gate, the extension seams, and PR conventions.
 
 ## 📄 License
 
-**Apache 2.0** — see [`caliber/LICENSE`](./caliber/LICENSE).
+**Apache 2.0** — see [`LICENSE`](./LICENSE).
 
 <div align="center"><sub>Built on MLflow · PostgreSQL · React — <a href="./docs-site/index.html">read the docs</a></sub></div>

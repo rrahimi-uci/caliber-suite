@@ -507,7 +507,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "platform",
@@ -534,7 +534,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-09-09",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "refinement",
@@ -561,7 +561,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "prompts",
@@ -588,7 +588,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "tools",
@@ -615,7 +615,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "skills",
@@ -642,7 +642,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "mcp",
@@ -669,7 +669,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "workflows",
@@ -695,7 +695,7 @@ window.DOCS_DATA = {
         "Workflow Studio or manifest familiarity"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "workflows",
@@ -722,7 +722,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-08-11",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "storage",
@@ -738,7 +738,7 @@ window.DOCS_DATA = {
       "label": "Knowledge bases architecture",
       "section": "Architecture",
       "section_id": "architecture",
-      "summary": "Versioned RAG corpora with ingestion, chunking, embeddings, Apache AGE graph extraction, hybrid retrieval, pgvector ANN + cross-encoder reranking at scale, and calibration.",
+      "summary": "Versioned RAG corpora with ingestion, chunking, embeddings, hybrid retrieval, and calibration. Apache AGE graph extraction and cross-encoder reranking are optional and off by default; a build needs an S3-compatible bucket, the knowledge-local extra and an embedding-model download.",
       "audience": [
         "architect",
         "developer",
@@ -749,7 +749,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "knowledge-bases",
@@ -776,7 +776,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "test-sets",
@@ -803,7 +803,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "evaluation",
@@ -830,7 +830,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "calibration",
@@ -857,7 +857,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "observability",
@@ -884,7 +884,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-08-20",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "gateways",
@@ -911,7 +911,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-09-09",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "qa",
@@ -939,7 +939,7 @@ window.DOCS_DATA = {
         "MCP architecture"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-08-11",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "openapi",
@@ -965,7 +965,7 @@ window.DOCS_DATA = {
         "Access to a CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "operations",
@@ -991,7 +991,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "assistant",
@@ -1016,7 +1016,7 @@ window.DOCS_DATA = {
         "A running CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "api",
@@ -1040,7 +1040,7 @@ window.DOCS_DATA = {
         "A running CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "api",
@@ -1065,7 +1065,7 @@ window.DOCS_DATA = {
         "A CALIBER API integration question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-09-09",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "api",
@@ -1090,7 +1090,7 @@ window.DOCS_DATA = {
         "A CALIBER API integration question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-09-09",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "api",
@@ -1120,7 +1120,7 @@ window.DOCS_DATA = {
         "A CALIBER question to answer"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "onboarding",
@@ -1145,7 +1145,7 @@ window.DOCS_DATA = {
         "A platform-evaluation question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "strategy",
@@ -1171,7 +1171,7 @@ window.DOCS_DATA = {
         "Either a local repository checkout or a reachable CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "quickstart",
@@ -1273,7 +1273,7 @@ window.DOCS_DATA = {
         "A project to access"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-11",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "auth",
@@ -1298,7 +1298,7 @@ window.DOCS_DATA = {
         "A planned CALIBER integration"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "sdk",
@@ -1322,7 +1322,7 @@ window.DOCS_DATA = {
         "A CALIBER integration using the SDK or REST API"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "errors",
@@ -1348,7 +1348,7 @@ window.DOCS_DATA = {
         "A repository checkout or CALIBER integration pipeline"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "ci",
@@ -1373,7 +1373,7 @@ window.DOCS_DATA = {
         "A CALIBER SDK or REST API integration issue"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "troubleshooting",
@@ -1399,7 +1399,7 @@ window.DOCS_DATA = {
         "Repository checkout"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "setup",
@@ -1425,7 +1425,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment plan or checkout"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "configuration",
@@ -1451,7 +1451,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment or storage design question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "storage",
@@ -1477,7 +1477,7 @@ window.DOCS_DATA = {
         "A running CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "health",
@@ -1503,7 +1503,7 @@ window.DOCS_DATA = {
         "A CALIBER failure or degraded runtime question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-20",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "troubleshooting",
@@ -1528,7 +1528,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment or disaster-recovery review"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-13",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "backup",
@@ -1555,7 +1555,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment or design question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "trust",
@@ -1582,7 +1582,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment with prompt access"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "prompts",
@@ -1609,7 +1609,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment with tool access"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "tools",
@@ -1635,7 +1635,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment with skill access"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "skills",
@@ -1662,7 +1662,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment with MCP access"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "mcp",
@@ -1689,7 +1689,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment with admin or operator scope"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-08-11",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "openapi",
@@ -1716,7 +1716,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment with workflow access"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "workflows",
@@ -1743,7 +1743,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment with knowledge-base access"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "knowledge",
@@ -1770,7 +1770,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment with evaluation access"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "evaluation",
@@ -1797,7 +1797,7 @@ window.DOCS_DATA = {
         "An evidence set or runtime question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "calibration",
@@ -1824,7 +1824,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment with Aria access"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "aria",
@@ -1852,7 +1852,7 @@ window.DOCS_DATA = {
         "A change candidate, review question, or release decision"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "review",
@@ -1905,7 +1905,7 @@ window.DOCS_DATA = {
         "A CALIBER deployment or integration configuration question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "env",
@@ -1930,7 +1930,7 @@ window.DOCS_DATA = {
         "Python 3.10+"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-09-09",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "sdk",
@@ -1980,7 +1980,7 @@ window.DOCS_DATA = {
         "A running CALIBER deployment"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "sdk",
@@ -2021,7 +2021,7 @@ window.DOCS_DATA = {
       "label": "CLI and async client",
       "section": "Build & integrate",
       "section_id": "build",
-      "summary": "caliberctl for operator flows, where its six exit codes come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both.",
+      "summary": "caliberctl for operator flows, where its ten exit codes (0 to 9) come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both.",
       "audience": [
         "developer",
         "operator"
@@ -2031,7 +2031,7 @@ window.DOCS_DATA = {
         "A running CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "sdk",
@@ -2083,7 +2083,7 @@ window.DOCS_DATA = {
         "Decision-maker overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-10",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "strategy",
@@ -2112,7 +2112,7 @@ window.DOCS_DATA = {
         "Review the current GitHub Project #2 issue hierarchy and dated delivery evidence before approving a release"
       ],
       "stability": "internal",
-      "reviewed_on": "2026-08-17",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch, GitHub Project #2, and the proposed v1.0.0 release",
       "tags": [
         "prd",
@@ -2140,7 +2140,7 @@ window.DOCS_DATA = {
         "A named single-tenant deployment owner and supported MLflow provider profile"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-08-13",
+      "reviewed_on": "2026-10-14",
       "version_applicability": "current main branch and GitHub Project #2",
       "tags": [
         "roadmap",

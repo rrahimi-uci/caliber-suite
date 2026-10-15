@@ -7,7 +7,7 @@ product_area: workflows
 stability: ga
 prerequisites:
   - Workflow Studio or manifest familiarity
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - workflows
@@ -49,6 +49,7 @@ runtime, deployments) see the [Workflows Architecture](architecture.md).
 | **Working with nodes** | Add from the palette, configure in the **Inspector**, connect node-to-node via an **edge map**, view/edit each node's **manifest JSON** (`<>`), and preview or run. |
 | **Component categories** | Eight palette groups: Inputs & Outputs, Orchestration, Agents, Logic, Safety, Integrations, Governance, and Utilities. |
 | **No-code logic** | **Data Transform** covers fixtures, mapping, JSON Schema, decision tables, and confidence; **Python Code** remains the bounded extension outside that vocabulary. |
+| **Prerequisites** | Each component declares what it needs beyond the base install (a real LLM, an object store, the run queue, and so on); the palette marks the ones this server does not meet. |
 | **Built-in reference** | Every built-in component, grouped by category, with default ports, key fields, and setup checks. |
 
 The sections below start from this picture and drill down into the detail — the
@@ -130,6 +131,9 @@ name, description, or docs. To add one, either:
 
 Each palette card shows the component's icon, name, and description, plus badges
 for how many config fields, setup rules, and default input/output ports it has.
+A card also carries a **Needs …** badge (for example "Needs a real LLM" or "Needs the
+run queue") for every prerequisite the running server does not meet or cannot confirm;
+the full sentence is its tooltip. See [What each component needs](#what-each-component-needs).
 Server-backed components also expose an **Inspect** button that opens a
 read-only reference — setup rules, ports, and field schema — before you commit
 the node to the canvas.
@@ -193,8 +197,10 @@ so the canvas and inspector immediately reflect your edit.
 
 ### Run, preview, and inspect output
 
-Compile and **preview** a workflow to dry-run the graph with the fake executor,
-or **run** it for real through the queued runtime. During both, each node shows
+Compile and **preview** a workflow to dry-run the graph, or **run** it through the
+queued runtime. Both use the executor of the configured LLM provider: with the default
+`fake` provider an Agent only replays a canned reply, so a preview or run proves the graph
+and not a model. During both, each node shows
 an execution badge (running / ok / error / skipped) and the current node is
 highlighted, so you can watch data move through the components. After a preview
 or run, selecting a node shows its **Last output** — status, output text, timing,
@@ -232,9 +238,10 @@ Tool / Python Code / API Request).
 
 Every built-in component, grouped by category. **Inputs → Outputs** lists the
 default typed ports; **Key fields** lists the main configuration parameters
-(every node also accepts an optional `execution_policy` for timeout/retry).
+(every node except Start and Output also accepts an optional `execution_policy` for timeout/retry).
 **Setup** lists the readiness checks that must be satisfied before the node is
-considered configured.
+considered configured. The nodes that need something beyond the base install are
+listed in [What each component needs](#what-each-component-needs).
 
 ### Inputs & Outputs
 
@@ -255,10 +262,10 @@ considered configured.
 | **Wait Until** | `wait_until` | Pause execution until a wall-clock timestamp (a resumable checkpoint). | `input` → `output` | `wait_until`, `timezone` | Set the target timestamp |
 | **Wait For Event** | `wait_for_event` | Pause until an external system or operator resumes the run with a named event. | `input` → `output`, `event_payload`, `event_name` | `event_name`, `correlation_key`, `timeout_seconds` | Name the resume event |
 | **Parallel** | `parallel` | Explicit fan-out marker — branch execution across multiple downstream paths. | `input` → `output` | — | Add at least two downstream branches |
-| **Join** | `join` | Explicit fan-in barrier — merge branches back into one control path. | (edge-driven) → `output`, `merged` | `mode` (`all`/`any`) | Connect ≥2 upstream branches; use distinct join input ports |
+| **Join** | `join` | Explicit fan-in barrier — merge branches back into one control path. | (edge-driven) → `output`, `merged` | `mode` (`all`/`any`) | Connect at least two upstream branches; use distinct join input ports per branch |
 | **For Each** | `for_each` | Iterate a structured list through one executable target and collect results. | `items` → `results`, `text`, `metadata` | `target_node_id`, `item_input_port`, `max_items` | Use an executable target when set |
-| **Loop** | `loop` | Repeat a target node until a stop condition matches or the iteration cap is reached. | `input`, `state` → `output`, `result`, `iterations`, `metadata` | `target_node_id`, `max_iterations`, `stop_condition` | Select an executable loop target |
-| **Subworkflow** | `subworkflow` | Invoke another published workflow by id and alias. | `input` → `output`, `result` | `workflow_id`, `alias`, `timeout_seconds` | Select the workflow to invoke; avoid recursion |
+| **Loop** | `loop` | Repeat a target node until a stop condition matches or the iteration cap is reached. | `input`, `state` → `output`, `result`, `iterations`, `metadata` | `target_node_id`, `max_iterations`, `stop_condition` | Select a loop target; choose an executable loop target |
+| **Subworkflow** | `subworkflow` | Invoke another published workflow by id and alias. | `input` → `output`, `result` | `workflow_id`, `alias`, `version_id` (set by a deployment bundle to pin the resolved version), `timeout_seconds` | Select the workflow to invoke; avoid recursion |
 
 ### Agents
 
@@ -270,8 +277,8 @@ considered configured.
 
 | Component | Type | Purpose | Inputs → Outputs | Key fields | Setup |
 | --- | --- | --- | --- | --- | --- |
-| **Router** | `router` | Route execution conditionally across explicit branches; the first matching condition wins. Branches are expressed as outgoing edges. | `decision` → (edge-driven) | `branches` | Add ≥1 branch; connect every branch target |
-| **Data Transform** | `data_transform` | Apply a closed-vocabulary deterministic transform: fixture, mapping, Draft 2020-12 JSON Schema, ordered decision table, or weighted confidence. | `value`, `text` → `text`, `result`, `valid`, `metadata` | `operation`, `config`, `fail_on_invalid` | Select an operation and supply its structured config |
+| **Router** | `router` | Route execution conditionally across explicit branches; the first matching condition wins. Branches are expressed as outgoing edges. | `decision` → (edge-driven) | `branches` | Add at least one branch; connect every branch target with an outgoing edge |
+| **Data Transform** | `data_transform` | Apply a closed-vocabulary deterministic transform: fixture, mapping, Draft 2020-12 JSON Schema, ordered decision table, or weighted confidence. | `value`, `text` → `text`, `result`, `valid`, `metadata` | `operation`, `config`, `fail_on_invalid` | Configure the transform (a non-empty `config` for the selected operation) |
 
 ### Safety
 
@@ -279,7 +286,7 @@ considered configured.
 | --- | --- | --- | --- | --- | --- |
 | **Guardrail** | `guardrail` | Apply validation or safety checks before or after an agent step, with block/redact/escalate behavior and bounded retries. | `response` → `passthrough` | `mode`, `checks`, `on_failure`, `max_retries` | Configure at least one guardrail check |
 | **Human Approval** | `human_approval` | Pause the workflow until a human reviewer approves or rejects it; resolved from the run monitor. Every field is enforced at runtime: `required_role` gates the decision endpoint, `approval_count` is a quorum of distinct approvers, and the run's initiator cannot approve their own run by default. | `request` → `request` | `required_role`, `approval_count`, `timeout_behavior` (`block` only — `escalate` has no target and `auto_reject` no deadline, so both are rejected at authoring time) | — |
-| **Error Boundary** | `error_boundary` | Execute a target node with fallback text or a compensation node when it fails. | `input` → `output`, `error` | `target_node_id`, `fallback_text`, `compensate_with` | Use executable target / compensation nodes when set |
+| **Error Boundary** | `error_boundary` | Execute a target node with fallback text or a compensation node when it fails. | `input` → `output`, `error` | `target_node_id`, `fallback_text`, `compensate_with` | Protect an executable target and use an executable compensation node when set |
 
 ### Integrations
 
@@ -307,6 +314,25 @@ considered configured.
 | **Python Code** | `python_code` | Run custom Python in the isolated tool sandbox for lightweight glue logic. | `input`, `context` → `text`, `result`, `metadata` | `code`, `timeout_seconds` | Provide Python code |
 | **Note** | `note` | Canvas-only annotation for workflow authors — never executes at runtime. | — → — | `text` | — |
 
+### What each component needs
+
+Most components work on a base install. These need something more. `GET /workflow-components`
+resolves each requirement against the running configuration (`component_requirements` in
+`workflows/component_catalog.py`) and the palette badges every one that is unmet or
+unknown. "Configured" means the setting is present, not that the service answers;
+`/readiness` is what probes reachability.
+
+| Component | Needs | Resolved as met when |
+| --- | --- | --- |
+| **Agent** | A real LLM provider; the default fake provider only echoes a canned reply | `CALIBER_LLM_PROVIDER` is not `fake` or `deterministic` |
+| **Input Bucket**, **Output Bucket**, **Knowledge Query**, **Knowledge Build** | A remote object store (MinIO or S3) | workflow storage is remote: the backend is `s3`, `gs`, `az`, or `azure`, or its base URI has such a scheme (`workflow_storage_is_remote` in `observability/readiness.py`) |
+| **MCP Resource** | A registered MCP server that CALIBER can reach | Never resolved: an MCP server is registered data, so the palette shows the requirement without claiming it is unmet |
+| **External App** | `CALIBER_EXTERNAL_APP_ENTRYPOINT_ALLOWLIST` naming the entrypoint; until it is set every entrypoint is refused | the allowlist is non-empty |
+| **Human Approval**, **Wait Until**, **Wait For Event** | `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED=true` with checkpointing, so a run can pause and resume | the run queue and `CALIBER_WORKFLOW_RUN_CHECKPOINTING_ENABLED` are both on |
+
+Every other node type declares an empty requirement list. The docker stack turns on the run
+queue, checkpointing, and runtime approvals; a plain install leaves all three off.
+
 ## How a component executes
 
 When you compile a workflow, each component becomes a typed IR node, and the
@@ -315,9 +341,14 @@ map. A few behaviours are worth understanding when you build with components:
 
 - **Side-effecting components** — Tool, MCP Resource, Webhook, API Request,
   Review Queue Enqueue, and Python Code call external/durable services or run
-  sandboxed code. In
-  tests and previews these run through injectable executors (a fake tool
-  resolver, a fake HTTP sender), so a preview never has to hit the network.
+  sandboxed code. In tests these run through injectable executors (a fake tool
+  resolver, a fake HTTP sender). Ordinary **preview** cannot isolate every
+  capability, so it refuses, before any node runs, a graph that contains File Input
+  with a legacy host path (a content-pinned managed file is allowed), Input Folder,
+  Input Bucket, Output Bucket, Output Folder, MCP Resource, Python Code, External App,
+  Webhook, or API Request. In a preview, registered tools that write or take external
+  actions are mocked, and read tools are mocked unless they opt in with
+  `allow_in_preview`; use a queued run for those nodes.
 - **Checkpoints** — Wait Until and Wait For Event create resumable checkpoints;
   the run pauses and resumes when the time/event arrives.
 - **Human-in-the-loop** — Human Approval pauses the run and surfaces a runtime
@@ -353,7 +384,9 @@ runtime class to register. The end-to-end surface is:
   executable target where applicable.
 - **Component catalog** (`workflows/component_catalog.py`) — the label,
   category, description, docs, setup checks, starter node, and field
-  descriptions that drive this page and the palette. Fields are introspected
+  descriptions that drive this page and the palette. Every node type must also have an
+  entry in `_COMPONENT_REQUIRES` (empty when it needs nothing beyond the base install);
+  `tests/test_workflow_component_requirements.py` fails until it does. Fields are introspected
   from the manifest model automatically.
 - **Front end** — the node type union, a Lucide icon, palette/guidance/color/
   subtitle entries, the default-node factory, and an Inspector section for the

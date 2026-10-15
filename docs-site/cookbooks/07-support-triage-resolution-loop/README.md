@@ -23,6 +23,11 @@ it composes SCN-01/02/03/05/06. Key points:
   (`issue_write`) → the **GitHub MCP** tool, kept `requires_approval:true`.
 - `GroundedSupportReply` (`custom_judge`) is a real LLM judge; the approval and
   citation `rule_checks` are enforced by the workflow gate + the prompt contract.
+- Approval has two rules besides the gate itself: the approver needs the
+  `caliber.approver` scope, and the account that started the run cannot approve it
+  (`403`) unless the server sets `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true`. Reject
+  needs the scope only. The approval and resume routes also need the run queue,
+  checkpointing and runtime approvals enabled.
 
 ## Prerequisites & seed
 
@@ -36,7 +41,7 @@ it composes SCN-01/02/03/05/06. Key points:
    with the system rule *"Use only supplied evidence; cite every external fact;
    never leak internal process."* KB: the support KB version (SCN-06). MCP:
    GitHub server with `issue_write` set `requires_approval:true`.
-2. **Build the workflow.** `Compose → Workflows → New`, template
+2. **Build the workflow.** `Workflows → New Workflow`, template
    **`hitl_review`** (ships the approval gate). Wire nodes from
    [`build.yaml`](build.yaml):
    `ticket_intake (agent: classify intent+severity, emit decision) →
@@ -50,15 +55,20 @@ it composes SCN-01/02/03/05/06. Key points:
 3. **Encode the four outcomes.** In the `router`, branch on the reply node's
    `decision`: `reply`/`clarify` finish at `output`; `escalate_support` opens an
    internal note; `escalate_bug` goes through `human_approval → issue_write`.
-4. **Run the ticket cases.** Open the editor `Run Monitor`; `run-execute` each
+4. **Run the ticket cases.** Open the editor `Run Monitor`; click **Run** on each
    ticket from test-data. For a refund/escalate_bug ticket, confirm status
-   `waiting_approval`; `run-approve` → `run-resume` → the GitHub issue is created
-   only after approval. For a how-to ticket, confirm a cited `reply` with no
-   approval.
+   `waiting_approval`; **Approve** → **Resume** → the GitHub issue is created
+   only after approval. Approve as a different account than the one that clicked
+   **Run**, holding the `caliber.approver` scope (admins hold it): the run
+   initiator gets a `403` unless the server sets
+   `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true` (single-operator installs). For a
+   how-to ticket, confirm a cited `reply` with no approval.
 5. **Verify the safety branches.** Show that with approval **rejected**
-   (`run-reject`), no external write occurs (run ends failed/blocked).
+   (**Reject**), no external write occurs (run ends failed/blocked).
 6. **Evaluate.** Turn the ticket outcomes into a Test Set; run **Evaluations**
-   with `Judge.GroundedSupportReply` + `contains_expected` (decision label).
+   with the `GroundedSupportReply` judge (scorer token `Judge.<judge_id>`; the
+   UI lists it by name under **Custom LLM judges**) + `contains_expected`
+   (decision label).
    Route low-scoring runs to a **Review Queue** and answer them.
 7. **Iterate.** Tighten the skill summary / prompt rules (per SCN-02 §4) before
    loosening anything; re-run until gates pass.

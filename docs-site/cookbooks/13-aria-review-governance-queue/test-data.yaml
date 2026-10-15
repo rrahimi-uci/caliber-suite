@@ -7,8 +7,8 @@ intents:
     expected_plan_steps: [review_queue.create, review_queue.add_items]   # both share the domain "review_queue"
   - id: A13-natural
     goal: "Stand up human grading of our agent's answers for safety, citations, and tone."
-    note: "Natural phrasing. Relies on an LLM planner to map 'human grading' -> review_queue. The default HeuristicPlanner needs the literal phrase 'review queue' (its domain needle) — use A13-canonical for the deterministic path. Either way the rich question schema is supplied as the create step's inputs (see interaction_answers)."
-# What you supply when Aria pauses (one interaction per mutate step):
+    note: "Natural phrasing. The default HeuristicPlanner needs the literal phrase 'review queue' (its domain needle) and plans nothing for 'human grading' — use A13-canonical for the deterministic path. Either way the rich question schema is entered as the create step's inputs (see interaction_answers)."
+# What you enter when Aria pauses on an "Aria needs information" form (the `inputs` of each step):
 interaction_answers:
   review_queue.create:
     name: agent-reply-review
@@ -42,11 +42,12 @@ interaction_answers:
         required: false
         target: feedback
   review_queue.add_items:
-    # Either enqueue real flagged traces, OR deny this interaction to skip it (queue-first, enqueue-later).
-    queue_id: "<the queue_id returned by review_queue.create>"
+    # Either enqueue real flagged traces, OR click Skip step to skip it (queue-first, enqueue-later).
+    # queue_id is linked from review_queue.create by the planner, so the form does not ask for it.
+    queue_id: "<linked automatically from the review_queue.create step>"
     trace_ids: ["<flagged-trace-id-1>", "<flagged-trace-id-2>"]
-    note: "If you have no trace ids yet, DENY this interaction — the step is marked skipped and the queue still exists. Enqueue later via Review Queues (POST /review-queues/{id}/items)."
+    note: "If you have no trace ids yet, click Skip step — the step is marked skipped and the queue still exists. Enqueue later via Review Queues (POST /review-queues/{id}/items)."
 done_when:
   - a review queue named agent-reply-review is active in Review Queues with the safety/severity/citation_ok/tone_ok/reviewer_notes question schema
   - the Aria plan shows review_queue.create completed
-  - review_queue.add_items is completed (if trace_ids supplied) or skipped (if denied) — both are acceptable
+  - review_queue.add_items is completed (if trace_ids supplied) or skipped (if skipped/denied) — both are acceptable

@@ -11,14 +11,15 @@ literal needles in the sentence.
 
 Note: "review queue" matches BOTH `review_queue.create` and
 `review_queue.add_items` (they share the domain), so the planner proposes both.
-There are no traces yet, so **deny** the `add_items` interaction to skip it.
+There are no traces yet, so click **Skip step** on the `add_items` form.
 
-Autonomy: **ask_each** (pauses on every mutate step so you confirm each input).
+Autonomy: **Stop before each change** (`ask_each`: an **Approve** / **Deny** prompt before every mutate step, after the input forms).
 
-## Natural-language variant (needs an LLM planner)
+## Natural-language variant (not understood by the default planner)
 
 > Get our new support answers governed end to end: score them for faithfulness, keep a held-out test set, and let a human spot-check the tricky ones.
 
-This reads better but relies on an LLM planner to map "score for faithfulness" →
-judge, "test set" → eval_dataset, and "human spot-check" → review_queue. With
-the default heuristic planner, use the canonical wording.
+This reads better, but the default heuristic planner only recognises "test set"
+(→ eval_dataset); "score for faithfulness" has no judge needle and "human
+spot-check" no review-queue needle, so it plans only the test-set step. Use the
+canonical wording.

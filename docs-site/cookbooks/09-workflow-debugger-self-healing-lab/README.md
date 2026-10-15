@@ -13,13 +13,18 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
 - ✅ The recovery surfaces are real: **Run Monitor**, **checkpoint panel**,
   **recovery panel**, **debugger panel** (step trace), **retry lineage**
   ("Attempt N of M"), and `run-retry` / `run-resume` / `resume-by-event`.
-- ⚠️ **Patching is manual**: edit the manifest in the editor and **save a new
-  version**. There is **no** `propose_workflow_patch` tool and the semantic
-  patch API is not wired to the UI (FEASIBILITY §1, Workflows).
+- ⚠️ **Patching is manual here**: edit the manifest in the editor and **save a
+  new version**. No Run Monitor control turns a failed run into a patch. A
+  semantic patch engine does exist (`POST /workflow-versions/{id}/propose-patch`,
+  the workflow's **CALIBER Patches** tab, workflow **Calibrate**, and a
+  `propose_workflow_patch` tool in Aria's chat assistant that only proposes a
+  patch for an assistant workflow draft), but no page in the UI calls the
+  propose-patch route and none of it is an Aria Plans capability (FEASIBILITY §1,
+  Workflows).
 - ⚠️ **Aria/Aria Plans cannot debug a workflow** as a first-class capability —
-  its registry covers ops like judge/review-queue/skill creation. Use Aria (if
-  at all) only to *narrate* the diagnosis; do the actual recovery in the Run
-  Monitor.
+  its registry covers ops like judge/test-set/review-queue creation, trace
+  enqueueing and workflow calibration. Use Aria (if at all) only to *narrate* the
+  diagnosis; do the actual recovery in the Run Monitor.
 - 🟢 Reliable reproducible failure for the demo: the **`hitl_review`** template
   driven through **reject → retry → approve → resume** (this is exactly the
   recovery loop covered by the e2e suite).

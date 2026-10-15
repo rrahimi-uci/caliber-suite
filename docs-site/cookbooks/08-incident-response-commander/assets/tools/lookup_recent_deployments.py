@@ -2,7 +2,7 @@
 
 This is NOT a registered tool / shipped callable. There is no
 `lookup_recent_deployments` in any Caliber module, so paste this file's body
-into a workflow **Python Code** node (``Compose → Workflows`` → drag a *Python
+into a workflow **Python Code** node (``Workflows`` → drag a *Python
 Code* node). It returns a small **synthetic deployment fixture** for the given
 service/environment so the incident workflow has evidence to reason over. It
 versions with the workflow and uses **stdlib only**.

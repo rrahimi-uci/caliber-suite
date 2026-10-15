@@ -17,8 +17,9 @@ the product does not represent an unavailable dependency as ready. The generated
 > recipe conventions every `README.md` depends on. Read it before building.
 >
 > **Aria track (12–15):** [`ARIA-AUTONOMY.md`](ARIA-AUTONOMY.md) covers the
-> scenarios where you give **Aria** a one-line intent and it plans + builds the
-> artifacts itself (bounded by Aria's real capability registry).
+> scenarios where you give **Aria** a one-line intent and it plans + creates the
+> artifacts, with you filling each step's inputs in the plan's form and approving
+> each change (bounded by Aria's real capability registry).
 >
 > **Review:** [`CRITIQUE-REPORT.md`](CRITIQUE-REPORT.md) is the implementability
 > critique — every scenario checked against the shipped code, the defects found
@@ -26,7 +27,7 @@ the product does not represent an unavailable dependency as ready. The generated
 
 ## Folder contract
 
-Every `cookbooks/<scenario>/` folder contains:
+Every `cookbooks/<scenario>/` folder for scenarios 01–15 contains:
 
 - `scenario.yaml`: goal, persona, prerequisites, demo profile
 - `README.md`: **executable recipe** — exact UI navigation + field values + API
@@ -36,6 +37,10 @@ Every `cookbooks/<scenario>/` folder contains:
 - `test-data.yaml`: golden, edge, negative inputs
 - `verification.yaml`: judges, rule checks, quality gates, monitoring (note:
   `monitoring.traces` lists are evidence labels, **not** literal span names)
+
+Scenario 16 (`16-observability-triage`) is README-only: it has a `README.md`
+(with its four quality gates), `training-steps.json`, and `assets/`, but no
+`scenario.yaml`, `build.yaml`, `test-data.yaml` or `verification.yaml`.
 
 ## Cookbook ladder
 
@@ -89,6 +94,10 @@ Every `cookbooks/<scenario>/` folder contains:
   node. Registered custom tools still require an importable callable.
 - **Prompt/skill Calibration is queued** (background job); **KB and tool/MCP
   calibration run inline**.
+- **The default LLM and evaluator are fake** (`llm_provider` / `eval_provider`
+  default to `fake`): **Evaluations** returns a 400 until a real model provider is
+  configured, and calibration jobs in a default install score candidates with
+  canned numbers. Recipes that score or calibrate say which provider they need.
 - `Test Sets` rows link to `/eval-datasets/:id`; the detail route is wired
   (`EvalDatasetDetail.tsx` — a full row editor: add/revise/retire examples and
   add-from-trace). The API (`POST …/examples`, `…/from-trace`) still works too.

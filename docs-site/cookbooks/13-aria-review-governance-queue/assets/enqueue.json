@@ -1,8 +1,8 @@
 {
-  "queue_id": "<the queue_id returned by the review_queue.create step>",
+  "queue_id": "<linked automatically from the review_queue.create step; not entered in the form>",
   "trace_ids": [
     "<flagged trace id 1 from Observability>",
     "<flagged trace id 2 from Observability>"
   ],
-  "notes": "Answer to the Aria review_queue.add_items interaction (same shape as POST /review-queues/{id}/items). OPTIONAL for this scenario: if you have no flagged traces yet, answer the interaction with {approved:false} to SKIP it — the queue from review_queue.create still exists and you can enqueue later. Aria does not discover traces; replace placeholders with real ids."
+  "notes": "Inputs for the Aria review_queue.add_items step (enter trace_ids in its form; same shape as POST /review-queues/{id}/items). OPTIONAL for this scenario: if you have no flagged traces yet, click Skip step (or answer the input interaction with {approved:false}) to SKIP it — the queue from review_queue.create still exists and you can enqueue later. Aria does not discover traces; replace placeholders with real ids."
 }

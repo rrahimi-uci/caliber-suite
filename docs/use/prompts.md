@@ -8,7 +8,7 @@ product_area: prompts
 stability: ga
 prerequisites:
   - A CALIBER deployment with prompt access
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - prompts
@@ -44,6 +44,12 @@ That distinction matters because CALIBER separates:
 - evidence generation
 - candidate generation
 - live release
+
+Inside a project, roles decide who can move a prompt. Creating a prompt or a version needs `editor` or `owner`
+(plus `caliber.operator`), and deleting a prompt also needs `editor` or `owner` plus `caliber.admin`. Making a
+version live (setting an alias) and rolling back need `editor` or `owner`, because both are the `release.apply`
+action. A member whose role is too weak gets 403 and a person outside the project gets 404. See
+[Auth and project scoping](../build/auth-and-project-scoping.md).
 
 ## 2. Common tasks
 

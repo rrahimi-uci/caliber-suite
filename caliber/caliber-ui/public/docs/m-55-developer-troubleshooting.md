@@ -16,6 +16,12 @@ auth, project scoping, CSRF, uploads, waiters, and workflow invocation.
 | Upload or file-backed workflow calls fail | workflow storage and media constraints |
 | Long-running operation never settles | use the documented waiter/polling path |
 | Workflow invocation fails after compile | runtime inputs, downstream tools, or approvals |
+| A write returns 403 with a project role in the message | the caller's project role; a `viewer` can read but not write, publish, run or calibrate |
+| A read or write returns 404 for an object you know exists | the caller is not a member of its project (a `caliber.admin` token is not an implicit member) |
+| 403 saying the token is bound to a project | a project-bound personal access token is naming a different project |
+| Every route fails with `no such table`, or `/readiness` is 503 on `schema` | the database was never migrated: run `caliber-migrate` |
+| Prompt create or Apply returns 503 naming `MLFLOW_TRACKING_URI` | MLflow is not running or the URL is wrong; nothing was changed |
+| `pip install caliber-sdk` finds nothing | the packages are not on PyPI yet; install from the release wheels with `pip install --find-links ./wheels caliber-sdk` |
 
 ## 1. Auth and scope issues are the most common root cause
 

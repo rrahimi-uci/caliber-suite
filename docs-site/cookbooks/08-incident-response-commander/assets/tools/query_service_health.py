@@ -2,7 +2,7 @@
 
 This is NOT a registered tool / shipped callable. There is no
 `query_service_health` in any Caliber module, so paste this file's body into a
-workflow **Python Code** node (``Compose → Workflows`` → drag a *Python Code*
+workflow **Python Code** node (``Workflows`` → drag a *Python Code*
 node). It returns a small **synthetic runtime-health fixture** for the given
 service/environment so the incident commander has live signals to reason over.
 It versions with the workflow and uses **stdlib only**.

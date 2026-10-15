@@ -2,11 +2,11 @@
 
 ## Demo objective
 
-Give Aria ONE sentence and watch it autonomously plan and stand up a whole
-governance scaffold — a faithfulness **judge**, an **eval dataset** to score
-against, AND a human **review queue** — in a single plan. You only confirm the
-parameters it asks for. This is the flagship "one sentence → whole governance
-setup" showcase.
+Give Aria ONE sentence and watch it plan and stand up a whole governance
+scaffold — a faithfulness **judge**, an **eval dataset** to score against, AND a
+human **review queue** — in a single plan. You enter the judge and queue fields
+when Aria asks and confirm each change. This is the flagship "one sentence →
+whole governance setup" showcase.
 
 ## Feasibility & substitutions
 
@@ -17,73 +17,86 @@ Read [`../ARIA-AUTONOMY.md`](../ARIA-AUTONOMY.md) and [`../FEASIBILITY.md`](../F
   registry.
 - ⚠️ The default **HeuristicPlanner** keys off **domain words** in the goal — the
   canonical intent therefore says "judge", "eval dataset", and "review queue"
-  literally. (Natural phrasing like "test set" / "spot-check" needs an LLM planner.)
+  literally. ("test set" is also recognised for the dataset step; "spot-check"
+  and "score for faithfulness" are not recognised — no LLM planner is wired.)
+- ✅ **Inputs are collected in the plan.** `judge.create` and `review_queue.create`
+  pause on **"Aria needs information"** forms (**Continue plan** / **Skip step**);
+  your answers are merged into the steps and validated before they run. See
+  [`../ARIA-AUTONOMY.md`](../ARIA-AUTONOMY.md) §Execution status.
+- ⚠️ The planner links `name` between steps, so the review queue takes the
+  **judge's name** and the test set takes the **queue's** — all three artifacts are
+  created as `AnswerFaithfulness`, and the queue and test-set steps do not ask for
+  a name. The queue form still asks for `questions` (and optional `description` /
+  `reviewers`); the test-set step asks for nothing. For differently named
+  artifacts, create them on **Review Queues** / **Test Sets** (specs in `assets/`).
 - ⚠️ Because `review_queue.create` and `review_queue.add_items` share the
   **"review queue"** domain, the planner proposes **both**. There are no traces
-  yet, so **deny** the `add_items` interaction to skip it (or supply `trace_ids`
-  if you already have traces). The kit is complete without it.
+  yet, so click **Skip step** on the `add_items` form (or supply `trace_ids` if
+  you already have traces). The kit is complete without it.
 - ⚠️ Aria creates the **empty** test set; example rows are added separately
   (not an Aria capability) — add them after, then run Evaluations.
-- ⚠️ **Execution gap (verified):** the shipped planner proposes the steps but
-  leaves their **inputs empty**, and the interaction answer (`{approved, choice,
-  value}`) can't inject them — so today you **create each artifact via its own
-  route** with the `assets/` specs, while Aria's plan is the orchestration
-  record. True hands-off execution needs an LLM planner (not wired). See
-  [`../ARIA-AUTONOMY.md`](../ARIA-AUTONOMY.md) §Execution status. `autonomy:
-  ask_each` pauses on every mutate step; `approve_plan` auto-runs them.
+- Autonomy **Stop before each change** (`ask_each`) adds an **Approve** / **Deny**
+  prompt before each mutate step; **Review the plan, then run** runs them straight
+  after the input forms.
 
 ## Prerequisites
 
-- A configured model provider; Aria Plans available (sidebar **Plans**).
+- A configured model provider for the judge to run in **Evaluations** (creating
+  the kit needs none). Aria Plans available (sidebar **Integrations and preview ›
+  Plans**, a Preview page) and the operator role.
 
 ## Recipe (UI-first, with API fallbacks)
 
-1. **State the intent.** Sidebar **Plans** → new goal. Paste the canonical
+1. **State the intent.** Sidebar **Plans** → **Goal**. Paste the canonical
    intent from [`assets/intent.md`](assets/intent.md):
    *"Stand up our governance starter kit: a judge for answer faithfulness, an
    eval dataset to score against, and a review queue for human checks."*
-   Set autonomy = **ask_each**.
+   Set **Autonomy** = **Stop before each change**, then click **Decompose goal**.
    - API: `POST /aria/plans {goal, autonomy:"ask_each"}` → returns a `draft` plan.
 2. **Review the plan.** Aria decomposes the intent into the create steps —
-   `judge.create`, `eval_dataset.create`, `review_queue.create` (plus a
-   `review_queue.add_items` step you'll deny). Confirm they appear (see
+   `judge.create`, `review_queue.create`, `eval_dataset.create` (plus a
+   `review_queue.add_items` step you'll skip). Confirm they appear (see
    [`assets/expected-plan.json`](assets/expected-plan.json)).
    - API: `GET /aria/plans/{plan_id}`.
-3. **Approve.** Approve the plan shape.
+3. **Approve.** Click **Approve plan**.
    - API: `POST /aria/plans/{plan_id}/approve`.
-4. **Execute the plan + create the three artifacts.** Approve→execute drives the
-   plan (approve each create step; **deny** `review_queue.add_items` — no traces
-   yet). Because the answer can't carry the payload, create each artifact via its
-   own route using the specs:
-   - Judge → `POST /judges` with
-     [`assets/judges/answer-faithfulness.judge.json`](assets/judges/answer-faithfulness.judge.json).
-   - Test set → `POST /eval-datasets` with
-     [`assets/datasets/release-candidates.dataset.json`](assets/datasets/release-candidates.dataset.json).
-   - Review queue → `POST /review-queues` with
-     [`assets/review-queues/governance-review.queue.json`](assets/review-queues/governance-review.queue.json).
+4. **Execute the plan + create the three artifacts.** Click **Execute**, then
+   work through the prompts in order:
+   - `judge.create` form → enter the fields from
+     [`assets/judges/answer-faithfulness.judge.json`](assets/judges/answer-faithfulness.judge.json)
+     → **Continue plan** → **Approve**.
+   - `review_queue.create` form → enter `questions` (and optionally `description`)
+     from
+     [`assets/review-queues/governance-review.queue.json`](assets/review-queues/governance-review.queue.json)
+     → **Continue plan** → **Approve**. (Its `name` is linked from the judge step.)
+   - `eval_dataset.create` → no form; **Approve**. (Its `name` is linked; reference
+     spec: [`assets/datasets/release-candidates.dataset.json`](assets/datasets/release-candidates.dataset.json).)
+   - `review_queue.add_items` form → **Skip step** (no traces yet).
    - API: `POST /aria/plans/{plan_id}/execute`; `GET …/interactions`;
-     `POST /aria/interactions/{id}/answer {approved:true}` (creates) /
-     `{approved:false}` (add_items). No `inputs` field — see the execution-gap note.
+     `POST /aria/interactions/{id}/answer {"inputs": {…}}` for each form, then
+     `{"approved": true}` for each permission prompt (`{"approved": false}` on the
+     input interaction skips `add_items`).
 5. **Verify.** Open **Judges** → `AnswerFaithfulness` is active; **Test Sets** →
-   `release-candidates-eval` exists; **Review Queues** → `governance-review`
-   exists with its four-question schema (faithful / citation_ok / tone / notes);
-   the plan shows the three create steps completed.
+   an empty `AnswerFaithfulness` test set exists; **Review Queues** →
+   `AnswerFaithfulness` exists with its four-question schema (faithful /
+   citation_ok / tone / notes); the plan shows the three create steps completed.
 6. **(Follow-up)** Add example rows to the dataset and run it from
-   **Evaluations** with `Judge.AnswerFaithfulness` (SCN-01 / SCN-10), then
-   enqueue the hard/low-confidence traces into `governance-review`
-   (Review Queues → Add items, or `POST /review-queues/{id}/items {trace_ids}`).
+   **Evaluations** with `Judge.AnswerFaithfulness` (SCN-01 / SCN-10; needs a real
+   model provider — the default evaluator and LLM are fake and **Evaluations**
+   returns a 400 without one), then enqueue the hard/low-confidence traces into
+   the queue (Review Queues → Add traces to review, or
+   `POST /review-queues/{id}/items {trace_ids}`).
 
 ## Demo evidence to capture
 
-- The plan id + its decomposed steps (three creates + the denied add_items).
-- The three accepted interaction answers (judge spec, dataset spec, review-queue
-  question schema) and the one denied (add_items).
+- The plan id + its decomposed steps (three creates + the skipped add_items).
+- The judge and queue inputs you entered and the three **Approve** answers.
 - The created judge id + dataset id + queue id, shown live in Judges / Test Sets
   / Review Queues.
 
 ## Done when / gate
 
 - The plan decomposed from the intent alone and the three create steps completed.
-- A real active judge `AnswerFaithfulness`, a real test set
-  `release-candidates-eval`, and a real review queue `governance-review` (with
-  its question schema) all exist — a whole governance kit from one sentence.
+- A real active judge `AnswerFaithfulness`, a real test set and a real review
+  queue (both named `AnswerFaithfulness`, taken from the judge step, with the
+  queue's question schema) all exist — a whole governance kit from one sentence.

@@ -33,5 +33,5 @@
       "target": "expectation"
     }
   ],
-  "notes": "Answer to the Aria review_queue.create interaction (same shape as POST /review-queues). 'target: expectation' writes the reviewer's answer back onto the trace as ground truth; 'target: feedback' logs it as an assessment."
+  "notes": "Inputs for the Aria review_queue.create step (enter name, description and questions in its form; same shape as POST /review-queues). 'target: expectation' writes the reviewer's answer back onto the trace as ground truth; 'target: feedback' logs it as an assessment."
 }

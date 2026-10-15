@@ -69,7 +69,7 @@ assigns each responsibility to its owner.
 | Runtime routing configuration | `routes/settings.py` + `CaliberConfig.llm_base_url` | Determines whether CALIBER's own LLM calls go through the gateway or directly to providers. |
 | Discovery configuration | `CaliberConfig.gateway_uri` | Tells CALIBER where to probe for the external AI Gateway, but does not route traffic by itself. |
 | Operator service probes | `routes/system_services.py` | Shows AI Gateway health alongside MLflow, DB, object store, NATS, and related backing services. |
-| Runtime honesty surface | `routes/health.py` | Two endpoints sit adjacent to gateway operations: `GET /health` probes the database (`SELECT 1`) and returns HTTP 503 with `db: "down"` when it is unreachable, while `GET /readiness` reports real-vs-simulated provider state **and** probes the dependencies the configuration needs (database, MLflow tracking, object storage, event broker, workflow queue/worker liveness), returning 503 when a required one is not ready. |
+| Runtime honesty surface | `routes/health.py` | Two endpoints sit adjacent to gateway operations: `GET /health` probes the database (`SELECT 1`) and returns HTTP 503 with `db: "down"` when it is unreachable, while `GET /readiness` reports real-vs-simulated provider state (the `llm`, `eval`, `promoter`, and `artifact_store` selectors; simulated providers are reported but never fail readiness) **and** probes the dependencies the configuration needs (database, schema migration state, MLflow tracking, object storage, event broker, workflow queue/worker liveness), returning 503 when a required one is not ready. The AI Gateway is not one of the readiness checks; it appears only in `GET /system/services`. |
 | Frontend gateway UX | `Gateway.tsx` + `components/gateway/*` | Tabbed LLM Gateway page: **Endpoints** (status cards + endpoint table + routing), **Guardrails** (catalog-backed define/delete plus per-endpoint attach/detach/order/enablement), **Pricing** (editable per-model rate table), **Usage** (recharts time-series + by-model table). |
 
 Two MLflow servers are involved and must not be conflated: **endpoint discovery**
@@ -165,7 +165,8 @@ A few runtime semantics determine how those fields are populated, and they
 encode the discovery-versus-routing distinction directly:
 
 - `configured=false` means `CALIBER_GATEWAY_URI` is empty, so CALIBER has
-  nothing to probe.
+  nothing to probe. The code default is empty; the bundled Compose stack sets it to
+  `http://mlflow-gateway:5002`, so the Gateway page is configured there out of the box.
 - `reachable=false` means the gateway URI was configured but the live probe
   failed or returned an error.
 - `routing_through_gateway` is derived by comparing whether `llm_base_url`
@@ -218,7 +219,9 @@ On the frontend, these routes compose into four tabs:
   by-model rollup.
 
 The settings route separately reports and updates `gateway_url`, which maps to `llm_base_url`
-and controls CALIBER's own outbound routing behavior.
+and controls CALIBER's own outbound routing behavior. The same `PATCH` can also set the OpenAI
+and Anthropic keys in the server process environment; reads return only key presence and a
+masked fingerprint, never the key.
 
 ## 6. Execution lifecycle
 
@@ -277,7 +280,7 @@ The authorization model is as follows:
 - `GET /gateway`, `GET /gateway/guardrails`, `GET /gateway/guardrails/catalog`, and `GET /gateway/usage` require an authenticated user.
 - Guardrail definition/deletion and endpoint attach/detach/update routes require `SCOPE_OPERATOR` and are audited.
 - `GET /settings/llm` requires `SCOPE_OPERATOR`.
-- `PATCH /settings/llm` requires `SCOPE_ADMIN`.
+- `PATCH /settings/llm` requires `SCOPE_ADMIN` and is audited (`settings.update_llm`); the audit record carries changed field names, masked key fingerprints, and only the scheme and host of a gateway URL.
 - Pricing reads (`GET /llm-pricing`) require an authenticated user; create requires `SCOPE_OPERATOR` and update requires `SCOPE_ADMIN` (both audited).
 
 A small set of data-handling protections keeps discovery safe and predictable:
@@ -333,7 +336,9 @@ of operational states:
 - With a gateway reachable but holding no endpoints, the route is healthy, yet
   the external gateway has no configured endpoint inventory.
 - With a gateway reachable while CALIBER routes directly to providers, discovery
-  works, but runtime traffic is not yet opted into the gateway.
+  works, but runtime traffic is not yet opted into the gateway. Routing only matters
+  for a real provider: `CALIBER_LLM_PROVIDER` defaults to `fake`, a deterministic stub
+  that makes no model call, and `/readiness` lists it under `simulated`.
 
 ### 8.1 Partially configured gateways are still served
 
@@ -360,9 +365,12 @@ Two properties follow, and both matter when reading the Gateway page:
 - A missing provider key narrows the discovered endpoint inventory. It does not
   make the gateway unreachable. An inventory smaller than `gateway.yaml`
   suggests an unset key, not a connectivity fault.
-- An empty result still fails loudly. With no endpoint left to serve the
-  container exits non-zero and names the keys it looked for, so a wholly
-  unconfigured gateway is a startup error rather than a silent no-op.
+- An empty result still fails loudly. With no endpoint left to serve (neither
+  `OPENAI_API_KEY` nor `ANTHROPIC_API_KEY` set), the container exits non-zero and
+  names the keys it looked for, so a wholly unconfigured gateway is a startup error
+  rather than a silent no-op. The Compose service uses `restart: unless-stopped`, so
+  with no provider key the `mlflow-gateway` container keeps restarting and the Gateway
+  page reports it unreachable until a key is set in the suite-root `.env`.
 
 `MLFLOW_GATEWAY_SKIP_RENDER=1` bypasses the render step and restores the
 gateway's own strict all-or-nothing validation. This behavior belongs to the

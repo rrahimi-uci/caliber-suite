@@ -80,8 +80,8 @@ matters at 3am.
 
 | Surface | Proves | Does **not** prove |
 | --- | --- | --- |
-| `GET /caliber/health` | The API process answers and its database is reachable | That any work is being done |
-| `GET /caliber/readiness` | Which providers are **configured** | That any of them work |
+| `GET /caliber/health` | The API process answers and its database is reachable (503 with `db: down` otherwise) | That the schema is migrated, or that any work is being done |
+| `GET /caliber/readiness` | The database answers and is migrated to this release's schema; MLflow, the remote object store, an external event broker and the workflow queue and worker heartbeat answer when your configuration needs them. Returns 503 when a required one fails. Also lists which providers are **configured** and which are simulated | That a provider (LLM, evaluator) works, or that any work is being done |
 | `GET /caliber/system/queue` | Workflow-run queue depth, worker liveness, stale leases | Anything about knowledge-base builds or Aria plans — separate workers, not aggregated |
 | `GET /caliber/system/services` | Per-service visibility | End-to-end request success |
 | `GET /caliber/system/alerts` | SLO objective evaluation | That an objective was well chosen |
@@ -196,7 +196,14 @@ effect ledger's suppression budget.
 `POST /caliber/workflow-runs/{run_id}/cancel` then `…/retry`; inspect
 `…/checkpoints` first to see what a resume would replay.
 
-**Verify.** `queued` falls, `workers_alive` is non-zero, `stale_leases` is zero.
+A worker that exits uncleanly (killed, out of memory, host asleep) leaves its row in
+`caliber_worker_heartbeats`, and nothing prunes it. Every stale row adds the `stopped reporting`
+reason, so `/caliber/readiness` stays 503 on `workflow_queue` even while a live worker is
+serving. Once you have confirmed that worker is gone, delete its row by hand; a clean stop
+removes its own row.
+
+**Verify.** `queued` falls, `workers_alive` is non-zero, `stale_leases` is zero, and no
+`stopped reporting` reason remains.
 
 > `workers_alive` counts workers that registered **or** hold a fresh claim — the union,
 > not a choice. During an upgrade an old worker may hold a claim without registering,
@@ -334,7 +341,7 @@ what an on-call response can achieve.
 | **In-memory limiters are per process** | The failed-login throttle and API rate limiter are per-process token buckets. Effective ceilings scale with the worker count — size them for it |
 | **Local tool and MCP execution is containment, not isolation** | The shipped runner keeps ambient host authority. Untrusted authors need an operator-supplied backend, not a configuration flag |
 | **One environment** | No staging rehearsal. Drills run against production or against a throwaway deployment |
-| **Apply is an operator confirmation** | It is a real human decision point after an automated gate. It is **not** separation of duties: nothing requires the applier to differ from the author |
+| **Apply is an operator confirmation** | It needs the `caliber.operator` scope and, in the job's project, the `owner` or `editor` role. It is a real human decision point after an automated gate. It is **not** separation of duties: nothing requires the applier to differ from the author |
 | **The advancement gate is not a system-wide interlock** | It is enforced inside the refinement state machine. The direct operator promotion endpoint can carry an advisory verdict and an attributed override without entering it |
 
 ## Drills

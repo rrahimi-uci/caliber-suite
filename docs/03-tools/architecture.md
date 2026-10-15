@@ -8,7 +8,7 @@ product_area: tools
 stability: ga
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - tools
@@ -27,7 +27,7 @@ tags:
 | **Where state lives** | `CaliberToolRegistry` (tool rows) and `CaliberToolTestRun` (durable test-run history). |
 | **Key surfaces** | HTTP routes in `routes/tools.py` under `/ajax-api/2.0/mlflow/caliber`; UI via `ToolRegistry.tsx`, `ToolWizard.tsx`, and `ToolDetail.tsx`. |
 | **Runtime model** | Metadata-driven resolution first, import-driven binding second; the compiler reasons about tools without loading their code. |
-| **Trust / safety** | Operator-supplied source runs only through the sandbox or controlled workflow binding; `admin` scope for registration/archive, `operator` for baselines/calibration. |
+| **Trust / safety** | Operator-supplied source runs only through the sandbox or controlled workflow binding; `admin` scope for registration/update/archive, `operator` for test runs, fixtures, baselines and calibration, plus a project role check on top for project-scoped tools. |
 | **Isolation** | `LocalSubprocessToolSandbox` runs code under `python -I` in a temporary directory with an empty environment, clipped output, and a hard timeout. |
 | **Calibration** | Tools are tested and calibrated against saved fixtures in isolation; lifecycle advances `Draft` → `Has fixtures` → `Tested` → `Hardened` → `Published`. |
 
@@ -127,7 +127,7 @@ protect tools that are still in use. The table summarizes their roles.
 
 | Table | Role |
 | --- | --- |
-| `CaliberToolRegistry` | Canonical tool registry row including version, callable location, schemas, safety metadata, fixtures, calibration summary, and pinned baseline. |
+| `CaliberToolRegistry` | Canonical tool registry row including version, callable location, execution backend, schemas, safety metadata, fixtures, calibration summary, and pinned baseline. |
 | `CaliberToolTestRun` | Durable test-run history for sandbox, suite, and hardening runs. |
 | `CaliberCalibrationJob` | Queued/running/finished calibration work with executable definition, cases, and monotonic revision snapshotted at submission. |
 | `CaliberWorkflowDeployment` and `CaliberWorkflowVersion` | Referenced during archive protection and usage analysis so in-use tool families cannot be removed unsafely. |
@@ -135,7 +135,9 @@ protect tools that are still in use. The table summarizes their roles.
 The `CaliberToolRegistry` row carries the fields that define a tool and govern how
 it may be run. The `name` and `version` fields establish stable family and version
 identity. The `module_path` and `callable_name` fields locate the Python import
-target. The `input_schema` and `output_schema` fields fix the typed invocation
+target, and `execution_backend` (`python_callable` by default, or `openapi_http`
+for a declarative HTTP tool configured through `backend_config`, which has no module to import
+and no Python source to reflect) says how the row runs. The `input_schema` and `output_schema` fields fix the typed invocation
 contract. The `side_effect_level`, `requires_approval`, and `allow_in_preview`
 fields capture runtime safety. The `secret_refs` field provides secret
 indirection rather than literal secrets. The `test_cases` field holds the saved
@@ -157,6 +159,16 @@ returns every version in the family, scoped by visibility so it never leaks
 another project's versions, and ordered newest-first with a version-aware sort
 (so `9` precedes `10` and `1.9` precedes `1.10`, not the lexical order a raw
 string column would give).
+
+`GET /tools` and `GET /tools/{tool_id}` additionally return three computed fields that
+are not stored on the row: `builtin`, `availability`, and `availability_reason`. A
+built-in is a tool CALIBER seeded itself, recognised only when the name, the owner
+(`@caliber`) and the module (`caliber.workflows.demo_tools`, `ingestion_tools` or
+`memory_tools`) all match, so a registered tool cannot pass itself off as one. The four
+agent-memory tools (`memory_search`, `memory_list`, `list_entities`, `memory_add`) are
+seeded as `active` regardless, but report `availability: "unavailable"` with a reason
+while `CALIBER_MEMORY_ENABLED` is off, because they only return an error in that state.
+The Tools page shows these as Built-in and Unavailable badges.
 
 ## 5. API and interaction surfaces
 
@@ -294,8 +306,13 @@ containment for process-tree guarantees.
 Controls in this module are explicit because tools are the main code-execution
 surface in the product, and they are layered across scopes, secrets, preview
 policy, archival, and isolation. The enforced controls are the following.
-Registration and archive actions require `admin` scope. Workspace baseline changes
-and calibration require `operator` scope. Secret material is never stored on the
+Registration, update and archive actions require `admin` scope. Test runs, fixture
+saves, workspace baseline changes and calibration (inline and durable, including
+resolving a job) require `operator` scope. For a tool that belongs to a project, a
+project role check applies on top of the scope: running, calibrating, or replacing
+fixtures needs a role that may execute or write the tool, recording a test run or
+baseline needs an evidence-writing role, and a member whose role is too weak receives
+`403` while a non-member still receives `404`. Secret material is never stored on the
 row, only `secret_refs`. Preview safety is encoded on the tool row and enforced in
 the runtime preview paths. Archive is blocked while any active workflow deployment
 still references the tool family, regardless of alias and not limited to `prod`.
@@ -322,6 +339,7 @@ tool for its signature no longer executes it here either.
 | Which modules may be registered at all | `CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST` | unrestricted, and reported by `/readiness` as an unset control rather than passing silently |
 | Sandbox implementation | `CALIBER_TOOL_SANDBOX_BACKEND` | the built-in subprocess sandbox |
 | Registered-module budget | `CALIBER_REGISTERED_TOOL_SANDBOX_TIMEOUT_SECONDS` | 30s |
+| Production promotion gate | `CALIBER_TOOL_SANDBOX_REQUIRE_EXTERNAL_ISOLATION_FOR_ENVIRONMENT_CLASSES` | `production`: a production-class alias refuses a workflow version that uses registered tools unless `CALIBER_TOOL_SANDBOX_BACKEND` is set; empty disables the gate |
 
 The allowlist is enforced on both binder paths. Routing execution into a subprocess
 narrows *where* a module runs; it does not change *which* modules an operator

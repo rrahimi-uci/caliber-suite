@@ -29,7 +29,7 @@ been stated.
 | **Human alignment** | `POST /judges/{id}/alignment` reports agreement rate and Cohen's kappa against operator labels. |
 | **Where state lives** | Durable `CaliberEvalRun` (`caliber_eval_runs`, migration 0049) plus ephemeral `ScoreSet` / `EvalComparison` types crossing the `EvalProvider` boundary. |
 | **Key surfaces** | `GET`/`POST /evaluations` scorecard routes and the internal gate via `orchestrator/eval_stage.py`. |
-| **Fail behavior** | Fails closed: no real LLM provider returns `400` and never fabricates scores; per-row errors isolate rather than abort. |
+| **Fail behavior** | Fails closed: no real LLM provider returns `400` and never fabricates scores on the scorecard; per-row errors isolate rather than abort. The refinement gate's default `fake` evaluator does return canned numbers, so everything it stamps is marked `simulated: true` and shown as not evidence. |
 
 The sections below start from this picture and drill down into the scope, boundaries, data model, lifecycle, and scoring details.
 
@@ -73,6 +73,9 @@ These responsibilities are realized across a small set of primary code paths:
 - `caliber/src/caliber/eval/gate.py`
 - `caliber/src/caliber/eval/scorecard.py`
 - `caliber/src/caliber/eval/predict.py`
+- `caliber/src/caliber/eval/evidence.py`
+- `caliber/src/caliber/eval/judge_scorer.py`
+- `caliber/src/caliber/eval/alignment.py`
 - `caliber/src/caliber/routes/evaluations.py`
 - `caliber/src/caliber/routes/judges.py`
 - `caliber/src/caliber/orchestrator/eval_stage.py`
@@ -91,11 +94,12 @@ below assigns ownership across both.
 | --- | --- | --- |
 | Provider contract | `EvalProvider` protocol (`eval/provider.py`) | A single `evaluate(EvalRequest) -> EvalComparison`; failures are wrapped in `EvalProviderError` rather than leaking the backend exception. |
 | MLflow scoring | `MLflowEvalProvider` (`eval/mlflow_runner.py`) | Runs `mlflow.genai.evaluate` per pass (candidate, baseline) and aggregates `result.metrics` into a `ScoreSet`. |
-| Deterministic test double | `FakeEvalProvider` (`eval/fake.py`) | The default provider; returns fixed scores for tests and honors cold-start when no baseline content is supplied. |
+| Deterministic test double | `FakeEvalProvider` (`eval/fake.py`) | The default provider (`CALIBER_EVAL_PROVIDER=fake`); returns constant canned scores (0.94 candidate, 0.88 baseline), honors cold-start when no baseline content is supplied, and is marked `is_simulated`. It reports the pinned dataset's real example count (zero when the dataset is missing or empty) and echoes the requested scorer names as dimensions. |
 | Refinement advancement gate | `apply_gate` (`eval/gate.py`) | A pure function turning an `EvalComparison` plus thresholds into a `GateDecision`; `eval_stage.py` maps a pass to `candidate_ready` and performs no release. |
 | Scorecard run | `run_scorecard` (`eval/scorecard.py`) | Per-example prediction and scoring with per-row error isolation; the basis of the Evaluations surface. |
 | Real-LLM prediction | `build_completion_fn` (`eval/predict.py`) | Builds the completion function from configuration; returns `None` for fake/unset providers so callers fail closed. |
-| Scorecard persistence | `CaliberEvalRun` (`db/models.py`, migration 0049) | Stores run config, recomputed summaries, and the heavy per-example `results` array. |
+| Scorecard persistence | `CaliberEvalRun` (`db/models.py`, migration 0049) | Stores run config, recomputed summaries, the heavy per-example `results` array, and an immutable `evidence` bundle built by `eval/evidence.py`. |
+| Provider provenance | `describe_provider` (`eval/provider.py`) | Returns `{"provider", "simulated"}` for the evaluator; stored on every gate result so a canned score cannot be mistaken for a measurement. |
 
 ## 3. Runtime architecture
 
@@ -156,7 +160,7 @@ boundary, and the durable scorecard run.
 | Score set | `ScoreSet` (`eval/provider.py`) | `overall: float` plus a `dimensions` map; `overall` is what the gate compares to the score floor. |
 | Comparison | `EvalComparison` (`eval/provider.py`) | Candidate and optional baseline `ScoreSet`s, the per-dimension `deltas`, the dataset id, and the example count. |
 | Request | `EvalRequest` (`eval/provider.py`) | Carries candidate/baseline content, the pinned dataset id and version, and the scorer names, configs, and weights. |
-| Scorecard run | `CaliberEvalRun` (`caliber_eval_runs`) | Run config (`label`, `predict_target`, `model`, `scorers`, `pass_threshold`), server-recomputed summaries, the full per-example `results`, and `status`/`error_message`. |
+| Scorecard run | `CaliberEvalRun` (`caliber_eval_runs`) | Run config (`label`, `predict_target`, `subject_ref`, `model`, `scorers`, `pass_threshold`), project scoping (`project_id`, `visibility`), server-recomputed summaries, the full per-example `results`, the `evidence` bundle, and `status`/`error_message`. |
 
 The provider applies scorer weights with `apply_scorer_weights`, which recomputes
 `overall` as a weighted mean over the named dimensions and rounds to four decimal
@@ -164,8 +168,17 @@ places, leaving the score unchanged when the weights sum to zero. The scorecard
 run is deliberately summary-rich: `n_examples`, `passed_count`, `failed_count`,
 `overall_score`, `pass_rate`, and a per-scorer `aggregate` map are recomputed
 server-side so list views never have to parse the heavy `results` array.
-Migration 0049 creates `caliber_eval_runs` with these columns and the
-`(dataset_id, created_at)` and `created_at` indexes.
+Migration 0049 creates `caliber_eval_runs` with the core columns and the
+`(dataset_id, created_at)` and `created_at` indexes; later migrations add
+`subject_ref` (0059), the `evidence` column (0064), project scoping indexes
+(0095), and `runtime_lineage_id` (0105).
+
+The `evidence` bundle is written once with the run (`EVIDENCE_SCHEMA_VERSION = 1`).
+It records a dataset digest over the graded inputs and a content digest over the
+scored rows, the sampling decision (examples available before truncation, scored,
+the cap, and the load order `created_at asc, example_id asc`), per-scorer
+denominators (valid rows and weight sum), per-tag slices, and the resolved identity
+of the subject, judges, model, and provider that produced the predictions.
 
 ## 5. API and interaction surfaces
 
@@ -177,17 +190,23 @@ The scorecard surface exposes three routes, all mounted under the standard prefi
 - `POST /evaluations` — creates and runs an evaluation synchronously.
 
 Creation accepts an `EvalRunCreateRequest` (`dataset_id`, optional
-`dataset_version`, `label`, `scorers`, `pass_threshold` defaulting to `0.5`, and an
-optional `max_examples`). The request is version-aware: an explicit
-`dataset_version` selects the historical example set, while its absence uses the
-current active set. The route requires a real LLM provider and returns `400` when
-none is configured, so the Evaluations surface can never display fabricated scores.
+`dataset_version`, `label`, `scorers`, `pass_threshold` defaulting to `0.5`, an
+optional `max_examples` of 1 to 500, `predict_target` defaulting to `llm`, and
+`subject_ref` for non-`llm` targets; optional `workspace_release_id`,
+`environment_id`, and `config_sha256` bind the run to a workspace release). The
+request is version-aware: an explicit `dataset_version` selects the historical
+example set, while its absence uses the current active set; a version beyond the
+dataset's current version is rejected with `400`, as is a dataset with no examples.
+The route requires a real LLM provider and returns `400` when none is configured,
+so the Evaluations surface can never display fabricated scores. List routes
+default to 100 rows and cap at 500.
 
 The refinement gate has no public route of its own; it is invoked internally by the
 calibration pipeline through `orchestrator/eval_stage.py`, which builds an
 `EvalRequest`, calls the provider, and applies the gate. A passing decision sets
 the refinement job to terminal `candidate_ready`; only a later operator-scoped
-Apply action can release the candidate.
+Apply action (which also needs the `release.apply` project role) can release the
+candidate.
 
 ## 6. Execution lifecycle
 
@@ -219,6 +238,7 @@ The lifecycle is governed by a few firm rules:
 
 - Runs are capped: the example count is limited to `max_examples` or a default of
   `50`, because each example costs one LLM call and the run blocks the request.
+  The `workflow` target is capped tighter at 20 examples.
 - Failures are isolated per row: a prediction that raises degrades that single row
   to an error with a zero score rather than aborting the run; only when every row
   errors is the run marked `failed`.
@@ -240,7 +260,13 @@ explicitly avoids confusing a deterministic heuristic with an LLM judgment.
   `token_f1` (SQuAD-style token-overlap F1), `contains_expected`, and `non_empty`.
   The default set is `exact_match`, `token_f1`, and `contains_expected`.
 - **The workflow LLM judge**, used by workflow calibration, which scores a single
-  quality dimension and degrades to a structural scorer when unavailable.
+  quality dimension and degrades to a structural scorer when unavailable. It is off
+  by default (`workflow_llm_judge_enabled=False`) and needs a real LLM provider with
+  a key. A workflow evaluation stamps `provider`, `simulated`, and `scorer`
+  (`structural` or `llm_judge`) on its results; `simulated` is true when the LLM
+  provider is `fake` or `deterministic`, because the executor then replays canned
+  outputs. A structural score checks that the run completed and used its tools, not
+  that the output was good.
 
 The `DeepEval.*` family is capability-gated: when the `deepeval` package is not
 importable, those scorers are marked unavailable with an install hint and excluded
@@ -262,8 +288,8 @@ This verdict is also surfaced **advisorily** per artifact version. A single row
 per `(artifact_type, version_key)` lives in `caliber_gate_verdicts` (migration
 `0062`) and is read and upserted through `GET`/`POST /gate-verdicts/{artifact_type}/{version_key}`
 (`gate_verdicts.py`); the prompt promote path stamps it from the supplied gate
-fields so the version surface shows `pass`/`fail`/`none` independently of any
-later promotion. The verdict is strictly advisory — it never blocks an alias
+fields so the version surface shows the stored state (`pass`, `fail`, `none`,
+`pending`, or `stale`) independently of any later promotion. The verdict is strictly advisory — it never blocks an alias
 rotation — and `state` is authoritative over both gate rules, with the numeric
 columns kept only as display detail.
 
@@ -273,19 +299,33 @@ configured retry/reject path. Alias rotation or another asset-specific release
 can happen only in the separate Apply path.
 
 The trust boundary is that scores must be earned: creating a scorecard run requires
-the `operator` scope, evaluation requires a real configured LLM provider, and
-version pinning makes a run reproducible against the exact example set it scored.
+the `operator` scope and the `resource.execute` project role on the dataset's project,
+evaluation requires a real configured LLM provider, and version pinning makes a run
+reproducible against the exact example set it scored.
 
 ## 8. Observability and operations
 
 Evaluation is configured through a small set of keys and leaves durable evidence
 behind. The provider is selected by `eval_provider` (env `CALIBER_EVAL_PROVIDER`),
-which defaults to `fake`; production deployments set it to `mlflow`. A `fake` evaluator
-returns canned scores, so its results are stamped `provider` and `simulated: true` on the job,
-the regression run and the audit rows, and the UI badges them as not evidence. The
+which defaults to `fake` in code; the compose stack (`deploy/caliber/compose.yaml`)
+sets it to `mlflow`, as it does `CALIBER_PROMOTER_PROVIDER` and
+`CALIBER_ARTIFACT_STORE_PROVIDER` (the code default for both of those is `mlflow`).
+A `fake` evaluator returns canned scores, so its results are stamped `provider` and
+`simulated: true` on the job's `eval_results`, the regression run, and the
+`candidate_ready` and regression-replay audit rows, the approval snapshot copies
+them, and the UI badges them as "Simulated evaluation — not evidence". Startup
+refuses a real `llm_provider` combined with the `fake` evaluator, and a `fake`
+promoter or artifact store, unless `CALIBER_ALLOW_SIMULATED_PROVIDERS=true`; a `fake`
+LLM with a `fake` evaluator is the offline default and stays allowed. The
 prediction path is driven by `llm_provider`, `llm_diagnosis_model`, and
 `llm_api_key_env`, and the completion function returns `None` for unset or fake
 providers — the mechanism that makes the engine fail closed.
+
+When Apply releases a prompt version it also writes `caliber.*` provenance tags on
+that version and into the release operation's evidence: `job_id`,
+`eval_dataset_id`, `eval_dataset_version`, `eval_provider`, and `eval_simulated`,
+so a live version can be traced to the dataset it was scored on and whether that
+score was simulated.
 
 For inspection, the scorecard persists the full per-example `results` on each
 `CaliberEvalRun`, and the refinement gate's `EvalComparison` is stored on the
@@ -317,7 +357,7 @@ decision. Release remains a separate operator-scoped action.
 ## 10. Custom LLM judges
 
 Beyond the built-in scorer catalog, operators can author reusable **custom
-judges** backed by MLflow 3.14's `mlflow.genai.make_judge`. A judge is a named,
+judges** backed by MLflow's `mlflow.genai.make_judge` (the package requires `mlflow>=3.15.0,<4`). A judge is a named,
 natural-language rubric — instructions that reference the evaluation variables
 `{{ inputs }}`, `{{ outputs }}`, and `{{ expectations }}` — plus an optional model
 and a feedback value type (`bool` / `int` / `float` / `str`). They are managed on

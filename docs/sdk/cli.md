@@ -7,7 +7,7 @@ product_area: sdk
 stability: ga
 prerequisites:
   - A running CALIBER deployment
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - sdk
@@ -107,6 +107,11 @@ caliberctl token revoke PAT-9 --yes   # revokes
 ```
 
 ### Commands
+
+Global options go before the command: `--base-url` (default `$CALIBER_BASE_URL`),
+`--token` (default `$CALIBER_TOKEN`; prefer the variable, because an argument is
+visible in the process list), `--project` (default `$CALIBER_PROJECT`), `--json`,
+`--quiet` and `--version`.
 
 | Command | What it does |
 | --- | --- |

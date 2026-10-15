@@ -1,24 +1,25 @@
-workflow_goal: From one intent about weak workflow runs, have Aria autonomously create a review queue, enqueue the flagged traces, and kick off an asynchronous workflow calibration — parking until the job finishes and resuming on its own.
+workflow_goal: From one intent about weak workflow runs, have Aria plan and create a review queue, enqueue the flagged traces, and kick off an asynchronous workflow calibration — collecting the inputs through the plan's forms, parking until the job finishes and resuming on its own.
 # Verified against the Aria capability registry + plan executor — see ../FEASIBILITY.md and ../ARIA-AUTONOMY.md.
 feasibility:
-  - Aria's autonomous capability registry today = judge.create, review_queue.create, review_queue.add_items, eval_dataset.create, workflow.calibrate (+ judge.list/review_queue.list reads). It can NOT author prompts, skills, tools, or workflows. This scenario lives entirely inside that set and uses three of its mutate capabilities.
-  - DOMAIN NEEDLES - the default HeuristicPlanner proposes a step for each non-read capability whose domain word appears in the goal. The phrase "review queue" maps to BOTH review_queue.create AND review_queue.add_items; the word "workflow" maps to workflow.calibrate. The canonical intent therefore contains the literal needles "review queue" AND "workflow" (calibration). An LLM planner, if wired, maps natural phrasing.
-  - EXISTING-INPUT PREREQS - this is a REMEDIATION loop; it operates on things that already exist. review_queue.add_items needs real EXISTING trace_ids; workflow.calibrate needs an EXISTING workflow_id + agent_id. None of these are created by this plan - you supply them as the interaction answers. Build the subject workflow (with runs/traces) in SCN-07 first, then read the trace ids from Observability and the workflow_id + agent_id from that workflow.
-  - ASYNC PARKING + POLL - workflow.calibrate is Aria's first ASYNC capability. Its handler enqueues a real workflow-calibration job and returns an AsyncJobHandle, so the executor parks that step in waiting_job and leaves the plan RUNNING (work in flight) - it does NOT pause for a human. You then POST /aria/plans/{id}/poll to advance it; the MLflow resolver maps the refinement_job to done/failed (CaliberRefinementJob.status completed/failed). On done the step finishes and the plan resumes + completes; on failed the step + plan fail. Poll until terminal.
-  - EXECUTION GAP (verified) - the shipped HeuristicPlanner emits steps with EMPTY inputs and the interaction answer ({approved, choice, value}) CANNOT inject them, so each step is DRIVEN VIA ITS OWN ROUTE using the assets/ specs (POST /review-queues, POST /review-queues/{id}/items, the workflow-calibration route). The Aria answer only gates a step (approve/deny). Full hands-off autonomy needs an LLM planner to fill PlannedStep.inputs (not wired). autonomy ask_each pauses each mutate step before it runs; the async calibration still parks (waiting_job) and you poll.
+  - Aria's capability registry today = judge.create, review_queue.create, review_queue.add_items, eval_dataset.create, workflow.calibrate (+ the read capabilities judge.list, review_queue.list, openapi_tool.list, openapi_tool.invoke). It can NOT author prompts, skills, tools, or workflows. This scenario lives entirely inside that set and uses three of its mutate capabilities.
+  - DOMAIN NEEDLES - the default HeuristicPlanner proposes a step for each non-read capability whose domain word appears in the goal. The phrase "review queue" maps to BOTH review_queue.create AND review_queue.add_items; the word "workflow" maps to workflow.calibrate. The canonical intent therefore contains the literal needles "review queue" AND "workflow" (calibration). No LLM planner is wired, so natural phrasing without those words plans nothing.
+  - EXISTING-INPUT PREREQS - this is a REMEDIATION loop; it operates on things that already exist. review_queue.add_items needs real EXISTING trace_ids; workflow.calibrate needs an EXISTING workflow_id + agent_id. None of these are created by this plan - you enter them in the plan's input forms (queue_id is linked from review_queue.create by the planner). Build the subject workflow (with runs/traces) in SCN-07 first, then read the trace ids from Observability and the workflow_id + agent_id from that workflow.
+  - ASYNC PARKING + POLL - workflow.calibrate is Aria's first ASYNC capability. Its handler enqueues a real workflow-calibration job and returns an AsyncJobHandle, so the executor parks that step in waiting_job and leaves the plan RUNNING (work in flight) - it does NOT pause for a human. The plan worker (about every 10 seconds) and POST /aria/plans/{id}/poll advance it; the MLflow resolver maps the refinement_job to done when CaliberRefinementJob.status is candidate_ready or applied and to failed when it is rejected, failed or error (it never reaches `completed`). On done the step finishes and the plan resumes + completes (the candidate is not applied); on failed the step + plan fail. The Plans UI has no Poll button.
+  - INPUTS - the planner leaves unknown fields empty; when a step is about to run with required fields missing, the executor raises an `input` interaction (UI - "Aria needs information", Continue plan / Skip step; API - POST /aria/interactions/{id}/answer {inputs}). The answer is merged into the step and validated against the capability schema, then the plan resumes. autonomy ask_each adds an Approve/Deny prompt before each mutate step; the async calibration still parks (waiting_job) and resumes on its own.
+  - DEFAULT PROVIDERS ARE FAKE - eval_provider and llm_provider default to fake, so a default install's calibration job scores candidates with canned numbers.
 manual_flow:
   - step: state_intent
     action: Open Plans, create a new goal with the one-line intent and pick autonomy (ask_each for a demo).
   - step: review_plan
     action: Aria decomposes the intent into a draft plan (review_queue.create + review_queue.add_items + workflow.calibrate); review the steps.
   - step: approve
-    action: Approve the plan shape.
+    action: Click Approve plan.
   - step: execute_and_answer
-    action: Execute; answer each interaction - the triage question schema (review_queue.create), the flagged trace_ids (review_queue.add_items), and the workflow_id + agent_id (workflow.calibrate).
-  - step: poll_until_done
-    action: After the calibrate step is answered the plan parks on the async job (waiting_job). POST .../poll repeatedly until the job resolves; on done the plan resumes + completes.
+    action: Execute; fill each input form - the triage question schema (review_queue.create), the flagged trace_ids (review_queue.add_items), and the workflow_id + agent_id (workflow.calibrate) - and Approve each step.
+  - step: wait_for_job
+    action: After the calibrate step is approved the plan parks on the async job (waiting_job). The plan worker resumes it when the job reaches candidate_ready/applied (POST .../poll advances it on demand); on done the plan resumes + completes.
   - step: verify
-    action: Confirm the review queue exists with the traces enqueued (Review Queues), and the workflow-calibration job completed (Workflows / Observability); the plan shows all steps completed.
+    action: Confirm the review queue exists with the traces enqueued (Review Queues), and the workflow-calibration job reached candidate_ready/applied (Workflows / Observability); the plan shows all steps completed.
 components:
   aria:
     intent: "Our workflow's recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration."
@@ -27,10 +28,10 @@ components:
       - review_queue.create     # TIER_MUTATE
       - review_queue.add_items  # TIER_MUTATE  (needs EXISTING trace_ids)
       - workflow.calibrate      # TIER_MUTATE, ASYNC  (needs EXISTING workflow_id + agent_id; plan parks until job done)
-    step_inputs_needed:   # inputs each step needs — supply via the capability's route (an LLM planner would fill these for autonomy)
+    step_inputs_needed:   # entered in the plan's input forms (or POSTed as `inputs`)
       - "review_queue.create: provide {name, questions[] (each {key, title, type in pass_fail|categorical|numeric|text, options[], required, target in feedback|expectation})}"
-      - "review_queue.add_items: provide {queue_id (from the created queue), trace_ids[] (EXISTING flagged trace ids), experiment_id?, assigned_to?}"
-      - "workflow.calibrate: provide {workflow_id (EXISTING), agent_id (EXISTING)} — enqueues the async job; the plan then parks until poll resolves it"
+      - "review_queue.add_items: enter {trace_ids[] (EXISTING flagged trace ids), experiment_id?, assigned_to?} — queue_id is linked from review_queue.create"
+      - "workflow.calibrate: enter {workflow_id (EXISTING), agent_id (EXISTING)} — enqueues the async job; the plan then parks until the job resolves"
   prompts: none          # Aria acts via capabilities, not prompt assets
   skills: none
   tools: none
@@ -50,14 +51,14 @@ contracts:
       queue_id: {type: string}
       items_added: {type: integer}
       calibration_job_id: {type: string}
-      calibration_status: {type: string}   # completed (after poll resolves the async job)
+      calibration_status: {type: string}   # candidate_ready or applied (the job states the resolver maps to done)
 failure_modes:
   - intent omits a domain needle -> planner skips that capability (no "review queue" -> no queue/enqueue steps; no "workflow" -> no calibrate step).
   - review_queue.add_items given trace ids that do not exist -> the enqueue references dangling traces (supply REAL existing ids from Observability).
   - workflow.calibrate given a workflow_id/agent_id that does not exist -> the enqueue fails and the step + plan fail.
-  - never polling after the calibrate step -> the plan stays in waiting_job (running) forever; you MUST poll to resolve the async job.
-  - no model provider -> an LLM planner (if used) and any downstream LLM work cannot run.
+  - the plan worker not running (background tasks disabled) or the refinement job never finishing -> the plan stays in waiting_job (running); POST /aria/plans/{id}/poll to advance it on demand once the job is terminal.
+  - no real model provider -> the calibration job runs on the default fake evaluator and its scores are canned.
 fallbacks:
-  - if an unwanted step is proposed, deny its interaction to skip it.
+  - if an unwanted step is proposed, click Skip step (or Deny) to skip it.
   - if a capability is missing from the plan, re-create the plan with the domain words explicit ("review queue", "workflow calibration").
-  - if the async job is slow, keep polling; the plan resumes automatically once the resolver maps the refinement_job to done.
+  - if the async job is slow, wait (or poll); the plan resumes automatically once the resolver maps the refinement_job to done.

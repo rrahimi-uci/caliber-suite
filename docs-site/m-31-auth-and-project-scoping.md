@@ -14,7 +14,7 @@ must make before calling CALIBER programmatically.
 | Automation auth | `Authorization: Bearer <token>` |
 | Project scoping | `X-CALIBER-Project: <project_id>` |
 | Project access | Owner, editor, reviewer, or viewer membership; project responses report `access_role` and `permissions` |
-| Browser-style writes | `X-CALIBER-CSRF: <token>` when the deployment uses session/CSRF flows |
+| Browser-style writes | `X-CALIBER-CSRF: <token>` when the deployment enables CSRF (`CALIBER_CSRF_ENABLED`, off by default); then it applies to bearer-token writes too |
 | Best Python entry point | [`caliber-sdk`](m-20-sdk-guide.md) |
 | Best HTTP entry point | [REST API overview](m-26-rest-api-overview.md) |
 
@@ -24,6 +24,13 @@ For automation and SDK usage, prefer Bearer-token authentication.
 
 Use the browser/session path only when you are intentionally emulating the UI
 contract.
+
+A personal access token can be bound to a single project when it is created
+(`project_id` on `POST /auth/tokens`, or `client.auth.tokens.create(..., project_id=...)`).
+A bound token that names another project, in `X-CALIBER-Project` or in the URL,
+gets a 403, and one that names no project acts in its bound project. Use a bound
+token for CI jobs that import a revision: the Workspace import routes refuse an
+unbound personal access token.
 
 For the full auth conventions and envelope details, use:
 
@@ -44,34 +51,42 @@ the first things to verify.
 Project visibility and project authority are separate from the token's global
 scope. A token must first authenticate with a sufficient global scope, and the
 caller must also have an active membership in the selected project (or be the
-project owner/admin). The effective project permissions are returned on project
-responses as `access_role` and `permissions`.
+project owner). `caliber.admin` is not an implicit member of any project. The
+effective project permissions are returned on project responses as `access_role`
+and `permissions`.
 
 | Role | Effective project permissions |
 | --- | --- |
-| `owner` | read, update the project, manage members, write, publish, approve, execute |
-| `editor` | read, update the project, write, publish, execute |
-| `reviewer` | read, approve, execute |
+| `owner` | every project action: read, update, manage members, archive, restore and transfer ownership, write runtime assets and evidence, publish, approve, execute, manage the source and environments, revisions and Change Requests (including accepting one), and the release actions (including approve, roll back and reconcile) |
+| `editor` | read, update the project, write runtime assets and evidence, publish, execute, request and apply releases, import and snapshot revisions, and create, update, review and comment on Change Requests |
+| `reviewer` | read, write evidence, execute, approve, comment on Change Requests, record a release quality signoff |
 | `viewer` | read |
+
+The `owner` role is only as strong as the caller's own platform scopes: an owner
+who no longer holds both `caliber.operator` and `caliber.approver` is treated as
+an `editor` until that is restored.
 
 Owners can manage membership with `GET/POST /projects/{project_id}/members`,
 `PATCH /projects/{project_id}/members/{user_id}`, and
-`DELETE /projects/{project_id}/members/{user_id}`. The owner is created as the
-initial member and cannot be removed through the member route. Removing another
-member makes that membership inactive.
+`DELETE /projects/{project_id}/members/{user_id}`. The project's primary owner is
+created as the initial member and cannot be changed or removed through the member
+routes (409; use ownership transfer). Removing another member makes that
+membership inactive. Granting the `owner` role needs the target to hold both
+`caliber.operator` and `caliber.approver` (409 otherwise).
 
 The typed SDK exposes the same operations:
 
 ```python
 project = client.projects.get("PRJ-1")
-if "resource.publish" in project.permissions:
+if "project.manage_members" in project.permissions:
     members = client.projects.list_members(project.project_id)
     client.projects.add_member(project.project_id, "@bob", role="reviewer")
 ```
 
-The member-management calls require the project `owner` role. A valid bearer
-token without the required project role receives a permission error; a caller
-with no visibility of the project receives a not-found response.
+The member-management calls require the project `owner` role and the global
+`caliber.operator` scope. A valid bearer token without the required project role
+receives a permission error; a caller with no visibility of the project, a
+`caliber.admin` token included, receives a not-found response.
 
 ### Calibration jobs and live versions follow the project
 
@@ -100,7 +115,7 @@ names the role. What each role may do on a mutating route:
 
 | Action | Project role needed |
 | --- | --- |
-| Create or change a skill, tool, workflow, workflow version or knowledge base; clear workflow session memory | `owner` or `editor` |
+| Create or change a skill, tool, workflow, workflow version or knowledge base; replace a tool's test cases; clear workflow session memory | `owner` or `editor` |
 | Publish a workflow version, promote or roll back an alias, publish or unpublish a workflow service, mint or revoke a service token | `owner` or `editor` |
 | Run a workflow or a tool, start a calibration, upload a file into a run | `owner`, `editor` or `reviewer` |
 | Record a test run or a baseline for a skill or tool; create or change a benchmark report | `owner`, `editor` or `reviewer` |
@@ -163,7 +178,8 @@ Start from:
 | Request is authenticated but sees the wrong objects | `X-CALIBER-Project` or SDK project scope |
 | Project is visible but a write/publish is refused | `access_role`, `permissions`, and the token's global scope |
 | Member routes return 403 | only the project owner can manage membership |
-| Project route returns 404 unexpectedly | the caller is not an active member, owner, or admin |
+| Project route returns 404 unexpectedly | the caller is not an active member or the owner (`caliber.admin` is not an implicit member) |
+| 403 saying the token "is bound to project" | the personal access token is bound to a different project than the one named in the header or URL |
 | Write request fails in a browser-like flow | missing or stale CSRF token |
 | HTTP integration works but Python code does not | SDK client config, auth setup, or server compatibility |
 | Python code works but raw HTTP does not | missing auth header, wrong base path, or missing project header |

@@ -19,9 +19,9 @@ The census reads source only: no network, no credentials, no running app, so
 it is safe to run in CI and deterministic across machines.
 
 The committed `baseline-ff6d18c414.*` is the point-in-time record §15.1
-documents. Diffing current `main` against it now reports movement (page lines
-are up, from the merged Wave-1 fixes) — that is the tool working, not drift to
-correct. Regenerate a new baseline when a wave completes rather than after each
+documents. Diffing current `main` against it now reports movement (total page lines
+56,624 → 57,515 at `80eddfdbe4e`, 2026-10-14, from the merged Wave-1 fixes and the
+later alpha work) — that is the tool working, not drift to correct. Regenerate a new baseline when a wave completes rather than after each
 PR, or the diffs stop meaning anything.
 
 ### What it does and does not establish
@@ -45,9 +45,11 @@ Two figures need reading carefully:
   the control is already gated. Turning it into a real measurement needs the
   endpoint-to-affordance matrix (UX-06's remaining half), which pairs each
   control with its endpoint's required scope.
-- **Unrouted page components** reports `Overview.tsx` because it exports
-  `Dashboard`. That is an alias, not a dead file. The census reports what it
-  sees rather than special-casing it.
+- **Unrouted page components** reports three files. `Overview.tsx` is listed
+  because it exports `Dashboard`: an alias, not a dead file. `SkillWizard.tsx`
+  and `ToolWizard.tsx` are rendered inside `Skills.tsx` and `ToolRegistry.tsx`,
+  not as routes of their own. The census reports what it sees rather than
+  special-casing it.
 
 Route counts are given twice — registrations and distinct paths — because
 `/login` is registered twice (unauthenticated, and as an authenticated

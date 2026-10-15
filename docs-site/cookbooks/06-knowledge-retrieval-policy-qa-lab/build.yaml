@@ -2,8 +2,9 @@ workflow_goal: Deliver grounded policy answers from KB retrieval with explicit c
 # Verified against the live build — see ../FEASIBILITY.md.
 feasibility:
   - KB Explore sub-views are Query/Chunks/Graph; retrieval modes dense/hybrid/graph_hybrid/age_graph (AGE only after a manual Sync to AGE).
+  - KB creation needs an object store, the knowledge-local extra and the embedding model download (503 / model unavailable otherwise); Calibrate needs an existing Test Set (eval_dataset_id); POST /knowledge/query takes version_ids (1-3), not knowledge_base_id.
   - KB Calibrate runs INLINE and returns Recall@k/nDCG@k/Faithfulness/Answer-correctness, so the recall-improvement gate is directly demoable.
-  - Answer workflow = knowledge_rag (or graph_hybrid_rag) template; retrieve via the knowledge_query node, score confidence + branch via python_code/router.
+  - Answer workflow = knowledge_rag (or graph_hybrid_rag) template; retrieve via the knowledge_query node, score confidence with a Data Transform confidence node (or python_code), branch via router.
   - policy-gap-ticket-creator is optional and would be a GitHub MCP write (approval-gated) or a python_code stub; CitationFaithfulness is a real LLM judge.
 manual_flow:
   - step: kb_build
@@ -35,7 +36,7 @@ components:
     template: knowledge_rag        # or graph_hybrid_rag
     nodes:
       - retrieve_chunks          # knowledge_query node
-      - score_confidence         # python_code node
+      - score_confidence         # Data Transform confidence node (or python_code)
       - draft_answer             # agent node (cite only retrieved chunks)
       - abstain_or_answer        # router node
       - enqueue_review_if_needed # branch -> Review Queue (POST /review-queues/{id}/items)

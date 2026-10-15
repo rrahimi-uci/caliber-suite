@@ -11,15 +11,15 @@ and event backend.
 
 | Area | Representative settings | Deep reference |
 | --- | --- | --- |
-| App ports and local bring-up | `CALIBER_PORT`, `MLFLOW_PORT`, `MLFLOW_GATEWAY_PORT` | [Local bring-up](m-32-local-bring-up.md) |
+| App ports and local bring-up | `CALIBER_PORT` (5001), `MLFLOW_PORT` (5000), `MLFLOW_GATEWAY_PORT` (5002) | [Local bring-up](m-32-local-bring-up.md) |
 | Metadata database | `CALIBER_DATABASE_URL` | [Platform](m-01-platform.md) |
 | Migrations | `caliber-migrate` (reads `CALIBER_DATABASE_URL`) | [Alpha install](m-60-alpha-install.md) |
 | Roles and first login | `CALIBER_ADMIN_USERS`, `CALIBER_OPERATOR_USERS`, `CALIBER_APPROVER_USERS`, `CALIBER_AUTH_BOOTSTRAP_*` | [Alpha install](m-60-alpha-install.md) |
 | LLM provider and gateway | `CALIBER_LLM_PROVIDER`, `CALIBER_LLM_BASE_URL` | [Gateways](m-10-gateways.md) |
 | Release path (promoter, artifact store) | `CALIBER_PROMOTER_PROVIDER`, `CALIBER_ARTIFACT_STORE_PROVIDER`, `CALIBER_ALLOW_SIMULATED_PROVIDERS` | [Refinement loop](m-00-refinement-loop.md) |
-| Object store | `CALIBER_OBJECT_STORE_*` | [Object store](m-07-object-store.md) |
+| Object store (connection only) | `CALIBER_OBJECT_STORE_ENDPOINT_URL`, `_REGION`, `_ACCESS_KEY_SOURCE`, `_SECRET_KEY_SOURCE`, `_FORCE_PATH_STYLE` | [Object store](m-07-object-store.md) |
 | Workflow file storage | `CALIBER_WORKFLOW_STORAGE_*` | [Storage and state](m-49-storage-and-state.md) |
-| Event backend | `CALIBER_WORKFLOW_RUN_EVENT_BACKEND` | [Workflows architecture](m-06-workflows.md) |
+| Event backend | `CALIBER_WORKFLOW_RUN_EVENT_BACKEND` (`in_process` by default; `database`, `nats` or `redis`; the Compose stack sets `nats` and `./start.sh` rejects `redis`) | [Workflows architecture](m-06-workflows.md) |
 
 ## 1. Configure the core runtime first
 
@@ -38,6 +38,13 @@ Do not start with optional tuning before these are correct.
 The current repository exposes configurable LLM provider and gateway settings.
 For local development, the defaults are intentionally safer and smaller than a
 production deployment.
+
+Provider defaults are honest about what is simulated. `CALIBER_LLM_PROVIDER` and
+`CALIBER_EVAL_PROVIDER` default to `fake`, so evaluation scores are canned and are marked as such.
+`CALIBER_PROMOTER_PROVIDER` and `CALIBER_ARTIFACT_STORE_PROVIDER` default to `mlflow`; a `fake` one
+is refused at startup unless `CALIBER_ALLOW_SIMULATED_PROVIDERS=true`, and so is a real LLM with the
+`fake` evaluator. The bundled Compose stack sets the LLM to `fake` and the other three to `mlflow`.
+`/readiness` lists whichever providers are simulated.
 
 Use [Config and environment reference](m-56-config-and-environment-reference.md)
 when you need the representative variable names in one place.

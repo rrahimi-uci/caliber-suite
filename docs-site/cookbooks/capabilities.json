@@ -184,7 +184,9 @@
         "test sets"
       ],
       "id": "12",
-      "prerequisites": [],
+      "prerequisites": [
+        "Configured model provider to run the judge in Evaluations"
+      ],
       "slug": "aria-evaluation-harness",
       "summary": "Create a judge and Test Set through a typed, approval-aware Aria plan.",
       "title": "Aria: Evaluation Harness from Intent"
@@ -214,7 +216,9 @@
         "review queues"
       ],
       "id": "14",
-      "prerequisites": [],
+      "prerequisites": [
+        "Configured model provider to run the judge in Evaluations"
+      ],
       "slug": "aria-governance-starter-kit",
       "summary": "Create a judge, Test Set, and review queue as one governed plan.",
       "title": "Aria: Governance Starter Kit from Intent"

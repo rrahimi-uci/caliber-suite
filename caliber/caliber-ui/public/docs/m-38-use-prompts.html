@@ -42,7 +42,7 @@
           <span class="topbar-search-label">Search docs</span>
           <span class="keycap" data-doc-search-key>⌘K</span>
         </button>
-        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <a class="topbar-cta" href="m-37-five-minute-quickstart.html">Quickstart</a>
         <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
           <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
           <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
@@ -82,7 +82,7 @@
           <div class="doc-eyebrow">Use CALIBER</div>
           <h1 id="top">Prompts</h1>
           <p class="doc-summary">The task-oriented entry point for prompt assets in CALIBER: author, evaluate, calibrate, release, and recover without starting from deep architecture.</p>
-          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">System user</span><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">Evaluator</span><span class="doc-meta-chip doc-meta-chip-type">How To</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">A CALIBER deployment with prompt access</span></div><div class="doc-meta-notes">Reviewed 2026-08-10 · current main branch docs contract</div></div>
+          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">System user</span><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">Evaluator</span><span class="doc-meta-chip doc-meta-chip-type">How To</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">A CALIBER deployment with prompt access</span></div><div class="doc-meta-notes">Reviewed 2026-10-14 · current main branch docs contract</div></div>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
               Copy page
@@ -96,6 +96,7 @@
 <p>Prompts are governed assets with version history, evaluation context, and an explicit release boundary. Editing a prompt does not make it live by itself.</p>
 <p>That distinction matters because CALIBER separates:</p>
 <ul><li>authoring</li><li>evidence generation</li><li>candidate generation</li><li>live release</li></ul>
+<p>Inside a project, roles decide who can move a prompt. Creating a prompt or a version needs <code>editor</code> or <code>owner</code> (plus <code>caliber.operator</code>), and deleting a prompt also needs <code>editor</code> or <code>owner</code> plus <code>caliber.admin</code>. Making a version live (setting an alias) and rolling back need <code>editor</code> or <code>owner</code>, because both are the <code>release.apply</code> action. A member whose role is too weak gets 403 and a person outside the project gets 404. See <a href="m-31-auth-and-project-scoping.html">Auth and project scoping</a>.</p>
 <h2 id="2-common-tasks">2. Common tasks<a class="anchor" href="#2-common-tasks" aria-hidden="true" tabindex="-1">#</a></h2>
 <div class="table-wrap"><table><thead><tr><th>You want to...</th><th>Read this next</th></tr></thead><tbody><tr><td>create or revise a prompt</td><td><a href="m-02-prompts.html">Prompts architecture</a></td></tr><tr><td>compare prompt behavior against known examples</td><td><a href="m-44-use-evaluation-and-test-sets.html">Evaluation and test sets</a></td></tr><tr><td>generate improved candidates</td><td><a href="m-45-use-calibration.html">Calibration</a></td></tr><tr><td>understand release, rollback, and review boundaries</td><td><a href="m-47-use-review-and-release-flows.html">Review and release flows</a></td></tr></tbody></table></div>
 <h2 id="3-what-usually-confuses-readers">3. What usually confuses readers<a class="anchor" href="#3-what-usually-confuses-readers" aria-hidden="true" tabindex="-1">#</a></h2>

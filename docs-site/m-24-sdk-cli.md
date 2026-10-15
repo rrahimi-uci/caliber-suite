@@ -93,6 +93,11 @@ caliberctl token revoke PAT-9 --yes   # revokes
 
 ### Commands
 
+Global options go before the command: `--base-url` (default `$CALIBER_BASE_URL`),
+`--token` (default `$CALIBER_TOKEN`; prefer the variable, because an argument is
+visible in the process list), `--project` (default `$CALIBER_PROJECT`), `--json`,
+`--quiet` and `--version`.
+
 | Command | What it does |
 | --- | --- |
 | `whoami` | Identity behind the current credential. Exits 6 if anonymous. |

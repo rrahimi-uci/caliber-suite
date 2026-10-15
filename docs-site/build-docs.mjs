@@ -76,7 +76,7 @@ const MODULES = [
   { md: "06-workflows/architecture.md", out: "m-06-workflows.html", group: "platform", label: "Workflows", blurb: "Manifest authoring, compile/preview/run, versioning and deployments, queued runtime execution, checkpoints, and workflow-as-a-service." },
   { md: "06-workflows/components.md", out: "m-06-workflows-components.html", group: "platform", label: "Workflow components", blurb: "The building blocks of a workflow: component anatomy, the typed data-type port system, adding/configuring/connecting/coding/running nodes, and a complete reference for all 31 built-in components." },
   { md: "07-object-store/architecture.md", out: "m-07-object-store.html", group: "platform", label: "Object store", blurb: "MinIO/S3 console and the storage substrate behind uploads, previews, extraction, and artifact browsing." },
-  { md: "08-knowledge-bases/architecture.md", out: "m-08-knowledge-bases.html", group: "platform", label: "Knowledge bases", blurb: "Versioned RAG corpora with ingestion, chunking, embeddings, Apache AGE graph extraction, hybrid retrieval, pgvector ANN + cross-encoder reranking at scale, and calibration." },
+  { md: "08-knowledge-bases/architecture.md", out: "m-08-knowledge-bases.html", group: "platform", label: "Knowledge bases", blurb: "Versioned RAG corpora with ingestion, chunking, embeddings, hybrid retrieval, and calibration. Apache AGE graph extraction and cross-encoder reranking are optional and off by default; a build needs an S3-compatible bucket, the knowledge-local extra and an embedding-model download." },
   { md: "11-test-sets/architecture.md", out: "m-11-test-sets.html", group: "platform", label: "Test sets", blurb: "Versioned evaluation datasets with a hand-curation row editor, trace-to-example capture, MLflow GenAI dataset sync, and the shared evidence base for scoring." },
   { md: "14-evaluation/architecture.md", out: "m-14-evaluation.html", group: "platform", label: "Evaluation", blurb: "Dataset scorecards with selectable custom LLM judges, artifact-targeted runs (prompt/skill), a judge playground + human-alignment (agreement/kappa), per-example results, and fail-closed evaluation." },
   { md: "15-calibration/architecture.md", out: "m-15-calibration.html", group: "platform", label: "Calibration", blurb: "Asset-specific evidence loops: provider-and-EvalProvider refinement for prompts and skills, manifest replay for workflows, and revision-fenced deterministic tool suites inline or queued." },
@@ -125,11 +125,11 @@ const MODULES = [
   { md: "sdk/reference.md", out: "m-21-sdk-reference.html", group: "sdk", label: "API reference", blurb: "Every GA resource module the client exposes, the models they decode into, error types, waiters, and the stability tier each surface carries." },
   { md: "sdk/beta.md", out: "m-22-sdk-beta.html", group: "sdk", label: "Beta and agentic surfaces", blurb: "Integrations, operations, cookbooks, and the Aria loop — and the property that shapes all of them: work that stops for a person is neither running nor finished." },
   { md: "sdk/plugins.md", out: "m-23-sdk-plugins.html", group: "sdk", label: "Writing a plugin", blurb: "Add an optimizer to CALIBER from your own distribution — the contract, the conformance suite, and why installing a plugin deliberately does not enable it." },
-  { md: "sdk/cli.md", out: "m-24-sdk-cli.html", group: "sdk", label: "CLI and async client", blurb: "caliberctl for operator flows, where its six exit codes come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both." },
+  { md: "sdk/cli.md", out: "m-24-sdk-cli.html", group: "sdk", label: "CLI and async client", blurb: "caliberctl for operator flows, where its ten exit codes (0 to 9) come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both." },
   { md: "sdk/cookbooks.md", out: "m-25-sdk-cookbooks.html", group: "examples", label: "SDK recipes", blurb: "Full runnable cookbook implementations that use only caliber-sdk: inspect readiness, install the maintained recipe, and finish the scenario through typed SDK calls and raw fallbacks where needed." },
   { md: "competitive-analysis.md", out: "m-17-competitive-analysis.html", group: "strategy", label: "Competitive analysis", blurb: "How CALIBER compares to Langflow, Flowise, Dify, n8n, Flowable, the LLMOps/eval tools, MLflow GenAI, and the AWS/Google/Microsoft cloud stacks — strengths, weaknesses, and the defensible wedge, with every competitor claim grounded in primary sources." },
-  { md: "prd.md", out: "m-59-v1-product-requirements.html", group: "strategy", label: "v1 product requirements", blurb: "The bounded product contract for CALIBER v1.0.0: target users, supported journey, non-goals, release requirements, and the trace from requirements to the GitHub delivery plan." },
-  { md: "roadmap.md", out: "m-18-roadmap.html", group: "strategy", label: "Roadmap", blurb: "The feasibility-grounded, stage- and quarter-based plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review." },
+  { md: "prd.md", out: "m-59-v1-product-requirements.html", group: "strategy", label: "v1 product requirements", blurb: "The proposed product contract for CALIBER v1.0.0 (a plan, not what the 0.1.0a1 alpha does today): target users, supported journey, non-goals, release requirements, and the trace from requirements to the GitHub delivery plan." },
+  { md: "roadmap.md", out: "m-18-roadmap.html", group: "strategy", label: "Roadmap", blurb: "The feasibility-grounded, stage-based plan derived from the competitive analysis and verified against the architecture — themes, deliverables, ownership, and the adversarial feasibility review." },
 ];
 
 function isWithin(base, target) {
@@ -1587,7 +1587,7 @@ function topbar() {
           <span class="topbar-search-label">Search docs</span>
           <span class="keycap" data-doc-search-key>⌘K</span>
         </button>
-        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <a class="topbar-cta" href="m-37-five-minute-quickstart.html">Quickstart</a>
         <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
           <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
           <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
@@ -2072,7 +2072,7 @@ function main() {
   const llmsLines = [
     "# CALIBER",
     "",
-    "> MLflow-integrated control plane for building, evaluating, calibrating, governing, and observing trusted agentic workflows — prompts, tools, skills, MCP servers, workflows, knowledge bases, and the Aria copilot — in embedded-plugin or standalone-service topologies.",
+    "> MLflow-integrated control plane for building, evaluating, calibrating, governing, and observing trusted agentic workflows — prompts, tools, skills, MCP servers, workflows, knowledge bases, and the Aria copilot — as a standalone service (the embedded plugin mode is not supported in the alpha).",
     "",
     "The pages below are the published architecture, workflow, and strategy documentation. Each link is a flattened Markdown copy built for programmatic access.",
     "",

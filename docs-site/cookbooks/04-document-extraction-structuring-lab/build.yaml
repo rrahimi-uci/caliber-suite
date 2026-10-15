@@ -2,7 +2,8 @@ workflow_goal: Convert heterogeneous Office inputs into reliable structured JSON
 # Verified against the live build — see ../FEASIBILITY.md.
 feasibility:
   - Object Store extract supports .docx/.pptx/.xlsx (not legacy .doc/.ppt/.xls); endpoint GET /object-store/buckets/{bucket}/object/extract?key=...
-  - Extraction inside a workflow = the input_bucket node + the shipped tool caliber.workflows.ingestion_tools:extract_document (PDF/DOCX/PPTX/XLSX/MD + OCR).
+  - Extraction inside a workflow = the shipped tool caliber.workflows.ingestion_tools:extract_document (PDF/DOCX/PPTX/XLSX/MD + OCR), which opens a LOCAL file path (ref). The input_bucket node decodes objects as UTF-8 text capped at 100 KB by default, so binary Office files cannot flow through it.
+  - The Data Transform json_schema node returns {valid, metadata.errors} only; validation_status/missing_fields come from the python_code validator.
   - validate_document_json is best a python_code node (JSON-schema check); no tool registration needed.
   - SchemaFidelity is not a judge — it is the python_code validator pass/fail plus an exact_match/contains_expected scorer in Evaluations.
 manual_flow:
@@ -32,8 +33,8 @@ components:
   workflow:
     template: blank
     nodes:
-      - fetch_object      # input_bucket node
-      - extract_content   # tool node: extract_document
+      - fetch_object      # optional input_bucket node, text objects only (.md/.csv/.txt)
+      - extract_content   # tool node: extract_document (ref = local doc_path)
       - structure_json    # agent/template node applying the structuring prompt
       - validate_schema   # python_code node: validate_document_json
       - emit_artifact     # output (or output_bucket) node

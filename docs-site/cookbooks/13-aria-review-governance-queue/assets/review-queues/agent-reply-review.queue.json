@@ -40,5 +40,5 @@
       "target": "feedback"
     }
   ],
-  "notes": "Answer to the Aria review_queue.create interaction (same shape as POST /review-queues). Question item fields: key, title, type in [pass_fail, categorical, numeric, text], options (for categorical), required, target in [feedback, expectation]."
+  "notes": "Inputs for the Aria review_queue.create step (enter name, description and questions in its form; same shape as POST /review-queues). Question item fields: key, title, type in [pass_fail, categorical, numeric, text], options (for categorical), required, target in [feedback, expectation]."
 }

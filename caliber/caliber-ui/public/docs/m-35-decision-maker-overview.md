@@ -14,6 +14,8 @@ problems it solves, and where to go next for technical proof.
 | Primary problem | Building, evaluating, calibrating, governing, and observing LLM workflows from one platform |
 | Deployment topology | Standalone CALIBER ASGI service; communicates with MLflow over HTTP via `MLFLOW_TRACKING_URI`. Embedded mode is unsupported. |
 | Governance posture | Explicit evidence, review, approval, and apply/release control paths |
+| Release status | Alpha. `0.1.0a1` is prepared on `main` but its tag and release assets are not published yet; see [Alpha scope and limitations](m-61-alpha-scope.md) |
+| Evidence on shipped defaults | The default language model and evaluator are simulated, so calibration scores are canned and are labelled as such. Real evidence needs a real model and evaluator |
 | Best technical proof | [Layered architecture](m-00-layered-architecture.md) |
 | Market context | [Competitive analysis](m-17-competitive-analysis.md) |
 | Forward plan | [Roadmap](m-18-roadmap.md) |

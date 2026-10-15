@@ -8,7 +8,7 @@ product_area: calibration
 stability: ga
 prerequisites:
   - An evidence set or runtime question
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - calibration
@@ -37,6 +37,20 @@ review or apply only where the product supports it.
 Calibration is proposal generation backed by evidence. It is not hidden
 autopilot. Different asset families expose different candidate-generation and
 apply semantics, so always reason about the target asset first.
+
+How calibration starts, and what it leaves you with, differs by asset family:
+
+| Asset | Start it | What comes back | Making it live |
+| --- | --- | --- | --- |
+| Prompt | the Prompts page, or `POST /prompts/calibration/runs` | a refinement job that stops at `candidate_ready` | **Apply** moves the live alias; prompt rollback restores the earlier version |
+| Skill | Skills, **Runs**, **Calibrate** (`POST /skills/{skill_id}/calibrate`) | a refinement job at `candidate_ready`; a skill has no test set, so the evidence is canned unless a real provider is configured | **Review & apply**, then **Apply to skill**; a rollback restores the earlier content as a new version |
+| Workflow | `POST /workflows/{workflow_id}/calibration/runs` | a refinement job that replays the baseline and each candidate; the run carries **Simulated evaluation** and **Structural score** markers when they apply | **Apply** on the calibration run |
+| Tool | the **Fixtures** stage, **Run calibration** (`POST /tools/{tool_id}/calibrate`) | a pass rate over the saved fixtures; there is no candidate | nothing to apply |
+| Knowledge base | `POST /knowledge-bases/{knowledge_base_id}/calibrate` | a synchronous retrieve-and-judge run summary; there is no candidate job | nothing to apply |
+
+Applying a job (`POST /jobs/{job_id}/apply`) works only on a job at `candidate_ready` and answers 409 for any
+other status. The evidence on a job records `provider` and `simulated`, so a score from the fake provider is
+labelled as canned wherever it is shown. See [Review and release flows](review-and-release-flows.md).
 
 ## 2. Common tasks
 
