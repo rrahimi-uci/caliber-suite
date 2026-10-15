@@ -6,11 +6,11 @@ apply a manual patch → validate**. Build order:
 
 | # | Artifact | File | Create via |
 | --- | --- | --- | --- |
-| 1 | Python Code node body `failing_node` (manufactures a reproducible node fault) | [`tools/failing_node.py`](tools/failing_node.py) | `Also in the alpha → Workflows` → drag a **Python Code** node → paste the module body. No registration; it versions with the workflow. |
-| 2 | Eval dataset `failing-inputs` (inputs that reproduce failures + expected root cause) | [`dataset/failing-inputs.jsonl`](dataset/failing-inputs.jsonl) | `Core journey → Test Sets → New dataset`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line. |
-| 3 | Prompt `diagnosis-summary` (optional — narrates the diagnosis) | [`prompts/diagnosis-summary.md`](prompts/diagnosis-summary.md) | `Core journey → Prompts → New prompt`, paste the body below the frontmatter. API: `POST /prompts {name, template, commit_message}`. |
-| 4 | Skill `workflow-failure-triage` (optional — symptom→node→probe checklist) | [`skills/workflow-failure-triage.md`](skills/workflow-failure-triage.md) | `Also in the alpha → Skills → New skill`, paste content below the frontmatter. API: `POST /skills`. |
-| 5 | Judge `RootCauseQuality` (optional — grades diagnosis grounding) | [`judges/root-cause-quality.judge.json`](judges/root-cause-quality.judge.json) | `Also in the alpha → Judges → New judge`, paste fields. API: `POST /judges`. |
+| 1 | Python Code node body `failing_node` (manufactures a reproducible node fault) | [`tools/failing_node.py`](tools/failing_node.py) | `Agent resources → Workflows` → drag a **Python Code** node → paste the module body. No registration; it versions with the workflow. |
+| 2 | Eval dataset `failing-inputs` (inputs that reproduce failures + expected root cause) | [`dataset/failing-inputs.jsonl`](dataset/failing-inputs.jsonl) | `Prompt lifecycle → Test Sets → New dataset`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line. |
+| 3 | Prompt `diagnosis-summary` (optional — narrates the diagnosis) | [`prompts/diagnosis-summary.md`](prompts/diagnosis-summary.md) | `Prompt lifecycle → Prompts → New prompt`, paste the body below the frontmatter. API: `POST /prompts {name, template, commit_message}`. |
+| 4 | Skill `workflow-failure-triage` (optional — symptom→node→probe checklist) | [`skills/workflow-failure-triage.md`](skills/workflow-failure-triage.md) | `Agent resources → Skills → New skill`, paste content below the frontmatter. API: `POST /skills`. |
+| 5 | Judge `RootCauseQuality` (optional — grades diagnosis grounding) | [`judges/root-cause-quality.judge.json`](judges/root-cause-quality.judge.json) | `Agent resources → Judges → New judge`, paste fields. API: `POST /judges`. |
 
 > Items 3–5 are **optional**: they let you score *whether a diagnosis is
 > evidence-grounded* in Evaluations. The core demo (reproduce → localize → patch
@@ -50,7 +50,7 @@ fault and a manual code patch.
 
 This exercises the full recovery loop on a shipped template, no code needed.
 
-1. **Create the workflow.** `Also in the alpha → Workflows → New from template →
+1. **Create the workflow.** `Agent resources → Workflows → New from template →
    `hitl_review`. Its nodes are `start → agent → pii_guard (guardrail) → review
    (human_approval) → final`; the approval node id is **`review`**.
    - API: `POST /workflows {template_id: "hitl_review", ...}`.
@@ -127,7 +127,7 @@ To put a number on diagnosis quality:
 2. Author the [`diagnosis-summary`](prompts/diagnosis-summary.md) prompt; its
    variables map 1:1 onto the dataset `inputs` keys.
 3. Create the [`RootCauseQuality`](judges/root-cause-quality.judge.json) judge.
-4. `Core journey → Evaluations → Run evaluation`: dataset = `failing-inputs`,
+4. `Prompt lifecycle → Evaluations → Run evaluation`: dataset = `failing-inputs`,
    candidate = the `diagnosis-summary` output, deterministic graders plus the
    `RootCauseQuality` judge ticked under **Custom LLM judges** (it runs as a
    `Judge.<id>` scorer for an automatic per-row verdict): a row passes only when

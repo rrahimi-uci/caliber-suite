@@ -56,7 +56,7 @@ Read [`../ARIA-AUTONOMY.md`](../ARIA-AUTONOMY.md) and [`../FEASIBILITY.md`](../F
   **`workflow_id` + `agent_id`** (from that SCN-07 workflow).
 - The operator role, a configured model provider, and a refinement worker for
   the calibration job; Aria Plans enabled (`CALIBER_FEATURE_ARIA=true`; sidebar
-  **Integrations and preview › Plans**, a Preview page).
+  **Integrations › Plans**, a Preview page).
 
 ## Recipe (UI-first, with API fallbacks)
 

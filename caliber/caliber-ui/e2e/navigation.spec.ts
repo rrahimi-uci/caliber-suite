@@ -57,10 +57,10 @@ const SIDEBAR_ROUTES = [
 
 async function openAllGroups(page: Page): Promise<void> {
   for (const group of [
-    "Core journey",
-    "Also in the alpha",
+    "Prompt lifecycle",
+    "Agent resources",
     "Operate",
-    "Integrations and preview",
+    "Integrations",
     "Admin",
   ]) {
     const toggle = page.getByRole("button", { name: group, exact: true });

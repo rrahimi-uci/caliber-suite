@@ -1,12 +1,12 @@
 {
   "steps": [
     {
-      "where": "Integrations and preview › Plans",
-      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_ARIA=true</code> on the CALIBER server and restart it; Aria and the Plans page are off by default. In the left sidebar, under the <strong>Integrations and preview</strong> group (the page carries a <strong>Preview</strong> badge), click <strong>Plans</strong>. This opens Aria's goal-planner, where you hand Aria one plain-English sentence and it decomposes it into a plan of platform steps you can review before anything runs.",
+      "where": "Integrations › Plans",
+      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_ARIA=true</code> on the CALIBER server and restart it; Aria and the Plans page are off by default. In the left sidebar, under the <strong>Integrations</strong> group (the page carries a <strong>Preview</strong> badge), click <strong>Plans</strong>. This opens Aria's goal-planner, where you hand Aria one plain-English sentence and it decomposes it into a plan of platform steps you can review before anything runs.",
       "see": "The <strong>Aria Plans</strong> page with a <em>Goal</em> text box, an <em>Autonomy</em> dropdown, a <em>Decompose goal</em> button, and a table of existing plans below."
     },
     {
-      "where": "Integrations and preview › Plans › New goal",
+      "where": "Integrations › Plans › New goal",
       "do": "Type Aria's one-line intent into the <strong>Goal</strong> box. Use the canonical wording verbatim — the literal phrase <code>review queue</code> is what makes Aria's default planner propose the review-queue steps. Then open the <strong>Autonomy</strong> dropdown and choose <strong>Stop before each change</strong> (this is the <code>ask_each</code> level — Aria pauses for your OK before every step that changes anything).",
       "fill": [
         [
@@ -23,7 +23,7 @@
       "asset": "Aria plan (draft)"
     },
     {
-      "where": "Integrations and preview › Plans › PLAN-… (draft)",
+      "where": "Integrations › Plans › PLAN-… (draft)",
       "do": "Read the <strong>Plan steps</strong> list and confirm Aria decomposed the one sentence into exactly the two steps you expect. Both come from the single domain <code>review_queue</code> (the needle \"review queue\" in your goal). Compare against <a href=\"../cookbooks/13-aria-review-governance-queue/assets/expected-plan.json\">expected-plan.json</a>.",
       "fill": [
         [
@@ -44,19 +44,19 @@
       ]
     },
     {
-      "where": "Integrations and preview › Plans › PLAN-… (draft)",
+      "where": "Integrations › Plans › PLAN-… (draft)",
       "do": "Approve the <em>shape</em> of the plan (you are signing off on which steps Aria will run, not running them yet). Click <strong>Approve plan</strong> in the top-right of the plan header.",
       "click": "Approve plan",
       "see": "The status badge flips from <strong>DRAFT</strong> to <strong>APPROVED</strong>, and an <strong>Execute</strong> button appears in the header."
     },
     {
-      "where": "Integrations and preview › Plans › PLAN-… (approved)",
+      "where": "Integrations › Plans › PLAN-… (approved)",
       "do": "Start running the plan. Click <strong>Execute</strong>. Aria reaches the first step, <code>review_queue.create</code>, but the planner could not know your queue's name or question schema, so it pauses on a violet <strong>Aria needs information</strong> form with a field per capability input (<em>name</em> and <em>questions</em> are required) and two buttons, <strong>Continue plan</strong> and <strong>Skip step</strong>.",
       "click": "Execute",
       "see": "The <code>review_queue.create</code> row shows <em>WAITING INPUT</em> and an <strong>Aria needs information</strong> form is open above the step list."
     },
     {
-      "where": "Integrations and preview › Plans › PLAN-… (input form)",
+      "where": "Integrations › Plans › PLAN-… (input form)",
       "do": "Fill the form with the spec from <a href=\"../cookbooks/13-aria-review-governance-queue/assets/review-queues/agent-reply-review.queue.json\">agent-reply-review.queue.json</a> — these are the <code>review_queue.create</code> inputs. <strong>questions</strong> is a JSON array (the form shows a text area and rejects invalid JSON). Click <strong>Continue plan</strong>; Aria merges and validates the inputs, then — because autonomy is <em>ask_each</em> — raises an <strong>Aria needs your approval</strong> prompt for the step. Click <strong>Approve</strong>.",
       "fill": [
         [
@@ -83,7 +83,7 @@
       ]
     },
     {
-      "where": "Integrations and preview › Plans › PLAN-… (input form)",
+      "where": "Integrations › Plans › PLAN-… (input form)",
       "do": "Handle the second step, <code>review_queue.add_items</code>. The planner already linked its <code>queue_id</code> to the queue the previous step created, so the form only asks for <strong>trace ids</strong> (plus optional experiment id and assignee). You have no flagged traces yet (this scenario is queue-first), so click <strong>Skip step</strong>. (With real flagged ids you would paste them as a JSON array — see <a href=\"../cookbooks/13-aria-review-governance-queue/assets/enqueue.json\">enqueue.json</a> — click <strong>Continue plan</strong>, then <strong>Approve</strong>.)",
       "click": "Skip step",
       "see": "The <code>review_queue.add_items</code> row shows <strong>SKIPPED</strong> and the plan finishes with status <strong>COMPLETED</strong> (create done, add_items skipped).",

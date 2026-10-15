@@ -1,7 +1,7 @@
 # Release Signoff Factory assets
 
 These files are example inputs for the in-product **Releases** domain
-(**Core journey › Releases**). The runtime record—not a filled Markdown
+(**Prompt lifecycle › Releases**). The runtime record—not a filled Markdown
 worksheet—is the release source of truth, and the page is Preview, record-only:
 signing off records a decision and does not deploy or roll back anything.
 

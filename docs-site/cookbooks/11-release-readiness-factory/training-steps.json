@@ -23,8 +23,8 @@
       ]
     },
     {
-      "where": "Core journey › Evaluations",
-      "do": "Collect the scorecard run id for each required scenario. Open <strong>Evaluations</strong> (under <strong>Core journey</strong>) and find each upstream scenario's scorecard run in the table. Copy its run id into the matching <code>eval_run_id</code> field in the manifest. Then open each run and confirm <em>by hand</em> that its pass rate clears that scenario's bar — the <code>pass ≥ …</code> chip on the run detail is a per-row threshold, not a run-level verdict. CALIBER does not compute a single run-level pass/fail gate (the Evaluations table has no gate column), so the go/no-go judgment on each scorecard is yours.",
+      "where": "Prompt lifecycle › Evaluations",
+      "do": "Collect the scorecard run id for each required scenario. Open <strong>Evaluations</strong> (under <strong>Prompt lifecycle</strong>) and find each upstream scenario's scorecard run in the table. Copy its run id into the matching <code>eval_run_id</code> field in the manifest. Then open each run and confirm <em>by hand</em> that its pass rate clears that scenario's bar — the <code>pass ≥ …</code> chip on the run detail is a per-row threshold, not a run-level verdict. CALIBER does not compute a single run-level pass/fail gate (the Evaluations table has no gate column), so the go/no-go judgment on each scorecard is yours.",
       "fill": [
         [
           "scenarios[SCN-07].eval_run_id",
@@ -71,8 +71,8 @@
       ]
     },
     {
-      "where": "Also in the alpha › Workflows  ›  (workflow detail)",
-      "do": "Re-run the high-risk slices to prove they still pass. From <strong>Workflows</strong> (under <strong>Also in the alpha</strong>) open each workflow and click <strong>Run Pipeline</strong> (labelled <strong>Queue Run</strong> when queued execution is enabled) to re-execute the critical subsets — the SCN-07 approval branch (its human_approval gate pauses the run; clear it with <strong>Approve</strong> then <strong>Resume</strong> in the run's approval panel), the SCN-08 rollback path, and the SCN-09 retry/resume recovery. Record each fresh run id in the manifest's <code>approval_branch_run_id</code> field for that scenario.",
+      "where": "Agent resources › Workflows  ›  (workflow detail)",
+      "do": "Re-run the high-risk slices to prove they still pass. From <strong>Workflows</strong> (under <strong>Agent resources</strong>) open each workflow and click <strong>Run Pipeline</strong> (labelled <strong>Queue Run</strong> when queued execution is enabled) to re-execute the critical subsets — the SCN-07 approval branch (its human_approval gate pauses the run; clear it with <strong>Approve</strong> then <strong>Resume</strong> in the run's approval panel), the SCN-08 rollback path, and the SCN-09 retry/resume recovery. Record each fresh run id in the manifest's <code>approval_branch_run_id</code> field for that scenario.",
       "fill": [
         [
           "scenarios[SCN-07].approval_branch_run_id",
@@ -97,8 +97,8 @@
       ]
     },
     {
-      "where": "Core journey › Releases › Release signoff factory › New candidate",
-      "do": "Create the release candidate. Click <strong>Releases</strong> under <strong>Core journey</strong>, scroll to the <strong>Release signoff factory</strong> section (Preview badge; <em>Preview, record-only</em> note) and click <strong>New candidate</strong>. Enter the candidate name, artifact type, <strong>Artifact ID or registry name</strong>, <strong>Candidate version</strong>, <strong>Rollback version</strong>, and the required score; then edit the <em>criteria</em> JSON (keys, weights, observed scores, thresholds, blocking flags — mirror <a href=\"../cookbooks/11-release-readiness-factory/assets/rubric/release-rubric.json\">release-rubric.json</a>) and the <em>evidence</em> JSON (the run ids and review states from your manifest). The planned action is not a field: the UI records <code>promote_&lt;type&gt;</code> → <code>prod</code>. Click <strong>Create and evaluate candidate</strong>.",
+      "where": "Prompt lifecycle › Releases › Release signoff factory › New candidate",
+      "do": "Create the release candidate. Click <strong>Releases</strong> under <strong>Prompt lifecycle</strong>, scroll to the <strong>Release signoff factory</strong> section (Preview badge; <em>Preview, record-only</em> note) and click <strong>New candidate</strong>. Enter the candidate name, artifact type, <strong>Artifact ID or registry name</strong>, <strong>Candidate version</strong>, <strong>Rollback version</strong>, and the required score; then edit the <em>criteria</em> JSON (keys, weights, observed scores, thresholds, blocking flags — mirror <a href=\"../cookbooks/11-release-readiness-factory/assets/rubric/release-rubric.json\">release-rubric.json</a>) and the <em>evidence</em> JSON (the run ids and review states from your manifest). The planned action is not a field: the UI records <code>promote_&lt;type&gt;</code> → <code>prod</code>. Click <strong>Create and evaluate candidate</strong>.",
       "fill": [
         [
           "Release candidate name",
@@ -130,7 +130,7 @@
       "asset": "Release candidate (server-computed score + blockers)"
     },
     {
-      "where": "Core journey › Releases › Release signoff factory › candidate",
+      "where": "Prompt lifecycle › Releases › Release signoff factory › candidate",
       "do": "Work any blockers. A <strong>blocked</strong> candidate has a blocking criterion below its threshold. Do not inflate an observed score — scores are fixed when the candidate is created and there is no edit route, so new evidence means a new candidate. <strong>Re-evaluate</strong> recomputes from the stored criteria and waivers. If policy permits an exception, an <strong>admin</strong> enters the <strong>criterion key</strong> and a reason (at least 8 characters; write any expiry and compensating control into the reason — the UI has no expiry field) and clicks <strong>Record waiver</strong>.",
       "fill": [
         [
@@ -147,14 +147,14 @@
       "asset": "Waiver (if needed) + re-evaluated candidate"
     },
     {
-      "where": "Core journey › Releases › Release signoff factory › candidate",
+      "where": "Prompt lifecycle › Releases › Release signoff factory › candidate",
       "do": "Generate the release evidence. Click <strong>Generate Allure</strong> on the candidate card. CALIBER creates a durable Allure-compatible JSON report job with a SHA-256 of the candidate snapshot and shows <em>\"Allure report … generated and retained.\"</em> Record the report job id. (The static Allure HTML under <strong>Admin › Settings › Allure Report</strong> is separate CI evidence produced by <code>make allure-report</code>; it is not needed to sign this candidate.)",
       "click": "Generate Allure",
       "see": "The card reports the new report job id; the report snapshot hash covers the candidate as it is now (generate it after any waiver).",
       "asset": "Report job id + snapshot SHA-256"
     },
     {
-      "where": "Core journey › Releases › Release signoff factory › candidate",
+      "where": "Prompt lifecycle › Releases › Release signoff factory › candidate",
       "do": "Record the decision. As an <strong>admin</strong>, type an accountable <strong>Signoff rationale</strong> (at least 8 characters; <a href=\"../cookbooks/11-release-readiness-factory/assets/decision/decision-record.template.md\">decision-record.template.md</a> is an optional drafting aid) and click <strong>Sign off GO</strong> — enabled only while the candidate is <em>ready</em> — or <strong>Sign off NO-GO</strong>. The final snapshot is immutable; create a new candidate for a changed release package. Nothing is deployed or rolled back: the page is record-only.",
       "fill": [
         [
@@ -194,8 +194,8 @@
       ]
     },
     {
-      "where": "(optional) Core journey › Prompts › New prompt",
-      "do": "(Optional) To draft the signoff rationale from your evidence, register the summarizer prompt. Open <strong>Prompts</strong> (under <strong>Core journey</strong>), click <strong>New prompt</strong>, and paste the template body (everything below the YAML frontmatter) from <a href=\"../cookbooks/11-release-readiness-factory/assets/prompts/release-risk-summarizer.md\">release-risk-summarizer.md</a>. It only narrates evidence you supply and is hard-wired to force no_go on missing evidence or open blockers — it never invents passing evidence.",
+      "where": "(optional) Prompt lifecycle › Prompts › New prompt",
+      "do": "(Optional) To draft the signoff rationale from your evidence, register the summarizer prompt. Open <strong>Prompts</strong> (under <strong>Prompt lifecycle</strong>), click <strong>New prompt</strong>, and paste the template body (everything below the YAML frontmatter) from <a href=\"../cookbooks/11-release-readiness-factory/assets/prompts/release-risk-summarizer.md\">release-risk-summarizer.md</a>. It only narrates evidence you supply and is hard-wired to force no_go on missing evidence or open blockers — it never invents passing evidence.",
       "fill": [
         [
           "Name",

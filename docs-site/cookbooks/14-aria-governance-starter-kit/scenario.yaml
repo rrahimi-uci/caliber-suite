@@ -19,7 +19,7 @@ caliber_surfaces:
   - Evaluations
 prerequisites:
   - A configured model provider (the judge runs on a real model in Evaluations; creating it does not need one).
-  - Aria Plans available (sidebar "Plans", under "Integrations and preview").
+  - Aria Plans available (sidebar "Plans", under "Integrations").
 time_to_first_value: 15-30 minutes
 success_criteria:
   - From the intent alone, Aria drafts a plan containing judge.create + eval_dataset.create + review_queue.create.

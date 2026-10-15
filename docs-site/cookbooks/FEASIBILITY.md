@@ -166,15 +166,15 @@ Scenario → starting template:
 This is the canonical "did it pass?" loop used by SCN-01, 06, 07, 08, 10:
 
 1. **Create a dataset.** `POST /eval-datasets` → `{name, description}` (or
-   **Core journey → Test Sets → + New Test Set**). Add rows in the UI row editor at
+   **Prompt lifecycle → Test Sets → + New Test Set**). Add rows in the UI row editor at
    `/eval-datasets/:id → + Add example` (set `inputs` + `expectations`/`expected`
    directly), harvest from a trace via **Add example from trace** /
    `.../examples/from-trace`, or POST them with `POST /eval-datasets/{id}/examples`
    (`{inputs:{...}, expectations:{...}}`).
-2. **Create judges if needed** (`Also in the alpha → Judges → New judge`): name, model,
+2. **Create judges if needed** (`Agent resources → Judges → New judge`): name, model,
    `instructions` referencing `{{ inputs }}` / `{{ outputs }}` / `{{ expectations }}`,
    pick `feedback_value_type`.
-3. **Run it** (`Core journey → Evaluations → Run evaluation`): pick the dataset,
+3. **Run it** (`Prompt lifecycle → Evaluations → Run evaluation`): pick the dataset,
    select scorers (deterministic) and/or `Judge.<name>`, run.
 4. **Read the scorecard** (`/evaluations/{run_id}`): per-example pass/fail +
    overall. Pick a **baseline** run and compare deltas for regressions.

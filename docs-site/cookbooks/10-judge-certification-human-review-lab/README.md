@@ -42,12 +42,12 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
    `POST /eval-datasets/{id}/examples/from-trace {trace_id}` for each run you
    want graded (auto-extracts input + expected). Or `POST /eval-datasets` then
    add rows manually.
-2. **Define the judge.** `Also in the alpha → Judges → New judge` `FaithfulnessJudge`:
+2. **Define the judge.** `Agent resources → Judges → New judge` `FaithfulnessJudge`:
    model + instructions = *"Given `{{ inputs }}`, the model `{{ outputs }}`, and
    `{{ expectations }}`, return true only if every claim in outputs is supported
    by the expectations/evidence."* `feedback_value_type = bool`. (Confirm the
    instructions reference at least one `{{ var }}` — the UI enforces this.)
-3. **Run baseline + candidate.** `Core journey → Evaluations → Run evaluation` on the
+3. **Run baseline + candidate.** `Prompt lifecycle → Evaluations → Run evaluation` on the
    same dataset twice: once on the baseline artifact, once on the candidate
    (e.g. before/after a prompt change). Capture both run ids.
 4. **Inspect examples.** In each scorecard, open per-example results; in the
@@ -56,7 +56,7 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
    faithfulness question(s). Enqueue the **trace ids** of the flagged examples
    (`POST /review-queues/{id}/items {trace_ids}`); have reviewers answer. Answers
    write back to each trace.
-6. **Compute alignment.** `Also in the alpha → Judges → FaithfulnessJudge → Try it → Human
+6. **Compute alignment.** `Agent resources → Judges → FaithfulnessJudge → Try it → Human
    alignment`: select the completed queue in the **Import from Review Queue…**
    dropdown and its pass/fail question, click **Import labels**, then click
    **Check alignment**. CALIBER runs the judge on each imported output and returns

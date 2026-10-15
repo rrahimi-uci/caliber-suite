@@ -1023,7 +1023,7 @@ COOKBOOKS = [
   V --> SLICE[Regression slice passes]""",
         "steps": [
             {
-                "where": "Also in the alpha › Workflows › New (template: hitl_review)",
+                "where": "Agent resources › Workflows › New (template: hitl_review)",
                 "do": "Create a workflow; in the Run Monitor, execute to <code>waiting_approval</code>, then Reject → <code>failed</code> (the reproducible recovery case).",
             },
             {
@@ -1159,12 +1159,12 @@ COOKBOOKS = [
                 "asset": "triaged labels",
             },
             {
-                "where": "Core journey › Test Sets",
+                "where": "Prompt lifecycle › Test Sets",
                 "do": "Confirm <code>prod-regression</code> now holds the captured failing examples — the durable slice to re-run after a fix.",
                 "asset": "regression slice",
             },
             {
-                "where": "Core journey › Evaluations",
+                "where": "Prompt lifecycle › Evaluations",
                 "do": "(Optional) <strong>Run evaluation</strong> on <code>prod-regression</code> with the deterministic graders to baseline the failure rate; re-run after a fix to confirm it drops.",
                 "asset": "failure-rate baseline",
             },
@@ -1257,12 +1257,12 @@ COOKBOOKS = [
                 "asset": "test set (from traces)",
             },
             {
-                "where": "Also in the alpha › Judges › New judge",
+                "where": "Agent resources › Judges › New judge",
                 "do": "Create <code>FaithfulnessJudge</code> — instructions reference <code>{{ inputs }}/{{ outputs }}/{{ expectations }}</code>, return <code>bool</code>.",
                 "asset": "judge: FaithfulnessJudge",
             },
             {
-                "where": "Core journey › Evaluations › Run evaluation",
+                "where": "Prompt lifecycle › Evaluations › Run evaluation",
                 "do": "Run the same dataset on the baseline artifact, then the candidate. Capture both run ids.",
             },
             {
@@ -1356,11 +1356,11 @@ COOKBOOKS = [
   D -->|no| NG[no_go + blockers]""",
         "steps": [
             {
-                "where": "Core journey › Evaluations",
+                "where": "Prompt lifecycle › Evaluations",
                 "do": "Gather the scorecard run ids for each required cookbook; confirm each required review queue is fully answered.",
             },
             {
-                "where": "Core journey › Releases",
+                "where": "Prompt lifecycle › Releases",
                 "do": "Click <strong>New candidate</strong>; enter the artifact, candidate and rollback versions, required score, and criteria/evidence JSON (the UI records the planned action), then <strong>Create and evaluate candidate</strong>. Inspect the server-computed score and blockers.",
                 "asset": "release candidate",
             },
@@ -1479,7 +1479,7 @@ COOKBOOKS = [
                 "asset": "test set",
             },
             {
-                "where": "Core journey › Evaluations",
+                "where": "Prompt lifecycle › Evaluations",
                 "do": "(Follow-up) Run the dataset on the deterministic graders plus <code>AnswerFaithfulness</code> ticked under <strong>Custom LLM judges</strong> (cookbook 10 territory).",
             },
         ],

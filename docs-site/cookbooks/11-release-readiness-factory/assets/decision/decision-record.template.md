@@ -1,7 +1,7 @@
 # Release decision preparation template
 
 This is an optional drafting aid. Record the authoritative candidate, waiver,
-report-job, and final signoff in **Core journey → Releases**.
+report-job, and final signoff in **Prompt lifecycle → Releases**.
 
 - Candidate name / artifact / version:
 - Required score:

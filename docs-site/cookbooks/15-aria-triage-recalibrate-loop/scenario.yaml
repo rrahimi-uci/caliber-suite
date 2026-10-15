@@ -19,7 +19,7 @@ caliber_surfaces:
 prerequisites:
   - An EXISTING workflow with recent runs/traces to operate on (build it in SCN-07 first). This loop remediates; it does not create the subject.
   - The flagged trace ids and the target workflow_id + agent_id (entered in the plan's input forms - Aria does not discover them).
-  - The operator role, a configured model provider, and a refinement worker; Aria Plans available (sidebar "Plans", under "Integrations and preview").
+  - The operator role, a configured model provider, and a refinement worker; Aria Plans available (sidebar "Plans", under "Integrations").
 time_to_first_value: 20-35 minutes
 success_criteria:
   - From the intent alone, Aria drafts a plan containing review_queue.create + review_queue.add_items + workflow.calibrate.

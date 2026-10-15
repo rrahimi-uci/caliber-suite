@@ -1,13 +1,13 @@
 {
   "steps": [
     {
-      "where": "Integrations and preview › Plans",
-      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_ARIA=true</code> on the CALIBER server and restart it; Aria and the Plans page are off by default. Open Aria's planner. Click <strong>Plans</strong> in the left sidebar (under the <strong>Integrations and preview</strong> group; the page carries a <strong>Preview</strong> badge). This opens the <strong>Aria Plans</strong> page, where you hand Aria a one-line goal and it decomposes it into platform steps you approve before anything runs.",
+      "where": "Integrations › Plans",
+      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_ARIA=true</code> on the CALIBER server and restart it; Aria and the Plans page are off by default. Open Aria's planner. Click <strong>Plans</strong> in the left sidebar (under the <strong>Integrations</strong> group; the page carries a <strong>Preview</strong> badge). This opens the <strong>Aria Plans</strong> page, where you hand Aria a one-line goal and it decomposes it into platform steps you approve before anything runs.",
       "see": "The Aria Plans page with a <strong>Goal</strong> textarea, an <strong>Autonomy</strong> selector, and a <strong>Decompose goal</strong> button.",
       "asset": "Aria Plans page open"
     },
     {
-      "where": "Integrations and preview › Plans › Goal",
+      "where": "Integrations › Plans › Goal",
       "do": "State the intent. Paste the canonical one-line intent from <a href=\"../cookbooks/12-aria-evaluation-harness/assets/intent.md\">intent.md</a> into the <strong>Goal</strong> field. The exact wording matters: the default planner keys off the literal domain words <code>judge</code> and <code>eval dataset</code>, so keep both in the sentence (it also recognises \"test set\" for the dataset step, but a phrase like \"faithfulness scoring\" would not produce a judge step). Set <strong>Autonomy</strong> to <strong>Stop before each change</strong> (this is the <code>ask_each</code> level) so Aria asks you to approve every mutate step.",
       "fill": [
         [
@@ -30,7 +30,7 @@
       ]
     },
     {
-      "where": "Integrations and preview › Plans › (draft plan)",
+      "where": "Integrations › Plans › (draft plan)",
       "do": "Review the decomposed plan. Confirm Aria produced exactly two steps from the one sentence — <code>judge.create</code> and <code>eval_dataset.create</code> — matching <a href=\"../cookbooks/12-aria-evaluation-harness/assets/expected-plan.json\">expected-plan.json</a>. This decomposition is the autonomous-orchestration showcase: one intent in, the right governed steps out.",
       "see": "The draft plan lists two mutate steps: <code>judge.create</code> and <code>eval_dataset.create</code>.",
       "asset": "Reviewed plan (2 steps)",
@@ -42,21 +42,21 @@
       ]
     },
     {
-      "where": "Integrations and preview › Plans › (draft plan)",
+      "where": "Integrations › Plans › (draft plan)",
       "do": "Approve the plan shape. With the plan in <code>draft</code> status, click <strong>Approve plan</strong>. This records that you accept the orchestration before any step runs.",
       "click": "Approve plan",
       "see": "The plan moves to <code>approved</code> status and an <strong>Execute</strong> button appears.",
       "asset": "Approved plan"
     },
     {
-      "where": "Integrations and preview › Plans › (approved plan)",
+      "where": "Integrations › Plans › (approved plan)",
       "do": "Execute the plan. Click <strong>Execute</strong>. Aria reaches the first step, <code>judge.create</code>, but the planner could not know the judge's name or instructions, so it pauses on a violet <strong>Aria needs information</strong> form: <em>\"Provide the required inputs for step 1: Create judge.\"</em> with a field per capability input (<em>name</em> and <em>instructions</em> are marked required) and two buttons, <strong>Continue plan</strong> and <strong>Skip step</strong>.",
       "click": "Execute",
       "see": "The plan pauses on the <code>judge.create</code> step (<em>WAITING INPUT</em>) with an <strong>Aria needs information</strong> form.",
       "asset": "Plan running, paused at the judge.create input form"
     },
     {
-      "where": "Integrations and preview › Plans › (input form)",
+      "where": "Integrations › Plans › (input form)",
       "do": "Fill the form with the judge spec from <a href=\"../cookbooks/12-aria-evaluation-harness/assets/judges/answer-faithfulness.judge.json\">answer-faithfulness.judge.json</a> — these are the <code>judge.create</code> inputs. The <strong>instructions</strong> must reference <code>{{ inputs }}</code> / <code>{{ outputs }}</code> / <code>{{ expectations }}</code> (at least one is required); set <strong>feedback value type</strong> to <code>bool</code>. Click <strong>Continue plan</strong>: Aria merges and validates the inputs (a bad value is rejected and the form stays open), then — because autonomy is <em>ask_each</em> — raises an <strong>Aria needs your approval</strong> prompt, <em>\"Approve step 1: Create judge (judge.create)?\"</em>.",
       "fill": [
         [
@@ -87,14 +87,14 @@
       ]
     },
     {
-      "where": "Integrations and preview › Plans › (interaction prompt)",
+      "where": "Integrations › Plans › (interaction prompt)",
       "do": "Click <strong>Approve</strong> — Aria runs <code>judge.create</code> and the plan moves on to <code>eval_dataset.create</code>. That step has nothing to ask: the planner linked its <code>name</code> to the judge step's <code>name</code>, so it raises only an <strong>Approve</strong> / <strong>Deny</strong> prompt. Click <strong>Approve</strong> again; Aria creates an <em>empty</em> versioned test set (named <code>AnswerFaithfulness</code>, taken from the judge step) and the plan reaches <code>completed</code>. (<strong>Deny</strong> would mark a step <em>skipped</em> instead.)",
       "click": "Approve",
       "see": "Both steps show <em>DONE</em> and the plan status is <strong>COMPLETED</strong>.",
       "asset": "Plan completed (judge + test set created by Aria)"
     },
     {
-      "where": "Also in the alpha › Judges  +  Core journey › Test Sets  +  Integrations and preview › Plans",
+      "where": "Agent resources › Judges  +  Prompt lifecycle › Test Sets  +  Integrations › Plans",
       "do": "Verify the end-to-end result. Confirm three things: <strong>Judges</strong> shows <code>AnswerFaithfulness</code> active with <em>Returns</em> = <code>bool</code>; <strong>Test Sets</strong> shows an empty test set <code>AnswerFaithfulness</code> at version 1; and the <strong>Plans</strong> page shows the plan <code>completed</code> with both steps done. Together these prove Aria turned one sentence into a governed two-step plan and created the two real artifacts. (For a separately named set, create one on <strong>Test Sets</strong> from <a href=\"../cookbooks/12-aria-evaluation-harness/assets/datasets/support-faithfulness.dataset.json\">support-faithfulness.dataset.json</a>.)",
       "see": "An active judge, a real test set, and a completed two-step plan — the scenario gate.",
       "asset": "Verified judge + test set + completed plan",
@@ -106,7 +106,7 @@
       ]
     },
     {
-      "where": "Operate › Observability  +  Core journey › Evaluations",
+      "where": "Operate › Observability  +  Prompt lifecycle › Evaluations",
       "do": "(Follow-up) Put the harness to work. Add example rows to the new <code>AnswerFaithfulness</code> test set — either author them in the row editor at <code>/eval-datasets/:id → + Add example</code>, or in <strong>Observability</strong> open a trace, use its <strong>Add to test set</strong> panel, pick the test set under <strong>Choose test set</strong>, and click <strong>Add example</strong> (or reuse a starter dataset such as <code>cookbooks/01-prompt-regression-lab/assets/dataset/</code>). Then go to <strong>Evaluations</strong>, click <strong>Run evaluation</strong>, pick the test set, tick the built-in <strong>Graders</strong>, and tick your <code>AnswerFaithfulness</code> judge under <strong>Custom LLM judges</strong> so it runs as a <code>Judge.&lt;id&gt;</code> scorer for an automatic per-row verdict. This is the same scored-run loop as SCN-01 / SCN-10 and needs a real model provider — the default evaluator and LLM are fake, and <strong>Run evaluation</strong> returns a 400 without one.",
       "fill": [
         [

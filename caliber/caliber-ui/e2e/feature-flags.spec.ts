@@ -125,12 +125,11 @@ test.describe("Feature flags (alpha defaults)", () => {
         label,
       );
     }
-    // The group keeps the LLM Gateway, and stops promising previews it no longer lists.
+    // The group keeps the LLM Gateway under the same neutral title.
     expect(labels).toContain("LLM Gateway");
     await expect(
       nav.getByRole("button", { name: "Integrations", exact: true }),
     ).toBeVisible();
-    await expect(nav.getByText("Integrations and preview")).toHaveCount(0);
     await expect(nav.getByTestId("nav-preview-pill")).toHaveCount(0);
 
     await expect(page.getByRole("button", { name: "Ask Aria" })).toHaveCount(0);
