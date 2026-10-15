@@ -84,12 +84,16 @@ describe("FeatureGate", () => {
     const panel = await screen.findByTestId("feature-disabled-panel");
     expect(
       screen.getByRole("heading", {
-        name: "This area is disabled in this deployment",
+        name: "This isn't available on this deployment",
       }),
     ).toBeInTheDocument();
     expect(panel).toHaveTextContent("Cookbooks");
     expect(panel).toHaveTextContent("CALIBER_FEATURE_COOKBOOKS=true");
-    expect(panel).toHaveTextContent("Preview");
+    // No maturity word: the user is told it is unavailable, and an administrator how to change that.
+    expect(panel.textContent ?? "").not.toMatch(
+      /\b(preview|alpha|beta|record-only)\b/i,
+    );
+    expect(panel).toHaveTextContent("An administrator can turn it on");
     expect(screen.queryByText("Cookbook gallery")).not.toBeInTheDocument();
 
     // Not a redirect: the URL stays where the user went.
@@ -101,7 +105,7 @@ describe("FeatureGate", () => {
     expect(screen.getByTestId("current-path")).toHaveTextContent("/");
   });
 
-  it("labels a record-only area as record-only", async () => {
+  it("names a record-only area without labelling it", async () => {
     server.use(
       http.get(`${API_BASE}/capabilities`, () =>
         HttpResponse.json(capabilitiesBody()),
@@ -118,7 +122,7 @@ describe("FeatureGate", () => {
       "Release-candidate signoff and workspace releases",
     );
     expect(panel).toHaveTextContent("CALIBER_FEATURE_RELEASE_CANDIDATES=true");
-    expect(panel).toHaveTextContent("Record-only");
+    expect(panel.textContent ?? "").not.toMatch(/record-only/i);
   });
 
   it("shows neither the page nor the disabled panel while capabilities load", async () => {
@@ -193,7 +197,7 @@ describe("FeatureDisabledNotice", () => {
     renderNotice();
     const note = await screen.findByTestId("feature-disabled-notice");
     expect(note).toHaveTextContent(
-      "Generating test cases needs Aria assistant and plans, which is disabled in this deployment.",
+      "Generating test cases needs Aria assistant and plans, which isn't enabled on this deployment.",
     );
     expect(note).toHaveTextContent("CALIBER_FEATURE_ARIA=true");
     expect(screen.getByRole("link", { name: "Test Sets" })).toBeInTheDocument();

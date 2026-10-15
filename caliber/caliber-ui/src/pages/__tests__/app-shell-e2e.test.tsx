@@ -1498,13 +1498,13 @@ describe("App shell: feature-flagged areas", () => {
   }
 
   for (const route of DISABLED_ROUTES) {
-    it(`explains that ${route.path} is disabled instead of rendering it, and calls nothing`, async () => {
+    it(`explains that ${route.path} is unavailable instead of rendering it, and calls nothing`, async () => {
       const gatedCalls = serveCapabilities({});
       renderApp(route.path);
 
       const panel = await screen.findByTestId("feature-disabled-panel");
       expect(
-        within(panel).getByRole("heading", { name: "This area is disabled in this deployment" }),
+        within(panel).getByRole("heading", { name: "This isn't available on this deployment" }),
       ).toBeInTheDocument();
       expect(panel).toHaveTextContent(route.label);
       expect(panel).toHaveTextContent(`${route.env}=true`);

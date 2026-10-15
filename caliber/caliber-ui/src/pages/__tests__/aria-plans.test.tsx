@@ -92,7 +92,7 @@ describe("AriaPlans", () => {
     ).toBeGreaterThan(0);
   });
 
-  it("is labelled Preview, and says Aria needs a configured engine (alpha P1-10)", async () => {
+  it("carries no maturity label, and says nothing when Aria can answer", async () => {
     server.use(
       http.get(`${API_BASE}/aria/plans`, () => HttpResponse.json(envelope([makePlan()]))),
     );
@@ -100,8 +100,9 @@ describe("AriaPlans", () => {
     await screen.findByText("Create a faithfulness judge");
 
     expect(screen.getByRole("heading", { name: "Aria Plans" })).toBeInTheDocument();
-    expect(screen.getByTestId("preview-badge")).toHaveTextContent("Preview");
-    expect(screen.getByTestId("preview-banner")).toHaveTextContent("configured LLM engine");
+    expect(screen.queryByTestId("preview-badge")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("preview-banner")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("aria-unavailable-note")).not.toBeInTheDocument();
   });
 
   it("shows why Aria cannot answer when no engine is configured (alpha P1-11)", async () => {
@@ -128,7 +129,7 @@ describe("AriaPlans", () => {
     await screen.findByText("Create a faithfulness judge");
 
     await waitFor(() =>
-      expect(screen.getByTestId("preview-banner")).toHaveTextContent("OPENAI_API_KEY is not set"),
+      expect(screen.getByTestId("aria-unavailable-note")).toHaveTextContent("OPENAI_API_KEY is not set"),
     );
   });
 

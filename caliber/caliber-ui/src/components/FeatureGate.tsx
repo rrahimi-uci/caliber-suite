@@ -18,11 +18,6 @@ import { Link } from "react-router-dom";
 import type { FeatureId, FeatureInfo } from "@/api/workflowTypes";
 import { useFeature } from "@/hooks/useFeature";
 
-const STABILITY_LABEL: Record<FeatureInfo["stability"], string> = {
-  preview: "Preview",
-  record_only: "Record-only",
-};
-
 export function FeatureGate({
   feature,
   children,
@@ -56,17 +51,14 @@ export function FeatureDisabledPanel({
       data-testid="feature-disabled-panel"
       className="mx-auto max-w-xl rounded-2xl border border-slate-200/70 bg-white p-8 shadow-card dark:border-white/10 dark:bg-slate-900"
     >
-      <span className="inline-flex items-center rounded-full bg-slate-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-slate-600 dark:bg-white/10 dark:text-slate-300">
-        {STABILITY_LABEL[info.stability]}
-      </span>
-      <h1 className="mt-3 text-xl font-semibold text-gray-900 dark:text-slate-100">
-        This area is disabled in this deployment
+      <h1 className="text-xl font-semibold text-gray-900 dark:text-slate-100">
+        This isn&apos;t available on this deployment
       </h1>
       <p className="mt-1 text-sm font-medium text-gray-700 dark:text-slate-200">
         {info.label}
       </p>
       <p className="mt-3 text-sm text-gray-500 dark:text-slate-400">
-        It is switched off by default in the alpha. To turn it on, set{" "}
+        An administrator can turn it on by setting{" "}
         <code className="rounded bg-slate-100 px-1.5 py-0.5 font-mono text-xs text-slate-800 dark:bg-white/10 dark:text-slate-200">
           {info.env_var}=true
         </code>{" "}
@@ -106,9 +98,10 @@ export function FeatureDisabledNotice({
       data-testid="feature-disabled-notice"
       className="rounded-lg border border-slate-200 bg-slate-50 px-4 py-3 text-sm text-slate-700 dark:border-white/10 dark:bg-white/5 dark:text-slate-300"
     >
-      {what} needs {info.label}, which is disabled in this deployment. Set{" "}
+      {what} needs {info.label}, which isn&apos;t enabled on this deployment. An
+      administrator can enable it by setting{" "}
       <code className="font-mono text-xs">{info.env_var}=true</code> on the
-      server to enable it.
+      server.
       {children ? <> {children}</> : null}
     </div>
   );

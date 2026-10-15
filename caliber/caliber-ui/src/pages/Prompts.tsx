@@ -8288,7 +8288,7 @@ export function readStringArray(value: unknown): string[] {
 }
 
 export function scorerCategoryLabel(category: string): string {
-  if (category === "deepeval_beta") return "DeepEval (Beta)";
+  if (category === "deepeval_beta") return "DeepEval";
   if (category === "core") return "Core MLflow";
   return category;
 }

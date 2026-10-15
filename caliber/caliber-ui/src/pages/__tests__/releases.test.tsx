@@ -364,7 +364,7 @@ describe("Releases", () => {
     expect(noVersionEvent).not.toHaveTextContent("→");
   });
 
-  it("leads with what is live and labels the signoff factory record-only (alpha P1-10)", async () => {
+  it("leads with what is live and says the signoff factory only records a decision", async () => {
     server.use(
       http.get(`${API_BASE}/releases/live`, () => HttpResponse.json(envelope([]))),
       http.get(`${API_BASE}/releases/timeline`, () => HttpResponse.json(envelope([]))),
@@ -380,9 +380,10 @@ describe("Releases", () => {
     expect(screen.getByTestId("releases-timeline").compareDocumentPosition(factory) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy();
 
     const note = within(factory).getByTestId("release-signoff-record-only");
-    expect(note).toHaveTextContent("record-only");
+    expect(note).toHaveTextContent("records a decision");
     expect(note).toHaveTextContent("does not deploy or roll back anything");
-    expect(within(factory).getByTestId("preview-badge")).toHaveTextContent("Preview");
+    expect(within(factory).queryByTestId("preview-badge")).not.toBeInTheDocument();
+    expect(note.textContent ?? "").not.toMatch(/\b(preview|alpha|beta)\b/i);
   });
 
   it("shows a released prompt on the live board, with its alias and a link to Prompts (alpha P1-13)", async () => {

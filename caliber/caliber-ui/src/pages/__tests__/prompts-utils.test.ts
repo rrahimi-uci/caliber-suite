@@ -36,7 +36,7 @@ describe("Prompts utility helpers", () => {
   });
 
   it("formats scorer categories and overall score safely", () => {
-    expect(scorerCategoryLabel("deepeval_beta")).toBe("DeepEval (Beta)");
+    expect(scorerCategoryLabel("deepeval_beta")).toBe("DeepEval");
     expect(scorerCategoryLabel("core")).toBe("Core MLflow");
     expect(scorerCategoryLabel("custom")).toBe("custom");
 

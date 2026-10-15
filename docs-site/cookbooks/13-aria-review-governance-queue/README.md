@@ -33,8 +33,7 @@ Read [`../ARIA-AUTONOMY.md`](../ARIA-AUTONOMY.md) and [`../FEASIBILITY.md`](../F
 
 ## Prerequisites
 
-- Aria Plans enabled (`CALIBER_FEATURE_ARIA=true`; sidebar **Integrations and
-  preview › Plans**, a Preview page) and the operator role. No model provider is needed to create the queue.
+- Aria Plans enabled (`CALIBER_FEATURE_ARIA=true`; sidebar **Integrations › Plans**) and the operator role. No model provider is needed to create the queue.
 
 ## Recipe (UI-first, with API fallbacks)
 

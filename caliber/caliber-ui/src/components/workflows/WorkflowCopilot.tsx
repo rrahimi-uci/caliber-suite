@@ -125,9 +125,6 @@ export function WorkflowCopilot({ versionId, manifest, onApply }: WorkflowCopilo
       <div className="border-b border-zinc-200 px-4 py-3">
         <div className="flex items-center gap-2">
           <span className="text-sm font-semibold text-zinc-900">Copilot</span>
-          <span className="rounded-full bg-violet-100 px-2 py-0.5 text-[10px] font-medium text-violet-700">
-            beta
-          </span>
         </div>
         <p className="mt-0.5 text-xs text-zinc-500">Describe a change, then preview & iterate.</p>
       </div>

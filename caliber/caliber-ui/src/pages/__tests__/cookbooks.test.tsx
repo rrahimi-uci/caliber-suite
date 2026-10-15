@@ -97,7 +97,7 @@ describe("Cookbooks", () => {
     expect(screen.queryByTestId("cookbook-card-01")).not.toBeInTheDocument();
   });
 
-  it("is labelled Preview in the header and with a banner (alpha P1-10)", async () => {
+  it("carries no maturity label in the header or a banner", async () => {
     server.use(
       http.get(`${API_BASE}/cookbooks`, () => HttpResponse.json(envelope(CATALOG))),
     );
@@ -105,8 +105,8 @@ describe("Cookbooks", () => {
     await screen.findByTestId("cookbook-card-01");
 
     expect(screen.getByRole("heading", { name: "Cookbooks" })).toBeInTheDocument();
-    expect(screen.getByTestId("preview-badge")).toHaveTextContent("Preview");
-    expect(screen.getByTestId("preview-banner")).toHaveTextContent("outside the supported alpha journey");
+    expect(screen.queryByTestId("preview-badge")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("preview-banner")).not.toBeInTheDocument();
   });
 
   it("requires prerequisite review, installs a paused draft, and opens its editor", async () => {

@@ -10,8 +10,8 @@ decision, and retain an Allure-compatible report.
 
 ## Feasibility & substitutions
 
-- ⚠️ **Preview, record-only.** **Releases** (sidebar **Prompt lifecycle**) shows a
-  *Preview, record-only* note on the **Release signoff factory** section: signing
+- ⚠️ **Record-only.** **Releases** (sidebar **Prompt lifecycle**) has a note on the
+  **Release signoff factory** section: signing
   off a candidate records a decision; it does **not** deploy or roll back anything
   (the release path on that page is Apply and Rollback on a prompt).
 - ✅ Release candidates, weighted criteria, evidence references, blocking
@@ -47,7 +47,7 @@ decision, and retain an Allure-compatible report.
 ## Recipe
 
 1. With `CALIBER_FEATURE_RELEASE_CANDIDATES=true` set, open **Prompt lifecycle › Releases** and scroll to the
-   **Release signoff factory** section (it carries a Preview badge and the *Preview, record-only* note).
+   **Release signoff factory** section (a note there says signing off records a decision and deploys nothing).
 2. Click **New candidate**. Enter the **Release candidate name**, the artifact type
    (Workflow / Prompt / Skill / Knowledge base), the **Artifact ID or registry
    name**, the **Candidate version**, the **Rollback version**, and the required

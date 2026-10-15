@@ -310,7 +310,7 @@ CALIBER is **alpha**. `0.1.0a1` is the version prepared on `main`; the `caliber-
 | --- | --- |
 | **Core journey** (supported, proven end to end in CI) | Prompts (author, version, promote, roll back), test sets, evaluations, calibration, review and Apply, projects and roles, access tokens, audit log, release timeline, readiness |
 | **Also in the alpha** (supported, with stated prerequisites) | Skills, tools (trusted authors; the sandbox is a process boundary, not isolation), workflows, knowledge bases and the object-store console (need an S3 or MinIO bucket) |
-| **Preview** (works, outside the supported journey, may change; marked in the app; **off by default**) | MCP servers and OpenAPI integrations (off by default; enable with `CALIBER_FEATURE_INTEGRATIONS`), cookbooks (off by default; enable with `CALIBER_FEATURE_COOKBOOKS`), the Aria assistant and plans (off by default; enable with `CALIBER_FEATURE_ARIA`) |
+| **Preview** (works, outside the supported journey, may change; **off by default**) | MCP servers and OpenAPI integrations (off by default; enable with `CALIBER_FEATURE_INTEGRATIONS`), cookbooks (off by default; enable with `CALIBER_FEATURE_COOKBOOKS`), the Aria assistant and plans (off by default; enable with `CALIBER_FEATURE_ARIA`) |
 | **Record-only** (**off by default**) | Release-candidate signoff on the Releases page: it records a decision and deploys nothing (off by default; enable with `CALIBER_FEATURE_RELEASE_CANDIDATES`) |
 | **Experimental** (**off by default**) | Workspace releases (API, SDK, `caliberctl workspace`): release evaluation has no executor in this build (off by default; enable with `CALIBER_FEATURE_RELEASE_CANDIDATES`) |
 | **Not in the alpha** | Memory, and the flagged-trace to refinement loop |

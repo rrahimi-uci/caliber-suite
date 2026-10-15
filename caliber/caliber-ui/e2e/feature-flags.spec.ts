@@ -150,7 +150,7 @@ test.describe("Feature flags (alpha defaults)", () => {
       await expect(panel).toBeVisible();
       await expect(
         panel.getByRole("heading", {
-          name: "This area is disabled in this deployment",
+          name: "This isn't available on this deployment",
         }),
       ).toBeVisible();
       await expect(panel).toContainText(feature.label);

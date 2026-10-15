@@ -717,7 +717,7 @@ function ActiveProvidersCard(): JSX.Element | null {
           provider to a real one. To use real ones, set{" "}
           <code className="font-mono">CALIBER_LLM_PROVIDER=openai</code> and{" "}
           <code className="font-mono">CALIBER_EVAL_PROVIDER=mlflow</code> in the server's environment
-          and restart. See <em>Alpha install, Real LLM and evaluation</em> in the docs.
+          and restart. See <em>Real LLM and evaluation</em> in the install guide in the docs.
         </p>
       )}
     </section>
