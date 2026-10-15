@@ -2,7 +2,7 @@
 feasibility:
   - These gates check Aria's PLAN and the REAL artifact it created; there is no LLM judge OF Aria here.
   - Plan + step status + interactions are observable via GET /aria/plans/{id} and /aria/plans/{id}/interactions.
-  - review_queue.add_items shares the domain "review_queue", so it is also proposed. It is OPTIONAL: completed if you enqueue trace_ids, skipped if you deny it. Gate on the queue, not on enqueue.
+  - review_queue.add_items shares the domain "review_queue", so it is also proposed. It is OPTIONAL: completed if you enqueue trace_ids, skipped if you Skip step / deny it. Gate on the queue, not on enqueue.
 evaluation:
   plan_checks:
     - plan_decomposed_from_intent
@@ -13,7 +13,7 @@ evaluation:
     - questions_include_safety_and_citation_and_tone   # the demo schema (keys are yours)
     - review_queue_add_items_completed_or_skipped       # completed if trace_ids supplied, else cleanly skipped
 quality_gates:
-  steps_completed_min: 1     # review_queue.create; add_items may be skipped by denying it
+  steps_completed_min: 1     # review_queue.create; add_items may be skipped (Skip step / Deny)
   required_interactions_answered: true
   artifacts_real: true       # the review queue exists in Review Queues with its questions
 monitoring:
@@ -26,7 +26,7 @@ monitoring:
     - steps_completed
     - interactions_count
     - questions_count
-    - items_added                # 0 when add_items was denied/skipped
+    - items_added                # 0 when add_items was skipped
 feedback_loop:
   - if the plan misses the queue capability, sharpen the intent wording (the literal phrase "review queue") and re-decompose.
   - reviewers answer the queue's questions; answers write mlflow feedback (assessments) + expectations back onto the trace.

@@ -195,6 +195,70 @@ SDK_SURFACE_MAP = {
         "entry": "`client.secrets`",
         "notes": "Secret inventory and mutation surfaces.",
     },
+    "agents": {
+        "entry": "`client.agents`",
+        "notes": "The agent record that verification items, refinement jobs, approvals and rollback checkpoints hang off.",
+    },
+    "workflow-components": {
+        "entry": "`client.workflows.components()`",
+        "notes": "The workflow node catalog, with each component's runtime requirements.",
+    },
+    "workflow-templates": {
+        "entry": "`client.workflows.templates()`",
+        "notes": "Starter workflow templates.",
+    },
+    "workflow-files": {
+        "entry": "`client.workflows.upload_staging_file()`",
+        "notes": "Staging uploads for workflow inputs.",
+    },
+    "workflow-cron-preview": {
+        "entry": "`client.workflows.cron_preview()`",
+        "notes": "Preview the next fire times of a cron expression.",
+    },
+    "workflow-promotions": {
+        "entry": "`client.workflows.promotions`",
+        "notes": "Approve or reject a gated workflow promotion.",
+    },
+    "workflow-benchmark-reports": {
+        "entry": "`client.workflows.benchmark_reports`",
+        "notes": "Workflow benchmark report records.",
+    },
+    "playground-runs": {
+        "entry": "`client.playground_runs`",
+        "notes": "Files for an ad-hoc sandbox preview run (the playground, not a persisted workflow run).",
+    },
+    "assistant": {
+        "entry": "`client.aria.sessions`, `client.aria.drafts`",
+        "notes": "Aria chat sessions and drafts (preview).",
+    },
+    "dashboard": {
+        "entry": "`CaliberClient.dashboard_summary()`",
+        "notes": "The dashboard summary.",
+    },
+    "gate-verdicts": {
+        "entry": "`client.gate_verdicts`",
+        "notes": "Advisory per-version evaluation verdicts. They never block alias rotation, and they are not project-scoped.",
+    },
+    "health": {
+        "entry": "`CaliberClient.health()`",
+        "notes": "The bare liveness body: status, version and database.",
+    },
+    "llm-pricing": {
+        "entry": "`client.llm_pricing`",
+        "notes": "Per-model token pricing (USD per 1K), used to cost gateway usage.",
+    },
+    "memory": {
+        "entry": "`client.memory`",
+        "notes": "Add, search, list and delete agent long-term memory records.",
+    },
+    "readiness": {
+        "entry": "`CaliberClient.readiness()`",
+        "notes": "The enveloped readiness report with its blocking checks.",
+    },
+    "system": {
+        "entry": "`client.system`",
+        "notes": "Effect-ledger and webhook recovery: outward-facing work CALIBER could not complete and a person must resolve.",
+    },
 }
 PREFERRED_TAG_ORDER = {
     "openapi.json": 0,

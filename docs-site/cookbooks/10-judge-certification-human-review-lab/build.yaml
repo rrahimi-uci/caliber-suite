@@ -2,7 +2,7 @@ workflow_goal: Establish a reliable automated+human scoring loop for release-cri
 # Verified against the live build — see ../FEASIBILITY.md.
 feasibility:
   - Judges are custom LLM judges only (instructions reference {{ inputs }}/{{ outputs }}/{{ expectations }}, feedback_value_type bool/int/float/str). FaithfulnessJudge maps to this.
-  - alignment_score / disagreements are NOT auto-computed — compare the judge scorecard against reviewer answers by hand.
+  - alignment_score / disagreements ARE computed in-product (POST /judges/{id}/alignment; Judges -> Try it -> Human alignment -> Import labels -> Check alignment): the judge runs on each labeled output and returns agreement rate, Cohen's kappa, a confusion breakdown (FP/FN) and per-example agreement. Labels are imported from a completed Review Queue pass/fail question (with provenance) or typed in.
   - The Test Sets detail page (/eval-datasets/:id) is wired (EvalDatasetDetail row editor) — author/edit rows with + Add example (revise/supersede/from-trace) or via the API. Harvest dataset rows from traces via POST /eval-datasets/{id}/examples/from-trace.
   - The "workflow" here is a process (evaluate -> review_queue -> reconcile), not a built workflow graph.
 manual_flow:

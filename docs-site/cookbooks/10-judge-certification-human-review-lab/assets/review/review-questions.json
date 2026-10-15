@@ -24,5 +24,5 @@
       "target": "feedback"
     }
   ],
-  "notes": "Configure these when creating the queue (Observe -> Review Queues -> New queue), then enqueue the sampled trace ids via POST /review-queues/{id}/items {trace_ids:[...]}. Keep the 'faithful' question wording aligned with judges/faithfulness-judge.judge.json so a pass/fail answer maps cleanly to the judge's true/false verdict. Alignment between the two is tallied by hand on alignment/alignment-worksheet.md — it is not auto-computed."
+  "notes": "Configure these when creating the queue (Operate -> Review Queues -> New queue), then enqueue the sampled trace ids via POST /review-queues/{id}/items {trace_ids:[...]}. Keep the 'faithful' question wording aligned with judges/faithfulness-judge.judge.json so a pass/fail answer maps cleanly to the judge's true/false verdict. Alignment between the two is computed in the Judges page (Human alignment -> Import labels -> Check alignment); alignment/alignment-worksheet.md is an optional paper cross-check."
 }

@@ -15,6 +15,9 @@ where human review is still deliberate rather than accidental.
 | strict docs rebuild + sync | `CALIBER_DOCS_PYTHON=caliber/.venv/bin/python CALIBER_DOCS_STRICT=1 node caliber/caliber-ui/scripts/sync-docs.mjs` |
 | focused docs validation | `caliber/.venv/bin/python -m pytest caliber/tests/test_docs_generation_contract.py caliber/tests/test_docs_mermaid_contract.py caliber/tests/test_sdk_docs_contract.py caliber/tests/test_cookbook_doc_contract.py caliber/tests/test_cookbook_steps_contract.py caliber/tests/test_design_principles_contract.py caliber/tests/test_ci_published_site_gate_contract.py caliber/tests/test_docs_executable_spec_contract.py --no-cov` |
 | CI docs gate | `.github/workflows/ci.yml` → `docs-validation` job (uploads `docs-validation-junit.xml`) |
+| package checks | `make sdk`, `make plugin-sdk`, `make cli` (each in its own venv, no server dependencies) |
+| CI gates on your machine | `scripts/ci-local.sh` (every `ci.yml` job that runs code), `scripts/ci-local.sh --fast`, or `scripts/ci-local.sh lint docs-validation` for named jobs |
+| built-artifact checks | `scripts/verify-wheel-boot.sh`, `scripts/verify-alpha-install.sh`, `scripts/verify-compose-stack.sh` |
 
 ## 1. Keep docs and code in the same automation loop
 
@@ -31,12 +34,39 @@ For docs and integration changes in this repository:
 
 The current CI pipeline keeps this explicit:
 
-- `ui` builds the SPA from the committed docs copies
+- `ui` type-checks, lints, tests and builds the SPA (its `prebuild` step runs the
+  docs sync without strict mode, so a missing generator keeps the committed copies)
 - `docs-validation` is the place that regenerates docs, checks generated-copy
-  parity, and fails on invalid snippets, stale routes, or hallucinated config
-  names
+  parity (`docs-site`, `caliber/caliber-ui/public/docs`,
+  `caliber/src/caliber/ui/docs`), and fails on invalid snippets, stale routes, or
+  hallucinated config names
+- `sdk`, `plugin-sdk` and `cli` run only when their package (or a workflow file)
+  changed. The SDK job fails if `mlflow`, `sqlalchemy` or `starlette` appears in
+  the wheel's runtime requirements, and the CLI job installs `caliber-cli` against
+  the SDK in the same commit, which `caliber-cli` pins as `caliber-sdk>=0.1.0a1,<0.2`
+- `backend-core` runs the alpha journey's contract tests on every pull request
+- `package` builds the server wheel with the bundled SPA and then installs it alone
+  into a fresh venv, migrates, boots it and fetches `/health` and the SPA
+  (`scripts/verify-wheel-boot.sh`)
+- `alpha-install` builds the three wheels and follows the
+  [Alpha install](m-60-alpha-install.md) page in a venv away from the checkout
+  (`scripts/verify-alpha-install.sh`), and `alpha-journey` drives the browser
+  journeys
+- `compose` validates the merged Compose model, and builds the MLflow image when
+  the stack files (`deploy/**`, `.env.example`) changed
+- `gate-ledger` records which of the required gates actually ran
+- the full backend suite, the Python 3.10 and 3.12 compatibility legs, the MLflow
+  integration slice and the browser cookbook journeys run on pushes to `main`,
+  not on pull requests
 - Pages publishes only after CI succeeds on `main`, so the public HTML comes
   from a commit that already passed the docs gate
+- `.github/workflows/stack-smoke.yml` builds the CALIBER and MLflow images and
+  probes the documented compose stack weekly (Mondays 05:17 UTC), on manual
+  dispatch, and on pull requests that touch the stack; a second job runs the
+  knowledge-base journey against real MinIO and PostgreSQL
+  (`scripts/verify-knowledge-stack.sh`). It is deliberately not a
+  required check and `scripts/ci-local.sh` does not mirror it; run
+  `scripts/verify-compose-stack.sh` by hand to do the same locally
 
 ## 3. Preserve human review where the product expects it
 

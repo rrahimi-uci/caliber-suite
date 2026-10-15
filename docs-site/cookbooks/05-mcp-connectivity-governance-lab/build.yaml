@@ -1,7 +1,9 @@
 workflow_goal: Prove MCP safety and reliability before any workflow dependency.
 # Verified against the live build — see ../FEASIBILITY.md.
 feasibility:
-  - Policy field mapping — blocked = allowed:false is the ONLY control enforced on the DIRECT invoke path (a blocked tool refuses); requires_approval:true gates the tool at WORKFLOW time (human_approval node), NOT on direct invoke; side_effect_level = read|write.
+  - Policy field mapping — blocked = allowed:false is the ONLY control enforced on the DIRECT invoke path (a blocked tool refuses); requires_approval:true gates the tool at WORKFLOW time (human_approval node), NOT on direct invoke; side_effect_level = read|write|external_action.
+  - Every tool must be classified (allowed + side_effect_level + requires_approval) before invoke/test/calibrate; unclassified tools are refused. Catalog templates seed the classification; any policy PATCH saves the full merged policy. A write/external_action tool that stays allowed needs requires_approval:true (400 otherwise).
+  - In the Playground a blocked tool has Invoke disabled, so the refusal payload comes from POST /mcp-servers/{id}/invoke-tool (admin scope).
   - Quick-connect catalog has 8 templates (GitHub, PostgreSQL, pgvector, Apache AGE, MinIO, Hugging Face, Ollama, Playwright); data-testid catalog-<id>.
   - Tool calibration is real (PUT .../tools/{tool}/test-cases then POST .../tools/{tool}/calibrate); PolicyCorrectness is a deterministic assertion check, not an LLM judge.
 manual_flow:
@@ -25,7 +27,7 @@ components:
     policy_overlay:
       - blocked            # PATCH .../tools/{tool}/policy {allowed:false}
       - approval_required  # PATCH .../tools/{tool}/policy {requires_approval:true}
-      - side_effect_level  # read | write
+      - side_effect_level  # read | write | external_action
   workflow: optional_future_binding_only
 contracts:
   input_schema:

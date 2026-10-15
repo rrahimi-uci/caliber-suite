@@ -6,7 +6,7 @@ audience:
 doc_type: reference
 product_area: strategy
 stability: beta
-summary: Release notes for CALIBER 0.1.0a1, the alpha prerelease tagged caliber-v0.1.0a1 - what is in it, how to install it, what was verified and how, and what is known not to work.
+summary: Draft release notes for CALIBER 0.1.0a1, pending the alpha tag, release assets, and tag-commit verification.
 prerequisites:
   - Read the Alpha scope and limitations page, which is the authority on what the alpha claims
 tags:
@@ -16,14 +16,18 @@ tags:
 
 # CALIBER 0.1.0a1 (alpha)
 
-Tag `caliber-v0.1.0a1`, a **prerelease**. It is for people who are willing to install it, use it and report
+> **Draft for the release cut (2026-10-14).** The tag and GitHub prerelease do not exist yet.
+> The checks below describe current `main` and must be rerun or confirmed on the tag commit
+> before these notes are published. The asset list below is the planned release contents.
+
+The planned tag is `caliber-v0.1.0a1`, a **prerelease**. It is for people who are willing to install it, use it and report
 what breaks. It is not a pilot or production release, makes no stability promise, and is not on PyPI.
 
 Read [Alpha scope and limitations](../start/alpha-scope.md) before you rely on it. It is short, and it is the
 authority on what the alpha does and does not do. [Alpha install](../start/alpha-install.md) is the one install
 path that is tested end to end.
 
-## What is attached
+## Planned assets
 
 Four wheels and their source distributions:
 
@@ -50,7 +54,8 @@ candidate, but the scores are canned and every screen, audit row and release rec
 
 ## What was verified
 
-All of this ran in CI on the commit that was tagged, or is a script anyone can run:
+These checks are wired into CI or have been run on `main`. A green tag-commit run is still
+required before publication:
 
 - **The browser journeys**, offline, on the simulated defaults: a prompt (create, calibrate, review, apply,
   roll back), a skill (the same loop), a tool (register, run, calibrate, baseline, use in a workflow), and the

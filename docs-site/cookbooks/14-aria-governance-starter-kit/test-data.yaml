@@ -5,11 +5,15 @@ intents:
     goal: "Stand up our governance starter kit: a judge for answer faithfulness, an eval dataset to score against, and a review queue for human checks."
     autonomy: ask_each
     expected_plan_steps: [judge.create, eval_dataset.create, review_queue.create, review_queue.add_items]
-    note: "Contains all three domain needles — 'judge', 'eval dataset', 'review queue'. Because review_queue.create and review_queue.add_items share the 'review queue' domain, the planner proposes BOTH; deny add_items (no traces yet)."
+    note: "Contains all three domain needles — 'judge', 'eval dataset', 'review queue'. Because review_queue.create and review_queue.add_items share the 'review queue' domain, the planner proposes BOTH; Skip step on add_items (no traces yet)."
   - id: A14-natural
     goal: "Get our new support answers governed end to end: score them for faithfulness, keep a held-out test set, and let a human spot-check the tricky ones."
-    note: "Natural phrasing. Relies on an LLM planner to map 'score for faithfulness' -> judge, 'test set' -> eval_dataset, and 'human spot-check' -> review_queue. The default HeuristicPlanner needs the literal words 'judge', 'eval dataset', and 'review queue' — use A14-canonical for the deterministic path."
-# What you supply when Aria pauses (one interaction per mutate step):
+    note: "Natural phrasing. The default HeuristicPlanner recognises 'test set' (-> eval_dataset.create) but not 'score for faithfulness' (needs the literal word 'judge') or 'human spot-check' (needs 'review queue'), so this plans only the test-set step. Use A14-canonical for the deterministic path."
+# What you enter when Aria pauses on an "Aria needs information" form (the `inputs` of the step).
+# The planner links `name` between steps, so review_queue.create takes the judge's name and
+# eval_dataset.create takes the queue's name (all three are created as AnswerFaithfulness); those two
+# steps do not prompt for a name, and eval_dataset.create prompts for nothing. The names and
+# description below are the reference specs if you create those artifacts yourself.
 interaction_answers:
   judge.create:
     name: AnswerFaithfulness
@@ -26,11 +30,12 @@ interaction_answers:
       - {key: citation_ok, title: "Are the citations correct and sufficient?", type: pass_fail, required: false, target: feedback}
       - {key: tone, title: "Tone of the answer", type: categorical, options: [on_brand, neutral, off_brand], required: false, target: feedback}
       - {key: notes, title: "Reviewer notes", type: text, required: false, target: feedback}
-# review_queue.add_items: DENY this interaction — there are no traces to enqueue yet.
-# (Answer {approved:false}.) After you run Evaluations and have traces, enqueue
+# review_queue.add_items: click Skip step on its form — there are no traces to enqueue yet.
+# (queue_id is linked from review_queue.create; answering {approved:false} skips it over the API.)
+# After you run Evaluations and have traces, enqueue
 # the hard/low-confidence ones via Review Queues -> Add items (or POST /review-queues/{id}/items {trace_ids}).
 done_when:
   - a judge named AnswerFaithfulness is active in Judges
-  - an eval dataset named release-candidates-eval exists in Test Sets
-  - a review queue named governance-review exists in Review Queues with the four-question schema (faithful, citation_ok, tone, notes)
-  - the Aria plan shows the three create steps completed (add_items denied/skipped)
+  - an empty test set (named AnswerFaithfulness, the judge step's name) exists in Test Sets
+  - a review queue (also named AnswerFaithfulness) exists in Review Queues with the four-question schema (faithful, citation_ok, tone, notes)
+  - the Aria plan shows the three create steps completed (add_items skipped)

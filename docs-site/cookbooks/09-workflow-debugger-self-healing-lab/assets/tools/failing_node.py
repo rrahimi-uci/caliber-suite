@@ -1,7 +1,7 @@
 """failing_node — Caliber workflow `python_code` node body (deliberate fault).
 
 This is NOT a registered tool. Paste the body of this module into a CALIBER
-**Python Code** node (`Compose → Workflows` → drag a *Python Code* node). It
+**Python Code** node (`Also in the alpha → Workflows` → drag a *Python Code* node). It
 needs no registration, versions with the workflow, and uses **stdlib only**.
 
 Its purpose is to MANUFACTURE a reproducible, code-level node failure for the
@@ -38,7 +38,7 @@ THE FIX (fixed behavior) — after the manual patch
   below — `STRICT = True` — is the smallest change that flips fault->handled.
   Flip it to `False` (or delete the raising branch) and re-run the SAME failing
   input to confirm the node now completes with `status="rejected_input"`
-  instead of crashing the run. There is no propose_workflow_patch tool; this
+  instead of crashing the run. No Run Monitor control patches a failed run; this
   edit is the patch.
 
 OUTPUTS (on the node's `result` / `text` ports), post-fix

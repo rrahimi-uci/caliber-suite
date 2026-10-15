@@ -1,3 +1,5 @@
+# Expected values below describe the python_code decide_refund variant (reason_code / requires_approval);
+# the Decision table node emits {decision, matched, matched_rule} only.
 golden_cases:
   - id: T01
     input: {order_id: "ord_1002", account_id: "acct_1432"}

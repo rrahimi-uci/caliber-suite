@@ -1,7 +1,7 @@
 # Verified — see ../FEASIBILITY.md.
 feasibility:
   - PolicyCorrectness is a DETERMINISTIC enforcement check (a blocked tool refuses to invoke; assert via the tool calibration panel), not an LLM judge.
-  - MCP test/discovery/invoke/policy paths emit NO MLflow spans (gateway + route use perf_counter only), so MCP invocations do NOT appear in Observe › Observability. The evidence surface is the Playground History panel (per-invoke success/fail rows), the tool's Blocked badge, and the saved calibration verdicts.
+  - MCP invokes that execute emit one MLflow TOOL span (mcp.<server>.<tool>) from the gateway; test-connection, discovery, policy changes and a blocked refusal emit none. The blocked refusal is only visible in the invoke-tool API response (the Playground disables Invoke for a blocked tool); Playground History is in-memory browser state.
 evaluation:
   deterministic_checks:
     - name: PolicyCorrectness
@@ -15,12 +15,12 @@ quality_gates:
   blocked_tool_enforcement: 1.0
   at_least_one_read_tool_calibrated: true
 monitoring:
-  # MCP test/discovery/invoke/policy paths emit NO MLflow traces, so there is
-  # nothing to observe in Observe › Observability for this lab. Evidence lives
-  # in the Playground UI instead:
+  # An executed invoke emits a TOOL span (mcp.<server>.<tool>) visible in Observability;
+  # test/discovery/policy paths and a blocked refusal emit none. Evidence:
   evidence:
-    - playground_invocation_history  # per-invoke success/fail rows (read = success:true, blocked write = success:false)
-    - tool_blocked_badge             # red "Blocked" badge on the issue_write tool
+    - playground_invocation_history  # in-memory per-invoke rows for executed invokes (read = success:true)
+    - blocked_invoke_api_response    # success:false, error "MCP tool '<name>' is blocked by policy" from POST invoke-tool
+    - tool_blocked_badge             # red "Blocked" badge + disabled Invoke button on the issue_write tool
     - calibration_verdicts           # saved per-case pass/fail + pass_rate on the read tool
   metrics:
     - discovery_tool_count

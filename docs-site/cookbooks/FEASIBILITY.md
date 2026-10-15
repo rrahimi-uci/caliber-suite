@@ -8,7 +8,7 @@ catalog is exported to [`capabilities.json`](capabilities.json); that generated
 inventory, rather than this prose, is the authoritative recipe list.
 
 API base for all endpoints: `/ajax-api/2.0/mlflow/caliber`.
-SPA routes are under `/caliber`. Dev sign-in is `admin` / `admin`.
+SPA routes are under `/caliber`. A fresh local install seeds an `admin` / `admin` bootstrap login only when `auth_bootstrap_allow_insecure_default` is enabled (off by default; a local loopback launcher may opt in); otherwise provide the bootstrap admin password through the configured secret source.
 
 ---
 
@@ -37,9 +37,9 @@ SPA routes are under `/caliber`. Dev sign-in is `admin` / `admin`.
 | | Review Queue enqueue | ✅ Works | `review_queue_enqueue` creates audited, idempotent trace-linked items and fails closed when the runtime binding is absent. |
 | | Run monitor: execute/approve/reject/retry/resume | ✅ Works | `POST /workflow-runs`, `.../approval/approve`, `.../approval/reject`, `.../retry`, `.../resume`, `.../resume-by-event`. Checkpoints, retry lineage ("Attempt N of M"), recovery panel, debugger panel all real. |
 | | HITL approval gate | ✅ Works | `human_approval` node → status `waiting_approval` → approve → `resuming`. RBAC role + multi-sig (`approval_count`) + `timeout_behavior`. |
-| | Edit/patch workflow | ⚠️ Manual only | Edit the manifest in the editor and **save a new version**. A semantic patch API exists (`workflows/patch.py`) but is **not wired to the UI**; there is **no** `propose_workflow_patch` tool. |
-| **Aria / Aria Plans** | Plan decompose → approve → execute | ⚠️ Deterministic planner | Plan **decomposition** is a deterministic `HeuristicPlanner` (keyword→capability), **not** LLM-backed — it emits steps with empty `inputs`, so auto-approving a planned mutation fails validation (drive each artifact via its own route; see ARIA-AUTONOMY + scenarios 12–15). The LLM engines (OpenAI/Anthropic + `fake` double) back Aria's conversational **assistant**, not the planner; no LLM planner is wired into `PlanService`. `POST /aria/plans`, `/approve`, `/execute`, `/poll`. |
-| | Aria capability registry | ⚠️ Narrow | Limited to eval/governance scaffolding: `judge.create`, `eval_dataset.create`, `review_queue.create`, `review_queue.add_items`, `workflow.calibrate` (+ `judge.list`/`review_queue.list` reads). **No** skill/prompt/tool/workflow authoring. Aria **cannot** debug/patch a workflow as a capability — use the run-monitor surfaces. See [`ARIA-AUTONOMY.md`](ARIA-AUTONOMY.md) + scenarios 12–15. |
+| | Edit/patch workflow | ⚠️ Manual in the Run Monitor | To fix a failed run, edit the manifest in the editor and **save a new version**; no Run Monitor control turns a failure into a patch. A semantic patch engine (`workflows/patch.py`) exists: `POST /workflow-versions/{id}/propose-patch` (operator) stores a patch candidate from failure evidence (listed on the workflow's **CALIBER Patches** tab), workflow **Calibrate** generates candidates you can apply, and Aria's chat assistant has a `propose_workflow_patch` tool (proposal only, for an assistant workflow *draft*). None of these is an Aria Plans capability, and no UI page calls the propose-patch route. |
+| **Aria / Aria Plans** | Plan decompose → approve → execute | ✅ Works (deterministic planner) | Plan **decomposition** is a deterministic `HeuristicPlanner` (keyword/synonym→capability, e.g. "test set"→`eval_dataset.create`), **not** LLM-backed; no LLM planner is wired into `PlanService`. It links a step's required field to an earlier step's output of the same name (`queue_id`, and `name`) and leaves the rest empty; at run time the executor raises an `input` interaction and the **Plans** UI shows an **Aria needs information** form (**Continue plan** / **Skip step**; API `answer {inputs}`), which is merged and schema-validated before the step runs. A goal that matches nothing plans no steps, and approve/execute return 409. Async steps (`workflow.calibrate`) park in `waiting_job` and the plan worker resumes them automatically (`/poll` also works; the UI has no Poll button). The LLM engines (OpenAI/Anthropic + `fake` double) back Aria's conversational **assistant**, not the planner. `POST /aria/plans`, `/approve`, `/execute`, `/poll`; Plans is a **Preview** page. |
+| | Aria capability registry | ⚠️ Narrow | Nine capabilities: `judge.create`, `eval_dataset.create`, `review_queue.create`, `review_queue.add_items`, `workflow.calibrate`, plus reads `judge.list`, `review_queue.list`, `openapi_tool.list` and `openapi_tool.invoke` (read-only OpenAPI tools). **No** skill/prompt/tool/workflow authoring. Aria **cannot** debug/patch a workflow as a capability — use the run-monitor surfaces. See [`ARIA-AUTONOMY.md`](ARIA-AUTONOMY.md) + scenarios 12–15. |
 | **Evaluations** | Dataset + scorers → scorecard | ✅ Works (real LLM) | `POST /evaluations`; **no fake fallback** — without a configured provider it returns 400. Per-example detail + run-vs-run compare with deltas. |
 | | Scorers available | ✅ Works | `exact_match`, `token_f1`, `contains_expected`, `non_empty`, plus `Judge.<name>` LLM judges. |
 | | Add a trace to a dataset | ✅ Works | `POST /eval-datasets/{id}/examples/from-trace` (auto-extracts input/expected, tags lineage). |
@@ -62,7 +62,7 @@ SPA routes are under `/caliber`. Dev sign-in is `admin` / `admin`.
 | | Calibrate metrics (inline) | ✅ Works | Recall@k, nDCG@k, Faithfulness, Answer-correctness — computed synchronously. |
 | | AGE sync | ✅ Works (manual) | Build does **not** auto-sync; click **Sync to AGE** (`POST /knowledge-base-versions/{id}/age-sync`) then the version is graph-served. |
 | **Object Store** | Upload / list / preview / extract / delete | ✅ Works (S3/MinIO) | Extract supports `.docx`/`.pptx`/`.xlsx` (not legacy `.doc/.ppt/.xls`). |
-| **Releases** | Candidate / waiver / signoff | ✅ Works | Releases persists weighted criteria, evidence, blockers, admin waivers, rollback targets, and immutable go/no-go snapshots. |
+| **Releases** | Candidate / waiver / signoff | ✅ Works (Preview, record-only) | Releases persists weighted criteria, evidence, blockers, admin waivers, rollback targets, and immutable go/no-go snapshots. Signing off records a decision; it does not deploy or roll back anything. |
 | **Allure** | Release evidence job | ✅ Works | An authorized operator generates and monitors a durable in-product Allure-compatible JSON report job. The separate static HTML test report remains a CI publication artifact. |
 
 ---
@@ -157,19 +157,19 @@ Scenario → starting template:
 This is the canonical "did it pass?" loop used by SCN-01, 06, 07, 08, 10:
 
 1. **Create a dataset.** `POST /eval-datasets` → `{name, description}` (or
-   **Evaluate → Test Sets → + New Test Set**). Add rows in the UI row editor at
+   **Core journey → Test Sets → + New Test Set**). Add rows in the UI row editor at
    `/eval-datasets/:id → + Add example` (set `inputs` + `expectations`/`expected`
    directly), harvest from a trace via **Add example from trace** /
    `.../examples/from-trace`, or POST them with `POST /eval-datasets/{id}/examples`
    (`{inputs:{...}, expectations:{...}}`).
-2. **Create judges if needed** (`Evaluate → Judges → New judge`): name, model,
+2. **Create judges if needed** (`Also in the alpha → Judges → New judge`): name, model,
    `instructions` referencing `{{ inputs }}` / `{{ outputs }}` / `{{ expectations }}`,
    pick `feedback_value_type`.
-3. **Run it** (`Evaluate → Evaluations → Run evaluation`): pick the dataset,
+3. **Run it** (`Core journey → Evaluations → Run evaluation`): pick the dataset,
    select scorers (deterministic) and/or `Judge.<name>`, run.
 4. **Read the scorecard** (`/evaluations/{run_id}`): per-example pass/fail +
    overall. Pick a **baseline** run and compare deltas for regressions.
-5. **Route hard cases to review** (`Observe → Review Queues`): enqueue the
+5. **Route hard cases to review** (`Operate → Review Queues`): enqueue the
    trace ids, answer the questions; answers write back onto the trace.
 6. **Feed back**: add the failures to the dataset (`from-trace`) and re-run.
 

@@ -4,18 +4,19 @@ Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
 
 | # | Artifact | File | Create via |
 | --- | --- | --- | --- |
-| 1 | Bucket + uploads `doc-intake` | [`dataset/sources/`](dataset/sources/) | `Object Store → New bucket` (`doc-intake`), then upload the documents. The sources are **stand-in text** + instructions to make real `.docx`/`.xlsx` — see [`dataset/sources/README.md`](dataset/sources/README.md). API: `POST /object-store/buckets`, `POST /object-store/buckets/doc-intake/object`. |
-| 2 | Prompt `doc-structurer` | [`prompts/doc-structurer.md`](prompts/doc-structurer.md) | `Library → Prompts → New prompt`, paste the body (text below the frontmatter). API: `POST /prompts {name, template, commit_message}` |
-| 3 | Tool `extract_document` | [`tools/extract-document.tool.json`](tools/extract-document.tool.json) | `Library → Tools → New tool → Spec`, paste fields; sandbox-test it (read tool, runs live). API: `POST /tools` |
+| 1 | Bucket + uploads `doc-intake` | [`dataset/sources/`](dataset/sources/) | `Object Store`: type `doc-intake` into the new-bucket field and click **+**, then **Upload** the documents. The sources are **stand-in text** + instructions to make real `.docx`/`.xlsx` — see [`dataset/sources/README.md`](dataset/sources/README.md). API: `POST /object-store/buckets`, `POST /object-store/buckets/doc-intake/objects` (multipart `file`). |
+| 2 | Prompt `doc-structurer` | [`prompts/doc-structurer.md`](prompts/doc-structurer.md) | `Prompts → New prompt`, paste the body (text below the frontmatter). API: `POST /prompts {name, template, commit_message}` |
+| 3 | Tool `extract_document` | [`tools/extract-document.tool.json`](tools/extract-document.tool.json) | `Tools → Register Tool → Spec`, paste fields; sandbox-test it (read tool, runs live). API: `POST /tools` |
 | 4 | Target schema `extracted_fields` | [`schema/extracted-fields.schema.json`](schema/extracted-fields.schema.json) | Not a registered object — paste into the `doc-structurer` `target_schema` variable and into the validate node's `target_schema` input. |
 | 5 | Validator node `validate_document_json` | [`tools/validate_document_json.py`](tools/validate_document_json.py) | A **`python_code` node body** (no registration). Paste into the Python Code node in the workflow. |
-| 6 | Workflow `doc-intake-to-json` | (assemble in Studio) | `Compose → Workflows → New`, template **`blank`**. Nodes: `input_bucket` → `extract_document` (tool) → `agent`/`template` (`doc-structurer`) → `python_code` (`validate_document_json`) → `output`. |
-| 7 | Eval dataset `doc-extraction-cases` | [`dataset/extraction-cases.jsonl`](dataset/extraction-cases.jsonl) | `Evaluate → Test Sets → New dataset`, add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line |
+| 6 | Workflow `doc-intake-to-json` | (assemble in Studio) | `Workflows → New Workflow`, template **`blank`**. Nodes: `extract_document` (tool, `ref` = the run input's local `doc_path`) → `agent`/`template` (`doc-structurer`) → `python_code` (`validate_document_json`) → `output`. (`input_bucket` decodes UTF-8 and caps at 100 KB, so it only suits text stand-ins, not Office binaries.) |
+| 7 | Eval dataset `doc-extraction-cases` | [`dataset/extraction-cases.jsonl`](dataset/extraction-cases.jsonl) | `Test Sets → + New Test Set`, add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line |
 
 Then run the pipeline on each input: a golden file (valid → `validation_status:
 pass`), the partial file (missing `total` → `partial`, `missing_fields`
-populated), and the unsupported/corrupt files (extraction error surfaced
-cleanly, run `fail` — not a crash). Capture run ids + one readable
+populated), and the corrupt `.docx` (extraction error surfaced cleanly, run
+`fail` — not a crash; the legacy `.doc` diagnostic comes from the Object Store
+preview, not the run). Capture run ids + one readable
 validation-error payload for the demo evidence list in [`../README.md`](../README.md).
 
 ## SchemaFidelity is deterministic — there is no "judge" here

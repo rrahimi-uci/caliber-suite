@@ -7,7 +7,7 @@ product_area: strategy
 stability: ga
 prerequisites:
   - Decision-maker overview
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - strategy
@@ -21,6 +21,8 @@ tags:
 *Where an MLflow-integrated, self-hosted "agent lifecycle control plane" stands against the visual builders, automation/BPM engines, LLMOps & evaluation platforms, and hyperscaler stacks it is measured against — with every competitor claim grounded in primary sources ([§13](#13-references)).*
 
 > **Scope.** A deep competitive review of CALIBER against the open-source and cloud tools it is most often compared to: visual LLM/agent builders (Langflow, Flowise, Dify), workflow-automation and BPM engines (n8n, Flowable, and the Windmill/Activepieces/Node-RED tier), LLMOps / evaluation / observability platforms (Langfuse, Arize Phoenix, LangSmith + LangGraph, W&B Weave, Promptfoo), the foundations CALIBER builds on (MLflow GenAI, DSPy, Haystack), and the hyperscaler stacks (AWS Bedrock, Google Vertex AI, Microsoft Azure AI Foundry).
+>
+> **Alpha status (2026-10-14).** This is a positioning document, not a statement of what `0.1.0a1` ships; `0.1.0a1` is prepared on `main` and its tag and release assets are not published. Where it describes the loop as starting from production feedback, read it as the design intent: in the alpha, nothing watches traces or flags one, verifying a queue item does not start a job, and calibration starts from a prompt and a test set. The default LLM and evaluator are simulated, so scores are canned until a real model and evaluator are configured; MCP servers, OpenAPI integrations, cookbooks and Aria are preview, and Apply has no two-person rule. See [Alpha scope and limitations](start/alpha-scope.md).
 >
 > **As of.** Mid-2026. LLM tooling moves weekly — product names, licenses, star counts, and feature GA dates are point-in-time and were spot-verified against primary sources (official docs, GitHub repos/licenses, vendor announcements); treat exact figures as directional. Confidence notes are called out inline.
 >

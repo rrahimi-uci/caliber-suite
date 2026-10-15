@@ -8,12 +8,13 @@ Why this wording: the default planner proposes a step for each capability whose
 **domain word** appears in the goal. "judge" → `judge.create`; "eval dataset" →
 `eval_dataset.create`. Keep both literal needles in the sentence.
 
-Autonomy: **ask_each** (pauses on every mutate step so you confirm each input).
+Autonomy: **Stop before each change** (`ask_each`: an **Approve** / **Deny** prompt before every mutate step, after the input form).
 
-## Natural-language variant (needs an LLM planner)
+## Natural-language variant (only partly understood)
 
 > Set up faithfulness scoring for our support answers, with a test set to run it on.
 
-This reads better but relies on an LLM planner to map "test set" → eval_dataset
-and "faithfulness scoring" → judge. With the default heuristic planner, use the
-canonical wording.
+This reads better, but the default heuristic planner recognises "test set"
+(→ `eval_dataset.create`) and not "faithfulness scoring" (a judge step needs the
+literal word "judge"), so it plans only the test-set step. Use the canonical
+wording.

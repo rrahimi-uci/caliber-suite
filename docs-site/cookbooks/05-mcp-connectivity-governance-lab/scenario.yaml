@@ -11,9 +11,11 @@ secondary_personas:
   - developer
   - AI engineer
 caliber_surfaces:
-  # MCP invoke/policy paths emit no MLflow traces, so Observability is NOT a
-  # surface for this lab; evidence lives in MCP Servers › Playground › History.
+  # Executed invokes emit a TOOL span, but test/discovery/policy paths and a blocked
+  # refusal do not; the main evidence lives in MCP Servers › Playground (History is
+  # in-memory) and the invoke-tool API response.
   - MCP Servers
+  - Observability
 prerequisites:
   - One MCP server template and credentials.
   - At least one read-only tool in discovered inventory.

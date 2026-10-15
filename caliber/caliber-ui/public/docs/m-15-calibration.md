@@ -161,6 +161,13 @@ Several structural properties follow:
 - Default execution is demonstrative, not production evidence: without a real LLM
   provider, prompt/skill generation uses the deterministic fake provider; workflow
   scoring uses the fake executor and structural scorer unless configured otherwise.
+  The stored results say so: prompt/skill `eval_results` carry the evaluator's
+  `provider` and `simulated` flag, and a workflow evaluation (including a
+  calibration winner's reused evidence) stamps `provider`, `simulated`, and `scorer`
+  (`structural` or `llm_judge`). `simulated` is true for the `fake` evaluator, and,
+  for workflows, whenever the LLM provider is `fake` or `deterministic`. The prompt,
+  skill, and workflow review surfaces badge such results as simulated evaluation,
+  not evidence.
 - Every supported tool-definition or fixture edit increments `calibration_revision`
   with a database expression and clears `last_calibration` in the same transaction.
   A result is attached with a conditional revision predicate, closing edit/write races
@@ -174,7 +181,7 @@ Calibration state is carried by the refinement job and a few asset-specific stor
 | State | Storage | Purpose |
 | --- | --- | --- |
 | Calibration request | `CaliberVerificationItem` | The queued signal, with `category` (e.g. `prompt_optimization`, `skill_calibration`, `workflow_calibration`) and the pinned optimizer, scorers, gate, and dataset captured in `submitted_context`. |
-| Job state | `CaliberRefinementJob` | `current_stage`, the generated `candidate`, the `eval_results`, the `refine_iteration` counter, and (for workflows) the `calibration_spec`. |
+| Job state | `CaliberRefinementJob` | `current_stage`, the generated `candidate`, the `eval_results` (with the `provider` / `simulated` provenance), the `refine_iteration` counter, and (for workflows) the `calibration_spec`. |
 | Hidden target | `CaliberAgentConfig` keyed `skill::{name}` or by prompt name | Provides an `agent_id` for jobs, traces, and thresholds without appearing in agent inventory. |
 | Tool calibration identity | `tool.calibration_revision` on `CaliberToolRegistry` | Monotonic database-side fence advanced with every supported definition or fixture mutation. |
 | Tool suite result | `tool.last_calibration` (JSON on `CaliberToolRegistry`) | The latest pass rate, per-case outcomes, and `ran_at` timestamp, attached only when the submitted revision is current. |
@@ -185,8 +192,8 @@ Calibration state is carried by the refinement job and a few asset-specific stor
 For prompt/skill refinement, `min_aggregate_score` (default `0.85`) and
 `max_regression_delta` (default `0.02`) come from the hidden/managed agent's
 `eval_thresholds` and decide whether the job reaches `candidate_ready`. Prompt
-promotion separately persists the operator-supplied `pass`/`fail`/`none` advisory
-verdict in `caliber_gate_verdicts` for the Version panel; that record does not turn
+promotion separately persists the operator-supplied advisory verdict (`pass`, `fail`,
+`none`, `pending`, or `stale`) in `caliber_gate_verdicts` for the Version panel; that record does not turn
 the alias boundary into a hard gate. Workflow calibration instead reads its
 objective, epsilon, protected dimensions, and dataset from the workflow calibration
 spec/deploy-gate context. Tools have no candidate gate.
@@ -194,7 +201,10 @@ spec/deploy-gate context. Tools have no candidate gate.
 ## 5. API and interaction surfaces
 
 Each asset exposes its own calibration entry point, and all require the `operator`
-scope to start a run.
+scope to start a run. Skill, tool, and workflow runs also require the
+`resource.execute` project role (owner, editor, or reviewer) on the asset's project;
+saving tool test cases needs `resource.write.runtime` (owner or editor). A non-member
+sees `404` and a member with too weak a role sees `403`.
 
 - `GET /prompts/calibration/options` and `POST /prompts/calibration/runs` — prompt
   optimization; the `optimization/*` paths are aliases that share the same
@@ -339,12 +349,13 @@ adding a grounding guardrail, tightening a tool constraint, or rerouting a
 handoff — discarding any patch that weakens a protective guardrail, fails to apply,
 duplicates an existing candidate, or fails manifest validation. Each surviving
 candidate is replayed over the examples and scored on four structural dimensions:
-quality, tool adherence, completion, and safety, aggregated with per-example
-weights; when the LLM judge is enabled it overrides only the quality dimension and
+quality, tool adherence (also reported as `tool_correctness`), completion
+(`completion_rate`), and safety, aggregated with per-example weights; when the LLM judge is enabled it overrides only the quality dimension and
 falls back to the structural score on any error. A per-candidate calibration gate
 then requires the objective dimension to clear its epsilon, forbids regression
 beyond each protected tolerance, and hard-fails on incomplete or unsafe runs; the
-winner is the accepted candidate with the largest objective gain. That winner
+winner is the accepted candidate with the largest objective gain (when none is
+accepted the run fails and the best near-miss is kept for diagnosis). That winner
 becomes a `CaliberWorkflowPatch`. For calibration jobs the following refinement
 eval stage reuses the selected winner's recorded scores and gate rather than
 invoking the generic `EvalProvider` or a second independent gate; a passing job
@@ -353,15 +364,19 @@ ends at `candidate_ready` for an explicit Apply action.
 ## 7. Security and trust boundaries
 
 Calibration is privileged because it changes how the platform behaves, so it is
-fenced accordingly. Starting any run requires the `operator` scope, and a run pins
+fenced accordingly. Starting any run requires the `operator` scope (plus, for skills, tools, and
+workflows, the `resource.execute` project role), and a run pins
 its dataset version so the candidate is measured against a fixed, reproducible set
 of examples. The hidden runtime identities that let prompts and skills calibrate
 without a managed agent are kept out of inventory views by construction.
 
 The central trust boundary is that calibration proposes but never unilaterally
 ships: a passing prompt or skill candidate and a passing workflow patch end at
-`candidate_ready` for an operator's explicit Apply action. That is an action
-boundary, not a claim that every asset creates a second approver record. Two further
+`candidate_ready` for an operator's explicit Apply action, which needs the
+`release.apply` project role (owner or editor). That is an action
+boundary, not a claim that every asset creates a second approver record: Apply
+creates a born-approved record as the audit and rollback anchor, and it is
+intent-first, committing the claim and that record before the promoter runs. Two further
 safeguards protect the workflow path: candidate generation rejects a patch that
 weakens a protective guardrail, and the optional LLM judge falls back to structural
 quality on provider or parse failure rather than inflating a malformed score.
@@ -412,7 +427,9 @@ cancellation/retry controls. Calibration jobs are separate from subprocess-isola
 `CaliberToolTestRun` history. Without a configured real provider, prompt/skill
 generation uses the deterministic fake and workflow scoring uses a fake executor
 with structural dimensions, so those runs are functional demonstrations rather
-than production quality evidence.
+than production quality evidence. Their stored results are marked `simulated` and
+the review surfaces badge them as not evidence; a release that uses the `fake`
+promoter additionally needs `CALIBER_ALLOW_SIMULATED_PROVIDERS=true`.
 
 Calibration is therefore a family of evidence loops, not one universal optimizer or
 gate: it generates and compares prompt/skill candidates, searches and replays

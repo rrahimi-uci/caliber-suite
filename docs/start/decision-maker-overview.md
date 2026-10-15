@@ -7,7 +7,7 @@ product_area: strategy
 stability: ga
 prerequisites:
   - A platform-evaluation question
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - strategy
@@ -28,6 +28,8 @@ problems it solves, and where to go next for technical proof.
 | Primary problem | Building, evaluating, calibrating, governing, and observing LLM workflows from one platform |
 | Deployment topology | Standalone CALIBER ASGI service; communicates with MLflow over HTTP via `MLFLOW_TRACKING_URI`. Embedded mode is unsupported. |
 | Governance posture | Explicit evidence, review, approval, and apply/release control paths |
+| Release status | Alpha. `0.1.0a1` is prepared on `main` but its tag and release assets are not published yet; see [Alpha scope and limitations](alpha-scope.md) |
+| Evidence on shipped defaults | The default language model and evaluator are simulated, so calibration scores are canned and are labelled as such. Real evidence needs a real model and evaluator |
 | Best technical proof | [Layered architecture](../../ARCHITECTURE.md) |
 | Market context | [Competitive analysis](../competitive-analysis.md) |
 | Forward plan | [Roadmap](../roadmap.md) |

@@ -56,6 +56,28 @@ The break between tier 1 (Overview) and tier 2 (Reference) is driven by **reader
 intent**, not topic: a newcomer lives above `## Reference`; a builder jumps below
 it. Keep the Overview genuinely conceptual — it is not a condensed reference.
 
+## Front matter
+
+Every published source page starts with YAML front matter. The generator
+(`docs-site/build-docs.mjs`) validates it and
+`caliber/tests/test_docs_generation_contract.py` requires all of these keys:
+`audience`, `doc_type`, `product_area`, `stability`, `prerequisites`,
+`reviewed_on`, `version_applicability`, `tags`.
+
+- `audience` is a list drawn from `developer`, `system-user`, `operator`,
+  `architect`, `evaluator`, `decision-maker`.
+- `doc_type` is one of `tutorial`, `how-to`, `concept`, `reference`, `runbook`,
+  `example`, `strategy`.
+- `stability` is one of `ga`, `beta`, `experimental`, `internal`.
+- Set `reviewed_on` to the date you last checked the page against the code, not
+  to the date you touched it.
+
+The generated output exists in three places that must stay in step with the
+sources: `docs-site/`, `caliber/caliber-ui/public/docs/` and
+`caliber/src/caliber/ui/docs/`. After editing a source page run
+`npm run sync:docs` in `caliber/caliber-ui`; CI regenerates and fails when the
+committed copies differ.
+
 ## Diagram conventions
 
 Diagrams are usually Mermaid fenced blocks (` ```mermaid `). The shared client

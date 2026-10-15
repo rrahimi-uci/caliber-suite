@@ -22,6 +22,11 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
 - `IncidentActionCorrectness` (`custom_judge`) is a real LLM judge; the
   fact/hypothesis-separation and approval `rule_checks` are enforced by the
   prompt output contract + the workflow gate.
+- Approval has two rules besides the gate itself: the approver needs the
+  `caliber.approver` scope, and the account that started the run cannot approve it
+  (`403`) unless the server sets `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true`. Reject
+  needs the scope only. The approval and resume routes also need the run queue,
+  checkpointing and runtime approvals enabled.
 
 ## Prerequisites & seed
 
@@ -40,20 +45,24 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
    repeatable demo. Configure the included deployment/service API Request nodes
    for a live environment, or use a governed MCP tool when authentication is
    required.
-3. **Build the workflow.** `Compose → Workflows → New`, template
+3. **Build the workflow.** `Workflows → New Workflow`, template
    **`hitl_review`**. Wire:
    `ingest (normalize alert/service/env) → collect_deployments → query_service_health →
    summarize (agent: incident-commander) → recommend_action (router on risk) →
    human_approval (rollback / external write only) → issue_write (mcp, optional) → output`.
-4. **Run low-risk + high-risk cases.** `Run Monitor → run-execute` a low-severity
-   incident → recommendation completes without approval. Run a high-severity
-   (rollback) incident → status `waiting_approval`; `run-approve` → `run-resume`
-   executes the gated action; or `run-reject` to prove it cannot execute.
+4. **Run low-risk + high-risk cases.** `Run Monitor`, click **Run** on a
+   low-severity incident → recommendation completes without approval. Run a
+   high-severity (rollback) incident → status `waiting_approval`; **Approve** →
+   **Resume** executes the gated action (approve as a different account than the
+   one that clicked Run, holding `caliber.approver`; the initiator gets a `403`
+   unless `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true`); or **Reject** to prove it
+   cannot execute.
 5. **Verify evidence separation.** In the summarize node output, confirm
    `known_facts` vs `hypotheses` vs open questions are distinct, and the
    recommended action carries a risk + `requires_approval` flag.
 6. **Score + review.** Build a Test Set from the incident outputs; run
-   **Evaluations** with `Judge.IncidentActionCorrectness`. Enqueue any
+   **Evaluations** with the `IncidentActionCorrectness` judge (scorer token
+   `Judge.<judge_id>`; the UI lists it by name under **Custom LLM judges**). Enqueue any
    low-scoring / conflicting-evidence runs to a **Review Queue**; answer them.
 7. **Harden.** Tune the `incident-severity-matrix` / `rollback-decision-checklist`
    skills before editing the core prompt.
@@ -63,7 +72,7 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
 - Incident run ids for a low-risk and a high-risk path.
 - The structured output block proving fact vs hypothesis separation.
 - A trace showing the approval gate before rollback/write
-  (`run-approve` / `run-reject`).
+  (**Approve** / **Reject**).
 
 ## Done when / gate
 

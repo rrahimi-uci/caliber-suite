@@ -6,7 +6,7 @@ product_area: api
 stability: ga
 prerequisites:
   - A CALIBER API integration question
-reviewed_on: 2026-09-09
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - api
@@ -39,10 +39,10 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 
 | Route | Why you call it |
 | --- | --- |
-| `GET /health` | Cheap liveness probe |
-| `GET /readiness` | Dependency/readiness posture |
+| `GET /health` | Cheap liveness probe; a bare `{status, version, db}` body (no `data` envelope), 503 with `status: "degraded"` when the database probe fails |
+| `GET /readiness` | Dependency readiness; 503 while a required dependency (database, applied schema migrations, an HTTP MLflow, remote object storage, ...) is not ready, with `checks` and `blockers` in `data` |
 | `GET /capabilities` | Surface discovery and stability tiers |
-| `GET /openapi.json` | Full management API contract |
+| `GET /openapi.json` | Full management API contract (authenticated; a raw document, not enveloped) |
 | `GET /settings/runtime` | Runtime configuration summary |
 | `GET /me` | Caller identity and effective session information |
 
@@ -52,7 +52,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | --- | --- | --- |
 | Prompts | `GET/POST /prompts`, `GET/DELETE /prompts/{name}`, `GET/POST /prompts/{name}/versions`, alias and release paths | Authoring and release are deliberately separate |
 | Skills | `GET/POST /skills`, `POST /skills/{id}/test-render`, `POST /skills/{id}/calibrate` | Packaging, tests, baseline, and calibration live here |
-| Tools | `GET/POST /tools`, test/calibration routes | Deterministic test and calibration flows |
+| Tools | `GET/POST /tools`, test/calibration routes | Deterministic test and calibration flows; list and detail add `builtin`, `availability` and `availability_reason` |
 | Workflows | `GET/POST /workflows`, `GET/POST /workflows/{id}/versions`, `POST /workflow-versions/{version_id}/run` | Registry, version lifecycle, execution, and deployment are split across route families |
 | Workflow services | `POST /workflows/{workflow_id}/service`, `POST /services/{workflow_id}/invoke`, `GET /services/{workflow_id}/openapi.json` | Publish a workflow externally and inspect its invocation contract |
 | Datasets and evaluations | `GET/POST /eval-datasets`, `GET/POST /evaluations`, `GET/POST /judges` | Evaluation evidence and scoring |
@@ -63,7 +63,13 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | MCP | `GET/POST /mcp-servers`, tool inventory and invoke routes | Governed external tool connectivity |
 | Releases | `GET/POST /releases/candidates`, `POST /releases/candidates/{id}/signoffs`, `GET /releases/operations` | Signoff, waivers, and reconcile workflows |
 | Observability | `GET /observability/traces`, `GET /metrics`, `GET /events/stream` | Runtime evidence and live telemetry |
-| Projects and access | `GET /projects`, `GET /projects/{id}`, member CRUD under `/projects/{id}/members` | Project responses include `access_role` and `permissions`; membership changes are owner-only |
+| Projects and access | `GET /projects`, `GET /projects/{id}`, member CRUD under `/projects/{id}/members` | Project responses include `access_role` and `permissions`; membership changes are owner-only and also need `caliber.operator` |
+
+The mutating routes of prompts, skills, tools, workflows, knowledge bases,
+datasets and judges check the caller's project role as well as the token scope: a
+non-member gets 404 and a member whose role is too weak (for example a `viewer`)
+gets 403. The role each action needs is listed in
+[Auth and project scoping](../build/auth-and-project-scoping.md#3-understand-project-access).
 
 ## Workflow-service OpenAPI
 

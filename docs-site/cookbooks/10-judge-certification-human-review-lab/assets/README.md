@@ -6,11 +6,11 @@ trusted to block releases. Build order:
 
 | # | Artifact | File | Create via |
 | --- | --- | --- | --- |
-| 1 | Eval dataset `judge-certification-set` | [`dataset/aggregated-outputs.jsonl`](dataset/aggregated-outputs.jsonl) | **Prefer harvest-from-trace.** For each SCN-07/08 run you want graded: `Evaluate → Test Sets → New dataset`, then `POST /eval-datasets/{id}/examples/from-trace {trace_id}` (auto-extracts `inputs`/`outputs`/`expectations`). To seed without live traces, `POST /eval-datasets/{id}/examples` per line. |
-| 2 | Judge `FaithfulnessJudge` | [`judges/faithfulness-judge.judge.json`](judges/faithfulness-judge.judge.json) | `Evaluate → Judges → New judge`, paste fields. API: `POST /judges`. |
-| 3 | Review queue `faithfulness-certification` | [`review/review-questions.json`](review/review-questions.json) | `Observe → Review Queues → New queue`, add the questions. API: `POST /review-queues`. |
-| 4 | (optional) Skill `rubric-question-writer` | [`skills/rubric-question-writer.md`](skills/rubric-question-writer.md) | `Library → Skills → New skill`, paste body. API: `POST /skills`. Helps draft single-criterion questions; not required to run the gate. |
-| 5 | Alignment evidence | [`alignment/alignment-worksheet.md`](alignment/alignment-worksheet.md) | Use the worksheet only as an optional export/check; the Judges UI imports completed queue labels and computes the metrics. |
+| 1 | Eval dataset `judge-certification-set` | [`dataset/aggregated-outputs.jsonl`](dataset/aggregated-outputs.jsonl) | **Prefer harvest-from-trace.** For each SCN-07/08 run you want graded: `Core journey → Test Sets → New dataset`, then `POST /eval-datasets/{id}/examples/from-trace {trace_id}` (auto-extracts `inputs`/`outputs`/`expectations`). To seed without live traces, `POST /eval-datasets/{id}/examples` per line. |
+| 2 | Judge `FaithfulnessJudge` | [`judges/faithfulness-judge.judge.json`](judges/faithfulness-judge.judge.json) | `Also in the alpha → Judges → New judge`, paste fields. API: `POST /judges`. |
+| 3 | Review queue `faithfulness-certification` | [`review/review-questions.json`](review/review-questions.json) | `Operate → Review Queues → New queue`, add the questions. API: `POST /review-queues`. |
+| 4 | (optional) Skill `rubric-question-writer` | [`skills/rubric-question-writer.md`](skills/rubric-question-writer.md) | `Also in the alpha → Skills → New skill`, paste body. API: `POST /skills`. Helps draft single-criterion questions; not required to run the gate. |
+| 5 | Alignment evidence | [`alignment/alignment-worksheet.md`](alignment/alignment-worksheet.md) | Optional paper cross-check only; the Judges **Human alignment** mode imports completed queue labels (**Import labels**) and computes the metrics (**Check alignment**). |
 
 ## Run order (the certification loop)
 
@@ -24,7 +24,7 @@ trusted to block releases. Build order:
    is supported by `{{ expectations }}`. The instructions reference
    `{{ inputs }}`/`{{ outputs }}`/`{{ expectations }}` (the UI requires at least
    one). `FaithfulnessJudge` is the real `custom_judge` from `verification.yaml`.
-3. **Run baseline + candidate (step 3).** `Evaluate → Evaluations → Run
+3. **Run baseline + candidate (step 3).** `Core journey → Evaluations → Run
    evaluation` on the dataset with scorer `Judge.FaithfulnessJudge` — once on the
    baseline artifact, once on the candidate (e.g. before/after a prompt change).
    Capture both run ids; in the candidate scorecard, select the baseline to see
@@ -33,19 +33,23 @@ trusted to block releases. Build order:
    traces plus a few passes and `POST /review-queues/{id}/items {trace_ids:[...]}`.
    Reviewers answer the `faithful` question; answers **write back onto each
    trace** (real, trace-linked).
-5. **Answer, then MANUALLY tally alignment (step 5).** Open
-   [`alignment/alignment-worksheet.md`](alignment/alignment-worksheet.md). For each
-   sampled trace, put the judge verdict next to the reviewer's `faithful` answer,
-   mark agree/disagree, and compute `alignment = agreements / total`. Add each
-   disagreement back to the dataset and reconcile the rubric, then re-run step 3.
+5. **Answer, then compute alignment in the product (step 5).** Once reviewers
+   have answered, open **Judges → FaithfulnessJudge → Try it → Human alignment**,
+   pick the queue (**Import from Review Queue…**) and the `faithful` question, click
+   **Import labels**, then **Check alignment** for agreement, Cohen's κ and FP/FN.
+   The [`alignment/alignment-worksheet.md`](alignment/alignment-worksheet.md) is an
+   optional paper cross-check. Add each disagreement back to the dataset and
+   reconcile the rubric, then re-run step 3.
 
 ## Two facts to state up front
 
-- **Alignment / disagreement rate is MANUAL.** CALIBER does not auto-compute an
-  alignment or disagreement metric (FEASIBILITY §1, Evaluations). You tally the
-  judge scorecard against the reviewer answers by hand on the worksheet — the
-  gate numbers (`alignment ≥ 0.80` over `≥ 3` traces, `overall_eval_score ≥ 0.85`)
-  come from that hand tally, not from a built-in readout.
+- **Alignment / disagreement rate is computed in-product.** The Judges
+  **Human alignment** mode (`POST /judges/{id}/alignment`) runs the judge over
+  labeled outputs and returns agreement rate, Cohen's κ and FP/FN (FEASIBILITY §1,
+  Judges); **Import labels** fills it from a completed Review Queue pass/fail
+  question. The gate numbers (`alignment ≥ 0.80` over `≥ 3` traces,
+  `overall_eval_score ≥ 0.85`) come from that readout and the Evaluations
+  scorecard; the worksheet is only an optional cross-check.
 - **The Test Sets detail page is wired.** `/eval-datasets/:id`
   (`EvalDatasetDetail`) is a full row editor — author/edit rows with **+ Add
   example** (revise / supersede / from-trace), or use the API
@@ -53,7 +57,7 @@ trusted to block releases. Build order:
 
 The dataset is built so the judge and the reviewer **deliberately disagree** on
 the two `expected_disagreement` partial-evidence rows (`J03`, `J07`), so the
-manual tally has something real to surface; see the worked example in the
+alignment check has something real to surface; see the worked example in the
 worksheet.
 
 ## Conventions used across the pack
@@ -64,7 +68,7 @@ worksheet.
   the judge can read `{{ inputs }}`/`{{ outputs }}`/`{{ expectations }}` per row.
   The extra `human_label` (+ `human_label_reason`) field is **not** a CALIBER
   field — it is the intended ground-truth pass/fail this pack carries so you can
-  drive the manual alignment tally; ignore it on import.
+  cross-check the alignment readout against; ignore it on import.
 - **Judge files** (`judges/*.judge.json`): `{name, model, instructions,
   feedback_value_type}`; instructions reference `{{ inputs }}`/`{{ outputs }}`/
   `{{ expectations }}`. `feedback_value_type` ∈ bool|int|float|str (bool here →

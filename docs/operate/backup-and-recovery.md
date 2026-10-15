@@ -6,7 +6,7 @@ product_area: operations
 stability: ga
 prerequisites:
   - A CALIBER deployment or disaster-recovery review
-reviewed_on: 2026-10-13
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - backup
@@ -31,8 +31,8 @@ not a procedure, and rehearse it before you depend on it.
 | CALIBER database | `CALIBER_DATABASE_URL` | projects, members, accounts, jobs, approvals, release operations, the audit log, test sets, skills, workflows, knowledge-base metadata | yes |
 | **MLflow backend store** | the `--backend-store-uri` you gave `mlflow server` | **prompt versions and their aliases**, experiments, runs and traces | **yes** |
 | MLflow artifact root | the `--default-artifact-root` of your `mlflow server` | run and trace artifacts | yes |
-| Object store | the S3 or MinIO buckets named in `CALIBER_OBJECT_STORE_*` | uploads, knowledge-base sources and built indexes, log sink files | yes, if you use them |
-| Workflow storage | `CALIBER_WORKFLOW_STORAGE_*` | run workspaces and file-backed workflow evidence | yes, if you use workflows |
+| Object store | the S3 or MinIO buckets you use: any bucket you uploaded to, each knowledge base's source bucket, `CALIBER_LOG_BUCKET` and `CALIBER_WORKFLOW_RUN_ARTIFACT_BUCKET` (`CALIBER_OBJECT_STORE_*` sets only the connection) | uploads, knowledge-base sources and built indexes, log sink files, persisted run artifacts | yes, if you use them |
+| Workflow storage | `CALIBER_WORKFLOW_STORAGE_*` (the bucket in `CALIBER_WORKFLOW_STORAGE_BUCKET` when the backend is `s3`) | run workspaces, uploads and file-backed workflow evidence | yes, if you use workflows |
 | Secret encryption key | the source named by `CALIBER_SECRET_ENCRYPTION_KEY_SOURCE` | the key that decrypts stored secrets | yes, **separately** |
 | Generated docs and UI assets | repository build output | nothing unique | no, rebuild |
 
@@ -60,6 +60,14 @@ pg_dump --format=custom --file=mlflow.dump "$MLFLOW_BACKEND_STORE_URI"
 Use a libpq URL (`postgresql://user@host/db`); replace the `+psycopg` driver suffix if your URL has one.
 Restore with `pg_restore --clean --if-exists --dbname="$TARGET_URL" caliber.dump`.
 
+In the bundled Compose stack both stores are databases on the `caliber-mcp-postgres` container: `caliber`
+for CALIBER and `mlflow` for MLflow (its `MLFLOW_BACKEND_URI`). For example:
+
+```bash
+docker exec caliber-mcp-postgres pg_dump -U caliber --format=custom caliber > caliber.dump
+docker exec caliber-mcp-postgres pg_dump -U caliber --format=custom mlflow > mlflow.dump
+```
+
 ### SQLite
 
 ```bash
@@ -78,8 +86,9 @@ the server first. Restore by putting the backup file back at the path in the URL
 rsync -a /path/to/mlflow-artifacts/ /backup/mlflow-artifacts/
 rsync -a /path/to/workflow-storage/ /backup/workflow-storage/
 
-# Object-store buckets (MinIO shown; use `aws s3 sync` for AWS S3)
-mc mirror --preserve local/caliber-bucket /backup/caliber-bucket
+# Object-store buckets (MinIO shown; use `aws s3 sync` for AWS S3). The bundled stack's
+# buckets are `mlflow` (artifact root), `caliber-workspaces` (workflow storage) and `caliber-log`.
+mc mirror --preserve local/caliber-workspaces /backup/caliber-workspaces
 ```
 
 ### The secret encryption key
@@ -96,7 +105,7 @@ console on the Releases page for a release that was left incomplete.
 ## 3. After a restore
 
 Run `caliber-migrate` against the restored CALIBER database so its schema matches the installed
-release, then verify:
+release (the bundled CALIBER container runs `alembic upgrade head` each time it starts), then verify:
 
 - `GET /ajax-api/2.0/mlflow/caliber/readiness` reports `ready: true`, including the `schema` check
 - the version history of a prompt you know (Prompts, then its Author stage) shows the versions and the

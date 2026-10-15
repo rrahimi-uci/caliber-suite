@@ -42,7 +42,7 @@
           <span class="topbar-search-label">Search docs</span>
           <span class="keycap" data-doc-search-key>⌘K</span>
         </button>
-        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <a class="topbar-cta" href="m-37-five-minute-quickstart.html">Quickstart</a>
         <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
           <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
           <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
@@ -82,7 +82,7 @@
           <div class="doc-eyebrow">Build &amp; integrate</div>
           <h1 id="top">Beta and agentic surfaces</h1>
           <p class="doc-summary">Integrations, operations, cookbooks, and the Aria loop — and the property that shapes all of them: work that stops for a person is neither running nor finished.</p>
-          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip doc-meta-chip-type">How To</span><span class="doc-meta-chip doc-meta-chip-stability">BETA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">A running CALIBER deployment</span></div><div class="doc-meta-notes">Reviewed 2026-08-10 · current main branch docs contract</div></div>
+          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip doc-meta-chip-type">How To</span><span class="doc-meta-chip doc-meta-chip-stability">BETA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">A running CALIBER deployment</span></div><div class="doc-meta-notes">Reviewed 2026-10-14 · current main branch docs contract</div></div>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
               Copy page
@@ -143,7 +143,7 @@
           CALIBER_TOKEN<span class="tok-punctuation">:</span> $<span class="tok-punctuation">{</span><span class="tok-punctuation">{</span> secrets.CALIBER_PROJECT_PAT <span class="tok-punctuation">}</span><span class="tok-punctuation">}</span>
         run<span class="tok-punctuation">:</span> |
           curl <span class="tok-number">-</span><span class="tok-number">-</span>fail-with-body <span class="tok-number">-</span>sS \
-            <span class="tok-number">-</span>X POST <span class="tok-string">"$CALIBER_BASE_URL/projects/$CALIBER_PROJECT_ID/revision-imports"</span> \
+            <span class="tok-number">-</span>X POST <span class="tok-string">"$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/projects/$CALIBER_PROJECT_ID/revision-imports"</span> \
             <span class="tok-number">-</span>H <span class="tok-string">"Authorization: Bearer $CALIBER_TOKEN"</span> \
             <span class="tok-number">-</span>H <span class="tok-string">"Idempotency-Key: push-${{ github.sha }}"</span> \
             <span class="tok-number">-</span>F <span class="tok-string">"repository=${{ github.repository }}"</span> \

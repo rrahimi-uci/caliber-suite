@@ -8,7 +8,7 @@ product_area: openapi-integrations
 stability: beta
 prerequisites:
   - A CALIBER deployment with admin or operator scope
-reviewed_on: 2026-08-11
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - openapi
@@ -61,8 +61,12 @@ tools, and publish them safely.
 
 Publishing is project-aware. The caller must have `resource.publish` in the
 selected project's effective permissions, which is granted to the project
-`owner` and `editor` roles. An organization-wide publish still requires the
-global admin scope. A successful publish returns the published tool alongside
+`owner` and `editor` roles, and the global `caliber.operator` scope. An
+organization-wide publish still requires the global admin scope. Creating an
+integration, importing a version, reviewing a dependency and generating or
+editing drafts need `owner` or `editor` in the project, and a preview needs
+`reviewer`, `editor` or `owner`; a member with too weak a role gets 403 and a
+person outside the project gets 404. A successful publish returns the published tool alongside
 the updated draft, so the UI/SDK can show what happened immediately rather than
 leaving the draft in an ambiguous state.
 
@@ -75,7 +79,7 @@ leaving the draft in an ambiguous state.
 | bundle several operations behind one tool | `generate_tool_drafts(..., group_as_pack=True)` |
 | test a draft before publishing | `preview_tool_draft()` — refused unless `allow_in_preview` is set |
 | understand why a dependency is only advisory | [Architecture §7](../16-openapi-integrations/architecture.md#7-security-and-trust-boundaries) — only deterministic rules auto-wire |
-| call a published tool from an Aria session | use `openapi_tool.list` / `openapi_tool.invoke` for the stable bridge, or call the dynamically projected published tool directly when the current mode exposes its side-effect tier |
+| call a published tool from an Aria session | use `openapi_tool.list` / `openapi_tool.invoke` for the stable bridge (`invoke` only runs read-only tools that do not need approval), or call the dynamically projected published tool directly when the current mode exposes its side-effect tier |
 
 ## 3. Common failure modes
 
@@ -86,7 +90,7 @@ leaving the draft in an ambiguous state.
 | A draft is ready but publish is refused | check the selected project's `access_role`/`permissions`; `owner` or `editor` is required for project publication |
 | `preview` returns 409 | the draft's `allow_in_preview` flag is off — set it explicitly, since preview performs a real upstream call |
 | A dependency never shows up as canonical | it was a low-confidence, same-tag-only signal — advisory hints require operator confirmation, they never auto-wire |
-| A tool works from a workflow but not from Aria | check whether it is approval-gated or whether the current Aria mode hides its side-effect tier; `read` tools are always projected, while `write` / `external_action` tools require a mutating build mode |
+| A tool works from a workflow but not from Aria | check whether it is approval-gated or whether the current Aria mode hides its side-effect tier. A `read` tool that does not need approval is projected in every mode. A `write` / `external_action` tool is projected only in Design (`build`) mode with the approval mode set to "Legacy auto" or "Full autonomy". A tool that requires approval is never projected as a direct Aria tool |
 
 ## 4. Related docs
 

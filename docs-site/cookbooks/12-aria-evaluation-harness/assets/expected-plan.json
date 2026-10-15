@@ -5,13 +5,13 @@
     {
       "capability_key": "judge.create",
       "tier": "mutate",
-      "interaction": "confirm/refine the judge spec (judges/answer-faithfulness.judge.json)"
+      "interaction": "input form (Aria needs information): enter the judge fields from judges/answer-faithfulness.judge.json, then Approve"
     },
     {
       "capability_key": "eval_dataset.create",
       "tier": "mutate",
-      "interaction": "confirm/refine the dataset spec (datasets/support-faithfulness.dataset.json)"
+      "interaction": "no input form: name is linked from judge.create (the set is created as AnswerFaithfulness); just Approve"
     }
   ],
-  "notes": "Step order follows registry order; there are no inter-step dependencies in the default planner. Under autonomy=ask_each each mutate step raises one interaction before it runs. Under approve_plan/auto_guarded both run automatically once the plan is approved."
+  "notes": "Step order follows registry order; the planner links eval_dataset.create's name to judge.create's name (depends_on = [judge.create]). judge.create raises an input interaction for its missing fields; under autonomy=ask_each each mutate step then also raises an Approve/Deny permission interaction. Under approve_plan/auto_guarded both steps run automatically once the judge's input form is answered."
 }

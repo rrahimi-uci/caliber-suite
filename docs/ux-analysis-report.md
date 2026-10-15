@@ -11,8 +11,10 @@ multi-tenant release-governance epic, a "two-week alpha" journey feature) and
 `#430`'s five-bug-fix pass merged — no ledger row's merge status changed and
 the only census figure that moved is page weight (§15.1); §15.2 notes why the
 five bug fixes are outside this audit's own tracked scope, and §7.2 notes what
-the new Diagnosis tab does and does not change about the four open loops. The
-whole of Wave 1 has now merged — all four
+the new Diagnosis tab does and does not change about the four open loops. A
+fourth pass on 2026-10-14 against `80eddfdbe4ee`, after the alpha-readiness work
+merged, again found only page weight moved (§15.1) and `npm run ux:check-ledger`
+reports all 24 ledger rows consistent with git history. The whole of Wave 1 has now merged — all four
 "silent wrong object" Critical items, plus UX-05, UX-06, UX-07, UX-15, and the
 structural census that makes §15.1's counts re-runnable. **§15.2's ledger states
 which packages have merged and which are still open, and is the only place in
@@ -2910,6 +2912,31 @@ unchanged (no diff against `722b9f92ed` at all). The remaining +65/+5 lines
 `722b9f92ed` rank — `KnowledgeBases.tsx` 9,050 · `Prompts.tsx` 8,412 ·
 `WorkflowEditor.tsx` 5,326 · `WorkflowDetail.tsx` 4,817 — so UX-20's target
 has grown again, by the same amounts as the rest of this paragraph.
+
+Re-run against `80eddfdbe4ee` on 2026-10-14, the census script and the nine
+commands below again find one moved figure: page weight.
+
+```
+$ npm run ux:census -- --diff ../../docs/ux/baseline-ff6d18c414.json
+Total page lines: 56624 -> 57515 (+891)
+```
+
+That is +323 lines since the `7ae0e67aefb0` figure of 57,192, spread across the
+alpha-readiness changes to existing pages (`Settings.tsx` +87, `Skills.tsx` +43,
+`Prompts.tsx` +47, `AriaPlans.tsx` +35, `Releases.tsx` +29, `Login.tsx` +20,
+`WorkflowDetail.tsx` +19, `KnowledgeBases.tsx` +17, `ToolRegistry.tsx` +11,
+and a few lines elsewhere); none is an audit work package. Routes (33
+addressable, 32 distinct, 9 detail), `PageHeader` adoption (18 of 34),
+breadcrumb adoption (1 of 34, still `ObjectStore.tsx`), unrouted pages
+(`Overview.tsx`, `SkillWizard.tsx`, `ToolWizard.tsx`), duplicated workflow
+helpers (22), mutating `caliberApi` call sites (132), the absence of a command
+palette and the absence of an `approvals_pending` render site (only the
+contract in `types.ts` and test fixtures reference it) are identical. The five
+heaviest pages are `KnowledgeBases.tsx` 9,067 · `Prompts.tsx` 8,459 ·
+`WorkflowEditor.tsx` 5,326 · `WorkflowDetail.tsx` 4,836 · `McpServers.tsx`
+3,536. `MutationGuard` still has no call site outside its own file and tests.
+The `auth.py` scope constants (command 1) now sit at lines 94-97 rather than
+85-88; the names are unchanged. Wave 2-4's ledger rows remain Open.
 
 Run all nine from the repository root. They are in a fenced block rather than
 a table column because a Markdown table needs `|` escaped, and a command you

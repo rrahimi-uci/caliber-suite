@@ -1,5 +1,5 @@
 {
-  "_comment": "Optional Review Queue question schema for blocker triage. Create a queue via POST /review-queues with these questions, enqueue the candidate trace ids (.../items), and answer them; answers write back onto the trace as MLflow assessments. type is the feedback value type (bool|int|float|str), matching the platform's review-queue question shape. Use this to decide which surfaced issues are real release blockers and to record waivers.",
+  "_comment": "Optional Review Queue question schema for blocker triage. Create a queue via POST /review-queues with these questions, enqueue the candidate trace ids (.../items), and answer them; answers write back onto the trace as MLflow assessments. type is the feedback value type (bool|int|float|str), matching the platform's review-queue question shape. Use this to decide which surfaced issues are real release blockers; record an approved waiver on the candidate itself (Releases -> Record waiver, admin) — the UI waiver form has a criterion key and a reason but no expiry field, so write any expiry into the reason.",
   "queue_name": "release-blocker-triage",
   "description": "Triage candidate release blockers: confirm whether each is a true release blocker, who owns it, and (if waived) when the waiver expires.",
   "questions": [

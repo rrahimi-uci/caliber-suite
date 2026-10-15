@@ -8,7 +8,7 @@ product_area: knowledge
 stability: beta
 prerequisites:
   - A CALIBER deployment with knowledge-base access
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - knowledge
@@ -53,10 +53,19 @@ reported as something an override fixes.
 ## What is verified, and what is not
 
 `tests/test_knowledge_stack_journey.py` runs create, build, version, query, activate and roll back against the
-docker stack's real MinIO and PostgreSQL (`scripts/verify-knowledge-stack.sh`; CI runs it weekly and on changes
-to `deploy/`). **Its embeddings are simulated**: a deterministic bag-of-words double stands in for a model, so a
+docker stack's real MinIO and PostgreSQL (`scripts/verify-knowledge-stack.sh`; the `stack-smoke` workflow runs it
+weekly and on pull requests that touch `deploy/`, the stack scripts or `caliber/src/caliber/knowledge/`, and it is
+not a required check on every pull request). **Its embeddings are simulated**: a deterministic bag-of-words double stands in for a model, so a
 green run shows the storage, the build and the routes work on the real services and says nothing about
 retrieval quality. Judge quality with your own model and test set.
+
+## Who can do what
+
+Inside a project, creating, changing or deleting a knowledge base, building a version, activating or rolling back a
+version, syncing a version to Apache AGE and setting a baseline need `editor` or `owner`. Running a calibration
+needs `reviewer`, `editor` or `owner`. Listing, reading and querying need only membership. A member whose role is
+too weak gets 403 and a person outside the project gets 404. Calibrating a knowledge base returns a run summary
+and has no candidate to apply.
 
 ## 1. What knowledge bases are for in CALIBER
 

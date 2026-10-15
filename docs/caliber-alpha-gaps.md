@@ -9,8 +9,8 @@ stability: draft
 summary: Evidence-based gap analysis and execution plan for tagging CALIBER Suite as a Minimal Viable Alpha (MVA) — scope, journeys, P0/P1/P2 gaps with acceptance criteria, and exit criteria.
 prerequisites:
   - Read docs/two-week-alpha-plan.md and docs/reports/two-week-alpha-release-notes.md for the narrower journey this plan generalizes
-reviewed_on: 2026-10-13
-version_applicability: main at dfe48481471 (code reviewed at 68fb0a7bbfe; the only later commit is #453, deploy images)
+reviewed_on: 2026-10-14
+version_applicability: gap baseline at dfe48481471; completion checklist updated through 97c2815f2d1
 tags:
   - alpha
   - release-readiness
@@ -20,14 +20,23 @@ tags:
 
 # CALIBER Suite — Minimal Viable Alpha gap analysis
 
-**Verdict: not releasable as an alpha today.** The core prompt lifecycle is largely
-built and well tested (about 7,900 backend tests, 93% coverage), and it works end to
-end when CALIBER runs on PostgreSQL or with a separate MLflow store. But seven
-blockers stand between `main` and a credible alpha tag. Two let one project's operator
-change another project's live prompt. Two make Apply report success, or present canned
-evaluation numbers as real evidence, on the default configuration. One makes the
-alpha's only end-to-end proof fail on its own harness. The last two are that no
-documented install path works without undocumented steps, and that nothing has been
+> **Status at current `main` (2026-10-14):** This is the gap baseline, not a current
+> defect list. The findings and measurements below describe the checkout at
+> `dfe48481471`/`68fb0a7bbfe`. Section 8 records the later fixes: P0-1 through
+> P0-5 and P1-01 through P1-24 are closed, while P0-6 still needs a green run on
+> the tag commit and P0-7 still needs the tag, assets, and release verification.
+> `caliber-v0.1.0a1` has not been published. See
+> [Alpha scope and limitations](start/alpha-scope.md) for the current capability
+> boundary and [Releasing](operate/releasing.md) for the remaining release steps.
+
+**Baseline verdict at the audited commit: not releasable as an alpha.** The core prompt lifecycle was largely
+built and well tested (about 7,900 backend tests, 93% coverage), and it worked end to
+end when CALIBER ran on PostgreSQL or with a separate MLflow store. Seven
+blockers stood between that checkout and a credible alpha tag. Two let one project's operator
+change another project's live prompt. Two made Apply report success, or presented canned
+evaluation numbers as real evidence, on the default configuration. One made the
+alpha's only end-to-end proof fail on its own harness. The last two were that no
+documented install path worked without undocumented steps, and that nothing had been
 cut or released.
 
 None of the blockers requires new product capability. Each is a correctness, honesty,
@@ -1275,7 +1284,8 @@ ticked with linked evidence.
 
 ### Release cut
 
-- [x] **P1-18** closed. The SDK/CLI docs install from release assets, and the CLI pins `caliber-sdk`.
+- [x] **P1-18** closed. The SDK/CLI docs describe wheel installation (release assets once
+  published), and the CLI pins `caliber-sdk`.
 - [ ] **P0-7** closed:
   - The tag `caliber-v0.1.0a1` is a GitHub **prerelease** carrying the server wheel and sdist plus the SDK, CLI and plugin-SDK wheels.
   - The `0.1.0a1` changelog section is dated.

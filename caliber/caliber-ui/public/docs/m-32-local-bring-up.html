@@ -42,7 +42,7 @@
           <span class="topbar-search-label">Search docs</span>
           <span class="keycap" data-doc-search-key>⌘K</span>
         </button>
-        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <a class="topbar-cta" href="m-37-five-minute-quickstart.html">Quickstart</a>
         <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
           <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
           <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
@@ -82,7 +82,7 @@
           <div class="doc-eyebrow">Operate CALIBER</div>
           <h1 id="top">Local bring-up</h1>
           <p class="doc-summary">The operator-first path for starting CALIBER locally, verifying readiness, and choosing the next guide based on your job.</p>
-          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Operator</span><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip doc-meta-chip-type">Tutorial</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">Repository checkout</span></div><div class="doc-meta-notes">Reviewed 2026-08-10 · current main branch docs contract</div></div>
+          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Operator</span><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip doc-meta-chip-type">Tutorial</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">Repository checkout</span></div><div class="doc-meta-notes">Reviewed 2026-10-14 · current main branch docs contract</div></div>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
               Copy page
@@ -96,8 +96,10 @@
 <p>Use the full suite when you want the local product as it is usually demonstrated: CALIBER, MLflow, storage, and the surrounding services together.</p>
 <pre class="language-bash"><code class="language-bash">make setup
 make start</code></pre>
+<p><code>make start</code> runs <code>./start.sh</code>, which brings up the Compose <code>app</code> profile and the NATS bus: MinIO (with its buckets created), PostgreSQL with pgvector and Apache AGE, MLflow on <code>:5000</code>, the MLflow AI Gateway on <code>:5002</code> and CALIBER on <code>:5001</code>. Every published port is bound to <code>127.0.0.1</code>. The CALIBER container runs <code>alembic upgrade head</code> before it serves, so this path needs no manual migration. It seeds <code>admin</code> / <code>admin</code> on the first boot only, for loopback use. <code>./start.sh</code> rebuilds the images and recreates the app containers by default; <code>make start CLEAN_START=0 BUILD=0</code> reuses them.</p>
 <p>Then verify:</p>
-<ul><li>CALIBER UI loads</li><li>login succeeds</li><li>readiness reports a usable local posture</li></ul>
+<ul><li>CALIBER UI loads at <code>http://localhost:5001/caliber/</code></li><li>login succeeds</li><li>readiness reports a usable local posture. The stack sets the LLM provider to <code>fake</code>, so expect <code>llm</code> under <code>simulated</code>; the evaluator, promoter and artifact store are <code>mlflow</code>.</li><li>the gateway is serving. With no <code>OPENAI_API_KEY</code> or <code>ANTHROPIC_API_KEY</code> in the suite-root <code>.env</code> the <code>mlflow-gateway</code> container exits and Compose restarts it in a loop, and the Gateway page reports it unreachable (<a href="m-51-operator-troubleshooting.html#3-the-gateway-reports-unreachable">Operator troubleshooting</a>). CALIBER itself does not depend on it.</li></ul>
+<p>To prove a fresh clone does all of this, <code>scripts/verify-compose-stack.sh</code> builds the CALIBER and MLflow images, starts the stack from the example environment as its own Compose project (<code>caliber-stack-smoke</code>) and checks MLflow, <code>/health</code>, <code>/readiness</code>, the SPA, login, a project and a prompt. <code>.github/workflows/stack-smoke.yml</code> runs it weekly, on manual dispatch and on pull requests that change <code>deploy/</code>. It is not a required check.</p>
 <h2 id="2-standalone-development-path">2. Standalone development path<a class="anchor" href="#2-standalone-development-path" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Use the standalone path when you are developing CALIBER itself and want the shorter supported inner loop. Start vanilla MLflow and its dependencies from the repository root without starting the containerized CALIBER service:</p>
 <pre class="language-bash"><code class="language-bash">docker compose -f deploy/compose.yaml --profile app up -d mlflow

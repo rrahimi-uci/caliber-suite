@@ -2,7 +2,7 @@ workflow_goal: Create an operator-safe workflow remediation loop from failure to
 # Verified against the live build — see ../FEASIBILITY.md.
 feasibility:
   - Recovery surfaces are real (Run Monitor, checkpoint/recovery/debugger panels, retry lineage, run-retry/run-resume/resume-by-event).
-  - Patching is MANUAL — edit the manifest in the editor and save a new version. There is no propose_workflow_patch tool (the semantic patch API is not wired to the UI).
+  - Patching is MANUAL here — edit the manifest in the editor and save a new version. No Run Monitor control turns a failed run into a patch. A semantic patch engine exists (POST /workflow-versions/{id}/propose-patch stores a candidate listed on the workflow's CALIBER Patches tab; workflow Calibrate generates candidates; Aria's chat assistant has a propose_workflow_patch tool that only proposes a patch for an assistant workflow draft), but no UI page calls the propose-patch route and none of it is an Aria Plans capability.
   - Aria/Aria Plans cannot debug a workflow as a capability; use it only to narrate the diagnosis, not to apply fixes.
   - Reliable reproducible failure for a demo = the hitl_review template driven reject -> retry -> approve -> resume.
 manual_flow:
@@ -25,7 +25,7 @@ components:
       - workflow-failure-triage
   tools:
     optional:
-      - propose_workflow_patch  # NOT shipped — patch manually in the editor (save new version)
+      - propose_workflow_patch  # Aria chat-assistant tool only (proposal for an assistant draft, nothing applied) — in this recipe patch manually in the editor (save new version)
   mcp:
     optional:
       - Playwright for UI-state dependent workflows

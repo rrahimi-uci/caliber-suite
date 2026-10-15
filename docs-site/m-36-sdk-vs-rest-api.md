@@ -19,7 +19,8 @@ CALIBER through `caliber-sdk` or through the raw HTTP API?
 ## 1. Prefer the SDK when you are writing Python
 
 The SDK already packages the common concerns a Python developer would otherwise
-need to rebuild:
+need to rebuild. Until the packages are published, install it from the `0.1.0a1`
+release wheels (`pip install --find-links ./wheels caliber-sdk`):
 
 - typed client entry points
 - auth and project-scoping helpers

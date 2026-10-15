@@ -197,6 +197,13 @@ The dataset routes cover the full curation lifecycle:
 - `POST /eval-datasets/{dataset_id}/sync`
 - `POST /eval-datasets/{dataset_id}/restore`
 
+`POST .../restore` restores a prior *version's example set* as a new head (body
+`{"version": N}`): examples added after N are superseded, examples that were active at N
+but later retired are re-added as fresh copies, and `dataset.version` bumps once. It
+returns `400` when N is not below the current version and `409` when the active set
+already matches N. It is not the same as un-archiving a dataset, which is a `PATCH` of
+`status`.
+
 The evaluation-run routes consume test sets to produce scorecards:
 
 - `GET /evaluations`
@@ -207,15 +214,18 @@ On the frontend, these routes compose into the following interaction model:
 
 - The Test Sets page lists active datasets by default and can filter by owner,
   tag, and status.
-- Archiving and restoring are metadata updates on the dataset row, not example
-  mutations.
+- Archiving and un-archiving are `status` updates on the dataset row (`PATCH`), not
+  example mutations.
 - List-examples uses `version=<N>` for rows first added in N,
   `include_superseded=true` for retired rows, and `as_of_version=<N>` for the
   active set that a pinned evaluation would score. The active-as-of filter is
   mutually exclusive with the other two controls.
 - From-trace import converts a captured MLflow trace into a regression example
   with `from-trace` and `trace:{trace_id}` style tags.
-- Evaluation runs can optionally pin `dataset_version` for reproducibility.
+- Evaluation runs can optionally pin `dataset_version` for reproducibility. A pin above
+  the dataset's current version is rejected with `400` rather than silently scoring the
+  current set. `predict_target` is `llm` (default), `prompt`, `skill`, or `workflow`; the
+  last three require a `subject_ref`.
 
 ## 6. Execution lifecycle
 
@@ -282,9 +292,15 @@ mutations to identity or history are admin-gated.
 The authorization model is as follows:
 
 - Reads require an authenticated user.
-- Dataset creation, example append, trace import, and evaluation runs require
-  `SCOPE_OPERATOR`.
-- Dataset metadata updates and supersede actions require `SCOPE_ADMIN`.
+- Dataset creation, example append, example revise, trace import, MLflow sync, version
+  restore, and evaluation runs require `SCOPE_OPERATOR`.
+- Dataset metadata updates (`PATCH`, including archive) and supersede actions require
+  `SCOPE_ADMIN`. The detail page's *Retire* action calls supersede, so it needs admin,
+  while *Edit* (`revise`, which supersedes internally) needs only operator.
+- Reads are scoped by dataset visibility. Writes additionally enforce the caller's
+  project role when the dataset belongs to a project: dataset and example writes, sync,
+  and restore check `resource.write.evidence`, and `POST /evaluations` checks
+  `resource.execute`. A personal dataset (no project) skips the project-role check.
 
 A set of data-integrity protections preserves the auditability the design
 depends on:
@@ -303,8 +319,9 @@ provider behavior:
   stores a CALIBER-owned snapshot.
 - Imported traces are a starting point for curation, not a guarantee that the
   captured response is a correct gold answer.
-- Evaluation runs require a real LLM provider for the `llm` predict target and
-  do not fabricate scores when the provider is unavailable.
+- Evaluation runs require a real LLM provider. `CALIBER_LLM_PROVIDER` defaults to
+  `fake`, and with `fake` (or no resolvable API key) `POST /evaluations` returns `400`
+  rather than fabricating scores.
 
 ## 8. Observability and operations
 
@@ -321,9 +338,10 @@ The signals that matter most in operation are these:
 - Trace-derived example creation depends on MLflow trace readability, so a broken
   observability stack can block that specific curation path without breaking
   manual example entry.
-- Evaluation runs are synchronous and cap the number of scored examples, which
-  avoids unbounded request times but also makes very large datasets an
-  operational smell.
+- Evaluation runs are synchronous and cap the number of scored examples (default 50,
+  `max_examples` up to 500, and at most 20 for the `workflow` target), which avoids
+  unbounded request times but also makes very large datasets an operational smell. The
+  run records how many examples were available versus scored.
 
 The module leans on several operationally adjacent systems rather than
 duplicating them:

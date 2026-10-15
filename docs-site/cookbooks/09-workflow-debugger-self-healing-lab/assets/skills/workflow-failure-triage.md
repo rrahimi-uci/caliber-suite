@@ -12,7 +12,7 @@ Use this checklist when a workflow run is in a terminal `failed` (or stuck)
 state and you need to localize the cause fast in the **Run Monitor**. It maps a
 symptom to the likely node type and the next concrete probe. It does NOT change
 the workflow: the fix is always a manual edit of the manifest in the editor
-followed by **save a new version** (there is no `propose_workflow_patch` tool),
+followed by **save a new version** (no Run Monitor control patches a failed run),
 and any assistant text here is narration — the actual recovery is done with the
 run-retry / run-approve / run-resume controls.
 

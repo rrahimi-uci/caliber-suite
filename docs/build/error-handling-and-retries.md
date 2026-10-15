@@ -6,7 +6,7 @@ product_area: sdk
 stability: ga
 prerequisites:
   - A CALIBER integration using the SDK or REST API
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - errors
@@ -41,12 +41,43 @@ Start by separating:
 
 Retrying the first three classes usually only creates noise.
 
+On the wire the classes map to statuses like this:
+
+| Status | Usually means |
+| --- | --- |
+| 400 | request-shape failure; a validation failure carries an `errors` list of `loc`, `msg` and `type` |
+| 401 | no usable credential |
+| 403 | the token's scope, the caller's project role, a project-bound token naming another project, or (where CSRF is enabled) a missing or stale CSRF token |
+| 404 | the object does not exist, or the caller is not a member of its project |
+| 409 | a state conflict (for example a primary owner that cannot be changed, or a duplicate member) |
+| 429 | rate limited; the response carries `Retry-After` |
+| 503 | a dependency is down: the database, or MLflow (the message names `MLFLOW_TRACKING_URI`); `GET /readiness` says which |
+
+Some routes also return a `reason_code` string beside `detail`; it is optional,
+so fall back to `detail` and the status when it is absent.
+
 ## 2. Use waiters for long-running operations
 
 If the product already exposes a waiter or polling contract, use that rather
 than inventing an uncontrolled sleep loop in your application.
 
-That keeps retry behavior aligned with the documented SDK surface.
+That keeps retry behavior aligned with the documented SDK surface. The SDK waiters
+poll with a growing interval (2 seconds, times 1.5 each poll, up to 15 seconds),
+never sleep past your deadline, and raise `WaitTimeout` when it passes. The default
+deadline is 900 seconds for runs, jobs, evaluations and Workspace operations, and
+600 seconds for tool calibration jobs. A job that stops for a person
+(`candidate_ready`) is a stopped state, not a timeout.
+
+## What the SDK retries for you
+
+The SDK retries only `GET`, `HEAD` and `OPTIONS`, on a transport error or a 429,
+502, 503 or 504. It makes two retries by default (`max_retries`), waits
+0.5 seconds and then 1 second (`backoff_factor` doubling per attempt), and uses a
+numeric `Retry-After` instead when the server sends one. It never retries a
+`POST`, `PATCH`, `PUT` or `DELETE`, because it cannot know whether the first
+attempt took effect; workflow run submission accepts an `idempotency_key` so you
+can retry that one safely yourself. The one replay it does make on a write is a
+single re-send after a CSRF refusal, once it has fetched a token.
 
 ## 3. Retry safely
 

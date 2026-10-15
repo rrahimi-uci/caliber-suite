@@ -25,10 +25,10 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 
 | Route | Why you call it |
 | --- | --- |
-| `GET /health` | Cheap liveness probe |
-| `GET /readiness` | Dependency/readiness posture |
+| `GET /health` | Cheap liveness probe; a bare `{status, version, db}` body (no `data` envelope), 503 with `status: "degraded"` when the database probe fails |
+| `GET /readiness` | Dependency readiness; 503 while a required dependency (database, applied schema migrations, an HTTP MLflow, remote object storage, ...) is not ready, with `checks` and `blockers` in `data` |
 | `GET /capabilities` | Surface discovery and stability tiers |
-| `GET /openapi.json` | Full management API contract |
+| `GET /openapi.json` | Full management API contract (authenticated; a raw document, not enveloped) |
 | `GET /settings/runtime` | Runtime configuration summary |
 | `GET /me` | Caller identity and effective session information |
 
@@ -38,7 +38,7 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | --- | --- | --- |
 | Prompts | `GET/POST /prompts`, `GET/DELETE /prompts/{name}`, `GET/POST /prompts/{name}/versions`, alias and release paths | Authoring and release are deliberately separate |
 | Skills | `GET/POST /skills`, `POST /skills/{id}/test-render`, `POST /skills/{id}/calibrate` | Packaging, tests, baseline, and calibration live here |
-| Tools | `GET/POST /tools`, test/calibration routes | Deterministic test and calibration flows |
+| Tools | `GET/POST /tools`, test/calibration routes | Deterministic test and calibration flows; list and detail add `builtin`, `availability` and `availability_reason` |
 | Workflows | `GET/POST /workflows`, `GET/POST /workflows/{id}/versions`, `POST /workflow-versions/{version_id}/run` | Registry, version lifecycle, execution, and deployment are split across route families |
 | Workflow services | `POST /workflows/{workflow_id}/service`, `POST /services/{workflow_id}/invoke`, `GET /services/{workflow_id}/openapi.json` | Publish a workflow externally and inspect its invocation contract |
 | Datasets and evaluations | `GET/POST /eval-datasets`, `GET/POST /evaluations`, `GET/POST /judges` | Evaluation evidence and scoring |
@@ -49,7 +49,13 @@ GET /ajax-api/2.0/mlflow/caliber/openapi.json
 | MCP | `GET/POST /mcp-servers`, tool inventory and invoke routes | Governed external tool connectivity |
 | Releases | `GET/POST /releases/candidates`, `POST /releases/candidates/{id}/signoffs`, `GET /releases/operations` | Signoff, waivers, and reconcile workflows |
 | Observability | `GET /observability/traces`, `GET /metrics`, `GET /events/stream` | Runtime evidence and live telemetry |
-| Projects and access | `GET /projects`, `GET /projects/{id}`, member CRUD under `/projects/{id}/members` | Project responses include `access_role` and `permissions`; membership changes are owner-only |
+| Projects and access | `GET /projects`, `GET /projects/{id}`, member CRUD under `/projects/{id}/members` | Project responses include `access_role` and `permissions`; membership changes are owner-only and also need `caliber.operator` |
+
+The mutating routes of prompts, skills, tools, workflows, knowledge bases,
+datasets and judges check the caller's project role as well as the token scope: a
+non-member gets 404 and a member whose role is too weak (for example a `viewer`)
+gets 403. The role each action needs is listed in
+[Auth and project scoping](m-31-auth-and-project-scoping.md#3-understand-project-access).
 
 ## Workflow-service OpenAPI
 
@@ -108,19 +114,19 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Prompts (`prompts`) | `ga` | `22` | Typed SDK | `client.prompts` | Prompt registry, versions, and alias promotion. |
 | Skills (`skills`) | `ga` | `19` | Typed SDK | `client.skills` | Skill registry, render checks, selection tests, and versions. |
 | Tools (`tools`) | `ga` | `20` | Typed SDK | `client.tools` | Tool registry plus calibration job submission and polling. |
-| Agents (`agents`) | `ga` | `9` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Agents (`agents`) | `ga` | `9` | Typed SDK | `client.agents` | The agent record that verification items, refinement jobs, approvals and rollback checkpoints hang off. |
 | Workflows (`workflows`) | `ga` | `28` | Typed SDK | `client.workflows` | Workflow CRUD plus the umbrella entry point for versions, runs, and services. |
 | Workflow Versions (`workflow-versions`) | `ga` | `16` | Typed SDK | `client.workflows.versions` | Create, validate, compile, and publish immutable workflow versions. |
 | Workflow Runs (`workflow-runs`) | `ga` | `20` | Typed SDK | `client.workflows.runs` | Submit, inspect, cancel, and wait on workflow executions. |
-| Workflow Components (`workflow-components`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Workflow Templates (`workflow-templates`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Workflow Files (`workflow-files`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Workflow Components (`workflow-components`) | `ga` | `1` | Typed SDK | `client.workflows.components()` | The workflow node catalog, with each component's runtime requirements. |
+| Workflow Templates (`workflow-templates`) | `ga` | `1` | Typed SDK | `client.workflows.templates()` | Starter workflow templates. |
+| Workflow Files (`workflow-files`) | `ga` | `1` | Typed SDK | `client.workflows.upload_staging_file()` | Staging uploads for workflow inputs. |
 | Services (`services`) | `ga` | `3` | Typed SDK | `client.workflows.services` | Publish a workflow as a service, inspect service OpenAPI, and invoke it. |
 | Eval Datasets (`eval-datasets`) | `ga` | `11` | Typed SDK | `client.eval_datasets` | Evaluation datasets, examples, and trace-to-dataset capture. |
 | Evaluations (`evaluations`) | `ga` | `3` | Typed SDK | `client.evaluations` | Create, inspect, and wait on evaluation runs. |
 | Judges (`judges`) | `ga` | `6` | Typed SDK | `client.judges` | Judge creation, test execution, and human-alignment scoring. |
-| Workflow Cron Preview (`workflow-cron-preview`) | `ga` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Workflow Promotions (`workflow-promotions`) | `ga` | `2` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Workflow Cron Preview (`workflow-cron-preview`) | `ga` | `1` | Typed SDK | `client.workflows.cron_preview()` | Preview the next fire times of a cron expression. |
+| Workflow Promotions (`workflow-promotions`) | `ga` | `2` | Typed SDK | `client.workflows.promotions` | Approve or reject a gated workflow promotion. |
 | Knowledge Bases (`knowledge-bases`) | `beta` | `14` | Typed SDK | `client.knowledge_bases` | Knowledge-base lifecycle, versions, runs, retrieval, baseline, and rollback. |
 | Knowledge (`knowledge`) | `beta` | `2` | Typed SDK | `client.knowledge_bases.query(...)`, `client.knowledge_bases.test_run(...)` | Retrieval/query and knowledge test-run reads. |
 | MCP Servers (`mcp-servers`) | `beta` | `13` | Typed SDK | `client.mcp_servers` | Managed MCP server definitions, discovery, governance, and invocation. |
@@ -139,19 +145,19 @@ Use the typed SDK where it exists. When a family is marked `Raw only`, the curre
 | Knowledge Base Versions (`knowledge-base-versions`) | `beta` | `7` | Typed SDK | `client.knowledge_bases` | Version-specific reads are exposed through the knowledge-bases resource methods. |
 | Knowledge Runs (`knowledge-runs`) | `beta` | `1` | Typed SDK | `client.knowledge_bases.run_events(...)` | Knowledge-base build run event inspection. |
 | Object Store (`object-store`) | `beta` | `13` | Typed SDK | `client.object_store` | Bucket/object console operations, distinct from project file management. |
-| Playground Runs (`playground-runs`) | `beta` | `3` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Playground Runs (`playground-runs`) | `beta` | `3` | Typed SDK | `client.playground_runs` | Files for an ad-hoc sandbox preview run (the playground, not a persisted workflow run). |
 | Secrets (`secrets`) | `beta` | `4` | Typed SDK | `client.secrets` | Secret inventory and mutation surfaces. |
-| Workflow Benchmark Reports (`workflow-benchmark-reports`) | `beta` | `4` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Workflow Benchmark Reports (`workflow-benchmark-reports`) | `beta` | `4` | Typed SDK | `client.workflows.benchmark_reports` | Workflow benchmark report records. |
 | Admin (`admin`) | `internal` | `1` | Typed SDK | `client.admin` | Metadata-only platform Admin inventory -- who holds each config-driven global scope. |
-| Assistant (`assistant`) | `internal` | `29` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Dashboard (`dashboard`) | `internal` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Gate Verdicts (`gate-verdicts`) | `internal` | `2` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Health (`health`) | `internal` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| LLM Pricing (`llm-pricing`) | `internal` | `4` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| Memory (`memory`) | `internal` | `4` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Assistant (`assistant`) | `internal` | `29` | Typed SDK | `client.aria.sessions`, `client.aria.drafts` | Aria chat sessions and drafts (preview). |
+| Dashboard (`dashboard`) | `internal` | `1` | Typed SDK | `CaliberClient.dashboard_summary()` | The dashboard summary. |
+| Gate Verdicts (`gate-verdicts`) | `internal` | `2` | Typed SDK | `client.gate_verdicts` | Advisory per-version evaluation verdicts. They never block alias rotation, and they are not project-scoped. |
+| Health (`health`) | `internal` | `1` | Typed SDK | `CaliberClient.health()` | The bare liveness body: status, version and database. |
+| LLM Pricing (`llm-pricing`) | `internal` | `4` | Typed SDK | `client.llm_pricing` | Per-model token pricing (USD per 1K), used to cost gateway usage. |
+| Memory (`memory`) | `internal` | `4` | Typed SDK | `client.memory` | Add, search, list and delete agent long-term memory records. |
 | Metrics (`metrics`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml's [[exclusion]] entries) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
-| Readiness (`readiness`) | `internal` | `1` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
-| System (`system`) | `internal` | `11` | Typed SDK | `client.raw` | No typed wrapper documented for this family yet. Use raw HTTP or generate a client against the served OpenAPI document if you need it today. |
+| Readiness (`readiness`) | `internal` | `1` | Typed SDK | `CaliberClient.readiness()` | The enveloped readiness report with its blocking checks. |
+| System (`system`) | `internal` | `11` | Typed SDK | `client.system` | Effect-ledger and webhook recovery: outward-facing work CALIBER could not complete and a person must resolve. |
 | Webhooks (`webhooks`) | `internal` | `1` | n/a | `client.raw` | Every operation in this family is permanently outside SDK scope (see coverage_allowlist.toml's [[exclusion]] entries) -- there is nothing here a typed method would add. Use `client.raw` or the served OpenAPI document directly. |
 
 ## Current route inventory

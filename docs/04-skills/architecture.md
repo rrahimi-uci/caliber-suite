@@ -8,7 +8,7 @@ product_area: skills
 stability: ga
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - skills
@@ -258,6 +258,16 @@ from several signals:
 - whether it has durable test runs;
 - whether it has scenario evidence.
 
+The resulting status is one of `Bound`, `Calibrated`, `Tested`, `Has scenarios`, or `Draft`,
+in that order of precedence.
+
+A skill calibration has no test set of its own: `POST /skills/{skill_id}/calibrate` queues a
+`SkillMetaPrompt` job, and with the default fake evaluation provider its scores are
+simulated and carry `simulated: true` rather than counting as evidence. The Skills page
+reviews the candidate under Calibration runs, applies it with `POST /jobs/{job_id}/apply`
+(which writes the next skill version through `SkillPromoter`), and rolls it back from the
+version history.
+
 Finally, the assistant runtime can select skills in `auto`, `manual`, or `off`
 mode using `assistant/skill_runtime.py`, giving operators explicit control over
 how aggressively skills are applied.
@@ -271,7 +281,14 @@ values are rejected. XML-like angle brackets are rejected in a skill's
 `description` and `summary` fields for instruction-safety hardening; the long-form
 `content` body is deliberately not bracket-filtered, since legitimate instructions
 may contain such characters. There is no hard delete in the normal operator
-surface. Mutating actions are guarded by operator and admin scopes. And package
+surface. Mutating actions are guarded by scopes: `PATCH /skills/{skill_id}` and
+`POST /skills/{skill_id}/rollback` need `admin`, while creating, importing,
+recording test runs and baselines, binding, and calibrating need `operator`.
+For a skill that belongs to a project, a project role check applies on top of the scope:
+changing or rolling back a skill needs a role that may write the asset, recording a run or
+baseline needs an evidence-writing role, and calibrating needs a role that may execute
+it. A member whose role is too weak receives `403`, and a non-member (including a
+global admin who is not a member) receives `404`. And package
 import validation checks the canonical generated files and the allowed bundled
 resource directories.
 
@@ -287,8 +304,8 @@ what a skill is and why it was selected. Its operational characteristics include
 the following. Durable test-run kinds distinguish `render`, `selection`, and
 `scenario` behavior. Workspace state exposes the baseline, the latest run, the
 bind target, and the lifecycle. Assistant skill selection stores selected-skill
-metadata in session metadata for later inspection. And built-in skill seeding can
-be enabled at runtime through config.
+metadata in session metadata for later inspection. And built-in skill seeding is off
+by default (`CALIBER_BUILTIN_SKILLS_AUTO_SEED`), so the Skills list seeds CALIBER's built-in catalog only when it is enabled.
 
 The assistant skill runtime is intentionally deterministic in the current design,
 applying a fixed priority order:

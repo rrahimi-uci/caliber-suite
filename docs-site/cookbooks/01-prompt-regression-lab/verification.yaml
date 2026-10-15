@@ -11,6 +11,7 @@ evaluation:
     - valid_json
     - allowed_intent_values
 quality_gates:
+  # min_overall_score is only meaningful with a real model and CALIBER_EVAL_PROVIDER=mlflow; the fake defaults return canned scores.
   min_overall_score: 0.90
   contract_fidelity: 1.0
   required_artifacts:

@@ -8,7 +8,7 @@ product_area: prompts
 stability: ga
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - prompts
@@ -28,7 +28,7 @@ tags:
 | **Key surfaces** | `caliber/src/caliber/routes/prompts.py`, `Prompts.tsx`, and `PromptBuilder.tsx`, mounted under `/ajax-api/2.0/mlflow/caliber`. |
 | **Runtime model** | One route entry point fans out to MLflow, `prompt_template_library.py`, `prompt_targets.py`, the DB, and the shared refinement pipeline. |
 | **Runtime identity** | A hidden `CaliberAgentConfig` prompt target keyed on prompt name gives each prompt an `agent_id`. |
-| **Trust / safety** | Authoring is non-live: create/version endpoints only register immutable drafts. Alias release and rollback need `operator` scope and use a committed, idempotent release intent before MLflow is mutated. An admin inherits operator; `approver` is a sibling role and cannot release without separate operator/admin authority. Template-preview and test-render are read-only, non-executing transformations. |
+| **Trust / safety** | Authoring is non-live: create/version endpoints only register immutable drafts. Alias release and rollback need `operator` scope and use a committed, idempotent release intent before MLflow is mutated. An admin inherits operator; `approver` is a sibling role and cannot release without separate operator/admin authority. For a prompt that belongs to a project, release and rollback also need the project's `release.apply` action (owners and editors), and deleting a prompt needs `admin`. Template-preview and test-render are read-only, non-executing transformations. |
 | **Calibration** | Optimization and calibration enqueue `CaliberVerificationItem` and `CaliberRefinementJob` into the shared pipeline. |
 
 The sections below start from this picture and drill down into the detail behind each dimension.
@@ -146,10 +146,11 @@ specific purpose.
 | Optimization/calibration queue | `CaliberVerificationItem`, `CaliberRefinementJob` | Feeds prompt work into the same background refinement engine used elsewhere. |
 | Alias release intent and outcome | `CaliberReleaseOperation` | Stores operation identity, exact before/after versions, actor/evidence, status, provider result, and reconciliation error. A unique active lock serializes incomplete operations per prompt alias. |
 | Workspace status | `optimizer_config` on hidden prompt target | Stores model pin, dataset binding, bind target, and baseline run ID. |
+| Release provenance | `caliber.*` tags on the registered version, plus the `CaliberReleaseOperation` evidence | When Apply releases a version it records `caliber.job_id` and the evaluation dataset id, dataset version, provider, and `simulated` flag; `GET /prompts/{name}/versions` returns each version's provenance. |
 
 This layout has three consequences worth making explicit. Deleting a prompt
 means deleting it from MLflow, not removing a CALIBER row, because no such row
-exists. Lifecycle state such as `Draft`, `Tested`, `Calibrated`, or `Bound` is
+exists. Lifecycle state such as `Draft`, `Has test set`, `Tested`, `Calibrated`, or `Bound` is
 derived from target, test, and job state rather than stored directly as a single
 status column. And a prompt can participate in CALIBER workflows without ever
 being represented as a standalone SQLAlchemy model.
@@ -190,7 +191,12 @@ when no prior live version is recorded. The rollback walk reads only
 writes — so repeated rollbacks step strictly backward through real promotion
 history (v3→v2→v1) instead of oscillating back to the version just left. An
 alias rotation applied through the assistant/apply path records the same
-`promote_prompt` row, so it is equally visible to rollback.
+`promote_prompt` row, so it is equally visible to rollback. `POST /prompts`, `POST
+/prompts/{name}/versions` and `DELETE /prompts/{name}` each write an audit row
+(`prompt.create`, `prompt.create_version`, `prompt.delete`); the first two record a
+content digest and length, never the template, and the delete row is committed. When
+MLflow is unreachable, prompt creation and version registration answer `503` with a fixed
+message instead of waiting on MLflow's retries.
 
 The external effect is not a distributed transaction, but it is crash-observable.
 The release row starts as `prepared`, moves to `applying` before the provider
@@ -287,6 +293,7 @@ sequenceDiagram
     Q->>DB: Process stages and on pass mark candidate_ready
     U->>UI: Inspect candidate and invoke Apply
     UI->>API: POST /jobs/{job_id}/apply
+    API->>DB: Commit claim (applying) and approval anchor
     API->>DB: Commit checkpoint, provenance, and release intent
     API->>ML: Register candidate and rotate alias
     API->>DB: Settle release operation and audit
@@ -302,6 +309,22 @@ outgoing version and advisory verdict before MLflow is mutated, allowing exact
 rollback and recovery after an ambiguous provider failure. The advisory verdict
 never blocks direct operator rotation. Incomplete provider effects remain a
 reconciliation boundary, surfaced by the operation list and reconcile endpoint.
+
+Apply is intent-first. `POST /jobs/{job_id}/apply` commits the claim
+(`candidate_ready` to `applying`) and the approval anchor before it calls the promoter,
+so the request never holds a database write lock across the MLflow call. If the promotion
+fails before any release operation exists, the job returns to `candidate_ready`, the unused
+approval is withdrawn, and an `apply_failed` audit row records the attempt, so the job can
+be applied again. If a release operation already exists, the job stays `applying` and the
+release reconciler settles it from the durable operation; the janitor returns a job stranded
+in `applying` with no operation to `candidate_ready`. The promoter defaults to
+`CALIBER_PROMOTER_PROVIDER=mlflow`, which registers a version and rotates the alias in the
+registry. The `fake` promoter simulates a release, is refused at startup unless
+`CALIBER_ALLOW_SIMULATED_PROVIDERS=true`, and marks the Apply response and its audit rows
+`simulated: true`; the UI then says nothing was released. The evaluation provider
+(`CALIBER_EVAL_PROVIDER`) still defaults to `fake`, so its scores carry `simulated` and are
+not evidence. A released prompt alias appears on the Releases board through
+`GET /releases/live`, which reads the durable release-operation ledger.
 Test-run history is durable and CALIBER-owned, but replay is effectively a frontend
 re-run that inserts a fresh row rather than a server-side replay API. Bind and baseline are workspace metadata operations on
 the hidden prompt target, not registry mutations. And workflow-node binding is

@@ -11,16 +11,16 @@ secondary_personas:
   - platform engineer
   - evaluator
 caliber_surfaces:
+  - Releases
   - Observability
-  - Allure
   - Evaluations
   - Review Queues
 prerequisites:
   - Completed build scenarios with saved run IDs.
-  - In-app Allure path configured and visible.
+  - An artifact/version and a rollback version for the candidate; the operator role (and an admin for waivers and signoff).
 time_to_first_value: 60-120 minutes
 success_criteria:
-  - Required gates pass with no unresolved blockers.
+  - Required gates pass with no unresolved blockers (the server reports the candidate as ready).
   - Final decision maps back to concrete evidence.
 demo_profile:
   recommended_sequence_index: 11
@@ -35,4 +35,4 @@ demo_profile:
     - release_governance
   showcase_capabilities:
     - cross-scenario release evidence aggregation
-    - deterministic go/no-go gating
+    - server-computed go/no-go gating (Preview, record-only)

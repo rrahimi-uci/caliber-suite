@@ -8,7 +8,7 @@ product_area: architecture
 stability: ga
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - platform
@@ -40,7 +40,7 @@ paths are shown relative to that prefix once the convention has been stated.
 | **How users reach it** | A React SPA served under `/caliber/`; every action flows through the API under `/ajax-api/2.0/mlflow/caliber/*`. |
 | **Source of truth** | SQLAlchemy relational metadata is authoritative; object storage owns file bytes; MLflow owns prompt versions and traces. |
 | **Work model** | Bounded validation and many durable database mutations run inline; explicitly queued or long-running work uses up to ten in-process loops. All share the background-task lifecycle gate, and four also have independent enable flags. |
-| **Trust model** | Session mode verifies a database-backed account and resolves the `viewer` / `operator` / `approver` / `admin` scopes; trusted identity headers are an explicit proxy-mode option. Route guards, project visibility, and audit coverage remain path-specific. |
+| **Trust model** | Session mode verifies a database-backed account and resolves the `viewer` / `operator` / `approver` / `admin` scopes; trusted identity headers are an explicit proxy-mode option. Within a project, the `owner` / `editor` / `reviewer` / `viewer` role is enforced on the release path (Apply, release, rollback) and on skills, tools, workflows, workflow runs and knowledge bases: a non-member gets 404 and a member with too weak a role gets 403. Route guards, project visibility, and audit coverage otherwise remain path-specific. |
 
 The sections below start from this picture and drill down — scope, boundaries,
 runtime, state, surfaces, lifecycle, security, operations, and the seams the
@@ -166,7 +166,12 @@ explicit, because they shape every design decision downstream:
   operation instead of being retained as app-lifetime singletons.
 - `CALIBER_DATABASE_URL` independently owns CALIBER's tables. It is not required to
   equal MLflow's backend-store URL; the bundled stack uses separate logical databases
-  so the two Alembic histories never compete for one version table.
+  so the two Alembic histories never compete for one version table. CALIBER's own version table is
+  `caliber_alembic_version`.
+- `create_app()` never creates or migrates tables. `caliber-migrate` (packaged migrations; it reads
+  `CALIBER_DATABASE_URL` and works from any directory) brings the database to head, the CALIBER
+  container entrypoint runs `alembic upgrade head` before it serves, and `/readiness` reports a
+  database that is missing or behind as a blocking `schema` check.
 - The codebase uses sync SQLAlchemy consistently even though route callables are
   predominantly async. Selected blocking work is explicitly sent through
   `run_in_threadpool` or `asyncio.to_thread`; there is no async ORM. An async route
@@ -301,7 +306,8 @@ All configured loops share `background_tasks_enabled` as their lifecycle gate.
 six loops, including `AriaPlanWorker`, do not.
 
 The loops are in-process, so **each server worker process runs its own full set**.
-`mlflow server` defaults to four gunicorn workers, which means all ten loops
+`uvicorn` runs one process unless you pass `--workers`; the unsupported embedded `mlflow server`
+launcher (`caliber/scripts/run-dev.sh`) defaults to four gunicorn workers, which means all ten loops
 exist four times over. Where arbitration is durable that is safe: queue consumers
 so exactly one process wins each row, and the cron scheduler is idempotent by a
 minute-bucketed key backed by a unique partial index. Two consequences do not
@@ -317,8 +323,7 @@ follow that rule and are worth sizing for:
   (`routes/auth.py`) and the API `RateLimiter` (`rate_limit.py`) are token/attempt
   buckets behind a thread lock, not shared state, so their effective ceiling
   scales with the worker count. Size the configured limits accordingly, or pin the
-  server to one worker (`MLFLOW_WORKERS=1` for `caliber/scripts/run-dev.sh`, `--workers 1`
-  otherwise). See [the layered architecture](../../ARCHITECTURE.md) for the same
+  server to one worker (`--workers 1`, or `MLFLOW_WORKERS=1` for `caliber/scripts/run-dev.sh`). See [the layered architecture](../../ARCHITECTURE.md) for the same
   point at the platform tier.
 
 ```mermaid
@@ -401,7 +406,9 @@ request path and the data it touches:
 - CSRF protection guards browser-driven state changes.
 - Optional rate-limiting middleware bounds request volume.
 - Project and visibility filters are applied on the feature paths that wire the
-  shared scoping helpers.
+  shared scoping helpers. Project roles (`owner`, `editor`, `reviewer`, `viewer`) are checked by
+  `resource_access.py` on the release path and on skills, tools, workflows, workflow runs and knowledge
+  bases; `caliber.admin` is not an implicit project member. Traces and metrics are not project-scoped.
 - Implemented mutation paths append audit records; database-local mutation and
   audit can share one caller transaction. Prompt alias changes additionally
   commit an exact release intent before the MLflow effect and expose incomplete
@@ -453,7 +460,7 @@ The operational design choices behind these pieces favor graceful degradation,
 so that observability and serving infrastructure fail soft rather than taking
 the request path down with them:
 
-- Logging defaults to stderr, with optional mirroring to S3 or the Object Store.
+- Logging always writes to stderr. The default `CALIBER_LOG_SINK=s3` also mirrors JSONL batches to the configured Object Store / S3 bucket when one is available; `CALIBER_LOG_SINK=stderr` disables the mirror.
 - Tracing is on-but-inert by default and degrades to a no-op when MLflow tracing
   support is unavailable.
 - Event publication is best-effort and must never break the request path.

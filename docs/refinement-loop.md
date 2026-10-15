@@ -8,7 +8,7 @@ product_area: calibration
 stability: ga
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-09-09
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - refinement
@@ -26,7 +26,8 @@ tags:
 > **Alpha note:** in the `0.1.0a1` alpha the loop starts at stage ②, not at a flagged trace. Nothing watches
 > production traces, there is no "flag this trace" action, and verifying an item does not start a job.
 > You start a calibration from a prompt and a test set, and stages ② to ⑥ run as described. See
-> [Alpha scope and limitations](start/alpha-scope.md).
+> [Alpha scope and limitations](start/alpha-scope.md). `0.1.0a1` is prepared on `main`; its tag and release assets are
+> not published yet.
 
 ## At a glance
 
@@ -61,7 +62,7 @@ flowchart LR
 | **② Diagnose** | An LLM identifies the root cause from the trace and its evidence. | Calibration |
 | **③ Optimize** | A policy-selected optimizer proposes a fix. A manual pin or agent override wins; diagnosis heuristics choose among the remaining live paths. | Calibration |
 | **④ Evaluate** | The candidate is scored against a pinned test set with per-dimension regression checks. A pass advances the job to `candidate_ready`; it does not promote automatically, and registry gate verdicts elsewhere remain advisory. | Evaluation · Test sets |
-| **⑤ Apply decision** | An operator-scoped actor (operator or admin; approver is a sibling scope) reviews the diff, evaluation comparison, and root-cause summary, then either invokes Apply or leaves the candidate unapplied. This is not a separate vote/quorum/reject API. | Prompts |
+| **⑤ Apply decision** | An operator-scoped actor (operator or admin; approver is a sibling scope) who also holds the `release.apply` project role (`owner` or `editor`) reviews the diff, evaluation comparison, and root-cause summary, then either invokes Apply or leaves the candidate unapplied. This is not a separate vote/quorum/reject API, and one person can review and apply (no two-person rule in the alpha). | Prompts |
 | **⑥ Promote** | On the canonical prompt path, Apply first commits an idempotent release operation containing the exact outgoing and target versions, then rotates the live alias and settles the operation. Ambiguous provider outcomes remain visible for operator reconciliation; rollback uses the recorded target. Other assets retain their own release semantics. | Prompts |
 
 ## Why it matters

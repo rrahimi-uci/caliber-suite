@@ -8,7 +8,7 @@ product_area: knowledge
 stability: beta
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - knowledge-bases
@@ -29,7 +29,8 @@ tags:
 | **Retrieval** | Version-scoped dense, hybrid, graph-hybrid, or AGE-backed modes through `POST /knowledge/query`, with optional pgvector ANN and cross-encoder rerank. |
 | **Key surfaces** | Routes under `/ajax-api/2.0/mlflow/caliber`, the `KnowledgeBases.tsx` UI, and the service in `caliber/src/caliber/knowledge/service.py`. |
 | **Calibration** | `knowledge/calibration.py` scores quality against eval datasets and pins baseline runs via `CaliberKnowledgeBaseTestRun`. |
-| **Trust boundary** | Reads need an authenticated user; mutating routes require `SCOPE_OPERATOR`. |
+| **Prerequisites** | An S3-compatible object store for sources and outputs, and for local embeddings the `knowledge-local` extra (the default docker image installs `knowledge` only); without them creation fails fast with a 503 that names the missing piece. |
+| **Trust boundary** | Reads need an authenticated user; mutating routes require `SCOPE_OPERATOR` plus the project role the action names. |
 
 The sections below start from this picture and drill down into the scope, data
 model, API surface, lifecycle, and operational detail behind each dimension.
@@ -148,8 +149,10 @@ pieces are arranged as they are:
 - Source selection always begins from object-store files or folders, so the
   object store is the single ingestion entry point.
 - Build output is persisted twice over: as normalized DB rows for query access
-  and as object-store artifacts under `.caliber/knowledge-bases/...` for
-  inspection and export.
+  and as object-store artifacts in the source bucket under
+  `.caliber/knowledge-bases/{knowledge_base_id}/versions/{NNNN}-{version_id}/`
+  (`manifest.json`, `stats.json`, `logs.jsonl`, `sources.jsonl`, `chunks.jsonl`,
+  `entities.jsonl`, `relationships.jsonl`, `graph.json`) for inspection and export.
 - Retrieval is version-scoped rather than knowledge-base-global, which is what
   lets an older version keep serving while a new one builds.
 - Apache AGE is optional and additive; it complements the local graph
@@ -191,7 +194,7 @@ with pointers to its output artifacts. Its notable fields are:
   readiness.
 - `chunking_strategy`, `chunking_config` record how text was split.
 - `graph_config` records how the graph was derived.
-- `embedding_model`, `embedding_dimension` record how chunks were embedded.
+- `embedding_provider`, `embedding_model`, `embedding_dimension` record how chunks were embedded.
 - `output_bucket`, `output_prefix` locate the artifact namespace.
 - `chunks_uri`, `entities_uri`, `relationships_uri`, `graph_uri` point at the
   exported build outputs.
@@ -308,8 +311,11 @@ selects a mode appropriate to the question and the available artifacts:
   graph tables, broadening recall through related concepts.
 - AGE mode can seed retrieval from the synced graph and then rerank with dense
   chunk similarity.
-- Answer generation calls OpenAI or Anthropic directly when configured, and
-  falls back to a deterministic context summary when it is not.
+- Answer generation calls OpenAI or Anthropic directly only when
+  `CALIBER_ASSISTANT_ENGINE` is explicitly `openai` or `anthropic` (the per-query
+  `chat_model` only picks the model). Any other value, including the default `auto`, produces a
+  deterministic summary of the retrieved passages instead of a model answer, as does
+  a provider call that fails (the error is returned alongside it).
 
 Activation is audited and reversible. `activate_version(...)` records the
 outgoing `previous_active_version_id` in its audit row, so `POST
@@ -330,15 +336,30 @@ every mutating operation for operators. The access rules are:
 - Reads require an authenticated user.
 - Create, update, delete, build, activate, rollback, sync, calibrate, and
   baseline routes require `SCOPE_OPERATOR`.
+- For a knowledge base that belongs to a project, those routes also check the
+  project role: everything except calibrate needs `resource.write.runtime` (`owner`
+  or `editor`), and calibrate needs `resource.execute` (`owner`, `editor`, or
+  `reviewer`). A non-member sees `404`; a member with too weak a role gets `403`.
 - List and detail paths re-check visibility through `apply_visibility_filter`
   and the `_require_visible_*` helpers.
 
 Beyond authorization, several controls protect the trust boundary between
 CALIBER and the code, models, and storage it drives:
 
-- The local embedding runtime is gated by `local_embedding_block_reason(...)`,
-  so a risky or unsupported local torch stack is blocked unless explicitly
-  allowed.
+- The local embedding runtime is gated twice. `local_embedding_missing_reason()`
+  looks for `sentence-transformers` and `langchain-huggingface` with
+  `importlib.util.find_spec` (nothing is imported); when either is absent every
+  model in `GET /knowledge-bases/options` is `available: false` with a reason that
+  names the `caliber-suite[knowledge,knowledge-local]` extra, `requires_override` is
+  `false` (no override installs a package), and creating a knowledge base or a
+  version fails fast with the same sentence. A missing package outranks a flagged
+  one. `local_embedding_block_reason(...)` then blocks a risky or unsupported
+  local torch stack unless `CALIBER_ALLOW_FLAGGED_LOCAL_EMBEDDINGS` allows it.
+- Creating a knowledge base or a version first runs `head_bucket` on the source
+  bucket, so an install with no reachable object store answers `503` before
+  anything is persisted rather than queuing a build that can never finish. The
+  message names the endpoint, credentials, or bucket problem without echoing the
+  endpoint URL.
 - Object-store access uses secret indirection through `resolve_secret` rather
   than literal credentials.
 - Reserved output prefixes under `.caliber/knowledge-bases` are excluded from
@@ -347,6 +368,10 @@ CALIBER and the code, models, and storage it drives:
   queries.
 - Optional dependencies fail as `KnowledgeDependencyError` and surface as
   structured 503s rather than generic crashes.
+- The default docker image installs the `knowledge` extra but not
+  `knowledge-local` (`CALIBER_INSTALL_EXTRAS` in `deploy/caliber/compose.yaml` and
+  `deploy/caliber/Dockerfile`), so on the default stack every embedding model reports
+  unavailable until the image is built with `knowledge-local` added.
 
 Delete behavior is intentionally aggressive but bounded, distinguishing a
 reversible lifecycle change from a destructive removal:
@@ -375,14 +400,18 @@ following signals:
 These signals are tuned through configuration that governs queueing, the
 background worker, graph extraction, AGE, and local embeddings:
 
-- `knowledge_build_queue_enabled`
-- `knowledge_build_worker_enabled`
-- `knowledge_build_worker_interval_seconds`
-- `knowledge_build_lease_seconds`
-- `knowledge_graph_extractor_backend`
-- `knowledge_age_enabled`
-- `knowledge_age_graph_name`
-- `allow_flagged_local_embeddings`
+- `knowledge_build_queue_enabled` (default `true`)
+- `knowledge_build_worker_enabled` (default `true`)
+- `knowledge_build_worker_interval_seconds` (default `2.0`)
+- `knowledge_build_lease_seconds` (default `120.0`)
+- `knowledge_graph_extractor_backend` (`heuristic` by default, or `spacy`; the docker
+  stack sets `spacy`)
+- `knowledge_age_enabled` (default `false`; the docker stack sets it `true`)
+- `knowledge_age_graph_name` (default `knowledge_graph`)
+- `allow_flagged_local_embeddings` (default `false`)
+
+Each is the `CALIBER_`-prefixed upper-case environment variable (for example
+`CALIBER_KNOWLEDGE_BUILD_QUEUE_ENABLED`).
 
 The UI is organized around this same operational lifecycle, presenting one stage
 per task:
@@ -413,12 +442,19 @@ implementation:
 - Source selection and artifact output both live in the chosen object-store
   bucket today; there is no separate per-KB artifact bucket configuration.
 - Embeddings are local Hugging Face models only today, even though answer
-  generation can use OpenAI or Anthropic.
+  generation can use OpenAI or Anthropic, and they need the `knowledge-local` extra
+  (`sentence-transformers`, `langchain-huggingface`, and torch) plus a model download
+  on the first build (pre-cache it into `HF_HOME` on an offline host).
 - Dense retrieval defaults to an in-process scan over version chunks; on Postgres
   with pgvector it can instead push a SQL-side nearest-neighbour top-k into the
   database (see §10). The cross-encoder rerank stage is local-model only, behind
   the same flagged-runtime guard as embeddings.
 - Calibration runs are synchronous for now.
+- `scripts/verify-knowledge-stack.sh` runs `tests/test_knowledge_stack_journey.py`
+  (create, build, version, query, activate, roll back) against the docker stack's real
+  MinIO and PostgreSQL. Its embeddings are a deterministic test double, so it proves
+  storage, build, and routes, not retrieval quality; no CI job here runs a real
+  embedding model.
 - Knowledge-base storage uses a direct S3-compatible client rather than the
   generic `WorkingDirectoryService`, so its storage behavior is similar to but
   not yet fully unified with workflow and project file storage.

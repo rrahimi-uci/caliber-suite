@@ -90,11 +90,11 @@ soffice --headless --convert-to doc invoice-clean.md   # -> invoice-clean.doc
 mv invoice-clean.doc invoice-legacy.doc
 ```
 
-Upload `invoice-legacy.doc`, then in the UI open it and click **Extract** (or
+Upload `invoice-legacy.doc`, then in the UI click its preview (eye) icon (or
 call `GET /object-store/buckets/doc-intake/object/extract?key=invoice-legacy.doc`).
 Expect a readable `kind:"unsupported"` error naming the format — that is the
-`unsupported_format_returns_readable_error` rule check, and the workflow run
-should surface it cleanly (status `fail`) rather than crash.
+`unsupported_format_returns_readable_error` rule check. A workflow run on the same
+file would not fail cleanly, because `extract_document` reads it as garbled text.
 
 > Do **not** simply rename a `.docx` to `.doc`; that produces a Zip-with-a-`.doc`
 > name, not a real legacy OLE document, and won't represent the case faithfully.

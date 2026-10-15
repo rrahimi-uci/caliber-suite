@@ -8,7 +8,7 @@ product_area: workflows
 stability: ga
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - workflows
@@ -28,8 +28,8 @@ tags:
 | **Runtime model**     | The interpreter (`workflows/runtime.py`) executes the IR directly via a background worker (`orchestrator/workflow_run_worker.py`); generated Python is export/review material only. |
 | **Where state lives** | Authoring records (`CaliberWorkflowVersion`, `CaliberWorkflowDeployment`) kept separate from runtime records (`CaliberWorkflowRun`, events, checkpoints, approvals).              |
 | **Key surfaces**      | HTTP routes under`/ajax-api/2.0/mlflow/caliber` plus Workflow Studio (`Workflows.tsx`, `WorkflowEditor.tsx`).                                                                     |
-| **Trust / safety**    | User-authored manifests are accepted as data, never executed directly; mutating endpoints require the`operator` scope; transitions validated via `run_state.py`.                    |
-| **Calibration**       | `routes/workflow_calibration.py` enqueues workflow-specific calibration runs with dataset/judge gating.                                                                               |
+| **Trust / safety**    | User-authored manifests are accepted as data, never executed directly; mutating endpoints require the`operator` scope plus the project role the action names; transitions validated via `run_state.py`. |
+| **Calibration**       | `routes/workflow_calibration.py` enqueues workflow-specific calibration runs with dataset/judge gating; under the default fake LLM provider the evaluation is stamped simulated and structurally scored. |
 
 The sections below start from this picture and drill down into the scope, boundaries, data model, APIs, lifecycle, and trust boundaries in detail.
 
@@ -208,11 +208,12 @@ creates, imports, and inspects workflows:
 - `GET /workflows/{workflow_id}`
 - `PATCH /workflows/{workflow_id}`
 - `DELETE /workflows/{workflow_id}`
-- `GET /workflow-components`
+- `GET /workflow-components` (each component also carries `requires` and a per-request `requirements` list resolved against the running configuration)
 - `GET /workflow-templates`
+- `GET /workflow-cron-preview`
 - `GET /workflows/{workflow_id}/session-memory`
 - `DELETE /workflows/{workflow_id}/session-memory`
-- benchmark report CRUD
+- `GET` and `POST /workflow-benchmark-reports`, plus `PATCH` and `DELETE` on a single report (benchmark report CRUD)
 
 The Workflows page exposes both import and clone-as-new. Import accepts YAML or
 JSON, validates the graph, rejects inline secrets, inventories visible prompt,
@@ -236,8 +237,14 @@ validation, compilation, publication, preview, run, patch proposal, and export:
 - `POST /workflow-versions/{version_id}/run`
 - `POST /workflow-versions/{version_id}/propose-patch`
 - `POST /workflow-versions/{version_id}/copilot-edit`
+- `POST /workflow-versions/{version_id}/plan-build`
+- `POST /workflow-versions/{version_id}/restore`
+- `GET /workflow-versions/{version_id}/diff/{other_version_id}`
+- `GET /workflows/{workflow_id}/patches`
 - `GET /workflow-versions/{version_id}/export/manifest`
 - `GET /workflow-versions/{version_id}/export/python`
+- `GET /workflow-versions/{version_id}/export/deployment-bundle`
+- `GET /workflow-versions/{version_id}/deployment-bundle/status`
 
 The third group covers the run lifecycle, including creation, the read surfaces
 for lineage, manifest, events, trace, and checkpoints, and the control actions
@@ -250,9 +257,15 @@ for cancel, retry, approval, resume, and trigger:
 - `GET /workflow-runs/{run_id}/events`
 - `GET /workflow-runs/{run_id}/trace`
 - `GET /workflow-runs/{run_id}/checkpoints`
+- `GET /workflow-runs/by-trace/{trace_id}`
+- `GET /workflows/{workflow_id}/runs` and `GET /workflows/{workflow_id}/runs/stats`
 - `POST /workflow-runs/{run_id}/cancel`
 - `POST /workflow-runs/{run_id}/retry`
-- approval and resume endpoints
+- `GET /workflow-runs/{run_id}/approvals`
+- `POST /workflow-runs/{run_id}/approval/approve`
+- `POST /workflow-runs/{run_id}/approval/reject`
+- `POST /workflow-runs/{run_id}/resume`
+- `POST /workflow-runs/resume-by-event`
 - `POST /workflows/{workflow_id}/trigger`
 
 The fourth group, served by `routes/workflow_deployments.py`, handles deployment
@@ -279,7 +292,12 @@ same generated OpenAPI contract:
 - `GET /services/{workflow_id}/openapi.json`
 
 The final group exposes calibration, which discovers the available options for a
-workflow and enqueues calibration runs against it:
+workflow and enqueues calibration runs against it. A calibration's `eval_results`
+carries `provider`, `simulated`, and `scorer`: with the default `fake` LLM provider the
+candidate and baseline are replayed through canned outputs (`simulated` is `true`), and
+unless the LLM judge is enabled and available (`workflow_llm_judge_enabled` with a real
+provider) the score is `structural`, which checks that the run completed and used its
+tools rather than that the output was good. The workflow page badges both:
 
 - `GET /workflows/{workflow_id}/calibration/options`
 - `POST /workflows/{workflow_id}/calibration/runs`
@@ -353,7 +371,21 @@ Because workflows accept user-authored graphs and then execute them, the module
 draws careful lines around what is trusted and what is merely accepted as data.
 On the access-control side, the following controls apply:
 
-- Mutating workflow endpoints require the `operator` scope.
+- Mutating workflow endpoints require the `operator` scope. The exceptions are the
+  decision routes: a run approval is gated by the node's own `required_role`
+  (`caliber.approver` by default) and the run's initiator cannot approve their own
+  run unless `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` is set, and approving or rejecting
+  a promotion needs the `approver` scope (promoting to an alias that requires human
+  approval needs `admin`).
+- For a workflow that belongs to a project, project roles are enforced on the
+  authoring, publishing, running, calibrating, and approval routes in addition to the
+  scope: a caller who is not a member of the project gets `404`, and a member whose
+  role is too weak gets `403`. Authoring (create, update,
+  compile, restore, patch, clear session memory) needs `owner` or `editor`; publishing a
+  version, promoting or rolling back an alias, and publishing or unpublishing a
+  service or minting its tokens need `owner` or `editor`; running, previewing, and
+  calibrating need `owner`, `editor`, or `reviewer`, as does recording a benchmark
+  report; deciding a run approval or a promotion needs `owner` or `reviewer`.
 - Workflow manifests reject inline secret values and force callers to use secret
   references instead.
 - Runtime approvals create durable `CaliberRuntimeApprovalRequest` rows rather
@@ -469,6 +501,21 @@ versions or patches rather than in-place mutation. And several advanced
 behaviors, including wait/resume and approvals, are durable but operationally
 complex, which is precisely why events and checkpoints are mandatory rather than
 optional conveniences.
+
+Queued execution, runtime approvals, and checkpointing are each off by default
+(`CALIBER_WORKFLOW_RUN_QUEUE_ENABLED`, `CALIBER_WORKFLOW_RUN_RUNTIME_APPROVALS_ENABLED`,
+`CALIBER_WORKFLOW_RUN_CHECKPOINTING_ENABLED`); the docker stack in
+`deploy/caliber/compose.yaml` turns all three on. With them off, a `human_approval`,
+`wait_until`, or `wait_for_event` node cannot pause a run.
+
+Every node type declares what it needs beyond the base install in
+`workflows/component_catalog.py`: a real LLM provider (`agent`), a remote object store
+(`input_bucket`, `output_bucket`, `knowledge_query`, `knowledge_build`), a registered MCP
+server (`mcp_resource`), `CALIBER_EXTERNAL_APP_ENTRYPOINT_ALLOWLIST` (`external_app`), or the
+run queue with checkpointing (`human_approval`, `wait_until`, `wait_for_event`).
+`GET /workflow-components` resolves each requirement against the running configuration
+and the palette marks the ones this server does not meet. "Met" means configured, not
+reachable; `/readiness` probes reachability.
 
 Published workflow versions now have a deterministic **deployment bundle** in
 addition to the lightweight YAML and Python exports. Compile resolves mutable

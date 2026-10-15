@@ -10,7 +10,7 @@ you decide which deeper guide you need.
 
 | Goal | Start here | Then go to |
 | --- | --- | --- |
-| Install the alpha from wheels (no checkout, no Docker) | [Alpha install](m-60-alpha-install.md) | [Local bring-up](m-32-local-bring-up.md) |
+| Install the alpha from wheels (no Docker; until the `0.1.0a1` release assets are published you build the wheels from a checkout) | [Alpha install](m-60-alpha-install.md) | [Local bring-up](m-32-local-bring-up.md) |
 | Run CALIBER locally | `make setup`, `make start` | [Local bring-up](m-32-local-bring-up.md) |
 | Verify a shared deployment | open the UI and check readiness | [Choose your CALIBER path](m-30-choose-your-path.md) |
 | Make the first Python call | [SDK guide](m-20-sdk-guide.md) | [Auth and project scoping](m-31-auth-and-project-scoping.md) |
@@ -28,10 +28,12 @@ make start
 Then verify:
 
 - CALIBER UI loads at `http://127.0.0.1:5001/caliber/`
-- the readiness surface responds
+- the readiness surface responds (`/ajax-api/2.0/mlflow/caliber/readiness`); a database that is unmigrated or out of date reports as not ready
 - you can log in and reach the product shell
 
-`make start` runs the database migration for you. If you run CALIBER natively instead, run
+`make setup` needs Python 3.10 to 3.12, Node and npm. `make start` needs Docker: it brings up the suite's
+containers (MinIO, PostgreSQL, MLflow, the MLflow AI Gateway and CALIBER), and the CALIBER container runs
+`alembic upgrade head` before it serves, so you do not migrate by hand. If you run CALIBER natively instead, run
 `caliber-migrate` before `uvicorn` (see [Alpha install](m-60-alpha-install.md)).
 
 Use [Local bring-up](m-32-local-bring-up.md) if you need the operator path
@@ -52,7 +54,9 @@ Use one of these next pages:
 ## 3. Verify that the system is usable
 
 For operators, the meaningful check is readiness rather than simple process
-health.
+health. Readiness probes the database and its schema, MLflow when an HTTP tracking server is configured, and the
+object store, event bus and workflow queue when they are configured. Simulated providers and unset
+code-execution allowlists are reported but do not fail it.
 
 Use:
 

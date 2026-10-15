@@ -1,31 +1,32 @@
-workflow_goal: From one clear intent, have Aria autonomously create a faithfulness judge and an eval dataset to run it on.
+workflow_goal: From one clear intent, have Aria plan and create a faithfulness judge and an eval dataset to run it on, collecting the judge's fields through the plan's input form.
 # Verified against the Aria capability registry + plan executor — see ../FEASIBILITY.md and ../ARIA-AUTONOMY.md.
 feasibility:
-  - Aria's autonomous capability registry today = judge.create, review_queue.create, eval_dataset.create, review_queue.add_items, workflow.calibrate (+ judge.list/review_queue.list reads). It can NOT author prompts, skills, tools, or workflows. This scenario lives entirely inside that set.
-  - The default HeuristicPlanner proposes a step for each non-read capability whose DOMAIN word appears in the goal, so the intent must contain the literal needles "judge" and "eval dataset" (not only "test set"). An LLM planner, if wired, maps natural phrasing.
-  - EXECUTION GAP (verified) - the shipped HeuristicPlanner emits steps with EMPTY inputs and the interaction answer ({approved, choice, value}) CANNOT inject them, so the artifacts are CREATED VIA EACH CAPABILITY'S OWN ROUTE using the assets/ specs (judge -> POST /judges; test set -> POST /eval-datasets). The Aria answer only gates a step (approve/deny). Full hands-off autonomy needs an LLM planner to fill PlannedStep.inputs (the Planner Protocol slot exists; not wired). autonomy ask_each pauses each mutate step; approve_plan would auto-run them (and fail on empty inputs).
-  - eval_dataset.create makes the EMPTY test set; example rows are added separately (not an Aria capability) — add them after, then run Evaluations (see SCN-01/SCN-10).
+  - Aria's capability registry today = judge.create, review_queue.create, eval_dataset.create, review_queue.add_items, workflow.calibrate (+ the read capabilities judge.list, review_queue.list, openapi_tool.list, openapi_tool.invoke). It can NOT author prompts, skills, tools, or workflows. This scenario lives entirely inside that set.
+  - The default HeuristicPlanner proposes a step for each non-read capability whose DOMAIN word appears in the goal (or a synonym such as "test set" for eval_dataset), so the canonical intent says "judge" and "eval dataset" literally. "faithfulness scoring" would not produce a judge step; no LLM planner is wired.
+  - INPUTS - the planner leaves unknown fields empty; when judge.create is about to run, the executor raises an `input` interaction (UI - "Aria needs information", Continue plan / Skip step; API - POST /aria/interactions/{id}/answer {inputs}). The answer is merged into the step and validated against the capability schema, then the plan resumes. The planner links eval_dataset.create's `name` to judge.create's `name`, so the test set takes the judge's name and that step needs no input (Approve only).
+  - autonomy ask_each adds an Approve/Deny prompt before each mutate step; approve_plan/auto_guarded run them straight after the input form.
+  - eval_dataset.create makes the EMPTY test set; example rows are added separately (not an Aria capability) — add them after, then run Evaluations (see SCN-01/SCN-10; needs a real model provider).
 manual_flow:
   - step: state_intent
     action: Open Plans, create a new goal with the one-line intent and pick autonomy.
   - step: review_plan
     action: Aria decomposes the intent into a draft plan (judge.create + eval_dataset.create); review the steps.
   - step: approve
-    action: Approve the plan shape.
+    action: Click Approve plan.
   - step: execute_and_answer
-    action: Execute; answer each interaction with the concrete judge spec + dataset name.
+    action: Execute; fill the judge's fields in the "Aria needs information" form and Continue plan; Approve each step under ask_each.
   - step: verify
     action: Confirm the judge is active (Judges) and the test set exists (Test Sets).
 components:
   aria:
     intent: "Create a judge for answer faithfulness and an eval dataset to run it on."
-    autonomy: ask_each        # or approve_plan to auto-run mutate steps after approval
+    autonomy: ask_each        # Stop before each change; or approve_plan to auto-run mutate steps after the input form
     capabilities:
       - judge.create          # TIER_MUTATE
       - eval_dataset.create   # TIER_MUTATE
-    step_inputs_needed:   # inputs each step needs — supply via the capability's route (an LLM planner would fill these for autonomy)
-      - "judge.create: provide {name, instructions (must reference {{ inputs }}/{{ outputs }}/{{ expectations }}), feedback_value_type}"
-      - "eval_dataset.create: provide {name, description}"
+    step_inputs_needed:   # entered in the plan's input form (or POSTed as `inputs`)
+      - "judge.create: enter {name, instructions (must reference {{ inputs }}/{{ outputs }}/{{ expectations }})}; optional feedback_value_type, description, model, tags"
+      - "eval_dataset.create: nothing to enter with the default planner — name is linked from judge.create (description/tags are only prompted if name is not linked)"
   prompts: none          # Aria acts via capabilities, not prompt assets
   skills: none
   tools: none
@@ -44,7 +45,7 @@ contracts:
 failure_modes:
   - intent omits a domain needle -> planner skips that capability
   - judge instructions reference no template variable -> judge.create rejects (operator scope + validation)
-  - no model provider -> the judge (and an LLM planner, if used) cannot run
+  - no model provider -> the judge cannot run in Evaluations (400)
 fallbacks:
-  - if an unwanted step is proposed, deny its interaction to skip it.
+  - if an unwanted step is proposed, Deny / Skip step to mark it skipped.
   - if a capability is missing from the plan, re-create the plan with the domain words explicit.

@@ -20,6 +20,20 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
   routes the tool through a `human_approval` node when used inside a workflow),
   **not** a direct-invoke refusal. So this scenario proves enforcement with a
   **block**; the approval path is demoed in SCN-03/SCN-07.
+- ⚠️ **Classification comes first.** A discovered tool must carry an explicit
+  policy (`allowed`, `side_effect_level`, `requires_approval`) before it can be
+  invoked, tested, or calibrated; an unclassified tool is refused with "has no
+  explicit allow, side-effect, and approval classification" (the UI shows an
+  **Unclassified** badge and **Classify Tool Before Invoking**). The catalog
+  templates seed these (GitHub: `search_repositories` read, `issue_write` write
+  with `requires_approval:true`); any `PATCH …/policy` saves the full merged
+  policy. A `write`/`external_action` tool that stays allowed must keep
+  `requires_approval:true` (otherwise `400`).
+- ⚠️ **The Playground cannot show the blocked refusal.** Once a tool is blocked,
+  its **Invoke Tool** button is disabled ("Tool Blocked by Policy") and the
+  calibration/test panels are replaced by a notice, so the refusal payload comes
+  from the API (`POST /mcp-servers/{id}/invoke-tool`). Invoke and policy
+  changes need the admin scope.
 - 🟢 Easiest catalog choice for a safe demo: **GitHub** (has both read tools like
   `search_repositories` and write tools like `issue_write`) or **PostgreSQL**
   (read-only queries).
@@ -34,44 +48,51 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
 
 ## Recipe (UI-first, with API fallbacks)
 
-1. **Quick-connect.** `Library → MCP Servers`, click a catalog tile
-   (`data-testid="catalog-github"`). In the dialog, name the server and supply
+1. **Quick-connect.** `MCP Servers`, click the **GitHub** catalog tile (test id
+   `catalog-github`). In the dialog, name the server and supply
    the token env var; **Register**. The GitHub tile uses the official remote
    Streamable HTTP endpoint (`https://api.githubcopilot.com/mcp/`), not the
    retired npm-based community preset.
-   - API: `POST /mcp-servers {name, transport, command, args, env}`.
+   - API: `POST /mcp-servers {name, transport:"streamable-http", uri, auth_type:"token", auth_config:{token_env_var}, env:{GITHUB_PERSONAL_ACCESS_TOKEN:"${GITHUB_PERSONAL_ACCESS_TOKEN}"}}`
+     (optional `discovered_tools` / `tool_policies` seed the tool list and the
+     classifications; the body is `extra="forbid"`).
 2. **Test connection + discovery.** On the server row, click **Test** → expect
    "Connected · N tools". Inspect discovered tools and their input/output schemas.
    - API: `POST /mcp-servers/{id}/test-connection`, `GET /mcp-servers/{id}/tools`.
-3. **Invoke a read-only tool.** `MCP Servers → Playground` → select the server →
+3. **Invoke a read-only tool.** `MCP Servers → Playground` tab → select the server →
    pick a read tool (e.g. `search_repositories`) → invoke with a golden payload →
    confirm a successful result + `duration_ms`.
    - API: `POST /mcp-servers/{id}/invoke-tool {tool_name, arguments}`.
-4. **Apply a policy overlay.** Open server detail → for a write tool (e.g.
-   `issue_write`) set `allowed:false` (block). (You can also set
+4. **Apply a policy overlay.** `Playground` → select a write tool (e.g.
+   `issue_write`) → in its **Tool Policy** card clear **Allow tool** and click
+   **Save Policy** (`allowed:false`, block). (You can also set
    `requires_approval:true`, but that only takes effect at workflow time — see
    the feasibility note.)
    - API: `PATCH /mcp-servers/{id}/tools/{tool}/policy {allowed:false}`.
-5. **Re-invoke the governed tool.** From the Playground, invoke the blocked tool
-   → expect a structured **refusal** (`success:false`, policy error), not an
-   execution. This is your enforcement record.
+5. **Re-invoke the governed tool.** In the Playground the blocked tool's **Invoke
+   Tool** button is now disabled ("Tool Blocked by Policy") with a red **Blocked**
+   badge, which is the UI evidence. Invoke it through the API to capture the
+   structured **refusal** (`success:false`, `error:"MCP tool 'issue_write' is
+   blocked by policy"`, `duration_ms:0`), not an execution. This is your
+   enforcement record.
 6. **Calibrate the read tool.** In the tool's calibration panel save a couple of
    cases + assertions and run them.
    - API: `PUT /mcp-servers/{id}/tools/{tool}/test-cases`, then
      `POST /mcp-servers/{id}/tools/{tool}/calibrate`.
 7. **Collect evidence.** `MCP Servers → Playground → History` → confirm the
-   invocation History panel shows the successful read (`success:true`) and the
-   blocked write (`success:false`, blocked-by-policy), the red **Blocked** badge
-   on the governed tool, and the saved calibration verdicts. MCP invokes emit
-   **no** MLflow spans (the gateway + invoke route use `perf_counter` only), so
-   nothing appears in `Observe → Observability` for this lab — the Playground
-   History panel is the evidence surface.
+   History panel shows the successful read (`success:true`), the red **Blocked**
+   badge and disabled Invoke button on the governed tool, and the saved
+   calibration verdicts. History is browser state only (in memory, gone on reload
+   or **Clear**), so copy what you need. Each *executed* invoke also emits a
+   `TOOL` span named `mcp.<server>.<tool>` (input, output, latency) that appears
+   in `Observability`; test-connection, discovery and a blocked refusal emit none,
+   so the blocked row exists only in your API response.
 
 ## Demo evidence to capture
 
 - Connection status + discovered tool count.
 - One successful read-only invocation record.
-- One blocked-tool enforcement record (the `allowed:false` refusal payload).
+- One blocked-tool enforcement record (the `allowed:false` refusal payload from the API).
 - The read tool's calibration pass rate.
 
 ## Done when / gate
@@ -79,7 +100,8 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
 - `connection_success_rate = 1.0`; discovery schemas visible.
 - `blocked_tool_enforcement = 1.0` — the blocked tool cannot execute.
 - At least one read tool has a saved calibration run.
-- Evidence captured in the **MCP Servers → Playground → History** panel: the
-  `success:true` read row, the `success:false` blocked-by-policy write row, the
-  red **Blocked** badge, and the saved calibration verdicts. (MCP paths emit no
-  traces, so there is nothing to verify in `Observe → Observability`.)
+- Evidence captured: the `success:true` read row in the **MCP Servers →
+  Playground → History** panel (in-memory, this session) and its `mcp.<server>.<tool>`
+  trace in `Observability`, the `success:false` blocked-by-policy API response, the
+  red **Blocked** badge with the disabled Invoke button, and the saved
+  calibration verdicts.

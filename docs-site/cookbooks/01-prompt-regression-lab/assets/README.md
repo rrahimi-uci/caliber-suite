@@ -4,9 +4,9 @@ Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
 
 | # | Artifact | File | Create via |
 | --- | --- | --- | --- |
-| 1 | Prompt `intake-classifier` | [`prompts/intake-classifier.md`](prompts/intake-classifier.md) | `Library → Prompts → New prompt`, paste the template body (text below the frontmatter). API: `POST /prompts {name, template, commit_message}` |
+| 1 | Prompt `intake-classifier` | [`prompts/intake-classifier.md`](prompts/intake-classifier.md) | `Prompts → New prompt`, paste the template body (text below the frontmatter). API: `POST /prompts {name, template, commit_message}` |
 | 2 | Eval dataset `intake-classifier-golden` | [`dataset/intake-classifier.jsonl`](dataset/intake-classifier.jsonl) | `Prompts → intake-classifier → Test Sets`: Generate Test Cases, **Run Tests & Judge**, then **Save to Test Sets**. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line |
-| 3 | Judge `InstructionCompliance` | [`judges/instruction-compliance.judge.json`](judges/instruction-compliance.judge.json) | `Evaluate → Judges → New judge`, paste fields. API: `POST /judges` |
+| 3 | Judge `InstructionCompliance` | [`judges/instruction-compliance.judge.json`](judges/instruction-compliance.judge.json) | `Judges → + New Judge`, paste fields. API: `POST /judges` |
 
 Then score the regression on the prompt's **Runs** stage (`Prompts → intake-classifier →
 Runs`): run the golden Test Set, pin the strong run as baseline, save a weaker prompt

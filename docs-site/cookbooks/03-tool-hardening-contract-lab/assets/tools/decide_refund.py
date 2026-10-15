@@ -1,7 +1,7 @@
 """Deterministic refund-eligibility decision for a workflow ``python_code`` node.
 
 This is NOT a registered tool. Paste the body of this module into a CALIBER
-**Python Code** node (``Compose → Workflows`` → drag a *Python Code* node). It
+**Python Code** node (``Workflows`` → drag a *Python Code* node). It
 needs no registration, versions with the workflow, and uses **stdlib only**.
 Wire it as the FIRST node after START: ``START -> decide_refund``. A python_code
 node receives the run input as an UNPARSED string in ``run_input``, so this

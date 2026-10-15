@@ -1,8 +1,8 @@
 {
-  "_comment": "Operator scoring config for the SCN-11 release rubric. There is NO engine that evaluates this — the operator scores each dimension BY HAND from the evidence in dataset/run-id-manifest.json, computes the weighted sum, counts blockers, and applies the gates. Weights mirror verification.yaml.",
+  "_comment": "Criteria guide for the SCN-11 release candidate on Releases (Core journey). Enter each dimension as a criterion in the candidate's criteria JSON (key, title, weight, observed score 0..1, threshold, blocking, evidence_refs); the server then computes weighted_score = sum(weight x score) / sum(weight) and the blockers, and sets the candidate ready or blocked. The status_to_factor mapping below is only a suggested way to derive each observed score from the evidence in dataset/run-id-manifest.json. Weights mirror verification.yaml; enter overall_release_score_min as the candidate's required score. Releases is Preview, record-only.",
   "version": "1",
   "scoring": {
-    "_comment": "Per dimension, mark a status and convert to a score factor, then multiply by the weight. overall_release_score = sum(weight * factor).",
+    "_comment": "Per dimension, mark a status and convert it to a suggested observed score (factor). The server computes overall = sum(weight * score) / sum(weight); the arithmetic in worked_example shows what it will report.",
     "status_to_factor": { "pass": 1.0, "partial": 0.5, "fail": 0.0 }
   },
   "dimensions": [
@@ -10,7 +10,7 @@
       "key": "component_readiness",
       "weight": 0.30,
       "satisfied_by": "Component-level evidence is green and recorded: prompt/tool/skill scorecards from the upstream scenarios pass. Concretely, every SCN-07/08/09/10 eval_run_id is filled and its scorecard passes its own gate.",
-      "evidence_source": "dataset/run-id-manifest.json -> scenarios[].eval_run_id (Evaluate -> Evaluations scorecards)",
+      "evidence_source": "dataset/run-id-manifest.json -> scenarios[].eval_run_id (Core journey -> Evaluations scorecards)",
       "pass_if": "all required eval_run_id present AND each scorecard passes",
       "partial_if": "some scorecards pass, others missing or below their gate",
       "fail_if": "any required eval_run_id missing OR any scorecard fails"
@@ -28,7 +28,7 @@
       "key": "review_coverage",
       "weight": 0.20,
       "satisfied_by": "Every required Review Queue from the upstream scenarios is fully answered (no unresolved items), and blocker-triage answers are recorded where used.",
-      "evidence_source": "dataset/run-id-manifest.json -> scenarios[].review_queue_complete (Observe -> Review Queues); optional review/blocker-questions.json answers",
+      "evidence_source": "dataset/run-id-manifest.json -> scenarios[].review_queue_complete (Operate -> Review Queues); optional review/blocker-questions.json answers",
       "pass_if": "all required review_queue_complete == true",
       "partial_if": "some queues complete, others still have unresolved items",
       "fail_if": "any required review queue not complete"
@@ -36,20 +36,20 @@
     {
       "key": "evidence_visibility",
       "weight": 0.20,
-      "satisfied_by": "The in-app Allure report was regenerated (make allure-report) and LOADS at Settings -> Allure Report, and the run-id manifest is complete enough to trace every gate state back to a concrete run id / review answer / Allure result.",
-      "evidence_source": "dataset/run-id-manifest.json -> allure {report_url, loaded}; GET /observability/allure-report",
-      "pass_if": "allure.loaded == true AND allure.report_url set AND every gate state maps to a recorded run id / review answer / Allure result",
-      "partial_if": "Allure loads but some evidence links are missing",
-      "fail_if": "Allure not regenerated or does not load (allure.loaded != true)"
+      "satisfied_by": "Allure evidence exists for this candidate — the Releases report job was generated (Generate Allure) and/or the CI Allure report loads at Settings -> Allure Report — and the run-id manifest is complete enough to trace every gate state back to a concrete run id / review answer / Allure result.",
+      "evidence_source": "dataset/run-id-manifest.json -> allure {report_url, loaded}; the Releases report job id (and GET /observability/allure-report for the CI report)",
+      "pass_if": "allure evidence present (report job generated, or allure.loaded == true with allure.report_url set) AND every gate state maps to a recorded run id / review answer / Allure result",
+      "partial_if": "Allure evidence exists but some evidence links are missing",
+      "fail_if": "no Allure evidence (no report job generated and the CI report does not load)"
     }
   ],
   "gates": {
-    "_comment": "All three must hold for a go. Mirrors verification.yaml quality_gates.",
+    "_comment": "All three must hold for a go. Mirrors verification.yaml quality_gates: the candidate's required score, no unwaived blocking criterion, and a generated Allure report job.",
     "overall_release_score_min": 0.90,
     "blocker_count_must_equal": 0,
     "allure_visibility_required": true
   },
-  "decision_rule": "decision = go ONLY IF overall_release_score >= overall_release_score_min AND blocker_count == 0 AND allure_visible == true; otherwise no_go. Missing required evidence is a fail for its dimension (and typically forces blocker review), so a missing-evidence release cannot reach 0.90.",
+  "decision_rule": "decision = go ONLY IF overall_release_score >= overall_release_score_min AND blocker_count == 0 AND an Allure report job was generated; otherwise no_go (the server refuses a GO signoff unless the candidate is ready). Missing required evidence is a fail for its dimension (and typically forces blocker review), so a missing-evidence release cannot reach 0.90.",
   "worked_example": {
     "_comment": "Illustrative only — shows the arithmetic and how one open blocker forces no_go even when the weighted score clears the threshold.",
     "scenario": "Release candidate r2026.06.0",

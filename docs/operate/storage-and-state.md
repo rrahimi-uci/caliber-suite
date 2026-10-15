@@ -7,7 +7,7 @@ product_area: storage
 stability: ga
 prerequisites:
   - A CALIBER deployment or storage design question
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - storage
@@ -26,9 +26,9 @@ missing or inconsistent.
 
 | State surface | What it stores | Related settings |
 | --- | --- | --- |
-| Metadata database | CALIBER metadata and control-plane state | `CALIBER_DATABASE_URL` |
-| MLflow backend store and artifacts | prompt versions and aliases, experiments, runs, traces | the `mlflow server` `--backend-store-uri` and `--default-artifact-root` |
-| Object store | uploaded files, previews, extracted artifacts, log sink targets | `CALIBER_OBJECT_STORE_*` |
+| Metadata database | CALIBER metadata and control-plane state, including worker heartbeats | `CALIBER_DATABASE_URL`; the schema is created and upgraded by `caliber-migrate`, never by the server |
+| MLflow backend store and artifacts | prompt versions and aliases, experiments, runs, traces | the `mlflow server` `--backend-store-uri` and `--default-artifact-root`. The bundled stack uses the `mlflow` database on its PostgreSQL container and the `mlflow` MinIO bucket (`s3://mlflow/mlruns`). |
+| Object store | files in the buckets the console browses (uploads, previews, extracted artifacts), knowledge-base sources, log sink targets, persisted workflow-run artifacts | `CALIBER_OBJECT_STORE_*` (the connection only); the buckets come from each knowledge base, `CALIBER_LOG_BUCKET` and `CALIBER_WORKFLOW_RUN_ARTIFACT_BUCKET` |
 | Workflow storage | workflow-run workspaces and files | `CALIBER_WORKFLOW_STORAGE_*` |
 | Retention policy | how long finalized run files remain | `CALIBER_WORKFLOW_STORAGE_RETENTION_*` |
 
@@ -54,7 +54,10 @@ Treat those as separate failure domains during diagnosis.
 
 Workflow-run file storage has its own backend, endpoint, limits, signing, and
 retention controls. Do not assume the generic object-store settings cover the
-full workflow storage path.
+full workflow storage path. When the backend is remote (`s3`, `gs`, `az` or `azure`, or a base URI with one
+of those schemes), readiness lists its bucket as the required `object_store` check
+([Health and readiness](../operate/health-and-readiness.md)). The bundled stack points it at the
+`caliber-workspaces` MinIO bucket.
 
 ## 4. Common failure modes
 

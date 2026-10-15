@@ -9,7 +9,7 @@ stability: beta
 prerequisites:
   - Layered architecture overview
   - MCP architecture
-reviewed_on: 2026-08-11
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - openapi
@@ -126,7 +126,7 @@ flowchart LR
 
 | Entity | Purpose |
 | --- | --- |
-| `CaliberOpenApiIntegration` | Stable identity: name, owner, status (`draft`→`review`→`ready`→`published`→`archived`), project scoping. |
+| `CaliberOpenApiIntegration` | Stable identity: name (globally unique, `uq_openapi_integration_name`), owner, status (`draft`→`review`→`ready`→`published`→`archived`), project scoping. |
 | `CaliberOpenApiIntegrationVersion` | One pinned, immutable imported document: source kind/ref, spec digest, normalized summary, import warnings, cached `graph_snapshot`. |
 | `CaliberOpenApiOperation` | One normalized operation: method, path, tags, side-effect level, auth requirement, the full normalized parameter/body/response shape (including its `classification` block). |
 | `CaliberOpenApiOperationDependency` | One typed edge between two operations: `dependency_type`, `confidence`, `source`, `status` (`auto_wired`/`suggested`/`advisory`/`confirmed`/`rejected`), `binding_field_map`. |
@@ -139,7 +139,9 @@ flowchart LR
 ## 4. API surface
 
 All routes are under `/ajax-api/2.0/mlflow/caliber/openapi-integrations` and
-tagged `beta` in the served management OpenAPI document.
+tagged `beta` in the served management OpenAPI document. The UI marks the page as
+a preview (alpha scope lists OpenAPI integrations as preview, not core journey).
+Reads need a signed-in user; mutations need the `operator` (or `admin`) scope.
 
 | Group | Routes |
 | --- | --- |
@@ -221,7 +223,8 @@ published?" gap for ordinary read and mutate cases.
 | --- | --- |
 | SSRF via spec URL or tool execution | Both paths go through `caliber.egress`: loopback, link-local, private ranges, and the cloud metadata endpoint are blocked unless explicitly allowlisted. The executor pre-checks the destination *and* the transport that opens the connection re-checks the address it actually connects to, so a name that re-resolves after the check cannot be reached. |
 | Secret exfiltration | Auth bindings carry a secret **reference** (`env://…`, `secret://…`); the resolved value is injected at request time and never persisted on the draft, the tool row, or an audit entry. Response headers likely to carry session/auth material (`Set-Cookie`, `Authorization`, …) are stripped before a result reaches the caller. |
-| Unsafe writes reached before approval | A draft cannot be fired through `preview` unless `allow_in_preview` is explicitly set — the same gate a registered tool's preview path uses. Publication additionally requires every secret reference to resolve. |
+| Acting without the project role | Inside a project, creating or editing an integration, importing or reimporting a spec, running dependency review, and generating or editing drafts need the `resource.write.runtime` role (owner or editor); preview needs `resource.execute` (owner, editor, or reviewer); publish needs `resource.publish` (owner or editor) plus the `operator` scope, and an organization-wide integration (no project) can be published only by an admin. A non-member sees `404` and a member without the role sees `403`. |
+| Unsafe writes reached before approval | A draft cannot be fired through `preview` unless `allow_in_preview` is explicitly set (otherwise `409`) — the same gate a registered tool's preview path uses. Preview and publish are audited (`preview_openapi_tool_draft`, `publish_openapi_tool_draft`), including a refused or failed outbound call. Publication additionally requires every secret reference to resolve, and refuses a tool name and version already registered (`409`). |
 | Hallucinated dependency structure | Only OpenAPI `links` and rule-based structural matches ever reach `auto_wired`/`suggested` status; there is no LLM call inside the detector at all. A same-tag grouping — the weakest, most text-only signal — is capped at `low`/advisory and never auto-wired. |
 | Duplicate or silent re-import | A spec's content hash is checked before persisting a new version; an identical re-import is rejected with a pointer to the existing version rather than silently duplicating it. |
 | Retry turning a create into a duplicate | The executor only retries a non-idempotent method (`POST`/`PATCH`-as-create) when the caller supplied an idempotency-key header; otherwise a transient 5xx/429 on a write is reported, not retried. |

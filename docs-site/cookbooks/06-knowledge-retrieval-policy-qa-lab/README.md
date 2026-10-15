@@ -25,12 +25,22 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
 
 - A small corpus in Object Store (reuse SCN-04 outputs or upload a few policy
   docs). A provider configured for the answer agent + the faithfulness judge.
+- Knowledge needs more than the base install: an S3-compatible object store
+  (MinIO or S3; without `CALIBER_OBJECT_STORE_ENDPOINT_URL` and credentials,
+  creating a KB answers `503` naming it), the embedding libraries
+  (`pip install "caliber-suite[knowledge,knowledge-local]"`; without
+  `knowledge-local` every embedding model shows as unavailable), and the
+  embedding model itself (the first build downloads it from Hugging Face; pre-cache
+  it into `HF_HOME` offline). See `docs/start/alpha-install.md`.
+- A Test Set with the calibration questions (asset 3) already created before you
+  open Calibrate, because Calibrate scores against an existing Test Set
+  (`eval_dataset_id`) and has nothing to run without one.
 
 ## Recipe (UI-first, with API fallbacks)
 
-1. **Build a KB version.** `Knowledge → Knowledge Base → New knowledge base`.
+1. **Build a KB version.** `Knowledge Bases → New knowledge base`.
    Pick the source bucket, select the policy docs, choose an embedding model
-   under **Advanced configuration**, **Create**. Wait for the build run to reach
+   under **Advanced configuration**, **Create knowledge base**. Wait for the build run to reach
    `completed`.
    - API: `POST /knowledge-bases`, `POST /knowledge-bases/{id}/versions`.
 2. **Explore → Chunks.** Select the built version in the header switcher, open
@@ -39,13 +49,15 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md). Key points:
    question across `dense`, then `hybrid`, then `graph_hybrid`; note which
    retrieves the right chunk. (If AGE is enabled: Explore → Graph → **Sync to
    AGE** → re-query as `age_graph`.)
-   - API: `POST /knowledge/query {knowledge_base_id, question, retrieval_modes}`.
-4. **Calibrate (inline metrics).** `Knowledge → Calibrate`: supply a few
-   question→expected pairs, run; read Recall@k / nDCG@k / Faithfulness /
+   - API: `POST /knowledge/query {version_ids:[<version id>], question, top_k?, retrieval_modes?}`
+     (`version_ids` takes 1–3 ids, `retrieval_modes` at most two per call, and a
+     `knowledge_base_id` key is rejected).
+4. **Calibrate (inline metrics).** `Knowledge Bases → Calibrate`: pick the
+   **Test set** holding the question→expected pairs (create it first, asset 3), run; read Recall@k / nDCG@k / Faithfulness /
    Answer-correctness. Tune chunking/mode, re-run, and **show recall improve**.
    Pin a baseline (`POST /knowledge-bases/{id}/baseline`).
-   - API: `POST /knowledge-bases/{id}/calibrate`.
-5. **Build the answer workflow.** `Compose → Workflows → New`, template
+   - API: `POST /knowledge-bases/{id}/calibrate {version_id, eval_dataset_id, retrieval_mode, top_k}`.
+5. **Build the answer workflow.** `Workflows → New Workflow`, template
    **`knowledge_rag`** (or `graph_hybrid_rag`). Nodes:
    `knowledge_query → data_transform (confidence) → agent (draft_answer with
    "cite only retrieved chunks; if sources conflict, present the conflict and

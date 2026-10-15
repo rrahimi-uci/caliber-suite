@@ -8,7 +8,7 @@ product_area: observability
 stability: beta
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - observability
@@ -80,6 +80,9 @@ These responsibilities are implemented across the following primary code paths:
 - `caliber/src/caliber/events/nats_bus.py`
 - `caliber/src/caliber/events/webhooks.py`
 - `caliber/src/caliber/observability/incidents.py`
+- `caliber/src/caliber/observability/readiness.py`
+- `caliber/src/caliber/observability/queue_health.py`
+- `caliber/src/caliber/observability/worker_registry.py`
 - `caliber/src/caliber/routes/system_services.py`
 - `caliber/src/caliber/routes/system_effects.py`
 - `caliber/src/caliber/routes/health.py`
@@ -104,7 +107,7 @@ maps each responsibility to the file that owns it.
 | Outbound delivery | `events/webhooks.py` + `routes/system_effects.py` | Signs and retries webhook deliveries, persists acceptance leases/dead letters, and exposes acknowledgement/replay operations. |
 | Trace data access | `trace_client.py` | Normalizes MLflow trace reads into CALIBER's trace-detail shape for the UI and downstream consumers. |
 | Queue and worker liveness | `observability/queue_health.py` + `observability/worker_registry.py` | Summarizes queue depth from durable run state and worker health from self-reported heartbeats, so an idle queue and a dead worker are distinguishable. |
-| Operator service probes | `routes/system_services.py` + `routes/health.py` | Adjacent operational truth surfaces for backing service status and readiness honesty. |
+| Operator service probes | `routes/system_services.py` + `routes/health.py` + `observability/readiness.py` | Adjacent operational truth surfaces: backing service status, `/health`, and the dependency probes behind `/readiness`. |
 | Frontend observability UX | `Observability.tsx` + `TraceMetricsCharts.tsx` + `Releases.tsx` | Provides trace list/detail, compare mode, filters, feedback UI, time-series monitoring charts, and an operator recovery console for effects and dead letters. |
 
 Underneath those owners, the module draws one sharp line: it separates four
@@ -363,8 +366,11 @@ lines toward MLflow.
 
 The authentication and authorization behavior is straightforward:
 
-- Trace list, trace detail, feedback, experiment list, monitoring charts, and
-  SSE all require an authenticated user.
+- Trace list, trace detail, feedback, experiment list, monitoring charts, Allure
+  report serving, and SSE all require an authenticated user.
+- Silencing or acknowledging an incident requires the operator scope; `/health` and
+  `/readiness` are unauthenticated, which is why the object-store check reports only
+  the storage scheme and never a bucket name or path.
 - The Prometheus exposition endpoint at `GET /metrics` is open by default so
   existing scrape configs keep working; setting `CALIBER_METRICS_TOKEN_ENV` to a
   secret source makes it require `Authorization: Bearer <token>`.
@@ -402,11 +408,37 @@ The behaviors that matter most in operation are these:
 
 - `server.py` wires the event bus, logging, and route registration during app
   startup, so observability surfaces are available as soon as the API is up.
-- `GET /readiness` reports whether providers are real or simulated and whether
-  tracing is enabled, which keeps operator dashboards honest about runtime
-  capabilities.
+- `GET /health` returns `200` with `status: "ok"`, `version`, and `db: "ok"` only
+  when a `SELECT 1` against the database answers; otherwise it returns `503` with
+  `status: "degraded"` and `db: "down"`. It proves the API and its database, nothing
+  more.
+- `GET /readiness` is the go/no-go probe. It probes the dependencies the current
+  configuration actually needs and returns `503` when a required one is not ready.
+  Each entry in `checks` carries `name`, `ready` (`true`, `false`, or `null` for
+  skipped), `required`, `detail`, and `latency_ms`, and `blockers` names the required
+  failures. The checks are `database` (always required, `SELECT 1`), `schema` (always
+  required: an unmigrated, behind, or newer-release database blocks readiness; fix it with
+  `caliber-migrate`), `mlflow` (required only when an HTTP tracking URI is configured;
+  probes `/health`), `object_store` (required when workflow storage is remote, meaning
+  an `s3`/`gs`/`az`/`azure` backend or such a `base_uri` scheme; a bounded `list` under
+  the `.caliber-readiness-probe` prefix), `event_bus` (required when the NATS or Redis
+  backend is selected; a TCP connect), and `workflow_queue` (required only when
+  `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED` is on; it is red while the queue is degraded or no
+  worker heartbeat is fresh). Every probe is bounded to two seconds, and a probe that
+  raises or times out becomes a not-ready verdict rather than a `500`. Two further
+  checks are never required: `providers` reports which of `llm`, `eval`, `promoter`,
+  and `artifact_store` are simulated (any value other than `openai`, `anthropic`, or
+  `mlflow`, including the `fake` default), and `code_execution_allowlists` names the
+  unset `registered_tool_module_allowlist` (unrestricted) and
+  `external_app_entrypoint_allowlist` (all entrypoints refused). The response also keeps
+  the `providers`, `simulated`, `all_real`, and tracing flags the SPA honesty banner
+  reads, so simulated providers show up without failing the probe.
+- A dead worker keeps `workflow_queue`, and so readiness, red. A worker that stops
+  without a clean shutdown leaves its `caliber_worker_heartbeats` row behind as the
+  signal, and nothing prunes it: once the cause is fixed, delete the stale row by hand.
 - `GET /system/services` probes MLflow, the object store, AI Gateway, the
-  database, NATS, and related dependencies, so operators can separate a CALIBER
+  database, NATS, and the graph console when one is configured, so operators can
+  separate a CALIBER
   bug from an unavailable backing service.
 - `GET /observability/metrics` computes time buckets over recent traces for the
   in-app charts, while `GET /metrics` remains the machine-scrape surface for

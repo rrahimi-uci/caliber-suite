@@ -1,7 +1,7 @@
 # Verified — see ../FEASIBILITY.md.
 feasibility:
   - FaithfulnessJudge is a real LLM judge (instructions must reference {{ inputs }}/{{ outputs }}/{{ expectations }}). review_items_link_to_trace is real (answers write back to the trace).
-  - automated_human_alignment / disagreement_rate are NOT auto-computed — tally judge verdicts vs reviewer answers by hand.
+  - automated_human_alignment / disagreement_rate ARE computed in-product (Judges -> Try it -> Human alignment: Import labels, then Check alignment) from the judge's verdict on each output versus the imported reviewer pass/fail label, with agreement rate, Cohen's kappa and FP/FN.
   - monitoring.traces below are evidence labels, not literal span names.
 evaluation:
   judges:

@@ -1,15 +1,16 @@
 workflow_goal: Build a prompt-only intake classifier with no tool, skill, or MCP dependency.
 # Verified against the live build — see ../FEASIBILITY.md.
 feasibility:
-  - Prompts Playground only RENDERS the template (no model call); run scored cases via Evaluations (eval-dataset + scorers), not the Playground.
-  - Regression = baseline run vs comparison run in Evaluations (per-example deltas).
+  - Prompts Playground is a live chat with the prompt (a real model call, not a scored run); run scored cases on the prompt's Test Sets + Runs stages (or Evaluations with What to score = Prompt version).
+  - Regression = baseline run vs comparison run on the prompt's Runs stage (Vs. baseline per-case diff).
+  - Under the default fake LLM/eval providers calibration and evaluation scores are canned, so quality gates such as min_overall_score are not meaningful until a real provider and CALIBER_EVAL_PROVIDER=mlflow are configured.
   - Calibration queues a background optimizer job (MetaPrompt/GEPA); capture the job id, do not expect an inline score.
   - InstructionCompliance is a real LLM judge; valid_json/allowed_intent_values use deterministic scorers (contains_expected), not a deterministic judge.
 manual_flow:
   - step: define_prompt
     action: Author a system prompt that enforces strict JSON output and abstains on low-confidence inputs.
   - step: run_cases
-    action: Build an eval dataset from test-data and run it in Evaluations with deterministic + judge scorers (the Playground only renders).
+    action: Generate cases on the prompt's Test Sets stage, run them with Run Tests & Judge, then score them on the Runs stage (the Playground is a live chat sanity check, not a scored run).
   - step: save_baseline
     action: Save and pin the strongest run as baseline.
   - step: compare_variant

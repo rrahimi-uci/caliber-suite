@@ -6,7 +6,7 @@
   <meta charset="UTF-8">
   <meta name="viewport" content="width=device-width, initial-scale=1.0">
   <title>caliberctl and the async client | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
-  <meta name="description" content="caliberctl for operator flows, where its six exit codes come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both.">
+  <meta name="description" content="caliberctl for operator flows, where its ten exit codes (0 to 9) come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both.">
   <link rel="icon" type="image/png" href="../caliber-icon.png">
   <script>
     (function () {
@@ -42,7 +42,7 @@
           <span class="topbar-search-label">Search docs</span>
           <span class="keycap" data-doc-search-key>⌘K</span>
         </button>
-        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <a class="topbar-cta" href="m-37-five-minute-quickstart.html">Quickstart</a>
         <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
           <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z" /></svg>
           <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5" /><line x1="12" y1="1" x2="12" y2="3" /><line x1="12" y1="21" x2="12" y2="23" /><line x1="4.22" y1="4.22" x2="5.64" y2="5.64" /><line x1="18.36" y1="18.36" x2="19.78" y2="19.78" /><line x1="1" y1="12" x2="3" y2="12" /><line x1="21" y1="12" x2="23" y2="12" /><line x1="4.22" y1="19.78" x2="5.64" y2="18.36" /><line x1="18.36" y1="5.64" x2="19.78" y2="4.22" /></svg>
@@ -81,8 +81,8 @@
         <header class="doc-header">
           <div class="doc-eyebrow">Build &amp; integrate</div>
           <h1 id="top">caliberctl and the async client</h1>
-          <p class="doc-summary">caliberctl for operator flows, where its six exit codes come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both.</p>
-          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">Operator</span><span class="doc-meta-chip doc-meta-chip-type">How To</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">A running CALIBER deployment</span></div><div class="doc-meta-notes">Reviewed 2026-08-10 · current main branch docs contract</div></div>
+          <p class="doc-summary">caliberctl for operator flows, where its ten exit codes (0 to 9) come from, and the asynchronous client — what it covers, what it deliberately does not, and how one polling policy serves both.</p>
+          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">Operator</span><span class="doc-meta-chip doc-meta-chip-type">How To</span><span class="doc-meta-chip doc-meta-chip-stability">GA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">A running CALIBER deployment</span></div><div class="doc-meta-notes">Reviewed 2026-10-14 · current main branch docs contract</div></div>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
               Copy page
@@ -122,6 +122,7 @@ esac</code></pre>
 <pre class="language-bash"><code class="language-bash">caliberctl token revoke PAT-9         # exits 2, explains it needs --yes
 caliberctl token revoke PAT-9 --yes   # revokes</code></pre>
 <h3 id="commands">Commands<a class="anchor" href="#commands" aria-hidden="true" tabindex="-1">#</a></h3>
+<p>Global options go before the command: <code>--base-url</code> (default <code>$CALIBER_BASE_URL</code>), <code>--token</code> (default <code>$CALIBER_TOKEN</code>; prefer the variable, because an argument is visible in the process list), <code>--project</code> (default <code>$CALIBER_PROJECT</code>), <code>--json</code>, <code>--quiet</code> and <code>--version</code>.</p>
 <div class="table-wrap"><table><thead><tr><th>Command</th><th>What it does</th></tr></thead><tbody><tr><td><code>whoami</code></td><td>Identity behind the current credential. Exits 6 if anonymous.</td></tr><tr><td><code>capabilities</code></td><td>What the deployment supports.</td></tr><tr><td><code>token list | create | rotate | revoke</code></td><td>Access token lifecycle.</td></tr><tr><td><code>workflow list | run | status</code></td><td>Run a workflow and wait for it.</td></tr><tr><td><code>workflow deployments | promote | rollback | promotions</code></td><td>Deployment-alias governance: what's live, point an alias at a version, restore the prior one, and list pending/historical promotions.</td></tr><tr><td><code>promotion approve | reject</code></td><td>Act on a pending gated promotion (see <code>workflow promote</code>).</td></tr><tr><td><code>gate-verdict show | record</code></td><td>Advisory per-version evaluation verdicts (<code>prompt</code>/<code>workflow</code>/<code>skill</code>).</td></tr><tr><td><code>job list | wait</code></td><td>Background jobs, including the ones that wait for you.</td></tr><tr><td><code>release list | sign</code></td><td>Release candidates and go / no-go. <strong>Preview, record-only:</strong> a signoff records a decision and does not deploy or roll back anything.</td></tr><tr><td><code>cookbook list | install</code></td><td>Example workflows, with readiness checked first.</td></tr><tr><td><code>prompt list | show</code></td><td>Governed prompts and the registry coordinate each resolves to.</td></tr><tr><td><code>service show | publish | unpublish</code></td><td>A workflow's external HTTP service.</td></tr><tr><td><code>plugin list</code></td><td>Optimizers, and plugins installed but not enabled.</td></tr><tr><td><code>workspace import | package | cr | release</code></td><td>Git-backed Workspace lifecycle: import jobs, revision packages, Change Request review, and environment releases. Every leaf requires <code>--project</code>. <strong>Experimental:</strong> release evaluation has no executor in this build, so a <code>workspace release</code> stays queued.</td></tr></tbody></table></div>
 <p>Choices worth knowing about:</p>
 <p><strong><code>whoami</code> exits 6 on an anonymous identity.</strong> <code>GET /me</code> reports rather than requires, so an unusable credential returns 200 with <code>user_id: anonymous</code>. That is right for the API and wrong for a script that ran <code>whoami</code> to confirm its credential — exit 0 for "nobody" would let it proceed on a false premise.</p>

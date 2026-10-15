@@ -1,8 +1,10 @@
-# Alignment worksheet (manual)
+# Alignment worksheet (optional cross-check)
 
-CALIBER does **not** auto-compute alignment or disagreement rate (FEASIBILITY
-§1, Evaluations). You tally the automated judge verdicts against the human
-reviewer answers by hand here, on the sampled traces.
+CALIBER computes alignment in-product: Judges → Try it → **Human alignment** →
+**Import labels** → **Check alignment** returns agreement rate, Cohen's κ and
+FP/FN. Use this worksheet only as a paper cross-check of that readout, tallying
+the automated judge verdicts against the human reviewer answers by hand on the
+sampled traces.
 
 - **judge_verdict** — `Judge.FaithfulnessJudge` result for the row (bool → pass /
   fail), read from the Evaluations scorecard per-example detail.
@@ -94,6 +96,6 @@ For every disagreement:
    question so both express the same, now-clarified criterion (keep them in
    sync). Use [`../skills/rubric-question-writer.md`](../skills/rubric-question-writer.md)
    to keep the question single-criterion.
-3. **Re-run** the evaluation (recipe step 3) and re-tally here until alignment
+3. **Re-run** the evaluation (recipe step 3) and re-check alignment (in the Judges page, or here) until it
    clears the gate. Document the disagreements you resolved — that record is part
    of the gate ("Disagreements are documented and fed back").

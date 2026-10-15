@@ -7,7 +7,7 @@ product_area: operations
 stability: ga
 prerequisites:
   - A CALIBER failure or degraded runtime question
-reviewed_on: 2026-08-20
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - troubleshooting
@@ -27,6 +27,8 @@ indeterminate, jump straight to the [Operations runbook](../runbook.md).
 | --- | --- | --- |
 | UI loads but product behavior is degraded | readiness, dependency posture | [Health and readiness](../operate/health-and-readiness.md) |
 | Workflow runs are not draining | event backend and worker state | [Operations runbook](../runbook.md) |
+| `/readiness` is 503 and the blocker names `schema` | the database was never migrated or is behind this release | run `caliber-migrate` with the same `CALIBER_DATABASE_URL` ([Health and readiness](../operate/health-and-readiness.md)) |
+| `/readiness` stays 503 on `workflow_queue` after a worker was killed | a stale row in `caliber_worker_heartbeats` | delete the dead worker's row by hand ([Health and readiness](../operate/health-and-readiness.md)) |
 | File upload or extraction fails | object-store and workflow-storage config | [Storage and state](../operate/storage-and-state.md) |
 | Local stack will not boot cleanly | port and dependency configuration | [Configuration and provider setup](../operate/configuration-and-provider-setup.md) |
 | Auth works in the browser but not automation | token, project scope, or CSRF model | [Developer troubleshooting](../build/developer-troubleshooting.md) |
@@ -53,6 +55,10 @@ If the stack still fails to start cleanly, check:
 - `deploy/.env` and `.env`
 - provider and storage settings
 
+`scripts/verify-compose-stack.sh` builds and boots the documented stack from the example environment
+and prints container logs on failure; it is a quick way to tell a local configuration problem from a
+repository one.
+
 ## 3. The gateway reports unreachable
 
 An unreachable LLM gateway is more often a startup failure than a network one.
@@ -67,8 +73,9 @@ Check, in this order:
   provider keys are unset and names each one it skipped. That is expected
   behavior, not a fault.
 - **Did it exit non-zero?** With no endpoint configured at all the container
-  exits and names the keys it looked for. Set one of those keys in the
-  suite-root `.env` and restart.
+  exits and names the keys it looked for. Compose then restarts it in a loop, so a fresh
+  clone with no `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` shows the gateway as unreachable.
+  Set one of those keys in the suite-root `.env` and restart.
 
 A discovered inventory smaller than `deploy/mlflow-gateway/gateway.yaml` means a
 provider key is missing, not that the gateway is broken. See

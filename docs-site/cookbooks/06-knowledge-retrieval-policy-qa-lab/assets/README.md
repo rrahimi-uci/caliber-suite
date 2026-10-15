@@ -7,13 +7,13 @@ and asks to clarify when sources conflict. Build order:
 | # | Artifact | File | Create via |
 | --- | --- | --- | --- |
 | 1 | Policy corpus (4 docs) | [`dataset/sources/`](dataset/sources/) | `Object Store → Upload` into a bucket (e.g. `policy-corpus`); upload the four `*.md` (skip the READMEs). See [`dataset/sources/README.md`](dataset/sources/README.md) for the **deliberate 30-vs-14-day contradiction**. |
-| 2 | KB version | (built from the corpus) | `Knowledge → Knowledge Base → New knowledge base` → pick the bucket + the 4 docs → choose an embedding model under **Advanced configuration** → **Create**; wait for the build run to reach `completed`. API: `POST /knowledge-bases`, `POST /knowledge-bases/{id}/versions`. |
-| 3 | Calibration set | [`dataset/calibration-questions.jsonl`](dataset/calibration-questions.jsonl) | Build a Test Set whose gold lives in `expectations.sources` (list) + `expectations.answer`; POST one row per line to `/eval-datasets/{id}/examples`, then point `Knowledge → Calibrate` at it. API: `POST /knowledge-bases/{id}/calibrate`. |
-| 4 | Prompt `kb-answer` | [`prompts/kb-answer.md`](prompts/kb-answer.md) | `Library → Prompts → New prompt`; paste the template body (text below the frontmatter). API: `POST /prompts {name, template, commit_message}`. |
-| 5 | Skills (optional, 2) | [`skills/citation-and-next-steps.md`](skills/citation-and-next-steps.md), [`skills/contradiction-detector.md`](skills/contradiction-detector.md) | `Library → Skills → New skill`; paste `summary` + `content` + `category` + `tags`. API: `POST /skills`. |
-| 6 | Answer workflow | (template `knowledge_rag`) | `Compose → Workflows → New` → template **`knowledge_rag`** (or `graph_hybrid_rag`); wire the nodes below; bind `kb-answer` to the agent node. API: `POST /workflows`. |
-| 7 | Eval dataset `policy-qa-eval` | [`dataset/qa-eval.jsonl`](dataset/qa-eval.jsonl) | `Evaluate → Test Sets → New dataset`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line. |
-| 8 | Judge `CitationFaithfulness` | [`judges/citation-faithfulness.judge.json`](judges/citation-faithfulness.judge.json) | `Evaluate → Judges → New judge`, paste fields. API: `POST /judges`. |
+| 2 | KB version | (built from the corpus) | `Knowledge Bases → New knowledge base` → pick the bucket + the 4 docs → choose an embedding model under **Advanced configuration** → **Create knowledge base**; wait (needs the object store, the `knowledge-local` extra and the embedding model download, or creation answers `503`) for the build run to reach `completed`. API: `POST /knowledge-bases`, `POST /knowledge-bases/{id}/versions`. |
+| 3 | Calibration set | [`dataset/calibration-questions.jsonl`](dataset/calibration-questions.jsonl) | Build a Test Set whose gold lives in `expectations.sources` (list) + `expectations.answer`; POST one row per line to `/eval-datasets/{id}/examples`, then pick it as the **Test set** in `Knowledge Bases → Calibrate` (Calibrate needs this Test Set to exist first). API: `POST /knowledge-bases/{id}/calibrate {version_id, eval_dataset_id, retrieval_mode, top_k}`. |
+| 4 | Prompt `kb-answer` | [`prompts/kb-answer.md`](prompts/kb-answer.md) | `Prompts → New prompt`; paste the template body (text below the frontmatter). API: `POST /prompts {name, template, commit_message}`. |
+| 5 | Skills (optional, 2) | [`skills/citation-and-next-steps.md`](skills/citation-and-next-steps.md), [`skills/contradiction-detector.md`](skills/contradiction-detector.md) | `Skills → Build Skill`; paste `summary` + `content` + `category` + `tags`. API: `POST /skills`. |
+| 6 | Answer workflow | (template `knowledge_rag`) | `Workflows → New Workflow` → template **`knowledge_rag`** (or `graph_hybrid_rag`); wire the nodes below; bind `kb-answer` to the agent node. API: `POST /workflows`. |
+| 7 | Eval dataset `policy-qa-eval` | [`dataset/qa-eval.jsonl`](dataset/qa-eval.jsonl) | `Test Sets → + New Test Set`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line. |
+| 8 | Judge `CitationFaithfulness` | [`judges/citation-faithfulness.judge.json`](judges/citation-faithfulness.judge.json) | `Judges → + New Judge`, paste fields. API: `POST /judges`. |
 
 ## Run the recipe
 
@@ -29,8 +29,8 @@ Follow [`../README.md`](../README.md) end to end; these assets slot into it as:
    (e.g. *"How long are audit logs retained?"*) across `dense`, then `hybrid`,
    then `graph_hybrid`; note which mode surfaces the `data-retention-policy.md`
    chunk highest. (If AGE is enabled: **Explore → Graph → Sync to AGE**, then
-   re-query as `age_graph`.) API: `POST /knowledge/query {knowledge_base_id,
-   question, retrieval_modes}`.
+   re-query as `age_graph`.) API: `POST /knowledge/query {version_ids,
+   question, top_k?, retrieval_modes?}` (at most two modes per call).
 3. **Run KB Calibrate** (asset 3) with `calibration-questions.jsonl`; read
    **Recall@k / nDCG@k / Faithfulness / Answer-correctness**. Tune chunking or
    switch mode, re-run, and **show recall improve** without dropping
@@ -59,13 +59,13 @@ Follow [`../README.md`](../README.md) end to end; these assets slot into it as:
    - *conflicting-sources* → `decision: clarify` (the refund-window question
      retrieves both `REFUND-POLICY` (30 days) and `REFUND-FAQ` (14 days)).
 6. **Evaluate faithfulness** (assets 7–8). Create the `policy-qa-eval` dataset
-   from `qa-eval.jsonl`, then `Evaluate → Evaluations → Run evaluation` with the
+   from `qa-eval.jsonl`, then `Evaluations → Run evaluation` with the
    deterministic graders (`contains_expected`) plus the `CitationFaithfulness`
    judge ticked under **Custom LLM judges** (it runs as a `Judge.<id>` scorer for
    an automatic per-row verdict). Gate:
    `faithfulness_min ≥ 0.90`, `abstention_policy_compliance = 1.0`
    (see [`../verification.yaml`](../verification.yaml)).
-7. **Route low-confidence to review.** `Observe → Review Queues → New queue`
+7. **Route low-confidence to review.** `Review Queues → + New Queue`
    (citation/abstention questions); enqueue the trace ids of the `abstain` and
    `clarify` runs; answer them — answers write back onto the trace. API:
    `POST /review-queues`, `POST /review-queues/{id}/items {trace_ids}`.

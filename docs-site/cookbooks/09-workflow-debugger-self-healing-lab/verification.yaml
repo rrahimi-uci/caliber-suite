@@ -1,6 +1,6 @@
 # Verified — see ../FEASIBILITY.md.
 feasibility:
-  - RootCauseQuality is a real LLM judge (optional); replay_before_patch and post-fix validation are operator-enforced in the Run Monitor (no auto gate). Patching is manual.
+  - RootCauseQuality is a real LLM judge (optional); replay_before_patch and post-fix validation are operator-enforced in the Run Monitor (no auto gate). Patching is manual in this recipe.
   - monitoring.traces below are evidence labels, not literal span names.
 evaluation:
   judges:

@@ -2,7 +2,7 @@ id: SCN-14
 slug: aria-governance-starter-kit
 name: "Aria: Governance Starter Kit from Intent"
 track: aria
-objective: Give Aria a single intent and have it autonomously plan and stand up a whole evaluation + governance scaffold — a faithfulness judge, an eval dataset to score against, AND a human-review queue — in one plan, with only human confirmation of the parameters.
+objective: Give Aria a single intent and have it plan and stand up a whole evaluation + governance scaffold — a faithfulness judge, an eval dataset to score against, AND a human-review queue — in one plan, with the judge and queue fields entered in the plan's input forms.
 why_it_matters:
   - The flagship "one sentence -> whole governance setup" showcase: judge + test set + review queue, all real, from a single intent.
   - Proves Aria composes MULTIPLE mutate capabilities into one plan -> approve -> execute flow, bounded honestly by its real capability registry.
@@ -18,12 +18,12 @@ caliber_surfaces:
   - Review Queues
   - Evaluations
 prerequisites:
-  - A configured model provider (the judge runs on a real model; an LLM planner, if enabled, also needs it).
-  - Aria Plans available (sidebar "Plans").
+  - A configured model provider (the judge runs on a real model in Evaluations; creating it does not need one).
+  - Aria Plans available (sidebar "Plans", under "Integrations and preview").
 time_to_first_value: 15-30 minutes
 success_criteria:
   - From the intent alone, Aria drafts a plan containing judge.create + eval_dataset.create + review_queue.create.
-  - After approval and answering the interactions, a real active judge, a test set, and a review queue all exist.
+  - After approval and answering the input forms and approval prompts, a real active judge, a test set, and a review queue all exist.
 demo_profile:
   recommended_sequence_index: 14
   tier: aria

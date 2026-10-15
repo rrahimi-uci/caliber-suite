@@ -8,7 +8,7 @@ product_area: assistant
 stability: beta
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - assistant
@@ -74,13 +74,13 @@ Concretely, Aria owns the following responsibilities:
   drawer's Plan mode.
 - It runs the **agentic orchestrator** (§9) that decomposes a stated goal into a
   durable, reviewable **plan** of capability-bound steps and walks it under
-  supervision — pausing mid-run for permission or choices, enforcing separation
+  supervision — pausing mid-run for permission or missing inputs, enforcing separation
   of duties on gated steps, parking on long-running async jobs, and escalating
   below-quality-gate results instead of silently passing. (In the shipped build
-  the default planner proposes steps without populated inputs, so approving a
-  create/mutate step hands artifact creation off to the operator's asset page;
-  parked async steps advance only via the inline goal-plan card's poll or an
-  explicit poll — the standalone Plans page does not poll on its own.) The assistant drawer's
+  the default planner proposes steps whose required inputs are not yet known, so a step
+  pauses on a typed `input` interaction until the owner supplies them; parked async steps
+  advance through the plan worker, the inline goal-plan card's poll, or an explicit
+  poll — the standalone Plans page does not poll on its own.) The assistant drawer's
   **Plan** mode now creates these durable plans and renders them as an inline
   goal-plan card; a standalone Plans page and a sidebar "needs you" badge let a
   user leave a plan running and return when it needs a decision. This is the
@@ -132,7 +132,7 @@ and what that ownership entails.
 | System prompt assembly | `prompt_builder.py` | Builds one shared system prompt from policy, mode guidance, selected skills, and attached context. |
 | Skill selection | `skill_runtime.py` | Deterministic `resolve_assistant_skills` (auto / manual / off) over `CaliberSkill` rows. |
 | Fallback registry access | `RegistryToolDispatcher` (`tools.py`) | A three-tool, read-only fallback (`list_skills` / `get_skill` / `list_tools`). Normal service turns pass the richer per-turn toolset below, which overrides this engine fallback. |
-| Per-turn agent tools | `AssistantAgentToolset` (`agent_tools.py`) | Binds the actor, session, mode, approval mode, and project to 29 hand-written tools plus a tier-filtered projection of the nine currently registered capabilities. This is partial coverage, not a claim that every CALIBER route has tool parity; `gated` capabilities are never advertised to a synchronous turn. |
+| Per-turn agent tools | `AssistantAgentToolset` (`agent_tools.py`) | Binds the actor, session, mode, approval mode, and project to 29 hand-written tools (14 read, 12 safe, one mutate, and two `gated` — `approve_draft` and `publish_draft`, which are never advertised) plus a tier-filtered projection of the nine currently registered capabilities and any active published `openapi_http` tools visible to the caller. This is partial coverage, not a claim that every CALIBER route has tool parity; `gated` tools and capabilities are never advertised to a synchronous turn. |
 | Draft validation / test | `validators.py`, `service.py` | Validates draft artifacts and runs draft tests (tool sandbox, skill render, workflow compile). |
 | Independent review | `reviewer.py`, `service.py` | Runs an isolated no-tools reviewer turn, validates its strict JSON decision, enforces approver scope and author/reviewer separation, and persists the decision against candidate hash/version with an expiry. |
 | Publishing | `publisher.py`, `service.py` | Publishes drafts whose approved status, reviewer binding, and asset-specific policy permit it. `full_autonomy` requires a release principal distinct from author and reviewer with `operator` scope. |
@@ -221,6 +221,7 @@ table with a clear purpose.
 | Run | `CaliberAssistantRun` (`caliber_assistant_runs`) | One engine execution: engine/model, input/output summaries, `trace_id`, `mlflow_run_id`, error. |
 | Publish event | `CaliberAssistantPublishEvent` (`caliber_assistant_publish_events`) | Audit row recording a draft published to a registry artifact. |
 | Attachment | `CaliberAssistantAttachment` (`caliber_assistant_attachments`) | Context the user attached to a session, with a capped text snapshot. |
+| Queued message | `CaliberAssistantQueuedMessage` (`caliber_assistant_queued_messages`) | Follow-up messages queued behind a running turn (`/sessions/{id}/queue`). |
 
 The agentic orchestrator (§9) persists its own durable state in a parallel
 `CaliberAria*` family, so a plan survives restarts and can be resumed by a
@@ -230,7 +231,7 @@ background worker:
 | --- | --- | --- |
 | Plan | `CaliberAriaPlan` (`caliber_aria_plans`) | A goal decomposed into ordered steps; carries `goal`, `owner`, `autonomy`, `status`, `visibility`, the originating session/project, and the task contract the planner reasons over — `constraints`, `done_when`, and `context_refs`. |
 | Plan step | `CaliberAriaPlanStep` (`caliber_aria_plan_steps`) | One capability-bound action with `inputs`, an optional quality `gate`, `status`, and the captured `result`. |
-| Interaction | `CaliberAriaInteraction` (`caliber_aria_interactions`) | A mid-run pause awaiting an answer — `kind` is `confirm` (accept/reject a result), `permission`, or `input` — with the supporting `evidence`, optional `required_scope`, and resolution. |
+| Interaction | `CaliberAriaInteraction` (`caliber_aria_interactions`) | A mid-run pause awaiting an answer — `kind` is `confirm` (accept/reject a result), `permission`, or `input` (the capability's still-missing fields, with its JSON Schema and current inputs as `evidence`) — with optional `required_scope` and resolution. |
 
 Some session state does not warrant its own columns and instead lives in the
 session `metadata` JSON bag:
@@ -347,12 +348,12 @@ mid-run interaction protocol:
 
 - `GET /aria/plans` · `POST /aria/plans`  (decompose a goal — with optional `constraints`, `done_when`, and `context_refs` — into a draft plan)
 - `GET /aria/plans/{plan_id}` · `PATCH /aria/plans/{plan_id}`  (edit autonomy / cancel a draft)
-- `POST /aria/plans/{plan_id}/approve`
-- `POST /aria/plans/{plan_id}/execute`
+- `POST /aria/plans/{plan_id}/approve`  (`409` for a plan with no steps)
+- `POST /aria/plans/{plan_id}/execute`  (`409` for a plan with no steps)
 - `POST /aria/plans/{plan_id}/poll`  (advance any parked async steps)
 - `GET /aria/plans/{plan_id}/interactions`
-- `POST /aria/interactions/{interaction_id}/answer`  (resume a paused plan)
-- `GET /aria/capabilities`  (the registered capability catalog)
+- `POST /aria/interactions/{interaction_id}/answer`  (resume a paused plan; body carries `approved`, `choice`, `value`, or — for an `input` interaction — `inputs`)
+- `GET /aria/capabilities`  (the registered capability catalog: key, title, tier, `required_scopes`, input schema; any authenticated user)
 
 On the frontend, a focused set of components binds these routes to the user:
 
@@ -445,6 +446,12 @@ human-driven route. The following controls enforce that assumption.
   operator-scoped — see the next bullet.)
 - Listing another owner's sessions requires `admin` scope; otherwise sessions
   are owner-scoped, and cross-owner reads return empty results or a 404.
+- Project-scoped plans also enforce the caller's project role: editing, approving,
+  executing, and polling a plan that belongs to a project require `resource.execute`
+  there, so a project `viewer` cannot approve or run a teammate's plan. The first
+  execute or poll that clears this check records the actor role and effective scope on
+  the plan (`actor_role_snapshot`, `effective_scope_snapshot`), and each step records the
+  capability scope decision that cleared it. A personal plan has no project role to check.
 - Plans are owner-scoped on **every** route, not just the list: the detail,
   edit, approve, execute, poll, and interactions endpoints resolve the plan
   through `db.scoping.get_visible` with the caller's identity, so a guessed
@@ -466,8 +473,8 @@ human-driven route. The following controls enforce that assumption.
   service turns receive `AssistantAgentToolset`: 29 hand-written tools plus the
   allowed subset of nine registered capabilities. Read tools are eligible in
   every mode; safe/mutate tools require the matching build/approval mode; and
-  capabilities declared `gated` are omitted from synchronous tool specs and
-  dispatch. This is permissioned partial coverage, not a read-only surface or
+  `gated` entries — the hand-written `approve_draft` and `publish_draft` as well as any
+  capability declared `gated` — are omitted from synchronous tool specs and dispatch. This is permissioned partial coverage, not a read-only surface or
   complete route-to-tool parity.
 - Draft testing runs in the shared local tool containment process rather than
   in the request handler. The runner uses Python isolated mode, an empty
@@ -516,6 +523,15 @@ configuration is both inspectable and changeable at runtime.
   while `PATCH /config` rebuilds both the author and reviewer engine at runtime
   (operator-scoped). The mode selector disables an autonomous policy until its
   service identities and real provider are ready.
+- Both also report `configured` and a `reason`, so Aria says when it cannot answer.
+  `assistant_engine=auto` resolves to OpenAI when neither key is set, so a default
+  install reports `configured: false` with a reason naming `OPENAI_API_KEY` (set it and
+  restart, or save a key under Settings, Providers); `assistant_enabled=false` reports
+  that Aria is disabled. `fake` and `ollama` need no key and report configured (Ollama
+  is not probed). The top bar disables **Ask Aria** with that reason and the Aria Plans
+  page shows it as a banner. A turn that fails on a missing key replies with
+  "Aria cannot answer yet: OPENAI_API_KEY is not set..." instead of the SDK class name;
+  other failures keep only the exception class, with detail stored on the run row.
 
 These behaviors are driven by configuration on `CaliberConfig`, surfaced through
 `CALIBER_ASSISTANT_*` environment variables, grouped here by what they control:
@@ -540,13 +556,14 @@ These behaviors are driven by configuration on `CaliberConfig`, surfaced through
 Beyond drafting a single artifact in a chat turn, Aria can take a stated **goal**
 and drive it through CALIBER's processes the way a coding agent drives a
 repository: it decomposes the goal into a plan, then walks that plan step by
-step, pausing for a human whenever a step needs permission, a choice, or an
+step, pausing for a human whenever a step needs permission, an input, or an
 approval. (In the shipped build the default `HeuristicPlanner` proposes
-capability-bound steps with empty inputs and the interaction answer carries no
-input payload, so an approved mutate step — e.g. `judge.create` — runs with
-empty inputs and fails validation: Aria plans the work and pauses for approval,
-but the operator still creates the artifact on its own asset page.
-Auto-populated step inputs are a planned, not-yet-shipped capability.) The conversational assistant (§1–§8) reasons and drafts; the
+capability-bound steps and does not fill in free-form inputs itself. It links a
+required input that an earlier selected step produces, and for the rest the
+executor pauses the step on a typed `input` interaction that carries the
+capability's JSON Schema; the owner answers with an `inputs` object, which is
+validated against the schema before the step returns to the normal autonomy and
+tier gate. The planner never invents values.) The conversational assistant (§1–§8) reasons and drafts; the
 orchestrator described here is designed to *operate the platform* under supervision. The two
 share the same governance and tracing but live in separate, independently
 testable modules.
@@ -555,9 +572,9 @@ testable modules.
 
 | Responsibility | Owner | Notes |
 | --- | --- | --- |
-| Capability registry | `capabilities.py` | Single-definition `Capability` objects (key, title, tier, handler) plus a `CapabilityContext`. Handlers reuse the same extracted route helpers as their HTTP paths. The nine builtins today are `judge.list/create`, `review_queue.list/create/add_items`, `eval_dataset.create`, async `workflow.calibrate`, and the `openapi_tool.list/invoke` bridge; the shipped planner does not yet populate step inputs, so create-tier steps require operator-supplied inputs rather than autonomous creation. |
+| Capability registry | `capabilities.py` | Single-definition `Capability` objects (key, title, tier, handler) plus a `CapabilityContext`. Handlers reuse the same extracted route helpers as their HTTP paths. The nine builtins today are `judge.list/create`, `review_queue.list/create/add_items`, `eval_dataset.create`, async `workflow.calibrate`, and the `openapi_tool.list/invoke` bridge. The shipped planner does not invent step inputs, so create-tier steps wait for owner-supplied inputs (an `input` interaction) before running. |
 | Tool projection | `agent_tools.py` | Adds the allowed registry entries to a separate set of 29 hand-written engine tools. Thus the conversation and plan paths overlap on nine registered capabilities but do not have full surface parity. Mode/approval tier filtering applies, and `gated` capabilities are never projected for synchronous autonomous calling. |
-| Planner | `plans.py` (`Planner` protocol, `HeuristicPlanner`) | Decomposes a goal into ordered `PlannedStep`s, each bound to a capability and carrying an optional quality `gate`. The default planner is registry-driven: it matches the capability domain named in the goal (the richer task contract is persisted on the plan for a future state-aware planner). |
+| Planner | `plans.py` (`Planner` protocol, `HeuristicPlanner`) | Decomposes a goal into ordered `PlannedStep`s, each bound to a capability and carrying an optional quality `gate`. The default planner is registry-driven: it matches the capability domain named in the goal against safe- and mutate-tier capabilities (the product's name "test set" also matches `eval_dataset`), links a step's required inputs to earlier steps that produce them, and persists the richer task contract on the plan for a future state-aware planner. A goal that matches nothing yields a zero-step plan, which is flagged with a warning at creation and refused with `409` at approve and execute. |
 | Plan service | `plans.py` (`PlanService`) | Persists plans and steps — including the per-plan task contract (`constraints`, `done_when`, `context_refs`) — with create / get / list / `set_status`. |
 | Plan executor | `executor.py` (`PlanExecutor`) | Walks an approved plan, dispatches each step's capability, applies the autonomy gate, raises interactions, parks async steps, and runs the quality-gate / self-correction logic. |
 | Plan worker | `plan_worker.py` (`AriaPlanWorker`) | A background asyncio task that periodically polls plans parked on async jobs and resumes them. Wired into the `server.py` lifespan, gated by `background_tasks_enabled` (interval `aria_plan_worker_interval_seconds`, default 10s). |
@@ -565,7 +582,8 @@ testable modules.
 ### 9.2 Lifecycle
 
 A plan moves through `draft → approved → (running) → paused ↔ resumed →
-completed` (or `cancelled`). The executor advances steps in order; between steps
+completed` (or `cancelled`, or `failed` when a step fails or the plan owner lacks a
+capability's required scope). The executor advances steps in order; between steps
 it consults the **autonomy dial** to decide whether to run a step or pause for a
 human via a `CaliberAriaInteraction`.
 
@@ -616,6 +634,11 @@ Two behaviors make the executor durable rather than a one-shot walk:
   job's status through a `JobStatusResolver` (the `MLflowJobStatusResolver` maps
   refinement-job / eval-run status to `done` / `failed`), resuming the plan when
   the job finishes. `POST /aria/plans/{id}/poll` does the same on demand.
+- **Input collection.** A step whose required fields are still unresolved is set to
+  `waiting_input` and the plan to `paused` behind one `input` interaction listing the
+  missing fields. Answering it merges and validates the supplied `inputs`, returns the
+  step to `pending`, and only then applies the autonomy/tier gate — collecting inputs is
+  not permission approval.
 - **Self-correction.** When a step carries a quality `gate` and its result falls
   below the threshold, the executor does not silently pass and does not blindly
   retry — it raises a `confirm` interaction carrying the failing evidence, so a

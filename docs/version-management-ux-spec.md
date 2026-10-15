@@ -42,6 +42,11 @@ The proposal's principal Phase-0/Phase-1 gaps have landed:
   is database-backed and therefore enumerates workflow deployments and active
   knowledge-base versions; prompt `@prod` liveness remains in MLflow and appears on
   the per-prompt page, while prompt promotions still appear in the audit timeline.
+  Addendum (2026-10-14): `/releases/live` now also lists, per prompt alias, the
+  version CALIBER last released, read from the durable release-operation ledger
+  (`_prompt_live_entries` in `routes/releases.py`; a rollback supersedes the release
+  it undid). A version moved directly in the MLflow UI is not listed until CALIBER
+  next releases that prompt, so the registry remains the source of truth for `@prod`.
 - Prompt gate verdicts are persisted and displayed as advisory evidence. Workflow
   deployment gates use their own policy path, while knowledge bases, skills, and
   tools do not inherit the prompt verdict contract.

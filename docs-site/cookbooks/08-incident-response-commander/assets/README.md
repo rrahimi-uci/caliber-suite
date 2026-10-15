@@ -4,14 +4,14 @@ Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
 
 | # | Artifact | File | Create via UI + API |
 | --- | --- | --- | --- |
-| 1 | Prompt `incident-commander` | [`prompts/incident-commander.md`](prompts/incident-commander.md) | `Library → Prompts → New prompt`, paste the body below the frontmatter. API: `POST /prompts {name, template, commit_message}`. Variables: `alert_text, service, environment, deployments, health` |
-| 2 | Skill `incident-severity-matrix` | [`skills/incident-severity-matrix.md`](skills/incident-severity-matrix.md) | `Library → Skills → New skill`, paste name/summary/content. API: `POST /skills` |
-| 3 | Skill `rollback-decision-checklist` | [`skills/rollback-decision-checklist.md`](skills/rollback-decision-checklist.md) | `Library → Skills → New skill`. API: `POST /skills`. Encodes **when rollback requires approval** |
-| 4 | Skill `stakeholder-update-drafting` | [`skills/stakeholder-update-drafting.md`](skills/stakeholder-update-drafting.md) | `Library → Skills → New skill`. API: `POST /skills` |
-| 5 | Evidence node `lookup_recent_deployments` | [`tools/lookup_recent_deployments.py`](tools/lookup_recent_deployments.py) | **Not a registered tool / no shipped callable.** `Compose → Workflows` → drag a **Python Code** node, paste the file body. Returns a synthetic deployments fixture keyed by `service`/`environment` |
-| 6 | Evidence node `query_service_health` | [`tools/query_service_health.py`](tools/query_service_health.py) | **Not a registered tool / no shipped callable.** `Compose → Workflows` → drag a **Python Code** node, paste the file body. Returns a synthetic health fixture keyed by `service`/`environment` |
-| 7 | Eval dataset `incident-cases` | [`dataset/incident-cases.jsonl`](dataset/incident-cases.jsonl) | `Evaluate → Test Sets → New dataset`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line |
-| 8 | Judge `IncidentActionCorrectness` | [`judges/incident-action-correctness.judge.json`](judges/incident-action-correctness.judge.json) | `Evaluate → Judges → New judge`, paste fields. API: `POST /judges` |
+| 1 | Prompt `incident-commander` | [`prompts/incident-commander.md`](prompts/incident-commander.md) | `Prompts → New prompt`, paste the body below the frontmatter. API: `POST /prompts {name, template, commit_message}`. Variables: `alert_text, service, environment, deployments, health` |
+| 2 | Skill `incident-severity-matrix` | [`skills/incident-severity-matrix.md`](skills/incident-severity-matrix.md) | `Skills → Build Skill`, paste name/summary/content. API: `POST /skills` |
+| 3 | Skill `rollback-decision-checklist` | [`skills/rollback-decision-checklist.md`](skills/rollback-decision-checklist.md) | `Skills → Build Skill`. API: `POST /skills`. Encodes **when rollback requires approval** |
+| 4 | Skill `stakeholder-update-drafting` | [`skills/stakeholder-update-drafting.md`](skills/stakeholder-update-drafting.md) | `Skills → Build Skill`. API: `POST /skills` |
+| 5 | Evidence node `lookup_recent_deployments` | [`tools/lookup_recent_deployments.py`](tools/lookup_recent_deployments.py) | **Not a registered tool / no shipped callable.** `Workflows` → drag a **Python Code** node, paste the file body. Returns a synthetic deployments fixture keyed by `service`/`environment` |
+| 6 | Evidence node `query_service_health` | [`tools/query_service_health.py`](tools/query_service_health.py) | **Not a registered tool / no shipped callable.** `Workflows` → drag a **Python Code** node, paste the file body. Returns a synthetic health fixture keyed by `service`/`environment` |
+| 7 | Eval dataset `incident-cases` | [`dataset/incident-cases.jsonl`](dataset/incident-cases.jsonl) | `Test Sets → + New Test Set`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line |
+| 8 | Judge `IncidentActionCorrectness` | [`judges/incident-action-correctness.judge.json`](judges/incident-action-correctness.judge.json) | `Judges → + New Judge`, paste fields. API: `POST /judges` |
 
 ## How the pieces fit (read [`../README.md`](../README.md) for the full recipe)
 
@@ -31,8 +31,9 @@ Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
   prompt sets `requires_approval: true` for `rollback` and external writes (the
   `rollback-decision-checklist` skill encodes the rule), and the `human_approval`
   node enforces it: a high-risk run goes to `waiting_approval` and the gated
-  action runs only after `run-approve` → `run-resume` (prove it cannot run with
-  `run-reject`). Read-only actions (`monitor`, `investigate`,
+  action runs only after **Approve** → **Resume** (by a second approver account
+  with the `caliber.approver` scope, or `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true`;
+  prove it cannot run with **Reject**). Read-only actions (`monitor`, `investigate`,
   `gather_more_evidence`) are `requires_approval: false`.
 - **`IncidentActionCorrectness` is a real LLM judge (8).** It returns `true`
   only when the output cleanly separates facts/hypotheses/open-questions, the

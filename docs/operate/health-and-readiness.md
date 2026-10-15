@@ -7,7 +7,7 @@ product_area: operations
 stability: ga
 prerequisites:
   - A running CALIBER deployment
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - health
@@ -39,20 +39,33 @@ the surrounding runtime posture is actually suitable for real use.
 
 ### What readiness checks
 
-Each check is probed live, and a required check that fails turns readiness to `ready: false`
-(HTTP 503) with a blocker that names it.
+Each check is probed live (each probe is bounded to 2 seconds), and a required check that fails
+turns readiness to `ready: false` (HTTP 503) with a blocker that names it. A check that does not
+apply to the configuration is reported as skipped (`ready: null`) and never blocks.
 
 | Check | Required | Ready means |
 | --- | --- | --- |
 | `database` | always | the database answers a query |
 | `schema` | always | the database is at the migration head this release ships. A database that was never migrated, is behind, or was migrated by a newer release is a blocker. Fix it with `caliber-migrate`. |
-| `mlflow` | when an HTTP tracking server is configured | the tracking server's `/health` answers |
-| `object_store` | when workflow storage is remote | the bucket can be listed |
-| `event_bus` | when an external broker is configured | the broker's port accepts a connection |
-| `workflow_queue` | when the run queue is enabled | the queue is draining and the worker heartbeat is fresh |
+| `mlflow` | when an `http://` or `https://` tracking server is configured (`MLFLOW_TRACKING_URI`) | the tracking server's `/health` answers with anything below HTTP 500 |
+| `object_store` | when workflow storage is remote: `CALIBER_WORKFLOW_STORAGE_BACKEND` is `s3`, `gs`, `az` or `azure`, or `CALIBER_WORKFLOW_STORAGE_BASE_URI` has one of those schemes | the bucket can be listed. `s3` with no bucket named is a blocker, reported without a probe. |
+| `event_bus` | when the event backend is `nats` or `redis` and its URL is set | the broker's port accepts a connection |
+| `workflow_queue` | when the run queue is enabled (`CALIBER_WORKFLOW_RUN_QUEUE_ENABLED`) | the queue is draining, at least one worker heartbeat is fresh, and no registered worker has stopped reporting |
+| `providers` | never | informational: reports not ready while any of `llm`, `eval`, `promoter` or `artifact_store` is simulated, and names them |
+| `code_execution_allowlists` | never | informational: reports not ready while `CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST` is unset (any module may be registered as a tool) or `CALIBER_EXTERNAL_APP_ENTRYPOINT_ALLOWLIST` is unset (every `external_app` entrypoint is refused) |
 
-`/health` stays a liveness probe: it answers 200 while the process is up and the database
-answers, even when the schema is missing. Use readiness for go or no-go decisions.
+The response also carries `providers`, `simulated` and `all_real`, which the app's provider banner reads.
+A simulated provider or an unset allowlist does not turn readiness to 503.
+
+`/health` stays a liveness probe: it answers 200 (`status: ok`, `db: ok`) while the process is up and
+the database answers, even when the schema is missing, and 503 (`status: degraded`, `db: down`) when
+the database does not answer. Use readiness for go or no-go decisions.
+
+**A worker that died keeps readiness red.** Each workflow-run worker writes a heartbeat
+row to `caliber_worker_heartbeats` and removes it on a clean stop. A worker that exits uncleanly
+(killed, out of memory, host asleep) leaves its row, and every stale row adds a blocking
+`workflow_queue` reason (`N registered worker(s) stopped reporting: <ids>`), even while a live worker is
+serving. Nothing prunes these rows: once you have confirmed the worker is gone, delete its row by hand.
 
 ## 2. What to verify after boot
 

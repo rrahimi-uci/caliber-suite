@@ -10,21 +10,21 @@ Why this wording: the default planner proposes a step for each capability whose
 **"workflow"** (calibration) maps to `workflow.calibrate`. Keep both literal
 needles in the sentence.
 
-Autonomy: **ask_each** (pauses on every mutate step so you confirm each input).
+Autonomy: **Stop before each change** (`ask_each`: an **Approve** / **Deny** prompt before every mutate step, after the input form).
 
-## Natural-language variant (needs an LLM planner)
+## Natural-language variant (not understood by the default planner)
 
 > Our latest runs aren't great — get a human to look at the bad ones and then tune the pipeline.
 
-This reads better but relies on an LLM planner to map "get a human to look at
-the bad ones" → `review_queue.create` + `review_queue.add_items` and "tune the
-pipeline" → `workflow.calibrate`. With the default heuristic planner, use the
-canonical wording.
+This reads better, but the default heuristic planner has no mapping from "get a
+human to look at the bad ones" to the review-queue steps or "tune the pipeline"
+to `workflow.calibrate` (the sentence contains neither "review queue" nor
+"workflow"), so it plans nothing. Use the canonical wording.
 
 ## Remember: this loop remediates EXISTING things
 
 `review_queue.add_items` needs **real existing** `trace_ids` and
 `workflow.calibrate` needs an **existing** `workflow_id` + `agent_id`. Aria does
 not create the subject workflow or its traces — build that in **SCN-07** first,
-then supply the ids when Aria pauses (see [`enqueue.json`](enqueue.json) and
+then enter the ids in the input forms when Aria pauses (see [`enqueue.json`](enqueue.json) and
 [`calibrate.json`](calibrate.json)).

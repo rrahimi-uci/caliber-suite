@@ -113,7 +113,7 @@ jobs:
           CALIBER_TOKEN: ${{ secrets.CALIBER_PROJECT_PAT }}
         run: |
           curl --fail-with-body -sS \
-            -X POST "$CALIBER_BASE_URL/projects/$CALIBER_PROJECT_ID/revision-imports" \
+            -X POST "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/projects/$CALIBER_PROJECT_ID/revision-imports" \
             -H "Authorization: Bearer $CALIBER_TOKEN" \
             -H "Idempotency-Key: push-${{ github.sha }}" \
             -F "repository=${{ github.repository }}" \

@@ -40,7 +40,7 @@ Ingest the corpus into the Object Store, then point the KB build at it.
      bucket UI's drag-and-drop.
 2. (Optional) Confirm with `Object Store → <bucket>` that the four documents are
    listed and previewable.
-3. In `Knowledge → Knowledge Base → New knowledge base`, choose this bucket as
+3. In `Knowledge Bases → New knowledge base`, choose this bucket as
    the source and select the four policy docs (see `../../README.md` step "Build
    a KB version").
 

@@ -13,8 +13,9 @@ then move into the deeper runtime docs when you need subsystem detail.
 | --- | --- | --- |
 | Local ports and launch | `CALIBER_PORT`, `MLFLOW_PORT`, `MLFLOW_GATEWAY_PORT` | bringing up the local suite |
 | Core runtime | `CALIBER_DATABASE_URL`, `CALIBER_LOG_SINK` | wiring the control plane and logging |
+| Access and auth | `CALIBER_AUTH_MODE`, `CALIBER_ADMIN_USERS`, `CALIBER_CSRF_ENABLED` | who may sign in and what each user may do |
 | LLM provider and gateway | `CALIBER_LLM_PROVIDER`, `CALIBER_LLM_BASE_URL` | choosing provider routing |
-| Release path | `CALIBER_PROMOTER_PROVIDER`, `CALIBER_ARTIFACT_STORE_PROVIDER`, `CALIBER_ALLOW_SIMULATED_PROVIDERS` | choosing whether Apply performs a real MLflow release (the default) |
+| Release path | `CALIBER_PROMOTER_PROVIDER`, `CALIBER_ARTIFACT_STORE_PROVIDER`, `CALIBER_EVAL_PROVIDER`, `CALIBER_ALLOW_SIMULATED_PROVIDERS` | choosing whether Apply performs a real MLflow release (the default) and whether evaluation scores are real |
 | Object store | `CALIBER_OBJECT_STORE_*` | uploads, extraction, previews, log mirroring |
 | Workflow storage | `CALIBER_WORKFLOW_STORAGE_*` | run workspaces, limits, retention, signed URLs |
 | Event backend | `CALIBER_WORKFLOW_RUN_EVENT_BACKEND` | workflow queue and runtime eventing |
@@ -33,15 +34,15 @@ then move into the deeper runtime docs when you need subsystem detail.
 
 | Setting | Purpose |
 | --- | --- |
-| `CALIBER_DATABASE_URL` | SQLAlchemy URL for the CALIBER metadata store |
-| `CALIBER_LOG_SINK` | choose stderr-only or S3/object-store-backed JSONL mirroring |
+| `CALIBER_DATABASE_URL` | SQLAlchemy URL for the CALIBER metadata store; `sqlite:///./caliber.db` when unset. The server never creates its own tables: run `caliber-migrate` before the first start and after every upgrade |
+| `CALIBER_LOG_SINK` | `s3` (the default) keeps stderr and mirrors JSONL to the object store when available; `stderr` disables the mirroring |
 | `CALIBER_STATIC_PREFIX` | serve behind a reverse-proxy prefix when applicable |
 
 ## 3. LLM and gateway
 
 | Setting | Purpose |
 | --- | --- |
-| `CALIBER_LLM_PROVIDER` | select the default provider implementation |
+| `CALIBER_LLM_PROVIDER` | select the default provider implementation; `fake` (a deterministic stub) when unset, `openai` needs the `llm` extra |
 | `CALIBER_LLM_DIAGNOSIS_MODEL` | default OpenAI model; `gpt-5.6-luna` when unset |
 | `CALIBER_LLM_REASONING_EFFORT` | platform-wide reasoning default; `high` when unset |
 | `CALIBER_GEPA_REFLECTION_MODEL` | GEPA reflection model; inherits the Luna default |
@@ -50,7 +51,8 @@ then move into the deeper runtime docs when you need subsystem detail.
 | `CALIBER_GATEWAY_URI` | discover an MLflow AI Gateway surface |
 | `CALIBER_PROMOTER_PROVIDER` | `mlflow` (default) registers a new prompt version and moves the live alias on Apply; `fake` only simulates and needs the opt-in below |
 | `CALIBER_ARTIFACT_STORE_PROVIDER` | `mlflow` (default) reads prompts from the registry; `fake` needs the opt-in below |
-| `CALIBER_ALLOW_SIMULATED_PROVIDERS` | set `true` to permit a `fake` promoter or artifact store (tests, demos); every simulated Apply is marked `simulated` |
+| `CALIBER_EVAL_PROVIDER` | `fake` (the default) returns canned scores that are marked `simulated` everywhere they are shown or stored; `mlflow` wraps `mlflow.genai.evaluate` |
+| `CALIBER_ALLOW_SIMULATED_PROVIDERS` | set `true` to permit a `fake` promoter or artifact store, or a real LLM provider combined with the `fake` evaluator (tests, demos); startup refuses each of those otherwise, and every simulated Apply is marked `simulated` |
 
 The assistant uses the same OpenAI default through `CALIBER_ASSISTANT_MODEL`
 and `CALIBER_ASSISTANT_REASONING`. Explicit per-asset and per-call selections
@@ -86,15 +88,26 @@ remain supported overrides.
 
 | Setting | Purpose |
 | --- | --- |
-| `CALIBER_WORKFLOW_RUN_EVENT_BACKEND` | workflow event transport/backing mode |
+| `CALIBER_WORKFLOW_RUN_EVENT_BACKEND` | `in_process` (the default), `database`, `nats` or `redis` |
+| `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED` | `false` by default; the run queue that wait and human-approval nodes need, together with `CALIBER_WORKFLOW_RUN_CHECKPOINTING_ENABLED` |
 
-## 7. Secret-source convention
+## 7. Access and auth
+
+| Setting | Purpose |
+| --- | --- |
+| `CALIBER_AUTH_MODE` | `session` (the default: server-side sessions and personal access tokens) or `trusted_header` (trusts `X-CALIBER-User`; only behind a proxy) |
+| `CALIBER_ADMIN_USERS`, `CALIBER_OPERATOR_USERS`, `CALIBER_APPROVER_USERS` | comma-separated user ids granted `caliber.admin`, `caliber.operator` and `caliber.approver`; all empty by default, so a first login is a viewer. These are global scopes, not project roles, and `caliber.admin` is not an implicit project member |
+| `CALIBER_CSRF_ENABLED` | `false` by default; when `true`, every `POST`, `PATCH`, `PUT` and `DELETE` (bearer-token calls included) needs an `X-CALIBER-CSRF` token, signed with the secret named by `CALIBER_CSRF_SIGNING_SECRET_ENV` and valid for `CALIBER_CSRF_TOKEN_TTL_SECONDS` (3600 by default) |
+
+Optimizer plugins are enabled by a separate allowlist; see [Writing a CALIBER plugin](m-23-sdk-plugins.md).
+
+## 8. Secret-source convention
 
 Prefer settings ending in `*_SOURCE` for credentials and sensitive values. The
 current runtime is designed around secret sources rather than spreading literal
 keys throughout deployment files.
 
-## 8. Related docs
+## 9. Related docs
 
 - [Configuration and provider setup](m-48-configuration-and-provider-setup.md)
 - [Storage and state](m-49-storage-and-state.md)

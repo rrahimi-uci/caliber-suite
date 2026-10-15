@@ -45,16 +45,21 @@ for resource classes and method signatures.
 
 ## OpenAPI entry points
 
-The management API serves its own OpenAPI document:
+The management API serves its own OpenAPI document. It requires authentication
+and comes back as the raw document, not inside the `data` envelope:
 
 ```bash
-curl -s "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/openapi.json" | jq '.info'
+curl -s -H "Authorization: Bearer $CALIBER_TOKEN" \
+  "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/openapi.json" | jq '.info'
 ```
 
-Workflow services also publish per-workflow OpenAPI once a service is enabled:
+Workflow services also publish per-workflow OpenAPI once a service is enabled.
+That route follows the service's own contract: it needs a service token as the
+bearer credential unless the service was published without authentication, and it
+answers 403 while the service is disabled:
 
 ```bash
-curl -s \
+curl -s -H "Authorization: Bearer $SERVICE_TOKEN" \
   "$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber/services/$WORKFLOW_ID/openapi.json" \
   | jq '.paths'
 ```

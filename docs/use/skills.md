@@ -7,7 +7,7 @@ product_area: skills
 stability: ga
 prerequisites:
   - A CALIBER deployment with skill access
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - skills
@@ -33,18 +33,19 @@ selection behavior, and understand how they shape assistant or workflow output.
 ## The skill journey, step by step
 
 This is the loop the alpha supports end to end for a skill, with each step as a page action and as an
-SDK call. `caliber/caliber-ui/e2e/skill-journey.spec.ts` drives the page steps and
+SDK call. `caliber/caliber-ui/e2e/skill-journey.spec.ts` drives the page steps (it creates the skill with
+`POST /skills`, the endpoint the wizard saves to, rather than filling the wizard) and
 `caliber/tests/test_sdk_skill_journey.py` drives the SDK steps, both on the shipped defaults.
 
 | # | Step | In the page (Skills) | In the SDK | What you should see |
 | --- | --- | --- | --- | --- |
-| 1 | Author | **New skill**, then fill the wizard; or open a skill and edit it on the **Author** stage | `skills.create(name, content=..., owner=...)` | version 1 in the version history |
+| 1 | Author | **Build Skill**, then fill the wizard; or open a skill and edit it on the **Author** stage | `skills.create(name, content=..., owner=...)` | version 1 in the version history |
 | 2 | Preview | **Render Preview**: enter variables as JSON, **Render Skill** | `skills.render(skill_id, variables={...})` | the content with variables filled in, and any left unresolved |
-| 3 | Check selection | **Trigger Tests**: **Check selection** for one message, or run a **Scenario Set** | `skills.test_selection(skill_id, query)` | whether the skill would be chosen, with a score and a reason |
+| 3 | Check selection | **Trigger Tests**: **Check selection** for one message, or build cases on **Scenario Sets** and run them all from **Trigger Tests** | `skills.test_selection(skill_id, query)` | whether the skill would be chosen, with a score and a reason |
 | 4 | Calibrate | **Runs**: **Calibrate** | `skills.calibrate(skill_id)` | "Calibration queued", then a run under **Calibration runs** |
-| 5 | Review | **Runs**: **Review & apply** on a run at `candidate_ready` | `jobs.wait(job_id)`, then read `job.candidate` and `job.eval_results` | the diff, the scores, and a banner when the evaluation is simulated |
-| 6 | Apply | **Apply to skill** | `jobs.apply(job_id)` | the skill is now the candidate, as the next version |
-| 7 | Roll back | **Author**: **Roll back** on the newest version | `skills.rollback(skill_id)` | the earlier content is current again, as a new version |
+| 5 | Review | **Runs**: **Review & apply** on a run at `candidate_ready` | `jobs.wait(job_id)`, then read `job.candidate` and `job.eval_results` | the diff, the baseline, candidate and change scores, the gate result, and a banner when the evaluation is simulated |
+| 6 | Apply | **Apply to skill** (disabled when the evaluation gate failed) | `jobs.apply(job_id)` | the skill is now the candidate, as the next version |
+| 7 | Roll back | **Author**: **Roll back** on the live version in the version history | `skills.rollback(skill_id)` | the earlier content is current again, as a new version |
 
 Three things to know before you trust the result.
 
@@ -57,8 +58,10 @@ Three things to know before you trust the result.
   and version 3 has the same text as version 1.
 - **Roles decide who can do what.** Anyone in the project can read, render and preview. Recording runs and
   baselines needs `reviewer` or above, calibrating needs `reviewer` or above, and applying a candidate needs
-  `editor` or `owner`. Changing a skill's content directly, and rolling it back, also need the global
-  `caliber.admin` scope. A person outside the project sees "not found" for every one of these. See
+  `editor` or `owner`. Creating, importing and binding a skill also need `editor` or `owner` (plus the
+  global `caliber.operator` scope). Changing a skill's content directly, and rolling it back, also need the global
+  `caliber.admin` scope. A member whose role is too weak gets a permission error (403), and a person outside the
+  project sees "not found" (404) for every one of these. See
   [Auth and project scoping](../build/auth-and-project-scoping.md).
 
 ## 1. What skills are for in CALIBER

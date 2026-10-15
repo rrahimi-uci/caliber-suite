@@ -8,7 +8,7 @@ product_area: tools
 stability: ga
 prerequisites:
   - A CALIBER deployment with tool access
-reviewed_on: 2026-08-10
+reviewed_on: 2026-10-14
 version_applicability: current main branch docs contract
 tags:
   - tools
@@ -35,15 +35,16 @@ sandbox and approval boundaries.
 ## The tool journey, step by step
 
 This is the loop the alpha supports end to end for a tool, with each step as a page action.
-`caliber/caliber-ui/e2e/tool-journey.spec.ts` drives it on the shipped defaults.
+`caliber/caliber-ui/e2e/tool-journey.spec.ts` drives it on the shipped defaults (it saves the fixtures and creates
+the workflow through the API, the endpoints the page's editors save to).
 
 | # | Step | In the page (Tools) | What you should see |
 | --- | --- | --- | --- |
 | 1 | Register | **Register Tool**, then the wizard: name, module, callable, input schema | the tool's detail page |
-| 2 | Run it | **Run** on the detail page, with a JSON object as input | the tool's output, produced by the sandbox |
+| 2 | Run it | **Run Tool** on the detail page, with a JSON object as input | the tool's output, produced by the sandbox |
 | 3 | Save fixtures | open the tool, **Fixtures**: add cases with an input and an assertion | the cases are saved against the tool |
 | 4 | Calibrate | **Fixtures**: **Run calibration** | "Pass rate 100% — 2/2 passed", or which cases failed |
-| 5 | Pin a baseline | **Test Runs**: **Set as baseline** on a run | the run carries a **Baseline** marker, and later runs are compared to it |
+| 5 | Pin a baseline | **Test Runs**: **Set as baseline** on a run (a run is saved when you invoke the tool on **Sandbox** or run the suite on **Hardening**) | the run carries a **Baseline** marker, and later runs are compared to it |
 | 6 | Use it in a workflow | reference the tool from an agent node in a workflow version | the workflow appears under **Publish**, **Where used** |
 
 Two things about the Tools list. A fresh install lists sixteen tools that CALIBER seeded itself, and each
@@ -64,11 +65,21 @@ Read this before you let anyone register a tool.
   deadline that kills the process group. It is **not** a container, virtual machine or seccomp boundary:
   the child keeps ambient filesystem and network access on the host. That is appropriate for tool authors
   you trust and is not isolation from ones you do not. Set `CALIBER_TOOL_SANDBOX_BACKEND` to a backend you
-  provide if you need OS-enforced isolation.
+  provide if you need OS-enforced isolation. Without one, promoting a workflow version that uses registered
+  tools to a production-class alias is refused: `CALIBER_TOOL_SANDBOX_REQUIRE_EXTERNAL_ISOLATION_FOR_ENVIRONMENT_CLASSES`
+  defaults to `production` (set it empty to turn the gate off), and an alias whose name is not recognised as
+  staging or development counts as production.
 - **Restrict which modules a tool may come from.** `CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST` is a
   comma-separated list of module prefixes, for example `caliber.*,mycompany.tools.*`. It ships empty, which
   means any importable module may be registered, and `/readiness` reports that as "registered tool modules
-  are unrestricted". Set it for anything beyond a local trial.
+  are unrestricted" (a check that is not required, so it never fails readiness). Set it for anything beyond a
+  local trial.
+- **Inside a project, roles apply on top of that.** Registering, changing or archiving a tool needs
+  `caliber.admin` and, for a project tool, `editor` or `owner`; saving fixtures needs `editor` or `owner`.
+  Running a tool, starting a calibration, recording a test run and setting a baseline need `reviewer`, `editor`
+  or `owner`, and each of those also needs `caliber.operator`. Reading needs only membership. A member
+  whose role is too weak gets 403 and a person outside the project gets 404. See
+  [Auth and project scoping](../build/auth-and-project-scoping.md).
 - **Side effects need approval.** A tool that writes or acts on an external system is registered with
   approval required, and the sandbox mocks it in preview runs.
 - **Workflows add a second boundary of the same kind.** A `python_code` node is authorable by operators.

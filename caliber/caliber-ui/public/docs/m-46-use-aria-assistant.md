@@ -21,6 +21,23 @@ waited, or required review.
 Aria is CALIBER's permissioned assistant surface. It is designed to stay
 observable and supervised rather than acting as an opaque background agent.
 
+Two controls decide what Aria may do on its own. The interaction mode is **Chat** (answer questions, create
+nothing), **Design** (author and edit artifacts; the value is `build` in the API) or **Plan** (outline an
+approach first). The approval mode is one of:
+
+| Approval mode | What Aria does on its own |
+| --- | --- |
+| Ask first (`manual`) | proposes changes and asks before every validate, test, approve or publish action |
+| Approve for me (`auto_safe`) | auto-runs safe validation and test steps, and still asks before approval or publish |
+| Legacy auto (`auto_all`) | also runs safe, reversible mutation tools; approval and publish still need a separate authority |
+| Agent review (`agent_review`) | an independent approver-scoped agent reviews the draft; publishing stays separate |
+| Full autonomy (`full_autonomy`) | an independent reviewer agent approves a passing draft and a separate release service publishes it |
+
+Agent review and Full autonomy are disabled in the selector ("Not configured") until the deployment can support
+them. Read tools are offered in every mode. Safe tools are offered only in Design mode with an approval mode
+other than Ask first, and mutating tools only in Design mode with Legacy auto or Full autonomy. Publish, promote,
+deploy and spend actions are never callable by the model during the authoring turn.
+
 ## 2. Common tasks
 
 | You want to... | Read this next |
@@ -34,7 +51,7 @@ observable and supervised rather than acting as an opaque background agent.
 | Symptom | First thing to check |
 | --- | --- |
 | The assistant paused instead of finishing | a human approval or review boundary was reached |
-| A tool is visible but unavailable | the tool is blocked by policy or missing runtime access |
+| A tool Aria does not offer, or refuses to call | its tier is not allowed in the current interaction and approval mode, or it requires approval (a published OpenAPI tool that requires approval is never offered as a direct Aria tool) |
 | Aria answered, but you cannot justify the answer | inspect the evidence, tool trace, or retrieval path |
 
 ## 4. Related docs

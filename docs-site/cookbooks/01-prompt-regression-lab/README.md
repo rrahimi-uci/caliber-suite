@@ -36,11 +36,16 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md) first. For this scenario:
 ## Prerequisites & seed
 
 - A configured chat / judge model (else the Test Sets and Runs stages error).
+- Under the default `CALIBER_LLM_PROVIDER=fake` / `CALIBER_EVAL_PROVIDER=fake`
+  the model and the evaluator are simulated and **calibration scores are canned**
+  (see `docs/start/alpha-install.md`), so a
+  `min_overall_score ≥ 0.90` gate means nothing there. Configure a real provider
+  and `CALIBER_EVAL_PROVIDER=mlflow` before reading any score as evidence.
 - 4 labeled cases already in [`test-data.yaml`](test-data.yaml) (P01–P04).
 
 ## Recipe (UI-first, with API fallbacks)
 
-1. **Create the prompt.** `Library → Prompts → New prompt`, name
+1. **Create the prompt.** `Prompts → New prompt`, name
    `intake-classifier`. Paste the system template from
    [`build.yaml`](build.yaml) and append the output contract:
    `Return ONLY JSON with keys intent, priority, confidence, needs_review, reason.`
@@ -59,7 +64,7 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md) first. For this scenario:
    to score them inline, then **Save to Test Sets** as `intake-classifier-golden`
    so they survive a refresh.
    - API: `POST /eval-datasets` then `POST /eval-datasets/{id}/examples`.
-5. **(Optional) JSON/intent judge.** `Evaluate → Judges → New judge`
+5. **(Optional) JSON/intent judge.** `Judges → + New Judge`
    `InstructionCompliance`: instructions = *"Given `{{ inputs }}` and model
    `{{ outputs }}`, return true only if outputs is valid JSON with the required
    keys and `intent` is allowed; else false."* `feedback_value_type = bool`.
@@ -77,7 +82,7 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md) first. For this scenario:
    drops the cases that fail the JSON contract.
 9. **Calibration (queued).** `Prompts → Calibration → Start Calibration Run` →
    capture the job id (runs in background: MetaPrompt/GEPA).
-10. **Observe.** `Observe → Observability` → open a failing run's trace; read the
+10. **Observe.** `Observability` → open a failing run's trace; read the
     node tree to explain the failure (don't expect a span named `prompt_render`).
 
 ## Demo evidence to capture
@@ -89,6 +94,7 @@ Read [`../FEASIBILITY.md`](../FEASIBILITY.md) first. For this scenario:
 
 ## Done when / gate
 
-- Golden output JSON is valid and schema-stable (`min_overall_score ≥ 0.90`).
+- Golden output JSON is valid and schema-stable (`min_overall_score ≥ 0.90`, read
+  only with a real model and `CALIBER_EVAL_PROVIDER=mlflow`; canned under the fake defaults).
 - The weaker variant is caught as a regression in the Runs **Vs. baseline** diff.
 - Each failure is explainable from its trace.
