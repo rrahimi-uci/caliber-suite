@@ -20,6 +20,7 @@ from typing import Any
 from sqlalchemy import select
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -209,7 +210,11 @@ async def promote_deployment(request: Request) -> JSONResponse:
                     ),
                 )
         try:
-            result = promote(
+            # The deploy gate replays the whole test set through the workflow, one run per
+            # example: minutes with a real model. Run inline it held the event loop and froze the
+            # server (every other request, readiness included) until the gate finished.
+            result = await run_in_threadpool(
+                promote,
                 session,
                 workflow_id,
                 alias,

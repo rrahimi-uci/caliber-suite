@@ -25,6 +25,7 @@ from typing import Any
 
 from sqlalchemy import or_, select
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -217,6 +218,20 @@ def _resolve_predict(
     return _llm_predict(complete)
 
 
+def workflow_output(result: Any) -> str:
+    """The text a workflow run produced, or a row error when the run could not produce any.
+
+    A run that ends ``error`` (Preview cannot isolate a Python Code or API Request node, a node
+    failed) has an empty output. Returning that empty string scored the row 0 with no explanation,
+    which reads as "the workflow is wrong" rather than "the workflow could not run". Raising lets the
+    scorecard record the run's own error on the row and keep it out of the per-scorer aggregates.
+    """
+    status = getattr(result, "status", "completed")
+    if status == "error":
+        raise RuntimeError(str(getattr(result, "error", None) or "workflow run ended in error"))
+    return str(getattr(result, "output", "") or "")
+
+
 def _build_workflow_predict(
     session: Any, version_id: str, config: Any, identity: Any = None
 ) -> PredictFn:
@@ -295,7 +310,7 @@ def _build_workflow_predict(
             extra_tools=managed_tools,
             managed_file_resolver=(managed_resolver.read_text if managed_resolver else None),
         )
-        return str(getattr(result, "output", "") or "")
+        return workflow_output(result)
 
     return predict
 
@@ -524,7 +539,11 @@ async def create_evaluation(request: Request) -> JSONResponse:
     predict = _timed_predict(predict, latencies_ms)
 
     try:
-        result = run_scorecard(
+        # One model call per example (and per judge) in sequence: minutes on a real provider. Run
+        # it on a worker thread; called inline it would hold the event loop and freeze every other
+        # request (the UI, readiness, other users) until the run ended.
+        result = await run_in_threadpool(
+            run_scorecard,
             rows,
             predict,
             payload.scorers,

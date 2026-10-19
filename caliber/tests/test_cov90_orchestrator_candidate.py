@@ -241,6 +241,35 @@ def test_prompt_optimization_dataset_pin_ignores_invalid_version(db_session: Ses
     assert version is None
 
 
+def test_dataset_pin_is_read_from_a_skill_calibration(db_session: Session) -> None:
+    """A skill calibration records its test set under ``skill_calibration``, not ``prompt_optimization``."""
+    item = _seed_item(
+        db_session,
+        submitted_context={
+            "source": "skill_calibration",
+            "skill_calibration": {"eval_dataset_id": "ED-S", "eval_dataset_version": 3},
+        },
+    )
+    dataset_id, version = _prompt_optimization_dataset_pin(
+        db_session, SimpleNamespace(primary_item_id=item.item_id)
+    )
+    assert (dataset_id, version) == ("ED-S", 3)
+
+
+def test_skill_calibration_without_a_pin_has_no_dataset(db_session: Session) -> None:
+    item = _seed_item(
+        db_session,
+        submitted_context={
+            "source": "skill_calibration",
+            "skill_calibration": {"skill_id": "SK-1"},
+        },
+    )
+    dataset_id, version = _prompt_optimization_dataset_pin(
+        db_session, SimpleNamespace(primary_item_id=item.item_id)
+    )
+    assert (dataset_id, version) == (None, None)
+
+
 # ---------------------------------------------------------------------------
 # run_candidate integration: baseline + dataset pin flow into a DSPy job
 # (exercises the same lines end-to-end through the real pipeline)

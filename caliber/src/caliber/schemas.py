@@ -5387,6 +5387,12 @@ class SkillCalibrateRequest(BaseModel):
 
     optimizer_type: str | None = Field(default=None, max_length=64)
     notes: str | None = Field(default=None, max_length=2048)
+    # The skill's test set for a real evaluator: an eval dataset whose examples are
+    # ``{"input": {...}, "expected": {...}}`` rows. The skill's text is the system
+    # instruction and each example's input is the user turn. Optional: the simulated
+    # evaluator needs none; a real one fails the run without it.
+    eval_dataset_id: str | None = Field(default=None, min_length=1, max_length=128)
+    eval_dataset_version: int | None = Field(default=None, ge=1)
 
 
 class SkillPackageFileSchema(BaseModel):

@@ -15,8 +15,9 @@ from sqlalchemy.orm import Session
 
 import caliber.orchestrator.workflow_stages as stages
 from caliber.config import CaliberConfig
+from caliber.workflows.calibration import WorkflowCalibrationError, WorkflowCalibrationResult
 from caliber.workflows.refinement import WorkflowEvalResult
-from tests.test_workflow_stages import _seed_common, _seed_job
+from tests.test_workflow_stages import _seed_common, _seed_job, _seed_version
 from tests.workflow_helpers import make_manifest
 
 
@@ -155,3 +156,83 @@ def test_a_real_provider_config_reaches_the_stamp_through_the_stage(
     results: dict[str, Any] = updated.eval_results or {}
     assert results["provider"] == "openai"
     assert results["simulated"] is False
+
+
+def _calibration_job(db_session: Session) -> Any:
+    _seed_common(db_session)
+    base = make_manifest("wf")
+    _seed_version(db_session, version_id="wfv-1", number=1, status="published", manifest=base)
+    job = _seed_job(
+        db_session,
+        stage="candidate",
+        diagnosis={"root_cause": "x", "affected_components": [], "localized_to": {}},
+        calibration_spec={"objective": {"maximize": "quality", "epsilon": 0.1}},
+    )
+    db_session.commit()
+    return job
+
+
+def _stub_calibration(monkeypatch: pytest.MonkeyPatch, evaluate: Any) -> None:
+    monkeypatch.setattr(stages, "resolve_workflow_calibration_examples", lambda *a, **k: [])
+    monkeypatch.setattr(stages, "generate_workflow_calibration_candidates", lambda *a, **k: [])
+    monkeypatch.setattr(stages, "evaluate_workflow_calibration_candidates", evaluate)
+    monkeypatch.setattr(stages, "_workflow_manifest_executor_factory", lambda config: None)
+    monkeypatch.setattr(stages, "build_llm_judge_scorer", lambda config: None)
+
+
+@pytest.mark.parametrize(
+    ("environ", "provider", "simulated"),
+    [({}, "fake", True), ({"CALIBER_LLM_PROVIDER": "openai"}, "openai", False)],
+)
+def test_a_calibration_with_no_candidate_still_says_what_measured_its_baseline(
+    db_session: Session,
+    monkeypatch: pytest.MonkeyPatch,
+    environ: dict[str, str],
+    provider: str,
+    simulated: bool,
+) -> None:
+    """The run ends ``rejected`` with no winner, but its baseline was measured: say by what."""
+    job = _calibration_job(db_session)
+    _stub_calibration(
+        monkeypatch,
+        lambda *a, **k: WorkflowCalibrationResult(
+            passed=False,
+            baseline_scores={"quality": 0.9},
+            candidates=[],
+            winner=None,
+            n_examples=20,
+            low_confidence=False,
+            objective="quality",
+            gate={"passed": False, "reasons": ["no candidate met calibration gates"]},
+        ),
+    )
+
+    updated = stages.run_workflow_candidate(
+        db_session, job, actor="@tester", config=_config(**environ)
+    )
+
+    assert updated.status == "rejected"
+    results: dict[str, Any] = updated.eval_results or {}
+    assert results["baseline"]["overall"] == 0.9
+    assert results["provider"] == provider
+    assert results["simulated"] is simulated
+    assert results["scorer"] == "structural"
+
+
+def test_a_calibration_that_errors_still_says_what_ran_it(
+    db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    job = _calibration_job(db_session)
+
+    def _boom(*args: Any, **kwargs: Any) -> Any:
+        raise WorkflowCalibrationError("the executor could not be built")
+
+    _stub_calibration(monkeypatch, _boom)
+
+    updated = stages.run_workflow_candidate(db_session, job, actor="@tester")
+
+    assert updated.status == "rejected"
+    results: dict[str, Any] = updated.eval_results or {}
+    assert results["gate"]["reasons"] == ["the executor could not be built"]
+    assert results["simulated"] is True
+    assert results["provider"] == "fake"

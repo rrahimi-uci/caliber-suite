@@ -587,6 +587,69 @@ class TestEvalSkillBaseline:
         # FakeEvalProvider passes by default → terminal candidate_ready.
         assert job.status in {"candidate_ready", "rejected"}
 
+    def test_skill_calibration_scores_against_the_named_test_set(self, db_session: Session) -> None:
+        """A skill calibration that names a test set evaluates against that set, pinned."""
+        _make_agent(db_session, skills=["tool-use"])
+        _make_skill(db_session, name="tool-use", content="Original tool instructions.")
+        item = _make_item(db_session, category="skill_calibration")
+        item.submitted_context = {
+            "source": "skill_calibration",
+            "skill_calibration": {
+                "skill_name": "tool-use",
+                "eval_dataset_id": "ED-skill-set",
+                "eval_dataset_version": 7,
+            },
+        }
+        job = _make_job(
+            db_session, artifact_type="skill", status="running", stage="eval", skill_name="tool-use"
+        )
+        job.candidate = {
+            "artifact_type": "skill",
+            "content": "Improved tool instructions.",
+            "rationale": "r",
+            "diff_summary": "+1 / -1",
+        }
+        db_session.commit()
+
+        eval_provider = FakeEvalProvider()
+        job = run_eval(
+            db_session,
+            "RFN-SKILL",
+            eval_provider,
+            artifact_store=FakeArtifactStore(skills={"tool-use": "Original tool instructions."}),
+        )
+
+        (request,) = eval_provider.calls
+        assert request.eval_dataset_id == "ED-skill-set"
+        assert request.eval_dataset_version == 7
+        # Nothing else of the prompt-optimization context applies to a skill.
+        assert request.scorer_names == []
+        assert job.eval_results["eval_dataset_id"] == "ED-skill-set"
+        assert job.eval_results["eval_dataset_version"] == 7
+
+    def test_skill_calibration_without_a_test_set_keeps_the_default_dataset(
+        self, db_session: Session
+    ) -> None:
+        _make_agent(db_session, skills=["tool-use"])
+        _make_skill(db_session, name="tool-use")
+        item = _make_item(db_session, category="skill_calibration")
+        item.submitted_context = {
+            "source": "skill_calibration",
+            "skill_calibration": {"skill_name": "tool-use"},
+        }
+        job = _make_job(
+            db_session, artifact_type="skill", status="running", stage="eval", skill_name="tool-use"
+        )
+        job.candidate = {"artifact_type": "skill", "content": "New.", "rationale": "r"}
+        db_session.commit()
+
+        eval_provider = FakeEvalProvider()
+        run_eval(db_session, "RFN-SKILL", eval_provider)
+
+        (request,) = eval_provider.calls
+        assert request.eval_dataset_id == "default"
+        assert request.eval_dataset_version is None
+
 
 # ───────────────────── ArtifactStore: skill support ─────────────────────
 

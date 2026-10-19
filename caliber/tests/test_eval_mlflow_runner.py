@@ -23,6 +23,7 @@ from caliber.eval.mlflow_runner import (
     _compute_deltas,
     _count_examples,
     _metrics_to_score_set,
+    _prime_mlflow_lazy_imports,
     _require_requested_scores,
     _selected_metric_names,
 )
@@ -569,3 +570,56 @@ def test_the_missing_predict_fn_error_names_the_configuration_to_change() -> Non
     assert "needs a real LLM provider" in message
     assert "CALIBER_LLM_PROVIDER" in message
     assert "alpha-install" in message
+
+
+def test_prime_records_a_missing_databricks_runtime_without_import_locks(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """Regression: MLflow's eval threads probe ``dbruntime`` on every trace export, through a
+    post-import-hook finder that takes a process-wide lock; with a fast hosted model the whole
+    pool deadlocked on the import locks and the stage hung until the janitor failed the job.
+    Priming records the absent module so every later import fails at once, lock-free."""
+    monkeypatch.delitem(sys.modules, "dbruntime", raising=False)
+    monkeypatch.delitem(sys.modules, "dbruntime.databricks_repl_context", raising=False)
+
+    _prime_mlflow_lazy_imports()
+
+    assert sys.modules["dbruntime"] is None
+    assert sys.modules["dbruntime.databricks_repl_context"] is None
+    with pytest.raises(ImportError):
+        from dbruntime.databricks_repl_context import get_context  # noqa: F401
+
+
+def test_prime_leaves_a_real_databricks_runtime_alone(monkeypatch: pytest.MonkeyPatch) -> None:
+    """Where ``dbruntime`` really exists (a Databricks runtime) nothing is recorded as absent."""
+    fake = types.ModuleType("dbruntime")
+    fake_ctx = types.ModuleType("dbruntime.databricks_repl_context")
+    monkeypatch.setitem(sys.modules, "dbruntime", fake)
+    monkeypatch.setitem(sys.modules, "dbruntime.databricks_repl_context", fake_ctx)
+
+    _prime_mlflow_lazy_imports()
+
+    assert sys.modules["dbruntime"] is fake
+    assert sys.modules["dbruntime.databricks_repl_context"] is fake_ctx
+
+
+def test_prime_imports_the_modules_mlflow_would_import_from_its_threads() -> None:
+    """The telemetry hook's lazy imports are resolved before the thread pool starts."""
+    _prime_mlflow_lazy_imports()
+
+    assert "mlflow.genai.scorers.job" in sys.modules
+    assert "mlflow.server.jobs.utils" in sys.modules
+
+
+def test_prime_tolerates_an_mlflow_without_those_modules(monkeypatch: pytest.MonkeyPatch) -> None:
+    """An MLflow that lacks the modules (an older or stubbed one) has nothing to prime; the
+    warm-up must not turn that into an evaluation failure."""
+    real_import_module = __import__("importlib").import_module
+
+    def fake_import_module(name: str, *args: Any, **kwargs: Any) -> Any:
+        if name.startswith("mlflow."):
+            raise ImportError(name)
+        return real_import_module(name, *args, **kwargs)
+
+    monkeypatch.setattr("caliber.eval.mlflow_runner.importlib.import_module", fake_import_module)
+    _prime_mlflow_lazy_imports()

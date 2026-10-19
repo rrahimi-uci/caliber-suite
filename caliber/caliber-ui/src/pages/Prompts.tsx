@@ -2259,10 +2259,14 @@ function PromptRunsStage({
         return;
       }
       setRunProgress({ current: 0, total: cases.length });
+      // The version that is live now. The workspace summary is refetched after every save or
+      // promote on Author; ``prompt`` is the list row the page opened with, so after "Save &
+      // promote" it still names the old version and the run would be filed under it.
+      const liveVersion = workspace?.version ?? prompt.version;
       const results = await runPromptTestCases({
         promptName: prompt.agent_name,
         template,
-        version: prompt.version,
+        version: liveVersion,
         alias,
         cases,
         onProgress: (current, total) => setRunProgress({ current, total }),
@@ -2271,7 +2275,7 @@ function PromptRunsStage({
         agent_id: agentId,
         prompt_name: promptName,
         prompt_alias: alias,
-        prompt_version: prompt.version,
+        prompt_version: liveVersion,
         model: workspace?.model ?? null,
         eval_dataset_id: datasetId,
         results,

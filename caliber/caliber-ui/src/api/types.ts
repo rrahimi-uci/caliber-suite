@@ -1211,6 +1211,9 @@ export interface SkillBindPayload {
 export interface SkillCalibratePayload {
   optimizer_type?: string;
   notes?: string;
+  /** The skill's test set (an eval dataset) for a real evaluator; optional. */
+  eval_dataset_id?: string;
+  eval_dataset_version?: number;
 }
 
 /** Result of ``POST /caliber/skills/{skill_id}/test-selection``. */

@@ -4122,6 +4122,64 @@ describe("Prompts — Workspace Runs stage", () => {
     expect(await screen.findByText("How do refunds work?")).toBeInTheDocument();
   });
 
+  it("files a run under the version that is live now, not the one the page opened with", async () => {
+    // Regression: after "Save & promote" on Author the workspace summary is refetched but the
+    // prompt row the page opened with is not, so a Runs-stage run was saved against the old
+    // version and the baseline comparison compared runs filed under the wrong prompt version.
+    const saved: Array<Record<string, unknown>> = [];
+    server.use(
+      http.get(`${API_BASE}/prompts/support-agent/workspace`, () =>
+        HttpResponse.json(
+          envelope({
+            model: "gpt-4o-mini",
+            version: 7,
+            status: "Tested",
+            bound_to: null,
+            dataset_id: "DS-1",
+            last_run: null,
+            baseline_run_id: null,
+            baseline_run: null,
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/eval-datasets/DS-1/examples`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              example_id: "ex-1",
+              dataset_id: "DS-1",
+              dataset_version: 1,
+              input: { user_message: "How do refunds work?" },
+              expected: { behavior: "Explain the refund policy" },
+              weight: 1,
+              tags: [],
+              created_at: "2025-01-01T00:00:00Z",
+              superseded_at: null,
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/prompts/test-runs`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/prompts/test-runs`, async ({ request }) => {
+        saved.push((await request.json().catch(() => ({}))) as Record<string, unknown>);
+        return HttpResponse.json(envelope({ test_run_id: "PTR-v7" }), { status: 201 });
+      }),
+      http.get(`${API_BASE}/prompts/test-runs/PTR-v7`, () =>
+        HttpResponse.json(envelope({ test_run_id: "PTR-v7", results: [] })),
+      ),
+    );
+    installRunnableJudge("pass", 1);
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Runs");
+    await user.click(await screen.findByRole("button", { name: "Run tests" }));
+
+    await waitFor(() => expect(saved.length).toBe(1));
+    expect(saved[0]!.prompt_version).toBe(7);
+  });
+
   it("sets a run as baseline and surfaces the diff/regression vs the viewed run", async () => {
     const pinned: Array<Record<string, unknown>> = [];
     // Two runs in history: PTR-base (the baseline, all pass) and PTR-cur (the

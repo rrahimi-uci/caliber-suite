@@ -261,9 +261,14 @@ from several signals:
 The resulting status is one of `Bound`, `Calibrated`, `Tested`, `Has scenarios`, or `Draft`,
 in that order of precedence.
 
-A skill calibration has no test set of its own: `POST /skills/{skill_id}/calibrate` queues a
-`SkillMetaPrompt` job, and with the default fake evaluation provider its scores are
-simulated and carry `simulated: true` rather than counting as evidence. The Skills page
+A skill has no test set of its own, so `POST /skills/{skill_id}/calibrate` accepts an optional
+`eval_dataset_id` (and `eval_dataset_version`, pinned at queue time; the Skills page offers it
+as "Test set"). It queues a `SkillMetaPrompt` job. With the default fake evaluation provider the
+scores are simulated and carry `simulated: true` rather than counting as evidence, and no test
+set is needed. With a real evaluation provider the test set is required: its examples
+(`{"input": {...}, "expected": {...}}`) are replayed against the skill text as the system
+instruction, and the run fails without one. The dataset must be visible to the caller, active,
+and hold at least one active example, or the call is rejected with 400/404. The Skills page
 reviews the candidate under Calibration runs, applies it with `POST /jobs/{job_id}/apply`
 (which writes the next skill version through `SkillPromoter`), and rolls it back from the
 version history.

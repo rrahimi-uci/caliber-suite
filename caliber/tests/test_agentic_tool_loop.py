@@ -1412,3 +1412,96 @@ def test_called_tool_names_excludes_gated_and_error_markers() -> None:
         ]
     )
     assert ctx.called_tool_names == {"lookup_policy"}
+
+
+# --------------------------------------------------------------------------- #
+# A model that takes function tools or a reasoning effort on chat completions, not both
+# --------------------------------------------------------------------------- #
+
+
+class _ToolsOrReasoningError(Exception):
+    """What the OpenAI SDK raises for the 400 (``BadRequestError``): a status and the body."""
+
+    status_code = 400
+
+    def __init__(self) -> None:
+        super().__init__(
+            "Error code: 400 - {'error': {'message': \"Function tools with reasoning_effort "
+            "are not supported for gpt-5.6-luna in /v1/chat/completions. To use function tools, "
+            "use /v1/responses or set reasoning_effort to 'none'.\"}}"
+        )
+
+
+class _ToolsOrReasoningCompletions(_OACompletions):
+    """Refuses any request that has both ``tools`` and a reasoning effort other than none."""
+
+    def create(self, **kwargs):
+        if "tools" in kwargs and kwargs.get("reasoning_effort") not in (None, "none"):
+            self.calls.append(kwargs)
+            raise _ToolsOrReasoningError()
+        return super().create(**kwargs)
+
+
+def _tools_or_reasoning_client(responses: list) -> _FakeOpenAI:
+    client = _FakeOpenAI(responses)
+    client.chat = type("Chat", (), {"completions": _ToolsOrReasoningCompletions(responses)})()
+    return client
+
+
+def test_openai_loop_keeps_the_tools_when_the_model_refuses_tools_with_reasoning() -> None:
+    client = _tools_or_reasoning_client(
+        [
+            _tool_call_resp("c1", "lookup_policy", {"query": "refund"}),
+            _final_resp("Thirty days."),
+        ]
+    )
+    executor = OpenAIChatWorkflowExecutor(
+        api_key="x", default_model="gpt-5.6-luna", reasoning_effort="high", client=client
+    )
+    result = executor.run_agent(
+        _agent(_binding("lookup_policy", input_schema=_QUERY_SCHEMA)),
+        "refund policy?",
+        tool_callables={"lookup_policy": lambda query="": {"policy": "30 days"}},
+        preview=False,
+    )
+    assert result.final_output == "Thirty days."
+    assert result.tool_calls == [{"tool": "lookup_policy", "result": {"policy": "30 days"}}]
+    calls = client.chat.completions.calls
+    # First request: refused with effort high. Retry: same tools, effort none. The second turn of
+    # the loop goes straight to effort none (the refusal is remembered, not re-provoked).
+    assert [c.get("reasoning_effort") for c in calls] == ["high", "none", "none"]
+    assert all("tools" in c for c in calls)
+
+
+def test_openai_loop_still_sends_the_reasoning_effort_when_there_are_no_tools() -> None:
+    client = _tools_or_reasoning_client([_final_resp("hello")])
+    executor = OpenAIChatWorkflowExecutor(
+        api_key="x", default_model="gpt-5.6-luna", reasoning_effort="high", client=client
+    )
+    executor.run_agent(_agent(), "hi", tool_callables={}, preview=False)
+    calls = client.chat.completions.calls
+    assert len(calls) == 1 and calls[0]["reasoning_effort"] == "high" and "tools" not in calls[0]
+
+
+def test_openai_loop_does_not_swallow_other_bad_requests() -> None:
+    class BoomError(Exception):
+        status_code = 400
+
+    class Completions(_OACompletions):
+        def create(self, **kwargs):
+            self.calls.append(kwargs)
+            raise BoomError("model not found")
+
+    client = _FakeOpenAI([])
+    client.chat = type("Chat", (), {"completions": Completions([])})()
+    executor = OpenAIChatWorkflowExecutor(
+        api_key="x", default_model="gpt-5.6-luna", reasoning_effort="high", client=client
+    )
+    with pytest.raises(BoomError, match="model not found"):
+        executor.run_agent(
+            _agent(_binding("lookup_policy", input_schema=_QUERY_SCHEMA)),
+            "x",
+            tool_callables={"lookup_policy": lambda query="": {}},
+            preview=False,
+        )
+    assert len(client.chat.completions.calls) == 1  # not retried

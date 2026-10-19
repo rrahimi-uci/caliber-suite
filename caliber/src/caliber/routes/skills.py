@@ -62,6 +62,8 @@ from caliber.auth import (
 from caliber.builtin_skills import register_builtin_skills
 from caliber.db.models import (
     CaliberAgentConfig,
+    CaliberEvalDataset,
+    CaliberEvalDatasetExample,
     CaliberRefinementJob,
     CaliberSkill,
     CaliberSkillTestRun,
@@ -1358,6 +1360,49 @@ async def bind_skill(request: Request) -> JSONResponse:
     return JSONResponse({"data": {"bound_to": bound_to, "status": "Bound"}}, status_code=200)
 
 
+def _resolve_calibration_dataset(
+    session: Session,
+    identity: Any,
+    dataset_id: str,
+    requested_version: int | None,
+) -> dict[str, Any]:
+    """Validate the test set a skill calibration names and pin its version.
+
+    The dataset must be visible to the caller, active, and hold at least one active
+    example (a real evaluator cannot score an empty set), and a requested version must
+    exist. The pinned ``(eval_dataset_id, eval_dataset_version)`` is what the eval stage
+    scores against, so a later edit to the dataset cannot change what this run was judged on.
+    """
+    dataset = get_visible(
+        session, CaliberEvalDataset, CaliberEvalDataset.dataset_id, dataset_id, identity
+    )
+    if dataset is None:
+        raise HTTPException(status_code=404, detail=f"eval dataset {dataset_id!r} not found")
+    if dataset.status != "active":
+        raise HTTPException(status_code=400, detail=f"eval dataset {dataset_id!r} is not active")
+    if requested_version is not None and not 1 <= requested_version <= dataset.version:
+        raise HTTPException(
+            status_code=400,
+            detail=(
+                f"eval_dataset_version must be between 1 and {dataset.version} "
+                f"for dataset {dataset_id!r}, got {requested_version}"
+            ),
+        )
+    version = requested_version if requested_version is not None else dataset.version
+    has_example = session.execute(
+        select(CaliberEvalDatasetExample.example_id)
+        .where(CaliberEvalDatasetExample.dataset_id == dataset.dataset_id)
+        .where(CaliberEvalDatasetExample.superseded_at.is_(None))
+        .limit(1)
+    ).first()
+    if has_example is None:
+        raise HTTPException(
+            status_code=400,
+            detail=f"eval dataset {dataset_id!r} has no active examples to calibrate against",
+        )
+    return {"eval_dataset_id": dataset.dataset_id, "eval_dataset_version": version}
+
+
 async def calibrate_skill(request: Request) -> JSONResponse:
     """``POST /caliber/skills/{skill_id}/calibrate`` — agent-free calibrate front door.
 
@@ -1394,6 +1439,21 @@ async def calibrate_skill(request: Request) -> JSONResponse:
             project_id=identity.active_project_id,
         )
 
+        skill_calibration: dict[str, Any] = {
+            "skill_id": skill.skill_id,
+            "skill_name": skill.name,
+            "optimizer_type": optimizer_type,
+        }
+        if payload.eval_dataset_id is not None:
+            skill_calibration.update(
+                _resolve_calibration_dataset(
+                    session,
+                    identity,
+                    payload.eval_dataset_id,
+                    payload.eval_dataset_version,
+                )
+            )
+
         item = CaliberVerificationItem(
             item_id=new_item_id(),
             agent_id=target.agent_id,
@@ -1407,11 +1467,7 @@ async def calibrate_skill(request: Request) -> JSONResponse:
             artifact_ref=skill.name,
             submitted_context={
                 "source": "skill_calibration",
-                "skill_calibration": {
-                    "skill_id": skill.skill_id,
-                    "skill_name": skill.name,
-                    "optimizer_type": optimizer_type,
-                },
+                "skill_calibration": skill_calibration,
             },
             status="verified",
             verified_by=actor,

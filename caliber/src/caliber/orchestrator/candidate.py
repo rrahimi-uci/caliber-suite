@@ -323,8 +323,15 @@ def _prompt_optimization_dataset_pin(
         return None, None
 
     submitted = item.submitted_context
-    raw = submitted.get("prompt_optimization")
-    if submitted.get("source") != "prompt_optimization" or not isinstance(raw, dict):
+    raw = submitted.get(
+        "skill_calibration"
+        if submitted.get("source") == "skill_calibration"
+        else "prompt_optimization"
+    )
+    if submitted.get("source") not in {
+        "prompt_optimization",
+        "skill_calibration",
+    } or not isinstance(raw, dict):
         return None, None
 
     raw_id = raw.get("eval_dataset_id")

@@ -284,6 +284,30 @@ class KbJudge:
             return None
 
 
+_REAL_JUDGE_PROVIDERS = frozenset({"openai", "anthropic"})
+
+
+def judge_model_uri(provider: str | None, model: str | None) -> str | None:
+    """The MLflow model URI (``<provider>:/<model>``) calibration's judges run on, or ``None``.
+
+    CALIBER configures a bare model name (``llm_diagnosis_model`` = ``gpt-5.6-luna``) but
+    ``make_judge`` only accepts ``<provider>:/<model>``. Passing the bare name made every judge
+    fail to build, and a calibration run that cannot build its judges degrades to retrieval metrics
+    only: on a real provider Faithfulness and Answer-correctness came back ``null`` with no error.
+
+    Returns ``None`` (use the default judge model) when no model is configured, and a URI already in
+    the right form unchanged. With a simulated provider (``fake``) the bare name is returned as is,
+    so no judge can be built and calibration reports retrieval metrics only, as before.
+    """
+    name = (model or "").strip()
+    if not name:
+        return None
+    if ":/" in name:
+        return name
+    chosen = (provider or "").strip().lower()
+    return f"{chosen}:/{name}" if chosen in _REAL_JUDGE_PROVIDERS else name
+
+
 def build_kb_judge(model: str | None = None) -> KbJudge | None:
     """Build the faithfulness + correctness judges via the unified judge path.
 
