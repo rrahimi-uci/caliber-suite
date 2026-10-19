@@ -198,3 +198,19 @@ export function workflowCalibrationView(job: RefinementJob): WorkflowCalibration
     evalResultsPayload: job.eval_results,
   });
 }
+
+/** Milliseconds between refreshes of a calibration run list while any run is still in flight. */
+export const CALIBRATION_JOBS_POLL_MS = 2000;
+
+/**
+ * How soon to refresh the calibration run list: a run is queued, then running, then done in seconds
+ * (a simulated stack) or minutes (a real model). `false` once nothing is in flight, so an idle page
+ * does not poll. Without it a row stayed "queued" until the page was reloaded.
+ */
+export function calibrationJobsRefetchInterval(
+  jobs: ReadonlyArray<Pick<RefinementJob, "status">> | undefined,
+): number | false {
+  return jobs?.some((job) => job.status === "queued" || job.status === "running")
+    ? CALIBRATION_JOBS_POLL_MS
+    : false;
+}

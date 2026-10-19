@@ -39,6 +39,7 @@ from concurrent.futures import TimeoutError as FuturesTimeout
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from functools import partial
+from http import HTTPStatus
 from pathlib import Path
 from typing import Any, Protocol
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
@@ -438,6 +439,16 @@ class FakeWorkflowExecutor:
         )
 
 
+def _rejects_tools_with_reasoning(exc: Exception) -> bool:
+    """True for the 400 a model returns when a chat-completions request carries both function
+    tools and a reasoning effort ("Function tools with reasoning_effort are not supported for
+    <model> in /v1/chat/completions")."""
+    return (
+        getattr(exc, "status_code", None) == HTTPStatus.BAD_REQUEST
+        and "function tools with reasoning_effort" in str(exc).lower()
+    )
+
+
 def _is_reasoning_model(model: str) -> bool:
     """True for OpenAI reasoning models (o-series, gpt-5*) — shared detection.
 
@@ -733,7 +744,13 @@ class OpenAIChatWorkflowExecutor:
         output = ""
         structured_output: Any | None = None
 
+        # Some reasoning models (the default gpt-5.6-luna among them) take function tools OR a
+        # reasoning effort on /v1/chat/completions, not both. Once the API says so, every later
+        # request of this turn keeps the tools and sends effort "none".
+        tools_need_no_reasoning = False
+
         def _create(use_tools: bool) -> Any:
+            nonlocal tools_need_no_reasoning
             kwargs: dict[str, Any] = {"model": model, "messages": messages}
             # Reasoning models (o-series, gpt-5*) only accept the default temperature
             # — sending a custom value is a 400. Plain chat models keep the low temp
@@ -741,7 +758,9 @@ class OpenAIChatWorkflowExecutor:
             if not _is_reasoning_model(model):
                 kwargs["temperature"] = 0.2
             elif effort := reasoning_effort_for_model(model, self._reasoning_effort):
-                kwargs["reasoning_effort"] = effort
+                kwargs["reasoning_effort"] = (
+                    "none" if tools_need_no_reasoning and use_tools and specs else effort
+                )
             if response_format is not None:
                 kwargs["response_format"] = response_format
             if use_tools and specs:
@@ -753,7 +772,19 @@ class OpenAIChatWorkflowExecutor:
                 kwargs["prompt_cache_key"] = prompt_cache_key
                 if self._prompt_cache_retention:
                     kwargs["prompt_cache_retention"] = self._prompt_cache_retention
-            return self._client.chat.completions.create(**kwargs)
+            try:
+                return self._client.chat.completions.create(**kwargs)
+            except Exception as exc:
+                if not (
+                    use_tools
+                    and specs
+                    and kwargs.get("reasoning_effort") not in (None, "none")
+                    and _rejects_tools_with_reasoning(exc)
+                ):
+                    raise
+                tools_need_no_reasoning = True
+                kwargs["reasoning_effort"] = "none"
+                return self._client.chat.completions.create(**kwargs)
 
         for _ in range(MAX_AGENT_TOOL_ITERATIONS):
             response = _create(use_tools=True)

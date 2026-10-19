@@ -203,7 +203,7 @@ _REVIEWED_BARE_LOOKUPS: dict[str, str] = {
         "called earlier in this function) -- also listed in "
         "`scope_inference.py::_PUBLIC_ROUTES` for the same reason."
     ),
-    "caliber.routes.skills.get_skill_workspace:1146": (
+    "caliber.routes.skills.get_skill_workspace:1148": (
         "`target_agent_id` is computed via `skill_target_agent_id(skill.name)`, "
         "deterministically derived from `skill.name` of the `CaliberSkill` "
         "row this same function already resolved through "

@@ -34,9 +34,11 @@ human-readable reason on a failure.
 
 from __future__ import annotations
 
+import importlib
 import inspect
 import logging
 import math
+import sys
 from collections.abc import Callable
 from typing import Any
 
@@ -130,6 +132,7 @@ class MLflowEvalProvider:
                 "'Real LLM and evaluation'."
             )
 
+        _prime_mlflow_lazy_imports()
         data = self._resolve_dataset(request.eval_dataset_id, request.eval_dataset_version)
         scorers = self._resolve_scorers(request.scorer_names, request.scorer_configs)
         metric_names = _selected_metric_names(request.scorer_names, scorers)
@@ -374,6 +377,36 @@ class MLflowEvalProvider:
                 f"agent_id={request.agent_id!r}: {exc}"
             ) from exc
         return _metrics_to_score_set(getattr(result, "metrics", {}) or {})
+
+
+def _prime_mlflow_lazy_imports() -> None:
+    """Resolve, on the calling thread, the imports MLflow otherwise makes from its worker threads.
+
+    ``mlflow.genai.evaluate`` runs the predictions and the scorers on a pool of threads, and each
+    of them lazily imports modules the first time it needs them (the telemetry hook imports
+    ``mlflow.genai.scorers.job``; every trace export probes ``dbruntime``, which only exists on
+    Databricks, through a post-import-hook finder that takes a process-wide lock). With a fast
+    provider the whole pool reaches those imports in the same instant and the import locks
+    deadlock: the stage stops without an error, makes no further model call, and the janitor
+    fails the job as ``heartbeat stale`` five minutes later (seen on a hosted model; a slower
+    local model staggers the threads and hides it). Importing the modules once up front, and
+    recording that ``dbruntime`` is absent, removes the race. It changes no behaviour: where
+    ``dbruntime`` exists (a Databricks runtime) it imports normally and nothing is recorded.
+    """
+    for name in ("mlflow.genai.scorers.job", "mlflow.server.jobs.utils"):
+        try:
+            importlib.import_module(name)
+        except ImportError:  # an MLflow without that module has nothing to prime
+            logger.debug("mlflow module %s is not importable; skipping the warm-up", name)
+    for name in ("dbruntime", "dbruntime.databricks_repl_context"):
+        if name in sys.modules:
+            continue
+        try:
+            importlib.import_module(name)
+        except ImportError:
+            # ``None`` makes every later ``import`` of the name fail at once, without taking
+            # an import lock, which is exactly what the failed probe would do.
+            sys.modules[name] = None  # type: ignore[assignment]
 
 
 # ---------------------------------------------------------------------------

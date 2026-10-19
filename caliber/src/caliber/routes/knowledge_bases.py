@@ -4,6 +4,7 @@ from __future__ import annotations
 
 from sqlalchemy.orm import Session
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -424,7 +425,8 @@ async def query_knowledge(request: Request) -> JSONResponse:
     body = await parse_json_object(request)
     payload = KnowledgeQueryRequest.model_validate(body)
     try:
-        result = _service(request).query(payload, identity=identity)
+        # Retrieval, and with a real assistant engine a model call: off the event loop.
+        result = await run_in_threadpool(_service(request).query, payload, identity=identity)
     except KnowledgeDependencyError as exc:
         raise HTTPException(status_code=503, detail=str(exc)) from exc
     return envelope_response(result)
@@ -451,7 +453,10 @@ async def calibrate_knowledge_base(request: Request) -> JSONResponse:
         kb = _require_visible_knowledge_base(session, knowledge_base_id, identity)
         require_project_access_if_scoped(session, identity, kb.project_id, "resource.execute")
     try:
-        summary = _service(request).calibrate(
+        # Up to three model calls per question (answer, faithfulness, correctness): minutes on a
+        # real provider. On a worker thread, so the rest of the server keeps answering meanwhile.
+        summary = await run_in_threadpool(
+            _service(request).calibrate,
             knowledge_base_id,
             version_id=payload.version_id,
             eval_dataset_id=payload.eval_dataset_id,

@@ -469,3 +469,62 @@ def test_run_evaluation_artifact_target_requires_subject_ref(
     # The schema validator rejects an artifact target with no subject_ref.
     assert resp.status_code == 400
     assert "subject_ref" in resp.text
+
+
+def test_workflow_output_is_the_runs_text() -> None:
+    from types import SimpleNamespace
+
+    done = SimpleNamespace(status="completed", output="verdict sev1 rollback", error=None)
+    assert evaluations_route.workflow_output(done) == "verdict sev1 rollback"
+    # a guardrail block still carries the run's own output
+    assert evaluations_route.workflow_output(SimpleNamespace(status="blocked", output="no")) == "no"
+    assert evaluations_route.workflow_output(SimpleNamespace(output=None)) == ""
+
+
+def test_workflow_output_raises_the_runs_error_instead_of_an_empty_prediction() -> None:
+    """Preview refuses a Python Code node: the row must carry that error, not a silent zero."""
+    from types import SimpleNamespace
+
+    refused = SimpleNamespace(
+        status="error",
+        output="",
+        error="preview blocked before execution: classify (python_code)",
+    )
+    with pytest.raises(RuntimeError, match=r"classify \(python_code\)"):
+        evaluations_route.workflow_output(refused)
+    with pytest.raises(RuntimeError, match="workflow run ended in error"):
+        evaluations_route.workflow_output(SimpleNamespace(status="error", output="", error=None))
+
+
+def test_run_evaluation_records_a_workflow_that_cannot_run_as_row_errors(
+    client: TestClient, db_session: Session, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    _seed_dataset_with_examples(db_session)
+    monkeypatch.setattr(evaluations_route, "build_completion_fn", _echo_system_completion)
+
+    def refusing_build(_session, version_id, _config, _identity=None):  # type: ignore[no-untyped-def]
+        def predict(inputs):  # type: ignore[no-untyped-def]
+            from types import SimpleNamespace
+
+            return evaluations_route.workflow_output(
+                SimpleNamespace(status="error", output="", error="classify (python_code) refused")
+            )
+
+        return predict
+
+    monkeypatch.setattr(evaluations_route, "_build_workflow_predict", refusing_build)
+
+    resp = client.post(
+        LIST_PATH,
+        json={
+            "dataset_id": "ED-eval",
+            "predict_target": "workflow",
+            "subject_ref": "WFV-1",
+            "scorers": ["non_empty"],
+        },
+    )
+
+    assert resp.status_code == 201, resp.text
+    data = resp.json()["data"]
+    assert data["passed_count"] == 0
+    assert all("python_code" in row["error"] for row in data["results"])

@@ -33,9 +33,11 @@ import { FilterSelect } from "@/components/FilterSelect";
 import { ViewToggle } from "@/components/ViewToggle";
 import type {
   AgentConfig,
+  EvalDataset,
   ResourceStatus,
   Skill,
   SkillBindPayload,
+  SkillCalibratePayload,
   SkillCategory,
   SkillSelectionResult,
   SkillTestRunDetail,
@@ -1548,8 +1550,26 @@ function SkillRunsStage({
   const [calibrating, setCalibrating] = useState(false);
   const [calibrateMsg, setCalibrateMsg] = useState<string | null>(null);
   const [calibrateError, setCalibrateError] = useState<string | null>(null);
+  // Optional inputs to a calibration: the skill's test set and a note on what to fix. A real
+  // evaluator scores the candidate against the test set; the simulated one needs none.
+  const [testSets, setTestSets] = useState<EvalDataset[]>([]);
+  const [testSetId, setTestSetId] = useState("");
+  const [calibrateNotes, setCalibrateNotes] = useState("");
   // Bumped when a run is queued, so the calibration list picks the new job up.
   const [jobsReloadKey, setJobsReloadKey] = useState(0);
+
+  useEffect(() => {
+    const controller = new AbortController();
+    void (async () => {
+      try {
+        const sets = await caliberApi.listEvalDatasets({ status: "active" }, controller.signal);
+        if (!controller.signal.aborted) setTestSets(sets);
+      } catch {
+        if (!controller.signal.aborted) setTestSets([]);
+      }
+    })();
+    return () => controller.abort();
+  }, []);
 
   const refreshHistory = useCallback(
     async (signal?: AbortSignal) => {
@@ -1645,7 +1665,10 @@ function SkillRunsStage({
     setCalibrateError(null);
     setCalibrateMsg(null);
     try {
-      const res = await caliberApi.calibrateSkill(skillId, {});
+      const payload: SkillCalibratePayload = {};
+      if (testSetId) payload.eval_dataset_id = testSetId;
+      if (calibrateNotes.trim()) payload.notes = calibrateNotes.trim();
+      const res = await caliberApi.calibrateSkill(skillId, payload);
       const jobId = typeof res.job?.job_id === "string" ? res.job.job_id : null;
       setCalibrateMsg(
         jobId ? `Calibration queued — job ${jobId}.` : "Calibration queued.",
@@ -1719,20 +1742,57 @@ function SkillRunsStage({
       </div>
 
       {/* ── Calibrate (agent-free) ── */}
-      <div className="flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-slate-200/70 bg-white p-4 shadow-card">
-        <div className="text-sm text-slate-600">
-          <span className="font-semibold text-slate-800">Calibrate this skill</span> — queue an
-          improvement run. Caliber auto-provisions the target; no agent to pick.
+      <div className="flex flex-col gap-3 rounded-2xl border border-slate-200/70 bg-white p-4 shadow-card">
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="text-sm text-slate-600">
+            <span className="font-semibold text-slate-800">Calibrate this skill</span> — queue an
+            improvement run. Caliber auto-provisions the target; no agent to pick.
+          </div>
+          <button
+            type="button"
+            data-testid="skill-calibrate-btn"
+            onClick={() => void calibrate()}
+            disabled={calibrating}
+            className="btn-primary disabled:opacity-50"
+          >
+            {calibrating ? "Queuing…" : "Calibrate"}
+          </button>
         </div>
-        <button
-          type="button"
-          data-testid="skill-calibrate-btn"
-          onClick={() => void calibrate()}
-          disabled={calibrating}
-          className="btn-primary disabled:opacity-50"
-        >
-          {calibrating ? "Queuing…" : "Calibrate"}
-        </button>
+        <div className="flex flex-wrap items-end gap-3 text-xs text-zinc-600">
+          <label className="flex flex-col gap-1">
+            Test set (optional)
+            <select
+              aria-label="Calibration test set"
+              data-testid="skill-calibrate-test-set"
+              value={testSetId}
+              onChange={(e) => setTestSetId(e.target.value)}
+              className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs focus:border-caliber-500 focus:ring-1 focus:ring-caliber-500 outline-none"
+            >
+              <option value="">None (simulated evaluation only)</option>
+              {testSets.map((set) => (
+                <option key={set.dataset_id} value={set.dataset_id}>
+                  {set.name} (v{set.version})
+                </option>
+              ))}
+            </select>
+          </label>
+          <label className="flex min-w-[16rem] flex-1 flex-col gap-1">
+            What should change (optional)
+            <input
+              type="text"
+              aria-label="Calibration notes"
+              data-testid="skill-calibrate-notes"
+              value={calibrateNotes}
+              maxLength={2048}
+              onChange={(e) => setCalibrateNotes(e.target.value)}
+              placeholder="e.g. replies sometimes cite a KB id that was not supplied"
+              className="rounded-md border border-zinc-300 bg-white px-2 py-1 text-xs focus:border-caliber-500 focus:ring-1 focus:ring-caliber-500 outline-none"
+            />
+          </label>
+        </div>
+        <div className="text-[11px] text-zinc-500">
+          With a real evaluator the test set is required (the run fails without it); the simulated evaluator needs none.
+        </div>
       </div>
       {calibrateMsg && (
         <div data-testid="skill-calibrate-result" className="rounded-md border border-emerald-200 bg-emerald-50 px-3 py-2 text-xs text-emerald-700">

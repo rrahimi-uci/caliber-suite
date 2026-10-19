@@ -734,6 +734,98 @@ def test_calibrate_skill_requires_operator_scope(client: TestClient) -> None:
     assert r.status_code == 403
 
 
+def _make_test_set(client: TestClient, name: str, *, examples: int = 1) -> str:
+    """A skill test set: an eval dataset whose rows are ``{input, expected}``."""
+    base = "/ajax-api/2.0/mlflow/caliber/eval-datasets"
+    dataset_id = client.post(base, json={"name": name, "owner": "@test"}).json()["data"][
+        "dataset_id"
+    ]
+    for index in range(examples):
+        client.post(
+            f"{base}/{dataset_id}/examples",
+            json={"input": {"user_message": f"case {index}"}, "expected": {"behavior": "calm"}},
+        )
+    return dataset_id
+
+
+def test_calibrate_skill_pins_the_named_test_set(client: TestClient, db_session: Session) -> None:
+    """A real evaluator scores a skill against a test set: the run records which one, and its version."""
+    sid = _make_skill(client, "calibrate-test-set-skill")
+    dataset_id = _make_test_set(client, "skill-replies", examples=2)
+
+    response = client.post(
+        f"{PREFIX}/{sid}/calibrate",
+        json={"eval_dataset_id": dataset_id, "notes": "never invent a KB id"},
+    )
+
+    assert response.status_code == 201
+    item = db_session.get(CaliberVerificationItem, response.json()["data"]["item"]["item_id"])
+    assert item is not None
+    assert item.free_text == "never invent a KB id"
+    context = item.submitted_context["skill_calibration"]
+    assert context["eval_dataset_id"] == dataset_id
+    # Two examples were appended: the dataset is at version 3, and the run pins it.
+    assert context["eval_dataset_version"] == 3
+    assert item.submitted_context["source"] == "skill_calibration"
+
+
+def test_calibrate_skill_pins_a_requested_dataset_version(
+    client: TestClient, db_session: Session
+) -> None:
+    sid = _make_skill(client, "calibrate-pinned-version-skill")
+    dataset_id = _make_test_set(client, "skill-replies-pinned", examples=2)
+
+    response = client.post(
+        f"{PREFIX}/{sid}/calibrate",
+        json={"eval_dataset_id": dataset_id, "eval_dataset_version": 2},
+    )
+
+    assert response.status_code == 201
+    item = db_session.get(CaliberVerificationItem, response.json()["data"]["item"]["item_id"])
+    assert item is not None
+    assert item.submitted_context["skill_calibration"]["eval_dataset_version"] == 2
+
+
+def test_calibrate_skill_without_a_test_set_records_none(
+    client: TestClient, db_session: Session
+) -> None:
+    sid = _make_skill(client, "calibrate-no-test-set-skill")
+    response = client.post(f"{PREFIX}/{sid}/calibrate", json={})
+    item = db_session.get(CaliberVerificationItem, response.json()["data"]["item"]["item_id"])
+    assert item is not None
+    assert "eval_dataset_id" not in item.submitted_context["skill_calibration"]
+
+
+def test_calibrate_skill_refuses_a_bad_test_set(client: TestClient, db_session: Session) -> None:
+    sid = _make_skill(client, "calibrate-bad-test-set-skill")
+    base = "/ajax-api/2.0/mlflow/caliber/eval-datasets"
+
+    unknown = client.post(f"{PREFIX}/{sid}/calibrate", json={"eval_dataset_id": "ED-nope"})
+    assert unknown.status_code == 404
+
+    empty_id = _make_test_set(client, "skill-replies-empty", examples=0)
+    empty = client.post(f"{PREFIX}/{sid}/calibrate", json={"eval_dataset_id": empty_id})
+    assert empty.status_code == 400
+    assert "no active examples" in empty.json()["detail"]
+
+    full_id = _make_test_set(client, "skill-replies-full", examples=1)
+    too_new = client.post(
+        f"{PREFIX}/{sid}/calibrate", json={"eval_dataset_id": full_id, "eval_dataset_version": 99}
+    )
+    assert too_new.status_code == 400
+    assert "eval_dataset_version must be between" in too_new.json()["detail"]
+
+    archived_id = _make_test_set(client, "skill-replies-archived", examples=1)
+    client.patch(f"{base}/{archived_id}", json={"status": "archived"})
+    archived = client.post(f"{PREFIX}/{sid}/calibrate", json={"eval_dataset_id": archived_id})
+    assert archived.status_code == 400
+    assert "not active" in archived.json()["detail"]
+
+    # None of the refusals queued a job.
+    jobs = db_session.execute(select(CaliberRefinementJob)).scalars().all()
+    assert jobs == []
+
+
 def test_skill_target_absent_from_agents_listing(client: TestClient) -> None:
     """The provisioned hidden skill target never appears in GET /agents."""
     sid = _make_skill(client, "ghost-skill")

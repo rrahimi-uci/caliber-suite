@@ -668,3 +668,56 @@ def test_calibrate_requires_operator_scope(
         headers={"X-CALIBER-User": "@viewer"},
     )
     assert resp.status_code == 403, resp.text
+
+
+# ---------------------------------------------------------------------------
+# The judge's model: ``make_judge`` takes ``<provider>:/<model>``, config holds a bare name.
+# ---------------------------------------------------------------------------
+
+
+@pytest.mark.parametrize(
+    ("provider", "model", "expected"),
+    [
+        ("openai", "gpt-5.6-luna", "openai:/gpt-5.6-luna"),
+        ("OpenAI", " gpt-5.6-luna ", "openai:/gpt-5.6-luna"),
+        ("anthropic", "claude-x", "anthropic:/claude-x"),
+        ("openai", "anthropic:/claude-x", "anthropic:/claude-x"),  # already a URI: left alone
+        ("openai", "", None),
+        ("openai", None, None),
+        ("fake", "gpt-5.6-luna", "gpt-5.6-luna"),  # nothing real to judge with: unchanged
+        (None, "gpt-5.6-luna", "gpt-5.6-luna"),
+    ],
+)
+def test_judge_model_uri_makes_the_configured_model_a_make_judge_uri(
+    provider: str | None, model: str | None, expected: str | None
+) -> None:
+    assert calibration.judge_model_uri(provider, model) == expected
+
+
+def test_a_bare_configured_model_builds_real_judges_on_a_real_provider() -> None:
+    """Regression: calibration passed ``llm_diagnosis_model`` (``gpt-5.6-luna``) straight to
+    ``make_judge``, which rejects it (``Malformed model uri``). Every judge then failed to build and
+    Faithfulness and Answer-correctness came back ``null`` on a real provider, with no error."""
+    from caliber.config import CaliberConfig
+    from caliber.eval.judge_scorer import JudgeError, build_judge
+
+    config = CaliberConfig(llm_provider="openai", llm_diagnosis_model="gpt-5.6-luna")
+    uri = calibration.judge_model_uri(config.llm_provider, config.llm_diagnosis_model)
+    assert build_judge("kb-faithfulness", "Rate {{ outputs }}", model=uri) is not None
+    with pytest.raises(JudgeError, match="Malformed model uri"):
+        build_judge("kb-faithfulness", "Rate {{ outputs }}", model=config.llm_diagnosis_model)
+
+
+def test_the_service_builds_its_judges_from_the_providers_model_uri(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    from types import SimpleNamespace
+
+    seen: list[str | None] = []
+    monkeypatch.setattr(calibration, "build_kb_judge", lambda model=None: seen.append(model))
+    service = object.__new__(knowledge_service.KnowledgeBaseService)
+    service._config = SimpleNamespace(llm_provider="openai", llm_diagnosis_model="gpt-5.6-luna")  # type: ignore[assignment]
+    service._build_calibration_judge()
+    service._config = SimpleNamespace(llm_provider="fake", llm_diagnosis_model="gpt-5.6-luna")  # type: ignore[assignment]
+    service._build_calibration_judge()
+    assert seen == ["openai:/gpt-5.6-luna", "gpt-5.6-luna"]

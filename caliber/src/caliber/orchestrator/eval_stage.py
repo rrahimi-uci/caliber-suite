@@ -361,6 +361,16 @@ def _resolve_prompt_optimization_context(
         return {}
 
     submitted = item.submitted_context
+    if submitted.get("source") == "skill_calibration":
+        # A skill calibration can name a test set (and its pinned version); nothing else
+        # of the prompt-optimization context (scorers, gate, baseline) applies to it.
+        skill_raw = submitted.get("skill_calibration")
+        if isinstance(skill_raw, dict) and skill_raw.get("eval_dataset_id"):
+            return {
+                "eval_dataset_id": skill_raw["eval_dataset_id"],
+                "eval_dataset_version": skill_raw.get("eval_dataset_version"),
+            }
+        return {}
     raw = submitted.get("prompt_optimization")
     if submitted.get("source") != "prompt_optimization" or not isinstance(raw, dict):
         return {}

@@ -5337,8 +5337,12 @@ class KnowledgeBaseService:
         the judges can't be built so calibration degrades to its deterministic
         retrieval metrics rather than failing.
         """
-        model = getattr(self._config, "llm_diagnosis_model", None)
-        return kb_calibration.build_kb_judge(model)
+        return kb_calibration.build_kb_judge(
+            kb_calibration.judge_model_uri(
+                getattr(self._config, "llm_provider", None),
+                getattr(self._config, "llm_diagnosis_model", None),
+            )
+        )
 
     def _build_query_runner(
         self,

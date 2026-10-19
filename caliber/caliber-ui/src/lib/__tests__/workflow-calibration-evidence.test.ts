@@ -1,7 +1,11 @@
 import { describe, expect, it } from "vitest";
 
 import type { RefinementJob } from "@/api/types";
-import { workflowCalibrationView } from "@/lib/workflowCalibration";
+import {
+  CALIBRATION_JOBS_POLL_MS,
+  calibrationJobsRefetchInterval,
+  workflowCalibrationView,
+} from "@/lib/workflowCalibration";
 
 function job(evalResults: Record<string, unknown> | null): RefinementJob {
   return {
@@ -62,5 +66,31 @@ describe("workflow calibration evidence markers", () => {
     expect(view?.simulated).toBeNull();
     expect(view?.scorer).toBeNull();
     expect(view?.evalProvider).toBeNull();
+  });
+});
+
+describe("calibration run list polling", () => {
+  it("polls while any run is queued or running, and stops once all are done", () => {
+    expect(calibrationJobsRefetchInterval([{ status: "queued" }])).toBe(
+      CALIBRATION_JOBS_POLL_MS,
+    );
+    expect(
+      calibrationJobsRefetchInterval([
+        { status: "rejected" },
+        { status: "running" },
+      ]),
+    ).toBe(CALIBRATION_JOBS_POLL_MS);
+    expect(
+      calibrationJobsRefetchInterval([
+        { status: "rejected" },
+        { status: "candidate_ready" },
+        { status: "failed" },
+      ]),
+    ).toBe(false);
+  });
+
+  it("does not poll before the first response or when there are no runs", () => {
+    expect(calibrationJobsRefetchInterval(undefined)).toBe(false);
+    expect(calibrationJobsRefetchInterval([])).toBe(false);
   });
 });

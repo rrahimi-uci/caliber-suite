@@ -21,6 +21,7 @@ from typing import Any
 
 from sqlalchemy import select
 from starlette.applications import Starlette
+from starlette.concurrency import run_in_threadpool
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
 from starlette.responses import JSONResponse
@@ -289,7 +290,9 @@ async def test_run_judge(request: Request) -> JSONResponse:
 
     try:
         judge_obj = build_judge(name, instructions, model=model, feedback_value_type=value_type)
-        outcome = score_with_judge(
+        # A model call: off the event loop, so a slow provider does not stall every other request.
+        outcome = await run_in_threadpool(
+            score_with_judge,
             judge_obj,
             inputs=payload.inputs,
             outputs=payload.outputs,
@@ -333,41 +336,46 @@ async def align_judge(request: Request) -> JSONResponse:
     except JudgeError as exc:
         raise HTTPException(status_code=502, detail=f"failed to build judge: {exc}") from exc
 
-    rows: list[JudgeAlignmentPerExample] = []
-    judge_labels: list[bool] = []
-    human_labels: list[bool] = []
-    for example in payload.examples:
-        try:
-            outcome = score_with_judge(
-                judge_obj,
-                inputs=example.inputs,
-                outputs=example.outputs,
-                expectations=example.expectations or None,
-            )
-        except JudgeError as exc:
+    def _judge_every_example() -> tuple[list[JudgeAlignmentPerExample], list[bool], list[bool]]:
+        rows: list[JudgeAlignmentPerExample] = []
+        judge_labels: list[bool] = []
+        human_labels: list[bool] = []
+        for example in payload.examples:
+            try:
+                outcome = score_with_judge(
+                    judge_obj,
+                    inputs=example.inputs,
+                    outputs=example.outputs,
+                    expectations=example.expectations or None,
+                )
+            except JudgeError as exc:
+                rows.append(
+                    JudgeAlignmentPerExample(
+                        outputs=example.outputs,
+                        human_label=example.label,
+                        judge_label=None,
+                        judge_score=None,
+                        agree=False,
+                        error=str(exc),
+                    )
+                )
+                continue
+            judge_label = outcome.score >= payload.threshold
             rows.append(
                 JudgeAlignmentPerExample(
                     outputs=example.outputs,
                     human_label=example.label,
-                    judge_label=None,
-                    judge_score=None,
-                    agree=False,
-                    error=str(exc),
+                    judge_label=judge_label,
+                    judge_score=outcome.score,
+                    agree=judge_label == example.label,
                 )
             )
-            continue
-        judge_label = outcome.score >= payload.threshold
-        rows.append(
-            JudgeAlignmentPerExample(
-                outputs=example.outputs,
-                human_label=example.label,
-                judge_label=judge_label,
-                judge_score=outcome.score,
-                agree=judge_label == example.label,
-            )
-        )
-        judge_labels.append(judge_label)
-        human_labels.append(example.label)
+            judge_labels.append(judge_label)
+            human_labels.append(example.label)
+        return rows, judge_labels, human_labels
+
+    # One model call per labelled example (up to 100): run them on a worker thread, not the event loop.
+    rows, judge_labels, human_labels = await run_in_threadpool(_judge_every_example)
 
     result = JudgeAlignmentResult(
         n=len(payload.examples),

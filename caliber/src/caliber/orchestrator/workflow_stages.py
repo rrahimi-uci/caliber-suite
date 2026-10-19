@@ -461,6 +461,7 @@ def _run_workflow_calibration_candidate(
             "workflow": True,
             "calibration": True,
             "gate": {"passed": False, "reasons": [str(exc)]},
+            **workflow_eval_provenance(config),
         }
         audit_record(
             session,
@@ -503,7 +504,12 @@ def _run_workflow_calibration_candidate(
             "calibration_low_confidence": result.low_confidence,
             "calibration_gate": result.gate,
         }
-        job.eval_results = _calibration_eval_payload(result, candidate=job.candidate)
+        # Even with no candidate the baseline was measured, so say what measured it: a baseline
+        # replayed through the fake executor is not evidence about a model.
+        job.eval_results = {
+            **_calibration_eval_payload(result, candidate=job.candidate),
+            **workflow_eval_provenance(config),
+        }
         audit_record(
             session,
             actor=actor,

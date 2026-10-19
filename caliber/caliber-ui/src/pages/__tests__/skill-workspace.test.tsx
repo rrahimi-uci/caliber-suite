@@ -30,6 +30,7 @@ vi.mock("@/api/caliberApi", () => ({
     calibrateSkill: vi.fn(),
     testRenderSkill: vi.fn(),
     listAgents: vi.fn(),
+    listEvalDatasets: vi.fn(),
     listWorkflows: vi.fn(),
     updateSkill: vi.fn(),
   },
@@ -159,6 +160,7 @@ beforeEach(() => {
   mockApi.setSkillBaseline.mockResolvedValue({ baseline_run_id: "STR-1" });
   mockApi.bindSkill.mockResolvedValue({ bound_to: { kind: "agent", agent_id: "AG-1" }, status: "Bound" });
   mockApi.calibrateSkill.mockResolvedValue({ item: { item_id: "VI-1" }, job: { job_id: "JOB-1" } });
+  mockApi.listEvalDatasets.mockResolvedValue([]);
   mockApi.listAgents.mockResolvedValue([
     {
       agent_id: "AG-1",
@@ -337,6 +339,42 @@ describe("SkillWorkspace", () => {
     // The agent-free contract: nothing agent-shaped is sent.
     expect(body ?? {}).not.toHaveProperty("agent_id");
     expect(await screen.findByTestId("skill-calibrate-result")).toHaveTextContent("JOB-1");
+  });
+
+  it("Runs: calibrate sends the chosen test set and notes", async () => {
+    mockApi.listEvalDatasets.mockResolvedValue([
+      {
+        dataset_id: "ED-9",
+        name: "support-replies",
+        description: "",
+        owner: "@team",
+        tags: [],
+        status: "active",
+        version: 4,
+        created_at: NOW,
+        updated_at: NOW,
+        mlflow_dataset_id: null,
+        mlflow_synced_at: null,
+        mlflow_synced_version: null,
+        mlflow_record_count: null,
+        mlflow_digest: null,
+      },
+    ]);
+    renderSkills();
+    await openWorkspace();
+    await userEvent.click(screen.getByRole("button", { name: "Runs" }));
+
+    await userEvent.selectOptions(
+      await screen.findByTestId("skill-calibrate-test-set"),
+      "ED-9",
+    );
+    await userEvent.type(screen.getByTestId("skill-calibrate-notes"), "  never invent a KB id ");
+    await userEvent.click(screen.getByTestId("skill-calibrate-btn"));
+    await waitFor(() => expect(mockApi.calibrateSkill).toHaveBeenCalled());
+    expect(mockApi.calibrateSkill.mock.calls[0]![1]).toEqual({
+      eval_dataset_id: "ED-9",
+      notes: "never invent a KB id",
+    });
   });
 
   it("Bind: selecting Agent + binding calls bindSkill and header reflects Bound", async () => {
