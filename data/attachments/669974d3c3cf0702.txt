@@ -1,0 +1,9 @@
+{"t":"2026-10-19T07:17:35.799Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
+{"t":"2026-10-19T07:17:35.814Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
+{"t":"2026-10-19T07:17:35.815Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
+{"t":"2026-10-19T07:17:35.817Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
+{"t":"2026-10-19T07:17:35.846Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects \"HTTP/1.1 201 Created\""}
+{"t":"2026-10-19T07:17:35.857Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PUT http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-05f86507/source \"HTTP/1.1 200 OK\""}
+{"t":"2026-10-19T07:17:35.877Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: PUT http://testserver/ajax-api/2.0/mlflow/caliber/projects/PRJ-05f86507/source/connection \"HTTP/1.1 201 Created\""}
+{"t":"2026-10-19T07:17:35.888Z","severity":"INFO","logger":"caliber.routes.github_webhooks","message":"rejected a GitHub webhook delivery for source WSS-c6d7f302: verification failed","trace_id":"bb4c61973ffa0cac"}
+{"t":"2026-10-19T07:17:35.889Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/webhooks/github \"HTTP/1.1 401 Unauthorized\""}
