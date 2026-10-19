@@ -190,6 +190,8 @@ class SkillsAPI(Resource):
         summary: str | None = None,
         description: str | None = None,
         tags: Sequence[str] | None = None,
+        category: str | None = None,
+        skill_metadata: dict[str, Any] | None = None,
     ) -> Skill:
         """Create a skill.
 
@@ -197,13 +199,23 @@ class SkillsAPI(Resource):
         here rather than defaulted to the caller's identity: a skill's owner is
         a governance field, and quietly inferring it would make authorship an
         accident of which credential happened to run the script.
+
+        The selector reads ``summary``, ``tags``, ``category`` and the trigger
+        phrases in ``skill_metadata["test_triggers"]`` (``should_trigger`` and
+        ``should_not_trigger`` lists); it never reads ``content``.
         """
         body: dict[str, Any] = {"name": name, "content": content, "owner": owner}
-        for key, value in (("summary", summary), ("description", description)):
+        for key, value in (
+            ("summary", summary),
+            ("description", description),
+            ("category", category),
+        ):
             if value is not None:
                 body[key] = value
         if tags is not None:
             body["tags"] = list(tags)
+        if skill_metadata is not None:
+            body["skill_metadata"] = dict(skill_metadata)
         return decode(Skill, self._post("/skills", json=body))
 
     def update(self, skill_id: str, **changes: Any) -> Skill:
@@ -216,11 +228,27 @@ class SkillsAPI(Resource):
             self._post(f"/skills/{skill_id}/test-render", json={"variables": variables or {}}),
         )
 
-    def test_selection(self, skill_id: str, query: str) -> SkillSelection:
-        """Would this skill be auto-selected for this query?"""
+    def test_selection(
+        self,
+        skill_id: str,
+        query: str,
+        *,
+        artifact_type: str | None = None,
+        session_goal: str | None = None,
+    ) -> SkillSelection:
+        """Would this skill be auto-selected for this query?
+
+        ``artifact_type`` and ``session_goal`` are optional context the selector
+        reads alongside the message (it scores the words of all three).
+        """
+        body: dict[str, Any] = {"query": query}
+        if artifact_type:
+            body["artifact_type"] = artifact_type
+        if session_goal:
+            body["session_goal"] = session_goal
         return decode(
             SkillSelection,
-            self._post(f"/skills/{skill_id}/test-selection", json={"query": query}),
+            self._post(f"/skills/{skill_id}/test-selection", json=body),
         )
 
     def versions(self, skill_id: str) -> _List[SkillVersion]:

@@ -110,6 +110,16 @@ class WorkflowRun:
     output: Any = None
     extra: dict[str, Any] = field(default_factory=dict)
 
+    def __post_init__(self) -> None:
+        # The server keeps a run's final text on ``summary.output`` and its failure reason on
+        # ``error_summary``; it has no top-level ``output``/``error``. Reading them from there
+        # means ``run.output`` is what a caller expects instead of always ``None``.
+        summary = self.extra.get("summary")
+        if self.output is None and isinstance(summary, dict) and summary.get("output") is not None:
+            self.output = summary["output"]
+        if self.error is None and self.extra.get("error_summary"):
+            self.error = str(self.extra["error_summary"])
+
     @property
     def is_terminal(self) -> bool:
         return self.status in TERMINAL_RUN_STATES

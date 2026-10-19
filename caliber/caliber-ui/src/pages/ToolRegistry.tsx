@@ -819,13 +819,14 @@ export function ToolPlayground({
         ...h.slice(0, 19),
       ]);
       onRun?.(selected, parsed, res);
-    } catch {
+    } catch (caught) {
+      // Say why (for example a 403 naming the missing scope), not just that it failed.
       const err: ToolTestRunResult = {
         tool_id: selected.tool_id,
         output: null,
         mocked: false,
         duration_ms: 0,
-        error: "Request failed",
+        error: apiErrorText(caught, "Request failed"),
       };
       setResult(err);
       onRun?.(selected, parsed, err);

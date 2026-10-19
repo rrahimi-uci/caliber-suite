@@ -547,6 +547,178 @@ def test_planner_output_dependency_removes_redundant_queue_id_prompt(session_fac
     assert second.evidence["current_inputs"]["queue_id"]["$from_step"] == create_step["step_id"]
 
 
+def _paused_queue_plan(session_factory) -> tuple[PlanExecutor, str, dict[str, str]]:
+    """A "create a review queue and add review items" plan, paused on the queue's input form."""
+    svc = PlanService()
+    detail = svc.create_plan(
+        session_factory=session_factory,
+        goal="create a review queue and add review items",
+        owner="@reza",
+        autonomy="auto_guarded",
+    )
+    plan_id = detail["plan"]["plan_id"]
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza"
+    )
+    executor = PlanExecutor()
+    executor.execute(session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id)
+    return executor, plan_id, {step["capability_key"]: step["step_id"] for step in detail["steps"]}
+
+
+def test_skipping_a_step_skips_the_steps_that_depend_on_it(session_factory) -> None:
+    """Skipping the queue left ``add_items`` waiting on it forever: the plan stayed ``paused``
+    with no question to answer, so it could neither finish nor be cancelled (alpha cookbook
+    run, labs 13 and 15)."""
+    executor, plan_id, step_ids = _paused_queue_plan(session_factory)
+    form = executor.list_interactions(session_factory=session_factory, plan_id=plan_id)[0]
+    assert form.step_id == step_ids["review_queue.create"]
+
+    finished = executor.answer(
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@reza",
+        interaction_id=form.interaction_id,
+        approved=False,
+    )
+
+    assert finished["plan"]["status"] == "completed"
+    by_key = {step["capability_key"]: step for step in finished["steps"]}
+    assert by_key["review_queue.create"]["status"] == "skipped"
+    assert by_key["review_queue.add_items"]["status"] == "skipped"
+    assert "step 1 (review_queue.create) was skipped" in by_key["review_queue.add_items"]["error"]
+    assert executor.list_interactions(session_factory=session_factory, plan_id=plan_id) == []
+
+
+def test_skipping_a_later_step_does_not_skip_what_came_before(session_factory) -> None:
+    executor, plan_id, _ = _paused_queue_plan(session_factory)
+    form = executor.list_interactions(session_factory=session_factory, plan_id=plan_id)[0]
+    executor.answer(
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@reza",
+        interaction_id=form.interaction_id,
+        approved=True,
+        response={
+            "inputs": {
+                "name": "skip-later-queue",
+                "questions": [{"key": "ok", "title": "Is it right?"}],
+            }
+        },
+    )
+    enqueue_form = executor.list_interactions(session_factory=session_factory, plan_id=plan_id)[0]
+    finished = executor.answer(
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@reza",
+        interaction_id=enqueue_form.interaction_id,
+        approved=False,
+    )
+    assert finished["plan"]["status"] == "completed"
+    assert [step["status"] for step in finished["steps"]] == ["done", "skipped"]
+
+
+@pytest.mark.parametrize(
+    ("inputs", "message"),
+    [
+        ({"name": "", "instructions": "Rate {{ outputs }}."}, "name must contain at least 1"),
+        ({"name": "empty-instructions", "instructions": ""}, "instructions must contain at least"),
+    ],
+)
+def test_empty_required_text_is_refused_when_answering_the_form(
+    session_factory, inputs: dict[str, str], message: str
+) -> None:
+    svc = PlanService()
+    plan_id = svc.create_plan(
+        session_factory=session_factory,
+        goal="create a judge",
+        owner="@reza",
+        autonomy="approve_plan",
+    )["plan"]["plan_id"]
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza"
+    )
+    executor = PlanExecutor()
+    executor.execute(session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id)
+    form = executor.list_interactions(session_factory=session_factory, plan_id=plan_id)[0]
+    with pytest.raises(PlanExecutionError, match=message):
+        executor.answer(
+            session_factory=session_factory,
+            config=_CFG,
+            actor="@reza",
+            interaction_id=form.interaction_id,
+            approved=True,
+            response={"inputs": inputs},
+        )
+    assert len(executor.list_interactions(session_factory=session_factory, plan_id=plan_id)) == 1
+
+
+def test_an_empty_question_list_is_refused_when_answering_the_form(session_factory) -> None:
+    executor, plan_id, _ = _paused_queue_plan(session_factory)
+    form = executor.list_interactions(session_factory=session_factory, plan_id=plan_id)[0]
+    with pytest.raises(PlanExecutionError, match="questions must contain at least 1 item"):
+        executor.answer(
+            session_factory=session_factory,
+            config=_CFG,
+            actor="@reza",
+            interaction_id=form.interaction_id,
+            approved=True,
+            response={"inputs": {"name": "no-questions", "questions": []}},
+        )
+    assert len(executor.list_interactions(session_factory=session_factory, plan_id=plan_id)) == 1
+
+
+def test_a_failed_step_names_the_field_not_the_validation_dump(session_factory) -> None:
+    """A judge whose instructions use no evaluation variable used to fail with pydantic's
+    whole dump (model name, the rejected value, a documentation link)."""
+    svc = PlanService()
+    plan_id = svc.create_plan(
+        session_factory=session_factory,
+        goal="create a judge",
+        owner="@reza",
+        autonomy="approve_plan",
+    )["plan"]["plan_id"]
+    svc.set_status(
+        session_factory=session_factory, plan_id=plan_id, status="approved", actor="@reza"
+    )
+    executor = PlanExecutor()
+    executor.execute(session_factory=session_factory, config=_CFG, actor="@reza", plan_id=plan_id)
+    form = executor.list_interactions(session_factory=session_factory, plan_id=plan_id)[0]
+    failed = executor.answer(
+        session_factory=session_factory,
+        config=_CFG,
+        actor="@reza",
+        interaction_id=form.interaction_id,
+        approved=True,
+        response={"inputs": {"name": "bad-vars", "instructions": "Is {{ evidence }} fine?"}},
+    )
+    assert failed["plan"]["status"] == "failed"
+    error = failed["steps"][0]["error"]
+    assert error.startswith("invalid input: instructions: instructions must reference at least one")
+    assert "pydantic" not in error and "JudgeCreateRequest" not in error
+    assert "\n" not in error
+
+
+def test_a_refusal_from_a_routes_helper_says_what_it_said_and_the_status() -> None:
+    from starlette.exceptions import HTTPException
+
+    from caliber.assistant.executor import _describe_failure
+
+    assert _describe_failure(
+        HTTPException(status_code=404, detail="workflow 'WF-1' not found")
+    ) == ("workflow 'WF-1' not found (HTTP 404)")
+    assert _describe_failure(
+        HTTPException(status_code=400, detail="agent 'a' is not registered")
+    ) == ("agent 'a' is not registered (HTTP 400)")
+
+
+def test_a_failure_that_is_not_a_validation_error_keeps_its_type(session_factory) -> None:
+    from caliber.assistant.executor import _describe_failure
+
+    assert _describe_failure(ValueError("review-queue name 'x' is already in use")) == (
+        "ValueError: review-queue name 'x' is already in use"
+    )
+
+
 # --- routes -----------------------------------------------------------------
 
 _PLAN_API = "/ajax-api/2.0/mlflow/caliber/aria/plans"

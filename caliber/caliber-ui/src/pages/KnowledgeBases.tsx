@@ -1095,6 +1095,24 @@ export function KnowledgeBases(): JSX.Element {
       ) ?? null,
     [versions, inspectedVersionId],
   );
+  // A build that finishes after the page first fetched its version leaves that version's chunks,
+  // sources and entities cached as empty (the sources query has no refetch interval at all), so the
+  // Chunks view and its source filter stayed blank until a search term or a reload. Refresh the
+  // version's queries once it leaves queued/processing.
+  const inspectedVersionStatus = selectedVersion?.status;
+  const previousInspectedVersion = useRef<{ id: string | null; status?: string }>({ id: null });
+  useEffect(() => {
+    const previous = previousInspectedVersion.current;
+    previousInspectedVersion.current = { id: inspectedVersionId, status: inspectedVersionStatus };
+    if (
+      inspectedVersionId &&
+      previous.id === inspectedVersionId &&
+      isVersionLive({ status: previous.status ?? "" }) &&
+      !isVersionLive({ status: inspectedVersionStatus ?? "" })
+    ) {
+      void invalidate(["knowledge-bases", inspectedVersionId]);
+    }
+  }, [inspectedVersionId, inspectedVersionStatus, invalidate]);
   const strategyMap = useMemo(
     () =>
       new Map(

@@ -3755,6 +3755,56 @@ describe("Knowledge Bases asset workspace (R1 IA)", () => {
   });
 });
 
+describe("Knowledge Bases build completion", () => {
+  it("fills the chunk source filter once a build that was queued when first fetched completes", async () => {
+    // Cookbook 06 found the Chunks view and its source filter blank after a fresh build: the page
+    // fetched the version's sources while it was still queued and never fetched them again.
+    let completed = false;
+    const queued = { ...version(), status: "queued", summary: null, completed_at: null };
+    const source = {
+      knowledge_base_source_id: "KBS-1",
+      knowledge_base_version_id: "KBV-1",
+      document_id: "doc-1",
+      selection_kind: "folder",
+      bucket: "reports",
+      object_key: "policies/data-retention-policy.md",
+      object_name: "data-retention-policy.md",
+      object_store_path: "/object-store?bucket=reports&key=policies%2Fdata-retention-policy.md",
+      content_type: "text/markdown",
+      size_bytes: 2738,
+      etag: "etag-1",
+      last_modified: NOW,
+      extracted_chars: 2717,
+      extracted_format: "markdown",
+      ocr_used: false,
+      status: "completed",
+      error_summary: null,
+      created_at: NOW,
+    };
+    server.use(
+      http.get(`${KB}/KB-1/versions`, () =>
+        HttpResponse.json(envelope([completed ? version() : queued])),
+      ),
+      http.get(`${API_BASE}/knowledge-base-versions/KBV-1/sources`, () =>
+        HttpResponse.json(envelope(completed ? [source] : [])),
+      ),
+      ...workspaceHandlers([{ ...knowledgeBase(), active_version_id: "KBV-1" }], [queued]),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await openTo(user, "explore-chunks");
+    await user.selectOptions(await screen.findByTestId("kb-workspace-version-switcher"), "KBV-1");
+    expect(await screen.findByText("Chunk Browser")).toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: "data-retention-policy.md" })).not.toBeInTheDocument();
+
+    completed = true; // the worker finishes; the page's own polling then sees the version complete
+    expect(
+      await screen.findByRole("option", { name: "data-retention-policy.md" }, { timeout: 10_000 }),
+    ).toBeInTheDocument();
+  }, 20_000);
+});
+
 describe("Knowledge Bases R2 declutter", () => {
   it("keeps the Build advanced configuration collapsed by default and expands it on demand", async () => {
     server.use(...workspaceHandlers([knowledgeBase()], [version()]));

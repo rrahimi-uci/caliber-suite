@@ -58,6 +58,19 @@ _DOMAIN_SYNONYMS: dict[str, tuple[str, ...]] = {
 }
 
 
+def _is_reference_field(field_name: str) -> bool:
+    """Whether a required input points at another artifact (``queue_id``) rather than
+    naming a new one (``name``).
+
+    Only references can be wired from an earlier step. ``name`` is the identity of the
+    artifact a step is about to create, so reusing the previous step's ``name`` made a
+    test set silently take the judge's name (and the queue the judge's, and the test set the
+    queue's) with no way to type a different one in the input form. A name is asked for
+    instead, like every other field the planner cannot know.
+    """
+    return field_name.endswith("_id")
+
+
 class HeuristicPlanner:
     """Deterministic, registry-driven planner (default; no LLM required).
 
@@ -66,8 +79,9 @@ class HeuristicPlanner:
     goal. Registry-driven on purpose: registering a new capability extends what
     the planner can propose without touching this code. Steps run in registry
     order. Required inputs that are declared outputs of an earlier selected
-    capability are linked explicitly; remaining fields are collected through a
-    typed interaction before execution.
+    capability are linked explicitly when they are references to it (``*_id``);
+    remaining fields, including every ``name``, are collected through a typed
+    interaction before execution.
     """
 
     def plan(self, goal: str, *, capabilities: Sequence[Capability]) -> list[PlannedStep]:
@@ -90,7 +104,7 @@ class HeuristicPlanner:
                 dependencies: list[int] = []
                 for field_name in cap.required:
                     producer_index = produced_by.get(field_name)
-                    if producer_index is None:
+                    if producer_index is None or not _is_reference_field(field_name):
                         continue
                     inputs[field_name] = {
                         "$from_step_index": producer_index,

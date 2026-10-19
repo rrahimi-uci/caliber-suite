@@ -16,6 +16,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { Link } from "react-router-dom";
 
 import { ApiError, caliberApi } from "@/api/caliberApi";
 import { ClearFiltersButton } from "@/components/ClearFiltersButton";
@@ -749,7 +750,19 @@ function SkillWorkspace({
               </div>
             </div>
           </div>
-          <SkillStatusBadge status={headerStatus} />
+          <div className="flex items-center gap-3">
+            {!creating && skillId && (
+              <Link
+                to={`/skills/${skillId}`}
+                data-testid="skill-open-detail"
+                title="Edit metadata, download or import the package, archive"
+                className="text-xs font-medium text-caliber-purple hover:underline"
+              >
+                Details &amp; package
+              </Link>
+            )}
+            <SkillStatusBadge status={headerStatus} />
+          </div>
         </div>
 
         {workspaceError && (
@@ -1445,7 +1458,7 @@ function SkillTriggerTestsStage({
                   <span className="text-slate-500">
                     Score{" "}
                     <span className="font-semibold text-slate-800">
-                      {(r.result.selection_score * 100).toFixed(0)}%
+                      {Number(r.result.selection_score.toFixed(2))}
                     </span>
                   </span>
                   {matched != null && (

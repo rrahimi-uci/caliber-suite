@@ -17,6 +17,7 @@ from __future__ import annotations
 
 # Auth-binding validation is a finite, mutually exclusive schema matrix.
 # ruff: noqa: PLR0912, SIM102
+import re
 from datetime import datetime
 from typing import Any, Final, Generic, Literal, TypeVar
 
@@ -4193,6 +4194,36 @@ def _instructions_reference_a_var(instructions: str) -> bool:
     return any(f"{{{{{var}}}}}" in normalized for var in _JUDGE_TEMPLATE_VARS)
 
 
+_JUDGE_TEMPLATE_TOKEN = re.compile(r"\{\{\s*(\w+)\s*\}\}")
+
+
+def _unsupported_template_vars(instructions: str) -> list[str]:
+    """Template tokens MLflow's ``make_judge`` would reject (anything outside the five names).
+
+    Checked when a judge is saved: otherwise ``{{ evidence }}`` is accepted with a 201 and only
+    fails when the judge is first used (Evaluations 400, alignment 502).
+    """
+    return sorted(set(_JUDGE_TEMPLATE_TOKEN.findall(instructions)) - set(_JUDGE_TEMPLATE_VARS))
+
+
+def _check_judge_instructions(instructions: str) -> str:
+    if not _instructions_reference_a_var(instructions):
+        raise ValueError(
+            "instructions must reference at least one evaluation variable: "
+            + ", ".join(f"{{{{ {v} }}}}" for v in _JUDGE_TEMPLATE_VARS)
+        )
+    unsupported = _unsupported_template_vars(instructions)
+    if unsupported:
+        raise ValueError(
+            "instructions use unsupported template variable(s) "
+            + ", ".join(f"{{{{ {name} }}}}" for name in unsupported)
+            + "; only "
+            + ", ".join(f"{{{{ {v} }}}}" for v in _JUDGE_TEMPLATE_VARS)
+            + " are allowed"
+        )
+    return instructions
+
+
 class JudgeSchema(BaseModel):
     """Serialized form of :class:`caliber.db.models.CaliberJudge`."""
 
@@ -4226,12 +4257,7 @@ class JudgeCreateRequest(BaseModel):
     @field_validator("instructions")
     @classmethod
     def _must_reference_a_template_var(cls, value: str) -> str:
-        if not _instructions_reference_a_var(value):
-            raise ValueError(
-                "instructions must reference at least one evaluation variable: "
-                + ", ".join(f"{{{{ {v} }}}}" for v in _JUDGE_TEMPLATE_VARS)
-            )
-        return value
+        return _check_judge_instructions(value)
 
     @field_validator("feedback_value_type")
     @classmethod
@@ -4256,12 +4282,7 @@ class JudgeUpdateRequest(BaseModel):
     @field_validator("instructions")
     @classmethod
     def _must_reference_a_template_var(cls, value: str | None) -> str | None:
-        if value is not None and not _instructions_reference_a_var(value):
-            raise ValueError(
-                "instructions must reference at least one evaluation variable: "
-                + ", ".join(f"{{{{ {v} }}}}" for v in _JUDGE_TEMPLATE_VARS)
-            )
-        return value
+        return None if value is None else _check_judge_instructions(value)
 
     @field_validator("feedback_value_type")
     @classmethod

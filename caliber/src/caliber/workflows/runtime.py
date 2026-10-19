@@ -2425,6 +2425,14 @@ def _resilient_callable(
             f"tool {binding.local_name!r} failed after {attempts} attempt(s): {last_exc}"
         ) from last_exc
 
+    # ``_call_tool`` picks the call shape with ``inspect.signature(...).bind``. Without this,
+    # the signature it sees is ``(*args, **kwargs)``, which binds every shape, so the first
+    # (keyword arguments) is always chosen and a tool that takes one dict (an MCP-bound tool:
+    # ``_invoke(arg)``) failed with "unexpected keyword argument" as soon as a tool node was
+    # given structured arguments. ``__wrapped__`` makes ``inspect.signature`` see the real tool.
+    # (``functools.wraps`` would also copy ``caliber_shape_selector`` and let a sandboxed tool
+    # skip this wrapper's timeout and retries, so only the one attribute is set.)
+    _wrapped.__wrapped__ = fn  # type: ignore[attr-defined]
     return _wrapped
 
 
@@ -3362,6 +3370,7 @@ def execute(
         # into one MLflow session (surfaced in CALIBER Observability).
         if session_id:
             tracer.annotate_trace(session_id=session_id)
+        root_span.set_io(inputs=input_text)
         result = _interpret(
             plan,
             input_text,
@@ -3376,6 +3385,9 @@ def execute(
             approved_human_approval_nodes=approved_human_approval_nodes,
             resume_checkpoint=resume_checkpoint,
         )
+        root_span.set_io(outputs=result.output or result.error)
+        if result.status == "error":
+            root_span.mark_error(result.error)
         if run_handle.run_id:
             result.mlflow_run_id = run_handle.run_id
         if root_span.mlflow_trace_id:
@@ -3730,6 +3742,23 @@ def _interpret(  # noqa: PLR0911, PLR0912, PLR0915 - graph interpreter dispatch
             results_by_node_id[result["nid"]] = result
 
         return [results_by_node_id[nid] for nid in batch_ids]
+
+    if resume_checkpoint is not None and resume_checkpoint.node_id in ir.nodes:
+        # A resumed run only executes what lies downstream of the checkpoint node; everything
+        # upstream already ran (or was skipped by a router) before the pause. Without this, an
+        # edge from a node that will never run in this segment stays "undelivered and not dead",
+        # so a node that several branches converge on (the usual shape of an Output node after a
+        # router) is never ready: the run "completes" after the resumed node with no final output.
+        _reachable = {resume_checkpoint.node_id}
+        _frontier = [resume_checkpoint.node_id]
+        while _frontier:
+            for conn in out_conns.get(_frontier.pop(), []):
+                if conn.to_node not in _reachable:
+                    _reachable.add(conn.to_node)
+                    _frontier.append(conn.to_node)
+        for conn in connections:
+            if conn.from_node not in _reachable:
+                dead[conn.edge_id] = True
 
     if resume_checkpoint is not None:
         if resume_checkpoint.node_id not in ir.nodes:

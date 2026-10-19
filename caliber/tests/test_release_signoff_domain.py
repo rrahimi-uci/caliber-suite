@@ -200,3 +200,126 @@ def test_candidate_row_is_durable(client: TestClient, db_session: Session) -> No
     stored = db_session.get(CaliberReleaseCandidate, candidate["candidate_id"])
     assert stored is not None
     assert stored.rollback_target == {"version_ref": "WFV-6", "alias": "prod"}
+
+
+def _waive(client: TestClient, candidate_id: object, **body: object) -> object:
+    return client.post(
+        f"{PREFIX}/candidates/{candidate_id}/waivers",
+        json={
+            "criterion_key": "human_review",
+            "reason": "Approved incident-only exception with compensating monitoring.",
+            **body,
+        },
+    )
+
+
+def test_a_waiver_that_has_not_expired_clears_the_blocker(client: TestClient) -> None:
+    from datetime import datetime, timedelta, timezone
+
+    candidate = _create(client, blocking_score=0.6)
+    expires = (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
+    waived = _waive(client, candidate["candidate_id"], expires_at=expires)
+    assert waived.status_code == 200, waived.text
+    assert waived.json()["data"]["status"] == "ready"
+    assert waived.json()["data"]["waivers"][0]["expires_at"] is not None
+
+
+def test_a_waiver_expiring_in_the_past_is_refused(client: TestClient) -> None:
+    candidate = _create(client, blocking_score=0.6)
+    refused = _waive(client, candidate["candidate_id"], expires_at="2020-01-01T00:00:00Z")
+    assert refused.status_code == 400
+    assert "in the future" in refused.json()["detail"]
+    detail = client.get(f"{PREFIX}/candidates/{candidate['candidate_id']}").json()["data"]
+    assert detail["candidate"]["status"] == "blocked"
+    assert detail["candidate"]["waivers"] == []
+
+
+def test_a_lapsed_waiver_stops_clearing_the_blocker_at_evaluation_and_signoff(
+    client: TestClient, db_session: Session
+) -> None:
+    """Expiry is honoured when the candidate is evaluated, not only when the waiver is recorded.
+
+    The API accepted ``expires_at`` and then ignored it, so a lapsed exception kept a candidate
+    ``ready`` and let a go decision rest on it. The waiver is aged in the database because the API
+    (rightly) refuses to record one that is already expired.
+    """
+    from datetime import datetime, timedelta, timezone
+
+    candidate = _create(client, blocking_score=0.6)
+    candidate_id = candidate["candidate_id"]
+    soon = (datetime.now(timezone.utc) + timedelta(days=1)).isoformat()
+    assert _waive(client, candidate_id, expires_at=soon).json()["data"]["status"] == "ready"
+
+    stored = db_session.get(CaliberReleaseCandidate, candidate_id)
+    assert stored is not None
+    lapsed = [
+        {**w, "expires_at": (datetime.now(timezone.utc) - timedelta(minutes=1)).isoformat()}
+        for w in stored.waivers
+    ]
+    stored.waivers = lapsed
+    db_session.commit()
+
+    again = client.post(f"{PREFIX}/candidates/{candidate_id}/evaluate")
+    assert again.status_code == 200, again.text
+    assert again.json()["data"]["status"] == "blocked"
+    assert [b["criterion_key"] for b in again.json()["data"]["blockers"]] == ["human_review"]
+
+    refused = client.post(
+        f"{PREFIX}/candidates/{candidate_id}/signoffs",
+        json={"decision": "go", "rationale": "Relying on a waiver that has lapsed."},
+    )
+    assert refused.status_code == 409
+    assert "ready candidate" in refused.json()["detail"]
+
+    report = client.post(f"{PREFIX}/candidates/{candidate_id}/reports", json={}).json()["data"][
+        "report"
+    ]
+    assert [r["status"] for r in report["results"]] == ["passed", "failed"]
+
+
+def test_a_signed_candidate_cannot_be_changed_by_a_waiver(client: TestClient) -> None:
+    """A waiver re-evaluates the candidate, which rewrites ``status``: it must not reach a signed one."""
+    candidate = _create(client, blocking_score=0.6)
+    candidate_id = candidate["candidate_id"]
+    assert _waive(client, candidate_id).status_code == 200
+    signed = client.post(
+        f"{PREFIX}/candidates/{candidate_id}/signoffs",
+        json={"decision": "go", "rationale": "Exception is documented and monitored."},
+    )
+    assert signed.status_code == 201
+
+    late = _waive(client, candidate_id, criterion_key="quality")
+    assert late.status_code == 409
+    assert "immutable" in late.json()["detail"]
+
+    detail = client.get(f"{PREFIX}/candidates/{candidate_id}").json()["data"]
+    assert detail["candidate"]["status"] == "signed_go"
+    assert len(detail["candidate"]["waivers"]) == 1
+    assert len(detail["signoffs"]) == 1
+    second = client.post(
+        f"{PREFIX}/candidates/{candidate_id}/signoffs",
+        json={"decision": "go", "rationale": "A second final decision is forbidden."},
+    )
+    assert second.status_code == 409
+
+
+def test_a_waiver_with_an_unreadable_expiry_does_not_clear_the_blocker_and_a_naive_one_is_utc(
+    client: TestClient, db_session: Session
+) -> None:
+    """A stored expiry that cannot be read is not something a go decision may rely on; one without a
+    timezone is read as UTC (so a far-future naive timestamp is still in force)."""
+    candidate = _create(client, blocking_score=0.6)
+    candidate_id = candidate["candidate_id"]
+    assert _waive(client, candidate_id).json()["data"]["status"] == "ready"
+    stored = db_session.get(CaliberReleaseCandidate, candidate_id)
+    assert stored is not None
+
+    stored.waivers = [{**stored.waivers[0], "expires_at": "not-a-date"}]
+    db_session.commit()
+    unreadable = client.post(f"{PREFIX}/candidates/{candidate_id}/evaluate")
+    assert unreadable.json()["data"]["status"] == "blocked"
+
+    stored.waivers = [{**stored.waivers[0], "expires_at": "2999-01-01T00:00:00"}]
+    db_session.commit()
+    naive = client.post(f"{PREFIX}/candidates/{candidate_id}/evaluate")
+    assert naive.json()["data"]["status"] == "ready"

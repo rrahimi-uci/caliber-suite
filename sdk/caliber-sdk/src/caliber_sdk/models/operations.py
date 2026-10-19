@@ -29,6 +29,10 @@ class Job:
     approval_id: str | None = None
     applied_by: str | None = None
     applied_version: int | None = None
+    #: The server's own name for the failure text (``error`` is kept for older payloads).
+    error_message: str | None = None
+    current_stage: str | None = None
+    artifact_type: str | None = None
     extra: dict[str, Any] = field(default_factory=dict)
 
     @property
@@ -126,6 +130,8 @@ class ReviewQueue:
     owner: str | None = None
     status: str = ""
     review_questions: list[dict[str, Any]] = field(default_factory=list)
+    #: The server's name for the queue's questions (``review_questions`` stays for older payloads).
+    questions: list[dict[str, Any]] = field(default_factory=list)
     item_count: int | None = None
     created_at: str | None = None
     updated_at: str | None = None
@@ -243,6 +249,10 @@ class AuditEntry:
     """One audit-log row."""
 
     audit_id: str = ""
+    #: The server's row id and time (``log_id`` / ``timestamp``) and the row's severity.
+    log_id: int | None = None
+    timestamp: str | None = None
+    severity: str | None = None
     actor: str = ""
     action: str = ""
     entity_type: str | None = None

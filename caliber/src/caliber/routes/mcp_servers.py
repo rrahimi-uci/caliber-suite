@@ -17,7 +17,7 @@ from sqlalchemy.orm import Session
 from starlette.applications import Starlette
 from starlette.exceptions import HTTPException
 from starlette.requests import Request
-from starlette.responses import JSONResponse
+from starlette.responses import JSONResponse, Response
 from starlette.routing import Route
 
 from caliber.audit import record as audit_record
@@ -540,7 +540,7 @@ def _deployments_referencing_server(session: Session, server_id: str) -> list[st
     return list(dict.fromkeys(blocking))
 
 
-async def delete_mcp_server(request: Request) -> JSONResponse:
+async def delete_mcp_server(request: Request) -> Response:
     server_id = request.path_params["server_id"]
     actor = require_scopes(request, [SCOPE_ADMIN])
     identity = resolve_identity(request)
@@ -579,7 +579,10 @@ async def delete_mcp_server(request: Request) -> JSONResponse:
         )
         session.delete(server)
         session.commit()
-    return JSONResponse(content=None, status_code=204)
+    # An empty body: ``JSONResponse(content=None)`` renders the four bytes ``null`` under a 204, which
+    # h11 refuses to send ("Too much data for declared Content-Length"), so a real server reset the
+    # connection after every delete. TestClient does not enforce that, hence the explicit test.
+    return Response(status_code=204)
 
 
 async def test_connection(request: Request) -> JSONResponse:

@@ -2608,6 +2608,57 @@ def test_list_prompts_hides_a_prompt_whose_target_belongs_to_another_project(
     assert "bare-prompt" in names
 
 
+def test_list_prompts_hides_workflow_node_prompts_of_workflows_the_caller_cannot_see(
+    client: TestClient, db_session: Session, monkeypatch
+) -> None:
+    """The inventory used to read every workflow's agent nodes, so a stranger saw another
+    project's workflow-node prompt names (and their inline template text)."""
+    db_session.add(
+        CaliberWorkflow(
+            workflow_id="WF-hidden",
+            name="Hidden Pipeline",
+            description="another project's",
+            owner="@someone-else",
+            status="active",
+            visibility="project",
+            project_id="P-hidden",
+        )
+    )
+    db_session.add(
+        CaliberWorkflowVersion(
+            version_id="WV-HIDDEN-1",
+            workflow_id="WF-hidden",
+            version_number=1,
+            status="draft",
+            manifest={
+                "workflow_id": "WF-hidden",
+                "nodes": {
+                    "secret_agent": {
+                        "id": "secret_agent",
+                        "type": "agent",
+                        "name": "Secret Agent",
+                        "instructions": {"type": "inline", "text": "Internal escalation policy."},
+                    }
+                },
+            },
+            manifest_hash="hidden-hash",
+            created_by="@someone-else",
+        )
+    )
+    db_session.commit()
+    _install_mlflow(monkeypatch, search_items=[], load_refs={})
+
+    stranger = client.get(PREFIX, headers=_STRANGER)
+    assert stranger.status_code == 200
+    stranger_rows = stranger.json()["data"]
+    assert [row["agent_id"] for row in stranger_rows if "secret_agent" in row["agent_id"]] == []
+    assert "Internal escalation policy." not in stranger.text
+
+    # An admin (the default test identity) still sees every workflow's nodes.
+    admin = client.get(PREFIX)
+    assert any("secret_agent" in row["agent_id"] for row in admin.json()["data"])
+
+
 def test_list_prompt_versions_hides_a_prompt_whose_target_belongs_to_another_project(
     client: TestClient, db_session: Session, monkeypatch
 ) -> None:

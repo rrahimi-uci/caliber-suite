@@ -280,6 +280,29 @@ describe("Tool Workspace — Sandbox stage", () => {
     await waitFor(() => expect(savedRuns).toHaveLength(1));
     expect(savedRuns[0]).toMatchObject({ tool_id: "TL-1", kind: "sandbox" });
   });
+
+  it("says why a run was refused instead of only 'Request failed'", async () => {
+    const detail =
+      "missing required scope; expected one of ['caliber.operator'], have ['caliber.viewer']";
+    server.use(
+      http.get(`${API_BASE}/tools`, () => HttpResponse.json(envelope([makeTool()]))),
+      http.post(`${API_BASE}/tools/:toolId/test-run`, () =>
+        HttpResponse.json({ detail, status_code: 403 }, { status: 403 }),
+      ),
+      http.post(`${API_BASE}/tools/test-runs`, () =>
+        HttpResponse.json({ detail, status_code: 403 }, { status: 403 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderRegistry();
+    await user.click(await screen.findByTestId("tool-open-lookup_order"));
+    await user.click(await screen.findByRole("button", { name: "Sandbox" }));
+    await user.click(screen.getByRole("button", { name: "Test Run" }));
+
+    expect(await screen.findByText(/caliber\.operator/)).toBeInTheDocument();
+    expect(screen.queryByText("Request failed")).not.toBeInTheDocument();
+  });
 });
 
 describe("Tool Workspace — Fixtures stage", () => {

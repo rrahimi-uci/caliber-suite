@@ -133,8 +133,22 @@ WEBHOOK_DEAD_LETTER_PREFIX = "WDL-"
 _ID_SUFFIX_LEN = 8
 
 
+#: Chunks, entities and relationships are written in bulk: one knowledge-base build inserts thousands
+#: of them, and they accumulate across every version ever built. Eight hex characters (32 bits) made a
+#: collision on a primary key ordinary rather than cosmic: a build of a few thousand relationships
+#: against a table of tens of thousands failed with a ``UNIQUE constraint`` error, and a corpus whose
+#: co-occurrence graph reaches 50,000 relationships collides with itself about a third of the time.
+#: Sixteen characters (64 bits) keeps the readable prefix and makes it negligible. The columns are
+#: ``String(64)``, so no migration is needed.
+_BULK_ID_SUFFIX_LEN = 16
+
+
 def _suffix() -> str:
     return uuid4().hex[:_ID_SUFFIX_LEN]
+
+
+def _bulk_suffix() -> str:
+    return uuid4().hex[:_BULK_ID_SUFFIX_LEN]
 
 
 def new_personal_access_token_id() -> str:
@@ -414,8 +428,8 @@ def new_knowledge_base_source_id() -> str:
 
 
 def new_knowledge_base_chunk_id() -> str:
-    """Return a fresh knowledge-base chunk ID, e.g. ``KBC-44e8a1b2``."""
-    return f"{KNOWLEDGE_BASE_CHUNK_PREFIX}{_suffix()}"
+    """Return a fresh knowledge-base chunk ID, e.g. ``KBC-44e8a1b27c0d93f5``."""
+    return f"{KNOWLEDGE_BASE_CHUNK_PREFIX}{_bulk_suffix()}"
 
 
 def new_knowledge_base_run_id() -> str:
@@ -424,13 +438,13 @@ def new_knowledge_base_run_id() -> str:
 
 
 def new_knowledge_base_entity_id() -> str:
-    """Return a fresh knowledge-base entity ID, e.g. ``KBE-3a8f2c7e``."""
-    return f"{KNOWLEDGE_BASE_ENTITY_PREFIX}{_suffix()}"
+    """Return a fresh knowledge-base entity ID, e.g. ``KBE-3a8f2c7e51d0b9a4``."""
+    return f"{KNOWLEDGE_BASE_ENTITY_PREFIX}{_bulk_suffix()}"
 
 
 def new_knowledge_base_relationship_id() -> str:
-    """Return a fresh knowledge-base relationship ID, e.g. ``KBRL-9b1d4e0a``."""
-    return f"{KNOWLEDGE_BASE_RELATIONSHIP_PREFIX}{_suffix()}"
+    """Return a fresh knowledge-base relationship ID, e.g. ``KBRL-9b1d4e0a62c7f3d8``."""
+    return f"{KNOWLEDGE_BASE_RELATIONSHIP_PREFIX}{_bulk_suffix()}"
 
 
 def new_assistant_session_id() -> str:

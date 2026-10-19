@@ -23,6 +23,7 @@ import type {
   IssuedPersonalAccessToken,
   PersonalAccessToken,
 } from "@/api/types";
+import type { Project } from "@/api/workflowTypes";
 import { ApiTokensTab } from "@/components/ApiTokensTab";
 import { showToast } from "@/lib/toast";
 import { server } from "@/test/server";
@@ -55,6 +56,15 @@ function metadata(
   };
 }
 
+const WORKSPACES = [
+  { project_id: "PRJ-support", name: "support-copilot", access_role: "editor" },
+  {
+    project_id: "PRJ-billing",
+    name: "billing-assistant",
+    access_role: "viewer",
+  },
+] as unknown as Project[];
+
 interface Backend {
   tokens: PersonalAccessToken[];
   created: Array<Record<string, unknown>>;
@@ -76,6 +86,9 @@ function installBackend(
     http.get(`${API_BASE}/me`, () =>
       HttpResponse.json(envelope({ user_id: "@ana", scopes, is_admin: false })),
     ),
+    http.get(`${API_BASE}/projects`, () =>
+      HttpResponse.json(envelope(WORKSPACES)),
+    ),
     http.get(`${API_BASE}/auth/tokens`, () =>
       HttpResponse.json(envelope({ tokens: backend.tokens })),
     ),
@@ -87,6 +100,7 @@ function installBackend(
         name: String(body["name"]),
         scopes: body["scopes"] as string[],
         expires_at: (body["expires_at"] as string | undefined) ?? null,
+        project_id: (body["project_id"] as string | undefined) ?? null,
       });
       backend.tokens.push(row);
       const issued: IssuedPersonalAccessToken = { ...row, token: SECRET };
@@ -212,6 +226,74 @@ describe("ApiTokensTab", () => {
     await user.click(screen.getByRole("button", { name: "I have copied it" }));
     expect(screen.queryByTestId("api-token-secret")).not.toBeInTheDocument();
     expect(document.body).not.toHaveTextContent(SECRET);
+  });
+
+  it("binds a token to the chosen workspace and names it in the list", async () => {
+    const backend = installBackend();
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.type(await screen.findByLabelText("Token name"), "support-ci");
+    // The choices carry the caller's role in each workspace, so the user sees where they can act.
+    const select = await screen.findByLabelText("Token workspace");
+    await within(select).findByRole("option", {
+      name: "support-copilot (editor)",
+    });
+    await user.selectOptions(select, "PRJ-support");
+    await user.click(screen.getByRole("button", { name: "Create token" }));
+
+    await screen.findByTestId("api-token-secret");
+    expect(backend.created[0]).toMatchObject({
+      name: "support-ci",
+      project_id: "PRJ-support",
+    });
+    expect(await screen.findByTestId("api-token-row-PAT-1")).toHaveTextContent(
+      "support-copilot (PRJ-support)",
+    );
+  });
+
+  it("leaves a token unbound by default and says so in the list", async () => {
+    const backend = installBackend();
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.type(await screen.findByLabelText("Token name"), "anywhere");
+    expect(screen.getByLabelText("Token workspace")).toHaveValue("");
+    await user.click(screen.getByRole("button", { name: "Create token" }));
+
+    await screen.findByTestId("api-token-secret");
+    expect(backend.created[0]).not.toHaveProperty("project_id");
+    expect(await screen.findByTestId("api-token-row-PAT-1")).toHaveTextContent(
+      "Any",
+    );
+  });
+
+  it("shows the raw id for a binding to a workspace the user cannot list", async () => {
+    installBackend([metadata({ project_id: "PRJ-gone" })]);
+    renderTab();
+    expect(await screen.findByTestId("api-token-row-PAT-1")).toHaveTextContent(
+      "PRJ-gone",
+    );
+  });
+
+  it("still creates an unbound token when the workspace list cannot be loaded", async () => {
+    const backend = installBackend();
+    server.use(
+      http.get(`${API_BASE}/projects`, () =>
+        HttpResponse.json({ detail: "boom" }, { status: 500 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderTab();
+
+    await user.type(await screen.findByLabelText("Token name"), "fallback");
+    expect(
+      within(screen.getByLabelText("Token workspace")).getAllByRole("option"),
+    ).toHaveLength(1);
+    await user.click(screen.getByRole("button", { name: "Create token" }));
+
+    await screen.findByTestId("api-token-secret");
+    expect(backend.created).toHaveLength(1);
   });
 
   it("copies the secret to the clipboard", async () => {

@@ -62,6 +62,19 @@ First alpha. What it does, what it does not and the known limitations are in the
 
 ### Fixed
 
+- **Defects found by running the cookbook labs against real servers.** Each has a regression test.
+  - A workflow run that was approved and resumed could finish `completed` with no output when its Output node was fed by several router branches: dead edges were not restored on resume.
+  - A failed workflow run closed its trace `OK`, so the Observability Error filter never found it, and its root span recorded no request or response, so "Add to test set" 404'd on every workflow trace. An unknown trace id is now a 404 and an unreachable MLflow a 503 (both used to answer an empty 200), and `propose-patch` aimed at a node that cannot take the patch answers 400 instead of 500.
+  - `GET /prompts` returned the agent-prompt names and inline template text of every workflow in the database, including other projects' private workflows.
+  - A release waiver's `expires_at` was stored and ignored, so a lapsed waiver still cleared its blocker; a waiver on a signed candidate turned `signed_go` back into `ready`, allowing a second signoff.
+  - Knowledge-base chunk, entity and relationship ids were 32-bit, and a collision killed a build with `UNIQUE constraint failed`; a missing bucket was reported as "object not found"; the Chunks view stayed blank after a fresh build.
+  - `DELETE /mcp-servers/{id}` returned a 204 with a body, which reset the connection on a real server.
+  - A judge using an unsupported template variable was saved and only failed when used; it is now refused with a 400 naming the variable. Import labels handed the judge a JSON-quoted trace response.
+  - An Aria plan step that was skipped or denied left its dependants stuck; a step's `name` was wired silently into the next step's form; empty required inputs were accepted and then failed the plan; and the Plans page did not refresh a running plan.
+  - A skill with an empty description could be exported but not re-imported; Trigger Tests showed scores such as 1000%.
+  - The API tokens tab had no way to bind a token to a workspace; the Sandbox page showed only "Request failed" for a 403; the MCP policy editor kept the previous tool's draft for a frame after switching tools.
+  - The Python SDK decoded several responses to empty objects (audit log, evaluations, jobs, judge alignment, knowledge-base create, review queue get, release candidate get, workflow run output and error), and `skills.create` could not set a category or metadata.
+
 - **`/readiness` no longer goes red because of a worker restart.** A restarted container registers its
   workflow-run worker under a new id, and each unclean exit left a heartbeat row that nothing removed, so a
   healthy worker could sit beside stale rows and `/readiness` reported `Workflow queue unhealthy (N

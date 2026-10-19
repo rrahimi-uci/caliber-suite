@@ -49,6 +49,8 @@ class EvalExample:
     example_id: str = ""
     dataset_id: str = ""
     inputs: Any = None
+    #: The server's field name for the example's input (``inputs`` stays for older payloads).
+    input: Any = None
     expected: Any = None
     example_metadata: dict[str, Any] = field(default_factory=dict)
     source_trace_id: str | None = None
@@ -89,6 +91,23 @@ class Evaluation:
     """
 
     evaluation_id: str = ""
+    #: The server's id for a scorecard run (``EVR-...``), its scores and the per-example rows.
+    run_id: str = ""
+    dataset_version: int | None = None
+    label: str | None = None
+    predict_target: str | None = None
+    subject_ref: str | None = None
+    model: str | None = None
+    scorers: list[str] = field(default_factory=list)
+    pass_threshold: float | None = None
+    n_examples: int | None = None
+    passed_count: int | None = None
+    failed_count: int | None = None
+    overall_score: float | None = None
+    pass_rate: float | None = None
+    aggregate: dict[str, Any] = field(default_factory=dict)
+    evidence: dict[str, Any] | None = None
+    error_message: str | None = None
     dataset_id: str | None = None
     name: str | None = None
     status: str = ""
@@ -120,6 +139,17 @@ class JudgeAlignment:
     kappa: float | None = None
     sample_size: int = 0
     per_example: list[dict[str, Any]] = field(default_factory=list)
+    #: The server's own names: ``agreement_rate`` and ``cohen_kappa`` are what it returns (the
+    #: ``agreement``/``kappa`` fields above stay for older payloads). ``n`` is the rows sent,
+    #: ``scored`` the rows whose judge call succeeded (only those enter the metrics), and
+    #: ``confusion`` counts ``true_pos``/``false_pos``/``true_neg``/``false_neg`` with the
+    #: judge's pass as the positive class.
+    agreement_rate: float | None = None
+    cohen_kappa: float | None = None
+    n: int | None = None
+    scored: int | None = None
+    threshold: float | None = None
+    confusion: dict[str, int] = field(default_factory=dict)
     extra: dict[str, Any] = field(default_factory=dict)
 
 

@@ -101,6 +101,7 @@ from caliber.workflows.manifest import (
     parse_manifest,
 )
 from caliber.workflows.memory_tools import bind_run_memory_tools
+from caliber.workflows.patch import PatchError
 from caliber.workflows.promoter import (
     PublishError,
     build_executor,
@@ -1326,7 +1327,7 @@ async def propose_patch_route(request: Request) -> JSONResponse:
         diagnosis = localize_failure(evidence)
         try:
             candidate = generate_workflow_patch(base, diagnosis, resolver=resolver)
-        except (CompileError, WorkflowManifestError, ValueError) as exc:
+        except (CompileError, WorkflowManifestError, PatchError, ValueError) as exc:
             raise HTTPException(status_code=400, detail=f"cannot generate patch: {exc}") from exc
 
         # Validate the candidate manifest compiles (graph + tools resolve).

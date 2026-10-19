@@ -99,7 +99,11 @@ class S3StorageBackend:
 
     def _err(self, exc: Exception, key: str) -> StorageError:
         code = getattr(exc, "response", {}).get("Error", {}).get("Code", "")
-        if code in {"NoSuchKey", "404", "NoSuchBucket"}:
+        if code == "NoSuchBucket":
+            # Name the bucket: "object not found: <key>" sent people looking for a missing object
+            # when the real problem is a bucket that was never created.
+            return StorageNotFoundError(f"bucket not found: {self._bucket!r} (key {key!r})")
+        if code in {"NoSuchKey", "404"}:
             return StorageNotFoundError(f"object not found: {key!r}")
         return StorageError(f"s3 error for {key!r}: {exc}")
 

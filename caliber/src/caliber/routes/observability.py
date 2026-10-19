@@ -35,7 +35,10 @@ from caliber.audit import record as audit_record
 from caliber.auth import require_user
 from caliber.routes._deps import get_session_factory, parse_json_object
 from caliber.trace_client import (
+    TraceNotFoundError,
+    TraceStoreUnavailableError,
     fetch_trace_detail,
+    probe_trace_store,
     trace_experiment_id,
     trace_metadata_cost,
     trace_metadata_tokens,
@@ -236,6 +239,11 @@ async def list_traces(request: Request) -> JSONResponse:
     experiment_filter = request.query_params.get("experiment_id", "").strip()
     since_ms = _int_param(request, "since_ms")
     try:
+        probe_trace_store()
+    except TraceStoreUnavailableError as exc:
+        # An unreachable store is an outage, not an empty list: say so instead of showing "no traces".
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
+    try:
         import mlflow  # noqa: PLC0415
 
         names = _experiment_name_map(mlflow)
@@ -248,7 +256,7 @@ async def list_traces(request: Request) -> JSONResponse:
             return JSONResponse({"data": {"traces": []}})
         traces = (
             mlflow.search_traces(
-                experiment_ids=experiment_ids,
+                locations=experiment_ids,
                 max_results=limit,
                 order_by=["timestamp_ms DESC"],
                 return_type="list",
@@ -256,8 +264,11 @@ async def list_traces(request: Request) -> JSONResponse:
             or []
         )
     except Exception as exc:
-        logger.warning("trace search failed (%s); returning empty list", exc)
-        return JSONResponse({"data": {"traces": []}})
+        logger.warning("trace search failed (%s)", exc)
+        raise HTTPException(
+            status_code=503,
+            detail=f"trace search failed: {type(exc).__name__}: {str(exc)[:300]}",
+        ) from exc
 
     summaries: list[dict[str, Any]] = []
     for trace in traces:
@@ -302,7 +313,12 @@ async def get_trace(request: Request) -> JSONResponse:
     token/cost rollup, and feedback assessments (the in-app MLflow mirror)."""
     require_user(request)
     trace_id = str(request.path_params["trace_id"])
-    detail = fetch_trace_detail(trace_id)
+    try:
+        detail = fetch_trace_detail(trace_id, strict=True)
+    except TraceNotFoundError as exc:
+        raise HTTPException(status_code=404, detail=f"trace {trace_id!r} not found") from exc
+    except TraceStoreUnavailableError as exc:
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return JSONResponse(
         {
             "data": {
@@ -492,7 +508,7 @@ def gateway_usage_payload(
             return empty
         traces = (
             mlflow.search_traces(
-                experiment_ids=experiment_ids,
+                locations=experiment_ids,
                 max_results=_METRICS_MAX_TRACES,
                 order_by=["timestamp_ms DESC"],
                 return_type="list",
@@ -561,7 +577,7 @@ async def get_metrics(request: Request) -> JSONResponse:
             return JSONResponse({"data": _bucketize([], since_ms)})
         traces = (
             mlflow.search_traces(
-                experiment_ids=experiment_ids,
+                locations=experiment_ids,
                 max_results=_METRICS_MAX_TRACES,
                 order_by=["timestamp_ms DESC"],
                 return_type="list",

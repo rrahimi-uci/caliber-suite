@@ -178,7 +178,7 @@ def test_numeric_tracing_experiment_scopes_directly(
 
     resp = client.get(f"{OBS}/traces")
     assert resp.status_code == 200, resp.text
-    assert captured["experiment_ids"] == ["7"]
+    assert captured["locations"] == ["7"]
 
 
 def test_named_tracing_experiment_resolves_via_get_experiment_by_name(
@@ -204,7 +204,7 @@ def test_named_tracing_experiment_resolves_via_get_experiment_by_name(
 
     resp = client.get(f"{OBS}/traces")
     assert resp.status_code == 200, resp.text
-    assert captured["experiment_ids"] == ["42"]
+    assert captured["locations"] == ["42"]
 
 
 def test_named_tracing_experiment_lookup_raises_returns_empty(
@@ -227,7 +227,7 @@ def test_named_tracing_experiment_lookup_raises_returns_empty(
     assert resp.json()["data"]["traces"] == []
 
 
-def test_search_experiments_not_callable_degrades_to_empty(
+def test_search_experiments_not_callable_is_a_503(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import mlflow
@@ -235,11 +235,10 @@ def test_search_experiments_not_callable_degrades_to_empty(
     monkeypatch.setattr(mlflow, "search_experiments", None)
 
     resp = client.get(f"{OBS}/traces")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["traces"] == []
+    assert resp.status_code == 503, resp.text
 
 
-def test_search_experiments_raises_degrades_to_empty(
+def test_search_experiments_raises_is_a_503(
     client: TestClient, monkeypatch: pytest.MonkeyPatch
 ) -> None:
     import mlflow
@@ -250,8 +249,8 @@ def test_search_experiments_raises_degrades_to_empty(
     monkeypatch.setattr(mlflow, "search_experiments", boom)
 
     resp = client.get(f"{OBS}/traces")
-    assert resp.status_code == 200, resp.text
-    assert resp.json()["data"]["traces"] == []
+    assert resp.status_code == 503, resp.text
+    assert "tracking server down" in resp.json()["detail"]
 
 
 # ---------------------------------------------------------------------------

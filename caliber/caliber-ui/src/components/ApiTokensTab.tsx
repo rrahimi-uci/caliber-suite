@@ -18,6 +18,7 @@ import type {
   IssuedPersonalAccessToken,
   PersonalAccessToken,
 } from "@/api/types";
+import type { Project } from "@/api/workflowTypes";
 import { ConfirmDialog } from "@/components/ui/ConfirmDialog";
 import {
   useApiMutation,
@@ -28,6 +29,7 @@ import { showToast } from "@/lib/toast";
 
 const TOKENS_KEY = ["auth", "tokens"] as const;
 const ME_KEY = ["auth", "me"] as const;
+const PROJECTS_KEY = ["projects", "access"] as const;
 
 /** Expiry choices. Null means the token never expires. */
 const EXPIRY_OPTIONS: Array<{ label: string; days: number | null }> = [
@@ -48,6 +50,15 @@ function expiryIso(days: number | null): string | undefined {
   return new Date(Date.now() + days * 24 * 60 * 60 * 1000).toISOString();
 }
 
+/** A bound token's workspace as its name when this user can see it, else the raw id. */
+function workspaceLabel(
+  projectId: string,
+  projects: Project[] | undefined,
+): string {
+  const match = projects?.find((project) => project.project_id === projectId);
+  return match ? `${match.name} (${projectId})` : projectId;
+}
+
 function tokenStatus(token: PersonalAccessToken): string {
   if (!token.active)
     return token.revoked_reason === "rotated" ? "Rotated" : "Revoked";
@@ -62,8 +73,15 @@ export function ApiTokensTab(): JSX.Element {
   const tokens = useApiQuery<PersonalAccessToken[]>(TOKENS_KEY, (signal) =>
     caliberApi.listAccessTokens(signal),
   );
+  // The workspaces this user can act in. A failed load only removes the choices: the
+  // token can still be created unbound, so the form never waits on this list.
+  const projects = useApiQuery<Project[]>(PROJECTS_KEY, (signal) =>
+    caliberApi.listProjects("active", signal),
+  );
 
   const [name, setName] = useState("");
+  // Empty means an unbound token, which acts in whichever workspace a request names.
+  const [projectId, setProjectId] = useState("");
   const [days, setDays] = useState<number | null>(30);
   const [selected, setSelected] = useState<Set<string>>(
     new Set(["caliber.viewer"]),
@@ -78,8 +96,12 @@ export function ApiTokensTab(): JSX.Element {
   const heldScopes = [...(me.data?.scopes ?? [])].sort();
 
   const create = useApiMutation(
-    (payload: { name: string; scopes: string[]; expires_at?: string }) =>
-      caliberApi.createAccessToken(payload),
+    (payload: {
+      name: string;
+      scopes: string[];
+      expires_at?: string;
+      project_id?: string;
+    }) => caliberApi.createAccessToken(payload),
     {
       onSuccess(token) {
         setIssued(token);
@@ -140,6 +162,7 @@ export function ApiTokensTab(): JSX.Element {
       name: trimmed,
       scopes: [...selected].sort(),
       ...(days === null ? {} : { expires_at: expiryIso(days) }),
+      ...(projectId ? { project_id: projectId } : {}),
     });
   }
 
@@ -263,6 +286,29 @@ export function ApiTokensTab(): JSX.Element {
               ))}
             </select>
           </label>
+          <label className="block text-sm md:col-span-2">
+            <span className="mb-1 block font-medium text-slate-700">
+              Workspace
+            </span>
+            <select
+              aria-label="Token workspace"
+              value={projectId}
+              onChange={(event) => setProjectId(event.target.value)}
+              className="w-full rounded-md border border-slate-300 px-3 py-2 text-sm"
+            >
+              <option value="">Any workspace (not bound)</option>
+              {(projects.data ?? []).map((project) => (
+                <option key={project.project_id} value={project.project_id}>
+                  {project.name} ({project.access_role ?? "member"})
+                </option>
+              ))}
+            </select>
+            <span className="mt-1 block text-xs text-slate-500">
+              A bound token is refused (403) for any other workspace, and a
+              request that names none acts in the bound one. Bind CI tokens to
+              the one workspace they need.
+            </span>
+          </label>
           <fieldset className="md:col-span-2">
             <legend className="mb-1 text-sm font-medium text-slate-700">
               Scopes
@@ -329,6 +375,7 @@ export function ApiTokensTab(): JSX.Element {
                 <tr className="text-left text-xs uppercase text-slate-500">
                   <th className="py-2 pr-4">Name</th>
                   <th className="py-2 pr-4">Scopes</th>
+                  <th className="py-2 pr-4">Workspace</th>
                   <th className="py-2 pr-4">Created</th>
                   <th className="py-2 pr-4">Last used</th>
                   <th className="py-2 pr-4">Expires</th>
@@ -352,6 +399,15 @@ export function ApiTokensTab(): JSX.Element {
                         <code className="font-mono text-xs">
                           {token.scopes.join(", ") || "—"}
                         </code>
+                      </td>
+                      <td className="py-2 pr-4">
+                        {token.project_id ? (
+                          <code className="font-mono text-xs">
+                            {workspaceLabel(token.project_id, projects.data)}
+                          </code>
+                        ) : (
+                          "Any"
+                        )}
                       </td>
                       <td className="py-2 pr-4">
                         {formatWhen(token.created_at)}

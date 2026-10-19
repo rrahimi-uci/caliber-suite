@@ -207,6 +207,26 @@ def test_selected_scorer_missing_from_metrics_fails_closed() -> None:
         )
 
 
+def test_missing_correctness_explains_the_expected_response_requirement() -> None:
+    """A test set labelled intent/priority has no expected_response, so MLflow's Correctness
+    judge scores nothing; the failure names the requirement and a scorer that works instead."""
+    scores = ScoreSet(overall=1.0, dimensions={"Safety": 1.0})
+
+    with pytest.raises(EvalProviderError) as raised:
+        _require_requested_scores(scores, ["Correctness", "Safety"], label="candidate")
+    message = str(raised.value)
+    assert "expected_response" in message and "expected_facts" in message
+    assert "Guidelines" in message
+
+
+def test_missing_other_scorer_does_not_get_the_correctness_hint() -> None:
+    scores = ScoreSet(overall=1.0, dimensions={"Safety": 1.0})
+
+    with pytest.raises(EvalProviderError) as raised:
+        _require_requested_scores(scores, ["Guidelines", "Safety"], label="candidate")
+    assert "expected_response" not in str(raised.value)
+
+
 def test_selected_scorers_all_present_are_accepted() -> None:
     scores = ScoreSet(overall=0.9, dimensions={"Correctness": 0.8, "Safety": 1.0})
 

@@ -158,6 +158,59 @@ def test_update_judge_rejects_bad_instructions(client: TestClient, db_session: S
     assert response.status_code == 400
 
 
+@pytest.mark.parametrize(
+    "instructions",
+    [
+        "Is {{ outputs }} faithful to {{ evidence }}?",
+        "Is {{outputs}} faithful to {{ Expectations }}?",
+        "Is {{ outputs }} faithful to {{ expectations }} and {{ foo }} and {{ bar }}?",
+    ],
+)
+def test_create_judge_rejects_unsupported_template_variables(
+    client: TestClient, instructions: str
+) -> None:
+    """Regression: ``{{ evidence }}`` used to be saved with a 201 and only failed when the judge
+    was first used (Evaluations 400, alignment 502), so the author learned it too late."""
+    response = client.post(LIST_PATH, json={**_GOOD, "instructions": instructions})
+    assert response.status_code == 400, response.text
+    assert "unsupported template variable" in response.text
+
+
+def test_create_judge_names_every_unsupported_variable(client: TestClient) -> None:
+    response = client.post(
+        LIST_PATH,
+        json={**_GOOD, "instructions": "Is {{ outputs }} ok given {{ foo }} and {{ bar }}?"},
+    )
+    assert response.status_code == 400
+    assert "{{ bar }}, {{ foo }}" in response.text
+
+
+def test_update_judge_rejects_unsupported_template_variables(
+    client: TestClient, db_session: Session
+) -> None:
+    _seed(db_session, judge_id="JDG-1")
+    response = client.patch(
+        DETAIL_PATH.replace("{judge_id}", "JDG-1"),
+        json={"instructions": "Is {{ outputs }} faithful to {{ evidence }}?"},
+    )
+    assert response.status_code == 400
+    assert "{{ evidence }}" in response.text
+
+
+def test_create_judge_accepts_every_supported_variable(client: TestClient) -> None:
+    response = client.post(
+        LIST_PATH,
+        json={
+            **_GOOD,
+            "instructions": (
+                "Grade {{ outputs }} for {{ inputs }} against {{ expectations }}, "
+                "{{ conversation }} and {{ trace }}."
+            ),
+        },
+    )
+    assert response.status_code == 201, response.text
+
+
 @pytest.fixture
 def operator_only_client(client: TestClient) -> Iterator[TestClient]:
     """Grant ``@operator-only`` exactly ``caliber.operator`` (not admin) for

@@ -435,6 +435,23 @@ def _alignment_label(value: Any) -> bool | None:
     return None
 
 
+def _alignment_outputs(response: Any) -> str:
+    """The text a judge should read for a trace response.
+
+    MLflow stores a trace response as JSON text, so a reply that is a plain string
+    arrives wrapped in quotes (``'"Thanks for ..."'``). Judging that wrapper instead of
+    the reply makes a truncated answer look well formed, so a string that decodes to a
+    string is unwrapped; structured responses keep their JSON text.
+    """
+    if isinstance(response, str):
+        try:
+            decoded = json.loads(response)
+        except ValueError:
+            return response
+        return decoded if isinstance(decoded, str) and decoded else response
+    return json.dumps(response, sort_keys=True, ensure_ascii=False)
+
+
 def alignment_examples(request: Request) -> JSONResponse:
     """Prepare completed queue labels for the Judge Human-alignment panel."""
 
@@ -485,11 +502,7 @@ def alignment_examples(request: Request) -> JSONResponse:
         if detail.response is None or detail.response == "":
             skipped.append({"item_id": item.item_id, "reason": "trace response unavailable"})
             continue
-        outputs = (
-            detail.response
-            if isinstance(detail.response, str)
-            else json.dumps(detail.response, sort_keys=True, ensure_ascii=False)
-        )
+        outputs = _alignment_outputs(detail.response)
         examples.append(
             {
                 "inputs": {

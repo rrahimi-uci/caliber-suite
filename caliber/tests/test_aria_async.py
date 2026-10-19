@@ -315,11 +315,12 @@ def test_real_calibrate_capability_parks_then_resumes(session_factory, monkeypat
 
 
 class _FakeRow:
-    def __init__(self, status: str) -> None:
+    def __init__(self, status: str, error_message: str | None = None) -> None:
         self.status = status
+        self.error_message = error_message
 
 
-def _resolver_factory(status: str):
+def _resolver_factory(status: str, *, error_message: str | None = None):
     """A session_factory whose session.get() returns a row with ``status``."""
 
     class _Session:
@@ -330,7 +331,7 @@ def _resolver_factory(status: str):
             return False
 
         def get(self, _model: object, _job_id: str) -> _FakeRow:
-            return _FakeRow(status)
+            return _FakeRow(status, error_message)
 
     return lambda: _Session()
 
@@ -354,6 +355,21 @@ def test_refinement_job_rejected_resolves_failed() -> None:
         kind="refinement_job", job_id="RFN-3", session_factory=_resolver_factory("rejected")
     )
     assert res.state == "failed"
+
+
+def test_a_rejected_refinement_job_carries_its_reason_to_the_step() -> None:
+    res = MLflowJobStatusResolver().resolve(
+        kind="refinement_job",
+        job_id="RFN-3",
+        session_factory=_resolver_factory(
+            "rejected",
+            error_message="workflow calibration rejected: no candidate met calibration gates",
+        ),
+    )
+    assert res.state == "failed"
+    assert res.error == (
+        "rejected: workflow calibration rejected: no candidate met calibration gates"
+    )
 
 
 def test_refinement_job_running_resolves_pending() -> None:
