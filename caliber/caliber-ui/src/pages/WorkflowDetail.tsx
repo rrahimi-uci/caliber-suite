@@ -60,7 +60,10 @@ import { useApiMutation, useApiQuery, useInvalidate } from "@/hooks/useApiQuery"
 import { useEventStream } from "@/hooks/useEventStream";
 import { buildMlflowHref } from "@/lib/externalLinks";
 import { SINGLE_ENVIRONMENT } from "@/lib/environment";
-import { workflowCalibrationView } from "@/lib/workflowCalibration";
+import {
+  calibrationJobsRefetchInterval,
+  workflowCalibrationView,
+} from "@/lib/workflowCalibration";
 import {
   buildServiceSnippet,
   SNIPPET_LANGUAGES,
@@ -1035,7 +1038,12 @@ export function WorkflowDetail(): JSX.Element {
   const calibrationJobsQuery = useApiQuery(
     ["workflow-calibration-jobs", workflowId],
     (s) => caliberApi.listJobs({ workflow_id: workflowId! }, s),
-    { enabled: Boolean(workflowId) },
+    {
+      enabled: Boolean(workflowId),
+      // A run is queued, then running, then done in seconds (simulated) or minutes (a real
+      // model). Without polling the row stayed "queued" until the page was reloaded.
+      refetchInterval: (query) => calibrationJobsRefetchInterval(query.state.data),
+    },
   );
   const [selectedRun, setSelectedRun] = useState<WorkflowRun | null>(null);
   const [runSearch, setRunSearch] = useState("");
@@ -2751,6 +2759,12 @@ export function WorkflowDetail(): JSX.Element {
     );
     if (runChanged || !currentNodeStillExists) {
       setSelectedRunNodePinned(false);
+      setSelectedRunNodeId(defaultNodeId);
+    } else if (!selectedRunNodePinnedRef.current && currentNodeId !== defaultNodeId) {
+      // Unpinned means "follow the run". Live node/step events move the selection, but a burst of
+      // them (or a stream that misses some) can leave it behind; the polled run snapshot is the
+      // authority, so a run that moved on (an approved run that resumed and finished) never stays
+      // parked on the node it was waiting at.
       setSelectedRunNodeId(defaultNodeId);
     }
   }, [selectedRun, selectedRunManifest]);

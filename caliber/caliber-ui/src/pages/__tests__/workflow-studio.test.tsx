@@ -7617,6 +7617,80 @@ describe("WorkflowDetail calibration", () => {
     expect(screen.getByTestId("node-detail-panel")).toHaveTextContent("start");
   });
 
+  it("moves an unpinned node selection on to where the run ended when the stream missed the later events", async () => {
+    // Slow-poll order of events (the cookbook 08 failure on a slow CI runner): the run was opened
+    // while it waited at `support_agent`, the stream delivered none of the later node/step events
+    // (a burst collapses into the last one, or the stream drops some), and only the polled run
+    // snapshot shows the run finished at `final`. The selection must follow the snapshot.
+    const step = (node_id: string, node_type: string, output: string) => ({
+      node_id,
+      node_type,
+      status: "ok",
+      output,
+      tool_calls: [],
+      handoff_target: null,
+      detail: output,
+      duration_ms: 5,
+      output_by_port: {},
+    });
+    const waitingSteps = [
+      step("start", "start", "customer message"),
+      step("support_agent", "agent", "Policy-backed answer"),
+    ];
+    const runs: Array<Record<string, unknown>> = [
+      makeRun({
+        workflow_run_id: "WR-LATE",
+        status: "running",
+        current_node_id: "support_agent",
+        summary: {
+          output: "",
+          node_path: ["start", "support_agent"],
+          steps: waitingSteps,
+        },
+      }),
+    ];
+    server.use(...detailHandlers({ runs }));
+
+    const view = renderAt(
+      <WorkflowDetail />,
+      "/workflows/WF-1",
+      "/workflows/:workflowId",
+    );
+    await userEvent.click(await screen.findByTestId("tab-runs"));
+    await userEvent.click(await screen.findByTestId("run-WR-LATE"));
+    expect(await screen.findByTestId("node-detail-panel")).toHaveTextContent(
+      "support-agent",
+    );
+
+    // The snapshot now shows the finished run; the only stream event that arrives is the final one
+    // (the node and step events before it were collapsed or dropped).
+    runs[0] = makeRun({
+      workflow_run_id: "WR-LATE",
+      status: "completed",
+      current_node_id: null,
+      summary: {
+        output: "done",
+        node_path: ["start", "support_agent", "final"],
+        steps: [...waitingSteps, step("final", "output", "done")],
+      },
+    });
+
+    streamState.event = {
+      type: "workflow.run.completed",
+      workflow_id: "WF-1",
+      workflow_run_id: "WR-LATE",
+      status: "completed",
+    };
+    view.rerenderAt();
+
+    // (the `final` panel lists support-agent as its upstream, so match the panel's title)
+    await waitFor(() =>
+      expect(screen.getByTestId("node-detail-panel")).toHaveTextContent(
+        /^final\s*output/,
+      ),
+    );
+  });
+
   it("refreshes approval checkpoints when a selected run enters waiting approval", async () => {
     const liveRun = makeRun({
       workflow_run_id: "WR-APPROVAL",

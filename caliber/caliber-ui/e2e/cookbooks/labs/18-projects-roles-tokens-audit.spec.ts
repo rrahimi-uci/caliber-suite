@@ -119,6 +119,12 @@ test.describe("Lab 18: projects, roles, tokens and audit", () => {
           adminPage.getByRole("heading", { name: "Administration" }),
         ).toBeVisible();
         const accounts = adminPage.locator("#accounts-heading").locator("..");
+        // The account table loads after the heading: wait for it (`admin` is always listed), or a
+        // slow load looks like "no accounts yet" and an account the API script already created is
+        // created a second time ("account 'maya' already exists").
+        await expect(
+          accounts.getByRole("cell", { name: "admin", exact: true }),
+        ).toBeVisible({ timeout: 30_000 });
         for (const { user } of ROSTER) {
           const row = accounts.getByRole("row").filter({
             has: adminPage.getByRole("cell", { name: user, exact: true }),
