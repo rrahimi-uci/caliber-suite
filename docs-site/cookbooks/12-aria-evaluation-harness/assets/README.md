@@ -10,6 +10,7 @@ Files for [the lab](../README.md). This is an **Aria autonomous** scenario: you 
 | [`dataset/faithfulness-cases.jsonl`](dataset/faithfulness-cases.jsonl) | 30 support cases: `{id, tags, input: {question, evidence}, expected: {answer}}` | Loaded into the test set Aria creates: API `POST /eval-datasets/{id}/examples`, UI `+ Add example` |
 | [`judges/answer-faithfulness.judge.json`](judges/answer-faithfulness.judge.json) | The `judge.create` form values (`name`, `feedback_value_type`, `instructions`) | The judge's input form; the same shape is a `POST /judges` body |
 | [`datasets/support-faithfulness.dataset.json`](datasets/support-faithfulness.dataset.json) | The `eval_dataset.create` form values (`name`, `description`, `tags`) | The test set's input form; the same shape is a `POST /eval-datasets` body |
+| [`prompts/grounded-answer.prompt.txt`](prompts/grounded-answer.prompt.txt), [`prompts/careless-answer.prompt.txt`](prompts/careless-answer.prompt.txt) | The answerer under test (it sees the row's policy text via `{{ evidence }}`) and a careless control that never sees it | Real-provider stack only: the script and the UI spec score the test set with the judge for these prompts (README, Run it with a real provider). A test describes them: the files equal the prompts the script creates |
 
 The `notes` key in the form specs is for readers: strip it before posting a file as `inputs` (the script does).
 

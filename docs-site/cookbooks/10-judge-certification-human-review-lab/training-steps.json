@@ -147,7 +147,7 @@
           "baseline"
         ]
       ],
-      "see": "With the lab's stand-in model: overall 74% for the candidate, Contains expected 66%, FaithfulnessJudge 56%, against the baseline's 67% overall (Contains expected 0%, FaithfulnessJudge 100%). A real model gives different numbers.",
+      "see": "With the lab's stand-in model (a real provider differs: the table reads <code>&lt;passed&gt;/50</code> and nothing is pinned): overall 74% for the candidate, Contains expected 66%, FaithfulnessJudge 56%, against the baseline's 67% overall (Contains expected 0%, FaithfulnessJudge 100%). A real model gives different numbers.",
       "asset": "Per-example scorecard with baseline comparison"
     },
     {
@@ -226,7 +226,7 @@
         ]
       ],
       "click": "Check alignment",
-      "see": "<em>Imported 10 completed label(s); skipped 0.</em> Then, with the stand-in model: <strong>Agreement 80%</strong>, <strong>Cohen's κ 0.60</strong>, over 10/10 examples, <strong>FP 1 · FN 1</strong>. If the judge cannot run the panel adds <em>10 example(s) could not be judged and are left out of the numbers</em> with the reason. Ten rows meet the numbers but not the lab's 30-row minimum: a readout, not a certification (the API run over all 50 certifies at 0.82 / 0.6365).",
+      "see": "<em>Imported 10 completed label(s); skipped 0.</em> Then, with the stand-in model (with a real provider the figures vary, but the strict judge's agreement is above the lenient judge's): <strong>Agreement 80%</strong>, <strong>Cohen's κ 0.60</strong>, over 10/10 examples, <strong>FP 1 · FN 1</strong>. If the judge cannot run the panel adds <em>10 example(s) could not be judged and are left out of the numbers</em> with the reason. Ten rows meet the numbers but not the lab's 30-row minimum: a readout, not a certification (the API run over all 50 certifies at 0.82 / 0.6365).",
       "asset": "Judge-vs-human alignment (agreement, Cohen's κ, FP/FN)",
       "assetlink": [
         {

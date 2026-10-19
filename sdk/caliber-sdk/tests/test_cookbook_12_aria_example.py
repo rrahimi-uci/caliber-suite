@@ -71,12 +71,53 @@ def test_the_lab_passes_against_a_server_that_follows_the_rules() -> None:
     assert "cookbook-12-viewer-unit" not in {j["name"] for j in fake.judges.values()}
 
 
-def test_a_real_provider_is_asked_to_score_every_row() -> None:
+def test_a_real_provider_scores_every_row_and_ask_aria_acts_inside_its_boundary() -> None:
     fake = FakeAria(simulated=False)
     lines: list[str] = []
     result = run_lab(fake, lines)
-    assert result["evaluation"] == "completed"
-    assert any("a real provider scored every row" in line for line in lines)
+    assert lines[-1] == "\nAll documented outcomes verified."
+    assert result["mode"] == "real"
+    grounded, careless = result["evaluation"]["grounded"], result["evaluation"]["careless"]
+    assert grounded["rows"] == careless["rows"] == 30
+    assert grounded["judge_rate"] > careless["judge_rate"] and result["evaluation"]["gap"] >= 0.2
+    assert grounded["judge_model"] == "deployment default"
+    # No refusal is checked on a real stack, and no evaluation call was refused.
+    assert not any("refused without a real model" in line for line in lines)
+    # Both answerer prompts exist for the run (the script's --cleanup deletes them).
+    assert set(result["prompts"]) == {
+        "cookbook-12-grounded-answer-unit",
+        "cookbook-12-careless-answer-unit",
+    }
+    assert set(result["chat"]) == {"acting", "reading", "engine"}
+    assert result["chat"]["acting"] == ["judge_list", "judge_create"]
+    assert result["chat"]["reading"] == ["judge_list"]
+    names = {j["name"] for j in fake.judges.values()}
+    assert "cookbook-12-chat-judge-unit" in names and "cookbook-12-chat-manual-unit" not in names
+    # The planner does not use the engine: the same 28 goals plan the same on the real tier.
+    assert any("28/28" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    ("bend", "failed_check"),
+    [
+        ("judge_blind", "the judge tells the two answerers apart"),
+        ("chat_always_acts", "is not offered: nothing was created"),
+    ],
+)
+def test_a_real_run_notices_a_judge_or_a_chat_that_breaks_a_rule(
+    bend: str, failed_check: str
+) -> None:
+    lines: list[str] = []
+    with pytest.raises(VerificationError):
+        run_lab(FakeAria(simulated=False, bend=bend), lines)
+    assert any(line.startswith("FAIL") and failed_check in line for line in lines)
+
+
+def test_a_simulated_stack_makes_no_real_calls() -> None:
+    fake = FakeAria()
+    run_lab(fake)
+    assert not any(call.startswith(("POST /assistant", "POST /prompts")) for call in fake.calls)
+    assert fake.evaluations == {} and fake.prompts == {}
 
 
 def test_the_goals_dataset_matches_the_planner_and_is_varied() -> None:
@@ -176,7 +217,7 @@ def test_main_runs_the_lab_and_cleans_up(
 ) -> None:
     fake = FakeAria()
     monkeypatch.setenv("CALIBER_BASE_URL", "https://caliber.test")
-    monkeypatch.setattr(lab, "env_client", lambda: fake.client(CaliberClient))
+    monkeypatch.setattr(lab, "env_client", lambda **_: fake.client(CaliberClient))
     monkeypatch.setattr(
         lab,
         "sign_in",
@@ -198,7 +239,7 @@ def test_main_runs_the_lab_and_cleans_up(
 
     assert lab.main(["--cleanup"]) == 0
     cleaned = json.loads(capsys.readouterr().out)
-    assert cleaned["judges"] >= 1 and cleaned["test_sets"] >= 2
+    assert cleaned["judges"] >= 1 and cleaned["test_sets"] >= 2 and cleaned["prompts"] == 0
     assert all(
         j["status"] == "archived"
         for j in fake.judges.values()
@@ -212,8 +253,26 @@ def test_main_reports_a_setup_problem_and_exits_nonzero(
     fake = FakeAria()
     fake.tokens["calpat_admin"] = "olga"  # the token belongs to a non-admin
     monkeypatch.setenv("CALIBER_BASE_URL", "https://caliber.test")
-    monkeypatch.setattr(lab, "env_client", lambda: fake.client(CaliberClient))
+    monkeypatch.setattr(lab, "env_client", lambda **_: fake.client(CaliberClient))
     monkeypatch.setattr(lab, "sign_in", lambda *_: "session-olga")
     monkeypatch.setattr(lab, "ensure_accounts", lambda *_: None)
     assert lab.main([]) == 1
     assert "VERIFICATION FAILED" in capsys.readouterr().err
+
+
+def test_cleanup_deletes_the_prompts_of_a_real_run() -> None:
+    fake = FakeAria(simulated=False)
+    run_lab(fake)
+    assert len(fake.prompts) == 2
+    cleaned = lab.cleanup(fake.client(CaliberClient))
+    assert cleaned["prompts"] == 2 and fake.prompts == {}
+
+
+def test_the_prompt_files_are_the_prompts_the_script_creates() -> None:
+    from examples.cookbooks._aria_lab import CARELESS_PROMPT, GROUNDED_PROMPT
+
+    grounded = (ASSETS / "prompts/grounded-answer.prompt.txt").read_text("utf-8").strip()
+    careless = (ASSETS / "prompts/careless-answer.prompt.txt").read_text("utf-8").strip()
+    assert grounded == GROUNDED_PROMPT and careless == CARELESS_PROMPT
+    # The grounded prompt fills the row's evidence; the careless one never sees it.
+    assert "{{ evidence }}" in grounded and "{{" not in careless

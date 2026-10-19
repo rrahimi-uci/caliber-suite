@@ -11,8 +11,13 @@ README.md) and prints the same values the README tells you to expect.
         -m examples.cookbooks.cookbook_13_aria_review_queue
 
 The server needs ``CALIBER_FEATURE_ARIA=true`` and ``CALIBER_OPERATOR_USERS=admin,olga``; the script
-also creates ``vera``, who is not an operator. Nothing here needs a model: Aria's planner is
-deterministic and a review queue is people's work.
+also creates ``vera``, who is not an operator. Nothing in the lab needs a model: Aria's planner is
+deterministic and a review queue is people's work. What a real provider adds is told apart by
+``GET /readiness``: on a stack started with
+``scripts/cookbook-env.sh up NAME --flags cookbooks,aria --real-llm`` the script also checks a real
+safety judge against the 12 human labels (agreement and kappa within ranges, never exact values)
+and checks the Ask Aria chat on both sides of its permission boundary; a few cents and about a
+minute. ``COOKBOOK_ARIA_HTTP_TIMEOUT`` (seconds, default 900) bounds one request.
 
 What it does, in order:
 
@@ -25,10 +30,12 @@ What it does, in order:
 3. Reviews 12 of the 30 (``REVIEWED_IDS``) as the person who owns the queue, with the human
    labels in the dataset, and
    checks that every answer landed on its trace as an assessment and became a labelled example for
-   judge alignment.
+   judge alignment. On a real stack a safety judge is then run against those 12 labels.
 4. Provokes the refusals: answers the queue's questions do not fit, a trace id that does not exist,
    a skipped producer step, a denied step, a malformed question schema, a taken name, an account
    without the operator scope, and an operator who cannot see a queue they do not own.
+5. Real stack only: Ask Aria's chat creates a review queue in a ``build`` / ``auto_all`` session and
+   is not offered the tool in the default session.
 
 ``--cleanup`` archives what earlier runs created.
 """
@@ -53,10 +60,13 @@ from examples.cookbooks._aria_lab import (
     Report,
     SetupError,
     VerificationError,
+    check_chat_boundary,
     check_goals_report,
     ensure_accounts,
     env_password,
     form_values,
+    http_timeout,
+    is_real,
     load_jsonl,
     pending,
     refused,
@@ -81,6 +91,10 @@ REPLIES_EXPECTED = 30
 #: The rows a person reviews by hand: clean replies, unsafe ones, wrong citations and bad tone.
 REVIEWED_IDS = ("R01", "R03", "R05", "R09", "R11", "R12", "R13", "R15", "R18", "R22", "R23", "R27")
 REVIEWED = len(REVIEWED_IDS)
+#: A real run: the safety judge against the 12 human labels. Typical observed values are higher
+#: (README); the bars only rule out a judge that is guessing or saying one thing about everything.
+MIN_AGREEMENT = float(os.environ.get("COOKBOOK_13_MIN_AGREEMENT", "0.75"))
+MIN_KAPPA = float(os.environ.get("COOKBOOK_13_MIN_KAPPA", "0.4"))
 FLAGGED_REASONS = {
     "thumbs_down",
     "latency_over_8s",
@@ -144,6 +158,8 @@ def run(
     queue_form = {**queue_spec, "name": queue_name}
 
     require_admin_and_aria(caliber)
+    real = is_real(caliber)
+    result["mode"] = "real" if real else "simulated"
     require_scopes(
         {"olga": operator, "vera": viewer},
         has={"olga": True, "vera": False},
@@ -270,6 +286,10 @@ def run(
         f"{sum(1 for v in by_trace.values() if v is False)} unsafe of {len(labels)}",
     )
     unsafe_seen = sum(1 for row in reviewed_rows if not row["review"]["safety"])
+    if real:
+        result["judge_alignment"] = _align_a_real_judge(
+            caliber, check, assets, labels, suffix=suffix
+        )
     result["review"] = {
         "reviewed": REVIEWED,
         "pending": REPLIES_EXPECTED - REVIEWED,
@@ -479,18 +499,117 @@ def run(
     )
     walk(caliber, own.plan.plan_id, [("input", "skip")])
 
+    # -- 6. Ask Aria's chat, on a real stack ------------------------------------------------------
+    if real:
+        result["chat"] = _chat_for_real(caliber, check, suffix)
+
     check.finish()
     return result
 
 
+def _align_a_real_judge(
+    caliber: CaliberClient,
+    check: Checks,
+    assets: Path,
+    labels: list[dict[str, Any]],
+    *,
+    suffix: str,
+) -> dict[str, Any]:
+    """Run a real safety judge over the 12 reviewed replies and compare it with the humans."""
+    spec = form_values(assets / "judges/reply-safety.judge.json")
+    judge = caliber.judges.create(
+        f"{NAME_PREFIX}{spec['name']}-{suffix}",
+        instructions=spec["instructions"],
+        feedback_value_type=spec["feedback_value_type"],
+    )
+    sendable = [{k: ex[k] for k in ("inputs", "outputs", "expectations", "label")} for ex in labels]
+    report = caliber.judges.alignment(judge.judge_id, examples=sendable)
+    per = report.per_example or []
+    judge_labels = [bool(r["judge_label"]) for r in per]
+    human_labels = [bool(r["human_label"]) for r in per]
+    agreed = sum(j == h for j, h in zip(judge_labels, human_labels, strict=True))
+    confusion = report.confusion or {}
+    check(
+        "the real judge scored all 12 reviewed replies (no row errored)",
+        report.n == REVIEWED and report.scored == REVIEWED and len(per) == REVIEWED,
+        f"n={report.n} scored={report.scored}",
+    )
+    check(
+        "the server's numbers are arithmetic over the labels: agreement and the confusion counts "
+        "add up",
+        report.agreement_rate is not None
+        and abs(agreed / REVIEWED - report.agreement_rate) < 5e-4
+        and sum(confusion.values()) == REVIEWED
+        and confusion.get("true_pos", 0) + confusion.get("false_neg", 0) == sum(human_labels),
+        confusion,
+    )
+    check(
+        f"the judge agrees with the reviewers: agreement >= {MIN_AGREEMENT:.0%}, kappa >= "
+        f"{MIN_KAPPA} (a judge that says one thing about everything has kappa 0)",
+        (report.agreement_rate or 0.0) >= MIN_AGREEMENT
+        and (report.cohen_kappa or 0.0) >= MIN_KAPPA,
+        f"agreement {report.agreement_rate}, kappa {report.cohen_kappa}",
+    )
+    caught = confusion.get("true_neg", 0)
+    unsafe = REVIEWED - sum(human_labels)
+    check(
+        "the judge flags at least half of the replies the reviewers called unsafe",
+        unsafe > 0 and caught * 2 >= unsafe,
+        f"{caught} of {unsafe}",
+    )
+    return {
+        "judge_id": judge.judge_id,
+        "n": report.n,
+        "agreement": report.agreement_rate,
+        "kappa": report.cohen_kappa,
+        "confusion": confusion,
+    }
+
+
+def _chat_for_real(caliber: CaliberClient, check: Checks, suffix: str) -> dict[str, Any]:
+    """Ask Aria (the chat, not the Plans page) acts in build / auto_all and only reads otherwise."""
+    acting = f"{NAME_PREFIX}chat-queue-{suffix}"
+    reading = f"{NAME_PREFIX}chat-manual-{suffix}"
+    spec = (
+        "with one pass_fail question: key safety, title 'Is the reply safe to send?'. "
+        "Then tell me its id."
+    )
+
+    def queue_names() -> set[str]:
+        return {q.name for q in caliber.review_queues.list()}
+
+    summary = check_chat_boundary(
+        caliber,
+        check,
+        tool="review_queue_create",
+        ask=f"Create a review queue named {acting} {spec}",
+        exists=lambda: acting in queue_names(),
+        absent_ask=f"Create a review queue named {reading} {spec}",
+        absent_exists=lambda: reading in queue_names(),
+    )
+    made = next((q for q in caliber.review_queues.list() if q.name == acting), None)
+    check(
+        "the chat's queue is active with the question that was asked for",
+        made is not None
+        and made.status == "active"
+        and [q["key"] for q in caliber.review_queues.get(made.queue_id).questions] == ["safety"],
+        made.queue_id if made else "",
+    )
+    return summary
+
+
 def cleanup(caliber: CaliberClient) -> dict[str, int]:
     """Archive the review queues earlier runs created (names start ``cookbook-13-``)."""
-    archived = 0
+    archived = {"review_queues": 0, "judges": 0}
     for queue in caliber.review_queues.list():
         if queue.name.startswith(NAME_PREFIX):
             caliber.review_queues.update(queue.queue_id, status="archived")
-            archived += 1
-    return {"review_queues": archived}
+            archived["review_queues"] += 1
+    for judge in caliber.judges.list():
+        if judge.name.startswith(NAME_PREFIX) and judge.status != "archived":
+            caliber.judges.update(judge.judge_id, status="archived")
+            archived["judges"] += 1
+    return archived
 
 
 def main(argv: list[str] | None = None) -> int:
@@ -501,7 +620,7 @@ def main(argv: list[str] | None = None) -> int:
     base_url = os.environ["CALIBER_BASE_URL"]
     password = env_password("COOKBOOK_ARIA_PASSWORD", DEFAULT_PASSWORD)
     opened: list[CaliberClient] = []
-    with env_client() as caliber:
+    with env_client(timeout=http_timeout()) as caliber:
         try:
             if args.cleanup:
                 print(json.dumps(cleanup(caliber), indent=2))

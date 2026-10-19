@@ -228,7 +228,10 @@ class FakeAria:
     ``bend`` makes the fake deviate from the rules in one named way, to prove a script reports the
     deviation instead of passing: ``"links_name"`` (a later step takes the earlier step's name),
     ``"stuck_skip"`` (skipping a step leaves its dependants waiting forever), ``"no_scope_floor"``
-    (a plan runs for an owner without the operator scope).
+    (a plan runs for an owner without the operator scope), and, on the real-provider tier,
+    ``"judge_blind"`` (the judge scores every answer the same) and ``"chat_always_acts"`` (Ask Aria
+    is offered the mutating tools in every session) and ``"judge_guesses"`` (the alignment judge
+    passes every reply).
     """
 
     def __init__(
@@ -256,6 +259,11 @@ class FakeAria:
         #: Whether the plan worker is running: it advances a parked plan whenever the plan is read.
         self.worker = True
         self.evaluations: dict[str, dict[str, Any]] = {}
+        #: Prompts (name -> version) and Ask Aria chat sessions (the real-provider tier).
+        self.prompts: dict[str, dict[str, Any]] = {}
+        self.sessions: dict[str, dict[str, Any]] = {}
+        #: Which rows a "grounded" answerer is judged unfaithful on (a real judge is noisy).
+        self.unfaithful_rows = 1
         self.tokens = {"calpat_admin": "admin", "session-olga": "olga", "session-vera": "vera"}
         self.plans: dict[str, dict[str, Any]] = {}
         self.steps: dict[str, list[dict[str, Any]]] = {}
@@ -300,6 +308,13 @@ class FakeAria:
         scopes = USERS[user]
         routes: list[tuple[str, str, Callable[..., httpx.Response]]] = [
             ("GET", r"/me", self.me),
+            ("GET", r"/readiness", self.readiness),
+            ("GET", r"/assistant/config", self.assistant_config),
+            ("POST", r"/assistant/sessions", self.create_session),
+            ("POST", r"/assistant/sessions/(?P<s>[^/]+)/messages", self.send_message),
+            ("GET", r"/prompts", self.list_prompts),
+            ("POST", r"/prompts", self.create_prompt),
+            ("DELETE", r"/prompts/(?P<n>[^/]+)", self.delete_prompt),
             ("GET", r"/aria/capabilities", self.capabilities),
             ("GET", r"/aria/plans", self.list_plans),
             ("POST", r"/aria/plans", self.create_plan),
@@ -314,6 +329,7 @@ class FakeAria:
             ("POST", r"/judges", self.create_judge),
             ("GET", r"/judges/(?P<j>[^/]+)", self.get_judge),
             ("PATCH", r"/judges/(?P<j>[^/]+)", self.update_judge),
+            ("POST", r"/judges/(?P<j>[^/]+)/alignment", self.judge_alignment),
             ("GET", r"/eval-datasets", self.list_datasets),
             ("POST", r"/eval-datasets", self.create_dataset),
             ("GET", r"/eval-datasets/(?P<d>[^/]+)", self.get_dataset),
@@ -890,12 +906,64 @@ class FakeAria:
                 "(openai/anthropic) and the matching API key, then retry.",
             )
         run_id = self.new("EVR")
+        rows = self.examples[body["dataset_id"]]
+        scorers = body.get("scorers") or []
+        judges = [name for name in scorers if name.startswith("Judge.")]
+        careless = "careless" in (body.get("subject_ref") or "")
+        results = []
+        for index, row in enumerate(rows):
+            scores: dict[str, float] = {name: 1.0 for name in scorers if name == "non_empty"}
+            for name in judges:  # a grounded answerer is faithful but for a row or so
+                blind = self.bend == "judge_blind"  # says the same thing about every answer
+                scores[name] = (
+                    0.0 if (careless and not blind) or index < self.unfaithful_rows else 1.0
+                )
+            results.append(
+                {
+                    "example_id": row["example_id"],
+                    "input": row["input"],
+                    "expected": row["expected"],
+                    "prediction": "an answer",
+                    "scores": scores,
+                    "error": None,
+                    "tags": row.get("tags", []),
+                }
+            )
+        aggregate = {
+            name: round(sum(r["scores"][name] for r in results) / max(len(results), 1), 4)
+            for name in scorers
+        }
         self.evaluations[run_id] = {
             "evaluation_id": run_id,
             "run_id": run_id,
             "dataset_id": body["dataset_id"],
+            "label": body.get("label"),
+            "predict_target": body.get("predict_target", "llm"),
+            "subject_ref": body.get("subject_ref"),
+            "scorers": scorers,
             "status": "completed",
-            "n_examples": len(self.examples[body["dataset_id"]]),
+            "n_examples": len(rows),
+            "aggregate": aggregate,
+            "overall_score": round(sum(aggregate.values()) / max(len(aggregate), 1), 4),
+            "results": results,
+            "evidence": {
+                "resolved": {
+                    "llm_provider": "openai",
+                    "model": "gpt-5.6-luna",
+                    "judges": {
+                        name: {
+                            "judge_id": name.removeprefix("Judge."),
+                            "model": None,
+                            "feedback_value_type": "bool",
+                        }
+                        for name in judges
+                    },
+                },
+                "slices": {
+                    tag: {"n_examples": sum(tag in row.get("tags", []) for row in rows)}
+                    for tag in sorted({t for row in rows for t in row.get("tags", [])})
+                },
+            },
         }
         return _envelope(self.evaluations[run_id], 201)
 
@@ -904,6 +972,105 @@ class FakeAria:
 
     def get_evaluation(self, *, e: str, **_: Any) -> httpx.Response:
         return _envelope(self.evaluations[e])
+
+    # -- readiness, prompts and Ask Aria's chat (the real-provider tier) -------------------------
+    def readiness(self, **_: Any) -> httpx.Response:
+        return _envelope(
+            {
+                "simulated": ["llm", "eval"] if self.simulated else [],
+                "all_real": not self.simulated,
+                "ready": True,
+            }
+        )
+
+    def assistant_config(self, **_: Any) -> httpx.Response:
+        return _envelope(
+            {
+                "engine": "fake" if self.simulated else "openai",
+                "model": "gpt-5.6-luna",
+                "configured": True,
+            }
+        )
+
+    def list_prompts(self, **_: Any) -> httpx.Response:
+        return _envelope([{"prompt_name": name, "version": 1} for name in self.prompts])
+
+    def create_prompt(self, *, body: dict[str, Any], **_: Any) -> httpx.Response:
+        self.prompts[body["name"]] = {"template": body["template"]}
+        return _envelope({"name": body["name"], "version": 1}, 201)
+
+    def delete_prompt(self, *, n: str, **_: Any) -> httpx.Response:
+        self.prompts.pop(n, None)
+        return _envelope({"deleted": True})
+
+    def create_session(
+        self, *, body: dict[str, Any], user: str, scopes: set[str], **_: Any
+    ) -> httpx.Response:
+        if (denied := self.require(scopes)) is not None:
+            return denied
+        session_id = self.new("ASST")
+        self.sessions[session_id] = {
+            "session_id": session_id,
+            "owner": user,
+            "mode": body.get("mode", "build"),
+            "approval_mode": body.get("approval_mode", "manual"),
+        }
+        return _envelope(self.sessions[session_id], 201)
+
+    def send_message(
+        self, *, s: str, body: dict[str, Any], user: str, scopes: set[str], **_: Any
+    ) -> httpx.Response:
+        """A chat turn. The model's tools are the read ones, and the mutating ones only in a
+        ``build`` session with ``auto_all`` / ``full_autonomy`` approval (the real toolset's
+        rule; ``bend="chat_always_acts"`` offers them everywhere)."""
+        if (denied := self.require(scopes)) is not None:
+            return denied
+        session = self.sessions[s]
+        acts = self.bend == "chat_always_acts" or (
+            session["mode"] == "build" and session["approval_mode"] in ("auto_all", "full_autonomy")
+        )
+        calls: list[dict[str, Any]] = [{"name": "judge_list", "arguments": {}, "ok": True}]
+        text = "I can list judges but not create them."
+        named = re.search(r"judge named (\S+)", body["content"])
+        instructions = re.search(r"instructions: (.+?)(?: Then| Tell|$)", body["content"])
+        if acts and named and instructions:
+            made = self._store_judge(
+                {
+                    "name": named.group(1),
+                    "instructions": instructions.group(1),
+                    "feedback_value_type": "bool",
+                },
+                user,
+            )
+            calls.append(
+                {"name": "judge_create", "arguments": {"name": named.group(1)}, "ok": True}
+            )
+            text = f"Created judge {made['judge_id']}."
+        queue = re.search(
+            r"review queue named (\S+) with one pass_fail question: key (\w+)", body["content"]
+        )
+        if acts and queue:
+            made_queue = self._store_queue(
+                {
+                    "name": queue.group(1),
+                    "questions": [
+                        {"key": queue.group(2), "title": "Is the answer faithful to the policy?"}
+                    ],
+                },
+                user,
+            )
+            calls.append(
+                {"name": "review_queue_create", "arguments": {"name": queue.group(1)}, "ok": True}
+            )
+            text = f"Created queue {made_queue['queue_id']}."
+        return _envelope(
+            {
+                "assistant_message": {"content": text},
+                "tool_calls": calls,
+                "run": {"engine": "OpenAIAssistantEngine", "status": "completed"},
+            },
+            201,
+        )
 
     # -- accounts -----------------------------------------------------------------------------
     def list_accounts(self, **_: Any) -> httpx.Response:
@@ -1176,10 +1343,45 @@ class FakeAria:
         )
         return _envelope(item)
 
+    def judge_alignment(self, *, body: dict[str, Any], **_: Any) -> httpx.Response:
+        """A real judge agrees with the reviewers but for one reply it passes that they failed
+        (``bend="judge_guesses"``: it passes everything, which has kappa 0)."""
+        humans = [bool(example["label"]) for example in body["examples"]]
+        judged = [True] * len(humans) if self.bend == "judge_guesses" else list(humans)
+        if self.bend != "judge_guesses" and True in humans:
+            judged[humans.index(True)] = False  # one false negative
+        n = len(humans)
+        confusion = {
+            "true_pos": sum(j and h for j, h in zip(judged, humans, strict=True)),
+            "false_pos": sum(j and not h for j, h in zip(judged, humans, strict=True)),
+            "true_neg": sum(not j and not h for j, h in zip(judged, humans, strict=True)),
+            "false_neg": sum(not j and h for j, h in zip(judged, humans, strict=True)),
+        }
+        agreement = (confusion["true_pos"] + confusion["true_neg"]) / n
+        p_judge, p_human = sum(judged) / n, sum(humans) / n
+        chance = p_judge * p_human + (1 - p_judge) * (1 - p_human)
+        kappa = 0.0 if chance == 1 else (agreement - chance) / (1 - chance)
+        return _envelope(
+            {
+                "n": n,
+                "scored": n,
+                "agreement_rate": round(agreement, 4),
+                "cohen_kappa": round(kappa, 4),
+                "confusion": confusion,
+                "per_example": [
+                    {"human_label": h, "judge_label": j, "agree": h == j}
+                    for j, h in zip(judged, humans, strict=True)
+                ],
+            }
+        )
+
     def alignment_examples(self, *, q: str, request: httpx.Request, **_: Any) -> httpx.Response:
         key = request.url.params["question_key"]
         examples = [
             {
+                "inputs": {"trace_id": item["trace_id"], "request": "{}"},
+                "outputs": "the reply",
+                "expectations": {},
                 "label": item["answers"][key],
                 "provenance": {"trace_id": item["trace_id"], "item_id": item["item_id"]},
             }

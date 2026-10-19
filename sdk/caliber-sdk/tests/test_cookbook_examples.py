@@ -113,6 +113,8 @@ def _stub_01(
     weak_keeps_json: bool = False,
     eval_error: str | None = None,
     real_job: str = "candidate_ready",
+    noop_candidate: bool = False,
+    v2_pass_rate: tuple[float, float] | None = None,
     seen: dict[str, Any] | None = None,
 ) -> CaliberClient:
     """A server for Cookbook 01, with the stateful bits (alias, applied jobs) the script checks.
@@ -120,8 +122,10 @@ def _stub_01(
     ``llm_simulated=False`` is a stack with a real model. ``weak_keeps_json`` makes the weaker v2
     still answer with a bare JSON record, as a real instruction-tuned model does (a stand-in model
     does not). ``eval_error`` makes every scored run fail the way the server reports it (201 with
-    ``status: failed``). ``real_job`` is how a real calibration run ends. ``seen`` collects the
-    calibration requests.
+    ``status: failed``). ``real_job`` is how a real calibration run ends. ``noop_candidate``
+    makes the optimizer return the live prompt unchanged (``+0 / -0 lines``), as a strong hosted
+    model did. ``v2_pass_rate`` overrides the (v1, v2) pass rates a real model scores. ``seen``
+    collects the calibration requests.
     """
     n = _dataset_rows_01()
     seen = seen if seen is not None else {}
@@ -157,7 +161,9 @@ def _stub_01(
         strong = body["subject_ref"].endswith("@1")
         keeps_json = strong or weak_keeps_json
         prediction = jsonlib.dumps(record) if keeps_json else "Sure!\n```json\n{}\n```"
-        if weak_keeps_json:
+        if v2_pass_rate is not None:
+            pass_rate, f1 = (v2_pass_rate[0], 0.4) if strong else (v2_pass_rate[1], 0.4)
+        elif weak_keeps_json:
             pass_rate, f1 = (0.2, 0.43) if strong else (0.02, 0.35)
         else:
             pass_rate, f1 = (0.77, 0.54) if strong else (0.0, 0.27)
@@ -185,11 +191,22 @@ def _stub_01(
                 "status": "failed",
                 "error_message": "eval provider error: no valid score for Guidelines",
             }
+        if not llm_simulated and real_job == "rejected_bare":
+            return {"job_id": job_id, "status": "rejected", "error_message": ""}
         if not llm_simulated and real_job == "rejected":
             return {
                 "job_id": job_id,
                 "status": "rejected",
                 "error_message": "regression gate failed: overall 0.568 below min_aggregate_score",
+                "eval_results": {
+                    "provider": "mlflow",
+                    "simulated": False,
+                    "n_examples": n,
+                    "gate": {
+                        "passed": False,
+                        "reasons": ["overall 0.568 below min_aggregate_score 0.850"],
+                    },
+                },
             }
         evidence = (
             {"provider": "fake", "simulated": True}
@@ -205,9 +222,9 @@ def _stub_01(
             "job_id": job_id,
             "status": "applied" if job_id in applied else "candidate_ready",
             "candidate": {
-                "content": "new",
+                "content": "old" if noop_candidate else "new",
                 "baseline_content": "old",
-                "diff_summary": "+3 / -0 lines",
+                "diff_summary": "+0 / -0 lines" if noop_candidate else "+3 / -0 lines",
             },
             "eval_results": {
                 "n_examples": n,
@@ -397,6 +414,55 @@ def test_cookbook_01_real_model_loop_asserts_invariants_not_values(
     assert registry["prod"] == 1  # rolled back
 
 
+def test_cookbook_01_real_model_tolerates_an_unchanged_candidate_and_a_noisy_scorecard(
+    monkeypatch: pytest.MonkeyPatch, capsys: pytest.CaptureFixture[str]
+) -> None:
+    """A strong hosted model: the optimizer may propose no edit (+0 / -0 lines), and v2 may score
+    a row or two above v1 on the text-overlap scorecard. Neither is a failure; a clear win for v2
+    (more than the noise margin) still is."""
+    monkeypatch.delenv("COOKBOOK_01_MIN_SCORE", raising=False)
+    monkeypatch.delenv("COOKBOOK_01_MAX_REGRESSION", raising=False)
+    registry = {"prod": 1}
+    with _stub_01(
+        llm_simulated=False,
+        registry=registry,
+        noop_candidate=True,
+        v2_pass_rate=(0.0227, 0.0455),  # v2 one row better: inside the noise margin
+    ) as caliber:
+        result = run_01(
+            caliber, suffix="t", registry=lambda name: registry["prod"], poll_interval=0.01
+        )
+    out = capsys.readouterr().out
+    assert "ok   the optimizer returned a candidate  [+0 / -0 lines]" in out
+    assert "info the optimizer proposed no edit" in out
+    assert "the candidate differs from the live prompt" not in out
+    assert all(result["checks"].values())
+
+
+def test_cookbook_01_real_model_where_v2_clearly_beats_v1_fails_the_scorecard_check(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from examples.cookbooks.cookbook_01_trustworthy_intake_classifier import (
+        LabVerificationError,
+    )
+
+    registry = {"prod": 1}
+    with (
+        _stub_01(llm_simulated=False, registry=registry, v2_pass_rate=(0.1, 0.4)) as caliber,
+        pytest.raises(LabVerificationError, match="the weaker v2 does not beat the baseline"),
+    ):
+        run_01(
+            caliber,
+            suffix="t",
+            registry=lambda name: registry["prod"],
+            poll_interval=0.01,
+            skip_release=True,
+        )
+    assert (
+        "FAIL the weaker v2 does not beat the baseline on the scorecard" in capsys.readouterr().out
+    )
+
+
 def test_cookbook_01_real_model_without_gate_overrides_uses_the_product_gate(
     monkeypatch: pytest.MonkeyPatch,
 ) -> None:
@@ -477,6 +543,55 @@ def test_cookbook_01_real_calibration_rejected_by_the_gate_is_reported(
     assert registry["prod"] == 1  # nothing was applied
 
 
+def test_cookbook_01_accepts_an_honest_real_rejection_when_asked(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """``--accept-rejection``: a real rejection with a reason and real evidence is a verified
+    outcome (exit 0, nothing applied), not a failure."""
+    registry = {"prod": 1}
+    with _stub_01(llm_simulated=False, registry=registry, real_job="rejected") as caliber:
+        result = run_01(
+            caliber,
+            suffix="t",
+            registry=lambda name: registry["prod"],
+            poll_interval=0.01,
+            calibration_timeout=5,
+            accept_rejection=True,
+        )
+    out = capsys.readouterr().out
+    assert "ok   a rejected candidate cannot be applied (409)" in out
+    assert "ok   the gate rejected the candidate and says why" in out
+    assert "ok   the rejection rests on real evidence" in out
+    assert "calibration reached candidate_ready" not in out
+    assert result["rejected"] is True
+    assert "min_aggregate_score" in result["rejection"]
+    assert registry["prod"] == 1  # nothing was applied
+
+
+def test_cookbook_01_accepting_a_rejection_still_requires_it_to_be_explained_and_real(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """The flag does not turn a rejection without evidence into a pass."""
+    from examples.cookbooks.cookbook_01_trustworthy_intake_classifier import (
+        LabVerificationError,
+    )
+
+    registry = {"prod": 1}
+    with (
+        _stub_01(llm_simulated=False, registry=registry, real_job="rejected_bare") as caliber,
+        pytest.raises(LabVerificationError, match="the gate rejected the candidate and says why"),
+    ):
+        run_01(
+            caliber,
+            suffix="t",
+            registry=lambda name: registry["prod"],
+            poll_interval=0.01,
+            calibration_timeout=5,
+            accept_rejection=True,
+        )
+    assert "FAIL the rejection rests on real evidence" in capsys.readouterr().out
+
+
 def test_cookbook_01_real_calibration_failure_is_reported_with_the_job_error(
     capsys: pytest.CaptureFixture[str],
 ) -> None:
@@ -552,7 +667,10 @@ def test_cookbook_02_runs_the_skill_lab_end_to_end() -> None:
     assert report["round2"]["accuracy"] == 1.0
     assert report["render"]["unresolved"] == []
     assert report["render"]["partial_unresolved"] == ["policy_context", "user_message"]
+    assert report["mode"] == "simulated"
     assert report["calibration"]["simulated"] is True and report["calibration"]["n_examples"] == 0
+    assert "no_test_set" not in report["failures"]
+    assert server.datasets == {}, "the simulated tier needs no test set"
     assert report["versions"]["history"] == [3, 2, 1]
     assert report["package"]["decisions_differing_after_metadata_restored"] == []
     assert report["package"]["decisions_differing_before_metadata_restored"]
@@ -574,6 +692,70 @@ def test_cookbook_02_runs_the_skill_lab_end_to_end() -> None:
     ]
     positions = [calls.index(call) for call in ordered]
     assert positions == sorted(positions)
+
+
+def _run_02_real(**fake_options: Any) -> tuple[Any, dict[str, Any]]:
+    from cookbook_02_fake_server import FakeSkillServer
+
+    server = FakeSkillServer(load_cases(assets_dir()), real=True, **fake_options)
+    caliber = server.client(CaliberClient)
+    viewer = FakeSkillServer(load_cases(assets_dir()), viewer=True).client(CaliberClient)
+    with caliber, viewer:
+        return server, run_02(caliber, viewer=viewer, skill_name="support-tone-and-citation-test")
+
+
+def test_cookbook_02_on_a_real_stack_asserts_invariants_of_the_test_set_calibration() -> None:
+    """With real providers the script imports the 8-row test set, calibrates against it and asserts
+    invariants (not generated text or scores); a calibration with no test set must fail."""
+    pytest.importorskip("yaml", reason="the lab reads the skill's YAML frontmatter")
+    server, report = _run_02_real()
+
+    assert report["verified"] is True and report["mode"] == "real"
+    calibration = report["calibration"]
+    assert calibration["simulated"] is False and calibration["provider"] == "mlflow"
+    assert calibration["n_examples"] == 8 and calibration["attempts"] == 1
+    assert 0 <= calibration["candidate_overall"] <= 1
+    assert report["versions"]["history"] == [3, 2, 1]
+    # the main skill, the no-baseline skill and the no-test-set run each calibrated once or more
+    assert report["failures"]["no_test_set"]["status"] == "failed"
+    assert report["failures"]["no_baseline"]["status"] == "candidate_ready"
+    assert report["failures"]["no_baseline"]["baseline_run_id"] is None
+    assert [len(rows) for rows in server.datasets.values()] == [8]
+
+
+def test_cookbook_02_real_calibration_is_retried_when_the_gate_rejects_it() -> None:
+    pytest.importorskip("yaml", reason="the lab reads the skill's YAML frontmatter")
+    _, report = _run_02_real(rejections=2)
+
+    assert report["verified"] is True
+    assert report["calibration"]["attempts"] == 3
+
+
+def test_cookbook_02_real_calibration_that_keeps_failing_is_reported() -> None:
+    pytest.importorskip("yaml", reason="the lab reads the skill's YAML frontmatter")
+    with pytest.raises(AssertionError, match=r"rejected.*3 attempt"):
+        _run_02_real(rejections=9)
+
+
+def test_cookbook_02_real_evidence_that_claims_to_be_simulated_is_refused() -> None:
+    from types import SimpleNamespace
+
+    from examples.cookbooks.cookbook_02_precision_skills import real_evidence
+
+    job = SimpleNamespace(
+        candidate={},
+        eval_results={
+            "simulated": True,
+            "provider": "fake",
+            "n_examples": 8,
+            "eval_dataset_id": "ED-1",
+            "candidate": {"overall": 0.9, "dimensions": {}},
+            "baseline": {"overall": 0.9, "dimensions": {}},
+            "gate": {"passed": True},
+        },
+    )
+    with pytest.raises(AssertionError):
+        real_evidence(job, "ED-1", 8)
 
 
 def _lab09(**fake_options: Any) -> tuple[Any, Any]:
@@ -744,7 +926,9 @@ def test_cookbook_10_certifies_one_judge_and_rejects_another() -> None:
 def test_cookbook_10_cleanup_archives_what_it_created() -> None:
     server, caliber, trace_ids = _lab10()
     with caliber:
-        result = run_10(caliber, trace_ids=trace_ids, suffix="c", cleanup=True)
+        result = run_10(
+            caliber, trace_ids=trace_ids, suffix="c", expect_stand_in=True, cleanup=True
+        )
     assert result["archived"] == {"datasets": 2, "judges": 2, "queues": 1, "prompts": 1}
     assert sorted(server.archived) == sorted(
         ["ED-1", "ED-2", "JDG-1", "JDG-2", "RVQ-1", "grounded-reply-c"]
@@ -787,27 +971,57 @@ def test_cookbook_10_fails_loudly_when_a_documented_outcome_does_not_hold() -> N
     with caliber, pytest.raises(VerificationError):
         run_10(caliber, trace_ids=trace_ids, suffix="x", expect_stand_in=True)
 
-    # Without the pins the same judge is simply reported, and rejected on the lab's thresholds.
+    # With a real model nothing is pinned, but a "strict" judge that agrees with people no more than
+    # the deliberately lenient one is not a judge the lab can use: that is an invariant, not a pin.
     _, caliber, trace_ids = _lab10(server_cls=AlwaysPasses)
+    with caliber, pytest.raises(VerificationError, match="not above the lenient"):
+        run_10(caliber, trace_ids=trace_ids, suffix="y")
+
+
+def test_cookbook_10_real_model_tier_asserts_invariants_not_numbers() -> None:
+    """Without ``--expect-stand-in`` the script treats the model as a real one: the candidate is
+    given the evidence (a prompt slot and a copy of the test set whose rows carry it), and only
+    ranges and orderings are asserted. The fake applies the stand-in's rules, which satisfy them."""
+    server, caliber, trace_ids = _lab10()
     with caliber:
-        result = run_10(caliber, trace_ids=trace_ids, suffix="y")
-    assert result["alignment"]["faithfulness"]["decision"] == "REJECTED"
+        result = run_10(caliber, trace_ids=trace_ids, suffix="r", cleanup=True)
+
+    assert result["mode"] == "real model" and result["result"] == "verified"
+    # the plain set, the grounded copy, and the empty set the script refuses to evaluate
+    assert result["archived"] == {"datasets": 3, "judges": 2, "queues": 1, "prompts": 1}
+    assert server.prompts["grounded-reply-r"].endswith("{{ evidence }}\n")
+    by_name = {d["name"]: server.examples[d["dataset_id"]] for d in server.datasets.values()}
+    plain_rows = by_name["judge-certification-set-r"]
+    with_evidence = by_name["judge-certification-grounded-r"]
+    # 50 rows each; the plain set then took the nine disagreements back as hard cases
+    assert len(plain_rows) == 50 + result["feedback"]["hard_cases_added"]
+    assert len(with_evidence) == 50
+    assert all("evidence" not in e["input"] for e in plain_rows)
+    assert all(e["input"]["evidence"] for e in with_evidence)
+    first = with_evidence[0]["input"]
+    assert "cancel_date: June 2" in first["evidence"] and "decision" not in first["evidence"]
+    runs = result["evaluations"]
+    assert runs["candidate"]["contains_expected"] > runs["baseline"]["contains_expected"]
+    assert (
+        result["alignment"]["faithfulness"]["agreement"]
+        > result["alignment"]["lenient"]["agreement"]
+    )
 
 
-def test_cookbook_10_names_the_providers_refusal_when_a_real_key_is_rejected() -> None:
-    """A real provider that refuses the key leaves the run `failed` with the provider's message;
-    the script must stop and say so, not report a bare status (observed on a real stack)."""
+def test_cookbook_10_real_model_tier_fails_when_the_candidate_gains_nothing() -> None:
+    """If giving the candidate the evidence does not make it state the expected fact more often than
+    the baseline, the real-model tier must fail rather than report a comparison with no signal."""
     from cookbook_10_fake_server import FakeLabServer
 
     from examples.cookbooks.cookbook_10_trustworthy_evaluation import VerificationError
 
-    class BadKey(FakeLabServer):
-        def __init__(self, rows: list[dict[str, Any]], *, simulated: bool = False) -> None:
-            super().__init__(rows, simulated=simulated, rejected_key=True)
+    class IgnoresEvidence(FakeLabServer):
+        def _reply(self, source: dict[str, Any], example: dict[str, Any], candidate: bool) -> str:
+            return super()._reply(source, example, False)
 
-    _, caliber, trace_ids = _lab10(server_cls=BadKey)
-    with caliber, pytest.raises(VerificationError, match=r"baseline run is failed: .*401"):
-        run_10(caliber, trace_ids=trace_ids, suffix="k")
+    _, caliber, trace_ids = _lab10(server_cls=IgnoresEvidence)
+    with caliber, pytest.raises(VerificationError, match="states the expected fact"):
+        run_10(caliber, trace_ids=trace_ids, suffix="i")
 
 
 @pytest.mark.parametrize(

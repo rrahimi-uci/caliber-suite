@@ -10,8 +10,19 @@ Concrete files for [the recipe](../README.md). All of them are read by the examp
 | 3 | The 40-case trigger test set | [`dataset/trigger-cases.jsonl`](dataset/trigger-cases.jsonl) | `POST /skills/{id}/test-selection` per row (UI: Trigger Tests, or Scenario Sets then Run) |
 | 4 | Render variables, and a partial set | [`dataset/render-vars.json`](dataset/render-vars.json) | `Skills > <skill> > Render Preview`, or `POST /skills/{id}/test-render` |
 | 5 | Invalid skill payloads and the reason each must be refused | [`skills/invalid-skills.json`](skills/invalid-skills.json) | `POST /skills` (the failure path) |
+| 6 | The skill's **test set** (real provider only): 8 support-reply cases `{id, tags, input: {user_message, audience, policy_context}, expected: {behavior}}` | [`dataset/skill-eval-cases.jsonl`](dataset/skill-eval-cases.jsonl) | Test Sets (UI, one row at a time) or `POST /eval-datasets` + `POST /eval-datasets/{id}/examples`; then `POST /skills/{id}/calibrate {eval_dataset_id}` |
+| 7 | The note that tells a real calibration what to fix | [`skills/calibration-notes.txt`](skills/calibration-notes.txt) | `notes` of `POST /skills/{id}/calibrate`, or the **What should change** box next to Calibrate |
 
-There is **no `judges/` folder**: skill trigger quality is graded by a deterministic selector, not a judge.
+There is **no `judges/` folder**: skill trigger quality is graded by a deterministic selector, not a judge. (On a real stack a calibration is scored by the evaluator's built-in scorers
+(correctness, relevance, safety) against the test set in row 6; no judge asset is needed.)
+
+## Skill test set (`dataset/skill-eval-cases.jsonl`, real provider only)
+
+Eight customer-facing cases, each with the three template variables the skill renders (`user_message`, `audience`, `policy_context`) and the behaviour a good reply shows
+(`expected.behavior`): an approved refund with its KB id, a ticket with no policy at all (escalate, cite nothing), an under-review delay (no date), a suspected takeover
+(escalate without naming a team), a technical audience, a denial, contradictory policy (escalate) and a data export. The evaluator uses the skill as the system instruction and the
+case as the user turn, and scores correctness against `behavior`. It is deliberately small (cost); a single flipped row moves a score by 0.125, which is why the regression gate can
+reject a candidate on a rerun.
 
 ## Trigger cases (`dataset/trigger-cases.jsonl`)
 

@@ -29,6 +29,11 @@ case so the next calibration sees it.
 - nine disagreements are added back to the test set (version 60), and five rows alone are shown to be
   too few to certify.
 
+That is the **offline** tier (the stand-in model). The **verified** tier is a real provider, which this lab has also been
+run against ([Run it with a real provider](#run-it-with-a-real-provider)): there the numbers are your judge's and differ from run
+to run, and the lab asserts invariants instead (the strict judge agrees with people more than the lenient one, the lenient one
+is never certified, a candidate given the evidence states the expected fact far more often than a baseline that is not).
+
 ## Prerequisites and setup
 
 You need a running CALIBER ([`docs/start/alpha-install.md`](../../../docs/start/alpha-install.md)), an
@@ -47,10 +52,10 @@ simulated stack can still prove, and what needs a model:
 | --- | --- | --- | --- |
 | Test set import, versions, judge create and template validation | verified | verified | verified |
 | Traces, review queue, label write-back, **Import labels** | verified | verified | verified |
-| Evaluations (per-row scorecard, baseline vs candidate) | refused (400), verified as a refusal | runs, wiring verified | runs |
-| Judge verdicts and **Check alignment** metrics | every row errors (`scored` 0), verified as a refusal | runs; the arithmetic over the supplied labels is real | runs; the numbers are your judge's |
-| Whether `FaithfulnessJudge` is actually a good judge | not shown | **not shown** | the point of the lab |
-| Calibration job on the test set | runs; the score is canned and marked simulated | not run | runs |
+| Evaluations (per-row scorecard, baseline vs candidate) | refused (400), verified as a refusal | runs, wiring verified | **verified**: 50 rows, per-row scores, candidate far above baseline when it is given the evidence |
+| Judge verdicts and **Check alignment** metrics | every row errors (`scored` 0), verified as a refusal | runs; the arithmetic over the supplied labels is real | **verified**: `scored` 50 of 50, the server's agreement, kappa and confusion recomputed independently; the numbers are your judge's and vary |
+| Whether `FaithfulnessJudge` is actually a good judge | not shown | **not shown** | the point of the lab: **verified** (3 runs, below). It sits on the certification threshold: certified twice, rejected once |
+| Calibration job on the test set | runs; the score is canned and marked simulated | not run | not run in this lab (its cost is the evaluation's; see [`calibration.md`](../../../docs/use/calibration.md)) |
 
 The **stand-in model** (`assets/stand-in-model/stand_in_model_server.py`) is a scripted
 OpenAI-compatible server. CALIBER's own code is all real against it (MLflow `make_judge`, the
@@ -77,9 +82,9 @@ CALIBER_LLM_PROVIDER=openai CALIBER_EVAL_PROVIDER=mlflow OPENAI_API_KEY=stand-in
 source .tmp/cookbook-env/lab10m/env.sh
 ```
 
-For a real provider follow "Real LLM and evaluation" in `alpha-install.md` (`CALIBER_LLM_PROVIDER=openai`,
-your key, `CALIBER_EVAL_PROVIDER=mlflow`) and also set `CALIBER_FEATURE_COOKBOOKS=true`. Check which kind
-of stack you have:
+For a real provider use `--real-llm` ([Run it with a real provider](#run-it-with-a-real-provider) has the exact
+command) or follow "Real LLM and evaluation" in `alpha-install.md` and also set `CALIBER_FEATURE_COOKBOOKS=true`.
+Check which kind of stack you have:
 
 ```bash
 curl -s $CALIBER_URL/ajax-api/2.0/mlflow/caliber/readiness | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["simulated"])'
@@ -139,6 +144,7 @@ file. Each appended example is a new dataset version, so 50 rows is version 51.
 | `COOKBOOK_10_ASSETS` | the repo's `assets/` | optional: another copy of the assets |
 | `CALIBER_LAB_BASE_URL` | `$CALIBER_URL/caliber` | the UI spec's server |
 | `CALIBER_LAB10_MODEL` | `stand-in` (default), `real`, `simulated` | which kind of server the UI spec is told it has |
+| `OPENAI_API_KEY` (real tier) | your key | read by `scripts/cookbook-env.sh up --real-llm` from your shell, else from the repository-root `.env`; never written to the state directory or the logs |
 | `CALIBER_LAB_PYTHON` | the dev venv's python | the UI spec runs `seed_traces.py` with it |
 
 The lab's certification policy (constants in the script, mirrored in `verification.yaml`):
@@ -153,7 +159,7 @@ root, with the environment above:
 ```bash
 # With a model behind the server (the stand-in): pin the exact numbers
 PYTHONPATH=sdk/caliber-sdk python sdk/caliber-sdk/examples/cookbooks/cookbook_10_trustworthy_evaluation.py --expect-stand-in
-# With a real provider: same command without --expect-stand-in (the numbers are your judge's)
+# With a real provider: same command without --expect-stand-in (the numbers are your judge's; see "Run it with a real provider")
 # On the simulated default: the same command; it detects the stack and verifies the refusals instead
 ```
 
@@ -241,6 +247,91 @@ Behind the script, the calls (use them directly if you prefer `curl`; `$B` as ab
 | feed back | `POST /eval-datasets/{id}/examples` with the row's `input`, `expected`, and the tag `judge-disagreement` |
 | calibrate | `POST /prompts/calibration/runs {"agent_id", "eval_dataset_id", "optimizer_type", "scorers"}` |
 
+## Run it with a real provider
+
+This is the verified tier: every step below was run against a stack with OpenAI behind both the answers and the judge (model
+`gpt-5.6-luna`, the product default), through the API script three times and through the browser spec.
+
+**Start it.** You need an OpenAI key. Export your own; the helper reads `OPENAI_API_KEY` from your shell (else from a repository-root `.env`) and
+never prints or stores it. Calls cost money: a full run is about 350 model calls (100 answers, 100 judged rows, 155 alignment verdicts).
+
+```bash
+export OPENAI_API_KEY=...          # your key; never commit it
+scripts/cookbook-env.sh up lab10h --flags cookbooks --real-llm
+source .tmp/cookbook-env/lab10h/env.sh
+curl -s $CALIBER_API/readiness | python3 -c 'import json,sys; print(json.load(sys.stdin)["data"]["simulated"])'   # []
+```
+
+Create the token as in Setup, then run the same script without `--expect-stand-in`:
+
+```bash
+PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_10_trustworthy_evaluation.py --cleanup
+# UI: cd caliber/caliber-ui && CALIBER_LAB10_MODEL=real CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/10-judge-certification.spec.ts
+```
+
+**What changes against the other tiers.** Evaluations run instead of answering `400`; the judge returns a verdict for every row (`scored` 50 of 50); and nothing
+is pinned, because a model's answers and verdicts differ from run to run. Two things are different on purpose:
+
+- **The candidate is given the evidence.** In the test set the evidence is in `expected`, which only the graders see. A live model that is shown just the ticket cannot state
+  `two charges of $20 posted on the same day`, so a first real run scored the baseline and the candidate alike (Contains expected 0.08 and 0.08, judge 0.08 and 0.06): no candidate
+  prompt could have won. The real tier therefore runs the candidate on a copy of the 50 rows whose input also carries `evidence` (the facts, without the grader's `expected` and `decision`),
+  with the prompt extended by `Evidence you may use: {{ evidence }}`. The baseline still sees the ticket alone. That makes the comparison a real one: does grounding help.
+- **What is asserted.** Ranges and orderings, not values: scores in 0 to 1; the candidate's Contains-expected rate at least 0.10 above the baseline's; for both judges `scored` = 50 and the server's
+  agreement, kappa and confusion equal the script's independent recomputation; the strict judge's agreement above the lenient judge's; the lenient judge not certified.
+
+**Real results** (run B of three; ids and values will vary; trimmed):
+
+```json
+{
+  "mode": "real model",
+  "evaluations": {
+    "baseline":  {"overall": 0.4,  "pass_rate": 0.2,  "non_empty": 1.0, "contains_expected": 0.08, "judge": 0.12},
+    "candidate": {"overall": 0.78, "pass_rate": 0.98, "non_empty": 1.0, "contains_expected": 0.82, "judge": 0.52},
+    "delta_overall": 0.38
+  },
+  "alignment": {
+    "faithfulness": {"agreement": 0.84, "kappa": 0.686, "n": 50, "scored": 50, "decision": "CERTIFIED",
+      "confusion": {"true_pos": 19, "false_pos": 0, "true_neg": 23, "false_neg": 8},
+      "disagreements": ["J05", "J07", "J08", "J21", "J36", "J40", "J42", "J43"]},
+    "lenient": {"agreement": 0.58, "kappa": 0.0933, "decision": "REJECTED",
+      "confusion": {"true_pos": 27, "false_pos": 21, "true_neg": 2, "false_neg": 0}},
+    "rationale_leak": {"agreement": 0.84, "kappa": 0.686},
+    "too_few_rows": {"n": 5, "agreement": 0.8, "kappa": 0.5455, "decision": "NOT_CERTIFIABLE"}
+  },
+  "feedback": {"hard_cases_added": 8, "dataset_version": 59},
+  "result": "verified"
+}
+```
+
+**Three runs, side by side** (A used the first version of this tier, whose candidate was not given the evidence, so only its judge columns compare):
+
+| | A | B | C |
+| --- | --- | --- | --- |
+| `FaithfulnessJudge` agreement, kappa | 0.80, 0.61 | 0.84, 0.686 | 0.76, 0.532 |
+| false positives, false negatives | 0, 10 | 0, 8 | 1, 11 |
+| decision | CERTIFIED (on the bars exactly) | CERTIFIED | **REJECTED** |
+| `LenientJudge` agreement, kappa | 0.58, 0.0933 | 0.58, 0.0933 | 0.58, 0.0933 |
+| baseline: Contains expected, judge | 0.08, 0.08 | 0.08, 0.12 | 0.08, 0.06 |
+| candidate: Contains expected, judge | 0.08, 0.06 (no evidence) | 0.82, 0.52 | 0.88, 0.46 |
+| disagreements added back | 10 | 8 | 12 |
+| wall time | 18 min | 18 min | 6 min |
+
+Read it like this:
+
+- **The lenient judge is deterministic in effect.** It passes everything well formed, so its numbers are identical to the stand-in's and never change: a useful negative control.
+- **The strict judge is the interesting one, and it is not stable.** It never lets an unsupported claim through (false positives 0 to 1, against the stand-in's 5), including the five rows with no figure in them (J03, J12, J19, J24, J33) and the four derived numbers
+  (J14, J17, J22, J30) that fooled the mechanical stand-in. But it is **stricter than the reviewers**: it fails 8 to 11 answers a person passed, mostly clear-pass incident summaries (J05, J07, J08, J21, J36, J40, J42, J43 in every run). Asked about J05 directly, it reasons that
+  the reply "asserts that the regression was introduced by v2.9.1, which is not established by the evidence" and names an `on-call gateway owner` the evidence does not mention: a defensible reading the reviewer did not apply. Asked about J43 it said `true`
+  although it had failed it in all three runs: borderline rows flip.
+- **So the certification flips with it:** 0.84 and 0.80 certify, 0.76 does not. The thresholds (agreement 0.80, kappa 0.60) sit inside this judge's run-to-run spread. Treat a single certification as an observation, not a decision; repeat it, label more rows, or tighten the judge.
+- **The rationale-leak effect was a stand-in artifact.** With the stand-in, adding the reviewer's quote of the unsupported claim to the evidence dropped agreement from 0.82 to 0.66; a real judge was not misled by it (0.84 to 0.84, 0.76 to 0.82). Keep explanations out of the queue anyway: nothing guarantees every judge resists.
+- **Grounding works as expected:** the candidate states the expected fact 0.82 to 0.88 of the time against 0.08, and the judge, which reads the evidence, passes it 0.46 to 0.52 against 0.06 to 0.12.
+- **Five rows still meet both bars by luck** (0.8, kappa 0.5455 here, 0.6154 in the stand-in's run): the minimum of 30 scored rows is what protects you.
+
+In the UI, with `CALIBER_LAB10_MODEL=real`, steps 1 to 6 run unchanged. The Evaluations table reads `<passed>/50` (not `50/50`) and the scorecard shows percentages, not the stand-in's 74/66/56. On the ten reviewed rows the strict judge's **Agreement** is above the lenient judge's.
+
+**Cost and time.** About 350 model calls per run; 6 to 18 minutes depending on the provider's latency at the time (the SDK script sets a 30-minute request timeout; the UI spec waits up to 15 minutes per Evaluation).
+
 ## Recipe: run it through the UI
 
 Sign in at `$CALIBER_URL/caliber/` as `admin` / `admin`. The Playwright spec
@@ -308,6 +399,8 @@ python docs-site/cookbooks/10-judge-certification-human-review-lab/assets/seed_t
   `faithful` answer is also an assessment on the trace in MLflow.
 - **Disagreements fed back.** `GET $B/eval-datasets/<id>` shows `version` 60 (51 + 9); the nine rows are the `judge-disagreement`-tagged examples.
 - **A gate on a canned score is not evidence** (simulated stack): `GET $B/jobs/<job_id>` shows `eval_results.simulated` `true` and `gate.passed` `true` on a canned 0.94, over `n_examples` 50 pinned to `eval_dataset_version` 51.
+- **Real provider (invariants, not numbers):** the script exits 0 only if `scored` equals `n` for both judges, the server's agreement, kappa and confusion match the independent recomputation,
+  the strict judge's agreement is above the lenient judge's, the lenient judge is not certified, and the candidate's Contains-expected rate is at least 0.10 above the baseline's.
 - **Tests that guard this lab:**
   `caliber/.venv/bin/python -m pytest caliber/tests/test_cookbook_10_judge_certification.py caliber/tests/test_cookbook_doc_contract.py -k "10 or alignment" --no-cov` (dataset, stand-in rules and the documented numbers) and
   `caliber/.venv/bin/python -m pytest sdk/caliber-sdk/tests/test_cookbook_examples.py -k cookbook_10 --no-cov` (the script against an offline stand-in server).
@@ -331,6 +424,12 @@ python docs-site/cookbooks/10-judge-certification-human-review-lab/assets/seed_t
 | five rows give agreement 0.8 and kappa 0.6154 | the product returns numbers for any sample size (1 to 100 rows); both bars clear on five rows by luck | the lab's rule demands 30 scored rows |
 | `Uploaded N examples` never appears / the dataset name is rejected | a dataset with that name exists | choose another **Dataset name** |
 | the UI still shows an old message after a code fix | the web bundle is rebuilt only on start | `scripts/cookbook-env.sh restart NAME` |
+| (real provider) the evaluation's status is `failed` with `Error code: 401 ... Incorrect API key provided`; alignment rows say `judge invocation failed: Failed to invoke judge model: Incorrect API key provided` and `scored` is 0 | the key was rejected. Reproduced with `OPENAI_API_KEY=sk-invalid scripts/cookbook-env.sh up lab10bad --flags cookbooks --real-llm`: the run is saved as `failed` with the provider's message, so `GET /evaluations/<id>` names it | export a valid key and `restart`; the script stops with `baseline run is failed: ...401...` |
+| (real provider) `429` / `rate limit` in a failed run or in a row's `error` | the provider's rate limit; the lab makes about 350 calls in minutes | wait and rerun (the script is not idempotent but appends a suffix), or lower concurrency by running one stack at a time |
+| (real provider) `model ... does not exist` / `404` from the provider | the server's model (`gpt-5.6-luna` by default) is not available to your account | set the model the server uses (`CALIBER_LLM_DIAGNOSIS_MODEL`) before `up` |
+| (real provider) the SDK script ends with `CaliberTransportError ... timed out` | an Evaluation is one request that makes a call per row (about 5 to 18 minutes for 50 rows) and the SDK's default is 30 seconds. The script sets 30 minutes; your own client needs `CaliberClient(..., timeout=1800)`. (Before this lab's fix the server also froze every other request while it ran) | use the script, or raise the timeout |
+| (real provider) agreement and kappa change between runs, and the strict judge is **certified one time and rejected the next** | the judge is a model: borderline rows flip. On this data it sits on the bars (see the three runs) | do not certify on one run: repeat, or label more rows, or tighten the judge's instructions, and record the runs you relied on |
+| (real provider) the candidate and baseline score the same on Contains expected | the candidate was not shown the evidence: in the test set the evidence is only in `expected`, which a live model never sees (the first real run: both 0.08) | give the candidate the evidence in its input, as the script's real tier does |
 
 ## Cleanup and reset
 

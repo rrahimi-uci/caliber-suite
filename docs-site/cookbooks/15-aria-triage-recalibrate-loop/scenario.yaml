@@ -21,7 +21,7 @@ prerequisites:
   - The server's background workers on (the plan worker resumes the parked plan, the refinement worker runs the calibration job).
   - An EXISTING published workflow with a deploy-gate test set, a registered agent, and the flagged trace ids. assets/setup_subject.py and assets/seed_traces.py create them for the lab; in a real deployment they are yours.
   - Two extra accounts for the refusals: olga (an operator who does not own the plan) and vera (not an operator). The server must list olga in CALIBER_OPERATOR_USERS and not vera.
-  - No model is needed for the plan or the queue. On the simulated default the calibration is rejected (no candidate can beat the baseline); a real model is needed for a candidate.
+  - No model is needed for the plan or the queue. On the simulated default the calibration is rejected (no candidate can beat the baseline). A real tier is verified (scripts/cookbook-env.sh up lab15h --flags cookbooks,aria --real-llm, your own OPENAI_API_KEY): the job runs for real and is rejected too, for the reason in the README (Run it with a real provider) (a candidate that clears the gate needs gate rows the quality scorer can read).
 time_to_first_value: 20-35 minutes
 success_criteria:
   - From the intent alone, Aria drafts review_queue.create, review_queue.add_items and workflow.calibrate, and the planner draws the documented plan for all 28 goals in assets/dataset/goals.jsonl.

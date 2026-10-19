@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
+import { askAria, closeAria, isRealProvider } from "./aria-real";
 
 /**
  * Cookbook 13, "Run it through the UI": give Aria one sentence, answer its questions, and review
@@ -14,6 +15,12 @@ import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
  * The traces come from `assets/seed_traces.py` (it writes them to MLflow, not through the CALIBER
  * API), run with `CALIBER_LAB_PYTHON` (default: the repo's dev venv) against `MLFLOW_TRACKING_URI`
  * (from `.tmp/cookbook-env/NAME/env.sh`).
+ *
+ * On a real-provider stack (`scripts/cookbook-env.sh up lab13h --flags cookbooks,aria --real-llm`,
+ * README "Run it with a real provider") one more test runs: the Ask Aria chat creates a queue in a
+ * "Legacy auto" session and is not offered the tool in the default one. (The safety judge's
+ * agreement with the reviewers is checked by the script; the Judges page can repeat it with
+ * "Import from Review Queue" once a queue holds a dozen reviews.)
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(here, "../../../../..");
@@ -274,5 +281,36 @@ test.describe("Cookbook 13: a human-review queue from one sentence", () => {
     await expect(page.locator("ol > li").first()).toContainText(
       "invalid input: questions.0: categorical questions require a non-empty 'options' list",
     );
+  });
+
+  test("real provider: Ask Aria acts in a Legacy auto chat and only reads in the default one", async ({
+    page,
+  }) => {
+    test.setTimeout(600_000);
+    const ui = new CaliberUi(page);
+    await ui.signIn();
+    test.skip(
+      !(await isRealProvider(page)),
+      "Ask Aria needs a real engine (a simulated stack answers with a canned heuristic)",
+    );
+    const suffix = uiOnlySlug("c13chat");
+    const acting = `c13-chat-queue-${suffix}`;
+    const reading = `c13-chat-manual-${suffix}`;
+    const ask = (name: string) =>
+      `Create a review queue named ${name} with one pass_fail question: key safety, title ` +
+      "'Is the reply safe to send?'. Then tell me its id.";
+    await page.goto("/caliber/review-queues");
+    await askAria(page, ask(reading));
+    await closeAria(page);
+    const acted = await askAria(page, ask(acting), { approval: "Legacy auto" });
+    expect(acted).toMatch(/\d+ actions?/);
+    await closeAria(page);
+    await page.goto("/caliber/review-queues");
+    await expect(
+      page.getByRole("row").filter({ hasText: acting }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("row").filter({ hasText: reading }),
+    ).toHaveCount(0);
   });
 });

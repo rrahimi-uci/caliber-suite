@@ -11,6 +11,7 @@ Files for [the lab](../README.md). This is an **Aria autonomous** scenario: you 
 | [`judges/answer-faithfulness.judge.json`](judges/answer-faithfulness.judge.json) | The `judge.create` form values (`name`, `feedback_value_type`, `instructions`, `tags`) | The judge's input form; the same shape is a `POST /judges` body |
 | [`review-queues/governance-review.queue.json`](review-queues/governance-review.queue.json) | The `review_queue.create` form values (`name`, `description`, `reviewers`, `questions`) | The queue's input form; the same shape is a `POST /review-queues` body |
 | [`datasets/release-candidates.dataset.json`](datasets/release-candidates.dataset.json) | The `eval_dataset.create` form values (`name`, `description`, `tags`) | The test set's input form; the same shape is a `POST /eval-datasets` body |
+| [`prompts/grounded-answer.prompt.txt`](prompts/grounded-answer.prompt.txt) | The answerer under test (it sees the case's policy text via `{{ evidence }}`) | Real-provider stack only: the script and the UI spec score the test set with the judge for this prompt (README, Run it with a real provider) |
 
 The `notes` key in the form specs is for readers: strip it before posting a file as `inputs` (the script does).
 

@@ -18,13 +18,13 @@ caliber_surfaces:
   - Audit Log
 prerequisites:
   - CALIBER running per docs/start/alpha-install.md with CALIBER_FEATURE_COOKBOOKS=true (no other flag).
-  - A model provider only to score a prompt on the Evaluations page and to get real calibration evidence; the lab also runs end to end on the simulated defaults, and on a real model (verified with a local Ollama qwen2.5:7b; a hosted provider is the same command without the base-URL overrides and was not run).
+  - A model provider only to score a prompt on the Evaluations page and to get real calibration evidence; the lab also runs end to end on the simulated defaults, and on a real model (verified on a hosted OpenAI gpt-5.6-luna with `scripts/cookbook-env.sh up lab01h --flags cookbooks --real-llm`, and on a local Ollama qwen2.5:7b). The optional Aria appendix (Playground, Generate Test Cases, Run Tests and Judge, Runs baseline diff, assistant-guided calibration) additionally needs CALIBER_FEATURE_ARIA and a real model.
   - The labelled ticket set in assets/dataset/intake-classifier.jsonl (44 cases).
 time_to_first_value: 30-60 minutes
 success_criteria:
   - The test set imports from the file (44 examples) through the API and through the UI.
-  - With a model that answers, both prompt versions are scored on all 44 cases and compared (the deterministic stand-in gives v1 44/44 strict JSON, v2 0/44 and a failed gate; a real 7B model keeps both at 44/44 JSON and the scorecard still drops); on a simulated model the evaluation is refused and the evidence is marked simulated.
-  - Calibration on a real model yields a candidate whose evidence is not marked simulated (44 examples, measured baseline and candidate scores) or an honest, reasoned rejection by the gate.
+  - With a model that answers, both prompt versions are scored on all 44 cases and compared (the deterministic stand-in gives v1 44/44 strict JSON, v2 0/44 and a failed gate; a real model, hosted or a 7B local one, keeps both at 44/44 JSON and the scorecard shows only a small, noisy difference); on a simulated model the evaluation is refused and the evidence is marked simulated.
+  - Calibration on a real model yields a candidate whose evidence is not marked simulated (44 examples, measured baseline and candidate scores; on a strong hosted model often `+0 / -0 lines`) or an honest, reasoned rejection by the gate (a noisy judge can reject an unchanged prompt).
   - A calibrated candidate is reviewed, applied explicitly, verified in the MLflow registry, the live board, the release timeline and the audit log, then rolled back.
 demo_profile:
   recommended_sequence_index: 1

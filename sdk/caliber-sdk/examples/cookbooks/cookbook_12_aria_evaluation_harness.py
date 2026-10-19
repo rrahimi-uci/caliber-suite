@@ -11,8 +11,14 @@ README.md) and prints the same values the README tells you to expect.
 
 The server needs ``CALIBER_FEATURE_ARIA=true`` and ``CALIBER_OPERATOR_USERS=admin,olga`` (olga is
 an operator who does not own the plan; the script also creates ``vera``, who is not an operator).
-Nothing here needs a model: Aria's planner is deterministic. The one step that does, running the
-judge in Evaluations, is refused on a simulated deployment, and the script verifies that refusal.
+Nothing in the planning needs a model: Aria's planner is deterministic. The step that does, running
+the judge in Evaluations, has two modes, told apart by ``GET /readiness``. On a simulated stack (the
+default) it is refused with a 400 and the script verifies the refusal. On a stack started with
+``scripts/cookbook-env.sh up NAME --flags cookbooks,aria --real-llm`` the script scores the 30 rows
+with the judge for real, twice (a grounded answerer prompt and a careless control), asserts
+structure, ranges and that the judge tells them apart (never an exact score), and then checks the
+Ask Aria chat on both sides of its permission boundary. Runs take a few minutes and cost a few
+cents there; ``COOKBOOK_ARIA_HTTP_TIMEOUT`` (seconds, default 900) bounds one request.
 
 What it does, in order:
 
@@ -24,13 +30,16 @@ What it does, in order:
    under the names typed, and that the test set is empty at version 1.
 3. Adds the 30 rows of ``assets/dataset/faithfulness-cases.jsonl`` to the test set, and reads them
    back.
-4. Runs the test set in Evaluations (refused on a simulated stack; checked structurally on a real
-   one).
+4. Runs the test set in Evaluations (refused on a simulated stack; on a real one, scored by the
+   judge for a grounded and a careless answerer, checked by invariants).
 5. Provokes the refusals: a goal with no steps, a plan that was cancelled, answers the form rejects,
    a denied step, a judge with no evaluation variable, a duplicate name, an account without the
    operator scope, and an operator who does not own the plan.
 
-``--cleanup`` archives what earlier runs created.
+6. Real stack only: Ask Aria's chat creates a judge in a ``build`` / ``auto_all`` session and is not
+   offered the tool in the default session.
+
+``--cleanup`` archives what earlier runs created (and deletes the prompts of a real run).
 """
 
 from __future__ import annotations
@@ -48,18 +57,27 @@ from typing import Any
 from caliber_sdk import CaliberClient
 from caliber_sdk.errors import CaliberAPIError, CaliberPermissionError
 from examples.cookbooks._aria_lab import (
+    CARELESS_PROMPT,
+    GROUNDED_PROMPT,
     Checks,
     Report,
     SetupError,
     VerificationError,
+    check_chat_boundary,
     check_goals_report,
+    check_judged_evaluation,
+    create_prompt,
     ensure_accounts,
     env_password,
     form_values,
+    http_timeout,
+    is_real,
+    judge_rate,
     load_jsonl,
     refused,
     require_admin_and_aria,
     require_scopes,
+    run_judged_evaluation,
     run_plan,
     sign_in,
     start,
@@ -77,6 +95,10 @@ INTENT = "Create a judge for answer faithfulness and an eval dataset to run it o
 #: What the planner is documented to draw for the 28 goals (see assets/dataset/goals.jsonl).
 GOALS_EXPECTED = 28
 ROWS_EXPECTED = 30
+#: A real run: the grounded answerer's share of faithful rows must beat the careless one's by this
+#: much. Typical observed gaps are far larger (README); the bar only has to rule out a judge that
+#: says the same thing about everything.
+MIN_FAITHFUL_GAP = float(os.environ.get("COOKBOOK_12_MIN_GAP", "0.2"))
 CAPABILITIES = {
     "eval_dataset.create": "mutate",
     "judge.create": "mutate",
@@ -116,6 +138,8 @@ def run(
     suffix = suffix or time.strftime("%Y%m%d-%H%M%S")
     check = Checks(report)
     result: dict[str, Any] = {"suffix": suffix}
+    prompts: list[str] = []
+    result["prompts"] = prompts
     goals = load_jsonl(assets / "dataset/goals.jsonl")
     cases = load_jsonl(assets / "dataset/faithfulness-cases.jsonl")
     judge_spec = form_values(assets / "judges/answer-faithfulness.judge.json")
@@ -126,6 +150,8 @@ def run(
     dataset_form = {**dataset_spec, "name": dataset_name}
 
     admin_id = require_admin_and_aria(caliber)
+    real = is_real(caliber)
+    result["mode"] = "real" if real else "simulated"
     require_scopes(
         {"olga": operator, "vera": viewer},
         has={"olga": True, "vera": False},
@@ -240,27 +266,20 @@ def run(
     result["rows"] = {"count": len(rows), "categories": categories}
 
     # -- 4. Run it in Evaluations ---------------------------------------------------------------
-    created: Any = None
-    refusal: CaliberAPIError | None = None
-    try:
-        created = caliber.evaluations.create(dataset_id, scorers=["non_empty"])
-    except CaliberAPIError as exc:
-        refusal = exc
-    if refusal is not None:
+    if real:
+        result["evaluation"] = _evaluate_for_real(
+            caliber, check, dataset_id, judge_id, suffix=suffix, prompts=prompts
+        )
+    else:
+        refusal = refused(lambda: caliber.evaluations.create(dataset_id, scorers=["non_empty"]))
         check(
             "Evaluations are refused without a real model (400): the judge cannot run here",
-            refusal.status_code == 400 and "real LLM provider" in str(refusal),
+            refusal is not None
+            and refusal.status_code == 400
+            and "real LLM provider" in str(refusal),
             "simulated stack",
         )
         result["evaluation"] = "refused (simulated provider)"
-    else:
-        evaluation = caliber.evaluations.wait(created.evaluation_id or created.run_id)
-        check(
-            "a real provider scored every row of the test set",
-            evaluation.is_terminal and evaluation.n_examples == ROWS_EXPECTED,
-            f"{evaluation.status}, {evaluation.n_examples} rows",
-        )
-        result["evaluation"] = evaluation.status
 
     # -- 5. Refusals --------------------------------------------------------------------------
     # 5a. A goal with no steps.
@@ -419,13 +438,104 @@ def run(
     )
     walk(caliber, own.plan.plan_id, [("input", "skip")])
 
+    # -- 6. Ask Aria's chat, on a real stack ------------------------------------------------------
+    if real:
+        result["chat"] = _chat_for_real(caliber, check, suffix)
+
     check.finish()
     return result
 
 
+def _evaluate_for_real(
+    caliber: CaliberClient,
+    check: Checks,
+    dataset_id: str,
+    judge_id: str,
+    *,
+    suffix: str,
+    prompts: list[str],
+) -> dict[str, Any]:
+    """Score the 30 rows with the judge for a grounded answerer and a careless control."""
+    grounded_ref = create_prompt(caliber, f"{NAME_PREFIX}grounded-answer-{suffix}", GROUNDED_PROMPT)
+    careless_ref = create_prompt(caliber, f"{NAME_PREFIX}careless-answer-{suffix}", CARELESS_PROMPT)
+    prompts.extend(ref.split("@")[0] for ref in (grounded_ref, careless_ref))
+    grounded = run_judged_evaluation(
+        caliber, dataset_id, judge_id, prompt_ref=grounded_ref, label=f"grounded {suffix}"
+    )
+    careless = run_judged_evaluation(
+        caliber, dataset_id, judge_id, prompt_ref=careless_ref, label=f"careless {suffix}"
+    )
+    summary: dict[str, Any] = {
+        "grounded": check_judged_evaluation(
+            check,
+            "grounded answerer",
+            grounded,
+            judge_id,
+            rows=ROWS_EXPECTED,
+            prompt_ref=grounded_ref,
+        ),
+        "careless": check_judged_evaluation(
+            check,
+            "careless control",
+            careless,
+            judge_id,
+            rows=ROWS_EXPECTED,
+            prompt_ref=careless_ref,
+        ),
+    }
+    gap = (judge_rate(grounded, judge_id) or 0.0) - (judge_rate(careless, judge_id) or 0.0)
+    check(
+        f"the judge tells the two answerers apart: grounded beats careless by at least "
+        f"{MIN_FAITHFUL_GAP}",
+        gap >= MIN_FAITHFUL_GAP,
+        f"grounded {judge_rate(grounded, judge_id)}, careless {judge_rate(careless, judge_id)}, "
+        f"gap {gap:+.2f}",
+    )
+    summary["gap"] = float(f"{gap:.3f}")
+    return summary
+
+
+def _chat_for_real(caliber: CaliberClient, check: Checks, suffix: str) -> dict[str, Any]:
+    """Ask Aria (the chat, not the Plans page) acts in build / auto_all and only reads otherwise."""
+    acting = f"{NAME_PREFIX}chat-judge-{suffix}"
+    reading = f"{NAME_PREFIX}chat-manual-{suffix}"
+    instructions = (
+        "Is {{ outputs }} faithful to the evidence in {{ inputs }}? Answer true or false."
+    )
+
+    def judge_names() -> set[str]:
+        return {j.name for j in caliber.judges.list()}
+
+    summary = check_chat_boundary(
+        caliber,
+        check,
+        tool="judge_create",
+        ask=(
+            f"Create a judge named {acting} with a boolean feedback value type and exactly these "
+            f"instructions: {instructions} Then tell me its id."
+        ),
+        exists=lambda: acting in judge_names(),
+        absent_ask=(
+            f"Create a judge named {reading} with a boolean feedback value type and exactly "
+            f"these instructions: {instructions} Tell me what you did."
+        ),
+        absent_exists=lambda: reading in judge_names(),
+    )
+    made = next((j for j in caliber.judges.list() if j.name == acting), None)
+    check(
+        "the chat's judge is active, boolean, and its instructions use an evaluation variable",
+        made is not None
+        and made.status == "active"
+        and made.feedback_value_type == "bool"
+        and "{{ outputs }}" in (made.instructions or ""),
+        made.judge_id if made else "",
+    )
+    return summary
+
+
 def cleanup(caliber: CaliberClient) -> dict[str, int]:
     """Archive the judges and test sets earlier runs created (names start ``cookbook-12-``)."""
-    archived = {"judges": 0, "test_sets": 0}
+    archived = {"judges": 0, "test_sets": 0, "prompts": 0}
     for judge in caliber.judges.list():
         if judge.name.startswith(NAME_PREFIX) and judge.status != "archived":
             caliber.judges.update(judge.judge_id, status="archived")
@@ -434,6 +544,10 @@ def cleanup(caliber: CaliberClient) -> dict[str, int]:
         if dataset.name.startswith(NAME_PREFIX) and dataset.status != "archived":
             caliber.eval_datasets.update(dataset.dataset_id, status="archived")
             archived["test_sets"] += 1
+    for prompt in caliber.prompts.list():
+        if prompt.prompt_name.startswith(NAME_PREFIX):
+            caliber.prompts.delete(prompt.prompt_name)
+            archived["prompts"] += 1
     return archived
 
 
@@ -445,7 +559,7 @@ def main(argv: list[str] | None = None) -> int:
     base_url = os.environ["CALIBER_BASE_URL"]
     password = env_password("COOKBOOK_ARIA_PASSWORD", DEFAULT_PASSWORD)
     opened: list[CaliberClient] = []
-    with env_client() as caliber:
+    with env_client(timeout=http_timeout()) as caliber:
         try:
             if args.cleanup:
                 print(json.dumps(cleanup(caliber), indent=2))

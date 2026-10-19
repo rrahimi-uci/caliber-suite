@@ -1,0 +1,1 @@
+Replies sometimes promise a date or an amount that policy_context does not state, and sometimes cite a KB id that was not supplied. Tighten the skill so it never does either.

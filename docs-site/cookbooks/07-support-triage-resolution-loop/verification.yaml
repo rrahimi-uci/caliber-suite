@@ -3,13 +3,16 @@
 # and (for the UI items) by caliber/caliber-ui/e2e/cookbooks/labs/07-support-triage.spec.ts.
 feasibility:
   - The routing is deterministic, so the dataset check is exact: no judge and no model scores anything here.
-  - The agent node (draft_reply) is simulated under the default fake provider; the lab asserts that it ran on the right branch, not what it wrote.
+  - "The agent node (draft_reply) is simulated under the default fake provider; the lab asserts that it ran on the right branch, not what it wrote. On a real-provider stack (--real-llm) it writes real text (asserted: non-empty, not the simulated echo)."
+  - "Real provider only, optional (--model-variant): assets/workflows/support-triage-model.workflow.json, where a model classifies and a deterministic guard decides. Evaluations scores it (a deterministic scorer on the printed label, and a model-graded judge); the Python-based workflow cannot be scored (Preview refuses its Python Code node, the run ends failed). Label agreement with the rules is model-dependent: reported, asserted only as 0.5 or more."
 evaluation:
-  judges: []
+  judges:
+    - name: SupportTriageRoutingAndReply     # real provider only: assets/judges/support-triage-routing-and-reply.judge.json, a Judge.<id> scorer of the variant's Evaluations run
   rule_checks:
     - routing_matches_dataset        # decision, severity, sla_minutes, requires_approval, flags for all 44 tickets
     - approval_required_for_refund_or_bug_filing   # exactly the 15 approval-required tickets pause at the gate
     - rejection_releases_nothing     # a rejected run never reaches action_request
+    - model_variant_never_releases_without_a_person   # real provider only: through the queue no run reaches release_bug / release_support before an approval; unreadable or low-confidence model output fails closed to clarify (guard)
 quality_gates:
   routing_accuracy: 1.0
   approval_compliance: 1.0

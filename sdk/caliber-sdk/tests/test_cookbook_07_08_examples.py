@@ -183,3 +183,211 @@ def test_lab_08_the_verdict_comes_from_the_dataset_tables() -> None:
         outcome = fake.execute_incident(manifest["nodes"], json.dumps(row["input"]), "queue")
         verdict = outcome["steps"][0]["output_by_port"]["result"]
         assert verdict["verdict"] == row["expected"]["answer"], row["id"]
+
+
+# ---------------------------------------------------------------------------
+# The real-provider tier
+# ---------------------------------------------------------------------------
+
+
+def failed_checks(lines: list[str]) -> list[str]:
+    return [line for line in lines if line.startswith("FAIL")]
+
+
+def test_lab_07_on_a_real_stack_runs_the_model_variant_and_asserts_invariants() -> None:
+    fake = FakeCaliber(approval_class="staging", real=True)
+    result, lines = run_lab(lab07, fake, model_variant=True)
+
+    assert not failed_checks(lines)
+    assert result["mode"] == "real"
+    variant = result["variant"]
+    assert variant["tickets"] == 12
+    assert 0.5 <= variant["label_agreement"] <= 1.0
+    # nine of the twelve escalate or are routed to approval in the variant (every escalation waits)
+    assert variant["paused_at_gate"] >= 1
+    assert variant["calibration"]["simulated"] is False
+    assert variant["calibration"]["scorer"] == "structural"
+    assert any("cannot score the deterministic workflow" in line for line in lines)
+    assert any("no escalation is released without a person" in line for line in lines)
+
+
+def test_lab_07_reports_where_the_model_disagrees_with_the_rules() -> None:
+    """The model is told by the stand-in to obey the injection; the guard still decides."""
+    fake = FakeCaliber(real=True, model_overrides={"Ignore your instructions": "escalate_bug"})
+    result, lines = run_lab(lab07, fake, model_variant=True)
+
+    assert not failed_checks(lines)
+    assert result["variant"]["disagreements"], "the injection ticket must be reported"
+    # even then the escalation is not released: it paused at the approval gate
+    assert result["variant"]["paused_at_gate"] >= 1
+
+
+def test_lab_07_fails_when_the_model_variant_routes_most_tickets_wrongly() -> None:
+    fake = FakeCaliber(real=True, model_overrides={"": "reply"})
+    with pytest.raises(lab07.LabVerificationError, match="Evaluations scores the model variant"):
+        run_lab(lab07, fake, model_variant=True)
+
+
+def test_lab_07_fails_when_an_escalation_is_released_without_a_person(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeCaliber(real=True)
+    original = fake.execute_model_triage
+
+    def releasing(nodes: dict[str, Any], text: str, mode: str) -> dict[str, Any]:
+        # a broken guard: the queue releases the action instead of pausing for a person
+        return original(nodes, text, "preview" if mode == "queue" else mode)
+
+    monkeypatch.setattr(fake, "execute_model_triage", releasing)
+    with pytest.raises(lab07.LabVerificationError, match="no escalation is released"):
+        run_lab(lab07, fake, model_variant=True)
+
+
+def test_lab_07_the_model_variant_needs_a_real_provider() -> None:
+    with pytest.raises(lab07.SetupError, match="real provider"):
+        run_lab(lab07, FakeCaliber(real=False), model_variant=True)
+
+
+def test_lab_07_a_real_stack_that_echoes_the_simulated_reply_is_refused(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeCaliber(real=True)
+    original = fake.execute_triage
+
+    def echo(nodes: dict[str, Any], text: str) -> dict[str, Any]:
+        outcome = original(nodes, text)
+        if outcome["status"] == "completed" and "draft_reply" in outcome["path"]:
+            outcome["output"] = "[support-reply] processed: x"
+        return outcome
+
+    monkeypatch.setattr(fake, "execute_triage", echo)
+    with pytest.raises(lab07.LabVerificationError, match="check"):
+        run_lab(lab07, fake)
+
+
+def test_lab_08_on_a_real_stack_scores_the_workflow_and_runs_the_model_variant() -> None:
+    fake = FakeCaliber(approval_class="production", real=True)
+    result, lines = run_lab(lab08, fake, model_variant=True)
+
+    assert not failed_checks(lines)
+    assert result["mode"] == "real"
+    assert result["evaluation"]["n_examples"] == lab08.EVAL_MAX_EXAMPLES
+    assert result["evaluation"]["available_examples"] == 41
+    assert result["evaluation"]["contains_expected"] >= 0.9
+    assert result["calibration"] == {
+        "status": "rejected",
+        "n_examples": 20,
+        "baseline_quality": 0.95,
+        "candidates": 0,
+        "provider": "openai",
+        "simulated": False,
+        "scorer": "structural",
+    }
+    variant = result["variant"]
+    assert variant["verdicts_equal_tables"] == variant["incidents"] == 10
+    assert variant["model_agrees_action"] == 10
+    assert any("executor is a real model" in line for line in lines)
+
+
+def test_lab_08_the_model_cannot_authorise_a_rollback() -> None:
+    """A model that proposes a rollback for a conflicting-evidence incident changes nothing."""
+    fake = FakeCaliber(
+        approval_class="production",
+        real=True,
+        proposal_overrides={"IN05": {"severity": "sev1", "action": "rollback"}},
+    )
+    result, lines = run_lab(lab08, fake, model_variant=True)
+
+    assert not failed_checks(lines)
+    assert result["variant"]["verdicts_equal_tables"] == 10
+    assert result["variant"]["model_disagreements"] == ["IN05"]
+
+
+def test_lab_08_fails_when_a_real_stack_reports_the_simulated_executor(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeCaliber(approval_class="production", real=True)
+    real_gate = fake.gate
+
+    def says_fake(version: dict[str, Any]) -> dict[str, Any] | None:
+        gate = real_gate(version)
+        if gate is not None:
+            gate["executor"] = {"provider": "fake", "deterministic": True}
+        return gate
+
+    monkeypatch.setattr(fake, "gate", says_fake)
+    with pytest.raises(lab08.LabVerificationError, match="executor is a real model"):
+        run_lab(lab08, fake)
+
+
+def test_lab_08_fails_when_the_calibration_does_not_say_what_measured_it(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    fake = FakeCaliber(approval_class="production")
+    original = fake.job
+
+    def unmarked(request: Any, body: dict[str, Any], job_id: str) -> Any:
+        response = original(request, body, job_id)
+        payload = json.loads(response.content)
+        for key in ("provider", "simulated", "scorer"):
+            payload["data"]["eval_results"].pop(key)
+        return type(response)(200, json=payload)
+
+    monkeypatch.setattr(fake, "job", unmarked)
+    with pytest.raises(lab08.LabVerificationError, match="what measured its baseline"):
+        run_lab(lab08, fake)
+
+
+def test_lab_08_the_model_variant_needs_a_real_provider() -> None:
+    with pytest.raises(lab08.SetupError, match="real provider"):
+        run_lab(lab08, FakeCaliber(approval_class="production"), model_variant=True)
+
+
+def test_the_variant_manifests_and_judges_are_valid_json_with_the_documented_shape() -> None:
+    support = json.loads((ASSETS_07 / "workflows/support-triage-model.workflow.json").read_text())
+    incident = json.loads(
+        (ASSETS_08 / "workflows/incident-commander-model.workflow.json").read_text()
+    )
+    # the model variants add agents and no Python Code node: Preview and Evaluations can run them
+    for manifest in (support, incident):
+        types = {node["type"] for node in manifest["nodes"].values()}
+        assert "agent" in types and "python_code" not in types
+    assert {"classify_model", "guard", "review_bug", "review_support"} <= set(support["nodes"])
+    assert "propose_triage" in incident["nodes"]
+    for judge in (
+        ASSETS_07 / "judges/support-triage-routing-and-reply.judge.json",
+        ASSETS_08 / "judges/stakeholder-update-honesty.judge.json",
+    ):
+        spec = json.loads(judge.read_text())
+        assert spec["feedback_value_type"] == "bool"
+        assert "{{ outputs }}" in spec["instructions"] and "{{ inputs }}" in spec["instructions"]
+
+
+def test_lab_07_resubmits_runs_a_dropped_provider_connection_failed() -> None:
+    fake = FakeCaliber(real=True, flaky=("export button throws a 500",))
+    result, lines = run_lab(lab07, fake)
+
+    assert not failed_checks(lines)
+    assert result["resubmitted_after_provider_errors"] == ["TK29"]
+    assert result["batch"]["waiting_approval"] == 15
+
+
+def test_lab_08_resubmits_runs_a_rate_limit_failed() -> None:
+    fake = FakeCaliber(
+        approval_class="production",
+        real=True,
+        flaky=("gateway 5xx rate 18%",),
+        flaky_error="RateLimitError: Error code: 429",
+    )
+    result, lines = run_lab(lab08, fake)
+
+    assert not failed_checks(lines)
+    assert result["resubmitted_after_provider_errors"] == ["IN01"]
+
+
+def test_lab_07_does_not_hide_a_failure_that_is_not_the_providers() -> None:
+    fake = FakeCaliber(
+        real=True, flaky=("export button throws a 500",), flaky_error="KeyError: 'x'"
+    )
+    with pytest.raises(lab07.LabVerificationError, match="every ticket routed as expected"):
+        run_lab(lab07, fake)

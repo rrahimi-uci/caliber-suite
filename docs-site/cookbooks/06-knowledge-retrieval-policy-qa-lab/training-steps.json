@@ -104,7 +104,7 @@
         ]
       ],
       "click": "Run calibration",
-      "see": "Recall@k 88% and nDCG@k 90% (Faithfulness and Answer correctness <code>—</code>, the judges need a model); after Hybrid, Recall@k 93% and <strong>Vs. baseline</strong> +5% on Recall@k and nDCG@k.",
+      "see": "Recall@k 88% and nDCG@k 90% (Faithfulness and Answer correctness <code>—</code> on the simulated stack, the judges need a model; with a real provider they are percentages, e.g. 96% and 71%); after Hybrid, Recall@k 93% and <strong>Vs. baseline</strong> +5% on Recall@k and nDCG@k.",
       "asset": "calibration runs + baseline"
     },
     {

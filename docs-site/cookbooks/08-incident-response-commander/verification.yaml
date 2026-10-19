@@ -1,14 +1,18 @@
 # Asserted by sdk/caliber-sdk/examples/cookbooks/cookbook_08_incident_response_copilot.py against a
 # real server, and (UI items) by caliber/caliber-ui/e2e/cookbooks/labs/08-incident-response.spec.ts.
 feasibility:
-  - The gate is graded by the fake executor (the gate reports provider fake, deterministic true). It proves the graph and the data, not a model.
-  - Workflow calibration finds no candidate for a rule-table workflow, so the Simulated evaluation marker is not observed here.
+  - On the simulated stack the gate is graded by the fake executor (the gate reports provider fake, deterministic true). It proves the graph and the data, not a model.
+  - Workflow calibration finds no candidate for a rule-table workflow, on either stack. Its evidence says what measured the baseline (provider, simulated, scorer) in every outcome: provider fake, simulated true, scorer structural on the simulated stack; the real provider, simulated false, scorer structural on a real one.
+  - On a real-provider stack (--real-llm) the gate replays the 41 incidents through a real model (provider openai, deterministic false), Evaluations scores the workflow version (a deterministic scorer and a model-graded judge, 8 of the 41 incidents), and --model-variant adds the optional model-based variant. The script asserts invariants (markers, counts, "the model cannot change a verdict or authorise a rollback"), never generated text or a model score.
 evaluation:
-  judges: []
+  judges:
+    - name: StakeholderUpdateHonesty          # real provider only: assets/judges/stakeholder-update-honesty.judge.json, a Judge.<id> scorer of the workflow Evaluations run
   rule_checks:
     - verdict_matches_dataset          # severity and action for all 41 incidents, in Preview replay and through the queue
     - rollback_requires_approval       # exactly the 5 rollback incidents pause at review
     - rejected_rollback_releases_nothing
+    - model_variant_verdicts_equal_the_tables     # real provider only (--model-variant): 10 of 10 incidents, in Preview
+    - model_cannot_authorise_a_rollback           # real provider only: ROLLBACK_APPROVED appears exactly when the tables say rollback; through the queue a rollback still pauses at review
 quality_gates:
   deploy_gate_pass_rate: 1.0           # good version; the bad version scores 0.9512 and is refused
   approval_compliance: 1.0
@@ -24,7 +28,7 @@ failure_drills:
   - api_request_blocked_host_fails_the_run
   - wait_for_event_pauses_and_resumes
   - preview_refuses_python_code_and_api_request
-  - evaluations_refuse_workflow_scoring_without_a_real_model
+  - evaluations_refuse_workflow_scoring_without_a_real_model   # simulated stack; on a real stack Evaluations scores the workflow instead
 monitoring:
   traces:
     - summarize

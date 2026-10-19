@@ -42,10 +42,21 @@ def configuration_blockers(recipe: Any) -> list[str]:
     ]
 
 
-def env_client() -> CaliberClient:
+def env_client(timeout: float | None = None) -> CaliberClient:
+    """A client for ``CALIBER_BASE_URL`` / ``CALIBER_TOKEN``.
+
+    ``timeout`` (seconds) overrides the SDK's 30 s default; a script that runs a real model inside
+    one request (an evaluation scores every row before it answers) passes a longer one.
+    """
+    if timeout is None:
+        return CaliberClient(
+            os.environ["CALIBER_BASE_URL"],
+            token=os.environ["CALIBER_TOKEN"],
+        )
     return CaliberClient(
         os.environ["CALIBER_BASE_URL"],
         token=os.environ["CALIBER_TOKEN"],
+        timeout=timeout,
     )
 
 

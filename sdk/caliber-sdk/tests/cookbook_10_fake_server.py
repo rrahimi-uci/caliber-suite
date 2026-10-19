@@ -67,6 +67,7 @@ class FakeLabServer:
         self.examples: dict[str, list[dict[str, Any]]] = {}
         self.judges: dict[str, dict[str, Any]] = {}
         self.runs: dict[str, dict[str, Any]] = {}
+        self.prompts: dict[str, str] = {}
         self.queue_items: dict[str, dict[str, Any]] = {}
         self.trace_row: dict[str, dict[str, Any]] = {}
         self.calls: list[str] = []
@@ -230,6 +231,7 @@ class FakeLabServer:
 
     # -- prompts, evaluations ------------------------------------------------------------
     def create_prompt(self, body: Any, request: httpx.Request) -> httpx.Response:
+        self.prompts[body["name"]] = body["template"]
         return _envelope({"name": body["name"], "version": 1}, 201)
 
     def create_evaluation(self, body: Any, request: httpx.Request) -> httpx.Response:
@@ -255,12 +257,11 @@ class FakeLabServer:
         candidate = body.get("predict_target") == "prompt"
         results = []
         for example in rows:
-            source = by_input[json.dumps(example["input"], sort_keys=True)]
-            text = (
-                (source["outputs"].get("reply") or source["outputs"].get("summary") or "")
-                if (candidate)
-                else self.model.BASELINE_REPLY
-            )
+            # a candidate run may carry the evidence in the input (real-model tier); the recorded
+            # reply is keyed on the ticket alone
+            ticket = {k: v for k, v in example["input"].items() if k != "evidence"}
+            source = by_input[json.dumps(ticket, sort_keys=True)]
+            text = self._reply(source, example, candidate)
             scores: dict[str, float] = {}
             for scorer in body["scorers"]:
                 if scorer == "non_empty":
@@ -300,6 +301,12 @@ class FakeLabServer:
             "results": results,
         }
         return _envelope(self.runs[run_id], 201)
+
+    def _reply(self, source: dict[str, Any], example: dict[str, Any], candidate: bool) -> str:
+        """The model's reply: the candidate replays the recorded one, the baseline a non-answer."""
+        if not candidate:
+            return str(self.model.BASELINE_REPLY)
+        return str(source["outputs"].get("reply") or source["outputs"].get("summary") or "")
 
     def get_evaluation(self, body: Any, request: httpx.Request, run_id: str) -> httpx.Response:
         return _envelope(self.runs[run_id])

@@ -67,7 +67,7 @@ from `caliber/caliber-ui`). The lab README holds the exact commands and the expe
 
 | # | Flags (besides Cookbooks) | Dataset | Simulated or real |
 | --- | --- | --- | --- |
-| 01 | none | 44 labelled support messages (`intake-classifier.jsonl`) | Apply, registry, live board, timeline, audit and rollback are real. Scoring a prompt is refused on the simulated model (`400`); calibration evidence is canned and marked simulated. A stand-in model (`assets/stand-in-model/server.py`) shows the scored path. |
+| 01 | none | 44 labelled support messages (`intake-classifier.jsonl`) | Apply, registry, live board, timeline, audit and rollback are real. Scoring a prompt is refused on the simulated model (`400`); calibration evidence is canned and marked simulated. A stand-in model (`assets/stand-in-model/server.py`) shows the scored path; a hosted model (`lab01h`, `--real-llm`) or a local Ollama one runs it for real, and `lab01ha` (`--flags cookbooks,aria`) adds the Aria steps. |
 | 02 | none | 40 trigger cases | Trigger selection is deterministic and real. Calibration is simulated (a skill has no test set). |
 | 03 | none | 49 refund fixtures | No model anywhere: nothing simulated. Needs runtime approvals, the run queue and checkpointing, and `CALIBER_APPROVER_USERS=admin,approver1`. |
 | 04 | none (needs an S3-compatible store: `--s3`) | 30 invoice documents and `extraction-cases.jsonl` | No model is called: the extractor is a Python Code node and the check a JSON Schema node. |
@@ -223,8 +223,8 @@ are not part of the alpha path (a judge certification, release candidates and th
   (**Simulated evaluation — not evidence**). The labs assert structure, wiring and persistence on a default
   stack, never a score; each says which provider a real score needs.
 - **The prompt Playground, Generate Test Cases, Run Tests & Judge and the Runs stage call the Aria assistant**
-  (`CALIBER_FEATURE_ARIA` and a real model). Lab 01 uses a file import (**Calibration** stage, **Upload
-  JSON/JSONL**) and **Evaluations › Compare to** a baseline instead. `Evaluations` can score a **prompt**,
+  (`CALIBER_FEATURE_ARIA` and a real model). Lab 01's main path uses a file import (**Calibration** stage, **Upload
+  JSON/JSONL**) and **Evaluations › Compare to** a baseline; its README's appendix runs the Aria steps on a hosted model. `Evaluations` can score a **prompt**,
   **skill** or **workflow** version (pick it under *What to score*).
 - **"Deterministic judge" is not a type**: use deterministic *scorers* (`exact_match`, `token_f1`,
   `contains_expected`, `non_empty`) or tool/skill assertions; reserve `Judges` for LLM-graded criteria.

@@ -45,8 +45,21 @@ def _error(status: int, detail: str, *, loc: str | None = None) -> httpx.Respons
 class FakeSkillServer:
     """Routes ``/skills``, ``/jobs`` and the few auth/me calls the example makes."""
 
-    def __init__(self, cases: list[dict[str, Any]], *, viewer: bool = False) -> None:
+    def __init__(
+        self,
+        cases: list[dict[str, Any]],
+        *,
+        viewer: bool = False,
+        real: bool = False,
+        rejections: int = 0,
+    ) -> None:
         self.viewer = viewer
+        #: ``real`` imitates a stack with real providers: ``/readiness`` lists nothing as
+        #: simulated, and a calibration needs the test set it is scored against.
+        self.real = real
+        #: How many calibrations the gate rejects before one is ready (real stack only).
+        self.rejections = rejections
+        self.datasets: dict[str, list[dict[str, Any]]] = {}
         self.expected = {c["inputs"]["user_message"]: c for c in cases}
         self.skills: dict[str, dict[str, Any]] = {}
         self.versions: dict[str, list[dict[str, Any]]] = {}
@@ -82,6 +95,10 @@ class FakeSkillServer:
     def _route(self, method: str, path: str) -> Any:
         static = {
             ("GET", "/me"): lambda r, b: _envelope({"user_id": "@alice"}),
+            ("GET", "/readiness"): lambda r, b: _envelope(
+                {"simulated": [] if self.real else ["llm", "eval"]}
+            ),
+            ("POST", "/eval-datasets"): self.create_dataset,
             ("POST", "/skills"): self.create,
             ("GET", "/skills"): self.list_skills,
             ("POST", "/skills/test-runs"): self.create_run,
@@ -107,6 +124,9 @@ class FakeSkillServer:
             handler = table.get((method, tail))
             if handler is not None:
                 return lambda r, b: handler(skill_id, r, b)
+        match = re.fullmatch(r"/eval-datasets/([^/]+)/examples", path)
+        if match and method == "POST":
+            return lambda r, b: self.add_example(match.group(1), b)
         match = re.fullmatch(r"/jobs/([^/]+)(?:/(apply))?", path)
         if match:
             job_id, tail = match.groups()
@@ -239,9 +259,21 @@ class FakeSkillServer:
     def workspace(self, skill_id: str, request: httpx.Request, body: Any) -> httpx.Response:
         return _envelope({"baseline_run_id": self.baselines[skill_id]})
 
+    def create_dataset(self, request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        dataset_id = f"ED-{len(self.datasets) + 1:02d}"
+        self.datasets[dataset_id] = []
+        return _envelope({"dataset_id": dataset_id, "name": body["name"], "version": 1}, 201)
+
+    def add_example(self, dataset_id: str, body: dict[str, Any]) -> httpx.Response:
+        assert body["input"] and body["expected"], "a test-set row has an input and an expectation"
+        self.datasets[dataset_id].append(body)
+        return _envelope({"example_id": f"EX-{len(self.datasets[dataset_id]):02d}"}, 201)
+
     def calibrate(self, skill_id: str, request: httpx.Request, body: Any) -> httpx.Response:
         skill = self.skills[skill_id]
         job_id = f"RFN-{len(self.jobs) + 1:02d}"
+        if self.real:
+            return self._calibrate_real(skill, job_id, body or {})
         self.jobs[job_id] = {
             "job_id": job_id,
             "status": "candidate_ready",
@@ -257,6 +289,44 @@ class FakeSkillServer:
             },
         }
         self.jobs[job_id]["skill_id"] = skill_id
+        return _envelope({"job": {"job_id": job_id}, "item": {"item_id": "FB-01"}}, 201)
+
+    def _calibrate_real(
+        self, skill: dict[str, Any], job_id: str, body: dict[str, Any]
+    ) -> httpx.Response:
+        """A real evaluator: scores against the named test set, or fails without one."""
+        dataset_id = body.get("eval_dataset_id")
+        job: dict[str, Any] = {"job_id": job_id, "skill_id": skill["skill_id"]}
+        if dataset_id is None:
+            job.update(
+                status="failed",
+                error_message=(
+                    "eval provider error: failed to load eval dataset 'default': "
+                    "eval dataset 'default' has no active examples"
+                ),
+            )
+        elif self.rejections > 0:
+            self.rejections -= 1
+            job.update(status="rejected", error_message="regression gate failed: below minimum")
+        else:
+            job.update(
+                status="candidate_ready",
+                candidate={
+                    "content": skill["content"] + "\n- Take every date from the policy.\n",
+                    "baseline_content": skill["content"],
+                    "diff_summary": "+2 / -0 lines",
+                },
+                eval_results={
+                    "simulated": False,
+                    "provider": "mlflow",
+                    "n_examples": len(self.datasets[dataset_id]),
+                    "eval_dataset_id": dataset_id,
+                    "candidate": {"overall": 0.96, "dimensions": {"safety": 1.0}},
+                    "baseline": {"overall": 0.95, "dimensions": {"safety": 1.0}},
+                    "gate": {"passed": True},
+                },
+            )
+        self.jobs[job_id] = job
         return _envelope({"job": {"job_id": job_id}, "item": {"item_id": "FB-01"}}, 201)
 
     def apply(self, job_id: str) -> httpx.Response:

@@ -84,7 +84,7 @@
     },
     {
       "where": "Evaluations › Run evaluation",
-      "do": "Score the prompt version on the test set. On the alpha's default <strong>simulated</strong> model this is refused with a clear message, because CALIBER never invents a scorecard. With a model that answers (a real model such as a local Ollama <code>qwen2.5:7b</code>, or the README's stand-in model) it runs: the page waits while every one of the 44 examples is answered (about 45 seconds on a local 7B model).",
+      "do": "Score the prompt version on the test set. On the alpha's default <strong>simulated</strong> model this is refused with a clear message, because CALIBER never invents a scorecard. With a model that answers (a real model such as a hosted <code>gpt-5.6-luna</code> or a local Ollama <code>qwen2.5:7b</code>, or the README's stand-in model) it runs: the page waits while every one of the 44 examples is answered (about 1 minute 40 seconds on the hosted model, about 45 seconds on a local 7B model).",
       "fill": [
         [
           "Test set",
@@ -108,19 +108,19 @@
         ]
       ],
       "click": "Run",
-      "see": "Simulated stack: the red message <code>evaluation requires a real LLM provider; set CALIBER_LLM_PROVIDER ...</code>. Stand-in or real model: a <code>completed</code> run with an <code>n/44</code> examples-passed count (stand-in <code>34/44</code>; a 7B model about <code>9/44</code>). If the model is unreachable: a <code>failed</code> run whose page says <code>This run failed: ...</code> with the server's error.",
+      "see": "Simulated stack: the red message <code>evaluation requires a real LLM provider; set CALIBER_LLM_PROVIDER ...</code>. Stand-in or real model: a <code>completed</code> run with an <code>n/44</code> examples-passed count (stand-in <code>34/44</code>; hosted <code>1/44</code> to <code>2/44</code>; a 7B model about <code>9/44</code>). If the model is unreachable: a <code>failed</code> run whose page says <code>This run failed: ...</code> with the server's error.",
       "asset": "evaluation: baseline v1"
     },
     {
       "where": "Evaluations › weaker v2 › Compare to",
       "do": "(Needs a model that answers.) Run the same evaluation for <code>cookbook-01-intake-classifier@2</code> with the label <code>weaker v2</code>, open it, and choose the baseline under <strong>Compare to</strong>. Nothing changed but the prompt text, so the difference is the regression.",
       "click": "Compare to › baseline v1",
-      "see": "The comparison context box and <code>pp</code> deltas on <strong>Overall</strong> and <strong>Token F1</strong>. With the stand-in: red deltas, the pass rate falling to 0%, and every prediction starting <code>Happy to help!</code> with a <strong>Fail</strong> result, where the baseline's predictions are bare JSON records. With a real 7B model v2 still answers in JSON; the drop is smaller (token F1 about <code>0.43 &rarr; 0.35</code>).",
+      "see": "The comparison context box and <code>pp</code> deltas on <strong>Overall</strong> and <strong>Token F1</strong>. With the stand-in: red deltas, the pass rate falling to 0%, and every prediction starting <code>Happy to help!</code> with a <strong>Fail</strong> result, where the baseline's predictions are bare JSON records. With a real model v2 still answers in JSON and the difference is small or nil (hosted: token F1 about <code>0.37 &rarr; 0.37</code>, chips that may read <code>&plusmn;0</code>; local 7B: about <code>0.43 &rarr; 0.35</code>).",
       "asset": "regression evidence: v2 vs v1 baseline"
     },
     {
       "where": "Prompts › cookbook-01-intake-classifier › Calibration",
-      "do": "Calibrate the live prompt against the test set. Under <em>Scoring</em> untick <em>Correctness</em>, <em>Relevance</em> and <em>Safety</em> and tick <em>Guidelines</em> with the config from <a href=\"../cookbooks/01-prompt-regression-lab/assets/calibration/guidelines.json\">guidelines.json</a> (Correctness needs an expected response this test set does not have). On the simulated stack, first set a gate no simulated candidate can pass, to see a gate block, then set it back. On a real model keep the defaults on a hosted model, or lower the gate for a noisy local 7B model.",
+      "do": "Calibrate the live prompt against the test set. Under <em>Scoring</em> untick <em>Correctness</em>, <em>Relevance</em> and <em>Safety</em> and tick <em>Guidelines</em> with the config from <a href=\"../cookbooks/01-prompt-regression-lab/assets/calibration/guidelines.json\">guidelines.json</a> (Correctness needs an expected response this test set does not have). On the simulated stack, first set a gate no simulated candidate can pass, to see a gate block, then set it back. On a real model keep the defaults on a hosted model (to rehearse Apply and rollback regardless of the judge, set <em>Maximum regression delta</em> to <code>0.25</code>), or lower the gate for a noisy local 7B model.",
       "fill": [
         [
           "Calibration dataset",
@@ -140,7 +140,7 @@
         ]
       ],
       "click": "Start Calibration Run",
-      "see": "Simulated stack: the <code>0.99</code> run ends <strong>rejected</strong> with no <strong>Review &amp; apply</strong>; the <code>0.85</code> run reaches a candidate within seconds. Real model: a candidate after about 5 to 8 minutes on a local 7B model (or a <strong>rejected</strong> run with the reason, if the judge scores it under the gate).",
+      "see": "Simulated stack: the <code>0.99</code> run ends <strong>rejected</strong> with no <strong>Review &amp; apply</strong>; the <code>0.85</code> run reaches a candidate within seconds. Real model: a candidate after 30 to 60 seconds on the hosted model, about 5 to 8 minutes on a local 7B model (or a <strong>rejected</strong> run with the judge's reason, if it scores under the gate; on a strong model that can happen to an unchanged prompt, because the judge's noise exceeds the <code>0.02</code> allowance).",
       "asset": "calibration job (candidate_ready)",
       "assetlink": [
         {
@@ -153,7 +153,7 @@
       "where": "Prompts › cookbook-01-intake-classifier › Calibration › Review &amp; apply",
       "do": "Review the candidate before anything changes: the prompt diff, the evidence, the gate. On the simulated stack the evidence is canned and says so. Applying is the explicit, separate decision.",
       "click": "Apply candidate",
-      "see": "<strong>Review candidate before applying</strong> shows the diff (<code>+3 / -0 lines</code>), <strong>Simulated evaluation — not evidence</strong> (simulated stack; on a real model no banner and measured <em>Baseline</em>, <em>Candidate</em> and <em>Change</em> scores), <code>44 evaluation examples</code> and <strong>Gate: Passed</strong>. After Apply: <code>Candidate applied.</code> and on Author the live badge is on <strong>v3</strong>.",
+      "see": "<strong>Review candidate before applying</strong> shows the diff (<code>+3 / -0 lines</code> simulated; hosted usually <code>+0 / -0 lines</code>, the optimizer had nothing to add), <strong>Simulated evaluation — not evidence</strong> (simulated stack; on a real model no banner and measured <em>Baseline</em>, <em>Candidate</em> and <em>Change</em> scores), <code>44 evaluation examples</code> and <strong>Gate: Passed</strong>. After Apply: <code>Candidate applied.</code> and on Author the live badge is on <strong>v3</strong>.",
       "asset": "applied: v3 live"
     },
     {

@@ -6,7 +6,7 @@
 
 You give Aria one sentence, *"Set up a review queue for human labeling of agent replies for safety, citation, and tone."*, and it draws a plan of two platform steps: `review_queue.create` and `review_queue.add_items`. When you execute it, the first step stops on an **Aria needs information** form for the queue's name and its question schema, the second asks only for the trace ids (the queue's id is wired from the first step, so it is never asked), and, because you chose **Stop before each change**, each stops on an **Approve** / **Deny** prompt before it changes anything. At the end a real queue holds 30 flagged agent replies. A person then reviews 12 of them: each answer is validated against the queue's questions, written onto its trace as an assessment, and becomes a labelled example a judge can be checked against (lab 10).
 
-**The planner is rules, not a model.** It proposes a step for every capability whose domain word appears in the goal, so the plan is deterministic and checked exactly against a dataset of 26 goals. No model is involved anywhere in this lab: a review queue is people's work, and the 12 reviews are the labels recorded in `assets/dataset/agent-replies.jsonl`.
+**The planner is rules, not a model.** It proposes a step for every capability whose domain word appears in the goal, so the plan is deterministic and checked exactly against a dataset of 26 goals. No model is involved anywhere in this lab: a review queue is people's work, and the 12 reviews are the labels recorded in `assets/dataset/agent-replies.jsonl`. On a stack with a real provider ([Run it with a real provider](#run-it-with-a-real-provider)) the script also runs a real safety judge against those 12 labels and checks the Ask Aria chat.
 
 You are done when:
 
@@ -17,15 +17,16 @@ You are done when:
 - the refusals happened: a review that does not fit the questions is refused (400) and the item stays pending, a reviewed item cannot be reviewed again (409), an account without the operator scope cannot review (403), an operator who is listed as a reviewer but does not own the queue gets 404, a trace id that does not exist is queued and fails when reviewed (502), skipping the queue skips the enqueue step with it, a denied enqueue keeps the queue, a form with no questions or an unknown field is refused (409) and stays open, a categorical question with no options fails the plan, a taken name fails the plan, a plan owned by an account without the operator scope fails at execute;
 - the Playwright spec `caliber/caliber-ui/e2e/cookbooks/labs/13-aria-review-queue.spec.ts` passes.
 
-### What is simulated, and what a real provider would change
+### What is simulated, and what a real provider changes
 
-| Piece | In this lab | With a real provider |
+| Piece | Simulated stack (default) | Real provider (verified, see [below](#run-it-with-a-real-provider)) |
 | --- | --- | --- |
-| Planning the goal into steps | The rules-based planner (the same on a real deployment: no model is wired into it) | Unchanged |
+| Planning the goal into steps | The rules-based planner | **Unchanged**: no model is wired into planning; all 26 goals draw the same plans on a real stack (26/26, run live) |
 | `review_queue.create`, `review_queue.add_items` | Real: a queue and its items are created in the database | Unchanged |
-| The traces | Real MLflow traces, but written by `assets/seed_traces.py`: a fresh checkout has no agent producing flagged replies | Your agent's traces; you copy the ids of the flagged ones |
-| The reviews | The labels recorded in the dataset, submitted by the script | People answer the questions in **Review Queues** |
-| Judge alignment | Only the labelled examples are checked here (`alignment-examples`); no judge runs | Lab 10 compares a judge's verdicts with these labels, which needs a real model |
+| The traces | Real MLflow traces, written by `assets/seed_traces.py`: a fresh checkout has no agent producing flagged replies | Your agent's traces; you copy the ids of the flagged ones |
+| The reviews | The labels recorded in the dataset, submitted by the script | People answer the questions in **Review Queues** (unchanged on a real stack: the 12 reviews are still the dataset's) |
+| Judge alignment | Only the labelled examples are checked here (`alignment-examples`); no judge runs | A real judge scores the 12 reviewed replies and is compared with the 12 `safety` labels: agreement 0.92, kappa 0.82 in the recorded run |
+| **Ask Aria** (the chat) | Not used here; its engine is `fake` | A real engine answers and, in a `build` session with `auto_all` approval, creates a review queue itself (run live) |
 
 ## Prerequisites and setup
 
@@ -90,6 +91,8 @@ That is why you read the plan before you approve it: nothing runs until you do.
 | `CALIBER_TOKEN` | the admin token above | The script acts as `admin` (the plan's owner and the reviewer) and signs in as `olga` and `vera` itself |
 | `COOKBOOK_ARIA_PASSWORD` | optional | Password for the `olga` and `vera` accounts the Aria labs create (default `cookbook-aria-lab-passphrase`) |
 | `COOKBOOK_13_ASSETS` | optional | Another assets directory |
+| `OPENAI_API_KEY` | only with `--real-llm`; export it yourself | The provider key (never written anywhere by the lab) |
+| `COOKBOOK_ARIA_HTTP_TIMEOUT`, `COOKBOOK_13_MIN_AGREEMENT`, `COOKBOOK_13_MIN_KAPPA` | optional (900, 0.75, 0.4) | One request's timeout in seconds, and the bars for the real judge's agreement and kappa with the reviewers |
 
 ## Run it through the API
 
@@ -208,6 +211,59 @@ API checks (the script does all of them; these are the ones to read by eye):
 
 UI checks: steps 1 to 10 above, each with the text or status it names.
 
+## Run it with a real provider
+
+A real provider adds two checks to this lab: a **judge** can be run against the human labels the lab collects (the human-versus-judge comparison), and the **Ask Aria** chat can act. Planning, the queue, the enqueue step and the 12 reviews are exactly as above. The numbers below are from live runs and **will vary**.
+
+### Start a real stack
+
+```bash
+export OPENAI_API_KEY=...            # your own key. Never commit it; the lab never prints or stores it
+export CALIBER_OPERATOR_USERS=admin,olga
+scripts/cookbook-env.sh up lab13h --flags cookbooks,aria --real-llm
+source .tmp/cookbook-env/lab13h/env.sh
+```
+
+`--real-llm` sets `CALIBER_LLM_PROVIDER=openai`, `CALIBER_EVAL_PROVIDER=mlflow` and `CALIBER_ASSISTANT_ENGINE=openai` (default model `gpt-5.6-luna`) and reads only `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` from your environment or the repository-root `.env`. `GET /readiness` then reports `"simulated": []`. Make the access token as in [Prerequisites and setup](#prerequisites-and-setup) and run the same command as above; the script reads `GET /readiness` and adds these checks on a real stack. It takes about a minute more and about 14 model calls (12 verdicts and two chat turns).
+
+### Judge versus the reviewers
+
+After the 12 reviews the script creates a judge from `assets/judges/reply-safety.judge.json` (`ReplySafety`, a boolean judge that returns true only for a reply that is safe to send), imports the 12 `safety` labels with `alignment-examples` and sends them to `POST /judges/{id}/alignment`. The judge sees each trace's request and the reply, and is compared with the reviewer's label.
+
+```text
+ok   the real judge scored all 12 reviewed replies (no row errored)  [n=12 scored=12]
+ok   the server's numbers are arithmetic over the labels: agreement and the confusion counts add up  [{'true_pos': 7, 'false_pos': 0, 'true_neg': 4, 'false_neg': 1}]
+ok   the judge agrees with the reviewers: agreement >= 75%, kappa >= 0.4 (a judge that says one thing about everything has kappa 0)  [agreement 0.9167, kappa 0.8235]
+ok   the judge flags at least half of the replies the reviewers called unsafe  [4 of 4]
+```
+
+Asserted: all 12 rows scored, agreement and the confusion counts consistent with the labels, agreement at least 0.75 (`COOKBOOK_13_MIN_AGREEMENT`), kappa at least 0.4 (`COOKBOOK_13_MIN_KAPPA`), and at least half of the replies the humans called unsafe flagged. Never asserted: an exact agreement or which reply is wrong. In both recorded runs the judge caught all four unsafe replies and passed one reply the reviewer failed (a false negative); expect a row or two of movement. Read kappa, not agreement: with 8 safe and 4 unsafe replies a judge that always said "safe" would agree 67% of the time and have kappa 0. Lab 10 is the full certification (a stricter and a lenient judge, thresholds, a rationale-leak trap).
+
+### What the real engine does, and does not, change in Aria
+
+- **Plans are unchanged.** `POST /aria/plans` uses the rules-based planner whatever the assistant engine is; the 26 goals draw the same plans on the real stack, and **Plans** never calls the engine.
+- **The chat acts only inside its permissions.** In a `build` session with approval `auto_all` (UI label **Legacy auto**) or `full_autonomy`, Ask Aria's tools include Aria's mutating capabilities, and asked to create a queue the model called `review_queue_create` and the queue exists (active, with the one question asked for). In the default session (approval **Ask first**) the model is offered read tools only: it called `review_queue_list`, `openapi_tool_list` and `list_tools`, could not create the queue, and nothing was created (run live). Approving and publishing are never offered to the chat.
+
+```text
+ok   the assistant engine is a real one, not the fake heuristic  [engine=openai model=gpt-5.6-luna]
+ok   Ask Aria in a build / auto_all session called review_queue_create itself and it worked  [tools called: ['review_queue_create']]
+ok   in the default session (manual approval) review_queue_create is not offered: nothing was created  [tools called: ['review_queue_list', 'openapi_tool_list', 'list_tools']]
+ok   the chat's queue is active with the question that was asked for  [RVQ-584d1a75]
+```
+
+### Through the UI (real stack)
+
+`13-aria-review-queue.spec.ts` checks `GET /readiness`; on a real stack a fifth test opens **Ask Aria**, sends "Create a review queue named ... with one pass_fail question ..." in a default chat (no queue appears in **Review Queues**), then again after choosing **Legacy auto** in the approval selector (the queue appears). The five tests passed against a real stack in about a minute. The judge comparison is an API check here; in the UI you can repeat it after the queue holds reviews: **Agent resources > Judges**, open the judge, **Human alignment**, *Import from Review Queue*, pick the queue and the `safety` question, **Import labels**, **Check alignment**.
+
+### Real-provider troubleshooting
+
+| You see | Cause and fix |
+| --- | --- |
+| The alignment report has `scored` below 12 or rows with an error | The provider rejected or rate-limited some calls. A rejected key shows up as `AuthenticationError` / `401 Incorrect API key provided` in the row error (provoked with `OPENAI_API_KEY=sk-invalid`; `/readiness` still says `ready: true`, because it does not call the model). Fix the key and restart the stack |
+| Ask Aria answers "I encountered an error: AuthenticationError" | The same rejected key, in the chat |
+| `VERIFICATION FAILED: the judge agrees with the reviewers` | The judge disagreed with the people more than the bars allow: read `per_example` in the report. Loosen the bars for a noisy judge with `COOKBOOK_13_MIN_AGREEMENT` / `COOKBOOK_13_MIN_KAPPA`, or sharpen the judge's instructions |
+| `ReadTimeout` | One request outlived `COOKBOOK_ARIA_HTTP_TIMEOUT` (default 900 s); raise it. A provider 429 and an unknown model were not provoked in this lab |
+
 ## Common errors and troubleshooting
 
 | You see | Cause and fix |
@@ -229,12 +285,12 @@ UI checks: steps 1 to 10 above, each with the text or status it names.
 
 ## Not covered by this lab
 
-Checking a judge against the labels (lab 10) needs a real model and is not exercised here. Reviews by several people need a workspace, which lab 18 sets up; here the plan's owner reviews. The enqueue step does not discover traces and does not check that the ids exist. The 12 hand reviews are the dataset's labels submitted by the script, not a measurement of anything. Aria does not edit or delete a queue (only create it and add traces): a changed question schema is `PATCH /review-queues/{id}` or **Review Queues**.
+A full judge certification (thresholds, a lenient judge, a rationale-leak check) is lab 10; here the real judge is compared with 12 reviews once. Reviews by several people need a workspace, which lab 18 sets up; here the plan's owner reviews. The enqueue step does not discover traces and does not check that the ids exist. The 12 hand reviews are the dataset's labels submitted by the script, not a measurement of anything. Aria does not edit or delete a queue (only create it and add traces): a changed question schema is `PATCH /review-queues/{id}` or **Review Queues**.
 
 ## Cleanup and reset
 
 ```bash
-# archive the review queues the script created (names cookbook-13-*)
+# archive the review queues and judges the script created (names cookbook-13-*)
 PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_13_aria_review_queue --cleanup
 # reset everything: stop the stack and delete its state
 scripts/cookbook-env.sh down lab13 && rm -rf .tmp/cookbook-env/lab13

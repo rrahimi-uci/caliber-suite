@@ -5,7 +5,8 @@
 feasibility:
   - Aria's planner is deterministic rules, so the plan is checked exactly; there is no judge of Aria's output here and no model in the verified path.
   - Plan, step and question state are observable at GET /aria/plans/{id} and GET /aria/plans/{id}/interactions.
-  - Running the judge in Evaluations needs a real model provider; on the simulated default the lab verifies the 400 refusal, not a score.
+  - Running the judge in Evaluations needs a real model provider. On the simulated default the lab verifies the 400 refusal, not a score; on a --real-llm stack (GET /readiness simulated is empty) it scores the 30 policy cases with the judge and asserts structure, ranges and the high-risk slice, never an exact score.
+  - The Ask Aria chat is the only place the real assistant engine acts: a mutating capability (review_queue_create) is offered only in a build session with auto_all or full_autonomy approval. Planning never calls the engine.
 evaluation:
   plan_checks:
     - planner_matches_dataset                  # 28/28 goals draw the documented steps; every draft is cancelled
@@ -26,7 +27,14 @@ evaluation:
     - empty_plan_cannot_be_approved
     - owner_without_operator_scope_fails_at_execute
     - non_owner_cannot_answer_or_read_the_plan
-    - evaluation_refused_on_simulated_provider
+    - evaluation_refused_on_simulated_provider      # simulated stack only
+  real_provider_checks:                              # a --real-llm stack only; skipped automatically on a simulated one
+    - evaluation_scores_all_30_cases_with_the_judge
+    - evidence_names_real_provider_prompt_and_judge
+    - faithful_share_at_least_60_percent             # COOKBOOK_14_MIN_RATE
+    - evidence_slices_the_5_high_risk_cases_apart
+    - ask_aria_creates_queue_in_build_auto_all_session
+    - ask_aria_is_not_offered_review_queue_create_in_default_session
 quality_gates:
   planner_agreement: 1.0         # 28 of 28 goals
   steps_completed_min: 3
@@ -44,4 +52,4 @@ monitoring:
     - interactions_count
 feedback_loop:
   - if the plan misses a capability, use the domain words (judge, eval dataset, test set, review queue) and re-decompose; add the sentence to assets/dataset/goals.jsonl with the plan the server draws.
-  - enqueue real traces into the queue (lab 13) and run the test set with the judge once a real model provider is configured (labs 01 and 10).
+  - enqueue real traces into the queue (lab 13) and run the test set with the judge on a real provider (README, Run it with a real provider; labs 01 and 10).

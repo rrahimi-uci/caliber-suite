@@ -23,6 +23,18 @@ It drives a real CALIBER server and exits 0 only when every documented outcome w
 8. publish a good version, promote it, and roll ``prod`` back; ask for a workflow calibration and
    read its outcome; and confirm the Evaluations route refuses workflow scoring without a model.
 
+Two modes, detected from ``GET /readiness`` (``simulated`` empty means a real provider):
+
+* Simulated stack (the default): the deploy gate names the fake executor, the workflow calibration
+  reports a ``simulated`` baseline, and Evaluations refuses workflow scoring (400).
+* Real provider (``scripts/cookbook-env.sh up NAME --flags cookbooks --real-llm``): the gate replays
+  the incidents through a real model (and says so), the calibration baseline is measured and not
+  marked simulated, and Evaluations scores the workflow for real with a deterministic scorer and a
+  model-graded judge. ``--model-variant`` also imports the optional model-based variant
+  (``incident-commander-model.workflow.json``), where an agent proposes a severity and action and
+  the decision tables still decide. The script asserts invariants (markers, counts, "the model
+  cannot authorise a rollback"), never generated text or an exact model score.
+
 Environment (see the lab README): ``CALIBER_BASE_URL`` (the server root without the API path) and
 ``CALIBER_TOKEN`` (an ADMIN personal access token). The server must have been started as the README
 shows (``CALIBER_OPERATOR_USERS``/``CALIBER_APPROVER_USERS`` naming ``lena``, release policy for
@@ -51,13 +63,17 @@ from examples.cookbooks._helpers import PAUSED_OR_TERMINAL_RUN_STATES, env_clien
 from examples.cookbooks.cookbook_07_support_triage_copilot import (
     APPROVER_USER,
     MEMBER_USER,
-    SetupError,
     ensure_accounts,
+    is_real_stack,
     refused,
+    resubmit_transient,
     sign_in,
 )
 from examples.cookbooks.cookbook_07_support_triage_copilot import (
     LabVerificationError as LabVerificationError,  # re-exported: the lab's test imports it here
+)
+from examples.cookbooks.cookbook_07_support_triage_copilot import (
+    SetupError as SetupError,  # re-exported: the lab's test imports it here
 )
 
 NAME_PREFIX = "cookbook-08-"
@@ -75,6 +91,19 @@ TERMINAL_NODE = {
 }
 #: The regression the gate must catch: rollbacks that need the error rate to reach 50%.
 BAD_RULE = ('"value": 0.05}]', '"value": 0.5}]')
+
+#: The optional model-based variant of the workflow (real provider only).
+VARIANT_FILE = "workflows/incident-commander-model.workflow.json"
+JUDGE_FILE = "judges/stakeholder-update-honesty.judge.json"
+#: Incidents the variant is run over (Preview): one or two per action, plus the vague and the
+#: conflicting-evidence cases where a model is most likely to disagree with the tables.
+VARIANT_INCIDENTS = ("IN01", "IN02", "IN03", "IN04", "IN05", "IN07", "IN09", "IN12", "IN36", "IN38")
+#: How many incidents a real Evaluations run scores (the route caps a workflow run at 20).
+EVAL_MAX_EXAMPLES = 8
+
+#: Seconds a single request may take. A real provider answers a gate replay or an evaluation inside
+#: one request, which takes minutes (the SDK default is 30 s).
+REQUEST_TIMEOUT = 900.0
 
 Report = Callable[[str], None]
 
@@ -160,18 +189,29 @@ def wait_settled(caliber: CaliberClient, run_id: str, *, timeout: float = 240.0)
 
 
 def submit_cases(
-    caliber: CaliberClient, cases: list[dict[str, Any]], *, workflow_id: str, alias: str, key: str
+    caliber: CaliberClient,
+    cases: list[dict[str, Any]],
+    *,
+    workflow_id: str,
+    alias: str,
+    key: str,
+    retried: list[str] | None = None,
 ) -> dict[str, Any]:
+    inputs = {case["id"]: json.dumps(case["input"]) for case in cases}
     queued = {
         case["id"]: caliber.workflows.runs.submit(
             workflow_id=workflow_id,
             alias=alias,
-            input=json.dumps(case["input"]),
+            input=inputs[case["id"]],
             idempotency_key=f"{key}-{case['id']}",
         )
         for case in cases
     }
-    return {case_id: wait_settled(caliber, run.workflow_run_id) for case_id, run in queued.items()}
+    runs = {case_id: wait_settled(caliber, run.workflow_run_id) for case_id, run in queued.items()}
+    # A real provider can drop a connection or push back: resubmit those runs, only those.
+    return resubmit_transient(
+        caliber, runs, inputs, workflow_id=workflow_id, alias=alias, key=key, retried=retried
+    )
 
 
 def grade(cases: list[dict[str, Any]], runs: dict[str, Any]) -> dict[str, list[str]]:
@@ -185,13 +225,18 @@ def run(
     suffix: str | None = None,
     assets: Path | None = None,
     report: Report = print,
+    model_variant: bool = False,
 ) -> dict[str, Any]:
-    """Run the whole lab. ``project_client(user_id, project_id)`` returns that person's client."""
+    """Run the whole lab. ``project_client(user_id, project_id)`` returns that person's client.
+
+    ``model_variant`` adds the optional model-based variant after the main lab (real provider only).
+    """
     assets = assets or default_assets_dir()
     suffix = suffix or time.strftime("%Y%m%d-%H%M%S")
     cases = load_cases(assets / "dataset/incident-cases.jsonl")
     manifest = load_json(assets / "workflows/incident-commander.workflow.json")
     failures: list[str] = []
+    retried: list[str] = []
     result: dict[str, Any] = {"suffix": suffix}
 
     def check(label: str, ok: bool, detail: Any = "") -> None:
@@ -204,6 +249,10 @@ def run(
         raise SetupError("CALIBER_TOKEN must be an admin personal access token")
     if "08" not in {recipe.id for recipe in caliber.cookbooks.list()}:
         raise SetupError("Cookbooks are off: start the server with CALIBER_FEATURE_COOKBOOKS=true")
+    real = is_real_stack(caliber)
+    result["mode"] = "real" if real else "simulated"
+    if model_variant and not real:
+        raise SetupError("--model-variant needs a real provider (start with --real-llm)")
 
     # -- 0. The project and the people ------------------------------------------------------
     project = caliber.projects.create(
@@ -328,11 +377,19 @@ def run(
         and gate_run["pass_rate"] == 1.0,
         f"{gate_run['n_examples']} replays, pass rate {gate_run['pass_rate']}",
     )
-    check(
-        "the gate says its executor is the simulated one",
-        gate["executor"]["provider"] == "fake" and gate["executor"]["deterministic"] is True,
-        gate["executor"],
-    )
+    executor = gate["executor"]
+    if real:
+        check(
+            "the gate says its executor is a real model, not the simulated one",
+            executor["provider"] != "fake" and executor["deterministic"] is False,
+            executor,
+        )
+    else:
+        check(
+            "the gate says its executor is the simulated one",
+            executor["provider"] == "fake" and executor["deterministic"] is True,
+            executor,
+        )
     check(
         "prod waits for a second person, then serves version 1",
         moved["rotated"] is False and deployed("prod") == v1.version_id,
@@ -368,7 +425,9 @@ def run(
 
     # -- 6. Every incident through the queue, against prod -----------------------------------
     started = time.monotonic()
-    runs = submit_cases(admin, cases, workflow_id=workflow_id, alias="prod", key=f"{suffix}-prod")
+    runs = submit_cases(
+        admin, cases, workflow_id=workflow_id, alias="prod", key=f"{suffix}-prod", retried=retried
+    )
     mismatches = grade(cases, runs)
     seconds = round(time.monotonic() - started, 1)
     check(
@@ -505,7 +564,7 @@ def run(
     agent_id = f"{NAME_PREFIX}agent-{suffix}"
     admin.agents.create(agent_id, experiment_id=f"exp-{suffix}", name="incident commander")
     calibration = admin.workflows.create_calibration_run(workflow_id, agent_id=agent_id)
-    job = admin.jobs.wait(calibration["job"]["job_id"], timeout=300)
+    job = admin.jobs.wait(calibration["job"]["job_id"], timeout=900 if real else 300)
     eval_results = job.eval_results or {}
     check(
         "a workflow calibration runs against the test set and reports its baseline",
@@ -514,25 +573,205 @@ def run(
         and "baseline" in eval_results,
         f"{job.status}: {(eval_results.get('gate') or {}).get('reasons')}",
     )
-    evaluation = refused(
-        lambda: admin.evaluations.create(
+    # Whatever the outcome, the evidence says what measured it (the UI's "Simulated evaluation" and
+    # "Structural score" markers read these fields, also when no candidate was found).
+    check(
+        "the calibration evidence says what measured its baseline",
+        eval_results.get("simulated") is (not real)
+        and eval_results.get("scorer") == "structural"
+        and (eval_results.get("provider") == "fake") is (not real),
+        {k: eval_results.get(k) for k in ("provider", "simulated", "scorer")},
+    )
+    result["calibration"] = {
+        "status": job.status,
+        "n_examples": eval_results.get("n_examples"),
+        "baseline_quality": (eval_results.get("baseline") or {}).get("overall"),
+        "candidates": len(eval_results.get("calibration_candidates") or []),
+        "provider": eval_results.get("provider"),
+        "simulated": eval_results.get("simulated"),
+        "scorer": eval_results.get("scorer"),
+    }
+    if real:
+        judge_spec = load_json(assets / JUDGE_FILE)
+        judge = admin.judges.create(
+            f"{judge_spec['name']}-{suffix}",
+            instructions=judge_spec["instructions"],
+            feedback_value_type=judge_spec["feedback_value_type"],
+        )
+        scorecard = admin.evaluations.create(
             dataset.dataset_id,
             predict_target="workflow",
             subject_ref=v1.version_id,
-            scorers=["contains_expected"],
+            scorers=["contains_expected", f"Judge.{judge.judge_id}"],
+            max_examples=EVAL_MAX_EXAMPLES,
         )
-    )
-    check(
-        "Evaluations refuses workflow scoring without a real model (400)",
-        evaluation is not None
-        and evaluation.status_code == 400
-        and "real LLM provider" in str(evaluation),
-    )
+        sampling = (scorecard.evidence or {}).get("sampling") or {}
+        verdict_score = scorecard.aggregate.get("contains_expected")
+        check(
+            "Evaluations scores the workflow version for real over the test set",
+            scorecard.status == "completed"
+            and scorecard.n_examples == EVAL_MAX_EXAMPLES
+            and sampling.get("available_examples") == len(cases)
+            and sampling.get("truncated") is True
+            and verdict_score is not None
+            and verdict_score >= 0.9,
+            f"{scorecard.passed_count}/{scorecard.n_examples} passed, contains_expected "
+            f"{verdict_score}, judge {scorecard.aggregate.get(f'Judge.{judge.judge_id}')}",
+        )
+        judge_score = scorecard.aggregate.get(f"Judge.{judge.judge_id}")
+        check(
+            "the model-graded judge ran next to the deterministic scorer",
+            judge_score is not None and 0.0 <= judge_score <= 1.0,
+            judge_score,
+        )
+        result["evaluation"] = {
+            "run_id": scorecard.run_id,
+            "n_examples": scorecard.n_examples,
+            "available_examples": sampling.get("available_examples"),
+            "pass_rate": scorecard.pass_rate,
+            "contains_expected": verdict_score,
+            "judge": judge_score,
+            "model": scorecard.model,
+        }
+    else:
+        evaluation = refused(
+            lambda: admin.evaluations.create(
+                dataset.dataset_id,
+                predict_target="workflow",
+                subject_ref=v1.version_id,
+                scorers=["contains_expected"],
+            )
+        )
+        check(
+            "Evaluations refuses workflow scoring without a real model (400)",
+            evaluation is not None
+            and evaluation.status_code == 400
+            and "real LLM provider" in str(evaluation),
+        )
 
+    if model_variant:
+        result["variant"] = run_model_variant(
+            admin, assets=assets, cases=cases, suffix=suffix, check=check
+        )
+
+    if retried:
+        result["resubmitted_after_provider_errors"] = sorted(set(retried))
     if failures:
         raise LabVerificationError(f"{len(failures)} check(s) failed: {failures}")
     report("\nAll documented outcomes verified.")
     return result
+
+
+def parse_proposal(text: str) -> dict[str, Any] | None:
+    """The JSON object a model replied with, however it fenced or padded it; ``None`` if none."""
+    start, end = text.find("{"), text.rfind("}")
+    if start < 0 or end <= start:
+        return None
+    try:
+        value = json.loads(text[start : end + 1])
+    except ValueError:
+        return None
+    return value if isinstance(value, dict) else None
+
+
+def run_model_variant(
+    admin: CaliberClient,
+    *,
+    assets: Path,
+    cases: list[dict[str, Any]],
+    suffix: str,
+    check: Callable[..., None],
+) -> dict[str, Any]:
+    """The optional variant: a model agent proposes a triage, the decision tables still decide.
+
+    What a real model changes is the proposal and the stakeholder update, and nothing else:
+    the verdict (severity and action), the path and the approval gate come from the tables, so
+    they are asserted exactly. How often the model agrees with the tables is reported, not asserted
+    (it varies from run to run).
+    """
+    manifest = load_json(assets / VARIANT_FILE)
+    manifest["name"] = f"{NAME_PREFIX}incident-commander-model-{suffix}"
+    imported = admin.workflows.import_workflow(manifest=manifest)
+    version = admin.workflows.versions.list(imported.workflow_id)[0]
+    validation = admin.workflows.versions.validate(version.version_id)
+    check("the model variant validates", validation["valid"] and not validation["errors"])
+    wanted = {case["id"]: case for case in cases if case["id"] in VARIANT_INCIDENTS}
+    verdict_ok: list[str] = []
+    gate_ok: list[str] = []
+    parsed: dict[str, dict[str, Any]] = {}
+    for case_id, case in wanted.items():
+        preview = admin.workflows.versions.preview_run(
+            version.version_id, input=json.dumps(case["input"])
+        )
+        output = str(preview.get("output") or "")
+        verdict = parse_proposal(
+            output[output.find("Verdict: ") :] if "Verdict: " in output else ""
+        )
+        expected = case["expected"]
+        if (
+            preview["status"] == "completed"
+            and verdict
+            and verdict.get("severity") == expected["severity"]
+            and verdict.get("action") == expected["action"]
+        ):
+            verdict_ok.append(case_id)
+        # Preview passes the approval node as if approved, so the release text appears exactly
+        # when the *tables* say rollback, whatever the model proposed.
+        if output.startswith("ROLLBACK_APPROVED") is (expected["action"] == "rollback"):
+            gate_ok.append(case_id)
+        proposal = parse_proposal(str((verdict or {}).get("model_proposal") or ""))
+        if proposal:
+            parsed[case_id] = proposal
+    check(
+        "the model variant's verdicts equal the tables' (the model cannot change a decision)",
+        sorted(verdict_ok) == sorted(wanted),
+        f"{len(verdict_ok)}/{len(wanted)}",
+    )
+    check(
+        "a rollback is released exactly when the tables say rollback, not when the model does",
+        sorted(gate_ok) == sorted(wanted),
+        f"{len(gate_ok)}/{len(wanted)}",
+    )
+    agree_severity = sum(
+        1 for i, p in parsed.items() if p.get("severity") == wanted[i]["expected"]["severity"]
+    )
+    agree_action = sum(
+        1 for i, p in parsed.items() if p.get("action") == wanted[i]["expected"]["action"]
+    )
+    check(
+        "the model produced a readable proposal for most incidents",
+        len(parsed) >= len(wanted) - 2,
+        f"{len(parsed)}/{len(wanted)} parsed",
+    )
+    # A live run: a rollback incident still stops at the human gate with the model node present.
+    admin.workflows.update(imported.workflow_id, status="active")
+    published = admin.workflows.versions.publish(version.version_id)
+    rollback_case = wanted["IN01"]
+    queued = admin.workflows.runs.submit(
+        workflow_version_id=published.version_id,
+        input=json.dumps(rollback_case["input"]),
+        idempotency_key=f"{suffix}-variant-IN01",
+    )
+    paused = wait_settled(admin, queued.workflow_run_id)
+    check(
+        "through the queue the rollback still pauses at the approval gate",
+        paused.status == "waiting_approval" and node_path(paused)[-1] == APPROVAL_NODE,
+        paused.status,
+    )
+    admin.workflows.runs.cancel(paused.workflow_run_id)
+    return {
+        "incidents": len(wanted),
+        "verdicts_equal_tables": len(verdict_ok),
+        "proposals_parsed": len(parsed),
+        "model_agrees_severity": agree_severity,
+        "model_agrees_action": agree_action,
+        "model_disagreements": sorted(
+            i
+            for i, p in parsed.items()
+            if p.get("action") != wanted[i]["expected"]["action"]
+            or p.get("severity") != wanted[i]["expected"]["severity"]
+        ),
+    }
 
 
 def cleanup(caliber: CaliberClient) -> None:
@@ -546,12 +785,24 @@ def cleanup(caliber: CaliberClient) -> None:
     for dataset in caliber.eval_datasets.list():
         if dataset.name.startswith(NAME_PREFIX) and dataset.status != "archived":
             caliber.eval_datasets.update(dataset.dataset_id, status="archived")
+    # The judges the real-provider tier created ("<judge name>-<suffix>").
+    for judge in caliber.judges.list():
+        if (
+            judge.name.startswith("StakeholderUpdateHonesty-")
+            and getattr(judge, "status", "active") != "archived"
+        ):
+            caliber.judges.update(judge.judge_id, status="archived")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--cleanup", action="store_true", help="archive what earlier runs created")
     parser.add_argument("--suffix", help="name suffix (default: a timestamp)")
+    parser.add_argument(
+        "--model-variant",
+        action="store_true",
+        help="also run the optional model-based variant (real provider only)",
+    )
     args = parser.parse_args(argv)
     base_url = os.environ["CALIBER_BASE_URL"]
     password = os.environ.get("COOKBOOK_08_PASSWORD", DEFAULT_PASSWORD)
@@ -562,17 +813,22 @@ def main(argv: list[str] | None = None) -> int:
             token = sign_in(base_url, user_id, password)
         else:
             token = os.environ["CALIBER_TOKEN"]
-        client = CaliberClient(base_url, token=token, project=project_id)
+        client = CaliberClient(base_url, token=token, project=project_id, timeout=REQUEST_TIMEOUT)
         opened.append(client)
         return client
 
-    with env_client() as caliber:
+    with env_client(timeout=REQUEST_TIMEOUT) as caliber:
         try:
             if args.cleanup:
                 cleanup(caliber)
                 return 0
             ensure_accounts(caliber, password)
-            result = run(caliber, project_client=project_client, suffix=args.suffix)
+            result = run(
+                caliber,
+                project_client=project_client,
+                suffix=args.suffix,
+                model_variant=args.model_variant,
+            )
         except (LabVerificationError, SetupError) as exc:
             print(f"\nVERIFICATION FAILED: {exc}", file=sys.stderr)
             return 1

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
+import { askAria, closeAria, isRealProvider } from "./aria-real";
 
 /**
  * Cookbook 14, "Run it through the UI": give Aria one sentence and get a judge, a review queue and
@@ -12,6 +13,13 @@ import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
  *
  * The planner is deterministic, so the plan is asserted exactly. Aria creates the test set empty;
  * three of the 30 rows are added through the row editor (the rest are the script's job).
+ *
+ * Two modes, told apart by one read-only `GET /readiness`. Simulated (the default stack): running
+ * the judge in Evaluations is refused with the reason. Real (`scripts/cookbook-env.sh up lab14h
+ * --flags cookbooks,aria --real-llm`, README "Run it with a real provider"): a prompt that sees the
+ * policy text is written in Prompts, the three rows are scored by the judge in Evaluations
+ * (structure asserted, never an exact score), and the Ask Aria chat is checked on both sides of
+ * its permission boundary.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(here, "../../../../..");
@@ -22,6 +30,9 @@ const ASSETS = path.resolve(
       "docs-site/cookbooks/14-aria-governance-starter-kit/assets",
     ),
 );
+const GROUNDED_PROMPT = fs
+  .readFileSync(path.join(ASSETS, "prompts/grounded-answer.prompt.txt"), "utf8")
+  .trim();
 const read = <T>(file: string): T =>
   JSON.parse(fs.readFileSync(path.join(ASSETS, file), "utf8")) as T;
 
@@ -124,7 +135,7 @@ test.describe("Cookbook 14: a governance starter kit from one sentence", () => {
   test("states the intent, answers the questions and finds the judge, the queue and the test set", async ({
     page,
   }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(900_000);
     const suffix = uiOnlySlug("c14");
     const judgeName = `${JUDGE.name}-${suffix}`;
     const queueName = `${QUEUE.name}-${suffix}`;
@@ -224,6 +235,81 @@ test.describe("Cookbook 14: a governance starter kit from one sentence", () => {
       await expect(page.getByText(row.input["question"]!)).toBeVisible();
     }
     await expect(page.getByText("v4").first()).toBeVisible();
+
+    // ---- 10. Evaluations: refused without a real model, scored by the judge with one ------
+    const real = await isRealProvider(page);
+    const promptName = `cookbook-14-grounded-${suffix}`;
+    if (real) {
+      await page.goto("/caliber/prompts");
+      await page.getByRole("button", { name: "New prompt" }).click();
+      await page.getByRole("button", { name: /Write \/ paste/ }).click();
+      await page.getByLabel("Prompt text").fill(GROUNDED_PROMPT);
+      await page.getByLabel("Prompt name").fill(promptName);
+      await page.getByRole("button", { name: "Create and Open" }).click();
+      await expect(page.getByTestId("version-panel")).toBeVisible();
+    }
+    const label = `release candidate ${suffix}`;
+    await page.goto("/caliber/evaluations");
+    await page.getByRole("button", { name: "Run evaluation" }).click();
+    await page
+      .getByLabel("Test set", { exact: true })
+      .selectOption({ label: `${datasetName} (v4)` });
+    await page.getByLabel("Label", { exact: true }).fill(label);
+    if (real) {
+      await page.getByLabel("What to score").selectOption("prompt");
+      await page.getByLabel("Subject under test").fill(`${promptName}@1`);
+    }
+    await page.getByText("Exact match", { exact: true }).click();
+    await page.getByText("Token F1", { exact: true }).click();
+    await page.getByText("Contains expected", { exact: true }).click();
+    await page.getByText("Non-empty", { exact: true }).click();
+    await page.getByTestId("judge-scorer-options").getByText(judgeName).click();
+    await page.getByRole("button", { name: "Run", exact: true }).click();
+    if (!real) {
+      await expect(
+        page.getByText(/evaluation requires a real LLM provider/),
+      ).toBeVisible({ timeout: 60_000 });
+    } else {
+      const run = page.getByTestId("eval-run-row").filter({ hasText: label });
+      await expect(run).toBeVisible({ timeout: 300_000 });
+      await expect(run).toContainText("completed");
+      await expect(run).toContainText("3/3");
+      await run.getByRole("link").click();
+      await expect(page.getByText(`prompt: ${promptName}@1`)).toBeVisible();
+      await expect(page.getByTestId("eval-result-row")).toHaveCount(3);
+      await expect(page.getByTestId("eval-aggregate")).toBeVisible();
+    }
+  });
+
+  test("real provider: Ask Aria acts in a Legacy auto chat and only reads in the default one", async ({
+    page,
+  }) => {
+    test.setTimeout(600_000);
+    const ui = new CaliberUi(page);
+    await ui.signIn();
+    test.skip(
+      !(await isRealProvider(page)),
+      "Ask Aria needs a real engine (a simulated stack answers with a canned heuristic)",
+    );
+    const suffix = uiOnlySlug("c14chat");
+    const acting = `c14-chat-queue-${suffix}`;
+    const reading = `c14-chat-manual-${suffix}`;
+    const ask = (name: string) =>
+      `Create a review queue named ${name} with one pass_fail question: key faithful, title ` +
+      "'Is the answer faithful to the policy?'. Then tell me its id.";
+    await page.goto("/caliber/review-queues");
+    await askAria(page, ask(reading));
+    await closeAria(page);
+    const acted = await askAria(page, ask(acting), { approval: "Legacy auto" });
+    expect(acted).toMatch(/\d+ actions?/);
+    await closeAria(page);
+    await page.goto("/caliber/review-queues");
+    await expect(
+      page.getByRole("row").filter({ hasText: acting }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("row").filter({ hasText: reading }),
+    ).toHaveCount(0);
   });
 
   test("asking less: under 'Run everything it safely can' only the forms are asked", async ({

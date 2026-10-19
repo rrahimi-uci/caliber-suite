@@ -39,6 +39,8 @@ const ASSETS = path.resolve(
 );
 const DATASET_FILE = path.join(ASSETS, "dataset/aggregated-outputs.jsonl");
 const MODEL = process.env["CALIBER_LAB10_MODEL"] ?? "stand-in";
+/** A real model makes a call per row (about 6 minutes for 50 rows); the stand-in answers at once. */
+const EVAL_TIMEOUT = MODEL === "real" ? 900_000 : 240_000;
 
 interface Row {
   id: string;
@@ -110,7 +112,7 @@ test.describe("Cookbook 10: judge certification and human review", () => {
   test("loads the test set, defines the judge, reviews traces and checks alignment", async ({
     page,
   }) => {
-    test.setTimeout(600_000);
+    test.setTimeout(MODEL === "real" ? 2_700_000 : 600_000);
     const suffix = uiOnlySlug("c10");
     const promptName = `grounded-reply-${suffix}`;
     const datasetName = `judge-certification-set-${suffix}`;
@@ -227,15 +229,20 @@ test.describe("Cookbook 10: judge certification and human review", () => {
       const baselineRow = page
         .getByTestId("eval-run-row")
         .filter({ hasText: baselineLabel });
-      await expect(baselineRow).toBeVisible({ timeout: 240_000 });
+      await expect(baselineRow).toBeVisible({ timeout: EVAL_TIMEOUT });
       await expect(baselineRow).toContainText("completed");
-      await expect(baselineRow).toContainText(`${ROWS.length}/${ROWS.length}`);
+      // the cell reads "<passed>/<scored>": all 50 pass with the stand-in, a real model fails some
+      await expect(baselineRow).toContainText(
+        MODEL === "real"
+          ? new RegExp(`\\d+/${ROWS.length}`)
+          : `${ROWS.length}/${ROWS.length}`,
+      );
 
       await runEvaluation(candidateLabel, true);
       const candidateRow = page
         .getByTestId("eval-run-row")
         .filter({ hasText: candidateLabel });
-      await expect(candidateRow).toBeVisible({ timeout: 240_000 });
+      await expect(candidateRow).toBeVisible({ timeout: EVAL_TIMEOUT });
       await expect(candidateRow).toContainText("completed");
 
       // ---- 4. Inspect examples: per-row verdicts, and the candidate against the baseline ---
@@ -252,6 +259,15 @@ test.describe("Cookbook 10: judge certification and human review", () => {
       await expect(
         page.getByTestId("baseline-comparison-context"),
       ).toContainText("target llm");
+      if (MODEL === "real") {
+        // a real model: scores are percentages in range, nothing is pinned
+        const aggregate = page.getByTestId("eval-aggregate");
+        await expect(aggregate).toContainText(/\d+%/);
+        await expect(page.getByTestId("eval-result-row").first()).toBeVisible();
+        await expect(
+          page.getByTestId("eval-result-row").first(),
+        ).not.toContainText("Thanks for flagging this.");
+      }
       if (MODEL === "stand-in") {
         const aggregate = page.getByTestId("eval-aggregate");
         await expect(aggregate).toContainText("74%"); // overall 0.74
@@ -331,7 +347,7 @@ test.describe("Cookbook 10: judge certification and human review", () => {
       ).toBeVisible();
       await page.getByTestId("align-run").click();
       await expect(page.getByTestId("align-result")).toBeVisible({
-        timeout: 120_000,
+        timeout: MODEL === "real" ? 600_000 : 120_000,
       });
     }
 
@@ -354,6 +370,14 @@ test.describe("Cookbook 10: judge certification and human review", () => {
         await expect(result).toContainText("0.60");
         await expect(result).toContainText("FP 1 · FN 1");
       }
+      const agreementOf = async (): Promise<number> => {
+        const text =
+          (await page.getByTestId("align-result").textContent()) ?? "";
+        const match = /Agreement (\d+)%/.exec(text);
+        expect(match, `no agreement figure in: ${text}`).toBeTruthy();
+        return Number(match![1]);
+      };
+      const strictAgreement = await agreementOf();
       // The lenient judge passes everything that is well formed: it should be rejected.
       await importAndCheck(lenientName);
       if (MODEL === "stand-in") {
@@ -361,6 +385,14 @@ test.describe("Cookbook 10: judge certification and human review", () => {
         await expect(lenient).toContainText("Agreement 60%");
         await expect(lenient).toContainText("0.20");
         await expect(lenient).toContainText("FP 4 · FN 0");
+      }
+      if (MODEL === "real") {
+        // The invariant for any model that can do the job: the judge told to check every claim
+        // agrees with the reviewers more than the one told only to check the reply is well formed.
+        await expect(page.getByTestId("align-result")).toContainText(
+          `over ${REVIEWED.length}/${REVIEWED.length} examples`,
+        );
+        expect(await agreementOf()).toBeLessThan(strictAgreement);
       }
 
       // ---- Close the loop: each disagreement becomes a permanent hard case in the test set --

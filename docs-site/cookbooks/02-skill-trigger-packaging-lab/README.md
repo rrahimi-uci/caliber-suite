@@ -3,7 +3,8 @@
 > **Prerequisite flag:** `CALIBER_FEATURE_COOKBOOKS=true` and nothing else. It only opens the Cookbooks gallery (a preview area, off by default);
 > Skills themselves are part of the supported alpha. Every step below was run against a real server (a fresh stack from
 > `scripts/cookbook-env.sh up lab02 --flags cookbooks`) through the API and through the browser, on the alpha's default
-> **simulated** language model and evaluator.
+> **simulated** language model and evaluator, and again on a stack with **real providers** (`... up lab02h --flags cookbooks --real-llm`):
+> see [Run it with a real provider](#run-it-with-a-real-provider).
 
 ## What this lab demonstrates
 
@@ -19,7 +20,8 @@ candidate, **Apply** it, **roll it back** from the version history, **export and
 - the skill has version 1 live, and trigger round 1 (the starter phrases) gets `30/40` cases right, with false positives `T27 T28 T29 T30 T31 T32 T34 T35`
   and false negatives `T14 T23`;
 - after the tightened phrases, round 2 gets `40/40` right, which is above the `trigger_accuracy_min` gate of `0.95`, and that run is the pinned baseline;
-- a calibration run reaches `candidate_ready`; its evidence says `simulated: true` and `n_examples: 0`;
+- a calibration run reaches `candidate_ready`; on the simulated stack its evidence says `simulated: true` and `n_examples: 0`; on a real-provider stack it says
+  `simulated: false` and `n_examples: 8` (the skill's test set);
 - Apply makes the candidate version 2 and rolling back makes the original text version 3 (the history is `3, 2, 1`, and 3 has the text of 1);
 - the exported ZIP holds exactly `<name>/SKILL.md` and `<name>/agents/openai.yaml`; re-importing under the same name is `409`, importing under a new
   name keeps the instructions but **not** the tags, category or trigger phrases;
@@ -29,15 +31,15 @@ candidate, **Apply** it, **roll it back** from the version history, **export and
 ### What is simulated, and what a real provider changes
 
 Trigger selection (`POST /skills/{id}/test-selection`) is deterministic code, not a model: it is real on every stack. Calibration is the
-simulated part. Under `CALIBER_LLM_PROVIDER=fake` / `CALIBER_EVAL_PROVIDER=fake`:
+part that depends on the provider. Under `CALIBER_LLM_PROVIDER=fake` / `CALIBER_EVAL_PROVIDER=fake` (the default):
 
-| Step | On the simulated stack (what you see) | With a real model and `CALIBER_EVAL_PROVIDER=mlflow` |
+| Step | On the simulated stack (what you see) | On a real-provider stack (run and verified, see below) |
 | --- | --- | --- |
-| **Calibrate** candidate | A canned candidate: the skill's text plus three comment lines (`# Refinement added by SkillMetaPrompt`, `# Diagnosis: [fake] ...`, `+3 / -0 lines`). | A genuinely rewritten skill. |
-| **Calibrate** evidence | Canned scores (candidate `0.94`, baseline `0.88`). Marked `provider: fake`, `simulated: true` in the API and **"Simulated evaluation — not evidence"** in the review. `n_examples` is `0` because **a skill has no test set**: the 40 trigger cases score selection, they are not fed to calibration. | Scores from the model; the marker is gone. `n_examples` stays `0` until skill calibration is given a test set. |
+| **Calibrate** candidate | A canned candidate: the skill's text plus three comment lines (`# Refinement added by SkillMetaPrompt`, `# Diagnosis: [fake] ...`, `+3 / -0 lines`). | A model-written rewrite. With a note on what to fix it is a targeted edit (a few lines changed); with no note the model has no evidence of a defect and wrote a speculative extra section (see below). |
+| **Calibrate** evidence | Canned scores (candidate `0.94`, baseline `0.88`). Marked `provider: fake`, `simulated: true` in the API and **"Simulated evaluation — not evidence"** in the review. `n_examples` is `0` because **a skill has no test set** there. | Scores measured by the evaluator over the **test set you pass** (`eval_dataset_id`): `provider: mlflow`, `simulated: false`, `n_examples` equal to its size, the dataset id and version pinned. Without a test set the run **fails**: a real evaluator has nothing to score against. |
 
-So what this lab proves about calibration is the wiring: a run is queued, reaches a candidate, shows a diff and the evidence flags, applies as a
-version and rolls back. It proves nothing about whether the candidate is better.
+So on the simulated stack this lab proves the wiring: a run is queued, reaches a candidate, shows a diff and the evidence flags, applies as a version and rolls back; it proves
+nothing about whether the candidate is better. On a real stack the same wiring holds and the evidence is measured, with the limits stated in the real-provider section (eight rows).
 
 ## Prerequisites and setup
 
@@ -87,7 +89,8 @@ with wording in the content. Scores depend on the skill's name too (a name conta
 | Variable | Value used | Meaning |
 | --- | --- | --- |
 | `CALIBER_FEATURE_COOKBOOKS` | `true` (via `--flags cookbooks`) | Opens the Cookbooks gallery. Nothing else in the lab needs a flag. |
-| `CALIBER_LLM_PROVIDER` / `CALIBER_EVAL_PROVIDER` | `fake` (the `cookbook-env.sh` default) | Simulated model and evaluator; see the table above. |
+| `CALIBER_LLM_PROVIDER` / `CALIBER_EVAL_PROVIDER` | `fake` (the `cookbook-env.sh` default); `openai` / `mlflow` with `--real-llm` | Simulated model and evaluator; real ones; see the table above. |
+| `OPENAI_API_KEY` | unset on the simulated tier; **your own key** for `--real-llm` | Read by `cookbook-env.sh` from your environment (or the gitignored repo-root `.env`). Never put it in a file you commit. |
 | `CALIBER_BACKGROUND_TASKS_ENABLED` | `true` (set by `cookbook-env.sh`) | A worker has to run for calibration to leave `queued`. If it is off the run stays queued forever. |
 | `CALIBER_BASE_URL` | the server root, e.g. `http://127.0.0.1:5001` | Where the SDK example connects (the SDK appends `/ajax-api/2.0/mlflow/caliber`). |
 | `CALIBER_API` | `$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber` | Used by the `curl` commands. |
@@ -374,7 +377,7 @@ Open `$CALIBER_URL/caliber/` and sign in as `admin` / `admin` first. The sidebar
    the `test_triggers` block with the one in [`trigger-phrases.json`](assets/skills/trigger-phrases.json) (3 positive and 14 negative phrases), keeping the rest of the JSON; **Save**. The page says **Saved.** (metadata only: the version does not change) and the panel now lists `kubernetes`.
 7. **Round 2, then pin the baseline.** Open the skill again, add the same twelve scenarios, **Run 12 scenarios**: **12 `matches expectation`**, no `regression`. **Save as run**. Stage **Runs**: *Run history* lists two runs; the latest is `100%` (`12 pass`); click **Set as baseline** and it gets the **Baseline**
    marker. Select the older run in the history: **Vs. baseline** shows `Net score -75%` and `9 regressions`.
-8. **Calibrate and review.** On **Runs**, **Calibrate**: `Calibration queued — job RFN-…`. Under **Calibration runs** the job reaches `candidate_ready` (seconds) and shows **Review & apply**. Open it: the amber banner
+8. **Calibrate and review.** (On a real-provider stack first create the test set and pick it next to **Calibrate**: see [Run it with a real provider](#run-it-with-a-real-provider).) On **Runs**, **Calibrate**: `Calibration queued — job RFN-…`. Under **Calibration runs** the job reaches `candidate_ready` (seconds) and shows **Review & apply**. Open it: the amber banner
    **Simulated evaluation — not evidence**, `0 evaluation examples`, the Baseline / Candidate / Change scores, `gate passed`, and the diff with `Refinement added by SkillMetaPrompt`.
 9. **Apply, then roll back.** **Apply to skill**: `Applied RFN-… — the skill is now version 2.` Stage **Author**: version 2 has the **live** badge and the *Skill content* box ends with the `# Refinement added by SkillMetaPrompt` lines. In the *Version history*, on version 2 click
    **Roll back**, confirm: version **3** is live and the content is the original again (no refinement lines).
@@ -386,6 +389,156 @@ Open `$CALIBER_URL/caliber/` and sign in as `admin` / `admin` first. The sidebar
     `403` message (`missing required scope ...`) and no `Applied` banner appears; **Calibrate** shows the same refusal. A viewer can read the skill and its runs but cannot change anything.
 12. **Archive.** For each skill you built: **Details & package** › **Archive**: `Skill archived.` On the Skills list its card now offers **Restore**.
 
+## Run it with a real provider
+
+Everything above runs on simulated providers. This section is the same lab on a stack with a real model and the real evaluator, and what changes. Run on 2026-10-19 with the
+default model (`gpt-5.6-luna`); generated text and scores **will vary** from run to run, so the script and the spec assert invariants only (ranges, counts, markers), never wording.
+
+**1. Start a real-provider stack.** You need an OpenAI key of your own; the key is read from your shell and is never printed or written to the stack's files:
+
+```bash
+export OPENAI_API_KEY=sk-...          # your key; do not commit it, do not paste it into a README
+scripts/cookbook-env.sh up lab02h --flags cookbooks --real-llm
+source .tmp/cookbook-env/lab02h/env.sh
+curl -s $CALIBER_API/readiness | jq -c '.data | {simulated, all_real, providers}'
+```
+
+```text
+{"simulated":[],"all_real":true,"providers":{"llm":"openai","eval":"mlflow","promoter":"mlflow","artifact_store":"mlflow"}}
+```
+
+`simulated: []` is what the script and the spec read to pick the real branch. Then make the admin token as in the API section.
+
+**2. What changes, and what does not.** Trigger rounds, render preview, baseline, apply, rollback, packages and the failure paths are identical (they never touch a model). Three things differ:
+
+| | Simulated | Real |
+| --- | --- | --- |
+| Calibrate needs | nothing | a **test set**: `POST /skills/{id}/calibrate {"eval_dataset_id": "...", "notes": "..."}` (UI: **Test set** and **What should change** next to Calibrate) |
+| Calibration run time | 2 to 3 seconds | 45 to 70 seconds |
+| Candidate / evidence | canned, flagged simulated, `n_examples` 0 | model-written, `simulated: false`, `n_examples` 8, scores in `[0, 1]` |
+| The gate | passes with the canned scores | **can reject** a real candidate (see troubleshooting) |
+
+**3. The test set** is [`dataset/skill-eval-cases.jsonl`](assets/dataset/skill-eval-cases.jsonl): eight support-reply cases, each `{input: {user_message, audience, policy_context}, expected: {behavior}}`.
+The evaluator uses the skill's text as the system instruction (its `{{ policy_context }}`, `{{ audience }}` and `{{ user_message }}` are filled from the case) and scores each reply against `behavior`.
+
+```bash
+DS=$(api -X POST "$CALIBER_API/eval-datasets" -d '{"name":"lab02-skill-replies-'$RANDOM'","owner":"admin"}' | jq -r .data.dataset_id)
+while read -r line; do jq -c '{input, expected, tags}' <<<"$line" \
+  | api -X POST "$CALIBER_API/eval-datasets/$DS/examples" -d @- >/dev/null; done < $LAB/dataset/skill-eval-cases.jsonl
+api "$CALIBER_API/eval-datasets/$DS" | jq -c '.data | {dataset_id, version}'
+```
+
+```text
+{"dataset_id":"ED-a010467a","version":9}
+```
+
+**4. Calibrate against it, with a note on what to fix** ([`skills/calibration-notes.txt`](assets/skills/calibration-notes.txt)), then read the evidence (continuing from step 1 of the `curl` walk-through, which created `$SKILL`):
+
+```bash
+JOB=$(api -X POST "$CALIBER_API/skills/$SKILL/calibrate" \
+  -d "$(jq -nc --arg ds "$DS" --rawfile n $LAB/skills/calibration-notes.txt '{eval_dataset_id:$ds, notes:$n}')" | jq -r .data.job.job_id)
+until [ "$(api "$CALIBER_API/jobs/$JOB" | jq -r .data.status)" != running ] && [ "$(api "$CALIBER_API/jobs/$JOB" | jq -r .data.status)" != queued ]; do sleep 3; done
+api "$CALIBER_API/jobs/$JOB" | jq '.data | {status, diagnosis: .diagnosis.root_cause, rationale: .candidate.rationale, diff: .candidate.diff_summary,
+  eval: (.eval_results | {provider, simulated, n_examples, eval_dataset_id, eval_dataset_version, candidate: .candidate.overall, baseline: .baseline.overall, dimensions: (.candidate.dimensions | keys), gate: .gate.passed})}'
+```
+
+Real output, trimmed (ids, wording and scores will vary):
+
+```json
+{
+  "status": "candidate_ready",
+  "diagnosis": "The skill does not require replies to derive dates and amounts exclusively from policy_context or to cite only KB IDs explicitly supplied in the available context.",
+  "rationale": "The edit makes `{{ policy_context }}` the exclusive source for every date and amount, prohibiting guesses, calculations, or customer-provided values. It also restricts citations to KB IDs explicitly supplied in that context or other available input.",
+  "diff": "+7 / -2 lines",
+  "eval": {"provider": "mlflow", "simulated": false, "n_examples": 8, "eval_dataset_id": "ED-a010467a", "eval_dataset_version": 9,
+           "candidate": 0.9583, "baseline": 0.9583, "dimensions": ["correctness", "relevance_to_query", "safety"], "gate": true}
+}
+```
+
+The candidate, the Review step shows as a diff (this one added a rule and tightened a second; `+7 / -2`):
+
+```diff
++- Derive every date and amount in the reply exclusively from `{{ policy_context }}`.
++  Do not guess, infer, calculate, or use dates or amounts from the customer
++  message or any other source. If the policy context does not support one,
++  omit it and say: "I'm confirming the exact policy and will follow up."
+-- Only cite article ids that appear in `{{ policy_context }}`. Never invent a
+-  KB id, and never cite an id you were not given.
++- Only cite article ids explicitly supplied in `{{ policy_context }}`. Never use
++  ids from the customer message, model knowledge, or any other source; never
++  invent a KB id or cite an id you were not given.
+```
+
+That is a sensible new version: it does what the note asked and nothing else. Apply and roll back are the same calls as before and gave `{"status":"applied","new_version":2}`,
+`{"version":3}` and the history `[3, 2, 1]`.
+
+What the evidence does and does not tell you (read this before you trust it): the baseline and the candidate both scored `0.9583` here, so **the run measured no improvement**; it measured
+that the candidate did not regress on eight cases. A repeat run on the same skill scored baseline `0.9167`, candidate `1.0`. Eight rows is coarse: one row moves a score by `0.125`, and the
+gate (`min_aggregate_score` `0.85`, `max_regression_delta` `0.02`) tolerates no drop at all, so it also rejects on noise.
+
+**Without a note, the model has nothing to fix.** The first real calibration of the same skill, with the test set but no `notes`, produced a diagnosis that said the verification record contained
+no behavioural evidence, and a candidate that appended a "Verification trace" section asking the assistant to emit a non-customer-facing record next to the reply (`+9 / -0 lines`, gate passed, scores
+identical). It applies fine and it is not an improvement; the review is where you catch that. Give calibration a note naming the defect you saw, or use a test set row for it.
+
+**5. The failure that only a real provider has: no test set.**
+
+```bash
+api -X POST "$CALIBER_API/skills/$SKILL/calibrate" -d '{}' | jq -r .data.job.job_id      # then read the job as above
+```
+
+```json
+{"status": "failed", "current_stage": "eval", "error_message": "eval provider error: failed to load eval dataset 'default': eval dataset 'default' has no active examples"}
+```
+
+The candidate was generated but there was nothing to score it against. Naming a test set that is wrong is refused up front, before a job exists:
+`404 eval dataset 'ED-nope' not found`, `400 eval dataset '...' has no active examples to calibrate against`, `400 eval_dataset_version must be between 1 and 9 for dataset '...', got 99`, `400 eval dataset '...' is not active`.
+
+**6. The script and the spec run in both modes.** `GET /readiness` decides; nothing else changes in how you call them:
+
+```bash
+PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_02_precision_skills      # about 2 to 2.5 minutes
+cd caliber/caliber-ui && CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" \
+  npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/02-skill-trigger-packaging.spec.ts   # about 4 minutes
+```
+
+In real mode the script prints `"mode": "real"` and a calibration block like this (and `failures.no_test_set` for the run above); it exits `0` only if `simulated` is false, `provider` is not `fake`,
+`n_examples` is 8, the dataset id matches, both scores are in `[0, 1]`, the gate passed, the candidate differs from the skill, apply and rollback give versions `[3, 2, 1]`, and a calibration with
+no test set fails with `no active examples`. If the gate rejects the candidate it calibrates again, up to three attempts in all (`attempts` says how many it took); more than that fails loudly:
+
+```json
+{
+  "mode": "real",
+  "calibration": {"attempts": 1, "baseline_overall": 0.9167, "candidate_overall": 1.0, "diff_summary": "+4 / -2 lines",
+                  "dimensions": ["correctness", "relevance_to_query", "safety"], "gate_passed": true, "job_id": "RFN-e5c8e4c5",
+                  "n_examples": 8, "provider": "mlflow", "simulated": false, "status": "candidate_ready"},
+  "failures": {"no_baseline": {"baseline_run_id": null, "job_id": "RFN-6603a24f", "status": "candidate_ready"},
+               "no_test_set": {"job_id": "RFN-d254020d", "status": "failed"}, "...": "viewer and invalid as in the simulated output"},
+  "versions": {"after_apply": 2, "after_rollback": 3, "history": [3, 2, 1]},
+  "archived": 3,
+  "verified": true
+}
+```
+
+The UI spec does the real branch with clicks: step 9 first goes to **Test Sets**, creates `lab02-skill-replies-<suffix>` and adds the eight rows through the example editor, then on **Runs** picks the set in **Test set**,
+types the note, **Calibrate**, and (if the gate rejects the run, which stays in the list with its reason) calibrates again, at most three times. The review shows **no** "Simulated evaluation" banner,
+`8 evaluation examples` and `gate passed`; the skill then has a model-written version 2, which Roll back replaces with version 3 (the original text). Step 12b does the no-test-set run
+(the run row says `failed ... no active examples`) and then calibrates the baseline-less skill with the test set.
+
+**Cost and time.** One 8-row calibration is a diagnosis call, a candidate call, then 16 predictions (the skill and the candidate on eight cases) and the evaluator's scorers over them: dozens of small model
+calls, 45 to 70 seconds, a few cents at the default model's price (the job reports `total_tokens: 0`, so this is an estimate, not a measurement). The full script does about four calibrations (the lab skill, a
+second skill with no baseline, and the failing one that stops after the candidate call); the spec about as many, and either reruns when the gate rejects. Budget a few minutes and a small amount of money per run.
+
+**Troubleshooting the real tier.**
+
+| What you see | Cause and fix |
+| --- | --- |
+| Calibration `failed` with `diagnosis LLM call failed: Error code: 401 ... Incorrect API key provided` (also `status: failed` on `POST /evaluations` with the same text) | The key is wrong or revoked. Provoked on purpose with `OPENAI_API_KEY=sk-invalid scripts/cookbook-env.sh up lab02bad --flags cookbooks --real-llm`. OpenAI echoes a masked copy of your key in this message: redact it before pasting. Fix the key, `scripts/cookbook-env.sh restart` (it re-reads it), and calibrate again. |
+| Calibration `failed` with `... has no active examples` | You did not pass `eval_dataset_id` (or the set is empty). Create the test set and pass it. |
+| Calibration `rejected` with `regression gate failed: dimension 'correctness' regressed by -0.375 (max allowed -0.020)` or `overall 0.833 below min_aggregate_score 0.850` | The gate is doing its job on a real candidate: the model-written skill scored worse than the current one on at least one row, or the skill scores below `0.85` outright on this set (a one-line skill does). It is noisy at eight rows: calibrate again, or add rows. Seen in about one real run in three here. |
+| `429` or timeouts in the job's `error_message` | Provider rate limit or a slow model. The script retries a job whose error mentions 429, rate limit, timeout; otherwise wait and rerun. |
+| `model not found` / `404` from the provider | The default model name is not available to your key. Set `CALIBER_LLM_DIAGNOSIS_MODEL` to a model your key can use, before `up`. |
+| The review still says "Simulated evaluation" | The stack is simulated: `curl $CALIBER_API/readiness` must show `"simulated": []`. Restart it with `--real-llm`. |
+
 ## Verify it worked
 
 | Check | Expected |
@@ -393,7 +546,7 @@ Open `$CALIBER_URL/caliber/` and sign in as `admin` / `admin` first. The sidebar
 | `GET /skills/{id}/versions` | version numbers `[3, 2, 1]`; the content of 3 equals the content of 1; 2 ends with `# Refinement added by SkillMetaPrompt` lines |
 | `GET /skills/{id}/workspace` | `baseline_run_id` is the round-2 run id; `last_run.overall_score` is `1.0`; the no-baseline skill has `baseline_run_id: null` |
 | `GET /skills/test-runs?skill_id={id}` | the example script saves two `selection` runs of 40 results: `30 pass / 10 fail` (round 1) and `40 pass` (round 2); the `curl` walk-through saves only round 2 |
-| `GET /jobs/{job_id}` | `status: candidate_ready` (then `applied`); `eval_results.simulated: true`, `provider: "fake"`, `n_examples: 0` |
+| `GET /jobs/{job_id}` | `status: candidate_ready` (then `applied`); simulated stack: `eval_results.simulated: true`, `provider: "fake"`, `n_examples: 0`; real stack: `simulated: false`, `provider: "mlflow"`, `n_examples: 8`, `eval_dataset_id` set |
 | `GET /skills/{id}/package.zip` | a ZIP of exactly `<name>/SKILL.md` and `<name>/agents/openai.yaml` |
 | `GET /audit-log` (or Operate › **Audit Log**) | rows by `admin` for `create_skill`, `update_skill`, `create_skill_test_run`, `set_skill_baseline`, `create_job`, `candidate_ready`, `apply_candidate`, `rollback_skill`, `import_skill_package_zip` (and `merge_skill_package_zip` if you merged) |
 | `GET /skills?status=archived` | every skill the lab created |
@@ -415,12 +568,12 @@ Open `$CALIBER_URL/caliber/` and sign in as `admin` / `admin` first. The sidebar
 | A positive is not selected (empty reason) | The message shares no word with the name, tags or summary. Add a `should_trigger` phrase (`refund`, `subscription`, ...). |
 | `Import failed: SKILL.md frontmatter requires 'description'` | A package without a description. Skills exported by this build always carry one (the summary stands in when the description is empty), so this only happens for a hand-made ZIP. |
 | Scenarios disappeared | They live in the page; opening Details & package or reloading clears them. Re-add them, or run the cases with the example script. |
-| The review says `Simulated evaluation — not evidence` | Expected on the default stack: see the table at the top. Apply only if you have judged the diff yourself. |
+| The review says `Simulated evaluation — not evidence` | Expected on the default stack: see the table at the top. Apply only if you have judged the diff yourself. For measured evidence use a real-provider stack: [Run it with a real provider](#run-it-with-a-real-provider). |
 
 ## Not covered by this lab
 
 - **Bind** (`POST /skills/{id}/bind`, the Bind stage) is not part of the lab; it is a separate step that attaches the skill to an agent or workflow node.
-- A calibration that **improves** the skill: simulated here, and a skill has no test set to measure against.
+- A calibration that demonstrably **improves** the skill: the simulated stack cannot say, and on a real stack the eight-row test set is too coarse to show a gain (the baseline and the candidate scored the same in one run, `0.9167` against `1.0` in another).
 - Project roles other than Viewer. The viewer in step 11 and in the script are checked at the API (`403`); the project role matrix is in
   [Auth and project scoping](../../../docs/build/auth-and-project-scoping.md).
 - The Aria assistant picking the skill: Aria is a preview area behind its own flag.

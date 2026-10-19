@@ -78,6 +78,17 @@ STAND_IN_RUNS = {
     "candidate": {"non_empty": 1.0, "contains_expected": 0.66, "judge": 0.56},
 }
 
+#: The real-provider tier. Nothing about a real model is pinned; these are the invariants that must
+#: hold for any model that can do the job (the README records the values one run produced).
+#: A candidate that is *given* the evidence must state the expected fact more often than a baseline
+#: that sees only the ticket, by at least this much.
+REAL_CANDIDATE_LIFT_MIN = 0.10
+#: The prompt the real-model candidate runs: the stored prompt plus a slot for the evidence. The
+#: stand-in model replays recorded replies and ignores it.
+EVIDENCE_SLOT = "\n\nEvidence you may use:\n{{ evidence }}\n"
+#: Fields of a row's ``expected`` that are the grader's, not facts a reply could draw on.
+NOT_EVIDENCE = frozenset({"expected", "decision"})
+
 SCORERS = ["non_empty", "contains_expected"]
 EXAMPLES_EXPECTED = 50
 DISAGREEMENTS_EXPECTED = 9
@@ -142,6 +153,15 @@ def load_rows(assets: Path) -> list[dict[str, Any]]:
     return [
         json.loads(line) for line in path.read_text(encoding="utf-8").splitlines() if line.strip()
     ]
+
+
+def evidence_text(row: dict[str, Any]) -> str:
+    """The facts behind a row (what a person would have in front of them), one per line."""
+    return "\n".join(
+        f"{key}: {value}"
+        for key, value in row["expected"].items()
+        if key not in NOT_EVIDENCE and value is not None
+    )
 
 
 def output_text(row: dict[str, Any]) -> str:
@@ -256,13 +276,6 @@ def run(
     result["empty_dataset_evaluation"] = {"status": empty_error.status_code}
 
     judge_scorer = f"Judge.{judge.judge_id}"
-    prompt = caliber.prompts.create(
-        f"grounded-reply-{suffix}",
-        "You answer support tickets and incident alerts using ONLY the evidence you are given. "
-        "State what the evidence says and nothing more; if it does not cover the question, "
-        "say so and escalate to a person.",
-    )
-    created["prompts"].append(prompt["name"])
     modelled = True
     try:
         baseline = caliber.evaluations.create(
@@ -275,18 +288,48 @@ def run(
         )
         modelled = False
         result["evaluation_refused"] = {"status": error.status_code, "detail": error.detail}
-    result["mode"] = "model" if modelled else "simulated"
+    #: A model other than the lab's stand-in: nothing is pinned, only invariants are asserted.
+    real_model = modelled and not expect_stand_in
+    result["mode"] = ("real model" if real_model else "model") if modelled else "simulated"
+
+    instructions = (
+        "You answer support tickets and incident alerts using ONLY the evidence you are given. "
+        "State what the evidence says and nothing more; if it does not cover the question, "
+        "say so and escalate to a person."
+    )
+    prompt = caliber.prompts.create(
+        f"grounded-reply-{suffix}", instructions + (EVIDENCE_SLOT if real_model else "")
+    )
+    created["prompts"].append(prompt["name"])
 
     if modelled:
+        candidate_set = dataset
+        if real_model:
+            # A live model can only use facts it is shown, and the test set's evidence is the
+            # grader's (``expected``). So the candidate runs on a copy whose rows also carry the
+            # evidence for the prompt's ``{{ evidence }}`` slot; the baseline sees the ticket alone.
+            candidate_set = caliber.eval_datasets.create(
+                f"judge-certification-grounded-{suffix}",
+                owner=owner,
+                description="The same 50 rows with their evidence in the input (real-model tier).",
+            )
+            created["datasets"].append(candidate_set.dataset_id)
+            for row in rows:
+                caliber.eval_datasets.add_example(
+                    candidate_set.dataset_id,
+                    input={**row["input"], "evidence": evidence_text(row)},
+                    expected=row["expected"],
+                    tags=row["tags"],
+                )
         candidate = caliber.evaluations.create(
-            dataset.dataset_id,
+            candidate_set.dataset_id,
             scorers=[*SCORERS, judge_scorer],
             label=f"candidate {suffix}",
             predict_target="prompt",
             subject_ref=f"{prompt['name']}@{prompt['version']}",
         )
         result["evaluations"] = _read_runs(
-            caliber, baseline, candidate, judge_scorer, expect_stand_in
+            caliber, baseline, candidate, judge_scorer, expect_stand_in, real_model
         )
 
     # ---- 4. Human review and label import ---------------------------------------------------
@@ -340,6 +383,7 @@ def run(
             examples,
             row_for_trace,
             expect_stand_in,
+            real_model,
         )
         result["feedback"] = _feed_back(
             caliber, dataset.dataset_id, result["alignment"], examples, row_for_trace, trace_ids
@@ -375,6 +419,7 @@ def _read_runs(
     candidate: Any,
     judge_scorer: str,
     expect_stand_in: bool,
+    real_model: bool = False,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for label, run in (("baseline", baseline), ("candidate", candidate)):
@@ -405,6 +450,21 @@ def _read_runs(
             "judge": stored.aggregate[judge_scorer],
         }
     out["delta_overall"] = round(out["candidate"]["overall"] - out["baseline"]["overall"], 4)
+    if real_model:
+        lift = out["candidate"]["contains_expected"] - out["baseline"]["contains_expected"]
+        check(
+            lift >= REAL_CANDIDATE_LIFT_MIN,
+            f"the candidate, given the evidence, states the expected fact {lift:+.2f} more often "
+            f"than the baseline (needs at least {REAL_CANDIDATE_LIFT_MIN:+.2f})",
+        )
+        check(
+            all(
+                0.0 <= out[label][key] <= 1.0
+                for label in ("baseline", "candidate")
+                for key in ("non_empty", "contains_expected", "judge")
+            ),
+            "a real-model score is outside 0..1",
+        )
     if expect_stand_in:
         for label, expected in STAND_IN_RUNS.items():
             for scorer, value in expected.items():
@@ -423,6 +483,7 @@ def _certify(
     examples: list[dict[str, Any]],
     row_for_trace: dict[str, dict[str, Any]],
     expect_stand_in: bool,
+    real_model: bool = False,
 ) -> dict[str, Any]:
     out: dict[str, Any] = {}
     for label, jid, pinned in (
@@ -474,6 +535,21 @@ def _certify(
             )
             check(report.cohen_kappa == pinned["kappa"], f"{label} kappa {report.cohen_kappa}")
             check(report.confusion == pinned["confusion"], f"{label} confusion {report.confusion}")
+    if real_model:
+        # What must hold for any model that can do the job, whichever way it rules on the strict
+        # judge: a judge told to check every claim against the evidence agrees with people more than
+        # one told only to check the reply is well formed, and the weak judge is not certified.
+        strict, weak = out["faithfulness"], out["lenient"]
+        check(
+            strict["agreement"] > weak["agreement"],
+            f"the strict judge's agreement {strict['agreement']} is not above the lenient "
+            f"judge's {weak['agreement']}",
+        )
+        check(weak["decision"] != "CERTIFIED", "the deliberately weak judge was certified")
+        check(
+            strict["decision"] in {"CERTIFIED", "REJECTED"},
+            f"the strict judge was {strict['decision']}",
+        )
     if expect_stand_in:
         check(
             out["faithfulness"]["decision"] == "CERTIFIED", "the strict judge should be certified"
@@ -606,7 +682,8 @@ def main() -> None:
     expect_stand_in = "--expect-stand-in" in sys.argv
     cleanup = "--cleanup" in sys.argv
     try:
-        with env_client() as caliber:
+        # An Evaluation or alignment check is one request that makes a model call per row.
+        with env_client(timeout=1800.0) as caliber:
             result = run(caliber, expect_stand_in=expect_stand_in, cleanup=cleanup)
     except VerificationError as error:
         print(f"FAILED: {error}", file=sys.stderr)

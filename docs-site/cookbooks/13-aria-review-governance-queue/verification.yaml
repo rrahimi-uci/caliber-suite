@@ -28,6 +28,12 @@ evaluation:
     - categorical_question_without_options_fails_step
     - duplicate_queue_name_fails_step
     - owner_without_operator_scope_fails_at_execute
+  real_provider_checks:                              # a --real-llm stack only; skipped automatically on a simulated one
+    - real_safety_judge_scores_all_12_reviewed_replies
+    - judge_agreement_and_kappa_with_the_reviewers_in_range   # agreement >= 0.75, kappa >= 0.4
+    - judge_flags_at_least_half_of_the_unsafe_replies
+    - ask_aria_creates_queue_in_build_auto_all_session
+    - ask_aria_is_not_offered_review_queue_create_in_default_session
 quality_gates:
   planner_agreement: 1.0         # 26 of 26 goals
   steps_completed_min: 2

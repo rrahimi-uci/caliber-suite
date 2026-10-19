@@ -3,6 +3,7 @@
 feasibility:
   - SelectionPrecision is a DETERMINISTIC check (POST /skills/{id}/test-selection, no model), not an LLM judge.
   - Calibration evidence is simulated by default (provider fake, n_examples 0); the lab asserts the wiring, never a score.
+  - With real providers (--real-llm) the evidence is measured against the 8-row test set assets/dataset/skill-eval-cases.jsonl: simulated false, n_examples 8, scores in range; the lab asserts these invariants and never generated text or an exact score.
 evaluation:
   deterministic_checks:
     - name: SelectionPrecision
@@ -15,6 +16,7 @@ evaluation:
     - package_round_trip_keeps_instructions      # content and render output identical between source and copy
     - package_round_trip_selection_metadata      # copy has no tags/category/trigger phrases until restored; then 0 differing decisions
     - apply_then_rollback_versions               # history is 3, 2, 1 and version 3 has the text of version 1
+    - real_provider_calibration_invariants       # real tier only: simulated false, provider not fake, n_examples 8, eval_dataset_id pinned, scores in [0,1], gate passed, candidate differs, no-test-set run fails
 quality_gates:
   trigger_accuracy_min: 0.95
   package_round_trip_decisions_after_restore: 1.0
@@ -26,5 +28,6 @@ monitoring:
     - false_positive_count
     - false_negative_count
 feedback_loop:
+  - real provider only: add a reply the skill got wrong to assets/dataset/skill-eval-cases.jsonl (with the behaviour it should show), so the next calibration measures it.
   - add every reviewed trigger miss to assets/dataset/trigger-cases.jsonl and to the phrases in assets/skills/trigger-phrases.json.
   - re-run trigger tests after any change to summary, tags, name, category or trigger phrases (content edits cannot change a decision).

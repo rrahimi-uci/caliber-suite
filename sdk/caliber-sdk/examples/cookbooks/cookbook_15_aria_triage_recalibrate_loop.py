@@ -62,10 +62,13 @@ from examples.cookbooks._aria_lab import (
     Report,
     SetupError,
     VerificationError,
+    check_chat_boundary,
     check_goals_report,
     ensure_accounts,
     env_password,
     form_values,
+    http_timeout,
+    is_real,
     load_json,
     load_jsonl,
     pending,
@@ -95,6 +98,8 @@ WEAK_EXPECTED = 12
 TRIAGED = ("S19", "S21", "S24")  # the flagged runs a reviewer triages by hand
 #: How long the plan worker gets to resume the parked plan before the script calls ``poll``.
 WORKER_PATIENCE_SECONDS = 75.0
+#: The same on a stack with a real model, where the calibration job takes minutes.
+REAL_PATIENCE_SECONDS = 1800.0
 TERMINAL = {"completed", "failed", "cancelled"}
 
 
@@ -176,7 +181,7 @@ def run(
     traces: dict[str, str] | None = None,
     report: Report = print,
     sleep: Callable[[float], None] = time.sleep,
-    patience: float = WORKER_PATIENCE_SECONDS,
+    patience: float | None = None,
 ) -> dict[str, Any]:
     """Run the whole lab. ``caliber`` is the admin's client (the plan's owner and the reviewer);
     ``operator`` and ``viewer`` are the two other accounts' clients."""
@@ -191,6 +196,17 @@ def run(
     queue_form = {**queue_spec, "name": f"{NAME_PREFIX}{queue_spec['name']}-{suffix}"}
 
     admin_id = require_admin_and_aria(caliber)
+    real = is_real(caliber)
+    result["mode"] = "real" if real else "simulated"
+    if patience is None:
+        # A simulated calibration is over in seconds; a real one replays the test set through a
+        # model (about 80 workflow runs, so minutes). The worker resumes the plan either way.
+        patience = float(
+            os.environ.get(
+                "COOKBOOK_15_CALIBRATION_TIMEOUT",
+                REAL_PATIENCE_SECONDS if real else WORKER_PATIENCE_SECONDS,
+            )
+        )
     require_scopes(
         {"olga": operator, "vera": viewer},
         has={"olga": True, "vera": False},
@@ -541,8 +557,44 @@ def run(
     )
     walk(caliber, own.plan.plan_id, [("input", "skip")])
 
+    # -- 5. Ask Aria's chat, on a real stack ------------------------------------------------------
+    if real:
+        result["chat"] = _chat_for_real(caliber, check, suffix)
+
     check.finish()
     return result
+
+
+def _chat_for_real(caliber: CaliberClient, check: Checks, suffix: str) -> dict[str, Any]:
+    """Ask Aria (the chat, not the Plans page) acts in build / auto_all and only reads otherwise."""
+    acting = f"{NAME_PREFIX}chat-queue-{suffix}"
+    reading = f"{NAME_PREFIX}chat-manual-{suffix}"
+    spec = (
+        "with one pass_fail question: key resolved, title 'Did the agent resolve the request?'. "
+        "Then tell me its id."
+    )
+
+    def queue_names() -> set[str]:
+        return {q.name for q in caliber.review_queues.list()}
+
+    summary = check_chat_boundary(
+        caliber,
+        check,
+        tool="review_queue_create",
+        ask=f"Create a review queue named {acting} {spec}",
+        exists=lambda: acting in queue_names(),
+        absent_ask=f"Create a review queue named {reading} {spec}",
+        absent_exists=lambda: reading in queue_names(),
+    )
+    made = next((q for q in caliber.review_queues.list() if q.name == acting), None)
+    check(
+        "the chat's queue is active with the question that was asked for",
+        made is not None
+        and made.status == "active"
+        and [q["key"] for q in caliber.review_queues.get(made.queue_id).questions] == ["resolved"],
+        made.queue_id if made else "",
+    )
+    return summary
 
 
 def cleanup(caliber: CaliberClient) -> dict[str, int]:
@@ -571,7 +623,7 @@ def main(argv: list[str] | None = None) -> int:
     base_url = os.environ["CALIBER_BASE_URL"]
     password = env_password("COOKBOOK_ARIA_PASSWORD", DEFAULT_PASSWORD)
     opened: list[CaliberClient] = []
-    with env_client() as caliber:
+    with env_client(timeout=http_timeout()) as caliber:
         try:
             if args.cleanup:
                 print(json.dumps(cleanup(caliber), indent=2))

@@ -85,6 +85,54 @@ def test_the_lab_passes_against_a_server_that_follows_the_rules() -> None:
     assert names == {"cookbook-13-agent-reply-review-unit", "cookbook-13-kept-unit"}
 
 
+def test_a_real_provider_checks_a_judge_and_ask_aria_acts_inside_its_boundary() -> None:
+    fake, traces = make_fake(simulated=False)
+    lines: list[str] = []
+    result = run_lab(fake, traces, lines)
+    assert lines[-1] == "\nAll documented outcomes verified."
+    assert result["mode"] == "real"
+    alignment = result["judge_alignment"]
+    assert alignment["n"] == 12 and alignment["agreement"] >= 0.75 and alignment["kappa"] >= 0.4
+    assert alignment["confusion"] == {"true_pos": 7, "false_pos": 0, "true_neg": 4, "false_neg": 1}
+    assert result["chat"]["acting"] == ["judge_list", "review_queue_create"]
+    assert result["chat"]["reading"] == ["judge_list"]
+    queues = {q["name"] for q in fake.queues.values()}
+    assert "cookbook-13-chat-queue-unit" in queues and "cookbook-13-chat-manual-unit" not in queues
+    assert any("26/26" in line for line in lines)
+
+
+@pytest.mark.parametrize(
+    ("bend", "failed_check"),
+    [
+        ("judge_guesses", "the judge agrees with the reviewers"),
+        ("chat_always_acts", "is not offered: nothing was created"),
+    ],
+)
+def test_a_real_run_notices_a_judge_or_a_chat_that_breaks_a_rule(
+    bend: str, failed_check: str
+) -> None:
+    fake, traces = make_fake(simulated=False, bend=bend)
+    lines: list[str] = []
+    with pytest.raises(VerificationError):
+        run_lab(fake, traces, lines)
+    assert any(line.startswith("FAIL") and failed_check in line for line in lines)
+
+
+def test_a_simulated_stack_runs_no_judge_and_makes_no_chat_calls() -> None:
+    fake, traces = make_fake()
+    result = run_lab(fake, traces)
+    assert result["mode"] == "simulated" and "judge_alignment" not in result
+    assert not any(call.startswith(("POST /assistant", "POST /judges")) for call in fake.calls)
+
+
+def test_the_safety_judge_spec_is_a_valid_judge() -> None:
+    judge = form_values(ASSETS / "judges/reply-safety.judge.json")
+    assert set(judge) == {"name", "feedback_value_type", "instructions"}
+    assert judge["feedback_value_type"] == "bool"
+    assert "{{ inputs }}" in judge["instructions"] and "{{ outputs }}" in judge["instructions"]
+    assert "\n" not in judge["instructions"]
+
+
 def test_the_goals_dataset_matches_the_planner_and_is_varied() -> None:
     goals = load_jsonl(ASSETS / "dataset/goals.jsonl")
     assert len(goals) == 26
@@ -186,7 +234,7 @@ def test_main_reports_an_api_error_as_a_failed_verification(
     fake, traces = make_fake()
     fake.known_traces.pop(traces["R01"])
     monkeypatch.setenv("CALIBER_BASE_URL", "https://caliber.test")
-    monkeypatch.setattr(lab, "env_client", lambda: fake.client(CaliberClient))
+    monkeypatch.setattr(lab, "env_client", lambda **_: fake.client(CaliberClient))
     monkeypatch.setattr(
         lab, "sign_in", lambda _b, user, _p: {"olga": "session-olga", "vera": "session-vera"}[user]
     )
@@ -266,7 +314,7 @@ def test_main_runs_the_lab_and_cleans_up(
 ) -> None:
     fake, traces = make_fake()
     monkeypatch.setenv("CALIBER_BASE_URL", "https://caliber.test")
-    monkeypatch.setattr(lab, "env_client", lambda: fake.client(CaliberClient))
+    monkeypatch.setattr(lab, "env_client", lambda **_: fake.client(CaliberClient))
     monkeypatch.setattr(
         lab,
         "sign_in",
@@ -285,7 +333,8 @@ def test_main_runs_the_lab_and_cleans_up(
     out = capsys.readouterr().out
     assert "All documented outcomes verified." in out and '"queue_id"' in out
     assert lab.main(["--cleanup"]) == 0
-    assert json.loads(capsys.readouterr().out)["review_queues"] >= 2
+    cleaned = json.loads(capsys.readouterr().out)
+    assert cleaned["review_queues"] >= 2 and cleaned["judges"] == 0
     assert all(
         q["status"] == "archived"
         for q in fake.queues.values()
@@ -299,7 +348,7 @@ def test_main_reports_a_setup_problem_and_exits_nonzero(
     fake, _ = make_fake()
     fake.tokens["calpat_admin"] = "olga"  # the token belongs to a non-admin
     monkeypatch.setenv("CALIBER_BASE_URL", "https://caliber.test")
-    monkeypatch.setattr(lab, "env_client", lambda: fake.client(CaliberClient))
+    monkeypatch.setattr(lab, "env_client", lambda **_: fake.client(CaliberClient))
     monkeypatch.setattr(lab, "sign_in", lambda *_: "session-olga")
     monkeypatch.setattr(lab, "ensure_accounts", lambda *_: None)
     assert lab.main([]) == 1

@@ -2,10 +2,11 @@ workflow_goal: Build a prompt-only intake classifier with no tool, skill, or MCP
 # Verified by running every step against a real server; see README.md.
 feasibility:
   - Everything except scoring a prompt runs on the default simulated model and evaluator (CALIBER_LLM_PROVIDER=fake, CALIBER_EVAL_PROVIDER=fake). Calibration evidence is canned and marked simulated (provider fake, simulated true, "Simulated evaluation - not evidence" in the UI, eval_simulated on the registry version, timeline and audit rows).
-  - Real-model tier (verified on a local Ollama qwen2.5:7b; a hosted provider is the same minus the base-URL overrides, not run): Evaluations scores both versions, calibration uses the Guidelines judge (assets/calibration/guidelines.json) and yields real, non-simulated evidence; the optimizer, diagnosis, answers and judge all point at the local model via OPENAI_BASE_URL, OPENAI_API_BASE, CALIBER_LLM_DIAGNOSIS_MODEL, CALIBER_GEPA_REFLECTION_MODEL and MLFLOW_GENAI_JUDGE_DEFAULT_MODEL.
+  - Real-model tier, hosted (verified on OpenAI gpt-5.6-luna, `cookbook-env.sh up lab01h --flags cookbooks --real-llm`, only OPENAI_API_KEY set): Evaluations scores both versions, calibration uses the Guidelines judge (assets/calibration/guidelines.json, MLflow's default judge gpt-4.1-mini) with the real MetaPrompt optimizer and yields real, non-simulated evidence (or an honest rejection). The optimizer often returns the live prompt unchanged on a strong model.
+  - Real-model tier, local (verified on a local Ollama qwen2.5:7b): the optimizer, diagnosis, answers and judge all point at the local model via OPENAI_BASE_URL, OPENAI_API_BASE, CALIBER_LLM_DIAGNOSIS_MODEL, CALIBER_GEPA_REFLECTION_MODEL and MLFLOW_GENAI_JUDGE_DEFAULT_MODEL.
   - Evaluations fails closed on a simulated model (400 evaluation requires a real LLM provider); the lab verifies that refusal. With a model that answers (a real provider, or assets/stand-in-model/server.py) it scores prompt versions and the Compare-to-baseline view shows the regression.
   - Calibration queues a background optimizer job (MetaPrompt); wait for candidate_ready, then Apply explicitly.
-  - The prompt Playground, Generate Test Cases, Run Tests & Judge and the Runs stage call the Aria assistant; they are not part of this lab.
+  - The prompt Playground, Generate Test Cases, Run Tests & Judge, the Runs stage's baseline diff and Assistant-Guided Calibration call the Aria assistant: they are an optional appendix (needs CALIBER_FEATURE_ARIA and a real model; verified on lab01ha by e2e/cookbooks/labs/01c-aria-appendix.spec.ts), not part of the main lab.
 manual_flow:
   - step: define_prompt
     action: Author the strict-JSON v1 prompt and make it live.

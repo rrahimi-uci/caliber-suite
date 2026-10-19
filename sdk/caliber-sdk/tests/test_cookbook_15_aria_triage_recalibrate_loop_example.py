@@ -103,6 +103,66 @@ def test_the_lab_passes_on_a_stack_where_the_calibration_finds_a_candidate() -> 
     assert any("the calibration found a candidate: the plan completed" in line for line in lines)
 
 
+def test_a_real_provider_run_checks_ask_aria_and_follows_the_job_either_way() -> None:
+    for outcome, plan_status in (("rejected", "failed"), ("candidate_ready", "completed")):
+        fake, traces = make_fake(simulated=False)
+        fake.calibration_outcome = outcome
+        lines: list[str] = []
+        result = run_lab(fake, traces, lines)
+        assert lines[-1] == "\nAll documented outcomes verified."
+        assert result["mode"] == "real"
+        assert result["calibration"]["job_status"] == outcome
+        assert result["calibration"]["plan_status"] == plan_status
+        assert result["chat"]["acting"] == ["judge_list", "review_queue_create"]
+        assert result["chat"]["reading"] == ["judge_list"]
+        queues = {q["name"] for q in fake.queues.values()}
+        assert "cookbook-15-chat-queue-unit" in queues
+        assert "cookbook-15-chat-manual-unit" not in queues
+        assert len(fake.jobs) == 1  # the chat never started a calibration
+
+
+def test_a_real_run_notices_a_chat_that_ignores_its_permission_boundary() -> None:
+    fake, traces = make_fake(simulated=False, bend="chat_always_acts")
+    lines: list[str] = []
+    with pytest.raises(VerificationError):
+        run_lab(fake, traces, lines)
+    assert any(
+        line.startswith("FAIL") and "is not offered: nothing was created" in line for line in lines
+    )
+
+
+def test_a_simulated_stack_makes_no_chat_calls_and_waits_a_short_while() -> None:
+    fake, traces = make_fake()
+    result = run_lab(fake, traces)
+    assert result["mode"] == "simulated" and "chat" not in result
+    assert not any(call.startswith("POST /assistant") for call in fake.calls)
+
+
+def test_the_script_waits_longer_for_a_real_calibration(monkeypatch: pytest.MonkeyPatch) -> None:
+    seen: list[float] = []
+    real_wait = lab.wait_for_resume
+
+    def spy(*args: Any, patience: float, **kwargs: Any) -> Any:
+        seen.append(patience)
+        return real_wait(*args, patience=patience, **kwargs)
+
+    monkeypatch.setattr(lab, "wait_for_resume", spy)
+    for simulated in (True, False):
+        fake, traces = make_fake(simulated=simulated)
+        people = clients(fake)
+        lab.run(
+            people["admin"],
+            operator=people["olga"],
+            viewer=people["vera"],
+            suffix="unit",
+            traces=traces,
+            report=lambda _line: None,
+            sleep=lambda _seconds: None,
+        )
+    assert seen == [lab.WORKER_PATIENCE_SECONDS, lab.REAL_PATIENCE_SECONDS]
+    assert lab.REAL_PATIENCE_SECONDS > lab.WORKER_PATIENCE_SECONDS
+
+
 def test_without_a_worker_the_script_advances_the_plan_with_poll() -> None:
     fake, traces = make_fake()
     fake.worker = False
@@ -351,7 +411,7 @@ def test_main_runs_the_lab_and_cleans_up(
 ) -> None:
     fake, traces = make_fake()
     monkeypatch.setenv("CALIBER_BASE_URL", "https://caliber.test")
-    monkeypatch.setattr(lab, "env_client", lambda: fake.client(CaliberClient))
+    monkeypatch.setattr(lab, "env_client", lambda **_: fake.client(CaliberClient))
     monkeypatch.setattr(
         lab,
         "sign_in",
@@ -385,7 +445,7 @@ def test_main_reports_a_setup_problem_and_exits_nonzero(
     fake, _ = make_fake()
     fake.tokens["calpat_admin"] = "olga"
     monkeypatch.setenv("CALIBER_BASE_URL", "https://caliber.test")
-    monkeypatch.setattr(lab, "env_client", lambda: fake.client(CaliberClient))
+    monkeypatch.setattr(lab, "env_client", lambda **_: fake.client(CaliberClient))
     monkeypatch.setattr(lab, "sign_in", lambda *_: "session-olga")
     monkeypatch.setattr(lab, "ensure_accounts", lambda *_: None)
     assert lab.main([]) == 1

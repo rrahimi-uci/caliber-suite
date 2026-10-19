@@ -1,5 +1,6 @@
-import { readFileSync } from "node:fs";
-import { dirname, resolve } from "node:path";
+import { mkdtempSync, readFileSync, writeFileSync } from "node:fs";
+import { tmpdir } from "node:os";
+import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 
 import {
@@ -21,7 +22,17 @@ import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
  * Needs a server started as the README shows: CALIBER_FEATURE_COOKBOOKS=true, and
  *   CALIBER_OPERATOR_USERS=admin,lena,sam   CALIBER_APPROVER_USERS=admin,lena
  * Re-running is safe: accounts that already exist are left alone and every run makes a uniquely
- * named workspace and workflow. Nothing here calls the API directly.
+ * named workspace and workflow. Nothing here calls the API directly, but one read-only
+ * `GET /readiness` that picks the mode: the spec runs on a simulated stack (`up lab07 --flags
+ * cookbooks`) and on a real-provider one (`up lab07h --flags cookbooks --real-llm`).
+ *
+ * Mode differences: in step 5 the how-to reply is the simulated echo ("processed") or real text; and
+ * on a real stack three more steps run (the README's "Run it with a real provider"):
+ *   9.  Test Sets: four labelled tickets.
+ *   10. Workflows > Import: the optional model-based variant (a model classifies, a guard decides),
+ *       and Preview of a how-to and a bug ticket.
+ *   11. Evaluations: the deterministic workflow cannot be scored (Preview refuses its Python Code
+ *       node: the run ends failed, 0 of 4), the variant can; a range is asserted, never a score.
  */
 
 // Same variable the SDK script reads: on a stack shared with other labs `sam` may already exist
@@ -42,8 +53,38 @@ const TICKETS = readFileSync(
   .filter(Boolean)
   .map(
     (line) =>
-      JSON.parse(line) as { id: string; input: Record<string, unknown> },
+      JSON.parse(line) as {
+        id: string;
+        tags: string[];
+        input: Record<string, unknown>;
+        expected: { decision: string } & Record<string, unknown>;
+      },
   );
+
+/** `GET /readiness`: are the language model or the evaluator simulated on this stack? */
+async function isSimulated(page: Page): Promise<boolean> {
+  // The base URL ends in /caliber; the API lives beside it at the server root.
+  const root = new URL(
+    "/",
+    String(process.env["CALIBER_LAB_BASE_URL"]),
+  ).toString();
+  const response = await page.request.get(
+    `${root}ajax-api/2.0/mlflow/caliber/readiness`,
+  );
+  expect(response.ok()).toBeTruthy();
+  const body = (await response.json()) as { data?: { simulated?: string[] } };
+  const simulated = body.data?.simulated ?? [];
+  return simulated.includes("llm") || simulated.includes("eval");
+}
+
+/** The tickets the real-provider steps label, and the label the model variant prints for each. */
+const EVAL_TICKETS = ["TK01", "TK10", "TK29", "TK40"];
+const LABEL: Record<string, string> = {
+  reply: "REPLY",
+  clarify: "CLARIFY",
+  escalate_support: "ESCALATE_SUPPORT",
+  escalate_bug: "ESCALATE_BUG",
+};
 
 function ticket(id: string): string {
   const row = TICKETS.find((item) => item.id === id);
@@ -103,11 +144,14 @@ async function runTicket(page: Page, input: string): Promise<void> {
 }
 
 test.describe("Lab 07: support triage through the UI", () => {
+  // a missing control must fail the step in seconds, not wait out the whole-test timeout
+  test.use({ actionTimeout: 30_000 });
   test("import, validate, publish, run tickets, answer the approval gate", async ({
     page: adminPage,
     browser,
   }, testInfo) => {
-    test.setTimeout(480_000);
+    test.setTimeout(1_500_000);
+    const simulated = await isSimulated(adminPage);
     const baseURL = String(testInfo.project.use.baseURL);
     const suffix = uiOnlySlug("lab07").replace("lab07-", "");
     const workspace = `lab07-ui-${suffix}`;
@@ -242,10 +286,18 @@ test.describe("Lab 07: support triage through the UI", () => {
         await adminPage.getByTestId("editor-run-monitor").click();
         await expect(adminPage.getByTestId("run-monitor-panel")).toBeVisible();
         await runTicket(adminPage, ticket("TK01"));
-        await expectRunStatus(adminPage, "completed");
-        await expect(adminPage.getByTestId("run-output")).toContainText(
-          "processed",
-        );
+        await expectRunStatus(adminPage, "completed", { timeout: 120_000 });
+        if (simulated) {
+          await expect(adminPage.getByTestId("run-output")).toContainText(
+            "processed",
+          );
+        } else {
+          // a real model wrote the reply: text, not the simulated echo
+          await expect(adminPage.getByTestId("run-output")).toHaveText(/\S/);
+          await expect(adminPage.getByTestId("run-output")).not.toContainText(
+            "[support-reply]",
+          );
+        }
         await runTicket(adminPage, ticket("TK29"));
         await expectRunStatus(adminPage, "waiting_approval");
         await expect(
@@ -302,6 +354,168 @@ test.describe("Lab 07: support triage through the UI", () => {
         });
         await expectRunStatus(adminPage, "failed", { timeout: 90_000 });
       });
+
+      if (!simulated) {
+        const datasetName = `lab07-ui-${suffix}-ticket-eval`;
+        let variantVersionId = "";
+        let deterministicVersionId = "";
+        await test.step("9. Test Sets: four labelled tickets (answer = the label the variant prints)", async () => {
+          deterministicVersionId =
+            /editor\/(WFV-[^/?]+)/.exec(workflowUrl)?.[1] ?? "";
+          expect(deterministicVersionId).toMatch(/^WFV-/);
+          await adminPage.goto("/caliber/eval-datasets");
+          await adminPage
+            .getByRole("button", { name: "+ New Test Set" })
+            .click();
+          await adminPage.getByPlaceholder("factual-checks").fill(datasetName);
+          await adminPage.getByPlaceholder("@sarah").fill("admin");
+          await adminPage
+            .getByRole("button", { name: "Create", exact: true })
+            .click();
+          await adminPage
+            .getByText(datasetName, { exact: true })
+            .first()
+            .click();
+          await expect(
+            adminPage.getByTestId("eval-dataset-detail"),
+          ).toBeVisible();
+          for (const id of EVAL_TICKETS) {
+            const row = TICKETS.find((item) => item.id === id)!;
+            await adminPage.getByTestId("example-add-toggle").click();
+            await adminPage
+              .getByTestId("example-input")
+              .fill(JSON.stringify(row.input));
+            await adminPage.getByTestId("example-expected").fill(
+              JSON.stringify({
+                decision: row.expected.decision,
+                answer: LABEL[row.expected.decision],
+              }),
+            );
+            await adminPage
+              .getByTestId("example-tags")
+              .fill(row.tags.join(", "));
+            await adminPage.getByTestId("example-save").click();
+          }
+          await expect(adminPage.getByTestId("example-row")).toHaveCount(
+            EVAL_TICKETS.length,
+          );
+        });
+
+        await test.step("10. Workflows > Import the model variant; Preview a how-to and a bug ticket", async () => {
+          // The variant names its gate's test set; point it at the one created above.
+          const variant = JSON.parse(
+            readFileSync(
+              resolve(ASSETS, "workflows/support-triage-model.workflow.json"),
+              "utf8",
+            ),
+          );
+          variant.artifacts.eval_datasets["ticket-eval"].dataset_name =
+            datasetName;
+          const variantFile = join(
+            mkdtempSync(join(tmpdir(), "lab07-")),
+            "support-triage-model.workflow.json",
+          );
+          writeFileSync(variantFile, JSON.stringify(variant, null, 2));
+          await adminPage.goto("/caliber/workflows");
+          await adminPage.getByTestId("import-workflow").click();
+          await adminPage
+            .getByTestId("workflow-import-name")
+            .fill(`${workflowName}-model`);
+          await adminPage
+            .locator('input[type="file"]')
+            .setInputFiles(variantFile);
+          await adminPage
+            .getByRole("button", { name: "Validate dependencies" })
+            .click();
+          await expect(adminPage.getByText("Preflight passed")).toBeVisible();
+          await adminPage
+            .getByRole("button", { name: "Import as new" })
+            .click();
+          await expect(adminPage.getByTestId("workflow-editor")).toBeVisible();
+          variantVersionId =
+            /editor\/(WFV-[^/?]+)/.exec(adminPage.url())?.[1] ?? "";
+          for (const node of ["classify_model", "guard", "review_bug"]) {
+            await expect(
+              adminPage.getByTestId(`outline-${node}`),
+            ).toBeVisible();
+          }
+          await adminPage.getByTestId("editor-validate").click();
+          await expect(adminPage.getByTestId("editor-message")).toContainText(
+            "Valid.",
+          );
+          // Unlike the deterministic workflow, Preview runs it (no Python Code node).
+          for (const [id, label] of [
+            ["TK01", "REPLY"],
+            ["TK29", "ESCALATE_BUG"],
+          ]) {
+            await adminPage.getByTestId("editor-preview").click();
+            await adminPage.getByTestId("preview-input").fill(ticket(id));
+            await adminPage.getByTestId("preview-run").click();
+            await expect(adminPage.getByTestId("preview-result")).toContainText(
+              "completed",
+              { timeout: 120_000 },
+            );
+            await expect(adminPage.getByTestId("preview-result")).toContainText(
+              label,
+            );
+            await adminPage.getByTestId("preview-close").click();
+          }
+        });
+
+        await test.step("11. Evaluations: the deterministic workflow fails (0 of 4), the model variant scores in range", async () => {
+          async function evaluate(
+            label: string,
+            versionId: string,
+            status: "completed" | "failed",
+          ) {
+            await adminPage.goto("/caliber/evaluations");
+            await adminPage
+              .getByRole("button", { name: "Run evaluation" })
+              .click();
+            await adminPage
+              .getByLabel("Test set", { exact: true })
+              .selectOption({
+                label: `${datasetName} (v${EVAL_TICKETS.length + 1})`,
+              });
+            await adminPage.getByLabel("Label", { exact: true }).fill(label);
+            await adminPage
+              .getByLabel("What to score")
+              .selectOption("workflow");
+            await adminPage.getByLabel("Subject under test").fill(versionId);
+            await adminPage.getByText("Exact match", { exact: true }).click();
+            await adminPage.getByText("Token F1", { exact: true }).click();
+            await adminPage
+              .getByRole("button", { name: "Run", exact: true })
+              .click();
+            const row = adminPage
+              .getByTestId("eval-run-row")
+              .filter({ hasText: label });
+            await expect(row).toBeVisible({ timeout: 600_000 });
+            await expect(row).toContainText(status);
+            return row;
+          }
+          const refused = await evaluate(
+            `lab07-${suffix}-rules`,
+            deterministicVersionId,
+            "failed",
+          );
+          // Preview cannot run the Python Code node: every row errors, none passes, and the run
+          // ends failed with that reason
+          await expect(refused).toContainText(`0/${EVAL_TICKETS.length}`);
+          const model = await evaluate(
+            `lab07-${suffix}-model`,
+            variantVersionId,
+            "completed",
+          );
+          const text = await model.innerText();
+          const passed = Number(
+            new RegExp(`(\\d+)/${EVAL_TICKETS.length}`).exec(text)?.[1] ?? "-1",
+          );
+          // model-dependent: at least half of four labelled tickets are routed as labelled
+          expect(passed).toBeGreaterThanOrEqual(EVAL_TICKETS.length / 2);
+          expect(passed).toBeLessThanOrEqual(EVAL_TICKETS.length);
+        });
+      }
     } finally {
       for (const entry of contexts) await entry.close();
     }

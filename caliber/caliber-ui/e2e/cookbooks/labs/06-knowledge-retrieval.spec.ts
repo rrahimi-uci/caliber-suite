@@ -42,6 +42,14 @@ const PROMPT_TEMPLATE = fs
   .trim();
 
 const MODEL = "sentence-transformers/all-MiniLM-L6-v2";
+/**
+ * `CALIBER_LAB06_MODEL=real` says the server was started with `--real-llm` (README, "Run it with a
+ * real provider"): answers are written by a model and calibration's Faithfulness and
+ * Answer-correctness are real numbers. Unset (the default) is the simulated stack, where they are
+ * blank. A calibration run makes three model calls per question, so it takes minutes, not seconds.
+ */
+const REAL = process.env["CALIBER_LAB06_MODEL"] === "real";
+const CALIBRATE_TIMEOUT = REAL ? 1_500_000 : 120_000;
 const QUESTION = "How long are security audit logs retained?";
 const OUTSIDE_QUESTION = "What is the dress code for client meetings?";
 
@@ -117,7 +125,9 @@ test.describe("Cookbook 06: grounded knowledge assistant", () => {
   test("upload the policies, build, explore, calibrate, tune, activate and review", async ({
     page,
   }) => {
-    test.setTimeout(Number(process.env["LAB_TIMEOUT_MS"] ?? 900_000));
+    test.setTimeout(
+      Number(process.env["LAB_TIMEOUT_MS"] ?? (REAL ? 3_600_000 : 900_000)),
+    );
     const ui = new CaliberUi(page);
     const suffix = uiOnlySlug("c06");
     const bucket = `policy-corpus-${suffix}`;
@@ -270,15 +280,23 @@ test.describe("Cookbook 06: grounded knowledge assistant", () => {
     await expect(
       page.getByTestId("kb-calibrate-metric-recall_at_k"),
     ).toContainText("88%", {
-      timeout: 120_000,
+      timeout: CALIBRATE_TIMEOUT,
     });
     await expect(
       page.getByTestId("kb-calibrate-metric-ndcg_at_k"),
     ).toContainText("90%");
-    // the judged metrics need a real model: they are blank on the simulated stack
-    await expect(
-      page.getByTestId("kb-calibrate-metric-faithfulness"),
-    ).toContainText("—");
+    // the judged metrics need a real model: blank on the simulated stack, percentages on a real one
+    if (REAL) {
+      for (const metric of ["faithfulness", "answer_correctness"]) {
+        await expect(
+          page.getByTestId(`kb-calibrate-metric-${metric}`),
+        ).toContainText(/\d+%/);
+      }
+    } else {
+      await expect(
+        page.getByTestId("kb-calibrate-metric-faithfulness"),
+      ).toContainText("—");
+    }
     await page.getByTestId("kb-calibrate-set-baseline").click();
     await expect(
       page.getByTestId("kb-calibrate-baseline-marker"),
@@ -288,7 +306,7 @@ test.describe("Cookbook 06: grounded knowledge assistant", () => {
     await expect(
       page.getByTestId("kb-calibrate-metric-recall_at_k"),
     ).toContainText("93%", {
-      timeout: 120_000,
+      timeout: CALIBRATE_TIMEOUT,
     });
     await expect(
       page.getByTestId("kb-calibrate-delta-recall_at_k"),
@@ -357,9 +375,16 @@ test.describe("Cookbook 06: grounded knowledge assistant", () => {
         timeout: 120_000,
       },
     );
-    await expect(page.getByTestId("run-output")).toContainText(
-      "data-retention-policy.md",
-    );
+    if (REAL) {
+      // a model wrote the answer: the output is its sentence, not the extractive digest
+      await expect(page.getByTestId("run-output")).not.toContainText(
+        "Most relevant retrieved evidence",
+      );
+    } else {
+      await expect(page.getByTestId("run-output")).toContainText(
+        "data-retention-policy.md",
+      );
+    }
     await expect(page.getByTestId("run-output")).toContainText("365 days");
 
     // ---- 11. Observability, then Review Queues: send that run's trace to a person --------------
@@ -384,6 +409,9 @@ test.describe("Cookbook 06: grounded knowledge assistant", () => {
     await expect(page.getByText(traceId).first()).toBeVisible();
     await page.getByRole("button", { name: "Pass" }).click();
     await page.getByRole("button", { name: "Submit review" }).click();
+    // wait for the submit to land (the write-back to MLflow is slower on a real stack) before
+    // opening the completed item
+    await expect(page.getByText("All items reviewed.")).toBeVisible();
     await page.getByText(traceId).first().click();
     await expect(
       page.getByText(/wrote 1 assessment\(s\) back to the trace/),

@@ -6,7 +6,7 @@
 
 You give Aria one sentence, *"Stand up our governance starter kit: a judge for answer faithfulness, an eval dataset to score against, and a review queue for human checks."*, and it draws a plan of four platform steps: `judge.create`, `review_queue.create`, `eval_dataset.create` and `review_queue.add_items`. Nothing runs until you approve the plan. When you execute it, each step stops on an **Aria needs information** form for the fields the planner cannot know, and, because you chose **Stop before each change**, on an **Approve** / **Deny** prompt before it creates anything; you skip the fourth step because there are no traces to enqueue yet. At the end a real judge, a real review queue and a real, empty test set exist under three different names, you load 30 policy questions into the test set, and you see what happens when you ask Aria for less (no approval prompts), when you deny a step (its dependent goes with it) and when a step fails half way (what was already made stays made).
 
-**The planner is rules, not a model.** It proposes a step for every capability whose domain word appears in the goal, so the whole lab is deterministic and the plan is checked exactly against a dataset of 28 goals. There is no language model in the loop for planning, and the creation steps need no model either. The one thing that does need a real model, running the judge over the test set in **Evaluations**, is refused on a simulated deployment (`400 evaluation requires a real LLM provider`), and the lab verifies that refusal instead of a score.
+**The planner is rules, not a model.** It proposes a step for every capability whose domain word appears in the goal, so the whole lab is deterministic and the plan is checked exactly against a dataset of 28 goals. There is no language model in the loop for planning, and the creation steps need no model either. The one thing that does need a real model, running the judge over the test set in **Evaluations**, is refused on a simulated deployment (`400 evaluation requires a real LLM provider`), and the lab verifies that refusal instead of a score. On a stack with a real provider ([Run it with a real provider](#run-it-with-a-real-provider)) the same script scores the 30 policy cases with the judge instead, and checks the Ask Aria chat.
 
 You are done when:
 
@@ -18,15 +18,16 @@ You are done when:
 - the refusals happened: denying the queue skipped the enqueue step with it, a taken queue name failed the plan after the judge was made (the judge stays), a judge without an evaluation variable failed the plan before anything else was made, a goal with no steps cannot be approved (409), an account without the operator scope fails at execute and creates nothing, and an operator who does not own the plan cannot answer (403) or read it (404);
 - the Playwright spec `caliber/caliber-ui/e2e/cookbooks/labs/14-aria-governance-starter-kit.spec.ts` passes.
 
-### What is simulated, and what a real provider would change
+### What is simulated, and what a real provider changes
 
-| Piece | In this lab | With a real provider |
+| Piece | Simulated stack (default) | Real provider (verified, see [below](#run-it-with-a-real-provider)) |
 | --- | --- | --- |
-| Planning the goal into steps | The rules-based planner (the same on a real deployment: no model is wired into it) | Unchanged |
+| Planning the goal into steps | The rules-based planner | **Unchanged**: no model is wired into planning; all 28 goals draw the same plans on a real stack (28/28, run live) |
 | `judge.create`, `review_queue.create`, `eval_dataset.create` | Real: a judge, a queue and a test set are created in the database | Unchanged |
-| The judge's verdicts | Not produced: **Evaluations** is refused (400) on the simulated stack, so the judge never runs | **Evaluations** with the judge ticked under Custom LLM judges scores each row; the script would then also assert that all 30 rows were scored |
+| The judge's verdicts | Not produced: **Evaluations** is refused (400), so the judge never runs | **Evaluations** scores each of the 30 policy cases with the judge; run live, 30 of 30 rows judged, the 5 `high-risk` cases sliced apart |
 | Test set rows | Real: 30 rows added through the API (3 through the row editor in the UI) | Unchanged |
-| The queue's reviewers | Nobody reviews here (lab 13 does); the enqueue step is skipped | People answer the queue's questions in **Review Queues** |
+| The queue's reviewers | Nobody reviews here (lab 13 does); the enqueue step is skipped | Unchanged |
+| **Ask Aria** (the chat) | Not used here; its engine is `fake` | A real engine answers and, in a `build` session with `auto_all` approval, creates a review queue itself (run live) |
 
 ## Prerequisites and setup
 
@@ -88,7 +89,9 @@ That is why you read the plan before you approve it: nothing runs until you do.
 | `CALIBER_FEATURE_ARIA` | `true` (set by `--flags aria`) | Opens `/aria/*`, `/assistant/*` and the **Plans** page (404 `feature_disabled` without it) |
 | `CALIBER_FEATURE_COOKBOOKS` | `true` (set by `--flags cookbooks`) | Only the gallery card; the lab does not need it |
 | `CALIBER_OPERATOR_USERS` | `admin,olga` | Accounts holding `caliber.operator`: the scope the three create steps declare. `vera` is deliberately absent |
-| `CALIBER_LLM_PROVIDER`, `CALIBER_EVAL_PROVIDER` | `fake` (the default) | Simulated: **Evaluations** is refused |
+| `CALIBER_LLM_PROVIDER`, `CALIBER_EVAL_PROVIDER` | `fake` (the default); `openai` and `mlflow` with `--real-llm` | Simulated: **Evaluations** is refused. Real: the judge runs |
+| `OPENAI_API_KEY` | only with `--real-llm`; export it yourself | The provider key (never written anywhere by the lab) |
+| `COOKBOOK_ARIA_HTTP_TIMEOUT`, `COOKBOOK_14_MIN_RATE` | optional (900, 0.6) | One request's timeout in seconds, and the bar for the faithful share on a real stack |
 | `CALIBER_BASE_URL` | `$CALIBER_URL`, the server root without `/ajax-api/...` | What the script's SDK client calls |
 | `CALIBER_TOKEN` | the admin token above | The script acts as `admin` and signs in as `olga` and `vera` itself |
 | `COOKBOOK_ARIA_PASSWORD` | optional | Password for the `olga` and `vera` accounts the Aria labs create (default `cookbook-aria-lab-passphrase`) |
@@ -198,9 +201,63 @@ API checks (the script does all of them; these are the ones to read by eye):
 - `GET /judges/{judge_id}` has `status: "active"` and `feedback_value_type: "bool"`; `GET /review-queues/{queue_id}` has `queue.questions` of four keys and `queue.item_count: 0`; `GET /eval-datasets/{dataset_id}` has `version: 31` after the 30 rows and `GET /eval-datasets/{dataset_id}/examples` lists their 30 questions. The three names differ.
 - `GET /aria/plans/{id}/interactions` for the **Stop before each change** plan lists 4 `input` and 3 `permission` questions; for the **Run everything it safely can** plan, 4 `input` and none else.
 - `GET /aria/plans/{failed plan}` has `status: "failed"` and the failed step's `error` is the text in the drills above.
-- `POST /evaluations` answers `400 evaluation requires a real LLM provider; set CALIBER_LLM_PROVIDER (openai/anthropic) and the matching API key, then retry.`
+- On a simulated stack `POST /evaluations` answers `400 evaluation requires a real LLM provider; set CALIBER_LLM_PROVIDER (openai/anthropic) and the matching API key, then retry.` On a real stack it answers 201 and `GET /evaluations/{id}` reads `status: "completed"`, `n_examples: 30`, an `aggregate` with the judge's share of true verdicts (`Judge.<id>`), and `evidence.resolved.llm_provider` set to the real provider (see [Run it with a real provider](#run-it-with-a-real-provider)).
 
 UI checks: steps 1 to 11 above, each with the text or status it names.
+
+## Run it with a real provider
+
+A real provider adds two things to this lab: the judge can be **run** over the 30 policy cases (Evaluations), and the **Ask Aria** chat can act. Everything Aria plans and creates is exactly as above. The numbers below are from live runs and **will vary**.
+
+### Start a real stack
+
+```bash
+export OPENAI_API_KEY=...            # your own key. Never commit it; the lab never prints or stores it
+export CALIBER_OPERATOR_USERS=admin,olga
+scripts/cookbook-env.sh up lab14h --flags cookbooks,aria --real-llm
+source .tmp/cookbook-env/lab14h/env.sh
+```
+
+`--real-llm` sets `CALIBER_LLM_PROVIDER=openai`, `CALIBER_EVAL_PROVIDER=mlflow` and `CALIBER_ASSISTANT_ENGINE=openai` (default model `gpt-5.6-luna`) and reads only `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` from your environment or the repository-root `.env`; `GET /readiness` then reports `"simulated": []`. Make the access token as in [Prerequisites and setup](#prerequisites-and-setup) and run the same command as above. The script reads `GET /readiness` and, on a real stack, skips the 400-refusal check and does the following instead. It takes about 3 to 4 minutes and about 62 model calls (30 answers and 30 verdicts, plus two chat turns); `COOKBOOK_ARIA_HTTP_TIMEOUT` (seconds, default 900) bounds one request, because an evaluation scores every row inside one request.
+
+### Scoring the 30 policy cases
+
+The script writes one **prompt** (`assets/prompts/grounded-answer.prompt.txt`): an answerer shown the case's policy text (`{{ evidence }}` is filled from each row) and told to stay inside it. It runs the test set in **Evaluations** with `predict_target: prompt` and the scorers `non_empty` and `Judge.<the judge Aria created>`. (With *What to score* left at the model, Evaluations send only the row's `question` field and never its `evidence`, so a faithfulness judge would grade answers the model had no sources for; scoring a prompt that holds `{{ evidence }}` is how the row's other fields reach the model.)
+
+```text
+ok   release candidate: the run completed over all 30 rows with a verdict from the judge for each  [completed, 30 rows, 30 judged]
+ok   release candidate: the judge's verdicts are 0 or 1 and its aggregate is the share of 1s  [judge aggregate 0.9667]
+ok   release candidate: the evidence names a real provider, the answerer prompt and the judge  [provider=openai model=gpt-5.6-luna judge model=the deployment default]
+ok   the judge finds at least 60% of the grounded answers faithful  [97%]
+ok   the evidence slices the run by tag, with the 5 high-risk cases apart  [{'benefits': 4, 'conduct': 3, 'edge': 3, 'expenses': 5, 'hard-negative': 3, 'high-risk': 5, 'it': 6, ...}]
+```
+
+Asserted: all 30 rows have a verdict of 0 or 1 and no error, the aggregate is the share of 1s, the evidence names a real provider and the judge, at least 60% of the grounded answers are found faithful (`COOKBOOK_14_MIN_RATE`), and the evidence's `slices` hold the five `high-risk` cases apart (`GET /evaluations/{id}` -> `evidence.slices`), so a release-candidate gate can look at them separately. Never asserted: an exact rate or which row fails. Observed in two real runs: 29 of 30 faithful (0.9667) both times (a judge compares against the reference answer, so a correct answer worded differently can be called unfaithful). The judge was created by Aria without a `model`, so it runs on the deployment's default judge model.
+
+### What the real engine does, and does not, change in Aria
+
+- **Plans are unchanged.** `POST /aria/plans` uses the rules-based planner whatever the assistant engine is; the 28 goals draw the same plans on the real stack, and **Plans** never calls the engine.
+- **The chat acts only inside its permissions.** In a `build` session with approval `auto_all` (UI label **Legacy auto**) or `full_autonomy`, Ask Aria's tools include Aria's mutating capabilities; asked to create a queue with one `pass_fail` question the model called `review_queue_create` and the queue exists. In the default session (**Ask first**) it is offered read tools only: it called `list_tools`, `openapi_tool_list` and `review_queue_list`, could not create the queue, and nothing was created (run live). Approving and publishing are never offered to the chat.
+
+```text
+ok   the assistant engine is a real one, not the fake heuristic  [engine=openai model=gpt-5.6-luna]
+ok   Ask Aria in a build / auto_all session called review_queue_create itself and it worked  [tools called: ['review_queue_create']]
+ok   in the default session (manual approval) review_queue_create is not offered: nothing was created  [tools called: ['list_tools', 'openapi_tool_list', 'review_queue_list']]
+ok   the chat's queue is active with the question that was asked for  [RVQ-50c7a6d7]
+```
+
+### Through the UI (real stack)
+
+`14-aria-governance-starter-kit.spec.ts` checks `GET /readiness` and, on a real stack, adds to the first test: **Prompt lifecycle > Prompts** (create the grounded prompt from the asset), then **Evaluations > Run evaluation** with the test set (`v4`, three rows), *What to score* `prompt`, *Subject under test* `<prompt name>@1`, the three default graders unticked, **Non-empty** and the judge ticked under *Custom LLM judges*, **Run**. Expected: the run row reads `completed` and `3/3` and its scorecard lists three rows. A fourth test opens **Ask Aria** and sends the queue request in a default chat (no queue appears in **Review Queues**), then after choosing **Legacy auto** (the queue appears). On a simulated stack the evaluation step shows `evaluation requires a real LLM provider` instead.
+
+### Real-provider troubleshooting
+
+| You see | Cause and fix |
+| --- | --- |
+| `POST /evaluations` answers **201** but the run has `status: "failed"` and `error_message: "Error code: 401 ... Incorrect API key provided: sk-invalid"` | The key is rejected. Evaluations record the provider error on the run instead of failing the request, so check `status`. Provoked on purpose with `OPENAI_API_KEY=sk-invalid`; `/readiness` still says `ready: true` because it does not call the model. Fix the key and restart the stack |
+| Ask Aria answers "I encountered an error: AuthenticationError" | The same rejected key, in the chat |
+| `VERIFICATION FAILED: the judge finds at least 60% ...` | Fewer grounded answers were found faithful than the bar: read the rows in `GET /evaluations/{id}`, or lower `COOKBOOK_14_MIN_RATE` for a noisy judge |
+| `ReadTimeout` | One request outlived `COOKBOOK_ARIA_HTTP_TIMEOUT` (default 900 s); raise it. A provider 429 and an unknown model were not provoked in this lab |
 
 ## Common errors and troubleshooting
 
@@ -218,17 +275,17 @@ UI checks: steps 1 to 11 above, each with the text or status it names.
 | The plan reads `failed` with `invalid input: ...` or `ValueError: ... is already in use` | The step ran and its own check refused. A failed plan cannot be run again: state the goal again with a new name or fixed instructions. What earlier steps made stays: archive it under its page (Judges, Review Queues, Test Sets) or leave it |
 | `plan owner lacks required scope(s): operator` | The account that owns the plan is not in `CALIBER_OPERATOR_USERS`. Plans run with their owner's scopes |
 | `403 only the plan owner may answer this interaction` | Another account answered it. Only the owner (or an admin) can |
-| `400 evaluation requires a real LLM provider` from **Evaluations** or `POST /evaluations` | The simulated provider; the judge and the deterministic scorers both need a real one. Not a bug in this lab |
+| `400 evaluation requires a real LLM provider` from **Evaluations** or `POST /evaluations` | The simulated provider; the judge and the deterministic scorers both need a real one: start the stack with `--real-llm` ([Run it with a real provider](#run-it-with-a-real-provider)). Not a bug in this lab |
 | A judge, queue or test set name is taken | Names are unique across the deployment, archived ones included; the script adds a time stamp |
 
 ## Not covered by this lab
 
-Running the judge and scoring the test set needs a real model and is not exercised here; **Evaluations** is refused on the simulated stack. Enqueuing traces into the queue and reviewing them is lab 13; this lab skips that step. Adding the 30 rows is not an Aria capability (Aria creates the test set empty). The planner does not read negation, questions or "delete", and a plan that fails half way does not undo what it already made: both are properties of the alpha, not of the lab.
+The judge is run once over the 30 cases and is not compared with human labels (lab 13 and lab 10 do that). Enqueuing traces into the queue and reviewing them is lab 13; this lab skips that step. Adding the 30 rows is not an Aria capability (Aria creates the test set empty). The planner does not read negation, questions or "delete", and a plan that fails half way does not undo what it already made: both are properties of the alpha, not of the lab.
 
 ## Cleanup and reset
 
 ```bash
-# archive the judges, review queues and test sets the script created (names cookbook-14-*)
+# archive the judges, review queues and test sets the script created (names cookbook-14-*) and delete its prompt
 PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_14_aria_governance_starter_kit --cleanup
 # reset everything: stop the stack and delete its state
 scripts/cookbook-env.sh down lab14 && rm -rf .tmp/cookbook-env/lab14
