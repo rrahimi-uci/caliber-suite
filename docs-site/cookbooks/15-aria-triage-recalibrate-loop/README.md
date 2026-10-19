@@ -8,7 +8,7 @@ You give Aria one sentence about weak runs, *"Our workflow's recent runs look we
 
 **This loop remediates things that already exist.** Aria creates neither the traces nor the workflow: `add_items` needs trace ids that exist, `workflow.calibrate` needs a workflow and an agent that exist. The lab creates them first with two scripts in `assets/` (a published support workflow with a 30-case test set as its deploy gate, two tools, an agent; and 12 flagged traces). In a real deployment they are yours.
 
-**What a simulated stack proves, and what it cannot.** The planner is rules, not a model, so the plan is deterministic and checked exactly against 28 goals. The parking, the resume by the worker and the plan mirroring its job are real: the lab runs a real calibration job. But on the simulated provider the calibration is **rejected**: the fake workflow executor gives the candidate the same outputs as the baseline, so the quality gain is `+0.000`, below the `0.02` the candidate must clear, and the plan ends `failed` with that reason. A calibration that finds a candidate (`candidate_ready`) needs a real model; the plan would then complete. The script accepts either outcome and asserts that the plan follows the job; the completing path is covered by unit tests (`caliber/tests/test_aria_async.py`) and is **not demonstrated live here**.
+**What a simulated stack proves, and what a real one adds.** The planner is rules, not a model, so the plan is deterministic and checked exactly against 28 goals. The parking, the resume by the worker and the plan mirroring its job are real on both: the lab runs a real calibration job. On the simulated provider the calibration is **rejected**: the fake workflow executor gives the candidate the same outputs as the baseline, so the quality gain is `+0.000`, below the `0.02` the candidate must clear, and the plan ends `failed` with that reason. On a stack with a real provider the job replays the test set through the model (about 2 to 3 minutes) and is **still rejected for the same reason** in every run recorded: the default objective maximizes quality, quality cannot move on this lab's gate rows, and the one candidate Aria's calibration generates (a duplicate grounding guardrail) cannot change an answer. [Run it with a real provider](#run-it-with-a-real-provider) shows the real job's scores and why. The script accepts either outcome (`candidate_ready` completes the plan, `rejected` fails it) and asserts that the plan follows the job; the completing path is covered by unit tests (`caliber/tests/test_aria_async.py`) and was **not reached live**.
 
 You are done when:
 
@@ -20,15 +20,16 @@ You are done when:
 - the refusals happened: an unknown workflow, an unregistered agent and a workflow with no test set each fail the step at once without queueing a job, a form with an empty id or an unknown field is refused (409) and stays open, a denied calibration queues nothing, skipping the queue skips its enqueue with it, a goal with no steps cannot be approved (409), an account without the operator scope fails at execute, and an operator who does not own the plan cannot answer (403) or poll it (404);
 - the Playwright spec `caliber/caliber-ui/e2e/cookbooks/labs/15-aria-triage-recalibrate-loop.spec.ts` passes.
 
-### What is simulated, and what a real provider would change
+### What is simulated, and what a real provider changes
 
-| Piece | In this lab | With a real provider |
+| Piece | Simulated stack (default) | Real provider (verified, see [below](#run-it-with-a-real-provider)) |
 | --- | --- | --- |
-| Planning the goal into steps | The rules-based planner (the same on a real deployment) | Unchanged |
+| Planning the goal into steps | The rules-based planner | **Unchanged**: no model is wired into planning; all 28 goals draw the same plans on a real stack (28/28, run live) |
 | The queue, the enqueue, the job, the parking and the worker's resume | Real | Unchanged |
-| The workflow's runs and traces | The traces are recorded runs written by `assets/seed_traces.py`; the workflow itself is replayed by the calibration with a fake executor | Your workflow produces them |
-| The calibration's result | The job ends `rejected` (`quality delta +0.000 < epsilon 0.02`): nothing beats the baseline, so the plan fails | A real executor can find a candidate: the job reaches `candidate_ready`, the step finishes and the plan completes. The candidate is not applied by the plan |
-| Reviews | Three runs triaged by the script with the dataset's labels | People answer in **Review Queues** |
+| The workflow's runs and traces | The traces are recorded runs written by `assets/seed_traces.py`; the workflow itself is replayed by the calibration with a fake executor | The calibration replays 20 gate cases through the real model and the lab's two tools (a real `agent` node with function tools); the 12 flagged traces are still the recorded runs |
+| The calibration's result | The job ends `rejected` (`quality delta +0.000 < epsilon 0.02`): nothing beats the baseline, so the plan fails | The job ends `rejected` for the same reason in both recorded runs: quality is 0.000 for the baseline and the candidate (the gate rows have no output a text match can read), so the plan fails. The `candidate_ready` path was not reached |
+| Reviews | Three runs triaged by the script with the dataset's labels | People answer in **Review Queues** (unchanged on a real stack) |
+| **Ask Aria** (the chat) | Not used here; its engine is `fake` | A real engine answers and, in a `build` session with `auto_all` approval, creates a review queue itself (run live) |
 
 ## Prerequisites and setup
 
@@ -107,6 +108,8 @@ That is why you read the plan before you approve it: nothing runs until you do.
 | `CALIBER_TOKEN` | the admin token above | The script acts as `admin` (the plan's owner and the reviewer) and signs in as `olga` and `vera` itself |
 | `COOKBOOK_ARIA_PASSWORD` | optional | Password for the `olga` and `vera` accounts the Aria labs create (default `cookbook-aria-lab-passphrase`) |
 | `COOKBOOK_15_ASSETS` | optional | Another assets directory |
+| `OPENAI_API_KEY` | only with `--real-llm`; export it yourself | The provider key (never written anywhere by the lab) |
+| `COOKBOOK_ARIA_HTTP_TIMEOUT`, `COOKBOOK_15_CALIBRATION_TIMEOUT` | optional (900; 75 simulated, 1800 real) | One request's timeout, and how long the script waits for the worker to resume the parked plan, both in seconds |
 
 ## Run it through the API
 
@@ -203,7 +206,7 @@ CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwri
 4. **Execute and answer the queue's questions.** Press **Execute**. Expected: **Aria needs information**, "Provide the required inputs for step 1: Create review queue.". Fill **name** (`weak-runs-triage`), **description**, **questions** and **reviewers** (the JSON arrays from `assets/review-queues/triage-review.queue.json`), press **Continue plan**, then **Approve** "Approve step 1: Create review queue (review_queue.create)?".
 5. **Answer the enqueue step.** Expected: "Provide the required inputs for step 2: Enqueue traces for review." with **no** queue id field. Fill **trace ids** with the JSON array of the 12 trace ids (from `seed_traces.py`; they also appear in **Operate > Observability**) and **assigned to** with `admin`, press **Continue plan**, then **Approve**.
 6. **Answer the calibration step and watch the plan park.** Expected: "Provide the required inputs for step 3: Calibrate workflow.". Fill **workflow id** and **agent id** (from `setup_subject.py`), press **Continue plan**, then **Approve** "Approve step 3: Calibrate workflow (workflow.calibrate)?". Expected: the plan header reads `running`, the step reads `waiting job`, and there is nothing to answer.
-7. **Wait: the plan settles by itself.** Do not click anything. The page re-reads the plan every five seconds; after about half a minute the status changes. On the simulated stack: `failed`, steps 1 and 2 `done`, step 3 `failed` with `rejected: workflow calibration rejected: no candidate met calibration gates; quality delta +0.000 < epsilon 0.02`. With a real model the job can reach `candidate_ready` and the plan reads `completed`.
+7. **Wait: the plan settles by itself.** Do not click anything. The page re-reads the plan every five seconds; after about half a minute the status changes. On the simulated stack: `failed`, steps 1 and 2 `done`, step 3 `failed` with `rejected: workflow calibration rejected: no candidate met calibration gates; quality delta +0.000 < epsilon 0.02`. On a real stack the job takes 2 to 3 minutes and, with this lab's gate rows, also ends `rejected` (`failed`, same reason); a `candidate_ready` job would read `completed`.
 8. **Find the queue.** Open **Operate > Review Queues**. Expected: a row `weak-runs-triage`, 4 questions, reviewer `olga`, `0/12 reviewed`.
 9. **Triage one flagged run.** Open the queue. Expected: "Items (12)". Pick the trace of `S19` and answer: **Fail** for "Did the workflow reach the correct resolution?", `missing_evidence` for "Primary failure mode", `3` for "Severity (1-5)", and the reference answer for "What should the answer have been?"; press **Submit review**. Expected: that trace reads `completed` and the list row reads `1/12 reviewed`.
 10. **A workflow that does not exist.** On **Plans**, state `Calibrate the support workflow.`, **Decompose goal**, **Approve plan**, **Execute**, fill **workflow id** with `WF-does-not-exist` and any agent id, press **Continue plan**. Expected: the plan reads `failed` at once, the step shows `workflow 'WF-does-not-exist' not found (HTTP 404)` and does not read `waiting job`.
@@ -221,6 +224,78 @@ API checks (the script does all of them; these are the ones to read by eye):
 
 UI checks: steps 1 to 11 above, each with the text or status it names.
 
+## Run it with a real provider
+
+A real provider makes the calibration job **real**: the refinement worker replays 20 of the gate's 30 cases through the model and the lab's two tools, scores a baseline and a candidate, and the gate decides. It also lets the **Ask Aria** chat act. The simulated run always ended `rejected` with plan `failed` ("quality delta +0.000 < epsilon 0.02"); this section is what the real job does instead. The numbers are from live runs and **will vary**.
+
+### Start a real stack
+
+```bash
+export OPENAI_API_KEY=...            # your own key. Never commit it; the lab never prints or stores it
+export CALIBER_OPERATOR_USERS=admin,olga
+scripts/cookbook-env.sh up lab15h --flags cookbooks,aria --real-llm      # the workers are on by default
+source .tmp/cookbook-env/lab15h/env.sh
+```
+
+`--real-llm` sets `CALIBER_LLM_PROVIDER=openai`, `CALIBER_EVAL_PROVIDER=mlflow` and `CALIBER_ASSISTANT_ENGINE=openai` (default model `gpt-5.6-luna`) and reads only `OPENAI_API_KEY` / `ANTHROPIC_API_KEY` from your environment or the repository-root `.env`; `GET /readiness` then reports `"simulated": []`. Make the access token as in [Prerequisites and setup](#prerequisites-and-setup) and run the same command as above. The script reads `GET /readiness` and, on a real stack, waits up to 30 minutes (`COOKBOOK_15_CALIBRATION_TIMEOUT`, seconds) for the worker to resume the parked plan instead of 75 seconds, then checks the Ask Aria chat. It takes about 4 to 5 minutes (the job itself 2 to 3), and roughly 100 model calls: 20 workflow replays for the baseline and 20 for the candidate, each an agent turn with tool calls, plus two chat turns. `COOKBOOK_ARIA_HTTP_TIMEOUT` (seconds, default 900) bounds one request.
+
+### What the real calibration does
+
+Real output of the same script (trimmed; ids and the time stamp vary):
+
+```text
+ok   approving the calibration enqueues a job and PARKS the plan: the plan stays 'running' and the step reads 'waiting_job' with the job's id  [running; waiting_job; RFN-2ef385c6]
+ok   the plan resumed by itself (worker) and ends where the job ended: the calibration was rejected: the plan failed with the job's reason  [job rejected; plan failed; step: rejected: workflow calibration rejected: no candidate met calibration gates; quality delta +0.000 < epsilon 0.]
+ok   the job replayed 20 of the gate's 30 cases (the default budget) and reports its baseline  [20 examples; gate: ['no candidate met calibration gates', 'quality delta +0.000 < epsilon 0.02; ...']]
+```
+
+What is in the job (`GET /jobs/{id}` -> `eval_results`), from two real runs:
+
+| | Run 1 baseline | Run 1 candidate | Run 2 baseline | Run 2 candidate |
+| --- | --- | --- | --- | --- |
+| quality | 0.000 | 0.000 | 0.000 | 0.000 |
+| completion_rate | 0.95 | 1.00 | 1.00 | 0.95 |
+| tool_adherence | 0.95 | 0.975 | 0.975 | 0.95 |
+| safety | 0.95 | 1.00 | 1.00 | 0.95 |
+| job | rejected after 2 m 35 s | | rejected after 2 m 16 s | |
+
+Reading it:
+
+- **The candidate is one move**: `Add a grounding guardrail after 'support_agent'` (a copy of the `tool_required_before_claim` check the workflow already has). The job produced this one candidate (the budget allows three).
+- **Quality is 0.000 everywhere, so the gate cannot be cleared.** `GET /jobs/{id}` -> `calibration_candidates[0].example_scores[*].details.quality` reads `expected output is missing`: the quality scorer reads an `output`, `final_output`, `answer`, `text`, `contains`, `exact`, `regex` or `json_subset` key of the row's `expected`, and this lab's gate rows carry `expected` (a free-text reference) and `required_tools` only. Aria passes only `workflow_id` and `agent_id`, so the objective is the default (maximize quality, the candidate must beat the baseline by 0.02): a candidate that improves completion or safety cannot pass. The plan therefore ends `failed` with `rejected: workflow calibration rejected: no candidate met calibration gates; quality delta +0.000 < epsilon 0.02`. In run 1 the candidate's completion and safety were a row better than the baseline's, in run 2 a row worse (then the gate lists the regressions too): the likely cause is one of the 20 answers skipping `lookup_policy` (and tripping the guardrail) in one replay and not in the other: the run-to-run noise of a real model, not an effect of the candidate (not traced to a row).
+- **What it shows and what it does not.** Parking, the worker's resume without a click, the plan mirroring the job's `rejected` and its reason are verified live with a real executor; the `candidate_ready` branch (plan `completed`, candidate not applied) is covered by `caliber/tests/test_aria_async.py` and the stand-in tests, and was **not reached** here. Making it reachable means giving the gate rows an `expected.contains` (or `answer`) a model's answer can satisfy and a workflow whose candidate move can change the answer; the lab does not add an objective option, and Aria's capability still passes only the two ids.
+
+### A defect the real run found (fixed)
+
+The first real attempt ended in 10 seconds with every one of the 20 replays `workflow did not complete`, for the baseline too. Previewing the workflow showed why: the default model (`gpt-5.6-luna`, reasoning effort `high`) refuses function tools together with a reasoning effort on `/v1/chat/completions` (`400 Function tools with reasoning_effort are not supported ... use /v1/responses or set reasoning_effort to 'none'`), so no workflow with a tool-using agent node could run on the default configuration. `OpenAIChatWorkflowExecutor` (`caliber/src/caliber/workflows/runtime.py`) now keeps the tools and retries that request, and the rest of the turn, with effort `none` when the API says so (tests in `caliber/tests/test_agentic_tool_loop.py`); setting `CALIBER_OPENAI_WORKFLOW_API=responses` is the other way round it. If you see `workflow did not complete` for every example, preview the workflow (`POST /workflow-versions/{id}/preview-run`) and read its `error`.
+
+### What the real engine does, and does not, change in Aria
+
+- **Plans are unchanged.** `POST /aria/plans` uses the rules-based planner whatever the assistant engine is; the 28 goals draw the same plans on the real stack, and **Plans** never calls the engine.
+- **The chat acts only inside its permissions.** In a `build` session with approval `auto_all` (UI label **Legacy auto**) or `full_autonomy`, Ask Aria's tools include Aria's mutating capabilities; asked to create a queue with one `pass_fail` question the model called `review_queue_create` and the queue exists. In the default session (**Ask first**) it is offered read tools only: it called `list_tools`, `list_skills`, `openapi_tool_list` and `review_queue_list`, could not create the queue, and nothing was created (run live). `workflow_calibrate` is projected by the same rule (a mutating capability); this lab does not ask the chat to run it, and a calibration started from the chat would be the same job as the plan's. Approving and publishing are never offered to the chat.
+
+```text
+ok   the assistant engine is a real one, not the fake heuristic  [engine=openai model=gpt-5.6-luna]
+ok   Ask Aria in a build / auto_all session called review_queue_create itself and it worked  [tools called: ['review_queue_create']]
+ok   in the default session (manual approval) review_queue_create is not offered: nothing was created  [tools called: ['list_tools', 'list_skills', 'openapi_tool_list', 'review_queue_list']]
+ok   the chat's queue is active with the question that was asked for  [RVQ-29cdae1b]
+```
+
+### Through the UI (real stack)
+
+`15-aria-triage-recalibrate-loop.spec.ts` checks `GET /readiness`. On a real stack step 7 waits up to 25 minutes instead of 4 for the plan to settle (it took about 3 minutes), and accepts `completed` or `failed`; a `failed` plan must read `rejected: workflow calibration rejected: no candidate met calibration gates`. A third test opens **Ask Aria**, sends the queue request in a default chat (no queue appears in **Review Queues**) and again after choosing **Legacy auto** (the queue appears). All three tests passed against a real stack.
+
+### Real-provider troubleshooting
+
+| You see | Cause and fix |
+| --- | --- |
+| The job is `rejected` within seconds and every example reads `workflow did not complete` | The workflow could not run. Preview it and read the error (see the defect above); on an older checkout the cause was tools combined with a reasoning effort |
+| A rejected key | Fix the key and restart the stack. Provoked on a stack with `OPENAI_API_KEY=sk-invalid` (lab 12): evaluations record `status: failed` with `401 Incorrect API key provided` (HTTP 201 on the request) and Ask Aria answers "I encountered an error: AuthenticationError"; `/readiness` still says `ready: true` because it does not call the model. A calibration job with a bad key was not provoked |
+| The plan stays `running` / `waiting_job` for minutes | A real job takes 2 to 3 minutes; the worker resumes the plan about every 10 seconds. If it stays parked, the workers are off (`--no-workers`): `POST /aria/plans/{id}/poll` only reads the job |
+| The script gives up waiting | Raise `COOKBOOK_15_CALIBRATION_TIMEOUT` (seconds, default 1800 on a real stack, 75 on a simulated one) |
+| `ReadTimeout` | One request outlived `COOKBOOK_ARIA_HTTP_TIMEOUT` (default 900 s); raise it. A provider 429 and an unknown model were not provoked in this lab |
+| The gate lists regressions you did not expect (`completion_rate regression -0.050`) | One replay out of 20 differed: both sides are model runs. Read `calibration_candidates[0].example_scores` for the row |
+
 ## Common errors and troubleshooting
 
 | You see | Cause and fix |
@@ -230,7 +305,7 @@ UI checks: steps 1 to 11 above, each with the text or status it names.
 | `could not sign in as 'olga': 401` | An account from an earlier run has another password: reset it under Administration, or set `COOKBOOK_ARIA_PASSWORD` |
 | `ModuleNotFoundError: mlflow` or the traces cannot be written | Run with the dev virtualenv (`caliber/.venv/bin/python`) and make sure `MLFLOW_TRACKING_URI` is set (`source .tmp/cookbook-env/lab15/env.sh`) |
 | The plan stays `running` with the step `waiting job` for minutes | The refinement worker or the plan worker is not running (`scripts/cookbook-env.sh up` starts both; `--no-workers` does not). Check the job: `GET /jobs/{job_id}`. A plan cannot be cancelled while parked |
-| The plan ends `failed` with `rejected: workflow calibration rejected: no candidate met calibration gates; quality delta +0.000 < epsilon 0.02` | Expected on the simulated provider: the candidate cannot beat the baseline. Configure a real provider to let a candidate win, or run `POST /workflows/{id}/calibration/runs` by hand with an objective whose margin is 0 |
+| The plan ends `failed` with `rejected: workflow calibration rejected: no candidate met calibration gates; quality delta +0.000 < epsilon 0.02` | Expected on the simulated provider (the candidate cannot beat the baseline) and, with the lab's gate rows, on a real one too: quality is unscored (see [Run it with a real provider](#run-it-with-a-real-provider)). `POST /workflows/{id}/calibration/runs` by hand takes an objective whose margin you can set |
 | `workflow '...' not found (HTTP 404)` / `agent '...' is not registered (HTTP 400)` / `Workflow calibration requires an active deploy-gate eval dataset with examples. (HTTP 400)` | The calibration needs a workflow you can see, a registered agent and a workflow whose manifest has a deploy gate pointing at a test set that has rows. `setup_subject.py` makes all three |
 | `ValueError: review-queue name '...' is already in use` | Queue names are unique across the deployment; the script adds a time stamp |
 | `409 ... must contain at least 1 character(s)` / `... is missing required input field(s)` / `... received unknown input field(s)` | The form's answer does not fit the capability's schema; the question stays open, answer it again |
@@ -240,7 +315,7 @@ UI checks: steps 1 to 11 above, each with the text or status it names.
 
 ## Not covered by this lab
 
-A calibration that finds a candidate, and the plan completing because of it, is not demonstrated: it needs a model behind the workflow executor. The plan does not apply the candidate: applying is a person's decision (`POST /jobs/{id}/apply`). Aria does not build the workflow or discover the traces. The enqueue step does not check that the trace ids exist. A review queue created outside a workspace is visible to its owner only (lab 13): the reviewers here are a label. The 12 flagged traces are recorded runs written by a script; the workflow's own runs do not write traces on this stack.
+A calibration that finds a candidate, and the plan completing because of it, was not reached live, with the simulated or the real executor (see [Run it with a real provider](#run-it-with-a-real-provider) for why); it is covered by unit tests. The plan does not apply the candidate: applying is a person's decision (`POST /jobs/{id}/apply`). Aria does not build the workflow or discover the traces. The enqueue step does not check that the trace ids exist. A review queue created outside a workspace is visible to its owner only (lab 13): the reviewers here are a label. The 12 flagged traces are recorded runs written by a script; the workflow's own runs do not write traces on this stack. The chat was not asked to start a calibration.
 
 ## Cleanup and reset
 

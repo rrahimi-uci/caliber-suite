@@ -6,7 +6,8 @@ feasibility:
   - Aria's planner is deterministic rules, so the plan is checked exactly; there is no judge of Aria's output here.
   - Plan, step and question state are observable at GET /aria/plans/{id} and GET /aria/plans/{id}/interactions. The async step is observable as status "waiting_job" with a job_id; the job at GET /jobs/{job_id}.
   - The plan worker (about every 10 seconds) or POST /aria/plans/{id}/poll maps the refinement job to done (candidate_ready, applied) or failed (rejected, failed, error, with the job's error_message) and resumes the plan.
-  - On the simulated default the calibration job is REJECTED (a fake executor cannot make a candidate beat the baseline: quality delta +0.000 < epsilon 0.02), so the plan ends failed. The completing path (candidate_ready) needs a real model and is covered by unit tests, not demonstrated live.
+  - On the simulated default the calibration job is REJECTED (a fake executor cannot make a candidate beat the baseline: quality delta +0.000 < epsilon 0.02), so the plan ends failed. On a --real-llm stack (GET /readiness simulated is empty) the job runs for real (2 to 3 minutes, 20 replays each for baseline and candidate) and, in every recorded run, is still REJECTED for the same reason (the gate rows have no output key the quality scorer reads, so quality is 0.000 for both and the default objective cannot be cleared). The script accepts either outcome and asserts the plan mirrors the job. The completing path (candidate_ready -> plan completed) is covered by unit tests and was not reached live.
+  - The Ask Aria chat is the only place the real assistant engine acts (a mutating capability is offered only in a build session with auto_all or full_autonomy approval). Planning never calls the engine.
 evaluation:
   plan_checks:
     - planner_matches_dataset                      # 28/28 goals draw the documented steps; every draft is cancelled

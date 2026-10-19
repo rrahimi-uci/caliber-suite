@@ -36,6 +36,7 @@ gate on a real model; unset means the product defaults, 0.85 and 0.02).
     python sdk/caliber-sdk/examples/cookbooks/cookbook_01_trustworthy_intake_classifier.py
     python ... --skip-release       # evaluation and regression only (a stand-in model, see README)
     python ... --expect-regression  # also assert the weaker v2 breaks the contract (stand-in model)
+    python ... --accept-rejection   # a real run the gate rejects, with its reason, is verified
     python ... --cleanup            # delete what earlier runs created
 """
 
@@ -66,8 +67,10 @@ MAX_PASS_RATE_DROP = 0.05
 #: On a real model a share of answers may stray from the contract; below this the prompt is not
 #: working at all and the lab stops. (A stand-in or a strong model scores 1.0.)
 MIN_CONTRACT_RATE = 0.9
-#: The v2 prompt may not *beat* the baseline on the scorecard by more than this (scores wobble).
-SCORE_NOISE = 0.02
+#: The v2 prompt may not *beat* the baseline on the scorecard by more than this. The text-overlap
+#: scorecard wobbles by a row or two on 44 cases (1 row is 0.023), and a strong hosted model can
+#: answer the weaker wording just as well, so only a clear win for v2 is a contradiction.
+SCORE_NOISE = 0.05
 VIEWER_USER = "cookbook01-viewer"
 VIEWER_PASSWORD = "cookbook01-viewer-pass"
 
@@ -227,6 +230,7 @@ def run(
     registry: Callable[[str], int | None] = registry_alias_version,
     skip_release: bool = False,
     expect_regression: bool = False,
+    accept_rejection: bool = False,
     poll_interval: float = 2.0,
     calibration_timeout: float | None = None,
 ) -> dict[str, Any]:
@@ -238,7 +242,10 @@ def run(
 
     def check(name: str, ok: bool, detail: Any = "") -> None:
         checks[name] = bool(ok)
-        print(f"{'ok  ' if ok else 'FAIL'} {name}" + (f"  [{detail}]" if detail != "" else ""))
+        print(
+            f"{'ok  ' if ok else 'FAIL'} {name}" + (f"  [{detail}]" if detail != "" else ""),
+            flush=True,
+        )
 
     me = caliber.me.get().user_id
     results["actor"] = me
@@ -472,22 +479,66 @@ def run(
         # A real run can honestly end here: the gate decides, and a small model is a noisy judge.
         status, detail = status_of(lambda: caliber.jobs.apply(job.job_id))
         check("a rejected candidate cannot be applied (409)", status == 409, detail[:70])
+        evidence = job.eval_results or {}
+        if accept_rejection and not eval_simulated:
+            # The honest outcome of a real run under the product's own gate: the judge decided
+            # the candidate is not good enough. Verify the rejection is real and explained, and
+            # stop: nothing was applied, so there is no release to verify.
+            reasons = (evidence.get("gate") or {}).get("reasons") or []
+            check(
+                "the gate rejected the candidate and says why",
+                bool(job.error_message) and bool(reasons),
+                job.error_message,
+            )
+            check(
+                "the rejection rests on real evidence (not simulated, the real example count)",
+                evidence.get("simulated") is False
+                and evidence.get("provider") not in (None, "fake")
+                and evidence.get("n_examples") == len(rows),
+                f"provider={evidence.get('provider')} simulated={evidence.get('simulated')} "
+                f"n_examples={evidence.get('n_examples')}",
+            )
+            results.update(job_id=job.job_id, rejected=True, rejection=job.error_message)
+            results["checks"] = checks
+            _finish(checks)
+            print(
+                "note the calibration was rejected by the gate (a real outcome); nothing was "
+                "applied. Rerun with COOKBOOK_01_MAX_REGRESSION / COOKBOOK_01_MIN_SCORE to "
+                "exercise Apply, the release screens and rollback."
+            )
+            return results
         check(
             "calibration reached candidate_ready",
             False,
             f"rejected by the gate: {job.error_message} (loosen it with COOKBOOK_01_MIN_SCORE / "
-            "COOKBOOK_01_MAX_REGRESSION, or rerun: the judge varies)",
+            "COOKBOOK_01_MAX_REGRESSION, accept it with --accept-rejection, or rerun: the judge "
+            "varies)",
         )
         _finish(checks)
     check("calibration reached candidate_ready", job.status == "candidate_ready", job.status)
     evidence = job.eval_results or {}
     candidate = job.candidate or {}
-    check(
-        "the candidate differs from the live prompt",
-        bool(candidate.get("content"))
-        and candidate["content"] != candidate.get("baseline_content"),
-        candidate.get("diff_summary"),
-    )
+    unchanged = candidate.get("content") == candidate.get("baseline_content")
+    if eval_simulated:
+        check(
+            "the candidate differs from the live prompt",
+            bool(candidate.get("content")) and not unchanged,
+            candidate.get("diff_summary"),
+        )
+    else:
+        # A real optimizer may honestly find nothing to change in a prompt that is already good
+        # (a strong hosted model did, `+0 / -0 lines`): that is reported, not a failure.
+        check(
+            "the optimizer returned a candidate",
+            bool(candidate.get("content")),
+            candidate.get("diff_summary"),
+        )
+        if unchanged:
+            print(
+                "info the optimizer proposed no edit (the candidate equals the live prompt); "
+                "applying it would register an identical version",
+                flush=True,
+            )
     check(
         "the evidence reports the real test-set size and version",
         evidence.get("n_examples") == len(rows)
@@ -673,6 +724,12 @@ def main(argv: list[str] | None = None) -> int:
         help="also assert that the weaker v2 breaks the JSON contract (true of the stand-in model, "
         "not of every real model)",
     )
+    parser.add_argument(
+        "--accept-rejection",
+        action="store_true",
+        help="on a real model, treat a calibration the gate rejects (with a reason and real "
+        "evidence) as a verified outcome and stop there, instead of a failure",
+    )
     parser.add_argument("--cleanup", action="store_true", help="delete what earlier runs created")
     parser.add_argument("--suffix", help="name suffix (default: a timestamp)")
     args = parser.parse_args(argv)
@@ -698,6 +755,7 @@ def main(argv: list[str] | None = None) -> int:
                 viewer=viewer,
                 skip_release=args.skip_release,
                 expect_regression=args.expect_regression,
+                accept_rejection=args.accept_rejection,
             )
         except LabVerificationError as exc:
             print(f"\nVERIFICATION FAILED: {exc}", file=sys.stderr)

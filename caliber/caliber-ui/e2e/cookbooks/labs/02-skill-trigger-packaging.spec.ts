@@ -9,8 +9,18 @@ import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
  * Cookbook 02 (`docs-site/cookbooks/02-skill-trigger-packaging-lab/README.md`), "Run it through the UI".
  *
  * Needs a server started with `scripts/cookbook-env.sh up lab02 --flags cookbooks` (simulated
- * language model and evaluator, the alpha default). Nothing is seeded and no API call is made from
- * this file: every step is a click in the web app.
+ * language model and evaluator, the alpha default) or `... up lab02h --flags cookbooks --real-llm`
+ * (a real provider). Nothing is seeded and no API call is made from this file but one read-only
+ * `GET /readiness` that picks the mode: every step is a click in the web app.
+ *
+ * Mode differences (steps 9, 10 and 12b; everything else is the same on both):
+ *   simulated: Calibrate needs no test set; the review says "Simulated evaluation — not evidence"
+ *     and "0 evaluation examples", and the candidate is the canned refinement.
+ *   real: the 8-row test set `assets/dataset/skill-eval-cases.jsonl` is created on Test Sets, then
+ *     Calibrate is run with that test set and a note on what to fix; the review has no simulated
+ *     banner and says "8 evaluation examples"; the candidate is model-written, so the spec asserts
+ *     invariants (it differs from the skill, the gate passed, it applies and rolls back), never text
+ *     or a score. A calibration with no test set fails, and the run says so.
  *
  * What it proves, in the README's order:
  *   1. the Cookbooks gallery lists Precision Skills (the `cookbooks` flag is on);
@@ -82,6 +92,19 @@ const STARTER_EXCLUSIONS = frontmatterList("should_not_trigger");
 const TIGHTENED = JSON.parse(
   fs.readFileSync(path.join(ASSETS, "skills/trigger-phrases.json"), "utf8"),
 ) as { test_triggers: Record<string, string[]> };
+const TEST_SET: {
+  id: string;
+  tags: string[];
+  input: object;
+  expected: object;
+}[] = fs
+  .readFileSync(path.join(ASSETS, "dataset/skill-eval-cases.jsonl"), "utf8")
+  .split("\n")
+  .filter((line) => line.trim())
+  .map((line) => JSON.parse(line));
+const CALIBRATION_NOTES = fs
+  .readFileSync(path.join(ASSETS, "skills/calibration-notes.txt"), "utf8")
+  .trim();
 const RENDER = JSON.parse(
   fs.readFileSync(path.join(ASSETS, "dataset/render-vars.json"), "utf8"),
 ) as {
@@ -198,21 +221,111 @@ async function runScenarios(page: Page, count: number): Promise<void> {
   await expect(page.getByTestId("skill-trigger-result")).toHaveCount(count);
 }
 
+/** `GET /readiness`: are the language model or the evaluator simulated on this stack? */
+async function isSimulated(page: Page): Promise<boolean> {
+  // The base URL ends in /caliber; the API lives beside it at the server root.
+  const root = new URL("/", process.env["CALIBER_LAB_BASE_URL"]!).toString();
+  const response = await page.request.get(
+    `${root}ajax-api/2.0/mlflow/caliber/readiness`,
+  );
+  expect(response.ok()).toBeTruthy();
+  const body = (await response.json()) as { data?: { simulated?: string[] } };
+  const simulated = body.data?.simulated ?? [];
+  return simulated.includes("llm") || simulated.includes("eval");
+}
+
+/** Test Sets: create the skill's test set and add its rows through the example editor. */
+async function createTestSet(page: Page, name: string): Promise<void> {
+  await page.goto("/caliber/eval-datasets");
+  await page.getByRole("button", { name: "+ New Test Set" }).click();
+  await page.getByPlaceholder("factual-checks").fill(name);
+  await page.getByPlaceholder("@sarah").fill("admin");
+  await page.getByRole("button", { name: "Create", exact: true }).click();
+  await page.getByText(name, { exact: true }).first().click();
+  await expect(page.getByTestId("eval-dataset-detail")).toBeVisible();
+  for (const row of TEST_SET) {
+    await page.getByTestId("example-add-toggle").click();
+    await page.getByTestId("example-input").fill(JSON.stringify(row.input));
+    await page
+      .getByTestId("example-expected")
+      .fill(JSON.stringify(row.expected));
+    await page.getByTestId("example-tags").fill(row.tags.join(", "));
+    await page.getByTestId("example-save").click();
+  }
+  await expect(page.getByTestId("example-row")).toHaveCount(TEST_SET.length);
+}
+
+/** Runs stage: pick the test set (real provider) and the note, then Calibrate. */
+async function calibrateWith(
+  page: Page,
+  testSetLabel: string | null,
+  notes: string | null,
+): Promise<void> {
+  if (testSetLabel !== null) {
+    await page
+      .getByTestId("skill-calibrate-test-set")
+      .selectOption({ label: testSetLabel });
+  }
+  if (notes !== null)
+    await page.getByTestId("skill-calibrate-notes").fill(notes);
+  await page.getByTestId("skill-calibrate-btn").click();
+  await expect(page.getByTestId("skill-calibrate-result")).toContainText(
+    "Calibration queued",
+  );
+}
+
+/**
+ * Calibrate until a candidate is ready to review. A real evaluator can reject a candidate (the
+ * regression gate fires when any dimension is worse than the skill by more than 0.02, and eight
+ * test rows are coarse), so a real run is retried up to twice; the rejected run stays in the list and says
+ * why. Returns when the review button is on the page.
+ */
+async function calibrateToCandidate(
+  page: Page,
+  real: boolean,
+  testSetLabel: string | null,
+  notes: string | null,
+): Promise<void> {
+  const review = page.getByTestId(/^skill-review-RFN-/);
+  const rejected = page
+    .getByTestId(/^skill-job-RFN-/)
+    .filter({ hasText: "regression gate failed" });
+  for (let attempt = 1; attempt <= (real ? 3 : 1); attempt++) {
+    const rejectedBefore = await rejected.count();
+    await calibrateWith(page, testSetLabel, notes);
+    await expect
+      .poll(
+        async () =>
+          (await review.count()) > 0
+            ? "ready"
+            : (await rejected.count()) > rejectedBefore
+              ? "rejected"
+              : "pending",
+        { timeout: real ? 600_000 : 120_000, intervals: [2_000] },
+      )
+      .not.toBe("pending");
+    if ((await review.count()) > 0) break;
+  }
+  await expect(review.first()).toBeVisible();
+}
+
 function liveBadge(page: Page, version: number): Locator {
   return page
     .getByTestId(`version-row-${version}`)
     .getByTestId("version-live-badge");
 }
 
-test.describe("Cookbook 02: precision skills (simulated providers)", () => {
+test.describe("Cookbook 02: precision skills", () => {
   // a missing control must fail the step in seconds, not wait out the whole-test timeout
   test.use({ actionTimeout: 30_000 });
 
   test("authors, tests, tightens, calibrates, applies, rolls back, packages and archives", async ({
     page,
   }) => {
-    test.setTimeout(900_000);
+    test.setTimeout(1_800_000);
+    const real = !(await isSimulated(page));
     const suffix = uiOnlySlug("c02");
+    const testSetName = `lab02-skill-replies-${suffix}`;
     const skillName = `support-tone-and-citation-${suffix}`;
     const copyName = `${skillName}-copy`;
     const bareName = `no-baseline-${suffix}`;
@@ -372,21 +485,55 @@ test.describe("Cookbook 02: precision skills (simulated providers)", () => {
       `${STARTER_MISSES_MESSAGE_ONLY} regressions`,
     );
 
-    // ---- 9. Calibrate: a candidate, flagged simulated, with no evaluation examples -------
-    await page.getByTestId("skill-calibrate-btn").click();
-    await expect(page.getByTestId("skill-calibrate-result")).toContainText(
-      "Calibration queued",
+    // ---- 9. Calibrate: a candidate to review ----------------------------------------------
+    // Simulated: canned evidence, flagged, with no evaluation examples. Real provider: the
+    // candidate is scored against the skill's test set, so create that first.
+    let testSetOption: string | null = null;
+    if (real) {
+      await createTestSet(page, testSetName);
+      await page.goto("/caliber/eval-datasets");
+      await page.getByLabel("Search test sets").fill(testSetName);
+      await expect(page.getByText(testSetName, { exact: true })).toBeVisible();
+      await openSkill(page, skillName);
+      await stage(page, "Runs");
+      await expect(page.getByTestId("skill-calibrate-test-set")).toContainText(
+        testSetName,
+      );
+      testSetOption = await page
+        .getByTestId("skill-calibrate-test-set")
+        .locator("option", { hasText: testSetName })
+        .innerText();
+    }
+    await calibrateToCandidate(
+      page,
+      real,
+      testSetOption,
+      real ? CALIBRATION_NOTES : null,
     );
-    const review = page.getByTestId(/^skill-review-RFN-/).first();
-    await expect(review).toBeVisible({ timeout: 120_000 });
-    await review.click();
-    await expect(page.getByTestId("skill-simulated-evaluation")).toContainText(
-      "Simulated evaluation — not evidence",
-    );
-    await expect(page.getByText("0 evaluation examples")).toBeVisible();
-    await expect(page.getByTestId("skill-candidate-diff")).toContainText(
-      "Refinement added by SkillMetaPrompt",
-    );
+    await page
+      .getByTestId(/^skill-review-RFN-/)
+      .first()
+      .click();
+    if (real) {
+      await expect(page.getByTestId("skill-simulated-evaluation")).toHaveCount(
+        0,
+      );
+      await expect(
+        page.getByText(`${TEST_SET.length} evaluation examples`),
+      ).toBeVisible();
+      await expect(page.getByTestId("skill-review-panel")).toContainText(
+        "gate passed",
+      );
+      await expect(page.getByTestId("skill-candidate-diff")).toBeVisible();
+    } else {
+      await expect(
+        page.getByTestId("skill-simulated-evaluation"),
+      ).toContainText("Simulated evaluation — not evidence");
+      await expect(page.getByText("0 evaluation examples")).toBeVisible();
+      await expect(page.getByTestId("skill-candidate-diff")).toContainText(
+        "Refinement added by SkillMetaPrompt",
+      );
+    }
 
     // ---- 10. Apply, then roll back from the version history ------------------------------
     await page
@@ -399,9 +546,16 @@ test.describe("Cookbook 02: precision skills (simulated providers)", () => {
     );
     await stage(page, "Author");
     await expect(liveBadge(page, 2)).toBeVisible();
-    await expect(page.getByLabel("Skill content")).toHaveValue(
-      /Refinement added by SkillMetaPrompt/,
-    );
+    if (real) {
+      // model-written: the live text is no longer the original instructions
+      await expect(page.getByLabel("Skill content")).not.toHaveValue(
+        SKILL_CONTENT,
+      );
+    } else {
+      await expect(page.getByLabel("Skill content")).toHaveValue(
+        /Refinement added by SkillMetaPrompt/,
+      );
+    }
     await page
       .getByTestId("version-row-2")
       .getByTestId("version-rollback")
@@ -415,6 +569,7 @@ test.describe("Cookbook 02: precision skills (simulated providers)", () => {
     await expect(page.getByLabel("Skill content")).toHaveValue(
       /Write the reply now\./,
     );
+    await expect(page.getByLabel("Skill content")).toHaveValue(SKILL_CONTENT);
 
     // ---- 11. Package: download, re-import (rejected, then renamed) -----------------------
     await page.getByTestId("skill-open-detail").click();
@@ -508,24 +663,48 @@ test.describe("Cookbook 02: precision skills (simulated providers)", () => {
     ).toHaveCount(0);
 
     // ---- 12b. A calibration with no baseline pinned ---------------------------------------
+    // The real evaluator gates on an absolute score, so the real run uses the lab's own
+    // instructions (a one-line skill scores below the gate on the support cases).
     await buildSkillThroughTheWizard(page, {
       name: bareName,
-      summary: "Reply kindly.",
-      content: "Reply kindly to {{ who }}.",
+      summary: real ? SUMMARY : "Reply kindly.",
+      content: real ? SKILL_CONTENT : "Reply kindly to {{ who }}.",
     });
     await openSkill(page, bareName);
     await stage(page, "Runs");
     await expect(page.getByText("No saved runs yet")).toBeVisible();
     await expect(page.getByTestId("skill-run-baseline-marker")).toHaveCount(0);
-    await page.getByTestId("skill-calibrate-btn").click();
-    await expect(page.getByTestId("skill-calibrate-result")).toContainText(
-      "Calibration queued",
-    );
+    if (real) {
+      // With no test set a real evaluator has nothing to score against: the run fails and says why.
+      await calibrateWith(page, null, null);
+      await expect(page.getByTestId(/^skill-job-RFN-/).first()).toContainText(
+        "no active examples",
+        { timeout: 300_000 },
+      );
+      await expect(page.getByTestId(/^skill-job-RFN-/).first()).toContainText(
+        "failed",
+      );
+      await expect(page.getByTestId(/^skill-review-RFN-/)).toHaveCount(0);
+      // With the test set the same skill, with no baseline, calibrates.
+      await calibrateToCandidate(page, true, testSetOption, CALIBRATION_NOTES);
+    } else {
+      await calibrateToCandidate(page, false, null, null);
+    }
     const bareReview = page.getByTestId(/^skill-review-RFN-/).first();
-    await expect(bareReview).toBeVisible({ timeout: 120_000 });
     await bareReview.click();
-    await expect(page.getByTestId("skill-simulated-evaluation")).toBeVisible();
-    await expect(page.getByText("0 evaluation examples")).toBeVisible();
+    if (real) {
+      await expect(page.getByTestId("skill-simulated-evaluation")).toHaveCount(
+        0,
+      );
+      await expect(
+        page.getByText(`${TEST_SET.length} evaluation examples`),
+      ).toBeVisible();
+    } else {
+      await expect(
+        page.getByTestId("skill-simulated-evaluation"),
+      ).toBeVisible();
+      await expect(page.getByText("0 evaluation examples")).toBeVisible();
+    }
 
     // ---- 12c. A viewer cannot apply -------------------------------------------------------
     await page.goto("/caliber/administration");

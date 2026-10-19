@@ -293,3 +293,197 @@ def goals_summary(goals: list[dict[str, Any]]) -> dict[str, int]:
 
 def env_password(name: str, default: str) -> str:
     return os.environ.get(name, default)
+
+
+# ---------------------------------------------------------------------------
+# The real-provider tier
+# ---------------------------------------------------------------------------
+#
+# The Aria labs run in one of two modes, told apart by ``GET /readiness``: on the default stack the
+# language model and the evaluator are simulated (Evaluations are refused with a 400); on a stack
+# started with ``--real-llm`` they are real. Planning is the same in both (a rules-based planner:
+# no model is wired into it); what a real provider adds is Evaluations and judge runs, a working
+# Ask Aria chat, and, in lab 15, a calibration job that is actually run.
+
+
+def is_real(caliber: CaliberClient) -> bool:
+    """True when neither the language model nor the evaluator is simulated (``GET /readiness``)."""
+    readiness = caliber.raw.get("/readiness")
+    return not ({"llm", "eval"} & set(readiness.get("simulated") or []))
+
+
+def http_timeout() -> float:
+    """Seconds one request may take. An evaluation scores every row inside one request."""
+    return float(os.environ.get("COOKBOOK_ARIA_HTTP_TIMEOUT", "900"))
+
+
+#: The answerer under test in the real evaluations: it is shown the policy text and told to stay
+#: inside it. ``{{ evidence }}`` is filled from each test set row; the row's question is the
+#: user's turn. (Evaluations with the default target send the model only the question, never the
+#: evidence, so a faithfulness judge over that target would grade answers the model never had the
+#: sources for.)
+GROUNDED_PROMPT = (
+    "You answer customer questions for a company's support team. Use ONLY the policy text "
+    "below. State what it says and nothing more; if it does not cover the question, say so and "
+    "refer the customer to a person. Do not give medical, legal or financial advice.\n\n"
+    "Policy text:\n{{ evidence }}"
+)
+
+#: The control: it never sees the policy and is told to sound sure, so it commits to details the
+#: policy does not support. A faithfulness judge that is working scores it lower than the
+#: grounded one.
+CARELESS_PROMPT = (
+    "You are a confident, friendly support agent. Answer from your general knowledge of how "
+    "online stores usually work, in two or three sentences, and always commit to a specific "
+    "number of days, amounts or steps. Never say you are unsure and never mention a policy."
+)
+
+
+def create_prompt(caliber: CaliberClient, name: str, template: str) -> str:
+    """Create a prompt and return its ``name@version`` reference (what Evaluations take)."""
+    created = caliber.prompts.create(name, template)
+    return f"{created['name']}@{created['version']}"
+
+
+def judged_scorers(judge_id: str) -> list[str]:
+    return ["non_empty", f"Judge.{judge_id}"]
+
+
+def run_judged_evaluation(
+    caliber: CaliberClient,
+    dataset_id: str,
+    judge_id: str,
+    *,
+    prompt_ref: str,
+    label: str,
+    timeout: float = 1200.0,
+) -> Any:
+    """Score a test set with the judge, the answers coming from a prompt; wait for the result."""
+    created = caliber.evaluations.create(
+        dataset_id,
+        scorers=judged_scorers(judge_id),
+        label=label,
+        predict_target="prompt",
+        subject_ref=prompt_ref,
+    )
+    run_id = created.run_id or created.evaluation_id
+    return caliber.evaluations.wait(run_id, timeout=timeout)
+
+
+def judge_rate(evaluation: Any, judge_id: str) -> float | None:
+    """The fraction of rows the judge scored 1 (its aggregate), or None when it did not score."""
+    value = (evaluation.aggregate or {}).get(f"Judge.{judge_id}")
+    return None if value is None else float(value)
+
+
+def check_judged_evaluation(
+    check: Checks,
+    label: str,
+    evaluation: Any,
+    judge_id: str,
+    *,
+    rows: int,
+    prompt_ref: str,
+) -> dict[str, Any]:
+    """The invariants of a real, judge-scored run: structure and ranges, never exact scores."""
+    token = f"Judge.{judge_id}"
+    results = evaluation.results or []
+    scored = [r for r in results if r.get("error") is None and token in (r.get("scores") or {})]
+    rate = judge_rate(evaluation, judge_id)
+    check(
+        f"{label}: the run completed over all {rows} rows with a verdict from the judge for each",
+        evaluation.status == "completed"
+        and evaluation.n_examples == rows
+        and len(results) == rows
+        and len(scored) == rows,
+        f"{evaluation.status}, {evaluation.n_examples} rows, {len(scored)} judged",
+    )
+    check(
+        f"{label}: the judge's verdicts are 0 or 1 and its aggregate is the share of 1s",
+        all(r["scores"][token] in (0, 0.0, 1, 1.0) for r in scored)
+        and rate is not None
+        and abs(rate - sum(float(r["scores"][token]) for r in scored) / max(len(scored), 1)) < 1e-3,
+        f"judge aggregate {rate}",
+    )
+    resolved = (evaluation.evidence or {}).get("resolved", {})
+    judge_info = (resolved.get("judges") or {}).get(token) or {}
+    check(
+        f"{label}: the evidence names a real provider, the answerer prompt and the judge",
+        bool(resolved.get("llm_provider"))
+        and resolved.get("llm_provider") != "fake"
+        and bool(resolved.get("model"))
+        and evaluation.subject_ref == prompt_ref
+        and judge_info.get("judge_id") == judge_id,
+        f"provider={resolved.get('llm_provider')} model={resolved.get('model')} "
+        f"judge model={judge_info.get('model') or 'the deployment default'}",
+    )
+    return {
+        "run_id": evaluation.run_id,
+        "rows": evaluation.n_examples,
+        "judge_rate": rate,
+        "overall": evaluation.overall_score,
+        "model": resolved.get("model"),
+        "judge_model": judge_info.get("model") or "deployment default",
+        "slices": sorted((evaluation.evidence or {}).get("slices") or {}),
+    }
+
+
+def ask_aria(
+    caliber: CaliberClient, content: str, *, approval_mode: str | None = None
+) -> dict[str, Any]:
+    """One Ask Aria chat turn: a new session, one message, and the tools the model called.
+
+    The default session is in ``build`` mode with ``manual`` approval: the model gets Aria's read
+    tools only. ``approval_mode="auto_all"`` (or ``full_autonomy``) also projects the mutating
+    capabilities (``judge_create``, ``review_queue_create``, ...) into the model's tools.
+    """
+    body: dict[str, Any] = {"title": "cookbook chat", "mode": "build"}
+    if approval_mode is not None:
+        body["approval_mode"] = approval_mode
+    session = caliber.raw.post("/assistant/sessions", json=body)
+    reply = caliber.raw.post(
+        f"/assistant/sessions/{session['session_id']}/messages", json={"content": content}
+    )
+    calls = reply.get("tool_calls") or []
+    return {
+        "session_id": session["session_id"],
+        "text": (reply.get("assistant_message") or {}).get("content", ""),
+        "called": [str(c["name"]) for c in calls],
+        "succeeded": [str(c["name"]) for c in calls if c.get("ok")],
+        "calls": calls,
+        "engine": (reply.get("run") or {}).get("engine"),
+    }
+
+
+def check_chat_boundary(
+    caliber: CaliberClient,
+    check: Checks,
+    *,
+    tool: str,
+    ask: str,
+    exists: Callable[[], bool],
+    absent_ask: str,
+    absent_exists: Callable[[], bool],
+) -> dict[str, Any]:
+    """Ask Aria's two sides, live: it acts in a ``build`` / ``auto_all`` session and only reads in
+    the default one. ``exists`` reads the thing the first message asked for; ``absent_exists``
+    the thing the second asked for."""
+    config = caliber.raw.get("/assistant/config")
+    check(
+        "the assistant engine is a real one, not the fake heuristic",
+        config.get("engine") not in (None, "fake") and bool(config.get("configured")),
+        f"engine={config.get('engine')} model={config.get('model')}",
+    )
+    acting = ask_aria(caliber, ask, approval_mode="auto_all")
+    check(
+        f"Ask Aria in a build / auto_all session called {tool} itself and it worked",
+        tool in acting["succeeded"] and exists(),
+        f"tools called: {acting['called']}",
+    )
+    reading = ask_aria(caliber, absent_ask)
+    check(
+        f"in the default session (manual approval) {tool} is not offered: nothing was created",
+        tool not in reading["called"] and not absent_exists(),
+        f"tools called: {reading['called']}",
+    )
+    return {"acting": acting["called"], "reading": reading["called"], "engine": config["engine"]}

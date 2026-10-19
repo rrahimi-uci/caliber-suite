@@ -23,7 +23,16 @@ import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
  * the deploy gate and rollback of an alias are API-only; the README says so.
  *
  * Needs a server started as the README shows (CALIBER_FEATURE_COOKBOOKS=true and
- * CALIBER_OPERATOR_USERS=admin,lena,sam  CALIBER_APPROVER_USERS=admin,lena).
+ * CALIBER_OPERATOR_USERS=admin,lena,sam  CALIBER_APPROVER_USERS=admin,lena). It runs on a
+ * simulated stack (`up lab08 --flags cookbooks`) and on a real-provider one (`up lab08h --flags
+ * cookbooks --real-llm`): one read-only `GET /readiness` picks the mode, and steps 9 to 11 differ:
+ *   9.  Evaluations: scoring a workflow version is refused without a real model (the page shows
+ *       the server's reason), and runs over the test set with one.
+ *   10. Workflow calibration (Calibrate, with an agent created on the Agents page): it ends
+ *       `rejected` with no candidate on both; the run is marked "Structural score", and "Simulated
+ *       evaluation" as well on a simulated stack.
+ *   11. (real only) the optional model-based variant is imported and Preview shows the model's
+ *       proposal beside the table-decided verdict.
  */
 
 const PASSWORD = "cookbook08-lab-passphrase";
@@ -47,6 +56,22 @@ const INCIDENTS = readFileSync(
         expected: Record<string, unknown>;
       },
   );
+
+/** `GET /readiness`: are the language model or the evaluator simulated on this stack? */
+async function isSimulated(page: Page): Promise<boolean> {
+  // The base URL ends in /caliber; the API lives beside it at the server root.
+  const root = new URL(
+    "/",
+    String(process.env["CALIBER_LAB_BASE_URL"]),
+  ).toString();
+  const response = await page.request.get(
+    `${root}ajax-api/2.0/mlflow/caliber/readiness`,
+  );
+  expect(response.ok()).toBeTruthy();
+  const body = (await response.json()) as { data?: { simulated?: string[] } };
+  const simulated = body.data?.simulated ?? [];
+  return simulated.includes("llm") || simulated.includes("eval");
+}
 
 function incident(id: string) {
   const row = INCIDENTS.find((item) => item.id === id);
@@ -91,11 +116,14 @@ async function runIncident(page: Page, id: string): Promise<void> {
 }
 
 test.describe("Lab 08: incident response through the UI", () => {
+  // a missing control must fail the step in seconds, not wait out the whole-test timeout
+  test.use({ actionTimeout: 30_000 });
   test("test set, import, validate, preview, publish, run, approve the rollback", async ({
     page: adminPage,
     browser,
   }, testInfo) => {
-    test.setTimeout(480_000);
+    test.setTimeout(1_800_000);
+    const simulated = await isSimulated(adminPage);
     const baseURL = String(testInfo.project.use.baseURL);
     const suffix = uiOnlySlug("lab08").replace("lab08-", "");
     const workspace = `lab08-ui-${suffix}`;
@@ -103,6 +131,7 @@ test.describe("Lab 08: incident response through the UI", () => {
     const datasetName = `lab08-ui-${suffix}-incidents`;
     const contexts: BrowserContext[] = [];
     let workflowId = "";
+    let versionId = "";
 
     // The manifest names its gate's test set; point it at the one this run creates.
     const manifest = JSON.parse(
@@ -235,6 +264,7 @@ test.describe("Lab 08: incident response through the UI", () => {
           /\/caliber\/workflows\/WF-[^/]+\/editor\/WFV-[^/?]+$/,
         );
         workflowId = /workflows\/(WF-[^/]+)\//.exec(adminPage.url())?.[1] ?? "";
+        versionId = /editor\/(WFV-[^/?]+)/.exec(adminPage.url())?.[1] ?? "";
         await expect(adminPage.getByTestId("workflow-editor")).toBeVisible();
         for (const node of [
           "severity_table",
@@ -334,6 +364,125 @@ test.describe("Lab 08: incident response through the UI", () => {
           lena.page.getByTestId("workflow-run-step-detail"),
         ).toContainText("ROLLBACK_APPROVED", { timeout: 30_000 });
       });
+
+      await test.step("9. Evaluations: score the workflow version over the test set", async () => {
+        expect(versionId).toMatch(/^WFV-/);
+        await adminPage.goto("/caliber/evaluations");
+        await adminPage.getByRole("button", { name: "Run evaluation" }).click();
+        await adminPage
+          .getByLabel("Test set", { exact: true })
+          .selectOption({ label: `${datasetName} (v4)` });
+        await adminPage
+          .getByLabel("Label", { exact: true })
+          .fill(`lab08-${suffix}`);
+        await adminPage.getByLabel("What to score").selectOption("workflow");
+        await adminPage.getByLabel("Subject under test").fill(versionId);
+        // The verdict text is the one deterministic check: Contains expected.
+        await adminPage.getByText("Exact match", { exact: true }).click();
+        await adminPage.getByText("Token F1", { exact: true }).click();
+        await adminPage
+          .getByRole("button", { name: "Run", exact: true })
+          .click();
+        if (simulated) {
+          // No model behind the server: scoring fails closed with the server's own reason.
+          await expect(
+            adminPage.getByText(/evaluation requires a real LLM provider/),
+          ).toBeVisible({ timeout: 60_000 });
+        } else {
+          const row = adminPage
+            .getByTestId("eval-run-row")
+            .filter({ hasText: `lab08-${suffix}` });
+          await expect(row).toBeVisible({ timeout: 300_000 });
+          await expect(row).toContainText("completed");
+          await expect(row).toContainText("3/3");
+        }
+      });
+
+      await test.step("10. Agents and Calibrate: the run ends rejected with no candidate, and says what measured it", async () => {
+        await adminPage.goto("/caliber/agents");
+        await adminPage.getByTestId("new-agent").click();
+        const form = adminPage.getByTestId("agent-create-form");
+        await form.getByPlaceholder("support-agent").fill(`lab08-ui-${suffix}`);
+        await form.getByPlaceholder("1234567890").fill(`exp-${suffix}`);
+        await form
+          .getByPlaceholder("Support Agent")
+          .fill(`incident commander ${suffix}`);
+        await form.getByRole("button", { name: "Register agent" }).click();
+        await expect(
+          adminPage.getByText(`incident commander ${suffix}`).first(),
+        ).toBeVisible();
+
+        await adminPage.goto(`/caliber/workflows/${workflowId}`);
+        await adminPage.getByTestId("workflow-calibrate").click();
+        await expect(
+          adminPage.getByTestId("workflow-calibration-dataset"),
+        ).toContainText("3 examples");
+        await adminPage
+          .getByTestId("workflow-calibration-agent")
+          .selectOption({ label: `incident commander ${suffix}` });
+        await adminPage.getByTestId("workflow-calibration-start").click();
+        const run = adminPage.getByTestId("workflow-calibration-run").first();
+        await expect(run).toContainText("rejected", { timeout: 600_000 });
+        await expect(
+          run.getByTestId("workflow-calibration-structural"),
+        ).toBeVisible();
+        if (simulated) {
+          await expect(
+            run.getByTestId("workflow-calibration-simulated"),
+          ).toBeVisible();
+        } else {
+          await expect(
+            run.getByTestId("workflow-calibration-simulated"),
+          ).toHaveCount(0);
+        }
+      });
+
+      if (!simulated) {
+        await test.step("11. The model variant: import it, Preview shows the model's proposal beside the verdict", async () => {
+          await adminPage.goto("/caliber/workflows");
+          await adminPage.getByTestId("import-workflow").click();
+          await adminPage
+            .getByTestId("workflow-import-name")
+            .fill(`${workflowName}-model`);
+          await adminPage
+            .locator('input[type="file"]')
+            .setInputFiles(
+              resolve(
+                ASSETS,
+                "workflows/incident-commander-model.workflow.json",
+              ),
+            );
+          await adminPage
+            .getByRole("button", { name: "Validate dependencies" })
+            .click();
+          await expect(adminPage.getByText("Preflight passed")).toBeVisible();
+          await adminPage
+            .getByRole("button", { name: "Import as new" })
+            .click();
+          await expect(adminPage.getByTestId("workflow-editor")).toBeVisible();
+          await expect(
+            adminPage.getByTestId("outline-propose_triage"),
+          ).toBeVisible();
+          await adminPage.getByTestId("editor-preview").click();
+          await adminPage
+            .getByTestId("preview-input")
+            .fill(JSON.stringify(incident("IN01").input));
+          await adminPage.getByTestId("preview-run").click();
+          await expect(adminPage.getByTestId("preview-result")).toContainText(
+            "completed",
+            { timeout: 120_000 },
+          );
+          await adminPage.getByTestId("preview-step-summarize").click();
+          // the tables decide the verdict; the model's proposal is only shown beside it
+          await expect(adminPage.getByTestId("preview-result")).toContainText(
+            "sev1 rollback",
+          );
+          await expect(adminPage.getByTestId("preview-result")).toContainText(
+            "model_proposal",
+          );
+          await adminPage.getByTestId("preview-close").click();
+        });
+      }
     } finally {
       for (const entry of contexts) await entry.close();
     }

@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
+import { askAria, closeAria, isRealProvider } from "./aria-real";
 
 /**
  * Cookbook 12, "Run it through the UI": give Aria one sentence, answer its questions, and find the
@@ -12,6 +13,13 @@ import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
  *
  * The planner is deterministic, so the plan is asserted exactly. Aria creates the test set empty;
  * three of the 30 rows are added through the row editor (the rest are the script's job).
+ *
+ * Two modes, told apart by one read-only `GET /readiness`. Simulated (the default stack): running
+ * the judge in Evaluations is refused with the reason. Real (`scripts/cookbook-env.sh up lab12h
+ * --flags cookbooks,aria --real-llm`, README "Run it with a real provider"): a prompt that sees the
+ * policy text is written in Prompts, the three rows are scored by the judge in Evaluations
+ * (structure and ranges asserted, never an exact score), and the Ask Aria chat is checked on both
+ * sides of its permission boundary.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(here, "../../../../..");
@@ -43,6 +51,9 @@ const DATASET = JSON.parse(
     "utf8",
   ),
 ) as { name: string; description: string; tags: string[] };
+const GROUNDED_PROMPT = fs
+  .readFileSync(path.join(ASSETS, "prompts/grounded-answer.prompt.txt"), "utf8")
+  .trim();
 const INTENT = fs
   .readFileSync(path.join(ASSETS, "intent.md"), "utf8")
   .split("\n")
@@ -61,6 +72,9 @@ test.describe("Cookbook 12: an evaluation harness from one sentence", () => {
   test("states the intent, answers the questions and finds the judge and the test set", async ({
     page,
   }) => {
+    // Real mode scores three rows with a model (a minute or so); the default 4 minutes is for the
+    // simulated stack.
+    test.setTimeout(900_000);
     const suffix = uiOnlySlug("c12");
     const judgeName = `${JUDGE.name}-${suffix}`;
     const datasetName = `${DATASET.name}-${suffix}`;
@@ -161,6 +175,94 @@ test.describe("Cookbook 12: an evaluation harness from one sentence", () => {
       await expect(page.getByText(row.input["question"]!)).toBeVisible();
     }
     await expect(page.getByText("v4").first()).toBeVisible();
+
+    // ---- 7. Evaluations: refused without a real model, scored by the judge with one -------
+    const real = await isRealProvider(page);
+    const promptName = `cookbook-12-grounded-${suffix}`;
+    if (real) {
+      // The answerer under test: the question is the user's turn, the row's evidence fills
+      // {{ evidence }} in the prompt (a test set row's other fields never reach the model).
+      await page.goto("/caliber/prompts");
+      await page.getByRole("button", { name: "New prompt" }).click();
+      await page.getByRole("button", { name: /Write \/ paste/ }).click();
+      await page.getByLabel("Prompt text").fill(GROUNDED_PROMPT);
+      await page.getByLabel("Prompt name").fill(promptName);
+      await page.getByRole("button", { name: "Create and Open" }).click();
+      await expect(page.getByTestId("version-panel")).toBeVisible();
+    }
+    const label = `faithfulness ${suffix}`;
+    await page.goto("/caliber/evaluations");
+    await page.getByRole("button", { name: "Run evaluation" }).click();
+    await page
+      .getByLabel("Test set", { exact: true })
+      .selectOption({ label: `${datasetName} (v4)` });
+    await page.getByLabel("Label", { exact: true }).fill(label);
+    if (real) {
+      await page.getByLabel("What to score").selectOption("prompt");
+      await page.getByLabel("Subject under test").fill(`${promptName}@1`);
+    }
+    // The judge, with Non-empty; not the three string-match graders that are ticked by default.
+    await page.getByText("Exact match", { exact: true }).click();
+    await page.getByText("Token F1", { exact: true }).click();
+    await page.getByText("Contains expected", { exact: true }).click();
+    await page.getByText("Non-empty", { exact: true }).click();
+    await page.getByTestId("judge-scorer-options").getByText(judgeName).click();
+    await page.getByRole("button", { name: "Run", exact: true }).click();
+    if (!real) {
+      await expect(
+        page.getByText(/evaluation requires a real LLM provider/),
+      ).toBeVisible({ timeout: 60_000 });
+    } else {
+      const run = page.getByTestId("eval-run-row").filter({ hasText: label });
+      await expect(run).toBeVisible({ timeout: 300_000 });
+      await expect(run).toContainText("completed");
+      await expect(run).toContainText("3/3");
+      await run.getByRole("link").click();
+      await expect(page.getByText(`prompt: ${promptName}@1`)).toBeVisible();
+      await expect(page.getByTestId("eval-result-row")).toHaveCount(3);
+      await expect(page.getByTestId("eval-aggregate")).toBeVisible();
+    }
+  });
+
+  test("real provider: Ask Aria acts in a Legacy auto chat and only reads in the default one", async ({
+    page,
+  }) => {
+    test.setTimeout(600_000);
+    const ui = new CaliberUi(page);
+    await ui.signIn();
+    test.skip(
+      !(await isRealProvider(page)),
+      "Ask Aria needs a real engine (a simulated stack answers with a canned heuristic)",
+    );
+    const suffix = uiOnlySlug("c12chat");
+    const acting = `c12-chat-judge-${suffix}`;
+    const reading = `c12-chat-manual-${suffix}`;
+    const ask = (name: string) =>
+      `Create a judge named ${name} with a boolean feedback value type and exactly these ` +
+      `instructions: Is {{ outputs }} faithful to the evidence in {{ inputs }}? Answer true or ` +
+      "false. Then tell me its id.";
+    await page.goto("/caliber/judges");
+
+    // Default approval ("Ask first"): the model is offered Aria's read tools only.
+    const readOnly = await askAria(page, ask(reading));
+    expect(readOnly).not.toMatch(/\b2 actions\b/);
+    await closeAria(page);
+
+    // "Legacy auto": the mutating tools are offered too, and the model creates the judge itself.
+    const acted = await askAria(page, ask(acting), { approval: "Legacy auto" });
+    expect(acted).toMatch(/\d+ actions?/);
+    await closeAria(page);
+
+    await page.goto("/caliber/judges");
+    await expect(
+      page.getByRole("row").filter({ hasText: acting }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("row").filter({ hasText: acting }),
+    ).toContainText("bool");
+    await expect(
+      page.getByRole("row").filter({ hasText: reading }),
+    ).toHaveCount(0);
   });
 
   test("a sentence with no domain word makes a plan that cannot be approved", async ({

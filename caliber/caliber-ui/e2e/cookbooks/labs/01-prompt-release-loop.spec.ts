@@ -31,7 +31,11 @@ import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
  *      who applied it (the audit row carries `eval_simulated` true or false);
  *   7. rolling back returns v1 to live, on the same screens.
  *
- * The real mode takes about 15 minutes on a local 7B model (`COOKBOOK_01_MIN_SCORE` and
+ * On a real model the calibration may end `rejected` by the product's own gate; the spec then
+ * verifies the rejection (listed as rejected, no Review & apply) and stops, because nothing can be
+ * applied. Loosen the gate to exercise Apply and rollback anyway.
+ *
+ * The real mode takes about 15 minutes on a local 7B model, about 6 minutes on a hosted one (`COOKBOOK_01_MIN_SCORE` and
  * `COOKBOOK_01_MAX_REGRESSION` loosen the calibration gate for a noisy small judge, as in the
  * SDK script).
  */
@@ -230,9 +234,11 @@ test.describe("Cookbook 01: prompt release loop", () => {
       await expect(
         page.getByTestId("baseline-comparison-context"),
       ).toContainText(`${promptName}@1`);
-      await expect(
-        page.getByTestId("eval-aggregate").getByTitle("vs. baseline run"),
-      ).not.toHaveCount(0);
+      // A delta against the baseline on every score: "+3pp" / "-8pp", or "±0" when it rounds to
+      // nothing (a strong model answers the weaker wording about as well as the strict one).
+      await expect(page.getByTestId("eval-aggregate")).toContainText(
+        /[+-]?\d+pp|±0/,
+      );
       await expect(page.getByTestId("eval-result-row")).toHaveCount(
         EXPECTED_ROWS,
       );
@@ -280,9 +286,21 @@ test.describe("Cookbook 01: prompt release loop", () => {
     }
     await page.getByRole("button", { name: "Start Calibration Run" }).click();
     const review = page.getByRole("button", { name: "Review & apply" }).first();
-    await expect(review).toBeVisible({
+    const rejected = page.getByText("rejected", { exact: true }).first();
+    await expect(simulated ? review : review.or(rejected)).toBeVisible({
       timeout: simulated ? 180_000 : 1_500_000,
     });
+    if (!simulated && (await review.count()) === 0) {
+      // A real judge can honestly say no under the product's own gate (0.85 / 0.02): the run
+      // is listed as rejected and offers no Review & apply. That is a verified outcome of this
+      // lab; Apply and rollback are exercised when a candidate clears the gate (or the gate is
+      // loosened with COOKBOOK_01_MIN_SCORE / COOKBOOK_01_MAX_REGRESSION).
+      await expect(rejected).toBeVisible();
+      await expect(
+        page.getByRole("button", { name: "Review & apply" }),
+      ).toHaveCount(0);
+      return;
+    }
     await review.click();
     await expect(
       page.getByRole("heading", { name: "Review candidate before applying" }),

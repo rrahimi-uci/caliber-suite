@@ -1,8 +1,10 @@
 workflow_goal: Build a skill whose trigger behaviour is measured on 40 cases, calibrate it, apply and roll back a candidate, and package it.
-# Every step was run against a real server (scripts/cookbook-env.sh up lab02 --flags cookbooks); see README.md.
+# Every step was run against a real server (scripts/cookbook-env.sh up lab02 --flags cookbooks, simulated providers) and again with
+# real providers (... up lab02h --flags cookbooks --real-llm, the 'Run it with a real provider' section of README.md).
 feasibility:
   - Trigger selection is deterministic (POST /skills/{id}/test-selection, no model). It scores the words of the message, artifact_type and session_goal against name, tags, summary, description and the trigger phrases in skill_metadata.test_triggers (should_trigger +8, should_not_trigger forces 0). The long-form content is never read.
-  - Calibration is simulated on the default fake providers (candidate and scores are canned). A skill has no test set, so n_examples is 0 and the evidence is marked simulated.
+  - Calibration is simulated on the default fake providers (candidate and scores are canned). A skill has no test set there, so n_examples is 0 and the evidence is marked simulated.
+  - "With real providers a skill calibration is scored against a test set: POST /skills/{id}/calibrate takes eval_dataset_id (and optional eval_dataset_version and notes). Without one the real evaluator fails the run (eval dataset 'default' has no active examples). The evidence then has simulated false and n_examples equal to the test set's size, the candidate is model-written, and the regression gate can reject it."
   - Package export = GET /skills/{id}/package.zip (SKILL.md + agents/openai.yaml). ZIP import = POST /skills/import-package.zip (multipart; conflict_strategy reject|rename|merge, rename_to). The package carries name, description, content and the OpenAI interface only; tags, category, trigger phrases and the full summary do not travel.
   - Trigger phrases can be set in the wizard's Triggers step at creation, or replaced later on the skill detail page (Edit > Metadata JSON) or with PATCH /skills/{id}.
 manual_flow:
@@ -17,13 +19,13 @@ manual_flow:
   - step: trigger_round_2
     action: Run the 40 cases again; 40 of 40, with and without artifact_type/session_goal. Save the run and pin it as the baseline.
   - step: calibrate_review_apply
-    action: Calibrate, wait for candidate_ready, review the diff and the simulated-evidence banner, Apply (version 2).
+    action: "Calibrate, wait for candidate_ready, review the diff and the simulated-evidence banner, Apply (version 2). Real provider: create the 8-row test set from assets/dataset/skill-eval-cases.jsonl first and calibrate with eval_dataset_id and the note in assets/skills/calibration-notes.txt (the gate can reject a run: calibrate again)."
   - step: rollback
     action: Roll back from the version history (version 3 has the text of version 1).
   - step: package_round_trip
     action: Export the ZIP, re-import (reject is 409, rename works), compare, restore the selection metadata on the copy.
   - step: failure_paths
-    action: Invalid content (400/409), a calibration with no baseline (works), a viewer (403).
+    action: "Invalid content (400/409), a calibration with no baseline (works), a viewer (403). Real provider: a calibration with no test set fails with the evaluator's own error."
   - step: archive
     action: Archive every skill the lab created.
 components:

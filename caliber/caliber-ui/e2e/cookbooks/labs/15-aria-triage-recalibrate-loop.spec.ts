@@ -5,6 +5,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
+import { askAria, closeAria, isRealProvider } from "./aria-real";
 
 /**
  * Cookbook 15, "Run it through the UI": give Aria one sentence about weak runs, answer its
@@ -17,9 +18,13 @@ import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
  * (default: the repo's dev venv) against `CALIBER_BASE_URL` and `MLFLOW_TRACKING_URI` (both from
  * `.tmp/cookbook-env/NAME/env.sh`). In a real deployment those already exist.
  *
- * On a simulated deployment the calibration is rejected (the fake executor gives a candidate the
- * same outputs as the baseline), so the plan ends `failed` with the job's reason; with a real model
- * it can end `completed`. The spec accepts either and asserts that the page says which.
+ * Two modes, told apart by one read-only `GET /readiness`. On a simulated deployment the calibration
+ * is rejected (the fake executor gives a candidate the same outputs as the baseline), so the plan
+ * ends `failed` with the job's reason. On a real one (`scripts/cookbook-env.sh up lab15h --flags
+ * cookbooks,aria --real-llm`, README "Run it with a real provider") the job replays the test set
+ * through the model, which takes minutes, and ends `candidate_ready` (the plan `completed`) or
+ * `rejected` (the plan `failed`, with the gate's reasons): the spec accepts either and asserts that
+ * the page says which, then checks the Ask Aria chat on both sides of its permission boundary.
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 const REPO = path.resolve(here, "../../../../..");
@@ -117,7 +122,7 @@ test.describe("Cookbook 15: triage weak runs and recalibrate", () => {
   test("queues the weak runs, parks on the calibration job and settles by itself", async ({
     page,
   }) => {
-    test.setTimeout(420_000);
+    test.setTimeout(2_100_000);
     const suffix = uiOnlySlug("c15");
     const subject = runScript("setup_subject.py", ["--suffix", suffix]);
     const traces = runScript("seed_traces.py");
@@ -125,6 +130,7 @@ test.describe("Cookbook 15: triage weak runs and recalibrate", () => {
     const queueName = `${QUEUE.name}-${suffix}`;
     const ui = new CaliberUi(page);
     await ui.signIn();
+    const real = await isRealProvider(page);
 
     // ---- 1. Plans > Goal -----------------------------------------------------------------
     await openPlans(page);
@@ -204,7 +210,7 @@ test.describe("Cookbook 15: triage weak runs and recalibrate", () => {
         .getByTitle("failed", { exact: true })
         .or(page.getByTitle("completed", { exact: true }))
         .first(),
-    ).toBeVisible({ timeout: 240_000 });
+    ).toBeVisible({ timeout: real ? 1_500_000 : 240_000 });
     await expect(steps.nth(0)).toContainText("done");
     await expect(steps.nth(1)).toContainText("done");
     if (await page.getByTitle("failed", { exact: true }).first().isVisible()) {
@@ -212,6 +218,11 @@ test.describe("Cookbook 15: triage weak runs and recalibrate", () => {
       await expect(steps.nth(2)).toContainText(
         "rejected: workflow calibration rejected: no candidate met calibration gates",
       );
+      if (!real) {
+        await expect(steps.nth(2)).toContainText(
+          "quality delta +0.000 < epsilon 0.02",
+        );
+      }
     } else {
       await expect(steps.nth(2)).toContainText("done");
     }
@@ -299,5 +310,40 @@ test.describe("Cookbook 15: triage weak runs and recalibrate", () => {
     await expect(page.locator("ol > li").first()).not.toContainText(
       "waiting job",
     );
+  });
+
+  test("real provider: Ask Aria acts in a Legacy auto chat and only reads in the default one", async ({
+    page,
+  }) => {
+    test.setTimeout(600_000);
+    const ui = new CaliberUi(page);
+    await ui.signIn();
+    test.skip(
+      !(await isRealProvider(page)),
+      "Ask Aria needs a real engine (a simulated stack answers with a canned heuristic)",
+    );
+    const suffix = uiOnlySlug("c15chat");
+    const acting = `c15-chat-queue-${suffix}`;
+    const reading = `c15-chat-manual-${suffix}`;
+    const ask = (name: string) =>
+      `Create a review queue named ${name} with one pass_fail question: key resolved, title ` +
+      "'Did the agent resolve the request?'. Then tell me its id.";
+    await page.goto("/caliber/review-queues");
+
+    // Default approval ("Ask first"): the model is offered Aria's read tools only.
+    await askAria(page, ask(reading));
+    await closeAria(page);
+    // "Legacy auto": the mutating tools are offered too, and the model creates the queue itself.
+    const acted = await askAria(page, ask(acting), { approval: "Legacy auto" });
+    expect(acted).toMatch(/\d+ actions?/);
+    await closeAria(page);
+
+    await page.goto("/caliber/review-queues");
+    await expect(
+      page.getByRole("row").filter({ hasText: acting }),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("row").filter({ hasText: reading }),
+    ).toHaveCount(0);
   });
 });

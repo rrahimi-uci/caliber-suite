@@ -33,7 +33,31 @@ def _error(status: int, detail: str) -> httpx.Response:
 
 
 class FakeKnowledgeServer:
-    def __init__(self, corpus: dict[str, bytes], qa_rows: list[dict[str, Any]]) -> None:
+    """``real=True`` imitates a stack started with ``--real-llm``: readiness lists nothing as
+    simulated, answers are written (not the extractive digest), calibration returns Faithfulness and
+    Answer-correctness, and Evaluations score the ``kb-answer`` prompt's JSON replies."""
+
+    #: how a "model" decides, by the question's label; a subclass overrides it to misbehave
+    def decision(self, label: str, row: dict[str, Any]) -> str:
+        return label
+
+    def answer_text(self, row: dict[str, Any] | None) -> str:
+        if row is None:
+            return "Security audit logs are retained for **365 days (one year)** [1]."
+        if not row["expected"]["sources"]:
+            return "The retrieved policies do not cover this question."
+        return f"{row['expected']['expected']} applies, per policy [1]."
+
+    def __init__(
+        self,
+        corpus: dict[str, bytes],
+        qa_rows: list[dict[str, Any]],
+        *,
+        real: bool = False,
+    ) -> None:
+        self.real = real
+        self.eval_runs: dict[str, dict[str, Any]] = {}
+        self.query_failures: dict[str, int] = {}  # question -> provider failures still to serve
         self.corpus = corpus
         self.questions = {r["input"]["question"]: r for r in qa_rows}
         self.calls: list[str] = []
@@ -80,7 +104,13 @@ class FakeKnowledgeServer:
         return [
             ("GET", r"/cookbooks", self.cookbooks),
             ("POST", r"/cookbooks/06/install", self.install),
-            ("GET", r"/readiness", lambda r, b: _ok({"ready": True, "simulated": ["eval", "llm"]})),
+            (
+                "GET",
+                r"/readiness",
+                lambda r, b: _ok(
+                    {"ready": True, "simulated": [] if self.real else ["eval", "llm"]}
+                ),
+            ),
             ("GET", r"/me", lambda r, b: _ok({"user_id": "admin"})),
             (
                 "GET",
@@ -126,6 +156,7 @@ class FakeKnowledgeServer:
             ("GET", r"/prompts/([^/]+)/versions", lambda r, b, name: _ok([{"version": 1}])),
             ("POST", r"/judges", lambda r, b: _ok({"judge_id": "JDG-06", "name": b["name"]}, 201)),
             ("POST", r"/evaluations", self.evaluate),
+            ("GET", r"/evaluations/([^/]+)", lambda r, b, run_id: _ok(self.eval_runs[run_id])),
         ]
 
     # -- cookbook + object store ------------------------------------------------------------
@@ -332,6 +363,21 @@ class FakeKnowledgeServer:
         row = self.questions.get(body["question"])
         mode = body["retrieval_modes"][0]
         chunks = self._ranked(row, mode)
+        failures = self.query_failures.get(body["question"], 0)
+        if self.real and failures:  # a provider hiccup: the digest, and why
+            self.query_failures[body["question"]] = failures - 1
+            return _ok(self._query_result(body, mode, chunks, None, "Error code: 429 - rate limit"))
+        answer = self.answer_text(row) if self.real else None
+        return _ok(self._query_result(body, mode, chunks, answer, None))
+
+    def _query_result(
+        self,
+        body: dict[str, Any],
+        mode: str,
+        chunks: list[dict[str, Any]],
+        answer: str | None,
+        error: str | None,
+    ) -> dict[str, Any]:
         citations = [
             {
                 "chunk_id": c["chunk_id"],
@@ -340,20 +386,19 @@ class FakeKnowledgeServer:
             }
             for i, c in enumerate(chunks)
         ]
-        return _ok(
-            {
-                "question": body["question"],
-                "versions": [
-                    {
-                        "retrieval_mode": mode,
-                        "answer": f"Question: {body['question']}\n\nMost relevant retrieved evidence:",  # noqa: E501
-                        "answer_error": None,
-                        "citations": citations,
-                        "retrieved_chunks": chunks[: body["top_k"]],
-                    }
-                ],
-            }
-        )
+        digest = f"Question: {body['question']}\n\nMost relevant retrieved evidence:"
+        return {
+            "question": body["question"],
+            "versions": [
+                {
+                    "retrieval_mode": mode,
+                    "answer": answer or digest,
+                    "answer_error": error,
+                    "citations": citations,
+                    "retrieved_chunks": chunks[: body["top_k"]],
+                }
+            ],
+        }
 
     def _ranked(self, row: dict[str, Any] | None, mode: str) -> list[dict[str, Any]]:
         def chunk(n: int, source: str, text: str, score: float) -> dict[str, Any]:
@@ -398,8 +443,12 @@ class FakeKnowledgeServer:
                 "metrics": {
                     "recall_at_k": recall,
                     "ndcg_at_k": 0.95,
-                    "faithfulness": None,
-                    "answer_correctness": None,
+                    "faithfulness": 0.93 if self.real else None,
+                    "answer_correctness": (0.88 if body["retrieval_mode"] == "hybrid" else 0.8)
+                    if self.real
+                    else None,
+                    "passed_count": 30 if self.real else 0,
+                    "failed_count": 4 if self.real else 0,
                     "question_count": len(self.datasets[body["eval_dataset_id"]]),
                 },
             }
@@ -514,8 +563,37 @@ class FakeKnowledgeServer:
         return _ok(item)
 
     def evaluate(self, request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
-        return _error(
-            400,
-            "evaluation requires a real LLM provider; set CALIBER_LLM_PROVIDER (openai/anthropic) "
-            "and the matching API key, then retry.",
-        )
+        if not self.real:
+            return _error(
+                400,
+                "evaluation requires a real LLM provider; set CALIBER_LLM_PROVIDER "
+                "(openai/anthropic) and the matching API key, then retry.",
+            )
+        examples = self.datasets[body["dataset_id"]]
+        assert all("retrieved_chunks" in e["input"] for e in examples), "rows carry the chunks"
+        results = []
+        for example in examples:
+            label = example["expected"]["decision"]
+            decision = self.decision(label, example)
+            reply = {"decision": decision, "answer": "...", "citations": [], "confidence": 0.8}
+            results.append(
+                {
+                    "input": example["input"],
+                    "prediction": "```json\n" + json.dumps(reply) + "\n```",
+                    "scores": {
+                        "contains_expected": 1.0,
+                        "non_empty": 1.0,
+                        "Judge.JDG-06": 1.0 if decision == label else 0.0,
+                    },
+                    "error": None,
+                }
+            )
+        run_id = self.next_id("EVR")
+        self.eval_runs[run_id] = {
+            "run_id": run_id,
+            "status": "completed",
+            "n_examples": len(results),
+            "aggregate": {"contains_expected": 0.9, "non_empty": 1.0, "Judge.JDG-06": 0.8},
+            "results": results,
+        }
+        return _ok(self.eval_runs[run_id], 201)

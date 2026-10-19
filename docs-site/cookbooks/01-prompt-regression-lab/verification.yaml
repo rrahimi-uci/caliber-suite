@@ -1,8 +1,9 @@
 # Verified by running the lab against a real server; see README.md.
 feasibility:
-  - The rule checks below are deterministic and run by the SDK example over each stored answer (the Evaluations scorecard's built-in scorers are text-level and do not parse JSON). They apply when a model answers; on a simulated model the evaluation is refused and the example verifies the refusal. On a real model only invariants are asserted (at least 90% of v1's answers meet the contract, scores in 0..1, v2 does not beat v1 on the scorecard); whether v2 breaks the contract is reported, not asserted (a deterministic stand-in does, qwen2.5:7b does not)
+  - The rule checks below are deterministic and run by the SDK example over each stored answer (the Evaluations scorecard's built-in scorers are text-level and do not parse JSON). They apply when a model answers; on a simulated model the evaluation is refused and the example verifies the refusal. On a real model only invariants are asserted (at least 90% of v1's answers meet the contract, scores in 0..1, v2 does not beat v1 by more than a 0.05 noise margin on the scorecard); whether v2 breaks the contract is reported, not asserted (a deterministic stand-in does; qwen2.5:7b and hosted gpt-5.6-luna do not)
   - Calibration evidence on the simulated stack is canned: assert the markers (provider fake, simulated true, the real example count and dataset version), never the score.
-  - On a real model the calibration scorer is the Guidelines judge configured from assets/calibration/guidelines.json (Correctness needs expected_response, which this test set lacks). Assert real evidence (simulated false, provider mlflow, 44 examples, dataset version 45, baseline and candidate scores in 0..1, eval_simulated false on the registry version), never an exact score (the judge is noisy, the same baseline scored 0.52, 0.39 and 0.55).
+  - On a real model the calibration scorer is the Guidelines judge configured from assets/calibration/guidelines.json (Correctness needs expected_response, which this test set lacks). Assert real evidence (simulated false, provider mlflow, 44 examples, dataset version 45, baseline and candidate scores in 0..1, eval_simulated false on the registry version), never an exact score (the judge is noisy: on qwen2.5:7b the same baseline scored 0.52, 0.39 and 0.55; on hosted gpt-5.6-luna an unchanged prompt scored 0.86 to 0.98).
+  - A real optimizer may return the live prompt unchanged (+0 / -0 lines): the script reports it (info) and does not fail; a real gate may reject (the script's --accept-rejection and the browser spec verify the rejection with its reason and real evidence, and stop, because nothing can be applied).
 evaluation:
   rule_checks:
     - valid_json
@@ -18,7 +19,7 @@ quality_gates:
   # v1 contract fidelity: 1.0 on the stand-in and on qwen2.5:7b (44/44); a real run requires at least this share.
   contract_fidelity_v1: 1.0
   min_contract_rate_real: 0.9
-  # Calibration gate defaults; on the simulated evaluator the candidate scores a canned 0.94.
+  # Calibration gate defaults; on the simulated evaluator the candidate scores a canned 0.94. On hosted gpt-5.6-luna the defaults are kept (the judge's 0.02-0.09 noise can reject an unchanged prompt: an honest outcome); a release rehearsal loosens only max_regression_delta to 0.25.
   # A local 7B judge is too noisy for these (it rejected a candidate at 0.568 and varied +/-0.14 on the baseline):
   # that tier runs with min_aggregate_score 0.3 and max_regression_delta 0.25 (COOKBOOK_01_MIN_SCORE / COOKBOOK_01_MAX_REGRESSION).
   calibration_gate:
@@ -54,6 +55,8 @@ failure_scenarios:
   - {name: real model unreachable, expect: "evaluation run failed, error_message 'Connection error.' within seconds; script says 'evaluation failed: Connection error.'"}
   - {name: real model name not found, expect: "evaluation failed with 404 model not found; calibration job failed at diagnosis with the same error"}
   - {name: rejected provider key (sk-invalid), expect: "evaluation failed with 401 Incorrect API key"}
+  - {name: rejected provider key on a hosted stack (OPENAI_API_KEY=sk-invalid), expect: "evaluation failed with Error code 401 Incorrect API key provided"}
+  - {name: model name the account cannot use (CALIBER_LLM_DIAGNOSIS_MODEL=gpt-nonexistent), expect: "evaluation failed with Error code 404 model_not_found"}
   - {name: Correctness as the calibration scorer on this test set, expect: "job failed: no valid score for selected scorer(s): Correctness"}
   - {name: real judge below the default gate, expect: "job rejected with the reason (overall below min_aggregate_score 0.850), Apply 409"}
 golden_cases:

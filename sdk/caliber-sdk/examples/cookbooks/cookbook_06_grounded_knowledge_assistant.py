@@ -165,11 +165,20 @@ def ask(
     *,
     mode: str = "dense",
     top_k: int = TOP_K,
+    retries: int = 0,
 ) -> dict[str, Any]:
-    result = caliber.knowledge_bases.query(
-        version_ids=[version_id], question=question, top_k=top_k, retrieval_modes=[mode]
-    )
-    hits: dict[str, Any] = result["versions"][0]
+    hits: dict[str, Any] = {}
+    for attempt in range(retries + 1):
+        result = caliber.knowledge_bases.query(
+            version_ids=[version_id], question=question, top_k=top_k, retrieval_modes=[mode]
+        )
+        hits = result["versions"][0]
+        # On a real stack a provider hiccup (a 429, a timeout) does not fail the query: the answer
+        # silently becomes the extractive digest and ``answer_error`` says why. Retry those.
+        provider_failed = bool(hits.get("answer_error")) and bool(hits.get("retrieved_chunks"))
+        if not (retries and provider_failed) or attempt == retries:
+            break
+        time.sleep(5.0 * (attempt + 1))
     return hits
 
 
@@ -182,12 +191,24 @@ def evidence_rank(retrieved: dict[str, Any], evidence: str) -> int | None:
 
 
 def sweep(
-    caliber: CaliberClient, version_id: str, rows: list[dict[str, Any]], mode: str
+    caliber: CaliberClient,
+    version_id: str,
+    rows: list[dict[str, Any]],
+    mode: str,
+    *,
+    retries: int = 0,
+    keep: dict[str, dict[str, Any]] | None = None,
 ) -> dict[str, Any]:
-    """Where the supporting clause ranks, for every answerable question, in one retrieval mode."""
+    """Where the supporting clause ranks, for every answerable question, in one retrieval mode.
+
+    ``keep`` (optional) collects each question's full query result by id, so a caller that also
+    wants the answers (the real-provider tier) does not query twice.
+    """
     ranks: dict[str, int | None] = {}
     for row in rows:
-        retrieved = ask(caliber, version_id, row["input"]["question"], mode=mode)
+        retrieved = ask(caliber, version_id, row["input"]["question"], mode=mode, retries=retries)
+        if keep is not None:
+            keep[row["id"]] = retrieved
         ranks[row["id"]] = evidence_rank(retrieved, row["expected"]["evidence"])
     total = len(ranks)
     return {
@@ -214,7 +235,189 @@ def calibrate(
         "ndcg_at_k": round(metrics["ndcg_at_k"], 4),
         "faithfulness": metrics.get("faithfulness"),
         "answer_correctness": metrics.get("answer_correctness"),
+        "passed": metrics.get("passed_count"),
+        "failed": metrics.get("failed_count"),
         "question_count": metrics["question_count"],
+    }
+
+
+# --------------------------------------------------------------------------- #
+# The real-provider tier: what a model changes (README, "Run it with a real provider")
+# --------------------------------------------------------------------------- #
+#: Invariants for a model that can do the job; the README records the values one run produced.
+ASSISTANT_CONTAINS_MIN = 0.50  # share of answerable questions whose answer holds the expected fact
+DECISION_PARSE_MIN = 0.90  # share of kb-answer replies that are valid JSON with a decision
+ANSWER_DECISION_MIN = 0.60  # share of answerable questions the model decides to `answer`
+ABSTAIN_OUTSIDE_MIN = 0.60  # share of the 5 out-of-corpus questions the model abstains on
+DECISIONS = ("answer", "abstain", "clarify")
+
+
+def format_chunks(retrieved: dict[str, Any]) -> str:
+    """The chunks as ``kb-answer`` expects ``{{ retrieved_chunks }}``: id, source, text."""
+    return "\n\n".join(
+        f"[{c['chunk_id']}] source_id={c['source_name']}\n{c['content']}"
+        for c in retrieved["retrieved_chunks"]
+    )
+
+
+def parse_decision(prediction: Any) -> str | None:
+    """The ``decision`` of a ``kb-answer`` reply, or None if it is not the JSON contract."""
+    text = str(prediction or "").strip()
+    text = re.sub(r"^```(?:json)?\s*|\s*```$", "", text)
+    try:
+        decision = json.loads(text).get("decision")
+    except (ValueError, AttributeError):
+        return None
+    return decision if decision in DECISIONS else None
+
+
+def _real_answers(
+    caliber: CaliberClient,
+    version_id: str,
+    qa_rows: list[dict[str, Any]],
+    hybrid_results: dict[str, dict[str, Any]],
+    retries: int,
+    check: Callable[..., Any],
+) -> dict[str, Any]:
+    """The assistant's own answers (hybrid, top 3) for all 48 questions, scored by rules only."""
+    for row in qa_rows:
+        if row["id"] not in hybrid_results:  # the 41 answerable ones were answered by the sweep
+            hybrid_results[row["id"]] = ask(
+                caliber, version_id, row["input"]["question"], mode="hybrid", retries=retries
+            )
+    failed = [qid for qid, r in hybrid_results.items() if r["answer_error"] or not r["answer"]]
+    check(
+        "a model answered all 48 questions, with no provider error",
+        not failed and len(hybrid_results) == len(qa_rows),
+        f"{len(hybrid_results)} answers" if not failed else f"no answer for {failed}",
+    )
+    digest = [q for q, r in hybrid_results.items() if str(r["answer"]).startswith("Question:")]
+    check("none of them is the simulated extractive digest", not digest, f"digests: {digest}")
+    answerable = [r for r in qa_rows if r["expected"]["sources"] and r["expected"]["expected"]]
+    holds = {
+        r["id"]: norm(r["expected"]["expected"]) in norm(hybrid_results[r["id"]]["answer"])
+        for r in answerable
+    }
+    share = sum(holds.values()) / len(holds)
+    check(
+        f"answers state the expected fact (>= {ASSISTANT_CONTAINS_MIN:.0%} of answerable)",
+        share >= ASSISTANT_CONTAINS_MIN,
+        f"{sum(holds.values())}/{len(holds)} = {share:.0%}",
+    )
+    return {
+        "answered": len(hybrid_results),
+        "answerable_stating_the_expected_fact": f"{sum(holds.values())}/{len(holds)}",
+        "missing_the_fact": sorted(q for q, ok in holds.items() if not ok),
+        "sample": " ".join(str(hybrid_results["Q15"]["answer"]).split())[:240],
+    }
+
+
+def _grounded_evaluation(
+    caliber: CaliberClient,
+    *,
+    suffix: str,
+    owner: str,
+    qa_rows: list[dict[str, Any]],
+    hybrid_results: dict[str, dict[str, Any]],
+    prompt_name: str,
+    judge_id: str,
+    check: Callable[..., Any],
+) -> dict[str, Any]:
+    """Score the ``kb-answer`` prompt on all 48 questions with the real CitationFaithfulness judge.
+
+    Evaluations has no retrieval step, so the test set carries what retrieval returned (the hybrid
+    top 3 for each question) in ``input.retrieved_chunks``, which the prompt's variable receives.
+    The prompt replies with a ``decision``; the table printed is that decision against the label.
+    """
+    grounded = caliber.eval_datasets.create(
+        f"policy-qa-grounded-{suffix}",
+        owner=owner,
+        description="The 48 questions with the chunks retrieval returned for each (hybrid, top 3)",
+    )
+    for row in qa_rows:
+        caliber.eval_datasets.add_example(
+            grounded.dataset_id,
+            input={**row["input"], "retrieved_chunks": format_chunks(hybrid_results[row["id"]])},
+            expected=row["expected"],
+            tags=row["tags"],
+        )
+    judge_scorer = f"Judge.{judge_id}"
+    run = caliber.evaluations.create(
+        grounded.dataset_id,
+        predict_target="prompt",
+        subject_ref=f"{prompt_name}@1",
+        scorers=["contains_expected", "non_empty", judge_scorer],
+        label=f"kb-answer v1 {suffix}",
+    )
+    stored = caliber.evaluations.get(run.run_id)
+    rows = stored.results or []
+    check(
+        "the answer prompt was scored on all 48 questions, every row without an error",
+        stored.status == "completed"
+        and stored.n_examples == len(qa_rows)
+        and len(rows) == len(qa_rows)
+        and all(r["error"] is None for r in rows),
+        f"{run.run_id} {stored.status}"
+        + (f": {stored.error_message}" if stored.error_message else ""),
+    )
+    by_question = {r["input"]["question"]: r for r in qa_rows}
+    table: dict[str, dict[str, int]] = {
+        label: {**{d: 0 for d in DECISIONS}, "unparsed": 0} for label in DECISIONS
+    }
+    judged: dict[str, list[float]] = {label: [] for label in DECISIONS}
+    trap_decisions: dict[str, str] = {}
+    for result in rows:
+        qa = by_question[result["input"]["question"]]
+        label = qa["expected"]["decision"]
+        decision = parse_decision(result["prediction"])
+        table[label][decision or "unparsed"] += 1
+        judged[label].append(float(result["scores"][judge_scorer]))
+        if TRAP_TAG in qa["tags"] and label == "abstain":
+            trap_decisions[qa["id"]] = decision or "unparsed"
+    print(
+        "     expected \\ produced   answer  abstain  clarify  unparsed  judge pass rate",
+        flush=True,
+    )
+    for label in DECISIONS:
+        counts = table[label]
+        mean = sum(judged[label]) / len(judged[label])
+        print(
+            f"     {label:<18} {counts['answer']:>6}  {counts['abstain']:>7}  "
+            f"{counts['clarify']:>7}  {counts['unparsed']:>8}  {mean:.2f}",
+            flush=True,
+        )
+    unparsed = sum(c["unparsed"] for c in table.values())
+    check(
+        f"the replies follow the JSON contract (>= {DECISION_PARSE_MIN:.0%} carry a decision)",
+        1 - unparsed / len(rows) >= DECISION_PARSE_MIN,
+        f"{len(rows) - unparsed}/{len(rows)} parsed",
+    )
+    answer_share = table["answer"]["answer"] / sum(table["answer"].values())
+    check(
+        f"it decides to answer answerable questions (>= {ANSWER_DECISION_MIN:.0%})",
+        answer_share >= ANSWER_DECISION_MIN,
+        f"{table['answer']['answer']}/{sum(table['answer'].values())}",
+    )
+    outside = [r for r in qa_rows if not r["expected"]["sources"] and TRAP_TAG not in r["tags"]]
+    abstained = sum(
+        parse_decision(
+            next(x for x in rows if x["input"]["question"] == r["input"]["question"])["prediction"]
+        )
+        == "abstain"
+        for r in outside
+    )
+    check(
+        f"it abstains on questions the corpus does not cover (>= {ABSTAIN_OUTSIDE_MIN:.0%})",
+        abstained / len(outside) >= ABSTAIN_OUTSIDE_MIN,
+        f"{abstained}/{len(outside)}",
+    )
+    aggregate = stored.aggregate
+    return {
+        "run_id": run.run_id,
+        "decisions": table,
+        "trap_decisions": trap_decisions,
+        "aggregate": {k: round(v, 3) for k, v in aggregate.items()},
+        "judge_pass_rate_by_label": {k: round(sum(v) / len(v), 3) for k, v in judged.items()},
     }
 
 
@@ -311,6 +514,11 @@ def run(caliber: CaliberClient, *, suffix: str | None = None, poll: float = 1.0)
     readiness = caliber.raw.get("/readiness")
     simulated = readiness.get("simulated") or []
     out["simulated"] = simulated
+    #: A model behind the server: answers are generated, and calibration's Faithfulness and
+    #: Answer-correctness judges run. (The README's "Run it with a real provider".)
+    real = "llm" not in simulated and "eval" not in simulated
+    out["mode"] = "real provider" if real else "simulated"
+    retries = 3 if real else 0
     status = caliber.object_store.status()
     check(
         "the object store is reachable",
@@ -404,7 +612,7 @@ def run(caliber: CaliberClient, *, suffix: str | None = None, poll: float = 1.0)
 
     # ---- 3. query with citations -----------------------------------------------------------
     probe = next(r for r in answerable if r["id"] == "Q15")
-    retrieved = ask(caliber, v1_id, probe["input"]["question"], mode="hybrid")
+    retrieved = ask(caliber, v1_id, probe["input"]["question"], mode="hybrid", retries=retries)
     rank = evidence_rank(retrieved, probe["expected"]["evidence"])
     holder = retrieved["retrieved_chunks"][rank - 1] if rank else {}
     cited = {c["chunk_id"] for c in retrieved["citations"]}
@@ -421,16 +629,34 @@ def run(caliber: CaliberClient, *, suffix: str | None = None, poll: float = 1.0)
         "365 days" in holder.get("content", ""),
         "365 days",
     )
-    check(
-        "the answer is the extractive digest, with a numbered label per citation",
-        retrieved["answer"].startswith("Question:")
-        and retrieved["citations"][0]["label"].startswith("[1] "),
-        retrieved["citations"][0]["label"],
-    )
+    if real:
+        answer = retrieved["answer"] or ""
+        check(
+            "a model wrote the answer from the retrieved chunks, with no provider error",
+            retrieved["answer_error"] is None
+            and not answer.startswith("Question:")
+            and "365" in answer,
+            " ".join(answer.split())[:110],
+        )
+    else:
+        check(
+            "the answer is the extractive digest, with a numbered label per citation",
+            retrieved["answer"].startswith("Question:")
+            and retrieved["citations"][0]["label"].startswith("[1] "),
+            retrieved["citations"][0]["label"],
+        )
 
     # ---- 4. retrieval modes over the whole answerable set ----------------------------------
+    hybrid_results: dict[str, dict[str, Any]] = {}
     sweeps = {
-        mode: sweep(caliber, v1_id, answerable, mode)
+        mode: sweep(
+            caliber,
+            v1_id,
+            answerable,
+            mode,
+            retries=retries,
+            keep=hybrid_results if mode == "hybrid" else None,
+        )
         for mode in ("dense", "hybrid", "graph_hybrid")
     }
     out["sweeps"] = sweeps
@@ -536,7 +762,11 @@ def run(caliber: CaliberClient, *, suffix: str | None = None, poll: float = 1.0)
     )
 
     grid: list[dict[str, Any]] = []
-    for label, version_id in (("v1", v1_id), ("v2", v2_id)):
+    # A calibration run answers every question and judges the answer twice (3 model calls per
+    # question), so on a real provider only version 1 is compared: dense against hybrid, at 1 and 3
+    # chunks. Version 2's retrieval numbers are the same arithmetic on either tier.
+    versions = (("v1", v1_id),) if real else (("v1", v1_id), ("v2", v2_id))
+    for label, version_id in versions:
         for mode in ("dense", "hybrid"):
             for k in (1, 3):
                 if (label, mode, k) == ("v1", "dense", 1):
@@ -545,12 +775,13 @@ def run(caliber: CaliberClient, *, suffix: str | None = None, poll: float = 1.0)
                     row = calibrate(caliber, kb_id, version_id, dataset.dataset_id, mode, k)
                 grid.append({"version": label, **row})
     out["calibration"] = grid
-    print("     version mode    k  recall@k  nDCG@k  faithfulness", flush=True)
+    print("     version mode    k  recall@k  nDCG@k  faithfulness  correctness", flush=True)
     for row in grid:
         faith = "n/a" if row["faithfulness"] is None else f"{row['faithfulness']:.2f}"
+        correct = "n/a" if row["answer_correctness"] is None else f"{row['answer_correctness']:.2f}"
         print(
             f"     {row['version']:<7} {row['mode']:<7} {row['top_k']}  {row['recall_at_k']:<8}  "
-            f"{row['ndcg_at_k']:<6}  {faith}",
+            f"{row['ndcg_at_k']:<6}  {faith:<12}  {correct}",
             flush=True,
         )
     check(
@@ -578,6 +809,30 @@ def run(caliber: CaliberClient, *, suffix: str | None = None, poll: float = 1.0)
         if not judged
         else f"faithfulness {judged[0]['faithfulness']}",
     )
+    if real:
+        scored = [
+            r for r in grid if r["faithfulness"] is not None and r["answer_correctness"] is not None
+        ]
+        check(
+            "every calibration run has a real Faithfulness and Answer-correctness score in 0..1",
+            len(scored) == len(grid)
+            and all(
+                0.0 <= r[m] <= 1.0 for r in scored for m in ("faithfulness", "answer_correctness")
+            ),
+            ", ".join(
+                f"{r['mode']}@{r['top_k']} {r['faithfulness']:.2f}/{r['answer_correctness']:.2f}"
+                for r in scored
+            ),
+        )
+        out["answer_quality"] = {
+            f"{r['mode']}@{r['top_k']}": {
+                "faithfulness": round(r["faithfulness"], 3),
+                "answer_correctness": round(r["answer_correctness"], 3),
+                "passed": r["passed"],
+                "failed": r["failed"],
+            }
+            for r in scored
+        }
 
     # ---- 7. activate, roll back ------------------------------------------------------------
     caliber.knowledge_bases.activate_version(kb_id, v1_id)
@@ -857,18 +1112,16 @@ def run(caliber: CaliberClient, *, suffix: str | None = None, poll: float = 1.0)
             refused,
         )
     else:
-        evaluation = caliber.evaluations.create(
-            qa_set.dataset_id,
-            predict_target="prompt",
-            subject_ref=f"{prompt_name}@1",
-            scorers=["contains_expected"],
-            label="kb-answer v1",
-        )
-        out["evaluation"] = {"run_id": evaluation.run_id, "status": evaluation.status}
-        check(
-            "the answer prompt was scored on all 48 questions",
-            evaluation.n_examples == 48,
-            evaluation.run_id,
+        out["real_answers"] = _real_answers(caliber, v1_id, qa_rows, hybrid_results, retries, check)
+        out["evaluation"] = _grounded_evaluation(
+            caliber,
+            suffix=suffix,
+            owner=owner,
+            qa_rows=qa_rows,
+            hybrid_results=hybrid_results,
+            prompt_name=prompt_name,
+            judge_id=judge.judge_id,
+            check=check,
         )
 
     out["recipe_unmet_checks"] = configuration_blockers(recipe)
@@ -900,7 +1153,11 @@ def cleanup(caliber: CaliberClient, suffix: str) -> None:
         if queue.name == f"policy-qa-review-{suffix}":
             caliber.review_queues.update(queue.queue_id, status="archived")
             removed.append(f"review queue {queue.name} (archived)")
-    for name in (f"policy-qa-calibration-{suffix}", f"policy-qa-eval-{suffix}"):
+    for name in (
+        f"policy-qa-calibration-{suffix}",
+        f"policy-qa-eval-{suffix}",
+        f"policy-qa-grounded-{suffix}",
+    ):
         for dataset in caliber.eval_datasets.list():
             if dataset.name == name:
                 caliber.eval_datasets.update(dataset.dataset_id, status="archived")
@@ -909,7 +1166,8 @@ def cleanup(caliber: CaliberClient, suffix: str) -> None:
 
 
 def main() -> None:
-    with env_client() as caliber:
+    # Calibration and Evaluations are single requests that make a model call per question.
+    with env_client(timeout=3600.0) as caliber:
         if "--cleanup" in sys.argv:
             cleanup(caliber, sys.argv[sys.argv.index("--cleanup") + 1])
             return

@@ -5,7 +5,8 @@
 feasibility:
   - Aria's planner is deterministic rules, so the plan is checked exactly; there is no judge of Aria's output here and no model in the verified path.
   - Plan, step and question state are observable at GET /aria/plans/{id} and GET /aria/plans/{id}/interactions.
-  - Running the judge in Evaluations needs a real model provider; on the simulated default the lab verifies the 400 refusal, not a score.
+  - Running the judge in Evaluations needs a real model provider. On the simulated default the lab verifies the 400 refusal, not a score; on a --real-llm stack (GET /readiness simulated is empty) it scores the 30 rows with the judge for a grounded and a careless answerer prompt and asserts structure and ranges, never an exact score.
+  - The Ask Aria chat is the only place the real assistant engine acts: a mutating capability (judge_create) is offered only in a build session with auto_all or full_autonomy approval. Planning never calls the engine.
 evaluation:
   plan_checks:
     - planner_matches_dataset                  # 28/28 goals draw the documented steps; every draft is cancelled
@@ -23,7 +24,13 @@ evaluation:
     - duplicate_name_fails_step
     - owner_without_operator_scope_fails_at_execute
     - non_owner_cannot_answer_or_read_the_plan
-    - evaluation_refused_on_simulated_provider
+    - evaluation_refused_on_simulated_provider      # simulated stack only
+  real_provider_checks:                              # a --real-llm stack only; skipped automatically on a simulated one
+    - evaluation_scores_all_30_rows_with_the_judge   # verdicts 0 or 1, no row error, aggregate = share of 1s
+    - evidence_names_real_provider_prompt_and_judge
+    - judge_tells_grounded_from_careless_answerer    # gap >= 0.2 (COOKBOOK_12_MIN_GAP)
+    - ask_aria_creates_judge_in_build_auto_all_session
+    - ask_aria_is_not_offered_judge_create_in_default_session
 quality_gates:
   planner_agreement: 1.0         # 28 of 28 goals
   steps_completed_min: 2
@@ -40,4 +47,4 @@ monitoring:
     - interactions_count
 feedback_loop:
   - if the plan misses a capability, use the domain words (judge, eval dataset, test set) and re-decompose; add the sentence to assets/dataset/goals.jsonl with the plan the server draws.
-  - promote the created judge and test set into the Evaluations scoring loop (labs 01 and 10) once a real model provider is configured.
+  - run the created judge and test set in Evaluations on a real provider (README, Run it with a real provider) and certify the judge against human labels (labs 10 and 13).

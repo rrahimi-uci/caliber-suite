@@ -10,9 +10,15 @@ README.md) and prints the same values the README tells you to expect.
         -m examples.cookbooks.cookbook_14_aria_governance_starter_kit
 
 The server needs ``CALIBER_FEATURE_ARIA=true`` and ``CALIBER_OPERATOR_USERS=admin,olga``; the script
-also creates ``vera``, who is not an operator. Nothing here needs a model: Aria's planner is
-deterministic. The one step that does, running the judge in Evaluations, is refused on a simulated
-deployment, and the script verifies that refusal.
+also creates ``vera``, who is not an operator. Nothing in the planning needs a model: Aria's
+planner is deterministic. The step that does, running the judge in Evaluations, has two modes, told
+apart by ``GET /readiness``. On a simulated stack (the default) it is refused with a 400 and the
+script verifies the refusal. On a stack started with
+``scripts/cookbook-env.sh up NAME --flags cookbooks,aria --real-llm`` the script scores the 30
+policy cases with the judge for real (an answerer prompt that sees the policy text), asserts
+structure, ranges and the ``high-risk`` slice (never exact scores), and then checks the Ask Aria
+chat on both sides of its permission boundary. That takes a few minutes and costs cents;
+``COOKBOOK_ARIA_HTTP_TIMEOUT`` (seconds, default 900) bounds one request.
 
 What it does, in order:
 
@@ -22,13 +28,17 @@ What it does, in order:
    plan asks (three forms with an Approve each, then the enqueue form, which it skips because there
    are no traces yet). Checks the judge, the review queue and the test set exist under three
    different names.
-3. Adds the 30 cases of ``assets/dataset/release-candidate-cases.jsonl`` to the test set.
+3. Adds the 30 cases of ``assets/dataset/release-candidate-cases.jsonl`` to the test set and runs
+   it in Evaluations (refused on a simulated stack; judge-scored and checked by invariants on a
+   real one).
 4. Runs the same sentence under *Run everything it safely can*, after changing the autonomy of the
    draft, and shows that only the forms are asked.
 5. Provokes the refusals: a denied step that takes its dependent with it, a failure half way (what
    was made stays made), a plan with no steps, an account without the operator scope.
+6. Real stack only: Ask Aria's chat creates a review queue in a ``build`` / ``auto_all`` session and
+   is not offered the tool in the default session.
 
-``--cleanup`` archives what earlier runs created.
+``--cleanup`` archives what earlier runs created (and deletes the prompt of a real run).
 """
 
 from __future__ import annotations
@@ -46,19 +56,27 @@ from typing import Any
 from caliber_sdk import CaliberClient
 from caliber_sdk.errors import CaliberAPIError, CaliberPermissionError
 from examples.cookbooks._aria_lab import (
+    GROUNDED_PROMPT,
     Checks,
     Report,
     SetupError,
     VerificationError,
+    check_chat_boundary,
     check_goals_report,
+    check_judged_evaluation,
+    create_prompt,
     ensure_accounts,
     env_password,
     form_values,
+    http_timeout,
+    is_real,
+    judge_rate,
     load_jsonl,
     pending,
     refused,
     require_admin_and_aria,
     require_scopes,
+    run_judged_evaluation,
     run_plan,
     sign_in,
     start,
@@ -79,6 +97,11 @@ INTENT = (
 KIT = ["judge.create", "review_queue.create", "eval_dataset.create", "review_queue.add_items"]
 GOALS_EXPECTED = 28
 CASES_EXPECTED = 30
+HIGH_RISK_EXPECTED = 5
+#: A real run: the share of the 30 policy cases the judge finds faithful must reach this. A grounded
+#: answerer typically scores far higher (README); the bar only rules out a judge or an answerer
+#: that does not work.
+MIN_FAITHFUL_RATE = float(os.environ.get("COOKBOOK_14_MIN_RATE", "0.6"))
 
 
 def default_assets_dir() -> Path:
@@ -134,6 +157,10 @@ def run(
         }
 
     require_admin_and_aria(caliber)
+    real = is_real(caliber)
+    result["mode"] = "real" if real else "simulated"
+    prompts: list[str] = []
+    result["prompts"] = prompts
     require_scopes(
         {"olga": operator, "vera": viewer},
         has={"olga": True, "vera": False},
@@ -262,26 +289,22 @@ def run(
             for c in cases
         ),
     )
-    refusal: CaliberAPIError | None = None
-    try:
-        created = caliber.evaluations.create(dataset.dataset_id, scorers=["non_empty"])
-    except CaliberAPIError as exc:
-        refusal = exc
-    if refusal is not None:
+    if real:
+        result["evaluation"] = _evaluate_for_real(
+            caliber, check, dataset.dataset_id, judge.judge_id, suffix=suffix, prompts=prompts
+        )
+    else:
+        refusal = refused(
+            lambda: caliber.evaluations.create(dataset.dataset_id, scorers=["non_empty"])
+        )
         check(
             "Evaluations are refused without a real model (400): the judge cannot run here",
-            refusal.status_code == 400 and "real LLM provider" in str(refusal),
+            refusal is not None
+            and refusal.status_code == 400
+            and "real LLM provider" in str(refusal),
             "simulated stack",
         )
         result["evaluation"] = "refused (simulated provider)"
-    else:
-        evaluation = caliber.evaluations.wait(created.evaluation_id or created.run_id)
-        check(
-            "a real provider scored every row of the test set",
-            evaluation.is_terminal and evaluation.n_examples == CASES_EXPECTED,
-            f"{evaluation.status}, {evaluation.n_examples} rows",
-        )
-        result["evaluation"] = evaluation.status
     result["cases"] = {
         "count": len(cases),
         "categories": sorted({c["tags"][0] for c in cases}),
@@ -467,13 +490,83 @@ def run(
         step_status(skipped_all),
     )
 
+    # -- 6. Ask Aria's chat, on a real stack ------------------------------------------------------
+    if real:
+        result["chat"] = _chat_for_real(caliber, check, suffix)
+
     check.finish()
     return result
 
 
+def _evaluate_for_real(
+    caliber: CaliberClient,
+    check: Checks,
+    dataset_id: str,
+    judge_id: str,
+    *,
+    suffix: str,
+    prompts: list[str],
+) -> dict[str, Any]:
+    """Score the 30 policy cases with the judge, the answers coming from a grounded prompt."""
+    prompt_ref = create_prompt(caliber, f"{NAME_PREFIX}grounded-answer-{suffix}", GROUNDED_PROMPT)
+    prompts.append(prompt_ref.split("@")[0])
+    run = run_judged_evaluation(
+        caliber, dataset_id, judge_id, prompt_ref=prompt_ref, label=f"release candidate {suffix}"
+    )
+    summary = check_judged_evaluation(
+        check, "release candidate", run, judge_id, rows=CASES_EXPECTED, prompt_ref=prompt_ref
+    )
+    rate = judge_rate(run, judge_id) or 0.0
+    check(
+        f"the judge finds at least {MIN_FAITHFUL_RATE:.0%} of the grounded answers faithful",
+        rate >= MIN_FAITHFUL_RATE,
+        f"{rate:.0%}",
+    )
+    slices = (run.evidence or {}).get("slices") or {}
+    check(
+        f"the evidence slices the run by tag, with the {HIGH_RISK_EXPECTED} high-risk cases apart",
+        (slices.get("high-risk") or {}).get("n_examples") == HIGH_RISK_EXPECTED,
+        {tag: (v or {}).get("n_examples") for tag, v in sorted(slices.items())},
+    )
+    summary["high_risk_rows"] = (slices.get("high-risk") or {}).get("n_examples")
+    return summary
+
+
+def _chat_for_real(caliber: CaliberClient, check: Checks, suffix: str) -> dict[str, Any]:
+    """Ask Aria (the chat, not the Plans page) acts in build / auto_all and only reads otherwise."""
+    acting = f"{NAME_PREFIX}chat-queue-{suffix}"
+    reading = f"{NAME_PREFIX}chat-manual-{suffix}"
+    spec = (
+        "with one pass_fail question: key faithful, title 'Is the answer faithful to the policy?'. "
+        "Then tell me its id."
+    )
+
+    def queue_names() -> set[str]:
+        return {q.name for q in caliber.review_queues.list()}
+
+    summary = check_chat_boundary(
+        caliber,
+        check,
+        tool="review_queue_create",
+        ask=f"Create a review queue named {acting} {spec}",
+        exists=lambda: acting in queue_names(),
+        absent_ask=f"Create a review queue named {reading} {spec}",
+        absent_exists=lambda: reading in queue_names(),
+    )
+    made = next((q for q in caliber.review_queues.list() if q.name == acting), None)
+    check(
+        "the chat's queue is active with the question that was asked for",
+        made is not None
+        and made.status == "active"
+        and [q["key"] for q in caliber.review_queues.get(made.queue_id).questions] == ["faithful"],
+        made.queue_id if made else "",
+    )
+    return summary
+
+
 def cleanup(caliber: CaliberClient) -> dict[str, int]:
     """Archive the judges, queues and test sets earlier runs created (names ``cookbook-14-``)."""
-    archived = {"judges": 0, "review_queues": 0, "test_sets": 0}
+    archived = {"judges": 0, "review_queues": 0, "test_sets": 0, "prompts": 0}
     for judge in caliber.judges.list():
         if judge.name.startswith(NAME_PREFIX) and judge.status != "archived":
             caliber.judges.update(judge.judge_id, status="archived")
@@ -486,6 +579,10 @@ def cleanup(caliber: CaliberClient) -> dict[str, int]:
         if dataset.name.startswith(NAME_PREFIX) and dataset.status != "archived":
             caliber.eval_datasets.update(dataset.dataset_id, status="archived")
             archived["test_sets"] += 1
+    for prompt in caliber.prompts.list():
+        if prompt.prompt_name.startswith(NAME_PREFIX):
+            caliber.prompts.delete(prompt.prompt_name)
+            archived["prompts"] += 1
     return archived
 
 
@@ -497,7 +594,7 @@ def main(argv: list[str] | None = None) -> int:
     base_url = os.environ["CALIBER_BASE_URL"]
     password = env_password("COOKBOOK_ARIA_PASSWORD", DEFAULT_PASSWORD)
     opened: list[CaliberClient] = []
-    with env_client() as caliber:
+    with env_client(timeout=http_timeout()) as caliber:
         try:
             if args.cleanup:
                 print(json.dumps(cleanup(caliber), indent=2))

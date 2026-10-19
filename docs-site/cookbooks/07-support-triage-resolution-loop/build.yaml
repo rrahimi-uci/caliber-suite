@@ -4,6 +4,7 @@ workflow_goal: Turn inbound support tickets into a routing decision with SLA, an
 feasibility:
   - The classifier is deterministic rules in one Python Code node (no model). A real model would replace or sit beside it; the router, the gate and the dataset check do not change.
   - Preview cannot isolate a Python Code node, so this workflow is run through the queue, not previewed.
+  - "Optional real-provider variant (assets/workflows/support-triage-model.workflow.json): classify_model (agent) -> guard (decision table: low confidence or unreadable -> clarify) -> router -> review_bug / review_support (human approval) or draft_reply (agent) or clarify. No Python Code node, so Preview, Evaluations and workflow calibration can run it."
   - Evidence tools, the knowledge base and the GitHub MCP write are not part of the verified path (no connector and no model on the lab machine). The action_request template stands in for the external write.
 manual_flow:
   - step: import

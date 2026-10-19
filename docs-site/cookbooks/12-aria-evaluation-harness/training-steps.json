@@ -102,7 +102,7 @@
       "where": "Prompt lifecycle › Test Sets",
       "do": "Open <strong>Test Sets</strong>, search for the name and open the set. It is at <code>v1</code> with no rows: Aria creates the test set empty. Press <strong>+ Add example</strong>, fill <strong>Input (JSON object)</strong> with a case's <code>input</code> and <strong>Expected (JSON object)</strong> with its <code>expected</code> from <a href=\"../cookbooks/12-aria-evaluation-harness/assets/dataset/faithfulness-cases.jsonl\">faithfulness-cases.jsonl</a>, and press <strong>Save</strong>. Repeat for two more cases.",
       "click": "Save",
-      "see": "Each question appears in the list and the version reads <code>v4</code>. The other 27 rows are loaded by the script (<code>POST /eval-datasets/{id}/examples</code>).",
+      "see": "Each question appears in the list and the version reads <code>v4</code>. The other 27 rows are loaded by the script (<code>POST /eval-datasets/{id}/examples</code>). On a stack with a real provider, <strong>Evaluations</strong> can then score these rows with the judge (README, <em>Run it with a real provider</em>).",
       "asset": "Test set with rows",
       "assetlink": [
         {

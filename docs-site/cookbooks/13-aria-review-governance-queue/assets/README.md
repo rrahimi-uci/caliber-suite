@@ -11,6 +11,7 @@ Files for [the lab](../README.md). This is an **Aria autonomous** scenario: you 
 | [`seed_traces.py`](seed_traces.py) | Writes the 30 replies to MLflow as traces, prints `{row id: trace id}` | Run by the script and by the Playwright spec; needs `mlflow` and `MLFLOW_TRACKING_URI` |
 | [`review-queues/agent-reply-review.queue.json`](review-queues/agent-reply-review.queue.json) | The `review_queue.create` form values (`name`, `description`, `reviewers`, `questions`) | The queue's input form; the same shape is a `POST /review-queues` body |
 | [`enqueue.json`](enqueue.json) | The `review_queue.add_items` form values (`trace_ids`, `assigned_to`) | The enqueue form; the queue's id is wired, not typed |
+| [`judges/reply-safety.judge.json`](judges/reply-safety.judge.json) | A boolean safety judge (`POST /judges` shape) | Real-provider stack only: the script runs it against the 12 human `safety` labels (README, Run it with a real provider) |
 
 The `notes` key in the form specs is for readers: strip it before posting a file as `inputs` (the script does).
 

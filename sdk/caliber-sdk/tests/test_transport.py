@@ -121,9 +121,7 @@ def test_a_non_string_reason_code_degrades_to_none() -> None:
     """A malformed/foreign body (e.g. a proxy) must not raise a decode error."""
 
     def handler(request: httpx.Request) -> httpx.Response:
-        return httpx.Response(
-            409, json={"detail": "nope", "status_code": 409, "reason_code": 123}
-        )
+        return httpx.Response(409, json={"detail": "nope", "status_code": 409, "reason_code": 123})
 
     with (
         transport_with(handler, max_retries=0) as transport,

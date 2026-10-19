@@ -14,8 +14,8 @@ quality_gates:
   hybrid_hit_at_3_min: 0.95                 # clause's chunk in the top 3 (observed 41/41; dense 40/41, graph_hybrid 35/41)
   retrieval_recall_improvement_after_calibration: true   # Recall@1 0.878 -> 0.9268 at top_k=1 (nDCG@1 0.9024 -> 0.9512)
   score_gate: 0.42                          # outside <= 0.384, answerable >= 0.444 on version 1; traps 0.56..0.66 are NOT refused
-  faithfulness_min: 0.90                    # needs a real judge model; null on the simulated stack
-  abstention_policy_compliance: 1.0         # needs a real model to decide; the gate covers 5 of the 7 abstain questions
+  faithfulness_min: 0.90                    # needs a real judge model; null on the simulated stack. Real provider: calibration faithfulness 0.96-0.99, CitationFaithfulness 0.979 on the 48-question evaluation
+  abstention_policy_compliance: 1.0         # needs a real model to decide; the gate covers 5 of the 7 abstain questions. Real provider (one run): 7/7 abstain incl. both traps, 2/2 clarify, 39/39 answer
 monitoring:
   traces:
     - kb_build_run

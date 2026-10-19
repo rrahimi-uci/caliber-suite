@@ -73,10 +73,15 @@ four Aria scenarios are designed to live **entirely inside** the real registry.
   only manual work; you do not create each artifact through its own route. The
   `assets/` specs in each scenario are the values you enter in those forms (or
   POST as `inputs`).
-- ⚠️ **No LLM planner is wired.** The `Planner` Protocol slot exists; the default
-  is the heuristic planner. Phrasing must contain the literal domain words below
-  (the heuristic planner also recognises "test set" for `eval_dataset.create`, but
-  not "faithfulness scoring" for a judge or "human grading" for a review queue).
+- ⚠️ **No LLM planner is wired, with a real provider too.** The `Planner` Protocol slot exists; the
+  default is the heuristic planner, and `POST /aria/plans` uses it **whatever
+  `CALIBER_ASSISTANT_ENGINE` is**. Run live on a `--real-llm` stack (engine `openai`): the 26 to 28 goals of
+  each lab's dataset draw the same plans as on the simulated stack, and `"Set up faithfulness scoring for our support
+  answers, with a test set to run it on."` still draws only the test set step. Phrasing must contain
+  the literal domain words below (the heuristic planner also recognises "test set" for
+  `eval_dataset.create`, but not "faithfulness scoring" for a judge or "human grading" for a review
+  queue). The real engine acts only in the **Ask Aria** chat; see
+  [What a real provider changes](#what-a-real-provider-changes-verified-live).
 
 ## Capability registry (the only things Aria can do)
 
@@ -159,11 +164,22 @@ fails it with `<status>: <the job's error_message>`.
 
 **What the simulated default shows.** Aria passes only `workflow_id` and `agent_id`, so
 the calibration runs with the default objective (maximize quality; a candidate must beat
-the baseline by 0.02) and budget (20 test set cases). A fake executor gives a candidate
+the baseline by 0.02) and budget (20 test set cases, 3 candidates). A fake executor gives a candidate
 the same outputs as the baseline, so on the simulated provider the job always ends
-`rejected` (`quality delta +0.000 < epsilon 0.02`) and the plan `failed`. The completing
-path needs a real model and is covered by unit tests (`test_aria_async.py`), not
-demonstrated live (lab 15).
+`rejected` (`quality delta +0.000 < epsilon 0.02`) and the plan `failed`.
+
+**What a real provider shows (run live, lab 15).** The refinement worker replays 20 gate cases through
+the real model and the lab's two tools (about 2 to 3 minutes), generated one candidate (a duplicate
+grounding guardrail) and **rejected it, in both recorded runs, for the same reason**: quality scored
+0.000 for the baseline and the candidate because the gate rows' `expected` has no key the quality
+scorer reads (`output`, `final_output`, `answer`, `text`, `contains`, `exact`, `regex`,
+`json_subset`), and with the default objective a candidate that only moves completion, tool
+adherence or safety (by a row, in either direction, from run to run) cannot clear the gate. The plan
+parked, was resumed by the worker and ended `failed` with the job's reason. The completing path
+(`candidate_ready` -> plan `completed`) is covered by unit tests (`test_aria_async.py`) and was **not
+reached live**. A first real attempt exposed a product defect, fixed: on the default model a
+tool-using workflow agent could not run at all (chat completions refuse function tools with a
+reasoning effort), so every replay errored.
 
 UI: sidebar **Integrations › Plans** → `/aria/plans`
 (`AriaPlans.tsx`). Buttons: **Decompose goal**, **Approve plan**,
@@ -187,11 +203,31 @@ inputs (the judge/queue/dataset/enqueue/calibrate payloads).
 
 > The product's default evaluator and LLM are fake (`eval_provider` and
 > `llm_provider` default to `fake`). Creating the artifacts in these scenarios needs no
-> provider. Running a judge in **Evaluations** returns `400 evaluation requires a real
+> provider. On the simulated stack, running a judge in **Evaluations** returns `400 evaluation requires a real
 > LLM provider` until one is configured, and the calibration job that `workflow.calibrate`
-> enqueues is rejected on the simulated default (above). The assistant engine here is
-> `fake` too (a deterministic heuristic, `GET /assistant/config`); the Plans page does not
-> call it.
+> enqueues is rejected (above). The assistant engine is `fake` too (a deterministic heuristic,
+> `GET /assistant/config`); the Plans page does not call it on any stack.
+
+## What a real provider changes (verified live)
+
+Every lab has a "Run it with a real provider" section, a `--real-llm` stack
+(`scripts/cookbook-env.sh up labNNh --flags cookbooks,aria --real-llm`, your own `OPENAI_API_KEY`)
+and a script and Playwright spec that detect the mode with `GET /readiness`. What was run:
+
+| Where | What a real provider unlocks | Verified result (will vary) |
+| --- | --- | --- |
+| Plans (all labs) | **Nothing**: planning, forms, approvals, gating and the executor do not use a model | The planner's goals datasets draw identically (28/28, 26/26, 28/28, 28/28) |
+| Lab 12 | Evaluations run the created judge over the 30 rows; a grounded and a careless answerer prompt are told apart | 30/30 rows judged; grounded 0.97, careless 0.00 |
+| Lab 13 | A real judge is compared with the 12 human `safety` labels | agreement 0.92, kappa 0.82, 4 of 4 unsafe replies caught |
+| Lab 14 | Evaluations run the judge over the 30 policy cases, sliced by tag | 30/30 rows judged, 0.97 faithful, the 5 `high-risk` rows sliced apart |
+| Lab 15 | The calibration job runs for real (2 to 3 minutes) | `rejected`, plan `failed`: quality 0.000 for baseline and candidate (see above) |
+| Ask Aria (all labs) | The chat answers and **acts**: its tools are the capability registry, and a mutating capability (`judge_create`, `review_queue_create`, ...) is offered only in a `build` session whose approval mode is `auto_all` (UI label **Legacy auto**) or `full_autonomy`; read tools in every session; gated tools never | `judge_create` / `review_queue_create` ran and made the artifact in `auto_all`; in a default session (**Ask first**) the model was offered read tools only and nothing was created |
+
+Two things the real engine does **not** change: plan creation (the heuristic planner, always) and the
+gates (a plan still pauses on `gated` steps and, under **Stop before each change**, on each change; the
+chat has no approve or publish tool). What a model *does* decide in the chat is whatever the message
+leaves open: asked to create a judge, it chose `model: openai:/gpt-4o-mini` itself, which the Plans form
+path never does.
 
 ## What the planner gets wrong (documented, not fixed)
 

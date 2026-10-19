@@ -130,9 +130,9 @@
     },
     {
       "where": "Skills › support-tone-and-citation › Runs",
-      "do": "Queue a calibration. It runs in the background and ends at a candidate you review.",
+      "do": "Queue a calibration. It runs in the background and ends at a candidate you review. On the default simulated stack it needs nothing else; on a real-provider stack (<code>--real-llm</code>) first create the skill's <strong>test set</strong> (Test Sets, then <code>assets/dataset/skill-eval-cases.jsonl</code>, eight rows) and pick it in the <strong>Test set</strong> box next to Calibrate, with a note on what should change.",
       "click": "Calibrate, then Review &amp; apply",
-      "see": "<code>Calibration queued — job RFN-…</code>; the run reaches <code>candidate_ready</code>. The review shows <strong>Simulated evaluation — not evidence</strong>, <code>0 evaluation examples</code>, gate passed, and a diff with <code>Refinement added by SkillMetaPrompt</code>.",
+      "see": "<code>Calibration queued — job RFN-…</code>; the run reaches <code>candidate_ready</code>. Simulated stack: the review shows <strong>Simulated evaluation — not evidence</strong>, <code>0 evaluation examples</code>, gate passed, and a diff with <code>Refinement added by SkillMetaPrompt</code>. Real provider: no simulated banner, <code>8 evaluation examples</code>, the test set id, <code>gate passed</code>, and a model-written diff (the gate can also reject a run: it then shows <code>rejected</code> with the reason, so calibrate again).",
       "asset": "calibration run: candidate_ready"
     },
     {

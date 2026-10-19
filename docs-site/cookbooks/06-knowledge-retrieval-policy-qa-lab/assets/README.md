@@ -24,7 +24,7 @@ One JSON object per line, `{"id", "tags", "input", "expected"}`: the shape both 
 ## What is verified where
 
 - [`caliber/tests/test_cookbook_06_knowledge_lab.py`](../../../../caliber/tests/test_cookbook_06_knowledge_lab.py): every `evidence` is a literal passage of its document, the row shape, the question mix (39 answer, 2 clarify, 7 abstain), the calibration set is the answerable part of the QA set, and the installed template's confidence node reads a real query result.
-- The script and the spec, against a live stack: everything else. See the README for what is simulated.
+- The script and the spec, against a live stack: everything else. See the README for what is simulated and for the real-provider tier (`--real-llm`), where the same script derives `policy-qa-grounded-<suffix>` (these 48 questions plus the chunks retrieval returned) and scores the `kb-answer` prompt and the `CitationFaithfulness` judge on it.
 
 ## Skills
 

@@ -15,11 +15,15 @@ from cookbook_06_fake_server import FakeKnowledgeServer
 
 from caliber_sdk import CaliberClient
 from examples.cookbooks.cookbook_06_grounded_knowledge_assistant import (
+    DECISIONS,
+    ask,
     assets_dir,
     cleanup,
+    format_chunks,
     load_corpus,
     load_jsonl,
     norm,
+    parse_decision,
     run,
     split_frontmatter,
 )
@@ -146,3 +150,125 @@ def test_cleanup_removes_only_what_the_suffix_created(capsys) -> None:  # type: 
     assert any(c.startswith("update queue Q-1") for c in calls)
     assert any(c.startswith("update set ED-1") for c in calls)  # matches the eval name, and the
     assert "removed: knowledge base policy-qa-kb-s1" in capsys.readouterr().out
+
+
+# --------------------------------------------------------------------------------------------
+# The real-provider tier ("Run it with a real provider")
+# --------------------------------------------------------------------------------------------
+def _real_server(
+    server_cls: type = FakeKnowledgeServer,
+) -> tuple[FakeKnowledgeServer, CaliberClient]:
+    assets = assets_dir()
+    server = server_cls(
+        load_corpus(assets), load_jsonl(assets / "dataset/qa-eval.jsonl"), real=True
+    )
+    return server, server.client(CaliberClient)
+
+
+def test_cookbook_06_on_a_real_provider_verifies_generated_answers_and_judged_scores() -> None:
+    server, caliber = _real_server()
+    with caliber:
+        report = run(caliber, suffix="r1", poll=0)
+
+    assert report["verified"] is True and report["mode"] == "real provider"
+    assert report["simulated"] == []
+    # answers were generated for all 48 questions and state the expected fact
+    assert report["real_answers"]["answered"] == 48
+    assert report["real_answers"]["answerable_stating_the_expected_fact"] == "41/41"
+    # calibration compares dense with hybrid on version 1 only, with real judged scores
+    assert [(r["version"], r["mode"], r["top_k"]) for r in report["calibration"]] == [
+        ("v1", "dense", 1),
+        ("v1", "dense", 3),
+        ("v1", "hybrid", 1),
+        ("v1", "hybrid", 3),
+    ]
+    assert set(report["answer_quality"]) == {"dense@1", "dense@3", "hybrid@1", "hybrid@3"}
+    assert report["answer_quality"]["hybrid@3"]["answer_correctness"] == 0.88
+    # the grounded evaluation: the prompt's decision against the label, for all 48 questions
+    decisions = report["evaluation"]["decisions"]
+    assert decisions["answer"]["answer"] == 39 and decisions["abstain"]["abstain"] == 7
+    assert decisions["clarify"]["clarify"] == 2
+    assert set(report["evaluation"]["trap_decisions"].values()) == {"abstain"}
+    assert report["evaluation"]["judge_pass_rate_by_label"] == {
+        "answer": 1.0,
+        "abstain": 1.0,
+        "clarify": 1.0,
+    }
+    # the scored test set carries what retrieval returned, as the prompt's variable
+    grounded = next(
+        rows for rows in server.datasets.values() if rows and "retrieved_chunks" in rows[0]["input"]
+    )
+    assert len(grounded) == 48
+    assert "source_id=" in grounded[0]["input"]["retrieved_chunks"]
+    # the digest check is for the simulated tier only
+    assert "refused" not in str(report["evaluation"])
+
+
+def test_cookbook_06_real_tier_fails_when_the_model_never_abstains() -> None:
+    class NeverAbstains(FakeKnowledgeServer):
+        def decision(self, label: str, row: dict) -> str:  # type: ignore[type-arg]
+            return "answer"
+
+    _server, caliber = _real_server(NeverAbstains)
+    with caliber, pytest.raises(AssertionError, match="abstains on questions the corpus"):
+        run(caliber, suffix="r2", poll=0)
+
+
+def test_cookbook_06_real_tier_fails_when_the_replies_break_the_json_contract() -> None:
+    class Chatty(FakeKnowledgeServer):
+        def decision(self, label: str, row: dict) -> str:  # type: ignore[type-arg]
+            return "maybe"  # not one of answer / abstain / clarify
+
+    _server, caliber = _real_server(Chatty)
+    with caliber, pytest.raises(AssertionError, match="follow the JSON contract"):
+        run(caliber, suffix="r3", poll=0)
+
+
+def test_cookbook_06_real_tier_retries_a_provider_hiccup_and_then_succeeds(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A rate limit does not fail a query: the answer silently becomes the digest and
+    ``answer_error`` says why. On a real stack the script retries before judging the answer."""
+    monkeypatch.setattr("time.sleep", lambda _s: None)
+    server, caliber = _real_server()
+    question = "How long are security audit logs retained?"
+    with caliber:
+        kb = caliber.knowledge_bases
+        # build a version through the fake so a query can address it
+        created = kb.create(
+            "k",
+            source_bucket="b",
+            sources=[{"kind": "folder", "path": "policies/"}],
+            chunking_strategy="markdown",
+            chunking_config={},
+            embedding_model="m",
+        )
+        version_id = created.extra["version"]["knowledge_base_version_id"]
+        server.versions[version_id]["status"] = "completed"
+        server.query_failures[question] = 2
+        assert ask(caliber, version_id, question, retries=0)["answer_error"]
+        server.query_failures[question] = 2
+        retried = ask(caliber, version_id, question, retries=3)
+        assert retried["answer_error"] is None and "365" in retried["answer"]
+        server.query_failures[question] = 9  # a provider that keeps failing is reported, not hidden
+        assert ask(caliber, version_id, question, retries=2)["answer_error"]
+
+
+def test_parse_decision_reads_the_kb_answer_contract() -> None:
+    assert parse_decision('{"decision": "abstain", "answer": "x"}') == "abstain"
+    assert parse_decision('```json\n{"decision": "clarify"}\n```') == "clarify"
+    for broken in ("", None, "not json", '{"decision": "maybe"}', "[]", '"answer"'):
+        assert parse_decision(broken) is None
+    assert DECISIONS == ("answer", "abstain", "clarify")
+
+
+def test_format_chunks_gives_the_prompt_ids_sources_and_text() -> None:
+    text = format_chunks(
+        {
+            "retrieved_chunks": [
+                {"chunk_id": "KBC-1", "source_name": "a.md", "content": "alpha"},
+                {"chunk_id": "KBC-2", "source_name": "b.md", "content": "beta"},
+            ]
+        }
+    )
+    assert text == "[KBC-1] source_id=a.md\nalpha\n\n[KBC-2] source_id=b.md\nbeta"

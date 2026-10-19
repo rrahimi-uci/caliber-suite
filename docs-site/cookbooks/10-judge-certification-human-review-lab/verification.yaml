@@ -2,7 +2,7 @@
 feasibility:
   - FaithfulnessJudge is a real LLM judge (instructions may reference only {{ inputs }}, {{ outputs }}, {{ expectations }}, {{ conversation }}, {{ trace }}; anything else is refused on save). review_items_link_to_trace is real (answers write back to the trace).
   - automated_human_alignment / disagreement_rate ARE computed in-product (Judges -> Try it -> Human alignment: Import labels, then Check alignment) from the judge's verdict on each output versus the imported reviewer pass/fail label, with agreement rate, Cohen's kappa and FP/FN.
-  - The judge and Evaluations need a model. On the simulated default the product refuses (Evaluations 400; alignment scored 0 of n); the numbers below are from a stack with a model behind it (a real provider, or the lab's scripted stand-in model, which proves wiring and arithmetic, not judge quality).
+  - The judge and Evaluations need a model. On the simulated default the product refuses (Evaluations 400; alignment scored 0 of n); the numbers below are from a stack with a model behind it: the lab's scripted stand-in model (proves wiring and arithmetic, not judge quality) and a real provider (the verified tier; see README, Run it with a real provider).
   - monitoring.traces below are evidence labels, not literal span names.
 evaluation:
   judges:
@@ -26,6 +26,20 @@ quality_gates:
   # Reference values with the lab's stand-in model on the shipped 50 rows:
   reference_stand_in:
     FaithfulnessJudge: {agreement: 0.82, cohen_kappa: 0.6365, decision: CERTIFIED}
+    LenientJudge: {agreement: 0.58, cohen_kappa: 0.0933, decision: REJECTED}
+  # A real provider (gpt-5.6-luna), three runs: nothing is pinned, only these invariants are asserted
+  # (cookbook_10_trustworthy_evaluation.py without --expect-stand-in).
+  real_provider_invariants:
+    - scored_equals_n_for_both_judges
+    - server_metrics_equal_independent_recomputation
+    - strict_judge_agreement_above_lenient_judge_agreement
+    - lenient_judge_never_certified
+    - candidate_contains_expected_at_least_0.10_above_baseline   # the candidate is given the evidence
+  reference_real_provider:   # will vary; the strict judge sits on the thresholds
+    FaithfulnessJudge:
+      - {agreement: 0.80, cohen_kappa: 0.61, decision: CERTIFIED}
+      - {agreement: 0.84, cohen_kappa: 0.686, decision: CERTIFIED}
+      - {agreement: 0.76, cohen_kappa: 0.532, decision: REJECTED}
     LenientJudge: {agreement: 0.58, cohen_kappa: 0.0933, decision: REJECTED}
 monitoring:
   traces:

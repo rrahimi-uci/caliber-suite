@@ -16,6 +16,15 @@ Files for [the lab](../README.md). The first group is what the lab runs and veri
 
 Dataset conventions: `input` is what the run receives (JSON text) and is a single key `incident` holding an object, so a deploy-gate replay (which sends the first string field of `input`, else the whole `input` as JSON) sends the whole record. `expected.answer` is `"<severity> <action>"`: the gate's `contains_expected` scorer looks for it in the output (the `summarize` node writes `"verdict": "sev1 rollback"`).
 
+## Used and verified on a real provider only
+
+Run by the script and the spec only when `GET /readiness` says the stack has real providers (`--real-llm`); see "Run it with a real provider" in the README.
+
+| File | What it is | How it is used |
+| --- | --- | --- |
+| [`workflows/incident-commander-model.workflow.json`](workflows/incident-commander-model.workflow.json) | The optional **model-based variant**: the lab workflow plus an agent (`propose_triage`) that proposes a severity and action from the evidence (the incident-commander prompt, the severity matrix and the rollback checklist, condensed into its instructions). The decision tables still decide; the proposal is advisory and printed in the verdict as `model_proposal`. No deploy gate. | `Workflows > Import`, or `POST /workflows/import`; script flag `--model-variant` |
+| [`judges/stakeholder-update-honesty.judge.json`](judges/stakeholder-update-honesty.judge.json) | A boolean judge for the `draft_update` text: supported by the evidence, no claim of resolution, no promised time, no blame, consistent with the verdict | `POST /judges`, then `Judge.<id>` as a scorer of an Evaluations run (`predict_target: workflow`) |
+
 ## Reference only, not run by the lab
 
-`prompts/incident-commander.md`, `skills/*.md`, `judges/incident-action-correctness.judge.json`: the model-based layer of the original recipe (fact and hypothesis separation, rollback checklist, an action-correctness judge). They need a real model to mean anything and have not been run.
+`prompts/incident-commander.md`, `skills/*.md`, `judges/incident-action-correctness.judge.json`: the original recipe's model-based layer (fact and hypothesis separation, rollback checklist, an action-correctness judge for a model that returns the seven-key JSON of the prompt). Their substance went into the variant above (its agent returns the lab's own vocabulary, `sev1` to `sev4` and the six actions, so it can be compared with the tables); the files themselves have not been run, and the judge here expects that seven-key output, which no workflow in this lab produces.

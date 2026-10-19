@@ -24,7 +24,8 @@ prerequisites:
 time_to_first_value: 120-180 minutes
 success_criteria:
   - The answer cites the chunk that holds the clause (41/41 answerable questions have it in the hybrid top 3).
-  - Calibration raises Recall@1 (0.878 to 0.9268) and nDCG@1 (0.9024 to 0.9512); the model-judged metrics need a real provider.
+  - Calibration raises Recall@1 (0.878 to 0.9268) and nDCG@1 (0.9024 to 0.9512); the model-judged metrics need a real provider (verified on one: faithfulness 0.96-0.99, answer correctness 0.71-0.98; hybrid 0.89 against dense 0.71 at top_k 1).
+  - With a real provider the kb-answer prompt abstains on the questions the corpus does not cover, including the two traps the score gate cannot refuse, and asks to clarify on the conflicting-refund questions (48 of 48 decisions as labelled in the verified run).
   - A score gate refuses the questions outside the corpus; the trap questions need a model and a review queue.
 demo_profile:
   recommended_sequence_index: 6

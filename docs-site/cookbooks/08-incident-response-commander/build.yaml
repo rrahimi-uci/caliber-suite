@@ -4,7 +4,8 @@ workflow_goal: Turn an incident record into a severity and the lowest-risk actio
 feasibility:
   - The decision is two Data Transform decision tables run in parallel, joined, summarized by a Template and routed by a Router. No model and no Python Code node, so Preview runs it and the deploy gate can replay it.
   - Evidence arrives inside the incident record. Live deployment or health lookups (API Request, MCP) are not in the verified path: no egress and no MCP server on the lab machine.
-  - The draft_update agent is simulated under the fake provider.
+  - The draft_update agent is simulated under the fake provider; on a real-provider stack it writes a real stakeholder update (not asserted, but judged by assets/judges/stakeholder-update-honesty.judge.json in the real-provider Evaluations run).
+  - Optional real-provider variant: assets/workflows/incident-commander-model.workflow.json adds an agent (propose_triage) that proposes a severity and action; the decision tables still decide and the proposal is printed beside the verdict as model_proposal.
 manual_flow:
   - step: import_test_set
     action: create the test set incident-cases from assets/dataset/incident-cases.jsonl (the workflow import is refused until it exists)
@@ -42,6 +43,10 @@ components:
     scorers: [contains_expected]
     pass_threshold: 1.0
     thresholds: {min_pass_rate: 1.0, min_contains_expected: 1.0, max_error_rate: 0.0}
+  model_variant:                       # real provider only; optional (--model-variant)
+    file: assets/workflows/incident-commander-model.workflow.json
+    adds: propose_triage               # agent: proposes {severity, action, reason}; advisory, printed as model_proposal in the verdict
+    judge: assets/judges/stakeholder-update-honesty.judge.json
   drills:
     - assets/workflows/evidence-lookup-drill.workflow.json
     - assets/workflows/missing-tool-drill.workflow.json

@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import json
 import re
+from pathlib import Path
 from typing import Any
 
 import httpx
@@ -23,6 +24,10 @@ _namespace = server_module("caliber.tool_sandbox._runner")._namespace
 apply_data_transform = server_module("caliber.workflows.data_transform").apply_data_transform
 
 PREFIX = "/ajax-api/2.0/mlflow/caliber"
+CLASSIFY_CODE = (
+    Path(__file__).resolve().parents[3]
+    / "docs-site/cookbooks/07-support-triage-resolution-loop/assets/workflows/classify-ticket.py"
+)
 TOKENS = {
     "tok-admin": ("admin", ["caliber.admin", "caliber.approver", "caliber.operator"], True),
     "tok-lena": ("lena", ["caliber.approver", "caliber.operator"], False),
@@ -41,8 +46,29 @@ def error(status: int, detail: str, **extra: Any) -> httpx.Response:
 class FakeCaliber:
     """One fake server. ``approval_class`` is the environment class whose promotions wait."""
 
-    def __init__(self, *, approval_class: str = "staging") -> None:
+    def __init__(
+        self,
+        *,
+        approval_class: str = "staging",
+        real: bool = False,
+        model_overrides: dict[str, str] | None = None,
+        proposal_overrides: dict[str, dict[str, str]] | None = None,
+        flaky: tuple[str, ...] = (),
+        flaky_error: str = "APIConnectionError: Connection error.",
+    ) -> None:
         self.approval_class = approval_class
+        #: ``real`` imitates a stack with real providers: ``/readiness`` lists nothing as simulated,
+        #: the gate names a real executor, and Evaluations scores workflows instead of refusing.
+        self.real = real
+        #: Ticket-text substring -> the decision the stand-in model gives instead of the rules' own.
+        self.model_overrides = dict(model_overrides or {})
+        #: Incident id -> the severity/action the stand-in model proposes instead of the tables'.
+        self.proposal_overrides = dict(proposal_overrides or {})
+        self.judges: dict[str, dict[str, Any]] = {}
+        #: Input substrings whose first queued run fails with ``flaky_error`` (a resubmission, whose
+        #: idempotency key says ``retry``, succeeds): a provider that dropped a connection.
+        self.flaky = flaky
+        self.flaky_error = flaky_error
         self.counter = 0
         self.workflows: dict[str, dict[str, Any]] = {}
         self.versions: dict[str, dict[str, Any]] = {}
@@ -89,6 +115,12 @@ class FakeCaliber:
     def routes(self) -> list[tuple[str, str, Any]]:
         return [
             ("GET", r"/me", self.me),
+            (
+                "GET",
+                r"/readiness",
+                lambda r, b: envelope({"simulated": [] if self.real else ["llm", "eval"]}),
+            ),
+            ("POST", r"/judges", self.create_judge),
             ("GET", r"/cookbooks", self.cookbooks),
             ("POST", r"/projects", self.create_project),
             (
@@ -147,14 +179,7 @@ class FakeCaliber:
             ("POST", r"/agents", lambda r, b: envelope({"agent_id": b["agent_id"]})),
             ("POST", r"/workflows/([^/]+)/calibration/runs", self.calibrate),
             ("GET", r"/jobs/([^/]+)", self.job),
-            (
-                "POST",
-                r"/evaluations",
-                lambda r, b: error(
-                    400,
-                    "evaluation requires a real LLM provider; set CALIBER_LLM_PROVIDER (openai/anthropic) and the matching API key, then retry.",  # noqa: E501
-                ),
-            ),
+            ("POST", r"/evaluations", self.evaluate),
         ]
 
     # -- identity, projects, cookbooks --------------------------------------------------------
@@ -332,12 +357,21 @@ class FakeCaliber:
             return {
                 "has_gate": True,
                 "passed": rate >= gate["thresholds"]["min_pass_rate"],
-                "executor": {
-                    "provider": "fake",
-                    "executor": "FakeWorkflowExecutor",
-                    "model": None,
-                    "deterministic": True,
-                },
+                "executor": (
+                    {
+                        "provider": "openai",
+                        "executor": "OpenAIAgentsExecutor",
+                        "model": "gpt-test",
+                        "deterministic": False,
+                    }
+                    if self.real
+                    else {
+                        "provider": "fake",
+                        "executor": "FakeWorkflowExecutor",
+                        "model": None,
+                        "deterministic": True,
+                    }
+                ),
                 "runs": [
                     {
                         "name": "verdict-matches-dataset",
@@ -428,6 +462,8 @@ class FakeCaliber:
     # -- running ----------------------------------------------------------------------------------
     def execute(self, manifest: dict[str, Any], text: str, mode: str) -> dict[str, Any]:
         nodes = manifest["nodes"]
+        if "classify_model" in nodes:
+            return self.execute_model_triage(nodes, text, mode)
         if "classify" in nodes:
             return self.execute_triage(nodes, text)
         if "severity_table" in nodes:
@@ -480,6 +516,52 @@ class FakeCaliber:
             "steps": steps,
         }
 
+    def execute_model_triage(self, nodes: dict[str, Any], text: str, mode: str) -> dict[str, Any]:
+        """The 07 variant: the stand-in model answers like the rules unless told otherwise, and the
+        manifest's own guard (a decision table) decides what is acted on."""
+        ticket = json.loads(text)
+        _, rules = _namespace(CLASSIFY_CODE.read_text(), "run_python_node")
+        answered = rules(input=text)["result"]["decision"]
+        for needle, forced in self.model_overrides.items():
+            if needle in str(ticket.get("ticket_text", "")):
+                answered = forced
+        reply = json.dumps({"decision": answered, "confidence": 0.9, "reason": "stand-in model"})
+        guarded = apply_data_transform(
+            "decision_table", json.loads(reply), nodes["guard"]["config"]
+        )["result"]["decision"]
+        steps = [{"node_id": "guard", "output_by_port": {"result": {"decision": guarded}}}]
+        head = ["start", "fan_out", "classify_model", "guard", "join", "triage_router"]
+        if guarded in {"escalate_bug", "escalate_support"}:
+            kind = guarded.removeprefix("escalate_")
+            gate = f"review_{kind}"
+            if mode == "queue":
+                return {
+                    "status": "waiting_approval",
+                    "path": [*head, gate],
+                    "output": "",
+                    "steps": steps,
+                }
+            return {
+                "status": "completed",
+                "path": [*head, gate, f"release_{kind}", "final"],
+                "output": f"{guarded.upper()}. A human approved this; released.\nTicket: {text}",
+                "steps": steps,
+            }
+        branch, label = (
+            ("draft_reply", "REPLY. A stand-in reply.")
+            if guarded == "reply"
+            else (
+                "clarify_question",
+                f"CLARIFY. Thanks for contacting support.\nTicket: {text}",
+            )
+        )
+        return {
+            "status": "completed",
+            "path": [*head, branch, "final"],
+            "output": label,
+            "steps": steps,
+        }
+
     def execute_incident(self, nodes: dict[str, Any], text: str, mode: str) -> dict[str, Any]:
         value = json.loads(text)
         severity = apply_data_transform("decision_table", value, nodes["severity_table"]["config"])[
@@ -489,6 +571,13 @@ class FakeCaliber:
             "result"
         ]["decision"]
         verdict = {"verdict": f"{severity} {action}", "severity": severity, "action": action}
+        if "propose_triage" in nodes:
+            # The advisory model node: by default it proposes what the tables decide.
+            case_id = f"IN{int(value['incident']['incident_id'][-4:]) - 1000:02d}"
+            proposal = self.proposal_overrides.get(
+                case_id, {"severity": severity, "action": action}
+            )
+            verdict["model_proposal"] = json.dumps({**proposal, "reason": "stand-in"})
         steps = [{"node_id": "summarize", "output_by_port": {"result": verdict}}]
         if action == "rollback" and mode in {"preview", "gate"}:
             # Preview and the gate replay run through the approval node as if approved.
@@ -539,6 +628,16 @@ class FakeCaliber:
             version_id = body["workflow_version_id"]
         version = self.versions[version_id]
         outcome = self.execute(version["manifest"], body.get("input", ""), "queue")
+        if "retry" not in str(body.get("idempotency_key")) and any(
+            needle in body.get("input", "") for needle in self.flaky
+        ):
+            outcome = {
+                "status": "failed",
+                "path": ["start"],
+                "output": "",
+                "steps": [],
+                "error": self.flaky_error,
+            }
         run_id = self.next_id("WR")
         run = {
             "workflow_run_id": run_id,
@@ -588,12 +687,14 @@ class FakeCaliber:
     def resume(self, request: httpx.Request, body: dict[str, Any], run_id: str) -> httpx.Response:
         user, _ = self.who(request)
         run = self.runs[run_id]
+        path = run["summary"]["node_path"]
         released = (
             "ROLLBACK_APPROVED"
-            if "triage_router" in run["summary"]["node_path"]
-            and "summarize" in str(run["summary"]["steps"])
+            if "triage_router" in path and "summarize" in str(run["summary"]["steps"])
             else "APPROVED_ACTION"
         )
+        if path and path[-1] in {"review_bug", "review_support"}:
+            released = path[-1].replace("review_", "ESCALATE_").upper()
         run.update(status="completed")
         run["summary"] = {
             "node_path": ["review", "action_request"],
@@ -626,9 +727,88 @@ class FakeCaliber:
             "example_id": self.next_id("EX"),
             "input": body["input"],
             "expected": body["expected"],
+            "tags": body.get("tags", []),
         }
         self.datasets[dataset_id]["examples"].append(row)
         return envelope(row)
+
+    def create_judge(self, request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        judge_id = self.next_id("JG")
+        self.judges[judge_id] = {"judge_id": judge_id, "name": body["name"], **body}
+        return envelope(self.judges[judge_id])
+
+    def evaluate(self, request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
+        """Evaluations: refused without a real model; with one, the workflow runs in Preview."""
+        if not self.real:
+            return error(
+                400,
+                "evaluation requires a real LLM provider; set CALIBER_LLM_PROVIDER (openai/anthropic) and the matching API key, then retry.",  # noqa: E501
+            )
+        examples = self.datasets[body["dataset_id"]]["examples"]
+        manifest = self.versions[body["subject_ref"]]["manifest"]
+        rows = examples[: body.get("max_examples") or 50]
+        blocked = self.blocked_types(manifest)
+        results: list[dict[str, Any]] = []
+        for row in rows:
+            if blocked:
+                results.append(
+                    {
+                        **row,
+                        "prediction": "",
+                        "scores": {},
+                        "passed": False,
+                        "error": "preview blocked before execution because ordinary Preview cannot isolate these capability nodes: "  # noqa: E501
+                        + ", ".join(blocked),
+                    }
+                )
+                continue
+            out = self.execute(manifest, json.dumps(row["input"]), "preview")["output"]
+            scores = {
+                name: (
+                    float(row["expected"]["answer"].lower() in out.lower())
+                    if name == "contains_expected"
+                    else 1.0
+                )
+                for name in body["scorers"]
+            }
+            results.append(
+                {
+                    **row,
+                    "prediction": out,
+                    "scores": scores,
+                    "passed": sum(scores.values()) / len(scores) >= 0.5,
+                    "error": None,
+                }
+            )
+        complete = [r for r in results if not r["error"]]
+        aggregate = {
+            name: sum(r["scores"][name] for r in complete) / len(complete)
+            for name in body["scorers"]
+            if complete
+        }
+        return envelope(
+            {
+                "run_id": self.next_id("EVR"),
+                "status": "completed",
+                "model": "gpt-test",
+                "predict_target": body["predict_target"],
+                "subject_ref": body["subject_ref"],
+                "n_examples": len(results),
+                "passed_count": sum(1 for r in results if r["passed"]),
+                "failed_count": sum(1 for r in results if not r["passed"]),
+                "pass_rate": sum(1 for r in results if r["passed"]) / len(results),
+                "aggregate": aggregate,
+                "evidence": {
+                    "sampling": {
+                        "available_examples": len(examples),
+                        "evaluated_examples": len(results),
+                        "truncated": len(results) < len(examples),
+                    }
+                },
+                "results": results,
+            },
+            201,
+        )
 
     def audit_log(self, request: httpx.Request, body: dict[str, Any]) -> httpx.Response:
         params = request.url.params
@@ -656,6 +836,9 @@ class FakeCaliber:
                     "n_examples": 20,
                     "baseline": {"overall": 0.95},
                     "gate": {"passed": False, "reasons": ["no candidate met calibration gates"]},
+                    "provider": "openai" if self.real else "fake",
+                    "simulated": not self.real,
+                    "scorer": "structural",
                 },
             }
         )

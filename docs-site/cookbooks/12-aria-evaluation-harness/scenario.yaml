@@ -18,7 +18,7 @@ caliber_surfaces:
 prerequisites:
   - CALIBER_FEATURE_ARIA=true (Aria and its Plans page are a preview area, off by default). CALIBER_FEATURE_COOKBOOKS=true only for the gallery card.
   - Two extra accounts for the refusals: olga (an operator who does not own the plan) and vera (not an operator). The script creates them; the server must list olga in CALIBER_OPERATOR_USERS and not vera.
-  - No model is needed to create the artifacts; a real model provider is needed only to run the judge in Evaluations (refused on the simulated default).
+  - No model is needed to create the artifacts; a real model provider is needed only to run the judge in Evaluations (refused on the simulated default) and for the Ask Aria chat. A real tier is verified: scripts/cookbook-env.sh up lab12h --flags cookbooks,aria --real-llm with your own OPENAI_API_KEY (README, Run it with a real provider).
 time_to_first_value: 15-30 minutes
 success_criteria:
   - From the intent alone, Aria drafts a plan containing judge.create then eval_dataset.create, and the planner draws the documented plan for all 28 goals in assets/dataset/goals.jsonl.

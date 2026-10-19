@@ -20,6 +20,19 @@ It drives a real CALIBER server and exits 0 only when every documented outcome w
    regression; then roll the alias back and see the dataset pass again;
 7. read the run-level audit trail for the approved run.
 
+Two modes, detected from ``GET /readiness`` (``simulated`` empty means a real provider):
+
+* Simulated stack (the default): the agent node answers with canned text, and the script asserts
+  routing and approvals only.
+* Real provider (``scripts/cookbook-env.sh up NAME --flags cookbooks --real-llm``): the same checks
+  hold (the router, gate and rules are deterministic), the reply agent writes real text, and
+  Evaluations is shown refusing the deterministic workflow row by row (Preview cannot run Python
+  code). ``--model-variant`` also imports the optional model-based variant
+  (``support-triage-model.workflow.json``): an agent classifies, a deterministic guard decides,
+  and it is evaluated (a deterministic scorer and a model-graded judge), run through the queue
+  and calibrated. How often the model agrees with the rules is reported, never asserted exactly;
+  what is asserted is that no escalation the model proposes is released without a person.
+
 Environment (see the lab README): ``CALIBER_BASE_URL`` (the server root, for example
 ``http://127.0.0.1:5001``, without the API path) and ``CALIBER_TOKEN`` (an ADMIN personal access
 token). The script creates two more accounts (``lena``, an approver, and ``sam``, an operator
@@ -65,8 +78,35 @@ TERMINAL_NODE = {
 }
 APPROVAL_NODE = "review"
 RELEASED_NODE = "action_request"
+#: The optional model-based variant (real provider only) and its judge.
+VARIANT_FILE = "workflows/support-triage-model.workflow.json"
+JUDGE_FILE = "judges/support-triage-routing-and-reply.judge.json"
+VARIANT_GATE_DATASET_REF = "ticket-eval"
+#: Twelve tickets, three per decision, scored by Evaluations and replayed through the variant. They
+#: include the hard negative (TK07), a prompt injection (TK16), PII, a duplicate and a cosmetic
+#: bug, where a model is most likely to disagree with the rules.
+EVAL_TICKETS = (
+    "TK01",
+    "TK07",
+    "TK26",
+    "TK10",
+    "TK16",
+    "TK44",
+    "TK18",
+    "TK20",
+    "TK40",
+    "TK29",
+    "TK33",
+    "TK37",
+)
+#: Node ids that release an action after an approval, in the variant.
+VARIANT_RELEASE_NODES = ("release_bug", "release_support")
 #: The regression the dataset must catch: a "tidy-up" that stops flagging production impact.
 BAD_RULE = ("urgent_markers = has([", "urgent_markers = False and has([")
+
+#: Seconds a single request may take. A real provider answers a gate replay or an evaluation inside
+#: one request, which takes minutes (the SDK default is 30 s).
+REQUEST_TIMEOUT = 900.0
 
 Report = Callable[[str], None]
 
@@ -102,6 +142,10 @@ def load_cases(path: Path) -> list[dict[str, Any]]:
         if not {"id", "input", "expected"} <= set(row):
             raise LabVerificationError(f"{path.name}: row {row.get('id')} lacks id/input/expected")
     return rows
+
+
+def load_json(path: Path) -> dict[str, Any]:
+    return dict(json.loads(path.read_text(encoding="utf-8")))
 
 
 def load_manifest(assets: Path) -> dict[str, Any]:
@@ -179,24 +223,98 @@ def wait_settled(caliber: CaliberClient, run_id: str, *, timeout: float = 240.0)
     )
 
 
+#: A run that ends ``failed`` with one of these is the provider's (a dropped connection, a rate
+#: limit), not the workflow's: it is resubmitted, a bounded number of times.
+TRANSIENT_RUN_ERRORS = (
+    "connection error",
+    "429",
+    "rate limit",
+    "timed out",
+    "timeout",
+    "overloaded",
+    "temporarily",
+)
+RUN_RETRIES = 2
+
+
+def failure_of(run: Any) -> str:
+    return str((run.extra or {}).get("error_summary") or run.error or "")
+
+
+def resubmit_transient(
+    caliber: CaliberClient,
+    runs: dict[str, Any],
+    inputs: dict[str, str],
+    *,
+    workflow_id: str,
+    alias: str,
+    key: str,
+    retried: list[str] | None = None,
+) -> dict[str, Any]:
+    """Resubmit the runs that failed for a transient provider reason, up to ``RUN_RETRIES`` times.
+
+    Only a failure whose own error says the connection dropped or the provider pushed back is
+    retried; a run that failed for any other reason keeps failing, so a real defect still shows.
+    ``inputs`` maps each case id to the run input text.
+    """
+    for attempt in range(1, RUN_RETRIES + 1):
+        transient = [
+            case_id
+            for case_id, run in runs.items()
+            if run.status == "failed"
+            and any(marker in failure_of(run).lower() for marker in TRANSIENT_RUN_ERRORS)
+        ]
+        if not transient:
+            break
+        queued = {
+            case_id: caliber.workflows.runs.submit(
+                workflow_id=workflow_id,
+                alias=alias,
+                input=inputs[case_id],
+                idempotency_key=f"{key}-retry{attempt}-{case_id}",
+            )
+            for case_id in transient
+        }
+        for case_id, run in queued.items():
+            runs[case_id] = wait_settled(caliber, run.workflow_run_id)
+        if retried is not None:
+            retried.extend(transient)
+    return runs
+
+
 def submit_cases(
-    caliber: CaliberClient, cases: list[dict[str, Any]], *, workflow_id: str, alias: str, key: str
+    caliber: CaliberClient,
+    cases: list[dict[str, Any]],
+    *,
+    workflow_id: str,
+    alias: str,
+    key: str,
+    retried: list[str] | None = None,
 ) -> dict[str, Any]:
     """Queue every case against the alias (asynchronously), then wait for all of them."""
+    inputs = {case["id"]: json.dumps(case["input"]) for case in cases}
     queued = {
         case["id"]: caliber.workflows.runs.submit(
             workflow_id=workflow_id,
             alias=alias,
-            input=json.dumps(case["input"]),
+            input=inputs[case["id"]],
             idempotency_key=f"{key}-{case['id']}",
         )
         for case in cases
     }
-    return {case_id: wait_settled(caliber, run.workflow_run_id) for case_id, run in queued.items()}
+    runs = {case_id: wait_settled(caliber, run.workflow_run_id) for case_id, run in queued.items()}
+    return resubmit_transient(
+        caliber, runs, inputs, workflow_id=workflow_id, alias=alias, key=key, retried=retried
+    )
 
 
 def grade(cases: list[dict[str, Any]], runs: dict[str, Any]) -> dict[str, list[str]]:
     return {case["id"]: found for case in cases if (found := problems_for(case, runs[case["id"]]))}
+
+
+def is_real_stack(caliber: CaliberClient) -> bool:
+    """True when the server runs real providers (``/readiness`` lists nothing as simulated)."""
+    return not (caliber.readiness() or {}).get("simulated")
 
 
 def refused(call: Callable[[], Any]) -> CaliberAPIError | None:
@@ -256,14 +374,18 @@ def run(
     assets: Path | None = None,
     report: Report = print,
     sleep: Callable[[float], None] = time.sleep,
+    model_variant: bool = False,
 ) -> dict[str, Any]:
     """Run the whole lab. ``project_client(user_id, project_id)`` returns that person's client,
-    bound to the project; ``caliber`` is the admin client (it creates the project)."""
+    bound to the project; ``caliber`` is the admin client (it creates the project).
+
+    ``model_variant`` adds the optional model-based variant at the end (real provider only)."""
     assets = assets or default_assets_dir()
     suffix = suffix or time.strftime("%Y%m%d-%H%M%S")
     cases = load_cases(assets / "dataset/ticket-cases.jsonl")
     manifest = load_manifest(assets)
     failures: list[str] = []
+    retried: list[str] = []
     result: dict[str, Any] = {"suffix": suffix}
 
     def check(label: str, ok: bool, detail: Any = "") -> None:
@@ -276,6 +398,10 @@ def run(
         raise SetupError("CALIBER_TOKEN must be an admin personal access token")
     if "07" not in {recipe.id for recipe in caliber.cookbooks.list()}:
         raise SetupError("Cookbooks are off: start the server with CALIBER_FEATURE_COOKBOOKS=true")
+    real = is_real_stack(caliber)
+    result["mode"] = "real" if real else "simulated"
+    if model_variant and not real:
+        raise SetupError("--model-variant needs a real provider (start with --real-llm)")
 
     # -- 0. The project and the three people ------------------------------------------------
     project = caliber.projects.create(
@@ -420,7 +546,9 @@ def run(
     served = cases
 
     started = time.monotonic()
-    runs = submit_cases(admin, served, workflow_id=workflow_id, alias="staging", key=f"{suffix}-v1")
+    runs = submit_cases(
+        admin, served, workflow_id=workflow_id, alias="staging", key=f"{suffix}-v1", retried=retried
+    )
     mismatches = grade(served, runs)
     seconds = round(time.monotonic() - started, 1)
     check(
@@ -442,6 +570,20 @@ def run(
         == sorted(case["id"] for case in cases if case["expected"]["requires_approval"]),
         f"{len(waiting)} paused",
     )
+
+    if real:
+        replies = {
+            case["id"]: run_output(runs[case["id"]])
+            for case in cases
+            if case["expected"]["decision"] == "reply"
+        }
+        check(
+            "the reply agent wrote real text, not the simulated echo",
+            all(
+                text.strip() and not text.startswith("[support-reply]") for text in replies.values()
+            ),
+            f"{len(replies)} replies",
+        )
 
     # -- 5. Answer the gate on live runs ----------------------------------------------------
     approve_id = next(
@@ -494,7 +636,12 @@ def run(
     check("staging now serves version 2 (the bad one)", staging_version() == v2.version_id)
     bug_cases = [case for case in cases if case["expected"]["decision"] == "escalate_bug"]
     bad_runs = submit_cases(
-        admin, bug_cases, workflow_id=workflow_id, alias="staging", key=f"{suffix}-v2"
+        admin,
+        bug_cases,
+        workflow_id=workflow_id,
+        alias="staging",
+        key=f"{suffix}-v2",
+        retried=retried,
     )
     caught = grade(bug_cases, bad_runs)
     # The bad rule drops "high" and "urgent" for a bug unless the ticket reports data loss.
@@ -515,7 +662,12 @@ def run(
     admin.workflows.rollback_deployment(workflow_id, "staging")
     check("rollback puts staging back on version 1", staging_version() == v1.version_id)
     again = submit_cases(
-        admin, bug_cases, workflow_id=workflow_id, alias="staging", key=f"{suffix}-v1b"
+        admin,
+        bug_cases,
+        workflow_id=workflow_id,
+        alias="staging",
+        key=f"{suffix}-v1b",
+        retried=retried,
     )
     still = grade(bug_cases, again)
     check(
@@ -542,6 +694,51 @@ def run(
         f"{len(trail)} entries",
     )
     result["audited_run"] = run_id
+    if retried:
+        result["resubmitted_after_provider_errors"] = sorted(set(retried))
+
+    if real:
+        eval_rows = [case for case in cases if case["id"] in EVAL_TICKETS]
+        eval_set = admin.eval_datasets.create(
+            f"{NAME_PREFIX}ticket-eval-{suffix}",
+            owner=me.user_id,
+            description="Cookbook 07: twelve labelled tickets (answer = the printed label)",
+        )
+        for row in eval_rows:
+            admin.eval_datasets.add_example(
+                eval_set.dataset_id,
+                input=row["input"],
+                expected={**row["expected"], "answer": row["expected"]["decision"].upper()},
+                tags=row.get("tags", []),
+            )
+        # Evaluations runs the workflow in Preview, which cannot run a Python Code node: the
+        # deterministic workflow cannot be scored, and the rows say so (they are not silent zeros).
+        refusal_run = admin.evaluations.create(
+            eval_set.dataset_id,
+            predict_target="workflow",
+            subject_ref=v1.version_id,
+            scorers=["contains_expected"],
+            max_examples=2,
+        )
+        errors = [str(row.get("error") or "") for row in refusal_run.results]
+        check(
+            "Evaluations cannot score the deterministic workflow, and each row says why",
+            refusal_run.passed_count == 0
+            and len(errors) == 2
+            and all("python_code" in e for e in errors),
+            errors[0][:70] if errors else "",
+        )
+        if model_variant:
+            result["variant"] = run_model_variant(
+                admin,
+                approver,
+                assets=assets,
+                eval_rows=eval_rows,
+                eval_set_id=eval_set.dataset_id,
+                eval_set_name=eval_set.name,
+                suffix=suffix,
+                check=check,
+            )
 
     if failures:
         raise LabVerificationError(f"{len(failures)} check(s) failed: {failures}")
@@ -549,8 +746,148 @@ def run(
     return result
 
 
+def label_of(text: str) -> str:
+    """The label a variant run starts with: REPLY, CLARIFY, ESCALATE_SUPPORT or ESCALATE_BUG."""
+    head = text.strip().split(".", 1)[0].strip()
+    return head if head in {"REPLY", "CLARIFY", "ESCALATE_SUPPORT", "ESCALATE_BUG"} else ""
+
+
+def run_model_variant(
+    admin: CaliberClient,
+    approver: CaliberClient,
+    *,
+    assets: Path,
+    eval_rows: list[dict[str, Any]],
+    eval_set_id: str,
+    eval_set_name: str,
+    suffix: str,
+    check: Callable[..., None],
+) -> dict[str, Any]:
+    """The optional variant: a model classifies, a deterministic guard decides.
+
+    Asserted (invariants): the variant validates and is evaluated over every labelled ticket with
+    a deterministic scorer and a judge; through the queue no escalation is released without a
+    person; the calibration evidence says what measured it. Reported (model-dependent): how many
+    tickets the model routed as the rules do, and which it did not.
+    """
+    manifest = load_json(assets / VARIANT_FILE)
+    manifest["name"] = f"{NAME_PREFIX}support-triage-model-{suffix}"
+    manifest["artifacts"]["eval_datasets"][VARIANT_GATE_DATASET_REF]["dataset_name"] = eval_set_name
+    imported = admin.workflows.import_workflow(manifest=manifest)
+    workflow_id = imported.workflow_id
+    version = admin.workflows.versions.list(workflow_id)[0]
+    validation = admin.workflows.versions.validate(version.version_id)
+    check("the model variant validates", validation["valid"] and not validation["errors"])
+
+    judge_spec = load_json(assets / JUDGE_FILE)
+    judge = admin.judges.create(
+        f"{judge_spec['name']}-{suffix}",
+        instructions=judge_spec["instructions"],
+        feedback_value_type=judge_spec["feedback_value_type"],
+    )
+    judge_key = f"Judge.{judge.judge_id}"
+    scorecard = admin.evaluations.create(
+        eval_set_id,
+        predict_target="workflow",
+        subject_ref=version.version_id,
+        scorers=["contains_expected", judge_key],
+        max_examples=len(eval_rows),
+    )
+    errored = [row for row in scorecard.results if row.get("error")]
+    label_score = scorecard.aggregate.get("contains_expected")
+    judge_score = scorecard.aggregate.get(judge_key)
+    check(
+        "Evaluations scores the model variant over every labelled ticket",
+        scorecard.status == "completed"
+        and scorecard.n_examples == len(eval_rows)
+        and not errored
+        and label_score is not None
+        and 0.5 <= label_score <= 1.0,
+        f"label agreement {label_score}, judge {judge_score}, {len(errored)} rows errored",
+    )
+    check(
+        "the model-graded judge ran next to the deterministic scorer",
+        judge_score is not None and 0.0 <= judge_score <= 1.0,
+        judge_score,
+    )
+    disagreements = sorted(
+        str(row["example_id"])
+        for row in scorecard.results
+        if (row.get("scores") or {}).get("contains_expected", 0.0) < 1.0
+    )
+
+    # Through the queue: whatever the model proposes, an escalation waits for a person.
+    admin.workflows.update(workflow_id, status="active")
+    published = admin.workflows.versions.publish(version.version_id)
+    queued = {
+        row["id"]: admin.workflows.runs.submit(
+            workflow_version_id=published.version_id,
+            input=json.dumps(row["input"]),
+            idempotency_key=f"{suffix}-variant-{row['id']}",
+        )
+        for row in eval_rows
+    }
+    runs = {row_id: wait_settled(admin, run.workflow_run_id) for row_id, run in queued.items()}
+    # Nobody has approved anything yet, so a run that reached a release node, or that completed
+    # with an escalation label, got there without a person.
+    released_without_approval = [
+        row_id
+        for row_id, run_ in runs.items()
+        if any(node in node_path(run_) for node in VARIANT_RELEASE_NODES)
+        or (run_.status == "completed" and label_of(run_output(run_)).startswith("ESCALATE"))
+    ]
+    paused = sorted(row_id for row_id, run_ in runs.items() if run_.status == "waiting_approval")
+    check(
+        "through the queue, no escalation is released without a person",
+        not released_without_approval and all(r.status != "failed" for r in runs.values()),
+        f"{len(paused)} of {len(runs)} runs paused at an approval gate",
+    )
+    if paused:
+        approver.workflows.runs.approve(runs[paused[0]].workflow_run_id, reason="Looks right.")
+        approver.workflows.runs.resume(runs[paused[0]].workflow_run_id)
+        released = wait_settled(admin, runs[paused[0]].workflow_run_id)
+        check(
+            "a second person's approval releases the escalation",
+            released.status == "completed" and run_output(released).startswith("ESCALATE"),
+            run_output(released)[:30],
+        )
+        for row_id in paused[1:]:
+            admin.workflows.runs.cancel(runs[row_id].workflow_run_id)
+
+    agent_id = f"{NAME_PREFIX}agent-{suffix}"
+    admin.agents.create(agent_id, experiment_id=f"exp-{suffix}", name="support triage model")
+    calibration = admin.workflows.create_calibration_run(workflow_id, agent_id=agent_id)
+    job = admin.jobs.wait(calibration["job"]["job_id"], timeout=900)
+    evidence = job.eval_results or {}
+    check(
+        "the calibration evidence says what measured its baseline",
+        evidence.get("simulated") is False
+        and evidence.get("provider") not in (None, "fake")
+        and evidence.get("scorer") == "structural"
+        and evidence.get("n_examples", 0) >= 2,
+        {k: evidence.get(k) for k in ("provider", "simulated", "scorer", "n_examples")},
+    )
+    return {
+        "tickets": len(eval_rows),
+        "label_agreement": label_score,
+        "judge": judge_score,
+        "disagreements": disagreements,
+        "paused_at_gate": len(paused),
+        "calibration": {
+            "status": job.status,
+            "n_examples": evidence.get("n_examples"),
+            "baseline_quality": (evidence.get("baseline") or {}).get("overall"),
+            "candidates": len(evidence.get("calibration_candidates") or []),
+            "provider": evidence.get("provider"),
+            "simulated": evidence.get("simulated"),
+            "scorer": evidence.get("scorer"),
+        },
+        "evaluation_run": scorecard.run_id,
+    }
+
+
 def cleanup(caliber: CaliberClient) -> None:
-    """Archive the projects and workflows this lab created."""
+    """Archive the projects, workflows, test sets and judges this lab created."""
     for project in caliber.projects.list():
         if project.name.startswith(NAME_PREFIX):
             caliber.projects.archive(project.project_id)
@@ -560,12 +897,24 @@ def cleanup(caliber: CaliberClient) -> None:
     for dataset in caliber.eval_datasets.list():
         if dataset.name.startswith(NAME_PREFIX) and dataset.status != "archived":
             caliber.eval_datasets.update(dataset.dataset_id, status="archived")
+    # The judges the real-provider tier created ("<judge name>-<suffix>").
+    for judge in caliber.judges.list():
+        if (
+            judge.name.startswith("SupportTriageRoutingAndReply-")
+            and getattr(judge, "status", "active") != "archived"
+        ):
+            caliber.judges.update(judge.judge_id, status="archived")
 
 
 def main(argv: list[str] | None = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__.split("\n", 1)[0])
     parser.add_argument("--cleanup", action="store_true", help="archive what earlier runs created")
     parser.add_argument("--suffix", help="name suffix (default: a timestamp)")
+    parser.add_argument(
+        "--model-variant",
+        action="store_true",
+        help="also run the optional model-based variant (real provider only)",
+    )
     args = parser.parse_args(argv)
     base_url = os.environ["CALIBER_BASE_URL"]
     password = os.environ.get("COOKBOOK_07_PASSWORD", DEFAULT_PASSWORD)
@@ -576,17 +925,22 @@ def main(argv: list[str] | None = None) -> int:
             token = sign_in(base_url, user_id, password)
         else:
             token = os.environ["CALIBER_TOKEN"]
-        client = CaliberClient(base_url, token=token, project=project_id)
+        client = CaliberClient(base_url, token=token, project=project_id, timeout=REQUEST_TIMEOUT)
         opened.append(client)
         return client
 
-    with env_client() as caliber:
+    with env_client(timeout=REQUEST_TIMEOUT) as caliber:
         try:
             if args.cleanup:
                 cleanup(caliber)
                 return 0
             ensure_accounts(caliber, password)
-            result = run(caliber, project_client=project_client, suffix=args.suffix)
+            result = run(
+                caliber,
+                project_client=project_client,
+                suffix=args.suffix,
+                model_variant=args.model_variant,
+            )
         except (LabVerificationError, SetupError) as exc:
             print(f"\nVERIFICATION FAILED: {exc}", file=sys.stderr)
             return 1

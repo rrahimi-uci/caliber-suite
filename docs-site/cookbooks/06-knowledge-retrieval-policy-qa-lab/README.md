@@ -5,6 +5,8 @@
 > through the API script and through the browser, on the alpha's default **simulated** language model and evaluator.
 > Storage, chunking, embeddings and retrieval ranking are **real**; answer text and model-judged scores are **simulated**
 > ([what is simulated](#what-is-simulated-and-what-a-real-provider-changes)).
+> It was then run again with a **real provider** (`--real-llm`), where answers are written by a model and the judged scores and the
+> answer/abstain/clarify decisions exist: [Run it with a real provider](#run-it-with-a-real-provider) is the verified tier.
 
 ## What this lab demonstrates
 
@@ -30,6 +32,8 @@ that is not ready), then wire the answer **workflow**, run it, and send its low-
   returns to version 2;
 - a build that meets one unreadable file **completes** with `failed_sources: 1` and goes live; a build with nothing readable
   **fails**, leaves the live version alone, and cannot be activated; querying it returns no chunks and `Version is not ready for retrieval.`;
+- (real provider only) a model answers all 48 questions, calibration returns real Faithfulness and Answer-correctness, and the `kb-answer` prompt
+  decides `answer`, `abstain` or `clarify` correctly on the labelled questions, including the two trap questions the score gate cannot refuse;
 - the installed workflow runs three questions through the real `knowledge_query` node; the covered one is confident (`0.8`), the one
   outside the corpus is `needs_review: true` (`0.25`) and is the only item enqueued in the review queue, where a reviewer's answer is
   written back to the trace.
@@ -39,10 +43,10 @@ that is not ready), then wire the answer **workflow**, run it, and send its low-
 | Part | On the simulated stack (what you see) | With a real provider |
 | --- | --- | --- |
 | Object store, queue and worker, chunking, embedding vectors, retrieval ranking, Recall@k, nDCG@k, the score gate, activation and rollback | **Real.** Storage is an S3 endpoint (`moto_server` here, MinIO or S3 in production); embeddings come from the local `all-MiniLM-L6-v2` model; every number in this lab is arithmetic on real retrieval. | Same. |
-| Answer text (`CALIBER_ASSISTANT_ENGINE=fake`) | An **extractive digest**: `Question: ...` then `Most relevant retrieved evidence:` and a preview of each retrieved chunk. It is not a generated answer and it never abstains or asks to clarify. | A model writes a cited answer from the chunks. |
-| Faithfulness and Answer-correctness (calibration) | `null` (shown as `—`). The judges need a model. | Scores in `0..1`. |
-| Scoring the answer prompt on **Evaluations** | Refused: `400 evaluation requires a real LLM provider`. CALIBER never invents a scorecard. | A scorecard, including the `CitationFaithfulness` judge. |
-| `decision: answer / abstain / clarify` | **Not produced.** The prompt `kb-answer` describes the contract; nothing on a simulated stack follows it. What the lab verifies instead is the evidence a model would need (both conflicting refund documents are retrieved together) and what retrieval alone can refuse (the score gate). | The model decides; the review queue catches what it gets wrong. |
+| Answer text (`CALIBER_ASSISTANT_ENGINE=fake`) | An **extractive digest**: `Question: ...` then `Most relevant retrieved evidence:` and a preview of each retrieved chunk. It is not a generated answer and it never abstains or asks to clarify. | A model writes a cited answer from the chunks. **Verified:** 48 of 48 questions answered with no provider error, 35 of the 41 answerable ones state the expected fact. |
+| Faithfulness and Answer-correctness (calibration) | `null` (shown as `—`). The judges need a model. | Scores in `0..1`. **Verified:** faithfulness 0.96 to 0.99, answer correctness 0.71 to 0.98 across four configurations. |
+| Scoring the answer prompt on **Evaluations** | Refused: `400 evaluation requires a real LLM provider`. CALIBER never invents a scorecard. | A scorecard, including the `CitationFaithfulness` judge. **Verified** on all 48 questions. |
+| `decision: answer / abstain / clarify` | **Not produced.** The prompt `kb-answer` describes the contract; nothing on a simulated stack follows it. What the lab verifies instead is the evidence a model would need (both conflicting refund documents are retrieved together) and what retrieval alone can refuse (the score gate). | The model decides; the review queue catches what it gets wrong. **Verified:** 39/39 answer, 7/7 abstain (including both traps), 2/2 clarify. |
 
 ## Prerequisites and setup
 
@@ -181,6 +185,79 @@ ok   scoring the answer prompt is refused on the simulated model  [400 evaluatio
 
 The script's `--cleanup SUFFIX` option removes what a run created (the suffix is in its first line): `... cookbook_06_grounded_knowledge_assistant --cleanup 2bcd3d`.
 
+## Run it with a real provider
+
+The verified tier: every step was run against a stack with OpenAI behind the answers, the judges and the evaluator (model `gpt-5.6-luna`, the product default),
+through the API script and through the browser spec. Retrieval is unchanged by the provider (the same embeddings, the same rankings, the same Recall@k and nDCG@k as above);
+what a provider adds is the answer text, the two judged calibration metrics, the scorecard and the decisions.
+
+**Start it.** Warm the embedding cache once (Setup, step 3), export your own key (the helper reads `OPENAI_API_KEY` from your shell, else from a repository-root `.env`,
+and never prints or stores it), and add `--real-llm`:
+
+```bash
+export OPENAI_API_KEY=...          # your key; never commit it
+HF_HUB_OFFLINE=1 scripts/cookbook-env.sh up lab06h --flags cookbooks --s3 --real-llm
+source .tmp/cookbook-env/lab06h/env.sh
+curl -s $CALIBER_API/readiness | jq -c '.data|{ready,simulated}'      # {"ready":true,"simulated":[]}
+# token as in "Run it through the API", then the same script:
+PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -u -m examples.cookbooks.cookbook_06_grounded_knowledge_assistant
+# UI: cd caliber/caliber-ui && CALIBER_LAB06_MODEL=real CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/06-knowledge-retrieval.spec.ts
+```
+
+The script detects the stack from `/readiness` and asserts what a real model can honestly be held to: ranges, orderings and rules, never a generated sentence or an exact score.
+The retrieval sweeps, the score gate, builds, rollback, the workflow and the review queue run exactly as on the simulated stack. What differs:
+
+| Step | On a real provider |
+| --- | --- |
+| Query | `answer` is written by the model, `answer_error` is `null` (a provider failure falls back silently to the digest with `answer_error` set, so the script retries those up to three times and checks both). |
+| Calibration | Four runs on version 1 only (dense and hybrid, at 1 and 3 chunks): each answers all 41 questions and judges every answer twice, about 120 model calls per run. Version 2 is built and activated as before but not calibrated (it would add 240 calls and only repeats retrieval arithmetic). |
+| The 48-question evaluation | The test set `policy-qa-grounded-<suffix>` is the 48 questions with the chunks retrieval returned for each (hybrid, top 3) as `input.retrieved_chunks`, which the `kb-answer` prompt's variable receives. The prompt is scored with `contains_expected`, `non_empty` and the stored `CitationFaithfulness` judge, and the script reads the `decision` of each reply against the label. (Evaluations has no retrieval step, so retrieval has to be in the rows.) |
+| The simulated-only checks | The extractive-digest check and the `400 evaluation requires a real LLM provider` refusal are skipped. |
+
+**Real results** (one run; will vary; trimmed). Real answer to the probe question, in hybrid mode:
+`Security audit logs are retained for **365 days (one year)** from when the event is recorded, after which they are automatically purged. [2] A legal hold can suspend deletion for covered data until Legal lifts it. [1]`
+
+```text
+     version mode    k  recall@k  nDCG@k  faithfulness  correctness
+     v1      dense   1  0.878     0.9024  0.96          0.71
+     v1      dense   3  1.0       0.9568  0.99          0.97
+     v1      hybrid  1  0.9268    0.9512  0.98          0.89
+     v1      hybrid  3  1.0       0.9753  0.99          0.98
+ok   every calibration run has a real Faithfulness and Answer-correctness score in 0..1  [dense@1 0.96/0.71, ...]
+ok   a model answered all 48 questions, with no provider error  [48 answers]
+ok   none of them is the simulated extractive digest  [digests: []]
+ok   answers state the expected fact (>= 50% of answerable)  [35/41 = 85%]
+ok   the answer prompt was scored on all 48 questions, every row without an error  [EVR-9a86cb7a completed]
+     expected \ produced   answer  abstain  clarify  unparsed  judge pass rate
+     answer                 39        0        0         0  0.97
+     abstain                 0        7        0         0  1.00
+     clarify                 0        0        2         0  1.00
+ok   the replies follow the JSON contract (>= 90% carry a decision)  [48/48 parsed]
+ok   it decides to answer answerable questions (>= 60%)  [39/39]
+ok   it abstains on questions the corpus does not cover (>= 60%)  [5/5]
+```
+
+(58 `ok` lines in all; the final JSON has `"mode": "real provider"` and `"verified": true`. Scorecard aggregate: `contains_expected` 0.833, `non_empty` 1.0, `CitationFaithfulness` 0.979. Contains-expected is 0 on the 7 abstain rows,
+whose expected string is empty, so read it per label, not overall.)
+
+What the real run shows:
+
+- **Hybrid against dense, in answer quality.** With only the top chunk reaching the model (`k = 1`) retrieval ranking decides the answer: dense reaches answer correctness **0.71** (35 questions pass the composite, 2 fail) and hybrid **0.89** (38 pass, 0 fail), the
+  same ordering as Recall@1 (0.878 and 0.9268) but a larger gap. With three chunks both modes put the clause in front of the model and answer correctness converges (0.97 and 0.98), faithfulness is 0.99 either way. So hybrid matters most when you can afford few chunks; at `k = 3` pick on cost.
+  Faithfulness is high everywhere (0.96 to 0.99): with the clause or a near neighbour in context the model rarely says something the context does not support. A single run: do not read the second decimal.
+- **The model refuses what the score gate cannot.** Both trap questions (Q42, Q43: the Enterprise terms the policies defer to an order form) pass the score gate at 0.56 to 0.66, and the `kb-answer` prompt abstained on both:
+  `The documented support policy does not specify a first-response target for Enterprise customers. Their service levels are stated in their signed order form.` It also abstained on all five out-of-corpus questions and asked to clarify on both conflicting-refund questions (Q40: it cites the FAQ's 14 days and the policy's 30, and asks `What was the charge date, and is the account Standard/Premium or Enterprise?`).
+  The prompt was given the retrieved chunks the question had, as the README's workflow would give them; the review queue remains the net for the cases this one run did not meet.
+- **The judge's verdicts:** `CitationFaithfulness` passes 0.974 of the answerable replies (one of 39 fails) and every abstain and clarify reply; the one failure is a multi-factor-authentication question whose reply the judge did not accept as supported.
+- **What a rule cannot see:** 35 of 41 answers state the expected fact verbatim; the other six (Q01, Q04, Q08, Q23, Q28, Q37) paraphrase it. A substring rule undercounts a fluent model, which is why the judged metrics exist.
+
+**In the UI** (`CALIBER_LAB06_MODEL=real`) every step is the same. Where it differs: **Explore > Query** shows a written answer above the citations; **Calibrate** takes about 5 minutes per run and then shows percentages for **Faithfulness** and
+**Answer correctness** (for `Dense`, top-k 1: Recall@k 88%, and Faithfulness and Answer correctness around 96% and 71% in the run above) instead of `—`; the workflow's **Output** is the model's sentence. The Recall@k, nDCG@k and **Vs. baseline** (+5%) figures are unchanged.
+The spec waits up to 25 minutes per Calibrate and one hour overall.
+
+**Cost and time.** About 900 model calls for the API script (up to 220 answers in the sweeps and the gate, which have no way to skip answer generation; 4 calibration runs at about 120 calls; the 48-question evaluation at about 100; the four workflow runs) and about 30 minutes
+(each calibration run takes about 5 minutes). The UI spec runs two calibrations and a handful of asks: about 9 to 10 minutes in all. Use a low-latency network: a stalled connection to the provider stalls the request until the OpenAI client gives up.
+
 ## Recipe: run it through the UI
 
 Sign in at `$CALIBER_URL/caliber/` as `admin` / `admin`. Sidebar groups: **Prompt lifecycle**, **Agent resources**, **Operate**, **Integrations**, **Admin**. The browser spec
@@ -208,7 +285,7 @@ appends a timestamp to every name so it can be repeated); it passed twice in a r
 9. **Install the answer workflow.** **Integrations > Cookbooks**, **Install** on *Grounded Knowledge Assistant*, name it, acknowledge the prerequisite, confirm.
    - Expected: the Workflow Studio opens on a paused draft with a **Knowledge Query** node, a **Confidence** node and an **Output**.
 10. **Bind it to the knowledge base and run it.** Click the **knowledge** node in the outline, set **Knowledge base** to `policy-qa-kb` and Top-K to `3`, **Save**, **Validate** (`Valid.`). The workflow is paused, so **Run** is disabled (`Resume this workflow before running it`): open the workflow from **Agent resources > Workflows**, click **Resume**, **Open editor**, **Run Monitor**, type `How long are security audit logs retained?`, **Run**.
-    - Expected: status `completed`; the **Output** holds `Question: ...`, then `[1] data-retention-policy.md: ...` and the text `365 days`.
+    - Expected: status `completed`; the **Output** holds `Question: ...`, then `[1] data-retention-policy.md: ...` and the text `365 days`. With a real provider it is the model's sentence instead (`Security audit logs are retained for **365 days** from when the event is recorded ... [1]`), with no digest and no file name.
     - On this path the template's own confidence signals apply: they look only at citations, so every retrieval is "confident". The score gate in the API path is what separates the dress-code question; add it as an extra signal (see the script's `bind_knowledge_node`).
 11. **Send the run's trace to a review queue.** **Operate > Observability**: click the newest trace and copy the `trace=tr-...` id from the address bar. **Operate > Review Queues > + New Queue**: name `policy-qa-review`, reviewer `@admin`, question key `decision_justified` ("Is abstaining or clarifying justified by the retrieved evidence?"), **Create queue**. Open the queue, paste the trace id in **Trace ids**, **Enqueue**, select the item, **Pass**, **Submit review**.
     - Expected: the item turns `completed` and reads `Reviewed by admin · wrote 1 assessment(s) back to the trace.`
@@ -237,7 +314,10 @@ Each of these was provoked on a real stack.
 | `status: failed`, `The selected files did not produce any chunks. Check the source types or extraction settings.` | Nothing readable in the selection. The live version is untouched; the failed one cannot be activated (`409 only completed versions can be activated`) and querying it returns no chunks and `answer_error: Version is not ready for retrieval.` |
 | `POST /knowledge-bases/{id}/rollback` answers `409 no recorded prior active version ... rollback needs an audited activation to restore` | Rollback walks the activation audit trail, and a build's own activation is not on it. Activate the earlier version explicitly first (the script does), then rollback. |
 | A version that is not active still answers queries | Intended. `active` decides what consumers that reference the knowledge base (the workflow) resolve; a query by `version_ids` only needs the version to be `completed`. |
-| Faithfulness and Answer-correctness are `null` / `—` | The simulated judge. Calibration degrades to its deterministic metrics (Recall@k, nDCG@k) instead of failing. |
+| Faithfulness and Answer-correctness are `null` / `—` | On the simulated stack: no judge model, so calibration degrades to its deterministic metrics (Recall@k, nDCG@k) instead of failing. **On a real provider they must be numbers**; if they are `null` there, upgrade: a bare model name (`gpt-5.6-luna`) was handed to `make_judge`, which wants `openai:/gpt-5.6-luna`, so the judges failed to build and calibration quietly dropped them (found by this lab, fixed with a test). |
+| (real provider) `answer` starts with `Question:` and `answer_error` holds a provider message (`Error code: 401`, `429`) | the answer engine failed and the product fell back to the extractive digest. 401: the key was rejected (provoked with `OPENAI_API_KEY=sk-invalid`; the query still answers `200`, so check `answer_error`); 429: rate limit, retry later; a `model ... does not exist` error: set `CALIBER_ASSISTANT_MODEL` to a model your account has |
+| (real provider) a calibration or evaluation request ends `timed out` | each is one request that makes a model call per question (about 5 minutes for 41 questions, answer plus two judges). The SDK's default timeout is 30 seconds; the script sets one hour. Use `CaliberClient(..., timeout=3600)` |
+| (real provider) the UI stays on a spinner while Calibrate runs | the same minutes; the run is saved when it completes (`GET /knowledge-bases/{id}/test-runs`). The rest of the app stays usable meanwhile (before this lab's fix a calibration, an Evaluation or an alignment check froze the whole server) |
 | `400 evaluation requires a real LLM provider; set CALIBER_LLM_PROVIDER (openai/anthropic) ...` on Evaluations | Scoring a prompt needs a model. See the simulated-vs-real table. |
 | `403 missing required scope; expected one of ['caliber.operator'], have ['caliber.viewer']` creating a knowledge base, `['caliber.admin']` uploading to the object store | A viewer account (tested with a fresh `lab06-viewer`). In a project, creating or building needs `editor` or `owner`; calibrating needs `reviewer` or above ([Who can do what](../../../docs/use/knowledge-bases.md)). |
 | `409 workflow is paused; resume it before running` | An installed cookbook is a paused workflow with a draft version, on purpose: review its bindings, then **Resume** (or `PATCH /workflows/{id} {"status":"active"}`). |

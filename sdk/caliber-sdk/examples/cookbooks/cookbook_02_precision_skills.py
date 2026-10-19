@@ -18,11 +18,19 @@ Run it from the repository root, against a server that has a ``caliber.admin`` a
     PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python \
         -m examples.cookbooks.cookbook_02_precision_skills
 
-What stays simulated: skill calibration has no test set, so under the default fake providers
-(``CALIBER_LLM_PROVIDER=fake``, ``CALIBER_EVAL_PROVIDER=fake``) the candidate text and the
-scores are canned. The script asserts the wiring (a candidate is produced, flagged simulated,
-and applies and rolls back as versions), never a score. Trigger selection is deterministic and
-needs no model at all.
+Two modes, detected from ``GET /readiness`` (``simulated`` empty means a real provider):
+
+* Simulated stack (the default): the candidate text and the scores are canned, and a skill
+  calibration needs no test set. The script asserts the wiring (a candidate is produced, flagged
+  simulated, with ``n_examples`` 0, and it applies and rolls back as versions), never a score.
+* Real provider (``scripts/cookbook-env.sh up NAME --flags cookbooks --real-llm``): the script
+  loads the 8-row skill test set, calibrates against it with a note about what to fix, and
+  asserts invariants only: ``simulated`` is false, ``n_examples`` is the size of the test set, the
+  scores are in range, the candidate differs from the skill and applies and rolls back. A
+  calibration with no test set is asserted to fail with the evaluator's own error. It never
+  asserts generated text or an exact score.
+
+Trigger selection is deterministic and needs no model in either mode.
 """
 
 from __future__ import annotations
@@ -48,6 +56,8 @@ TIGHTENED_FILE = "skills/trigger-phrases.json"
 INVALID_FILE = "skills/invalid-skills.json"
 CASES_FILE = "dataset/trigger-cases.jsonl"
 RENDER_FILE = "dataset/render-vars.json"
+TEST_SET_FILE = "dataset/skill-eval-cases.jsonl"
+NOTES_FILE = "skills/calibration-notes.txt"
 
 #: ``trigger_accuracy_min`` in the lab's ``verification.yaml``.
 TRIGGER_ACCURACY_MIN = 0.95
@@ -78,6 +88,80 @@ def load_skill(assets: Path) -> tuple[dict[str, Any], str]:
 def load_cases(assets: Path) -> list[dict[str, Any]]:
     lines = (assets / CASES_FILE).read_text(encoding="utf-8").splitlines()
     return [json.loads(line) for line in lines if line.strip()]
+
+
+def load_test_set(assets: Path) -> list[dict[str, Any]]:
+    """The skill's test set: reply cases, each ``{id, tags, input, expected}``."""
+    lines = (assets / TEST_SET_FILE).read_text(encoding="utf-8").splitlines()
+    return [json.loads(line) for line in lines if line.strip()]
+
+
+def failure_text(job: Any) -> str:
+    """The server's reason a job stopped (``error_message``; older payloads say ``error``)."""
+    return str(job.error_message or job.error or "")
+
+
+def is_real_stack(caliber: CaliberClient) -> bool:
+    """True when the server runs real providers (``/readiness`` lists nothing as simulated)."""
+    return not (caliber.readiness() or {}).get("simulated")
+
+
+def create_test_set(
+    caliber: CaliberClient, name: str, owner: str, rows: list[dict[str, Any]]
+) -> str:
+    """Import the test-set file as an eval dataset and return its id."""
+    dataset = caliber.eval_datasets.create(name, owner=owner, description="Support reply cases")
+    for row in rows:
+        caliber.eval_datasets.add_example(
+            dataset.dataset_id, input=row["input"], expected=row["expected"], tags=row["tags"]
+        )
+    return str(dataset.dataset_id)
+
+
+#: Provider errors worth one more attempt: the model refused, was rate limited or timed out.
+TRANSIENT_MARKERS = ("429", "rate limit", "timed out", "timeout", "temporarily", "overloaded")
+#: A real calibration is model-dependent: up to two retries when the gate rejects the candidate
+#: (eight test rows are coarse; a single flipped row can trip it) or the provider hiccups. More
+#: than that is a real failure and is reported.
+REAL_CALIBRATION_ATTEMPTS = 3
+
+
+def calibrate_for_real(
+    caliber: CaliberClient, skill_id: str, test_set_id: str, notes: str
+) -> tuple[Any, int]:
+    """Calibrate against the test set until a candidate is ready; returns ``(job, attempts)``."""
+    last: Any = None
+    for attempt in range(1, REAL_CALIBRATION_ATTEMPTS + 1):
+        queued = caliber.skills.calibrate(skill_id, eval_dataset_id=test_set_id, notes=notes)
+        last = caliber.jobs.wait(queued["job"]["job_id"], timeout=600)
+        if last.status == "candidate_ready":
+            return last, attempt
+        error = failure_text(last).lower()
+        retryable = last.status == "rejected" or any(m in error for m in TRANSIENT_MARKERS)
+        if not retryable:
+            break
+    raise AssertionError(
+        f"{last.job_id} ended as {last.status!r} after {attempt} attempt(s): {failure_text(last)}"
+    )
+
+
+def real_evidence(job: Any, test_set_id: str, n_rows: int) -> dict[str, Any]:
+    """Assert the invariants of real calibration evidence and return what the report shows."""
+    evidence = job.eval_results or {}
+    assert evidence.get("simulated") is False, evidence
+    assert evidence.get("provider") not in (None, "fake"), evidence
+    assert evidence.get("n_examples") == n_rows, evidence
+    assert evidence.get("eval_dataset_id") == test_set_id, evidence
+    candidate = evidence["candidate"]["overall"]
+    baseline = evidence["baseline"]["overall"]
+    assert 0.0 <= candidate <= 1.0 and 0.0 <= baseline <= 1.0, evidence
+    assert evidence["gate"]["passed"] is True, evidence
+    return {
+        "candidate_overall": candidate,
+        "baseline_overall": baseline,
+        "dimensions": sorted(evidence["candidate"]["dimensions"]),
+        "diff_summary": (job.candidate or {}).get("diff_summary"),
+    }
 
 
 def run_cases(
@@ -167,7 +251,7 @@ def expect_status(label: str, status: int, call: Callable[[], Any]) -> str:
 
 def wait_for_candidate(caliber: CaliberClient, job_id: str) -> Any:
     job = caliber.jobs.wait(job_id, timeout=120)
-    assert job.status == "candidate_ready", f"{job_id} ended as {job.status!r}: {job.error}"
+    assert job.status == "candidate_ready", f"{job_id} ended as {job.status!r}: {failure_text(job)}"
     return job
 
 
@@ -265,15 +349,26 @@ def run(
     assert workspace["baseline_run_id"] == baseline_run
     report["runs"] = {"round1": round1_run, "baseline": baseline_run}
 
-    # 6. Calibrate (a refinement job) and review the candidate.
-    queued = caliber.skills.calibrate(skill_id)
-    job_id = queued["job"]["job_id"]
-    job = wait_for_candidate(caliber, job_id)
+    # 6. Calibrate (a refinement job) and review the candidate. On a simulated stack the
+    # evidence is canned and needs no test set; on a real one the candidate is scored against
+    # the skill's test set, so the script imports it first.
+    real = is_real_stack(caliber)
+    report["mode"] = "real" if real else "simulated"
+    test_rows = load_test_set(assets)
+    attempts = 1
+    if real:
+        test_set_id = create_test_set(caliber, f"{name}-replies", owner, test_rows)
+        notes = (assets / NOTES_FILE).read_text(encoding="utf-8").strip()
+        job, attempts = calibrate_for_real(caliber, skill_id, test_set_id, notes)
+        job_id = job.job_id
+    else:
+        queued = caliber.skills.calibrate(skill_id)
+        job_id = queued["job"]["job_id"]
+        job = wait_for_candidate(caliber, job_id)
     assert job.candidate and job.candidate["content"] != content
     assert job.candidate["baseline_content"].strip() == content
     evidence = job.eval_results or {}
-    assert evidence.get("n_examples") == 0, "a skill calibration has no test set"
-    report["calibration"] = {
+    calibration: dict[str, Any] = {
         "job_id": job_id,
         "status": job.status,
         "simulated": evidence.get("simulated"),
@@ -281,6 +376,12 @@ def run(
         "n_examples": evidence.get("n_examples"),
         "gate_passed": (evidence.get("gate") or {}).get("passed"),
     }
+    if real:
+        calibration.update(real_evidence(job, test_set_id, len(test_rows)))
+        calibration["attempts"] = attempts
+    else:
+        assert evidence.get("n_examples") == 0, "a skill calibration has no test set"
+    report["calibration"] = calibration
 
     # 7. Apply, 8. roll back. Versions only ever move forward.
     applied = caliber.jobs.apply(job_id)
@@ -385,12 +486,33 @@ def run(
         "duplicate name", 409, lambda: caliber.skills.create(name, owner=owner, content="x")
     )
     failures["invalid"]["name already in use"] = duplicate
-    # 10c. Calibrating with no baseline pinned: allowed, same canned evidence, nothing to compare.
-    bare = caliber.skills.create(f"{name}-bare", owner=owner, content="Reply kindly to {{ who }}.")
+    # 10c. Calibrating with no baseline pinned: allowed, nothing to compare. Simulated: the same
+    # canned evidence. Real: it still scores against the test set, and with no test set at all
+    # the run fails with the evaluator's own error.
+    # The real evaluator gates on an absolute score, so the real run uses the lab's own
+    # instructions (a one-line skill scores below the gate on the support cases).
+    bare = caliber.skills.create(
+        f"{name}-bare",
+        owner=owner,
+        content=content if real else "Reply kindly to {{ who }}.",
+        summary=spec["summary"] if real else None,
+    )
     created.append(bare.skill_id)
     assert caliber.skills.workspace(bare.skill_id)["baseline_run_id"] is None
-    bare_job = wait_for_candidate(caliber, caliber.skills.calibrate(bare.skill_id)["job"]["job_id"])
-    assert bare_job.eval_results and bare_job.eval_results.get("simulated") is True
+    if real:
+        bare_job, _ = calibrate_for_real(caliber, bare.skill_id, test_set_id, notes)
+        assert bare_job.eval_results and bare_job.eval_results.get("simulated") is False
+        no_test_set = caliber.jobs.wait(
+            caliber.skills.calibrate(bare.skill_id)["job"]["job_id"], timeout=600
+        )
+        assert no_test_set.status == "failed", no_test_set.status
+        assert "no active examples" in failure_text(no_test_set), failure_text(no_test_set)
+        failures["no_test_set"] = {"job_id": no_test_set.job_id, "status": no_test_set.status}
+    else:
+        bare_job = wait_for_candidate(
+            caliber, caliber.skills.calibrate(bare.skill_id)["job"]["job_id"]
+        )
+        assert bare_job.eval_results and bare_job.eval_results.get("simulated") is True
     failures["no_baseline"] = {
         "job_id": bare_job.job_id,
         "status": bare_job.status,
