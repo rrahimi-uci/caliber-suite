@@ -1,90 +1,116 @@
 {
   "steps": [
     {
-      "where": "MCP Servers",
-      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_INTEGRATIONS=true</code> on the CALIBER server and restart it; MCP servers are off by default. Open the MCP Servers page and find the quick-connect catalog of 8 templates. You will use the <strong>GitHub</strong> tile because it ships both a safe read tool (<code>search_repositories</code>) and a risky write tool (<code>issue_write</code>) — perfect for proving a policy block.",
-      "see": "A catalog grid; the GitHub tile (test id <code>catalog-github</code>) sits alongside PostgreSQL, pgvector, Apache AGE, MinIO, Hugging Face, Ollama, and Playwright.",
-      "asset": "MCP catalog"
+      "where": "Admin › Administration",
+      "do": "<strong>Before you start:</strong> start CALIBER with <code>CALIBER_FEATURE_INTEGRATIONS=true</code>, the lab's MCP server script in <code>CALIBER_MCP_STDIO_PYTHON_SCRIPT_ALLOWLIST</code>, and <code>CALIBER_OPERATOR_USERS</code> / <code>CALIBER_APPROVER_USERS</code> naming <code>lab05-operator</code> / <code>lab05-approver</code>. Create the three accounts, then a workspace <code>mcp-ops</code> (top bar <strong>+</strong>) and add them as Editor, Reviewer and Viewer under <strong>Project access</strong>.",
+      "see": "<code>mcp-ops</code> is selected; the three people are members with those roles.",
+      "asset": "accounts + workspace"
     },
     {
-      "where": "MCP Servers › GitHub tile",
-      "do": "First add <code>api.githubcopilot.com</code> to the CALIBER server's <code>CALIBER_MCP_REMOTE_HOST_ALLOWLIST</code>. Click the <strong>GitHub</strong> catalog tile. The Add-server dialog opens pre-filled with GitHub's official remote Streamable HTTP endpoint; set the server name and supply your personal-access token, then submit.",
+      "where": "Integrations › MCP Servers",
+      "do": "Click <strong>Add Server</strong>. The server is the lab's own <code>repo_tracker_mcp.py</code>, started by CALIBER over <code>stdio</code> (a loopback HTTP endpoint would be refused by the egress policy).",
       "fill": [
-        ["Server name", "<code>github-readonly</code>"],
-        ["Transport", "<code>streamable-http</code> (pre-filled)"],
-        ["Endpoint URI", "<code>https://api.githubcopilot.com/mcp/</code> (pre-filled)"],
-        ["GITHUB_PERSONAL_ACCESS_TOKEN", "your GitHub personal-access token (the env var the template expects)"]
+        [
+          "Name",
+          "<code>repo-tracker</code>"
+        ],
+        [
+          "Transport",
+          "<code>stdio (local process)</code>"
+        ],
+        [
+          "Command",
+          "<code>${PYTHON}</code>"
+        ],
+        [
+          "Arguments",
+          "<code>&lt;repo&gt;/docs-site/cookbooks/05-mcp-connectivity-governance-lab/assets/server/repo_tracker_mcp.py --ledger &lt;state dir&gt;/lab05-ui-ledger.jsonl</code>"
+        ]
       ],
       "click": "Register Server",
-      "see": "A new server row <code>github-readonly</code> appears in the Servers table with a Test action.",
-      "asset": "mcp server: github-readonly"
+      "see": "A row <code>repo-tracker</code> reading <strong>Runtime ready · local containment</strong>.",
+      "asset": "mcp server: repo-tracker",
+      "assetlink": [
+        {
+          "href": "../cookbooks/05-mcp-connectivity-governance-lab/assets/server/repo_tracker_mcp.py",
+          "label": "repo_tracker_mcp.py"
+        }
+      ]
     },
     {
-      "where": "MCP Servers › github-readonly › Test",
-      "do": "On the server row click <strong>Test</strong> to verify the transport/auth, then let it discover the tool catalog. Inspect a couple of discovered tools and their input/output schemas so you know the read tool's required arguments.",
+      "where": "Integrations › MCP Servers › Servers",
+      "do": "On the row click <strong>Test</strong>.",
       "click": "Test",
-      "see": "<code>Connected · N tools</code>. The discovered tool list shows <code>search_repositories</code> (read) and <code>issue_write</code> (write) with their JSON input/output schemas. Gate: <code>connection_success_rate = 1.0</code>.",
-      "asset": "connection + discovered tools"
+      "see": "<code>Connected · 6 tools</code>."
     },
     {
-      "where": "MCP Servers › Playground",
-      "do": "Open the <strong>Playground</strong> tab, select server <code>github-readonly</code>, click <strong>Test Connection</strong> to discover its tools, then pick the read tool <code>search_repositories</code> from the discovered list. Fill its parameter inputs and click <strong>Invoke Tool</strong> to confirm a real, successful result. The GitHub catalog tile pre-classifies its tools (reads allowed, writes marked write + requires approval); a tool without an explicit classification shows an <strong>Unclassified</strong> badge and its button reads “Classify Tool Before Invoking”. This is your one good read-tool invocation record.",
-      "fill": [
-        ["Tool", "<code>search_repositories</code> (select from the discovered tools)"],
-        ["Arguments (golden)", "set <code>query</code> = <code>modelcontextprotocol/servers</code> — from the <code>golden</code> row of <a href=\"../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/mcp-tool-test-cases.jsonl\">mcp-tool-test-cases.jsonl</a>"]
-      ],
-      "click": "Invoke Tool",
-      "see": "<code>success:true</code> with a result payload (mentions <code>items</code>) and a <code>duration_ms</code> figure.",
-      "asset": "successful read invocation",
-      "assetlink": [{"href": "../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/mcp-tool-test-cases.jsonl", "label": "mcp-tool-test-cases.jsonl"}]
+      "where": "Integrations › MCP Servers › Playground",
+      "do": "Open the <strong>Playground</strong> tab, pick <code>repo-tracker</code> under <strong>Server</strong>, click <strong>Test Connection</strong>. Nothing is callable yet: discovery is inventory, not authorization.",
+      "click": "Test Connection",
+      "see": "<strong>Connection Successful</strong>, <strong>6 tools discovered</strong>, every tool with an amber <strong>Unclassified</strong> badge; the selected tool's button reads <strong>Classify Tool Before Invoking</strong> and is disabled."
     },
     {
-      "where": "MCP Servers › Playground › issue_write › Tool Policy",
-      "do": "Now govern the risky write tool. Still in the Playground with <code>github-readonly</code> selected, pick the <code>issue_write</code> tool — its <strong>Tool Policy</strong> panel appears. Turn the <strong>Allow tool</strong> toggle OFF (sets <code>allowed:false</code>), then save. On the direct invoke path a block (<code>allowed:false</code>) is the only control that actually refuses execution — so use the block for a true read-only explorer. (<code>requires_approval</code> and <code>side_effect_level</code> are advisory on direct invoke; the block is what enforces.)",
-      "fill": [
-        ["Tool", "<code>issue_write</code> (select in Playground)"],
-        ["Allow tool", "toggle OFF → <code>allowed:false</code> (matches <a href=\"../cookbooks/05-mcp-connectivity-governance-lab/assets/policy/github-issue-write.block.policy.json\">github-issue-write.block.policy.json</a>; strip any <code>_comment</code> key — it is documentation only)"]
-      ],
+      "where": "Integrations › MCP Servers › Playground › Tool Policy",
+      "do": "For each tool set <strong>Allow tool</strong>, <strong>Requires approval</strong>, <strong>Side effect level</strong> and <strong>Rate limit / minute</strong> from <a href=\"../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/tool-classification.jsonl\">tool-classification.jsonl</a> and click <strong>Save Policy</strong>. On <code>issue_write</code> set <strong>write</strong> first and leave approval off: the save is refused (<em>set requires_approval=true for side_effect_level 'write'</em>). Tick <strong>Requires approval</strong> and save. <code>create_release</code> stays unallowed.",
       "click": "Save Policy",
-      "see": "The <code>issue_write</code> policy now shows <code>allowed:false</code> (a “blocked” badge appears on the tool).",
-      "asset": "policy: block issue_write",
-      "assetlink": [{"href": "../cookbooks/05-mcp-connectivity-governance-lab/assets/policy/github-issue-write.block.policy.json", "label": "github-issue-write.block.policy.json"}]
+      "see": "<strong>Policy saved.</strong> No tool is <strong>Unclassified</strong> now; <code>create_release</code> wears <strong>Blocked</strong>, <code>issue_write</code> <strong>Approval</strong>.",
+      "asset": "classification",
+      "assetlink": [
+        {
+          "href": "../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/tool-classification.jsonl",
+          "label": "tool-classification.jsonl"
+        }
+      ]
     },
     {
-      "where": "MCP Servers › Playground",
-      "do": "Capture the enforcement record for the now-blocked tool. In the Playground its <strong>Invoke Tool</strong> button is disabled (“Tool Blocked by Policy”) and a red <strong>Blocked</strong> badge shows, so the UI cannot send the call. Send a payload that <em>would</em> create an issue through the API instead (<code>POST /mcp-servers/{id}/invoke-tool</code>, admin scope) — it must be refused, not executed. This proves <code>blocked_tool_enforcement = 1.0</code>.",
-      "fill": [
-        ["Tool", "<code>issue_write</code> (selected in Playground)"],
-        ["Arguments", "set <code>method</code>=<code>create</code>, <code>owner</code>=<code>rrahimi-uci</code>, <code>repo</code>=<code>caliber-suite</code>, <code>title</code>=<code>blocked test</code>, <code>body</code>=<code>should never be created</code> — the <code>PE01</code> row of <a href=\"../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/policy-enforcement-checks.jsonl\">policy-enforcement-checks.jsonl</a>"]
-      ],
-      "click": "POST invoke-tool (API)",
-      "see": "A structured refusal: <code>success:false</code>, <code>result:null</code>, <code>duration_ms:0</code>, and an <code>error</code> such as <code>MCP tool 'issue_write' is blocked by policy</code> — the tool never ran.",
-      "asset": "blocked-tool enforcement record",
-      "assetlink": [{"href": "../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/policy-enforcement-checks.jsonl", "label": "policy-enforcement-checks.jsonl"}]
+      "where": "Integrations › MCP Servers › Playground",
+      "do": "Select <code>search_repositories</code>, type <code>language:python topic:mcp</code> into <strong>query</strong> and click <strong>Invoke Tool</strong>. Then invoke it again with <code>stars:&gt;&gt;not-a-number</code>.",
+      "click": "Invoke Tool",
+      "see": "<strong>Success</strong> with <code>acme/mcp-gateway</code> and <code>acme/mcp-servers-internal</code> and a duration; a row under <strong>History</strong> (browser memory only). The second call is <strong>Failed</strong> with the server's own message."
     },
     {
-      "where": "MCP Servers › Playground › search_repositories › Calibration",
-      "do": "Harden the read tool with a small saved suite. In the Playground with <code>search_repositories</code> selected, scroll to its <strong>Calibration</strong> panel. Use <strong>Add case</strong> to add a row per case; each row has a name, an <em>Input (JSON)</em> object (the tool arguments), and an <em>Assertion</em> of type <code>no_error</code>, <code>output_contains</code>, or <code>equals</code> (the latter two also take a value). Click <strong>Save cases</strong>. Important about the assertion model: there is <em>no</em> \"expects-error\" assertion — when an invoke errors, the case fails <em>before</em> any assertion runs (a gateway error short-circuits to a fail). So the two <code>negative</code> rows (N01 missing the required arg, N02 a malformed qualifier) are <strong>deliberately failing</strong> cases: they exist to show up as red lines in the pass-rate, not as green <code>output_contains:\"error\"</code> matches. The four golden/edge rows (G01/G02/E01/E02) are the ones expected to pass.",
-      "fill": [
-        ["Cases (Add case per row)", "Add the 6 cases from <a href=\"../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/mcp-tool-test-cases.jsonl\">mcp-tool-test-cases.jsonl</a> — four expected-pass (G01/G02 golden, E01/E02 edge) plus two intentionally-failing negatives (N01/N02). Send name + input + assertion type/value only"]
-      ],
-      "click": "Save cases",
-      "see": "Six saved test cases listed under <code>search_repositories</code>'s Calibration panel, each showing its assertion type.",
-      "asset": "mcp tool test cases",
-      "assetlink": [{"href": "../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/mcp-tool-test-cases.jsonl", "label": "mcp-tool-test-cases.jsonl"}]
+      "where": "Integrations › MCP Servers › Playground",
+      "do": "Select <code>create_release</code>. Its button is disabled, so the refusal payload comes from the API (<code>POST /mcp-servers/{id}/invoke-tool</code>: <code>success:false</code>, <em>is blocked by policy</em>, <code>duration_ms:0</code>). Then select <code>issue_write</code>, fill <strong>repo</strong> and <strong>title</strong> and invoke it: it runs, although it requires approval, because the admin Playground is a break-glass surface.",
+      "see": "<strong>Tool Blocked by Policy</strong> (disabled) and <em>This tool is blocked by its saved policy.</em>; then <strong>Success</strong> for the write.",
+      "asset": "refusals",
+      "assetlink": [
+        {
+          "href": "../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/invoke-checks.jsonl",
+          "label": "invoke-checks.jsonl"
+        }
+      ]
     },
     {
-      "where": "MCP Servers › Playground › search_repositories › Calibration",
-      "do": "Run the calibration. Click <strong>Run calibration</strong> in the same panel — each saved case is invoked and scored against its assertion <strong>inline</strong> (deterministic — no LLM judge), and a pass rate comes back immediately. Expect the pass-rate to land <em>below</em> 100% by design: the four golden/edge cases pass, and the two negative cases (N01/N02) fail because their invokes error out before any assertion can match. That red is the intended signal — it is the suite documenting how the tool misbehaves on bad input, not a defect in your setup.",
+      "where": "Integrations › MCP Servers › Playground › Calibration",
+      "do": "Select <code>search_repositories</code>. Use <strong>Add case</strong> for six cases (S01 to S06) from <a href=\"../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/calibration-cases.jsonl\">calibration-cases.jsonl</a>: name, <strong>Test case input JSON</strong>, <strong>Assertion type</strong> <code>output_contains</code>, <strong>Assertion value</strong>. <strong>Save cases</strong>, then <strong>Run calibration</strong>. Change case 1's value to <code>\"total_count\": 9</code> and run again, then put it back.",
       "click": "Run calibration",
-      "see": "An inline pass-rate report (<code>{pass_rate, total, passed}</code>) — four green cases and two red negatives, so <code>passed:4</code> of <code>total:6</code> (a <code>pass_rate</code> of <code>0.6667</code>, intentionally under 100%) with a per-case verdict on each row. This satisfies <code>at_least_one_read_tool_calibrated = true</code>.",
-      "asset": "calibration run (read tool)"
+      "see": "<strong>Pass rate 100% — 6/6 passed</strong>; with the wrong value <strong>Pass rate 83% — 5/6 passed</strong> and case 1 shows <strong>fail</strong>.",
+      "asset": "calibration cases",
+      "assetlink": [
+        {
+          "href": "../cookbooks/05-mcp-connectivity-governance-lab/assets/dataset/calibration-cases.jsonl",
+          "label": "calibration-cases.jsonl"
+        }
+      ]
     },
     {
-      "where": "MCP Servers › Playground › History",
-      "do": "Confirm the evidence. The Playground <strong>History</strong> panel below the invoke form lists each invoke you ran from the Playground this session, newest first (it is in-memory browser state, lost on reload or <strong>Clear</strong>); find the <code>search_repositories</code> read (<code>success:true</code>, green dot). Click any row to reload its arguments and result. An executed invoke also emits a <code>TOOL</code> span named <code>mcp.&lt;server&gt;.search_repositories</code> in <strong>Observability</strong>; test-connection, discovery and the blocked refusal emit none, so the refusal lives in the API response you captured in the previous step.",
-      "see": "A <strong>History</strong> row with a green dot + <code>search_repositories</code> + a <code>duration_ms</code> for the successful read. The <code>issue_write</code> tool still wears its red <strong>Blocked</strong> badge with Invoke disabled, and the <code>search_repositories</code> Calibration panel still shows its saved pass/fail verdicts — together these are your end-to-end enforcement evidence.",
-      "asset": "playground history (read invoke) + blocked API response"
+      "where": "Agent resources › Workflows",
+      "do": "Copy the server id from the row. Fill <code>__SERVER_ID__</code>, <code>__TOOL__</code>=<code>issue_write</code>, <code>__LEVEL__</code>=<code>write</code>, <code>__APPROVAL__</code>=<code>true</code> in a copy of <a href=\"../cookbooks/05-mcp-connectivity-governance-lab/assets/workflow/file-issue.workflow.yaml\">file-issue.workflow.yaml</a>. <strong>Import</strong>, name it <code>mcp-file-issue</code>, <strong>Choose file</strong>, <strong>Validate dependencies</strong>, <strong>Import as new</strong>. In <strong>Run Monitor</strong> paste <code>{\"repo\": \"acme/release-notes-bot\", \"title\": \"...\"}</code> and <strong>Run</strong>. Approve yourself (refused), approve as <code>lab05-approver</code> in a second session, then <strong>Resume</strong>.",
+      "click": "Run",
+      "see": "<strong>Awaiting approval</strong> at node <code>call_tool</code>; <em>the account that triggered this run cannot approve it; a second person must decide</em>; after the second person approves and you <strong>Resume</strong>, <strong>completed</strong>.",
+      "asset": "approval-gated workflow",
+      "assetlink": [
+        {
+          "href": "../cookbooks/05-mcp-connectivity-governance-lab/assets/workflow/file-issue.workflow.yaml",
+          "label": "file-issue.workflow.yaml"
+        }
+      ]
+    },
+    {
+      "where": "Integrations › MCP Servers",
+      "do": "Click <strong>Add Server</strong> with command <code>/bin/sh</code> and arguments <code>-c echo pwned</code>, register it, and click <strong>Test</strong> on its row. Then read <strong>Operate › Audit Log</strong> (filter <code>update_mcp_tool_policy</code>, then <code>calibrate_mcp_tool</code>) and <strong>Operate › Observability</strong>.",
+      "click": "Test",
+      "see": "<strong>Runtime blocked</strong> and <em>stdio command '/bin/sh' is not in CALIBER_MCP_STDIO_COMMAND_ALLOWLIST</em>; the audit rows; <code>mcp.repo-tracker.search_repositories</code> and <code>mcp.repo-tracker.issue_write</code> traces and none for <code>create_release</code>."
     }
   ]
 }

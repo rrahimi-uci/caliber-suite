@@ -1,50 +1,43 @@
-workflow_goal: Provide deterministic release signoff based on scenario evidence and explicit thresholds.
-# Verified against the live build — see ../FEASIBILITY.md.
+workflow_goal: Record a defensible go/no-go decision from weighted criteria, with exceptions that name an owner.
+# Verified by running the lab against a real stack (scripts/cookbook-env.sh up lab11) -- see README.md.
 feasibility:
-  - Releases (Prompt lifecycle) is a Preview, record-only page - signing off records a decision and deploys or rolls back nothing.
-  - The release score IS computed in-product - POST candidates stores weighted criteria (weight, observed score, threshold, blocking, evidence_refs) and the server recomputes weighted_score = sum(weight x score) / sum(weight) plus the blockers (blocking criteria below threshold and not waived); status is ready only when weighted_score >= required_score and no blocker remains. There is no route that edits a candidate - Re-evaluate recomputes from stored criteria and waivers.
-  - Evidence sources are real references (Evaluations run ids/scorecards, Review Queues completion, Observability traces) entered as criteria/evidence JSON; the "Generate Allure" button creates a durable in-product Allure-compatible JSON report job (with a SHA-256 of the candidate snapshot). The static Allure HTML at Settings -> Allure Report is separate CI evidence produced by the test tooling.
-  - Waivers and final signoff are admin-only. The UI waiver form has a criterion key and a reason (the API also accepts expires_at; the UI has no expiry field). The planned action is not a UI field (the UI records promote_<artifact type> -> prod). Sign off GO needs a ready candidate, planned action, rollback target and a rationale of at least 8 characters.
-  - The "workflow" here is the operator process (collect -> create candidate -> waive -> report -> decide), not a built workflow graph; a GitHub MCP write can open a blocker issue (approval-gated).
+  - "Releases (Prompt lifecycle) is a preview, record-only page: signing off writes a signoff row and a frozen snapshot and deploys, promotes or rolls back nothing. After a signed GO the prompt's aliases, GET /releases/live and GET /releases/timeline were unchanged; a separate Promote moved the alias and appeared on the timeline."
+  - "The weighted score is computed by the server, weighted_score = sum(weight x score) / sum(weight) rounded to six places; a blocker is a blocking criterion whose score is below its threshold and which is not waived; status is ready only when weighted_score >= required_score and no blocker remains. The scores are entered by people: CALIBER does not read them from Evaluations or Review Queues, and an evidence entry is a stored reference that is never opened. A candidate for an artifact that does not exist is accepted."
+  - There is no route that edits a candidate. Re-evaluate recomputes from the stored criteria and waivers; to change an observed score, create a new candidate.
+  - "Waivers and signoff are admin-only and audited; creating, re-evaluating and reporting need operator. A waiver needs an existing criterion key, a reason of at least 8 characters and (if given) an expiry in the future; it clears a blocker and never changes the score. The expiry is honoured every time the candidate is evaluated, including at signoff (fixed in this lab: it used to be stored and ignored)."
+  - "A signed candidate is final: evaluate, waive and a second signoff answer 409 (fixed in this lab: a waiver used to re-evaluate a signed candidate and turn signed_go back into ready)."
+  - A go signoff needs a ready candidate, a planned action and a rollback target. A no-go may be recorded on a blocked candidate. The rationale needs at least 8 characters.
+  - Generate Allure creates a completed report job with Allure-compatible JSON and a SHA-256 of the candidate snapshot at that moment; a report made before a waiver is a stale snapshot. It is not a CI test report.
+  - A candidate created outside a workspace is private to its creator.
 manual_flow:
-  - step: collect_evidence
-    action: gather required scenario run ids and review outcomes
-  - step: rerun_critical_slices
-    action: re-execute high-risk scenario subsets
-  - step: create_candidate
-    action: New candidate - enter the artifact, versions, required score, criteria JSON (weights, observed scores, thresholds, blocking flags) and evidence JSON; Create and evaluate candidate
-  - step: waive_and_report
-    action: an admin records a criterion waiver if policy permits; Generate Allure
+  - step: create
+    action: create candidates from the dataset and check the server's score, status and blockers
+  - step: waive
+    action: an admin records a waiver (key, reason, expiry) on a candidate whose only obstacle is a blocker
+  - step: report
+    action: generate the Allure report job after the last change
   - step: decide
-    action: an admin signs off GO (only while ready) or NO-GO with rationale
+    action: an admin signs off GO (ready only) or NO-GO with a rationale; the candidate is then final
 components:
-  prompts:
-    optional:
-      - release-risk-summarizer prompt   # narrates evidence you supply; the score itself is computed by the server
-  skills:
-    optional:
-      - release-risk-summarizer
+  prompts: none
+  skills: none
   tools: none
-  mcp:
-    optional:
-      - GitHub for blocker issue creation
-  workflow:
-    nodes:
-      - collect_inputs
-      - verify_artifacts
-      - create_candidate   # server computes weighted score + blockers
-      - decision
+  mcp: none
+  workflow: none
 contracts:
   input_schema:
     type: object
-    required: [scenario_run_ids, review_summary]
+    required: [name, artifact_type, artifact_ref, version_ref, criteria]
   output_schema:
     type: object
-    required: [release_score, blocker_count, decision, rationale]
+    required: [weighted_score, status, blockers]
 failure_modes:
-  - missing_required_evidence
-  - allure_report_job_not_generated
-  - blocker_count_nonzero_but_decision_go   # the server refuses a GO signoff unless the candidate is ready
+  - invalid_criteria
+  - blocker_unresolved
+  - score_under_bar
+  - waiver_without_admin_or_reason
+  - go_without_rollback_target
+  - change_after_signoff
 fallbacks:
-  - force decision=no_go when required evidence is missing.
-  - create blocker artifact before rerun.
+  - record NO-GO when a blocker stands and no admin will own an exception.
+  - create a new candidate for new evidence instead of arguing with an old one.

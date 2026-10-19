@@ -18,12 +18,14 @@ caliber_surfaces:
   - Review Queues
   - Observability
 prerequisites:
-  - Seeded document corpus.
-  - Retrieval modes available (dense/hybrid and optional graph).
+  - An S3-compatible object store with credentials (CALIBER_OBJECT_STORE_ENDPOINT_URL and the two key sources).
+  - "pip install caliber-suite[knowledge,knowledge-local] and the all-MiniLM-L6-v2 model cached (HF_HUB_OFFLINE=1 once cached)."
+  - The 11 policy documents in assets/dataset/sources/.
 time_to_first_value: 120-180 minutes
 success_criteria:
-  - Answers are citation-backed or abstained.
-  - Retrieval calibration improves recall without reducing faithfulness.
+  - The answer cites the chunk that holds the clause (41/41 answerable questions have it in the hybrid top 3).
+  - Calibration raises Recall@1 (0.878 to 0.9268) and nDCG@1 (0.9024 to 0.9512); the model-judged metrics need a real provider.
+  - A score gate refuses the questions outside the corpus; the trap questions need a model and a review queue.
 demo_profile:
   recommended_sequence_index: 6
   tier: build

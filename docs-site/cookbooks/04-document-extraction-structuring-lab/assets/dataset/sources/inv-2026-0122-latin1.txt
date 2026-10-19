@@ -1,0 +1,11 @@
+Müller Maschinenbau
+INVOICE
+Invoice No: MM-7203
+Invoice Date: 2026-03-13
+Currency: EUR
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+1     Wartung Hydraulikpresse                  1,850.00      1,850.00
+
+Total                                             1,850.00

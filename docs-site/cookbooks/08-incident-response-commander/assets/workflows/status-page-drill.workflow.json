@@ -1,0 +1,88 @@
+{
+  "schema_version": 1,
+  "workflow_id": "WF-IMPORTED",
+  "name": "status-page-drill",
+  "description": "Cookbook 08 drill: an API Request node that reaches an external host (unreachable on purpose).",
+  "runtime": {
+    "sdk": "openai-agents-python",
+    "sdk_version_policy": "runtime-pinned",
+    "compiler_version": "caliber-workflow-compiler-v1",
+    "default_model_ref": "CALIBER_WORKFLOW_DEFAULT_MODEL",
+    "session": {
+      "type": "none"
+    }
+  },
+  "nodes": {
+    "start": {
+      "id": "start",
+      "type": "start",
+      "label": "Input",
+      "outputs": {
+        "msg": {
+          "type": "string"
+        }
+      }
+    },
+    "call": {
+      "id": "call",
+      "type": "api_request",
+      "label": "Read the public status page",
+      "mode": "url",
+      "url": "https://status.example.invalid/v1/incidents/INC-9",
+      "method": "GET",
+      "curl": "",
+      "headers": {
+        "Accept": "application/json"
+      },
+      "body": "",
+      "timeout_seconds": 10,
+      "inputs": {
+        "payload": {
+          "type": "structured"
+        },
+        "input": {
+          "type": "string"
+        }
+      },
+      "outputs": {
+        "text": {
+          "type": "string"
+        },
+        "response": {
+          "type": "structured"
+        },
+        "metadata": {
+          "type": "structured"
+        }
+      }
+    },
+    "final": {
+      "id": "final",
+      "type": "output",
+      "inputs": {
+        "response": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "edges": [
+    {
+      "id": "e_start_call",
+      "from": "start",
+      "to": "call",
+      "map": {
+        "msg": "input"
+      }
+    },
+    {
+      "id": "e_call_final",
+      "from": "call",
+      "to": "final",
+      "map": {
+        "text": "response"
+      }
+    }
+  ],
+  "tools": {}
+}

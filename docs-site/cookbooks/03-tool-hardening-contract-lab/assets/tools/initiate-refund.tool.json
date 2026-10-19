@@ -1,6 +1,7 @@
 {
   "name": "initiate_refund",
-  "version": "1",
+  "version": "1.0",
+  "description": "Issue the refund. A write: the registry requires approval for it, and the sandbox mocks it.",
   "module_path": "caliber.workflows.demo_tools",
   "callable_name": "initiate_refund",
   "side_effect_level": "write",
@@ -9,14 +10,8 @@
     "type": "object",
     "required": ["order_id"],
     "properties": {
-      "order_id": {
-        "type": "string",
-        "description": "Order to refund."
-      },
-      "amount": {
-        "type": "number",
-        "description": "Refund amount in USD. Optional; the shipped callable ignores extras and returns its own amount_usd. Declared here so the workflow can pass the decided amount through the contract."
-      }
+      "order_id": {"type": "string", "description": "Order to refund."},
+      "amount": {"type": "number", "description": "Refund amount in USD."}
     }
   },
   "output_schema": {
@@ -26,6 +21,5 @@
       "refund_status": {"type": "string"},
       "amount_usd": {"type": "number"}
     }
-  },
-  "notes": "side_effect_level=write requires requires_approval=true (POST /tools rejects a write tool without it with a 400). side_effect_level=write -> in the Tools SANDBOX the response is mocked and the envelope carries a top-level mocked:true (it never really fires). In a normal WORKFLOW run there is no top-level mocked flag: the tool runs the real callable, but only AFTER the human_approval gate clears. Wire it AFTER the human_approval node so the refund only fires once the run is approved."
+  }
 }

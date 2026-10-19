@@ -68,9 +68,10 @@ test.describe("Cookbooks built only through visible CALIBER UI", () => {
     const runSlug = uiOnlySlug("pw-cookbook-catalog");
     const cookbook: UiOnlyCookbook = {
       id: "CATALOG-ALL",
-      title: "install all 16 real examples as separate paused drafts",
+      title: "install all 17 real examples as separate paused drafts",
       async execute(ui) {
-        for (let number = 1; number <= 16; number += 1) {
+        // The catalog is 01-16 plus 18 (17 is a standalone SDK automation with no catalog entry).
+        for (const number of [...Array.from({ length: 16 }, (_, i) => i + 1), 18]) {
           const cookbookId = String(number).padStart(2, "0");
           await ui.installCookbookDraft(cookbookId, `${runSlug}-${cookbookId}`);
         }

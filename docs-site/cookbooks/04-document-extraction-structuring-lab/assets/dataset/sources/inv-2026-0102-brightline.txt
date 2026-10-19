@@ -1,0 +1,14 @@
+Brightline Cloud Services Ltd
+INVOICE
+Invoice Number: BL-77120
+Date: March 9, 2026
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+1     Managed hosting, production cluster        3200.00       3200.00
+      March 2026, 3 nodes
+1     Premium support retainer                   1200.00       1200.00
+      includes 24x7 paging and quarterly review
+4     Extra storage 500 GB                        105.13        420.50
+
+Total Due: USD 4,820.50

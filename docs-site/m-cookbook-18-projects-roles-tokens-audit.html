@@ -1,0 +1,205 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook 18: Projects, Roles, Tokens &amp; Audit | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Cookbooks — UI-only, build-along recipes for the platform.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) { document.documentElement.dataset.theme = "light"; }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Browse documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span class="topbar-search-label">Search docs</span><span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search"><input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections"></div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+    <main class="main" id="docsContent">
+      <article class="content doc-body ck-wide">
+        
+      <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+        <span>Cookbooks</span><span aria-hidden="true">/</span>
+        <a href="m-16-cookbooks.html">All</a><span aria-hidden="true">/</span>
+        <span class="current">18 · Projects, Roles, Tokens &amp; Audit</span>
+      </nav>
+      <header class="doc-header">
+        <p class="doc-eyebrow">Cookbook 18 · Govern</p>
+        <h1>Projects, Roles, Tokens &amp; Audit</h1>
+        <p class="doc-lead">Set up a nine-person team in a workspace with owner, editor, reviewer and viewer roles, bind an access token to it, and read the audit trail.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Govern</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">45–60 min</span></div>
+      </header>
+      <div class="ck-cols">
+        <div class="callout"><strong>What you build.</strong> A nine-person support team in a workspace (the UI says <em>workspace</em>, the API says <em>project</em>): accounts from <code>team-roster.csv</code>, project roles, and a role matrix proved with 72 real requests (9 people x 8 actions) from <code>role-matrix.csv</code>. An editor issues an access token bound to the workspace, uses it from <code>caliberctl</code> and the Python SDK to release one prompt, and sees it refused (403) in another project and (401) once revoked or expired. The audit log, the release timeline and live board, and <code>/health</code> and <code>/readiness</code> record and explain all of it.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Administration</span> <span class="ck-badge ck-surface">Workspaces</span> <span class="ck-badge ck-surface">Settings</span> <span class="ck-badge ck-surface">Audit Log</span> <span class="ck-badge ck-surface">Releases</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Create the nine accounts under <strong>Admin &gt; Administration &gt; Accounts</strong>, create a workspace from the top bar (its creator is the primary owner) and add members under <strong>Project access</strong> as <strong>Owner (Admin)</strong>, <strong>Editor</strong>, <strong>Reviewer</strong> or <strong>Viewer</strong></li><li>Read the role matrix: a non-member gets 404, a viewer 403, and the primary owner cannot be removed or demoted (409); both the platform scope (<code>CALIBER_OPERATOR_USERS</code>, <code>CALIBER_APPROVER_USERS</code>) and the project role must allow a write</li><li>Issue a token in <strong>Admin &gt; Settings &gt; API tokens</strong> bound to one workspace (secret shown once), then see it refused with 403 in another project and with 401 once revoked or expired</li><li>Find each action in <strong>Operate &gt; Audit Log</strong> by actor, action and entity ID (admin only; no token secret in any row; refused requests are not audited)</li><li>Read the prompt release on <strong>Prompt lifecycle &gt; Releases</strong> (one <strong>Promote</strong> event, <strong>What's live now</strong>), and <code>/readiness</code> plus the <strong>Simulated providers</strong> banner</li></ul></div>
+      </div>
+      <h2 id="flow">Implementation flow</h2>
+      <div class="diagram"><pre class="mermaid">flowchart LR
+  AD[&quot;Admin: create 9 accounts&quot;] --&gt; WS[&quot;maya creates workspace: primary owner&quot;]
+  WS --&gt; MB[&quot;Project access: add 7 members with roles&quot;]
+  MB --&gt; RM[&quot;Role matrix: 72 requests&quot;]
+  MB --&gt; TK[&quot;priya issues token bound to workspace&quot;]
+  TK --&gt; UV[&quot;SDK and caliberctl: release a prompt to prod&quot;]
+  TK --&gt; RF[&quot;403 other project, 401 revoked or expired&quot;]
+  UV --&gt; RL[&quot;Releases: Promote event + live board&quot;]
+  RM --&gt; AU[&quot;Audit Log: actor, action, entity&quot;]
+  RF --&gt; AU
+  RL --&gt; RD[&quot;Readiness: eval and llm simulated&quot;]</pre></div>
+      <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
+      <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
+        and a snapshot of the CALIBER screen you'll be on.</p>
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Admin › Administration › Accounts</code> <span class="ck-made">creates · nine accounts</span> <a class="ck-assetref" href="#asset-assets-dataset-team-roster-csv">team-roster.csv ↓</a></div><div class="ck-step-do">Sign in as <code>admin</code> / <code>admin</code>. An account holds a password only, so first create the nine people in <a href="#asset-assets-dataset-team-roster-csv">team-roster.csv</a>. For each one type the <strong>User ID</strong> and the <strong>Password</strong> (at least 12 characters; this lab uses <code>lab18-demo-passphrase</code>, which is public, so use it only on a stack nobody else can reach) and click <strong>Create account</strong>. The server must already list the roster in <code>CALIBER_OPERATOR_USERS</code> and <code>CALIBER_APPROVER_USERS</code> (see the README): those lists, not the project role, decide who may write or approve at all.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>User ID</td><td><code>maya</code>, <code>omar</code>, <code>priya</code>, <code>sam</code>, <code>quinn</code>, <code>rosa</code>, <code>victor</code>, <code>wen</code>, <code>nora</code></td></tr><tr><td>Password</td><td><code>lab18-demo-passphrase</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create account</span></div><div class="ck-see"><strong>You'll see:</strong> A green note <code>Created maya.</code> after each, and nine rows in the table, each <strong>Active</strong>. An account an earlier cleanup disabled shows an <strong>Enable</strong> button instead.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Admin › Administration › Accounts</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Accounts</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">User ID</span><span class="ck-mk-input">maya, omar, priya, sam, quinn, rosa, victor, wen, nora</span></label><label class="ck-mk-field"><span class="ck-mk-label">Password</span><span class="ck-mk-input">lab18-demo-passphrase</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create account</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Top bar › Create workspace</code> <span class="ck-made">creates · workspace lab18-support-copilot (maya is primary owner)</span></div><div class="ck-step-do">Sign out and sign in as <code>maya</code> (a team lead who holds both the operator and approver scopes). In the top bar click the <strong>+</strong> beside the workspace selector (<strong>Create workspace</strong>), name it, and click <strong>Create and select</strong>. The UI says <em>workspace</em>; the API says <em>project</em>. They are the same object.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Workspace name</td><td><code>lab18-support-copilot</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create and select</span></div><div class="ck-see"><strong>You'll see:</strong> The workspace selector now shows the new workspace. The person who creates a workspace is its <strong>primary owner</strong>: that role cannot be removed or demoted later.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Top bar › Create workspace</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Create workspace</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Workspace name</span><span class="ck-mk-input">lab18-support-copilot</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create and select</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Admin › Administration › Project access</code> <span class="ck-made">creates · seven members with roles</span> <a class="ck-assetref" href="#asset-assets-dataset-team-roster-csv">team-roster.csv ↓</a></div><div class="ck-step-do">Still as <code>maya</code>, open <strong>Administration</strong> and scroll to <strong>Project access</strong>. The <strong>Project for access management</strong> selector shows your workspace. For each of the other seven members in the roster type the <strong>User ID</strong>, choose the <strong>Role</strong> and click <strong>Add member</strong>. Do not add <code>nora</code>: she is the non-member. (The Accounts and Secrets sections show <code>missing required scope ... caliber.admin</code> for <code>maya</code>: she is an owner, not an admin, and Project access works regardless.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>omar</td><td>Owner (Admin)</td></tr><tr><td>priya, sam</td><td>Editor</td></tr><tr><td>quinn, rosa</td><td>Reviewer</td></tr><tr><td>victor, wen</td><td>Viewer</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Add member</span></div><div class="ck-see"><strong>You'll see:</strong> A green note <code>Added omar to lab18-support-copilot.</code> after each. The table lists <code>maya (primary owner)</code> with no <strong>Remove</strong> button and each member with the role you chose; <code>nora</code> is not listed.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Admin › Administration › Project access</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Project access</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">omar</span><span class="ck-mk-input">Owner (Admin)</span></label><label class="ck-mk-field"><span class="ck-mk-label">priya, sam</span><span class="ck-mk-input">Editor</span></label><label class="ck-mk-field"><span class="ck-mk-label">quinn, rosa</span><span class="ck-mk-input">Reviewer</span></label><label class="ck-mk-field"><span class="ck-mk-label">victor, wen</span><span class="ck-mk-input">Viewer</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Add member</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Prompt lifecycle › Prompts › New prompt</code> <span class="ck-made">creates · viewer refused, editor creates and releases a prompt</span></div><div class="ck-step-do">Sign in as <code>victor</code> (viewer), choose the workspace in the top bar, open <strong>Prompts</strong>, click <strong>New prompt</strong> then <strong>Write / paste</strong>, enter a <strong>Prompt name</strong> and some <strong>Prompt text</strong>, and click <strong>Create and Open</strong>. Then open <strong>Administration › Project access</strong> as <code>victor</code>. Finally sign in as <code>priya</code> (editor), choose the workspace, and create the prompt the same way.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Prompt name</td><td><code>lab18-support-reply</code></td></tr><tr><td>Prompt text</td><td><code>Reply to the customer politely.</code> then a blank line and <code>Question: {question}</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create and Open</span></div><div class="ck-see"><strong>You'll see:</strong> For <code>victor</code>: <code>project role 'viewer' cannot perform resource.write.runtime</code>, and on Administration the line <strong>Only a project Admin can manage members.</strong> with no <strong>Add member</strong> form. For <code>priya</code>: the prompt opens with <strong>v1</strong> marked <strong>Live</strong>, because creating a prompt releases its first version to <code>@prod</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Prompt lifecycle › Prompts › New prompt</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Prompts</span><span class="ck-mk-title">New prompt</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Prompt name</span><span class="ck-mk-input">lab18-support-reply</span></label><label class="ck-mk-field"><span class="ck-mk-label">Prompt text</span><span class="ck-mk-input">Reply to the customer politely. then a blank line and Question: {question}</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create and Open</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Top bar › workspace selector (as a non-member)</code> <span class="ck-made">creates · non-member sees no workspace</span></div><div class="ck-step-do">Sign in as <code>nora</code>, who is an operator but belongs to no workspace. Open the workspace selector.</div><div class="ck-see"><strong>You'll see:</strong> It holds only <strong>All workspaces</strong>: the workspace does not appear at all. Through the API every request she makes against it is a 404, not a 403: as far as she can tell it does not exist.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Top bar › workspace selector (as a non-member)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">workspace selector (as a non-member)</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Admin › Settings › API tokens</code> <span class="ck-made">creates · token support-ci bound to the workspace</span></div><div class="ck-step-do">Sign in as <code>priya</code> and open <strong>Settings</strong> then the <strong>API tokens</strong> tab. Name the token, keep <strong>Expires</strong> at 30 days, pick the workspace in <strong>Workspace</strong> (each is listed with your role in it), tick <strong>caliber.operator</strong> and click <strong>Create token</strong>. Copy the secret now; it is shown once.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Token name</td><td><code>support-ci</code></td></tr><tr><td>Expires</td><td><code>30 days</code></td></tr><tr><td>Workspace</td><td><code>lab18-support-copilot (editor)</code></td></tr><tr><td>Scopes</td><td><code>caliber.operator</code> (and <code>caliber.viewer</code>, preselected)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create token</span></div><div class="ck-see"><strong>You'll see:</strong> A green box: <strong>Copy this token now. It will not be shown again.</strong> with the <code>calpat_...</code> secret. Click <strong>I have copied it</strong>: the secret is gone for good. <strong>Your tokens</strong> lists <code>support-ci</code> as <strong>Active</strong> with its scopes and workspace. Use it as <code>CALIBER_TOKEN</code> with <code>caliberctl</code> or the SDK: it acts in this workspace, is refused (403) in any other, and can never do more than <code>priya</code> can.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Admin › Settings › API tokens</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Settings</span><span class="ck-mk-title">API tokens</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Token name</span><span class="ck-mk-input">support-ci</span></label><label class="ck-mk-field"><span class="ck-mk-label">Expires</span><span class="ck-mk-input">30 days</span></label><label class="ck-mk-field"><span class="ck-mk-label">Workspace</span><span class="ck-mk-input">lab18-support-copilot (editor)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Scopes</span><span class="ck-mk-input">caliber.operator (and caliber.viewer, preselected)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create token</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Admin › Settings › API tokens › Revoke</code> <span class="ck-made">creates · revoked token</span></div><div class="ck-step-do">On the <code>support-ci</code> row click <strong>Revoke</strong>, read the confirmation and click <strong>Revoke token</strong>.</div><div class="ck-click">Click <span class="ck-btn">Revoke token</span></div><div class="ck-see"><strong>You'll see:</strong> The row reads <strong>Revoked</strong> and its <strong>Rotate</strong> and <strong>Revoke</strong> buttons are gone. Anything still using the secret now gets 401.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Admin › Settings › API tokens › Revoke</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Settings</span><span class="ck-mk-title">Revoke</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Revoke token</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Operate › Audit Log</code> <span class="ck-made">creates · audit rows by entity, actor and action</span></div><div class="ck-step-do">Sign in as <code>admin</code> and open <strong>Audit Log</strong> (only an admin can: <code>maya</code> sees <strong>Admin access required</strong>). Find the workspace's id first: set <strong>Actor</strong> <code>maya</code> and <strong>Action</strong> <code>create_project</code>; the row that names your workspace shows <code>project · PRJ-...</code> in <strong>Entity</strong>. Clear both and put that id in <strong>Entity ID</strong>, then try <strong>Action</strong> <code>add_project_member</code>, and finally <strong>Actor</strong> <code>priya</code> with <strong>Action</strong> <code>create_personal_access_token</code> and then <code>revoke_personal_access_token</code>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Entity ID</td><td>the workspace id (<code>PRJ-...</code>)</td></tr><tr><td>Action</td><td><code>add_project_member</code></td></tr><tr><td>Actor</td><td><code>priya</code></td></tr><tr><td>Action</td><td><code>create_personal_access_token</code></td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> With the entity id: one <code>create_project</code> row by <code>maya</code> and seven <code>add_project_member</code> rows whose details name each role. For <code>priya</code>: a <code>create_personal_access_token</code> row whose details carry the workspace id and the scopes, and no secret, and later the <code>revoke_personal_access_token</code> row. Refused requests (a viewer's 403) write no row: the log records what changed.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Operate › Audit Log</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Audit Log</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Entity ID</span><span class="ck-mk-input">the workspace id (PRJ-...)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Action</span><span class="ck-mk-input">add_project_member</span></label><label class="ck-mk-field"><span class="ck-mk-label">Actor</span><span class="ck-mk-input">priya</span></label><label class="ck-mk-field"><span class="ck-mk-label">Action</span><span class="ck-mk-input">create_personal_access_token</span></label></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Prompt lifecycle › Releases</code> <span class="ck-made">creates · prompt release on the timeline and live board</span></div><div class="ck-step-do">Open <strong>Releases</strong>. <strong>What's live now</strong> is the live board; <strong>Timeline</strong> is the history of promotions and rollbacks. The release timeline is not workspace-scoped in the alpha, so other prompts may appear too.</div><div class="ck-see"><strong>You'll see:</strong> <strong>What's live now</strong> has a row for your prompt at <code>v1</code> on <code>@prod</code>, <code>priya</code> as the actor; <strong>Timeline</strong> has one <strong>Promote</strong> event for it, also by <code>priya</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Prompt lifecycle › Releases</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Releases</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Any page › top bar and banner</code> <span class="ck-made">creates · health dot and simulated-provider banner</span></div><div class="ck-step-do">Look at the top bar and the banner under it. The green dot is <code>/health</code> (the process and the database are up); the banner is built from <code>/readiness</code>. You can also read both by hand: <code>curl $CALIBER_API/health</code> and <code>curl $CALIBER_API/readiness</code>.</div><div class="ck-see"><strong>You'll see:</strong> The amber banner says <strong>Simulated providers: eval, llm are running in fake mode</strong> and <strong>Evaluation scores are canned, not measurements.</strong>; the dot's tooltip is <strong>API and database reachable</strong>. A missing dependency would add a red <strong>Not ready</strong> line naming it, and <code>/readiness</code> would answer 503.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Any page › top bar and banner</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">top bar and banner</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li></ol>
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/18-projects-roles-tokens-audit/assets/</code>.</p><div class="ck-asset" id="asset-assets-dataset-team-roster-csv">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/team-roster.csv</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="csv"><code>user_id,display_name,job_title,project_role,platform_scopes,why_they_are_in_the_roster
+maya,Maya Chen,Support engineering lead,owner,operator+approver,Creates the project so she is its primary owner (cannot be removed or demoted)
+omar,Omar Haddad,Support operations manager,owner,operator+approver,A second owner: a secondary admin who manages members but is not the primary owner
+priya,Priya Nair,Prompt engineer,editor,operator,Writes and releases prompts; the identity that gets the project-bound token
+sam,Sam Okafor,Prompt engineer,editor,operator,A second editor: proves the editor column is about the role and not one person
+quinn,Quinn Larsen,QA lead,reviewer,operator+approver,Runs evaluations and records evidence but cannot change or release anything
+rosa,Rosa Alvarez,QA analyst,reviewer,operator,A second reviewer without the approver scope
+victor,Victor Petrov,Product manager,viewer,operator,A viewer who also holds the operator scope: the 403 names the missing project role
+wen,Wen Zhao,Compliance auditor,viewer,none,A viewer with no operator scope: the 403 comes from the platform scope instead
+nora,Nora Whitfield,Billing platform engineer,none,operator,Not a member of the project: every project request is a 404
+</code></pre>
+    </div>
+      <h2 id="gates">Evaluation &amp; quality gates</h2>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Role matrix</td><td>all 72 requests (9 people x 8 actions) return the status role-matrix.csv expects, 0 mismatches</td></tr><tr><td>Bound token</td><td>acts in its own workspace; 403 in another project; 401 once revoked or expired</td></tr><tr><td>Primary owner</td><td>cannot be removed (409) or demoted (409); no role can be escalated by the person asking</td></tr><tr><td>Failure scenarios</td><td>F01-F15 refused with the documented status and text (F16 CSRF only when the server enables it)</td></tr><tr><td>Audit</td><td>one row for each action, filterable by actor, action and entity; 0 rows carry a token secret</td></tr><tr><td>Release and readiness</td><td>one Promote event for the prompt by the editor, prompt live at v1 on @prod; /readiness ready and names eval and llm as simulated</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li><strong>Flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> only opens the gallery (the lab is listed and installable); projects, roles, tokens, audit and readiness need no flag. Start with <code>scripts/cookbook-env.sh up lab18 --flags cookbooks</code>.</li><li><strong>Server platform scopes are required.</strong> Export <code>CALIBER_ADMIN_USERS=admin</code>, <code>CALIBER_OPERATOR_USERS=admin,maya,omar,priya,sam,quinn,rosa,victor,nora</code> and <code>CALIBER_APPROVER_USERS=admin,maya,omar,quinn</code> before the stack starts: an account holds a password only. <code>wen</code> is on neither list on purpose; <code>nora</code> is an operator in no project.</li><li><strong>Two different 403s.</strong> A viewer who is an operator (<code>victor</code>) is refused by the <em>project role</em>; one who is not (<code>wen</code>) is refused by the <em>platform scope</em> first. A non-member gets 404, not 403. Only someone on both operator and approver lists may be an <code>owner</code> (409).</li><li><strong>Simulated vs real.</strong> Nothing calls a model (default <code>fake</code> LLM/eval providers). The only visible effect is the <code>evaluation.run</code> row: an allowed member gets 400 <code>evaluation requires a real LLM provider</code> (201 with a real provider; the matrix accepts <code>400|201</code>), a viewer gets 403.</li><li><strong>Limitations the lab shows.</strong> Traces and prompt releases are not project-scoped (the timeline lists promotions from every project; the prompt inventory is scoped); refused requests are not audited; apply has no second approver. <code>GET /me</code> answers <code>anonymous</code> for a revoked token, so check a route that needs a user.</li><li><strong>Demo password.</strong> Every roster account uses the public password <code>lab18-demo-passphrase</code>: create them only on a stack nobody else can reach. Leave <code>CALIBER_PROJECT</code> unset so the bound token visibly acts in its own project.</li><li><strong>Run it.</strong> <code>PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_18_projects_roles_tokens_audit</code> (about ten seconds; <code>--cleanup</code> archives the <code>lab18-*</code> projects and disables the nine accounts). UI spec: <code>18-projects-roles-tokens-audit.spec.ts</code>.</li></ul></div>
+      <nav class="ck-pager"><a href="m-cookbook-11-release-signoff.html">← Release Signoff Factory</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-12-aria-eval-harness.html">Aria: Evaluation Harness from Intent →</a></nav>
+        <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
+        Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>
+      </article>
+    </main>
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card"><div class="toc-title">On this page</div><nav class="toc-links" id="page-toc"></nav></div>
+    </aside>
+  </div>
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+  <script>
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-ck-copy]"); if (!b) return;
+      var pre = b.closest(".ck-asset").querySelector("pre code");
+      var txt = pre ? pre.textContent : "";
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () {
+        var old = b.textContent; b.textContent = "Copied"; b.classList.add("ok");
+        setTimeout(function () { b.textContent = old; b.classList.remove("ok"); }, 1400);
+      }).catch(function () { b.textContent = "Select + copy"; });
+    });
+  </script>
+</body>
+
+</html>

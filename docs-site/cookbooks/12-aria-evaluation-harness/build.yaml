@@ -1,33 +1,33 @@
-workflow_goal: From one clear intent, have Aria plan and create a faithfulness judge and an eval dataset to run it on, collecting the judge's fields through the plan's input form.
-# Verified against the Aria capability registry + plan executor — see ../FEASIBILITY.md and ../ARIA-AUTONOMY.md.
+workflow_goal: From one clear intent, have Aria plan and create a faithfulness judge and a test set, collecting each step's fields through the plan's input forms, then load 30 cases into the test set.
+# Verified against the Aria capability registry + plan executor - see ../ARIA-AUTONOMY.md.
 feasibility:
-  - Aria's capability registry today = judge.create, review_queue.create, eval_dataset.create, review_queue.add_items, workflow.calibrate (+ the read capabilities judge.list, review_queue.list, openapi_tool.list, openapi_tool.invoke). It can NOT author prompts, skills, tools, or workflows. This scenario lives entirely inside that set.
-  - The default HeuristicPlanner proposes a step for each non-read capability whose DOMAIN word appears in the goal (or a synonym such as "test set" for eval_dataset), so the canonical intent says "judge" and "eval dataset" literally. "faithfulness scoring" would not produce a judge step; no LLM planner is wired.
-  - INPUTS - the planner leaves unknown fields empty; when judge.create is about to run, the executor raises an `input` interaction (UI - "Aria needs information", Continue plan / Skip step; API - POST /aria/interactions/{id}/answer {inputs}). The answer is merged into the step and validated against the capability schema, then the plan resumes. The planner links eval_dataset.create's `name` to judge.create's `name`, so the test set takes the judge's name and that step needs no input (Approve only).
+  - Aria's capability registry today = judge.create, review_queue.create, eval_dataset.create, review_queue.add_items, workflow.calibrate (+ the read capabilities judge.list, review_queue.list, openapi_tool.list, openapi_tool.invoke). It cannot author prompts, skills, tools or workflows. This scenario lives entirely inside that set.
+  - The default planner proposes a step for each non-read capability whose DOMAIN word appears in the goal (or a synonym such as "test set" for eval_dataset). It is rules, not a model: it does not read negation or questions and matches words inside other words.
+  - INPUTS - the planner leaves unknown fields empty; when a step is about to run the executor raises an `input` interaction (UI - "Aria needs information", Continue plan / Skip step; API - POST /aria/interactions/{id}/answer {inputs}). The answer is merged into the step and validated against the capability schema (a bad one is a 409 and the question stays open), then the plan resumes. A planner only wires a field that points at an earlier step's result (a *_id); a name is always asked for.
   - autonomy ask_each adds an Approve/Deny prompt before each mutate step; approve_plan/auto_guarded run them straight after the input form.
-  - eval_dataset.create makes the EMPTY test set; example rows are added separately (not an Aria capability) — add them after, then run Evaluations (see SCN-01/SCN-10; needs a real model provider).
+  - eval_dataset.create makes the EMPTY test set; example rows are added separately (not an Aria capability).
 manual_flow:
   - step: state_intent
-    action: Open Plans, create a new goal with the one-line intent and pick autonomy.
+    action: Open Integrations > Plans, state the one-line intent and pick the autonomy.
   - step: review_plan
-    action: Aria decomposes the intent into a draft plan (judge.create + eval_dataset.create); review the steps.
+    action: Aria drafts a plan (judge.create then eval_dataset.create); read the steps.
   - step: approve
-    action: Click Approve plan.
+    action: Press Approve plan.
   - step: execute_and_answer
-    action: Execute; fill the judge's fields in the "Aria needs information" form and Continue plan; Approve each step under ask_each.
+    action: Execute; fill the judge's form and the test set's form, press Continue plan; Approve each step under ask_each.
   - step: verify
-    action: Confirm the judge is active (Judges) and the test set exists (Test Sets).
+    action: Confirm the judge is active (Judges) and the test set exists (Test Sets); add rows.
 components:
   aria:
     intent: "Create a judge for answer faithfulness and an eval dataset to run it on."
-    autonomy: ask_each        # Stop before each change; or approve_plan to auto-run mutate steps after the input form
+    autonomy: ask_each
     capabilities:
       - judge.create          # TIER_MUTATE
       - eval_dataset.create   # TIER_MUTATE
-    step_inputs_needed:   # entered in the plan's input form (or POSTed as `inputs`)
-      - "judge.create: enter {name, instructions (must reference {{ inputs }}/{{ outputs }}/{{ expectations }})}; optional feedback_value_type, description, model, tags"
-      - "eval_dataset.create: nothing to enter with the default planner — name is linked from judge.create (description/tags are only prompted if name is not linked)"
-  prompts: none          # Aria acts via capabilities, not prompt assets
+    step_inputs_needed:
+      - "judge.create: name, instructions (must reference {{ inputs }}/{{ outputs }}/{{ expectations }}/{{ conversation }}/{{ trace }}); optional feedback_value_type, description, model, tags"
+      - "eval_dataset.create: name; optional description, tags"
+  prompts: none
   skills: none
   tools: none
   mcp: none
@@ -43,9 +43,11 @@ contracts:
     type: object
     required: [judge_id, dataset_id]
 failure_modes:
-  - intent omits a domain needle -> planner skips that capability
-  - judge instructions reference no template variable -> judge.create rejects (operator scope + validation)
+  - intent omits a domain word -> the planner skips that capability (or plans nothing, and the plan cannot be approved)
+  - judge instructions reference no evaluation variable -> the form accepts it, judge.create fails the step and the plan
+  - a name that is already taken -> the step fails the plan
+  - the plan's owner lacks the operator scope -> the plan fails at execute and creates nothing
   - no model provider -> the judge cannot run in Evaluations (400)
 fallbacks:
-  - if an unwanted step is proposed, Deny / Skip step to mark it skipped.
-  - if a capability is missing from the plan, re-create the plan with the domain words explicit.
+  - if an unwanted step is proposed, Deny / Skip step marks it skipped, or Cancel the draft.
+  - a failed plan cannot be run again: state the goal again.

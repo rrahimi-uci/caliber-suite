@@ -1,15 +1,26 @@
-golden_cases:
-  - id: D01
-    input: {doc_path: "/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-clean.docx", document_type: "invoice"}
-    expected: {validation_status: "pass"}
-  - id: D02
-    input: {doc_path: "/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-clean.xlsx", document_type: "spreadsheet"}
-    expected: {validation_status: "pass"}
-edge_cases:
-  - id: D03
-    input: {doc_path: "/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-partial.docx", document_type: "invoice"}
-    expected: {validation_status: "partial", missing_fields: ["total"]}
-negative_cases:
-  - id: D04
-    input: {doc_path: "/ABSOLUTE/PATH/TO/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/invoice-legacy.doc", document_type: "unsupported"}
-    expected_error: "unsupported_format"
+# Test data for the lab. The corpus, the expected outcome of every document and how they are loaded
+# are described in README.md ("Dataset and sample files").
+dataset:
+  cases: assets/dataset/extraction-cases.jsonl     # 30 cases: id, tags, note, inputs.key, expectations
+  documents: assets/dataset/sources/               # 30 files: UTF-8 text, CSV and Markdown, one ISO-8859-1 file, one over 100 KB, one empty
+  load:
+    ui: Object Store -> doc-intake -> New folder "incoming" -> Upload (select all files)
+    api: caliber.object_store.upload("doc-intake", filename=..., content=..., key="incoming/<file>")
+mix:
+  extracted: 16
+  needs_review: 13
+  duplicate: 1
+messy_cases:
+  - missing total
+  - missing invoice number
+  - missing vendor
+  - unparseable date
+  - total that does not match the lines
+  - no currency
+  - an "N/A" amount
+  - ISO-8859-1 text (not UTF-8)
+  - a file over the 100 KB read cap
+  - a purchase order and meeting notes (not invoices)
+  - an empty file
+  - an invoice with no line items
+  - the same invoice sent twice

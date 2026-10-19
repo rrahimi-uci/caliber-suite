@@ -1,0 +1,13 @@
+Harbor Metrology
+INVOICE
+PO Number: PO-7731
+Invoice No: HM-1188
+Invoice Date: 2026-03-26
+Due Date: 2026-04-25
+Terms: Net 30
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+2     Calibration service                       $450.00       $900.00
+
+Total                                             $900.00

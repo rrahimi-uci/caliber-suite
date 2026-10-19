@@ -2,48 +2,32 @@
   "steps": [
     {
       "where": "Integrations › Plans",
-      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_ARIA=true</code> on the CALIBER server and restart it; Aria and the Plans page are off by default. In the left sidebar, under the <strong>Integrations</strong> group (the page carries a <strong>Preview</strong> badge), click <strong>Plans</strong>. This is Aria's goal-planner. The flagship demo: one sentence decomposes into a <em>whole</em> governance scaffold — a faithfulness judge, an eval dataset, and a human-review queue — in a single plan.",
-      "see": "The <strong>Aria Plans</strong> page with a <em>Goal</em> text box, an <em>Autonomy</em> dropdown, and a <em>Decompose goal</em> button."
-    },
-    {
-      "where": "Integrations › Plans › New goal",
-      "do": "Type Aria's one-line intent into the <strong>Goal</strong> box, using the canonical wording verbatim. The three literal needles — <code>judge</code>, <code>eval dataset</code>, and <code>review queue</code> — are what make the default planner propose all three creates. Then set the <strong>Autonomy</strong> dropdown to <strong>Stop before each change</strong> (the <code>ask_each</code> level) so Aria pauses on every step.",
+      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default). In the sidebar open <strong>Integrations</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>. The planner is rules, not a model: it looks for the words <code>judge</code>, <code>eval dataset</code> / <code>test set</code> and <code>review queue</code>.",
       "fill": [
         [
           "Goal",
-          "Stand up our governance starter kit: a judge for answer faithfulness, an eval dataset to score against, and a review queue for human checks. <span style=\"color:#888\">(canonical intent — copy from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/intent.md\">intent.md</a>)</span>"
+          "Stand up our governance starter kit: a judge for answer faithfulness, an eval dataset to score against, and a review queue for human checks."
         ],
         [
           "Autonomy",
-          "Stop before each change <span style=\"color:#888\">(= ask_each)</span>"
+          "Stop before each change"
         ]
       ],
       "click": "Decompose goal",
-      "see": "The button shows <em>Decomposing…</em>, then Aria opens the new plan's detail page. The breadcrumb reads <code>Plans › PLAN-…</code> and the status badge says <strong>DRAFT</strong>.",
-      "asset": "Aria plan (draft)"
+      "see": "The plan opens with the status <code>draft</code>.",
+      "asset": "Draft plan",
+      "assetlink": [
+        {
+          "href": "../cookbooks/14-aria-governance-starter-kit/assets/intent.md",
+          "label": "intent.md"
+        }
+      ]
     },
     {
-      "where": "Integrations › Plans › PLAN-… (draft)",
-      "do": "Read the <strong>Plan steps</strong> list and confirm Aria found all four steps. Three are the artifacts you want; the fourth (<code>review_queue.add_items</code>) is proposed only because it shares the \"review queue\" domain — you will skip it later (no traces yet). Compare against <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/expected-plan.json\">expected-plan.json</a>.",
-      "fill": [
-        [
-          "Step 1",
-          "<code>judge.create</code> — tier mutate"
-        ],
-        [
-          "Step 2",
-          "<code>review_queue.create</code> — tier mutate"
-        ],
-        [
-          "Step 3",
-          "<code>eval_dataset.create</code> — tier mutate"
-        ],
-        [
-          "Step 4",
-          "<code>review_queue.add_items</code> — tier mutate (skip this one)"
-        ]
-      ],
-      "see": "A four-row <strong>Plan steps</strong> list (<code>judge.create</code>, <code>review_queue.create</code>, <code>eval_dataset.create</code>, <code>review_queue.add_items</code>) in registry order, each with a <em>PENDING</em> badge.",
+      "where": "Integrations › Plans › (draft plan)",
+      "do": "Read <strong>Plan steps</strong>. Aria drew four steps, in registry order and not in the order of your sentence: <code>judge.create</code>, <code>review_queue.create</code>, <code>eval_dataset.create</code> and <code>review_queue.add_items</code> (a review queue always brings its enqueue step; it reads <em>depends on 1 prior step(s)</em>). Nothing has run. Compare with <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/expected-plan.json\">expected-plan.json</a>.",
+      "see": "Four pending steps; only the enqueue step depends on another.",
+      "asset": "Reviewed plan (4 steps)",
       "assetlink": [
         {
           "href": "../cookbooks/14-aria-governance-starter-kit/assets/expected-plan.json",
@@ -52,45 +36,36 @@
       ]
     },
     {
-      "where": "Integrations › Plans › PLAN-… (draft)",
-      "do": "Approve the plan shape (you are signing off on which steps run, not running them yet). Click <strong>Approve plan</strong> in the top-right of the plan header.",
+      "where": "Integrations › Plans › (draft plan)",
+      "do": "Press <strong>Approve plan</strong>.",
       "click": "Approve plan",
-      "see": "The status badge flips from <strong>DRAFT</strong> to <strong>APPROVED</strong>, and an <strong>Execute</strong> button appears."
+      "see": "The status becomes <code>approved</code> and an <strong>Execute</strong> button appears.",
+      "asset": "Approved plan"
     },
     {
-      "where": "Integrations › Plans › PLAN-… (approved)",
-      "do": "Start running the plan. Click <strong>Execute</strong>. Aria reaches the first step, <code>judge.create</code>, but the planner could not know the judge's name or instructions, so it pauses on a violet <strong>Aria needs information</strong> form with a field per capability input (<em>name</em> and <em>instructions</em> are required) and two buttons, <strong>Continue plan</strong> and <strong>Skip step</strong>.",
-      "click": "Execute",
-      "see": "The <code>judge.create</code> row shows <em>WAITING INPUT</em> and an <strong>Aria needs information</strong> form is open above the step list."
-    },
-    {
-      "where": "Integrations › Plans › PLAN-… (input form)",
-      "do": "Fill the judge form from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/judges/answer-faithfulness.judge.json\">answer-faithfulness.judge.json</a> — these are the <code>judge.create</code> inputs. The <em>instructions</em> must reference at least one of <code>{{ inputs }}</code> / <code>{{ outputs }}</code> / <code>{{ expectations }}</code>. Click <strong>Continue plan</strong>; Aria merges and validates the inputs (a bad value is rejected and the form stays open), then — because autonomy is <em>ask_each</em> — raises an <strong>Aria needs your approval</strong> prompt. Click <strong>Approve</strong> to create the judge.",
+      "where": "Integrations › Plans › (approved plan)",
+      "do": "Press <strong>Execute</strong>. Aria stops on <strong>Aria needs information</strong> (<em>Provide the required inputs for step 1: Create judge.</em>). Fill it from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/judges/answer-faithfulness.judge.json\">answer-faithfulness.judge.json</a> and press <strong>Continue plan</strong>; then <strong>Approve</strong> the prompt <em>Approve step 1: Create judge (judge.create)?</em>.",
       "fill": [
         [
           "name",
           "AnswerFaithfulness"
         ],
         [
-          "description",
-          "Judges whether an assistant answer is faithful to its evidence."
+          "instructions",
+          "You audit whether an assistant answer is faithful to its evidence. ... Judge faithfulness only - not style."
         ],
         [
           "feedback value type",
-          "<code>bool</code>"
+          "bool"
         ],
         [
-          "instructions",
-          "You audit whether an assistant answer is faithful to its evidence. You are given the request {{ inputs }}, the model {{ outputs }}, and the reference {{ expectations }}.<br><br>Return true ONLY if every factual claim in {{ outputs }} is supported by {{ expectations }} (or by evidence cited in {{ inputs }}), and the answer makes no unsupported commitments. If any claim is unsupported, contradicted, or hallucinated, return false. Judge faithfulness only — not style."
-        ],
-        [
-          "model (optional)",
-          "<span style=\"color:#888\">your configured judge model</span>"
+          "tags",
+          "[\"aria-created\",\"faithfulness\",\"governance\"]"
         ]
       ],
-      "click": "Continue plan",
-      "see": "After <strong>Approve</strong>, <code>judge.create</code> shows <em>DONE</em> and the plan pauses on the <code>review_queue.create</code> form.",
-      "asset": "Judge: AnswerFaithfulness (created by Aria)",
+      "click": "Approve",
+      "see": "The judge step reads <em>done</em> and the plan moves on to the queue.",
+      "asset": "Judge created by Aria",
       "assetlink": [
         {
           "href": "../cookbooks/14-aria-governance-starter-kit/assets/judges/answer-faithfulness.judge.json",
@@ -99,21 +74,21 @@
       ]
     },
     {
-      "where": "Integrations › Plans › PLAN-… (input form)",
-      "do": "Fill the review-queue form from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/review-queues/governance-review.queue.json\">governance-review.queue.json</a>. The planner linked this step's <code>name</code> to the judge step's, so the form does <strong>not</strong> ask for a name — the queue will be created as <code>AnswerFaithfulness</code>. Enter the <strong>description</strong> and paste the four-question <strong>questions</strong> JSON array (the form rejects invalid JSON), click <strong>Continue plan</strong>, then <strong>Approve</strong>.",
+      "where": "Integrations › Plans › (running plan)",
+      "do": "<em>Provide the required inputs for step 2: Create review queue.</em> Fill <strong>name</strong>, <strong>description</strong> and <strong>questions</strong> (a JSON array) from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/review-queues/governance-review.queue.json\">governance-review.queue.json</a>, press <strong>Continue plan</strong>, then <strong>Approve</strong> <em>Approve step 2: Create review queue (review_queue.create)?</em>.",
       "fill": [
         [
-          "description",
-          "Human spot-check of release-candidate answers: faithfulness, citation correctness, tone, and free-text notes. Pairs with the AnswerFaithfulness judge and the test set as the human layer of the governance kit."
+          "name",
+          "governance-review"
         ],
         [
           "questions",
-          "<code>[{\"key\": \"faithful\", \"title\": \"Is the answer faithful to the evidence?\", \"type\": \"pass_fail\", \"required\": true, \"target\": \"feedback\"}, {\"key\": \"citation_ok\", \"title\": \"Are the citations correct and sufficient?\", \"type\": \"pass_fail\", \"required\": false, \"target\": \"feedback\"}, {\"key\": \"tone\", \"title\": \"Tone of the answer\", \"type\": \"categorical\", \"options\": [\"on_brand\", \"neutral\", \"off_brand\"], \"required\": false, \"target\": \"feedback\"}, {\"key\": \"notes\", \"title\": \"Reviewer notes\", \"type\": \"text\", \"required\": false, \"target\": \"feedback\"}]</code>"
+          "[{\"key\":\"faithful\",\"title\":\"Is the answer faithful to the evidence?\",\"type\":\"pass_fail\",...}, ...]"
         ]
       ],
-      "click": "Continue plan",
-      "see": "After <strong>Approve</strong>, <code>review_queue.create</code> shows <em>DONE</em> and the plan moves on to <code>eval_dataset.create</code>.",
-      "asset": "Review queue (created by Aria)",
+      "click": "Approve",
+      "see": "The queue step reads <em>done</em>.",
+      "asset": "Review queue created by Aria",
       "assetlink": [
         {
           "href": "../cookbooks/14-aria-governance-starter-kit/assets/review-queues/governance-review.queue.json",
@@ -122,31 +97,67 @@
       ]
     },
     {
-      "where": "Integrations › Plans › PLAN-… (interaction prompts)",
-      "do": "Finish the plan. <code>eval_dataset.create</code> has nothing to ask (its <code>name</code> is linked, so Aria creates an <em>empty</em> test set under the same name): click <strong>Approve</strong>. The last step, <code>review_queue.add_items</code>, shows a form for <strong>trace ids</strong> only (its <code>queue_id</code> is linked to the queue just created). There are no traces yet, so click <strong>Skip step</strong>.",
+      "where": "Integrations › Plans › (running plan)",
+      "do": "<em>Provide the required inputs for step 3: Create test set.</em> Fill <strong>name</strong>, <strong>description</strong> and <strong>tags</strong> (a JSON array) from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/datasets/release-candidates.dataset.json\">release-candidates.dataset.json</a>, press <strong>Continue plan</strong>, then <strong>Approve</strong> <em>Approve step 3: Create test set (eval_dataset.create)?</em>.",
       "fill": [
         [
-          "eval_dataset.create",
-          "click <strong>Approve</strong> (no form; name linked)"
+          "name",
+          "release-candidates-eval"
         ],
         [
-          "review_queue.add_items",
-          "click <strong>Skip step</strong> (no traces yet)"
+          "tags",
+          "[\"aria-created\",\"faithfulness\",\"governance\",\"release-candidates\"]"
         ]
       ],
       "click": "Approve",
-      "see": "<code>eval_dataset.create</code> shows <em>DONE</em>, <code>review_queue.add_items</code> shows <strong>SKIPPED</strong>, and the plan reaches <strong>COMPLETED</strong>.",
-      "asset": "Plan completed (3 creates done, add_items skipped)"
+      "see": "The test set step reads <em>done</em>.",
+      "asset": "Test set created by Aria",
+      "assetlink": [
+        {
+          "href": "../cookbooks/14-aria-governance-starter-kit/assets/datasets/release-candidates.dataset.json",
+          "label": "release-candidates.dataset.json"
+        }
+      ]
     },
     {
-      "where": "Agent resources › Judges  +  Prompt lifecycle › Test Sets  +  Operate › Review Queues",
-      "do": "Confirm the whole governance kit exists — three real artifacts from one sentence. Check each surface: <strong>Judges</strong> shows <code>AnswerFaithfulness</code> active; <strong>Test Sets</strong> shows an empty <code>AnswerFaithfulness</code> test set; <strong>Review Queues</strong> shows an <code>AnswerFaithfulness</code> queue with its four-question schema. Re-open the plan under <strong>Plans</strong> to see it <em>COMPLETED</em> with three steps done and <code>review_queue.add_items</code> skipped. (For differently named artifacts, create them on those pages from the specs in <code>assets/</code>.)",
-      "see": "An active judge <code>AnswerFaithfulness</code>, a test set and a review queue (both created under the judge's name) — the complete kit, built by the Aria plan."
+      "where": "Integrations › Plans › (running plan)",
+      "do": "The last form is <em>Provide the required inputs for step 4: Enqueue traces for review.</em> It has no queue id field (it is wired from the queue step). There are no traces yet: press <strong>Skip step</strong>.",
+      "click": "Skip step",
+      "see": "The plan reads <code>completed</code>; steps 1 to 3 <em>done</em>, step 4 <em>skipped</em>.",
+      "asset": "Completed plan"
     },
     {
-      "where": "Prompt lifecycle › Test Sets › AnswerFaithfulness (follow-up)",
-      "do": "<strong>(Optional follow-up)</strong> Make the kit runnable end-to-end. Add example rows to the new test set (author them at <code>/eval-datasets/:id → + Add example</code>, or reuse the rows in <a href=\"../cookbooks/01-prompt-regression-lab/assets/dataset\">01-prompt-regression-lab/assets/dataset</a>), then go to <strong>Prompt lifecycle › Evaluations</strong> and run the dataset with the deterministic graders plus <code>AnswerFaithfulness</code> ticked under <strong>Custom LLM judges</strong> (it runs as a <code>Judge.&lt;id&gt;</code> scorer). Route any hard/low-confidence traces into the review queue via its <strong>Add traces to review</strong> box → <strong>Enqueue</strong>. Evaluations needs a real model provider — the default evaluator and LLM are fake, and <strong>Run evaluation</strong> returns a 400 without one.",
-      "see": "A scored evaluation run plus, optionally, traces enqueued into the review queue for human spot-checking — closing the eval + governance loop."
+      "where": "Agent resources › Judges  +  Operate › Review Queues",
+      "do": "Open <strong>Judges</strong>, then <strong>Review Queues</strong>.",
+      "see": "A judge row <code>AnswerFaithfulness</code> showing <code>bool</code>, and a queue row <code>governance-review</code> reading <em>no items</em>.",
+      "asset": "Judge and queue"
+    },
+    {
+      "where": "Prompt lifecycle › Test Sets",
+      "do": "Open <strong>Test Sets</strong>, search for the name and open the set. It is at <code>v1</code> with no rows: Aria creates the test set empty. Press <strong>+ Add example</strong>, fill <strong>Input (JSON object)</strong> with a case's <code>input</code> and <strong>Expected (JSON object)</strong> with its <code>expected</code> from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/dataset/release-candidate-cases.jsonl\">release-candidate-cases.jsonl</a>, and press <strong>Save</strong>. Repeat for two more cases.",
+      "click": "Save",
+      "see": "Each question appears in the list and the version reads <code>v4</code>. The other 27 rows are loaded by the script.",
+      "asset": "Test set with rows",
+      "assetlink": [
+        {
+          "href": "../cookbooks/14-aria-governance-starter-kit/assets/dataset/release-candidate-cases.jsonl",
+          "label": "release-candidate-cases.jsonl"
+        }
+      ]
+    },
+    {
+      "where": "Integrations › Plans",
+      "do": "State the sentence again with the default <strong>Autonomy</strong> and press <strong>Decompose goal</strong>. On the draft, change <strong>Autonomy</strong> to <strong>Run everything it safely can</strong>, then <strong>Approve plan</strong> and <strong>Execute</strong>.",
+      "click": "Execute",
+      "see": "The judge's form, then (after <strong>Continue plan</strong>) the queue's form straight away: no <strong>Approve</strong> prompt anywhere. Then the test set's form and the enqueue form (<strong>Skip step</strong>). The plan reads <code>completed</code>: the same kit, with fewer questions.",
+      "asset": "Same kit, no approvals"
+    },
+    {
+      "where": "Integrations › Plans",
+      "do": "State the sentence again under <strong>Stop before each change</strong>, approve and execute, answer the judge's form and approve it, answer the queue's form and, at <em>Approve step 2: Create review queue (review_queue.create)?</em>, press <strong>Deny</strong>.",
+      "click": "Deny",
+      "see": "The next question is the test set's form: the enqueue step is never asked. Answer and approve it. The plan reads <code>completed</code>; steps 2 and 4 <em>skipped</em>, step 4 saying <code>skipped because step 2 (review_queue.create) was skipped</code>; Review Queues has no row for that queue.",
+      "asset": "A denied step takes its dependent with it"
     }
   ]
 }

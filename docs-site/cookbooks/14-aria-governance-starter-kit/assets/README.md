@@ -1,30 +1,17 @@
-# SCN-14 assets — what you hand Aria
+# SCN-14 assets
 
-This is an **Aria autonomous** scenario: you give Aria the intent, and it plans
-+ creates the artifacts. These files are (a) the intent and (b) the concrete
-values you enter in the **"Aria needs information"** forms when Aria pauses.
+Files for [the lab](../README.md). This is an **Aria autonomous** scenario: you give Aria the intent and it plans and creates the artifacts. The files are the sentence, the data the lab checks it against, and the values you enter in the plan's **Aria needs information** forms.
 
-| # | Artifact | File | Used at |
-| --- | --- | --- | --- |
-| 1 | The intent | [`intent.md`](intent.md) | `Plans → Goal` (or `POST /aria/plans`) |
-| 2 | Expected plan | [`expected-plan.json`](expected-plan.json) | sanity-check the draft plan |
-| 3 | Judge spec | [`judges/answer-faithfulness.judge.json`](judges/answer-faithfulness.judge.json) | the `judge.create` input form (**Continue plan**) |
-| 4 | Dataset spec | [`datasets/release-candidates.dataset.json`](datasets/release-candidates.dataset.json) | reference only: the planner links the test set's name, so the step asks for nothing |
-| 5 | Review-queue spec | [`review-queues/governance-review.queue.json`](review-queues/governance-review.queue.json) | the `review_queue.create` input form — `questions` (and `description`); `name` is linked |
+| File | What it is | How it is used |
+| --- | --- | --- |
+| [`intent.md`](intent.md) | The canonical sentence and what the planner does with other phrasings | `Plans > Goal`, or `POST /aria/plans {goal}` |
+| [`expected-plan.json`](expected-plan.json) | The plan the canonical sentence must draw | Sanity check; the script asserts it |
+| [`dataset/goals.jsonl`](dataset/goals.jsonl) | 28 goals: `{id, goal, expected_steps, outcome, note}` | The script draws a plan for each (draft only, then cancels it) and compares the steps |
+| [`dataset/release-candidate-cases.jsonl`](dataset/release-candidate-cases.jsonl) | 30 policy cases: `{id, tags, input: {question, evidence}, expected: {answer}}` | Loaded into the test set Aria creates: API `POST /eval-datasets/{id}/examples`, UI `+ Add example` |
+| [`judges/answer-faithfulness.judge.json`](judges/answer-faithfulness.judge.json) | The `judge.create` form values (`name`, `feedback_value_type`, `instructions`, `tags`) | The judge's input form; the same shape is a `POST /judges` body |
+| [`review-queues/governance-review.queue.json`](review-queues/governance-review.queue.json) | The `review_queue.create` form values (`name`, `description`, `reviewers`, `questions`) | The queue's input form; the same shape is a `POST /review-queues` body |
+| [`datasets/release-candidates.dataset.json`](datasets/release-candidates.dataset.json) | The `eval_dataset.create` form values (`name`, `description`, `tags`) | The test set's input form; the same shape is a `POST /eval-datasets` body |
 
-Flow: `POST /aria/plans` (intent) → `…/approve` → `…/execute`. The planner leaves
-the judge's and the queue's fields empty, so `judge.create` and
-`review_queue.create` pause on `input` interactions; answer each with
-`…/interactions/{id}/answer {"inputs": {…}}` (or the form's **Continue plan**).
-The executor merges and validates the inputs, then — under **Stop before each
-change** — asks for **Approve** / **Deny** (`{"approved": true}`).
-`eval_dataset.create` has its `name` linked from the queue step (which took the
-judge's), so it only asks for approval; click **Skip step** on the
-`review_queue.add_items` form (no traces yet). Then verify in Judges / Test Sets
-/ Review Queues.
+The `notes` key in the form specs is for readers: strip it before posting a file as `inputs` (the script does).
 
-The judge / queue specs hold the `judge.create` / `review_queue.create` inputs
-(the same shapes as `POST /judges` / `POST /review-queues` bodies). Because the
-planner links `name` between steps, all three artifacts are created under the
-judge's name; use the specs' own names when you create the artifacts yourself.
-See [`../../ARIA-AUTONOMY.md`](../../ARIA-AUTONOMY.md) §Execution status.
+Flow: `POST /aria/plans` (intent) -> `.../approve` -> `.../execute`. Each create step pauses on an `input` question; answer it with `.../interactions/{id}/answer {"inputs": {...}}` (the form's **Continue plan**) and, under **Stop before each change**, approve it (`{"approved": true}`). Each step asks for its own `name`. The enqueue step (`review_queue.add_items`, its `queue_id` wired from the queue step) is skipped here: there are no traces yet. See [`../../ARIA-AUTONOMY.md`](../../ARIA-AUTONOMY.md).

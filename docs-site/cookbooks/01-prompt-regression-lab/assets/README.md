@@ -1,33 +1,20 @@
-# SCN-01 assets — create these
+# SCN-01 assets
 
-Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
+Concrete files for [the lab](../README.md). Every file below was used in the verified run, except the judge.
 
-| # | Artifact | File | Create via |
+| # | Artifact | File | Use it via |
 | --- | --- | --- | --- |
-| 1 | Prompt `intake-classifier` | [`prompts/intake-classifier.md`](prompts/intake-classifier.md) | `Prompts → New prompt`, paste the template body (text below the frontmatter). API: `POST /prompts {name, template, commit_message}` |
-| 2 | Eval dataset `intake-classifier-golden` | [`dataset/intake-classifier.jsonl`](dataset/intake-classifier.jsonl) | `Prompts → intake-classifier → Test Sets`: Generate Test Cases, **Run Tests & Judge**, then **Save to Test Sets**. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line |
-| 3 | Judge `InstructionCompliance` | [`judges/instruction-compliance.judge.json`](judges/instruction-compliance.judge.json) | `Judges → + New Judge`, paste fields. API: `POST /judges` |
+| 1 | Prompt `cookbook-01-intake-classifier` v1 (strong) | [`prompts/intake-classifier.md`](prompts/intake-classifier.md) | `Prompts → New prompt → Write / paste` (paste the body below the front matter). API: `POST /prompts {name, template, commit_message}` then `POST /prompts/{name}/aliases/prod {version: 1}` |
+| 2 | Prompt v2 (weaker, the regression) | [`prompts/intake-classifier-weak.md`](prompts/intake-classifier-weak.md) | `Author → Save draft`. API: `POST /prompts/{name}/versions {template, commit_message}` (does not move the alias) |
+| 3 | Test set, 44 labelled cases | [`dataset/intake-classifier.jsonl`](dataset/intake-classifier.jsonl) | UI: the prompt's `Calibration` stage → `Upload JSON/JSONL` → `Upload Dataset`. API: `POST /eval-datasets {name, owner}` then one `POST /eval-datasets/{id}/examples {input, expected, tags}` per line |
+| 4 | Stand-in model (not a model) | [`stand-in-model/server.py`](stand-in-model/server.py) | `python3 server.py --port 8765`, then start CALIBER with `OPENAI_BASE_URL=http://127.0.0.1:8765/v1` so Evaluations has something to score without a model key |
+| 4b | Calibration scorer config (`Guidelines`) | [`calibration/guidelines.json`](calibration/guidelines.json) | UI: Calibration stage, tick **Guidelines**, paste the file as its config. API: `"scorers":[{"name":"Guidelines","config":<the file>}]`. Used instead of `Correctness`, which needs an `expected_response` this test set does not have |
+| 5 | Judge `InstructionCompliance` (reference, not exercised) | [`judges/instruction-compliance.judge.json`](judges/instruction-compliance.judge.json) | A model-graded check: needs a real model, so it is not part of the verified lab |
 
-Then score the regression on the prompt's **Runs** stage (`Prompts → intake-classifier →
-Runs`): run the golden Test Set, pin the strong run as baseline, save a weaker prompt
-version, and re-run to show the regression in the **Vs. baseline** diff. (The
-`InstructionCompliance` judge authors on the Judges page and is selectable in
-Evaluations under **Custom LLM judges** as a `Judge.<id>` scorer; note Evaluations
-scores the model's direct answer to dataset inputs, not the prompt itself, so use
-the prompt's **Runs** stage for a prompt-grounded judged check.)
+## Conventions
 
-## Conventions used across the pack
-
-- **Prompt files** (`prompts/*.md`): YAML frontmatter (name, model hint,
-  variables) then the literal template body. Paste the body into the authoring
-  textarea; variables are `{{ snake_case }}`.
-- **Dataset files** (`dataset/*.jsonl`): one example per line,
-  `{"inputs": {...}, "expectations": {...}}` — the exact shape the Evaluations
-  scorers + judges read (`{{ inputs }}`, `{{ outputs }}`, `{{ expectations }}`).
-- **Judge files** (`judges/*.judge.json`): `{name, model, instructions,
-  feedback_value_type}`; instructions reference `{{ inputs }}`/`{{ outputs }}`/
-  `{{ expectations }}` (the UI requires at least one). `feedback_value_type` ∈
-  bool|int|float|str.
-- **Tool files** (`tools/*.tool.json`): the `POST /tools` body
-  (`module_path`+`callable_name` must be importable); `tools/*.py` holds inline
-  `python_code` node bodies.
+- **Dataset files** (`dataset/*.jsonl`): one example per line. The keys the importers read are `input` and `expected` (and optionally `tags`, `weight`);
+  `id` is documentation only. Do not use `inputs`/`expectations`: the UI importer would not find them.
+- **Prompt files** (`prompts/*.md`): YAML front matter, then the literal template body. Variables are `{{ snake_case }}` and match the dataset's `input` keys
+  (`ticket_text`, `channel`).
+- **Judge files** (`judges/*.judge.json`): `{name, model, instructions, feedback_value_type}`; instructions reference `{{ inputs }}`/`{{ outputs }}`/`{{ expectations }}`.

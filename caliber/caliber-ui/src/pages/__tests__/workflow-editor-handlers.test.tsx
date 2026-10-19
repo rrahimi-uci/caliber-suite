@@ -5897,7 +5897,7 @@ describe("WorkflowEditor handler branches", () => {
     );
   });
 
-  it("streams workflow step events into the run monitor before the next polling refresh", async () => {
+  it("streams workflow step events into the run monitor before the next polling refresh, then counts each step once when the stored copy arrives", async () => {
     const liveRun = makeRun({
       workflow_run_id: "WR-STREAM",
       session_id: "SESSION-stream",
@@ -6001,6 +6001,49 @@ describe("WorkflowEditor handler branches", () => {
       "Policy-backed answer",
     );
     expect(screen.getByTestId("workflow-run-step-tools")).toHaveTextContent("lookup_policy");
+    expect(screen.getByTestId("run-debugger-section")).toHaveTextContent("1 recorded step");
+
+    // The next polling snapshot returns the stored copy of the same step (a real id and sequence,
+    // and a payload that differs from the stream's). The step must stay one recorded step: the live
+    // copy and the stored copy are the same event, and a doubled count is what an operator would
+    // read as "the node ran twice" (cookbook 09 hit this on a slow runner).
+    runEventsById["WR-STREAM"]!.push({
+      event_id: 2,
+      workflow_run_id: "WR-STREAM",
+      project_id: null,
+      sequence: 2,
+      event_type: "workflow.run.step",
+      node_id: "support_agent",
+      payload: {
+        step: {
+          node_id: "support_agent",
+          node_type: "agent",
+          status: "ok",
+          output: "Policy-backed answer",
+          tool_calls: [{ tool: "lookup_policy", result: { policy: "refund" } }],
+          handoff_target: null,
+          detail: "grounded in policy (stored)",
+          duration_ms: 14,
+          input_by_port: {},
+          output_by_port: {},
+        },
+      },
+      created_at: NOW,
+    });
+    // Wait for the snapshot to land (the stored copy's detail is distinguishable), then count.
+    await waitFor(
+      () =>
+        expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent(
+          "grounded in policy (stored)",
+        ),
+      { timeout: 6000 },
+    );
+    expect(screen.getByTestId("run-debugger-section")).toHaveTextContent("1 recorded step");
+    expect(screen.getByTestId("run-debugger-section")).not.toHaveTextContent(
+      "2 recorded steps",
+    );
+    const timeline = screen.getByTestId("workflow-run-event-timeline");
+    expect((timeline.textContent ?? "").match(/workflow\.run\.step/g) ?? []).toHaveLength(1);
   });
 
   it("uses lifecycle-aware stream messaging when a monitored run receives a cancel request", async () => {

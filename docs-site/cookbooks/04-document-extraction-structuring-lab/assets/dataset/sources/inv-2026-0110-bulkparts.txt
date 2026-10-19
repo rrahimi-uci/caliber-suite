@@ -1,0 +1,33 @@
+Bulkparts Direct
+INVOICE
+Invoice No: BP-60012
+Invoice Date: 2026-03-20
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+2     Fastener pack type 01                       $2.75         $5.50
+3     Fastener pack type 02                       $3.00         $9.00
+4     Fastener pack type 03                       $3.25        $13.00
+5     Fastener pack type 04                       $3.50        $17.50
+1     Fastener pack type 05                       $3.75         $3.75
+2     Fastener pack type 06                       $4.00         $8.00
+3     Fastener pack type 07                       $4.25        $12.75
+4     Fastener pack type 08                       $4.50        $18.00
+5     Fastener pack type 09                       $4.75        $23.75
+1     Fastener pack type 10                       $5.00         $5.00
+2     Fastener pack type 11                       $5.25        $10.50
+3     Fastener pack type 12                       $5.50        $16.50
+4     Fastener pack type 13                       $5.75        $23.00
+5     Fastener pack type 14                       $6.00        $30.00
+1     Fastener pack type 15                       $6.25         $6.25
+2     Fastener pack type 16                       $6.50        $13.00
+3     Fastener pack type 17                       $6.75        $20.25
+4     Fastener pack type 18                       $7.00        $28.00
+5     Fastener pack type 19                       $7.25        $36.25
+1     Fastener pack type 20                       $7.50         $7.50
+2     Fastener pack type 21                       $7.75        $15.50
+3     Fastener pack type 22                       $8.00        $24.00
+4     Fastener pack type 23                       $8.25        $33.00
+5     Fastener pack type 24                       $8.50        $42.50
+
+Total                                             $422.50

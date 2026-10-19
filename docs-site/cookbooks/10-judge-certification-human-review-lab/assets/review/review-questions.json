@@ -1,28 +1,21 @@
 {
   "queue_name": "faithfulness-certification",
-  "description": "Human review of sampled traces graded by Judge.FaithfulnessJudge. Reviewers answer the same faithfulness criterion the judge uses, so the two verdicts can be laid side by side on the alignment worksheet. Answers write back onto each trace.",
+  "description": "Human review of sampled traces graded by Judge.FaithfulnessJudge. Reviewers answer the same faithfulness criterion the judge uses, so the two verdicts can be compared. Answers write back onto each trace.",
   "questions": [
     {
       "key": "faithful",
-      "title": "Is EVERY factual claim supported by the evidence/expectations? (Mirror Judge.FaithfulnessJudge: pass = all claims grounded; fail = any unsupported, hallucinated, or unverifiable claim. This is the 'human_verdict' column on the alignment worksheet.)",
+      "title": "Is EVERY factual claim supported by the evidence? (pass = all claims grounded; fail = any unsupported, hallucinated, truncated or unverifiable claim)",
       "type": "pass_fail",
       "required": true,
       "target": "feedback"
     },
     {
-      "key": "unsupported_claims",
-      "title": "If not faithful, quote the specific claim(s) that the evidence does not support. Leave blank when the verdict is pass — these quotes become the rationale for adding the row back to the dataset as a hard case.",
-      "type": "text",
-      "required": false,
-      "target": "feedback"
-    },
-    {
-      "key": "notes",
-      "title": "Any other reviewer notes (tone, partial evidence, why you disagreed with the automated score).",
+      "key": "evidence",
+      "title": "Evidence you checked the output against. Paste it here: when labels are imported into Judges > Human alignment, every answer except the pass/fail one reaches the judge as {{ expectations }}, so this is how the judge sees the same evidence you did.",
       "type": "text",
       "required": false,
       "target": "feedback"
     }
   ],
-  "notes": "Configure these when creating the queue (Operate -> Review Queues -> New queue), then enqueue the sampled trace ids via POST /review-queues/{id}/items {trace_ids:[...]}. Keep the 'faithful' question wording aligned with judges/faithfulness-judge.judge.json so a pass/fail answer maps cleanly to the judge's true/false verdict. Alignment between the two is computed in the Judges page (Human alignment -> Import labels -> Check alignment); alignment/alignment-worksheet.md is an optional paper cross-check."
+  "notes": "Create the queue under Operate > Review Queues, add the trace ids (the 50 traces written by assets/seed_traces.py), and answer each item. Keep the 'faithful' wording aligned with judges/faithfulness-judge.judge.json so pass/fail maps to the judge's true/false. The pass/fail answer is the label; every OTHER answer on the item is passed to the judge as {{ expectations }} by Import labels, so keep it to the evidence. A reviewer's explanation that quotes the unsupported claim would become 'evidence' (see the README, 'Common errors')."
 }

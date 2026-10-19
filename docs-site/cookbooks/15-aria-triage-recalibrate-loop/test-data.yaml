@@ -1,61 +1,49 @@
-# Aria autonomous scenario: the "input" is the INTENT; the "expected" is the plan
-# Aria drafts + the artifacts it creates/triggers. Concrete files are in assets/.
-intents:
-  - id: A15-canonical
-    goal: "Our workflow's recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration."
+# Aria autonomous scenario: the "input" is the INTENT; the "expected" is the plan Aria drafts and what it
+# creates or triggers. Two data files, two scripts, a workflow manifest and three form specs live in assets/.
+goals:
+  file: assets/dataset/goals.jsonl     # {id, goal, expected_steps, outcome, note}
+  rows: 28
+  by_outcome:
+    as_asked: 16     # the plan is what the sentence asked for
+    unasked: 7       # a step the sentence did not ask for (negation, a question, "rebuild", "roll back", "outage")
+    nothing: 5       # no steps: the plan cannot be approved (409)
+  canonical:
+    id: G01
+    goal: "Our workflow's recent runs look weak - set up a review queue for the flagged traces and kick off a workflow calibration."
     autonomy: ask_each
-    expected_plan_steps: [review_queue.create, review_queue.add_items, workflow.calibrate]
-  - id: A15-natural
-    goal: "Our latest runs aren't great — get a human to look at the bad ones and then tune the pipeline."
-    note: "Natural phrasing. The default HeuristicPlanner needs the literal words 'review queue' and 'workflow' and has no mapping for 'get a human to look at the bad ones' or 'tune the pipeline' (this phrasing contains neither, so it plans nothing) — use A15-canonical for the deterministic path."
-# What you enter when Aria pauses on an "Aria needs information" form (the `inputs` of each step):
-# IMPORTANT: review_queue.add_items and workflow.calibrate operate on EXISTING things.
-# The trace_ids must be REAL trace ids of flagged runs (read them from Observability),
-# and workflow_id + agent_id must be a REAL existing workflow + its agent (build it in
-# SCN-07). The values below are PLACEHOLDERS — replace them with the real ids before you
-# answer the interactions. Aria does not discover or create any of these.
-interaction_answers:
-  review_queue.create:
-    name: weak-runs-triage
-    questions:
-      - key: resolution_correct
-        title: "Did the workflow reach the correct resolution?"
-        type: pass_fail
-        required: true
-        target: feedback
-      - key: failure_mode
-        title: "Primary failure mode"
-        type: categorical
-        options: [wrong_tool, missing_evidence, hallucinated_claim, bad_escalation, none]
-        required: true
-        target: feedback
-      - key: severity
-        title: "Severity (1-5)"
-        type: numeric
-        required: false
-        target: feedback
-      - key: expected_answer
-        title: "What should the answer have been? (becomes the expectation)"
-        type: text
-        required: false
-        target: expectation
-  review_queue.add_items:
-    # queue_id is linked from the review_queue.create step by the planner, so the form does not ask for it.
-    queue_id: "<linked automatically from the review_queue.create step>"
-    trace_ids:
-      - "<REAL flagged trace id 1 from Observability>"
-      - "<REAL flagged trace id 2 from Observability>"
-      - "<REAL flagged trace id 3 from Observability>"
-    assigned_to: "@reviewer"          # optional
-    # experiment_id: "<optional MLflow experiment id>"
-  workflow.calibrate:
-    workflow_id: "<REAL existing workflow id, e.g. the SCN-07 workflow you built>"
-    agent_id: "<REAL existing agent id bound in that workflow>"
-    # Approving this step enqueues the ASYNC calibration job; the plan then PARKS
-    # (waiting_job) and the plan worker resumes it when the job reaches candidate_ready/applied
-    # (POST /aria/plans/{plan_id}/poll advances it on demand).
-done_when:
-  - a review queue named weak-runs-triage exists in Review Queues with the four triage questions
-  - the flagged traces are enqueued as items on that queue
-  - the workflow.calibrate step enqueued an async job and the plan parked (waiting_job)
-  - once the calibration job reached candidate_ready/applied, the plan resumed with all three steps completed
+    expected_steps: [review_queue.create, review_queue.add_items, workflow.calibrate]
+runs:
+  file: assets/dataset/support-runs.jsonl   # {id, question, reply, tools_called, required_tools, reference, weak, reason}
+  rows: 30
+  weak: 12                                  # S19..S30: skipped a tool the question needs
+  weak_by_failure_mode:
+    missing_evidence: 4
+    hallucinated_claim: 4
+    wrong_tool: 2
+    bad_escalation: 2
+  roles:
+    - the 30-case test set the workflow is calibrated against (input.input = question, expected = {expected: reference, required_tools})
+    - the 12 flagged traces (seed_traces.py writes the weak rows only)
+    - the labels a reviewer gives
+  triaged_by_hand: [S19, S21, S24]
+subject:
+  workflow: assets/workflows/support-policy-agent.workflow.json   # start -> support_agent (lookup_policy, get_order) -> policy_guardrail -> final; deploy gate on the test set
+  tools: [assets/tools/lookup-policy.tool.json, assets/tools/get-order.tool.json]
+  setup: assets/setup_subject.py
+  traces: assets/seed_traces.py
+forms:
+  review_queue.create: assets/review-queues/triage-review.queue.json   # name, description, reviewers, questions (4)
+  review_queue.add_items: assets/enqueue.json                          # trace_ids, assigned_to (queue_id is wired)
+  workflow.calibrate: assets/calibrate.json                            # workflow_id, agent_id
+calibration:
+  budget: default (max 3 candidates, 20 test set cases)
+  objective: default (maximize quality; a candidate must beat the baseline by 0.02)
+  simulated_outcome: "rejected: no candidate met calibration gates; quality delta +0.000 < epsilon 0.02"
+  real_outcome: candidate_ready (the plan completes; the plan does not apply the candidate)
+refusals:
+  - id: A15-no-steps
+    goal: "Tune the pipeline and get a human to look at the bad runs."
+    note: "201 with a warning; approve answers 409."
+  - id: A15-unknown-workflow
+    inputs: {workflow_id: WF-does-not-exist}
+    note: "workflow 'WF-does-not-exist' not found (HTTP 404); the step fails at once, no job."

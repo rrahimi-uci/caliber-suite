@@ -985,6 +985,40 @@ function runEventFingerprint(event: WorkflowRunEvent): string {
   ].join("|");
 }
 
+function runEventTwinKey(event: WorkflowRunEvent): string {
+  return `${event.event_type}|${event.node_id ?? ""}`;
+}
+
+/**
+ * A live (server-sent) event carries no stored id or sequence, so the page files it under a
+ * synthetic id (<= 0) and a guessed sequence. The stored copy of the same event arrives with the
+ * next snapshot under its real id and a different payload, so neither the id nor the fingerprint
+ * can match the two. Left alone, every event seen live is listed twice (a step shows up as two
+ * recorded steps, the Execution Debugger counts both), and which events are doubled depends on
+ * whether the stream or the snapshot got there first. Once the stored copies are known, each
+ * synthetic event is paired with one stored event of the same type and node and dropped, oldest
+ * first. A synthetic event whose stored copy has not arrived yet stays until it does.
+ */
+function dropSyntheticTwins(events: WorkflowRunEvent[]): WorkflowRunEvent[] {
+  const storedByKey = new Map<string, number>();
+  for (const event of events) {
+    if (event.event_id <= 0) continue;
+    const key = runEventTwinKey(event);
+    storedByKey.set(key, (storedByKey.get(key) ?? 0) + 1);
+  }
+  if (storedByKey.size === 0) return events;
+  const covered = new Set<WorkflowRunEvent>();
+  for (const event of [...events].sort(compareRunEvents)) {
+    if (event.event_id > 0) continue;
+    const key = runEventTwinKey(event);
+    const remaining = storedByKey.get(key) ?? 0;
+    if (remaining <= 0) continue;
+    storedByKey.set(key, remaining - 1);
+    covered.add(event);
+  }
+  return covered.size === 0 ? events : events.filter((event) => !covered.has(event));
+}
+
 function mergeRunEvents(
   existing: WorkflowRunEvent[],
   incoming: WorkflowRunEvent[],
@@ -1005,7 +1039,7 @@ function mergeRunEvents(
     merged.push(event);
   }
 
-  return merged.sort(compareRunEvents);
+  return dropSyntheticTwins(merged.sort(compareRunEvents));
 }
 
 function workflowRunEventNodeId(event: CaliberEvent): string | null {

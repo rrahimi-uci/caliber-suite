@@ -1,0 +1,14 @@
+Maple Leaf Tire Depot
+INVOICE
+Invoice No: MLT-4410
+Invoice Date: 2026-03-18
+Currency: CAD
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+4     Snow tires 205/55R16                       142.00        568.00
+4     Mount and balance                           25.00        100.00
+
+Subtotal                                           668.00
+Discount                                           -50.00
+Total                                              618.00

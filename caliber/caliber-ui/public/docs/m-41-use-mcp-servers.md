@@ -39,6 +39,14 @@ it may run: with no policy a tool is `allowed: false`. The policy carries `allow
 only a managed sidecar or a non-loopback HTTPS endpoint counts as an external execution boundary when a
 production-class alias is promoted.
 
+A remote server's address is checked against the egress policy as well as the host allowlist, so an
+endpoint on `127.0.0.1` or a private network address is refused by default ("resolves into the blocked
+loopback range") even though the allowlist names loopback. Run a server on the CALIBER host over `stdio`:
+the command must be on `CALIBER_MCP_STDIO_COMMAND_ALLOWLIST`, and a Python script must be an allowlisted
+`-m` module or an absolute path in `CALIBER_MCP_STDIO_PYTHON_SCRIPT_ALLOWLIST`. The
+[Governed Tool Connectivity lab](cookbooks/05-mcp-connectivity-governance-lab/README.md)
+runs a real one.
+
 Inside a project, creating, changing or deleting a server and changing a tool policy need the global
 `caliber.admin` scope and `editor` or `owner`. Testing the connection, discovering tools and invoking a tool
 need `caliber.admin` and `reviewer`, `editor` or `owner`. Saving a tool's test cases needs `caliber.operator`

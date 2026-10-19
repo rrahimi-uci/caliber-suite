@@ -1,15 +1,28 @@
-required_inputs:
-  - scenario_run_ids:
-      - scn01
-      - scn03
-      - scn05
-      - scn07
-      - scn08
-      - scn10
-  - review_queue_summary
+# The 20 candidates live in assets/dataset/release-candidates.jsonl; each row carries its expectation.
+golden_cases:
+  - id: RC01
+    expected: {status: ready, weighted_score: 0.961}
+  - id: RC20
+    expected: {status: ready, weighted_score: 0.9375}   # the walkthrough candidate, signed GO
 edge_cases:
-  - report_job_generated_before_a_waiver_so_the_snapshot_hash_is_stale
-  - scenario_slice_passes_locally_but_missing_saved_run
+  - id: RC05
+    note: high weighted score, a blocking criterion unmet
+    expected: {status: blocked, blockers: [human_review]}
+  - id: RC06
+    note: every gate met, weighted score under the bar
+    expected: {status: blocked, blockers: []}
+  - id: RC08
+    note: weighted score exactly equal to the required score
+    expected: {status: ready}
+  - id: RC15
+    note: required score 0 and threshold 0 (nothing can fail)
+    expected: {status: ready}
 negative_cases:
-  - missing_required_run_id
-  - unresolved_blocker_present
+  - id: RC16
+    note: one blocker; a waiver makes it ready at the same score
+    expected: {status: blocked, blockers: [rollback_rehearsed]}
+  - id: RC17
+    note: two blockers and a score under the bar; waivers cannot make it ready
+    expected: {status: blocked}
+datasets:
+  candidates: assets/dataset/release-candidates.jsonl

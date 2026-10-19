@@ -1,8 +1,8 @@
 {
-  "queue_id": "<linked automatically from the review_queue.create step; not entered in the form>",
   "trace_ids": [
-    "<flagged trace id 1 from Observability>",
-    "<flagged trace id 2 from Observability>"
+    "<trace id of R01 from seed_traces.py>",
+    "<trace id of R02 from seed_traces.py>"
   ],
-  "notes": "Inputs for the Aria review_queue.add_items step (enter trace_ids in its form; same shape as POST /review-queues/{id}/items). OPTIONAL for this scenario: if you have no flagged traces yet, click Skip step (or answer the input interaction with {approved:false}) to SKIP it — the queue from review_queue.create still exists and you can enqueue later. Aria does not discover traces; replace placeholders with real ids."
+  "assigned_to": "olga",
+  "notes": "Inputs for the Aria review_queue.add_items step (the queue's id is wired from the create step and is not asked for). trace_ids is a JSON array of ids that exist in MLflow: Aria does not discover traces and the enqueue does not check that an id exists (a made-up id is queued, and fails later when a reviewer submits it). assigned_to is optional. seed_traces.py writes the lab's 30 traces and prints their ids. Strip this notes key before posting the file as inputs."
 }

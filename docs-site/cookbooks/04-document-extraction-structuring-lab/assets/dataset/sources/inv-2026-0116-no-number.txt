@@ -1,0 +1,9 @@
+Orbit Electrical Supply
+INVOICE
+Invoice Date: 2026-03-06
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+12    Cable tray 3 m                             $22.00       $264.00
+
+Total                                             $264.00

@@ -1,64 +1,71 @@
-workflow_goal: Turn inbound tickets into grounded resolution decisions with safe escalation.
-# Verified against the live build — see ../FEASIBILITY.md. This scenario composes SCN-01/02/03/05/06; reuse those assets.
+workflow_goal: Turn inbound support tickets into a routing decision with SLA, and gate refunds and bug filings behind a second person.
+# Everything below was run against a real server (scripts/cookbook-env.sh); see README.md and
+# sdk/caliber-sdk/examples/cookbooks/cookbook_07_support_triage_copilot.py.
 feasibility:
-  - Start from the hitl_review template (ships the human_approval gate). KB retrieval = the knowledge_query node; external write = a GitHub MCP mcp_resource node kept requires_approval:true.
-  - lookup_account_state -> caliber.workflows.demo_tools:get_order / lookup_order (read); lookup_recent_incidents -> demo_tools:search_knowledge_base or a python_code stub.
-  - GroundedSupportReply is a real LLM judge; the citation + approval rule_checks are enforced by the prompt contract + the human_approval gate.
+  - The classifier is deterministic rules in one Python Code node (no model). A real model would replace or sit beside it; the router, the gate and the dataset check do not change.
+  - Preview cannot isolate a Python Code node, so this workflow is run through the queue, not previewed.
+  - Evidence tools, the knowledge base and the GitHub MCP write are not part of the verified path (no connector and no model on the lab machine). The action_request template stands in for the external write.
 manual_flow:
-  - step: intake
-    action: classify ticket intent and severity
-  - step: evidence_lookup
-    action: fetch account and incident state via tools
-  - step: kb_retrieval
-    action: retrieve support articles and known issues
-  - step: draft_reply
-    action: generate customer reply plus machine decision
-  - step: escalation_check
-    action: apply policy and approval gates
-  - step: external_write_optional
-    action: create bug issue through MCP only after approval
+  - step: import
+    action: import assets/workflows/support-triage.workflow.json (Workflows > Import, or POST /workflows/import)
+  - step: validate
+    action: "validate the manifest (Preview is refused: python_code)"
+  - step: publish
+    action: publish version 1
+  - step: promote
+    action: move the staging alias onto it (waits for a second person when the server requires approval for staging)
+  - step: run
+    action: run the 44 tickets of assets/dataset/ticket-cases.jsonl through the queue against the alias
+  - step: approve
+    action: a second person with caliber.approver approves or rejects the paused runs
 components:
-  prompts:
-    system: "Use only supplied evidence and cite every external fact."
-    developer: "Never leak internal process details in customer reply."
-  skills:
-    - support-tone-and-deflection
-    - high-risk-escalation-checklist
-    - citation-and-next-steps
-  tools:
-    - lookup_account_state    # caliber.workflows.demo_tools:get_order / lookup_order (read)
-    - lookup_recent_incidents # demo_tools:search_knowledge_base, or a python_code stub
-  mcp:
-    required:
-      - GitHub (issue creation)  # issue_write tool kept requires_approval:true
-    optional:
-      - PostgreSQL read-only account lookup
   workflow:
-    template: hitl_review        # ships the human_approval gate
+    file: assets/workflows/support-triage.workflow.json
+    code_node_source: assets/workflows/classify-ticket.py
     nodes:
-      - ticket_intake        # agent node: classify intent + severity, emit decision
-      - account_lookup       # tool node: lookup_order
-      - incident_lookup      # tool/python_code node
-      - kb_query             # knowledge_query node (support KB)
-      - reply_generation     # agent node: cited reply + machine decision
-      - approval_gate        # human_approval node (refund / escalate_bug only)
-      - issue_write_optional # mcp_resource node: GitHub issue_write
+      - start             # the ticket, as JSON text
+      - classify          # python_code: rules -> decision, severity, sla_minutes, requires_approval, flags
+      - triage_router     # router: approval == true -> review; else by decision
+      - draft_reply       # agent (simulated under the fake provider)
+      - clarify_question  # template
+      - support_note      # template
+      - review            # human_approval (caliber.approver, one approver, no self-approval)
+      - action_request    # template: what an approved refund / bug issue would release
+      - final             # output
 contracts:
   input_schema:
     type: object
-    required: [ticket_text, channel]
-  output_schema:
-    type: object
-    required: [decision, customer_reply, citations]
+    required: [ticket_text]
     properties:
-      decision: {type: string}
-      customer_reply: {type: string}
-      citations: {type: array}
-      issue_id: {type: string}
+      ticket_text: {type: string}
+      channel: {type: string}
+      customer_tier: {type: string, enum: [free, pro, enterprise]}
+      account_id: {type: string}
+      duplicate_of: {type: string}
+  triage_record:
+    type: object
+    required: [decision, severity, sla_minutes, requires_approval, flags]
+    properties:
+      decision: {type: string, enum: [reply, clarify, escalate_support, escalate_bug]}
+      severity: {type: string, enum: [low, medium, high, urgent]}
+      sla_minutes: {type: integer}
+      requires_approval: {type: boolean}
+      flags: {type: array}
+rule_order:
+  - empty ticket -> clarify
+  - prompt injection -> clarify (flag prompt_injection)
+  - abusive -> escalate_support, medium (flag abusive)
+  - card number / SSN / pasted secret -> escalate_support, high (flag pii_exposed)
+  - legal or privacy -> escalate_support, high (flag legal_or_privacy)
+  - duplicate_of present -> reply (flag duplicate)
+  - bug markers -> escalate_bug, approval required
+  - refund or charge dispute with an account id -> escalate_support, approval required (flag refund_request); without one -> clarify (flag missing_account_id)
+  - how-to -> reply
+  - anything else -> clarify
 failure_modes:
   - missing_account_identifier
-  - unsupported_claim_without_citation
-  - bug_issue_created_without_approval
+  - prompt_injection_asks_for_refund
+  - bug_issue_released_without_approval
 fallbacks:
-  - clarify instead of hallucinating lookup values.
-  - block external write on missing approval event.
+  - clarify instead of guessing.
+  - a rejected approval ends the run failed and releases nothing.

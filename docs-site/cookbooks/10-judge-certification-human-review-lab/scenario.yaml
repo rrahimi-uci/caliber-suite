@@ -20,8 +20,8 @@ prerequisites:
   - Reviewers available for sampled traces.
 time_to_first_value: 60-120 minutes
 success_criteria:
-  - Automated-human alignment meets threshold.
-  - Disagreements feed calibration backlog.
+  - The judge is certified only when it agrees with human labels (agreement >= 0.80, Cohen's kappa >= 0.60) over at least 30 labelled rows, and rejected otherwise.
+  - Disagreements feed calibration backlog (each becomes a hard case in the test set).
 demo_profile:
   recommended_sequence_index: 10
   tier: gate

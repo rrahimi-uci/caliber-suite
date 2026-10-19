@@ -1,0 +1,144 @@
+schema_version: 1
+workflow_id: refund-decision
+name: refund-decision
+description: Decide a refund with the deterministic policy tool, then issue it only after a person approves.
+runtime:
+  sdk: openai-agents-python
+  sdk_version_policy: runtime-pinned
+  compiler_version: caliber-workflow-compiler-v1
+  default_model_ref: CALIBER_WORKFLOW_DEFAULT_MODEL
+  session:
+    type: none
+nodes:
+  start:
+    id: start
+    type: start
+    outputs:
+      user_message:
+        type: string
+  policy:
+    id: policy
+    type: tool
+    tool_name: decide_refund
+    inputs:
+      input:
+        type: string
+      arguments:
+        type: structured
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+      metadata:
+        type: structured
+  route:
+    id: route
+    type: router
+    inputs:
+      input:
+        type: string
+    outputs:
+      route:
+        type: string
+    branches:
+      - condition:
+          field: input
+          op: contains
+          value: '"decision": "deny"'
+        to: denied
+      - condition: null
+        to: refund
+  denied:
+    id: denied
+    type: output
+    inputs:
+      response:
+        type: string
+  refund_request:
+    id: refund_request
+    type: data_transform
+    operation: mapping
+    config:
+      fields:
+        order_id: order_id
+        amount: amount
+    inputs:
+      value:
+        type: structured
+      text:
+        type: string
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+      valid:
+        type: boolean
+      metadata:
+        type: structured
+  refund:
+    id: refund
+    type: tool
+    tool_name: initiate_refund
+    inputs:
+      input:
+        type: string
+      arguments:
+        type: structured
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+      metadata:
+        type: structured
+  issued:
+    id: issued
+    type: output
+    inputs:
+      response:
+        type: string
+edges:
+  - id: e_start_policy
+    from: start
+    to: policy
+    map:
+      user_message: input
+  - id: e_start_request
+    from: start
+    to: refund_request
+    map:
+      user_message: text
+  - id: e_policy_route
+    from: policy
+    to: route
+    map:
+      text: input
+  - id: e_route_denied
+    from: route
+    to: denied
+    map:
+      route: response
+  - id: e_route_refund
+    from: route
+    to: refund
+    map:
+      route: input
+  - id: e_request_refund
+    from: refund_request
+    to: refund
+    map:
+      result: arguments
+  - id: e_refund_issued
+    from: refund
+    to: issued
+    map:
+      text: response
+tools:
+  decide_refund:
+    registry_ref: tool.decide_refund.v1
+    version_constraint: ">=1,<2"
+  initiate_refund:
+    registry_ref: tool.initiate_refund.v1
+    version_constraint: ">=1,<2"

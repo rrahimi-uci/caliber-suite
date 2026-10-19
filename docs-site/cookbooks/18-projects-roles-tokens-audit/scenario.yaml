@@ -1,0 +1,43 @@
+id: SCN-18
+slug: projects-roles-tokens-audit
+name: "Projects, Roles, Tokens & Audit"
+track: gate
+objective: Stand up a team in a project with owner, editor, reviewer and viewer roles, prove what each role may do with real requests, give automation a project-bound access token, and read every one of those actions back from the audit log, the release timeline and readiness.
+why_it_matters:
+  - A new team lead has to know who can change, release and approve before anyone else touches the platform.
+  - A token that can act in every project is a standing risk; a project-bound one is not, and revocation has to work at once.
+  - The audit log is the only record of who did what, so it has to be readable and has to hold no secrets.
+primary_persona: team lead
+secondary_personas:
+  - platform administrator
+  - compliance auditor
+  - prompt engineer
+caliber_surfaces:
+  - Administration
+  - Workspaces
+  - Settings (API tokens)
+  - Audit Log
+  - Releases
+prerequisites:
+  - A running CALIBER stack whose CALIBER_OPERATOR_USERS and CALIBER_APPROVER_USERS list the roster (see the README).
+  - An admin personal access token for the script.
+  - CALIBER_FEATURE_COOKBOOKS=true only to see the lab in the Cookbooks gallery.
+time_to_first_value: 45-60 minutes
+success_criteria:
+  - All 72 role-matrix requests (9 people x 8 actions) get the status code role-matrix.csv expects.
+  - A bound token acts in its project, gets 403 elsewhere, and gets 401 once revoked or expired.
+  - The primary owner cannot be removed (409) and no role can be escalated by the person asking.
+  - The audit log has a row for each action, filterable by actor, action and entity, with no secret in any row.
+  - The release timeline and live board show the prompt release once; readiness names the simulated providers.
+demo_profile:
+  recommended_sequence_index: 18
+  tier: gate
+  live_demo_minutes: 20-30
+  depends_on: []
+  included_in:
+    - release_governance
+  showcase_capabilities:
+    - project roles and the role matrix
+    - project-bound access tokens, revocation and expiry
+    - audit log, release timeline and readiness
+workflow_goal: Establish who may do what in a project, and be able to prove it from the record.

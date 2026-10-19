@@ -2752,6 +2752,12 @@ export function WorkflowDetail(): JSX.Element {
     if (runChanged || !currentNodeStillExists) {
       setSelectedRunNodePinned(false);
       setSelectedRunNodeId(defaultNodeId);
+    } else if (!selectedRunNodePinnedRef.current && currentNodeId !== defaultNodeId) {
+      // Unpinned means "follow the run". Live node/step events move the selection, but a burst of
+      // them (or a stream that misses some) can leave it behind; the polled run snapshot is the
+      // authority, so a run that moved on (an approved run that resumed and finished) never stays
+      // parked on the node it was waiting at.
+      setSelectedRunNodeId(defaultNodeId);
     }
   }, [selectedRun, selectedRunManifest]);
 

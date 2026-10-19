@@ -1,0 +1,80 @@
+{
+  "schema_version": 1,
+  "workflow_id": "WF-IMPORTED",
+  "name": "missing-tool-drill",
+  "description": "Cookbook 08 drill: the workflow names a tool nobody registered, so the import is refused.",
+  "runtime": {
+    "sdk": "openai-agents-python",
+    "sdk_version_policy": "runtime-pinned",
+    "compiler_version": "caliber-workflow-compiler-v1",
+    "default_model_ref": "CALIBER_WORKFLOW_DEFAULT_MODEL",
+    "session": {
+      "type": "none"
+    }
+  },
+  "nodes": {
+    "start": {
+      "id": "start",
+      "type": "start",
+      "label": "Input",
+      "outputs": {
+        "msg": {
+          "type": "string"
+        }
+      }
+    },
+    "lookup": {
+      "id": "lookup",
+      "type": "tool",
+      "label": "Look up the service owner",
+      "tool_name": "lookup_service_owner",
+      "inputs": {
+        "input": {
+          "type": "string"
+        },
+        "arguments": {
+          "type": "structured"
+        }
+      },
+      "outputs": {
+        "text": {
+          "type": "string"
+        },
+        "result": {
+          "type": "structured"
+        },
+        "metadata": {
+          "type": "structured"
+        }
+      }
+    },
+    "final": {
+      "id": "final",
+      "type": "output",
+      "inputs": {
+        "response": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "edges": [
+    {
+      "id": "e_start_lookup",
+      "from": "start",
+      "to": "lookup",
+      "map": {
+        "msg": "input"
+      }
+    },
+    {
+      "id": "e_lookup_final",
+      "from": "lookup",
+      "to": "final",
+      "map": {
+        "text": "response"
+      }
+    }
+  ],
+  "tools": {}
+}

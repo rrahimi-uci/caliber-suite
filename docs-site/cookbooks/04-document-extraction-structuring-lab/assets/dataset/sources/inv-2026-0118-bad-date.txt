@@ -1,0 +1,10 @@
+Pinecrest Facilities
+INVOICE
+Invoice No: PF-0912
+Invoice Date: sometime in spring 2026
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+1     Annual maintenance plan                   $780.00       $780.00
+
+Total                                             $780.00

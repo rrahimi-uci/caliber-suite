@@ -6,6 +6,12 @@ review-required workflow draft. Live providers and connectors remain explicit
 deployment prerequisites.
 Verified against the shipped build (see ../FEASIBILITY.md, ../ARIA-AUTONOMY.md,
 ../CRITIQUE-REPORT.md).
+
+Only the keys the generator renders live here (track, level, time, title, subtitle,
+build, surfaces, learn, mermaid, gates, notes). The numbered steps and the copy-paste
+assets of each guide come from the lab's own ``training-steps.json`` (and the files
+it links under ``assets/``), so they cannot drift from the lab README. Each block
+below is copied from its lab's README, scenario.yaml and verification.yaml.
 """
 
 TRACKS = ["Foundations", "Build", "Operate", "Govern", "Aria — Autonomous"]
@@ -14,12 +20,12 @@ INTRO = {
     "kicker": "UI Training Guide",
     "title": "CALIBER Cookbooks",
     "tagline": (
-        "Sixteen practical, build-along recipes that teach the CALIBER platform "
+        "Seventeen practical, build-along recipes that teach the CALIBER platform "
         "end-to-end — each backed by a versioned, installable system example with "
         "readiness checks and an explicit review-before-activation boundary."
     ),
     "meta": [
-        "16 cookbooks",
+        "17 cookbooks",
         "5 tracks",
         "UI-first",
         "Training-ready",
@@ -43,19 +49,19 @@ INTRO = {
           <li>Every <strong>green link</strong> opens the copy-paste asset file in that cookbook's
             <code>assets/</code> folder — paste its contents into the matching field.</li>
           <li><strong>Preview areas are off by default.</strong> Each cookbook's notes name the feature flags it needs
-            (<code>CALIBER_FEATURE_COOKBOOKS</code> for the gallery; <code>CALIBER_FEATURE_ARIA</code>,
-            <code>CALIBER_FEATURE_INTEGRATIONS</code> or <code>CALIBER_FEATURE_RELEASE_CANDIDATES</code> where a lab uses that area).
-            Set them on the server and restart.</li>
+            (<code>CALIBER_FEATURE_COOKBOOKS</code> for the gallery; <code>CALIBER_FEATURE_ARIA</code> for labs 12–15,
+            <code>CALIBER_FEATURE_INTEGRATIONS</code> for lab 05 or <code>CALIBER_FEATURE_RELEASE_CANDIDATES</code> for lab 11).
+            Set them on the server and restart. <code>scripts/cookbook-env.sh up NAME --flags …</code> starts a disposable stack with them.</li>
         </ul>
       </div>
       <div class="callout">
-        <strong>The UI-first promise.</strong> With <code>CALIBER_FEATURE_COOKBOOKS=true</code> set on the server (off by default), open <strong>Cookbooks</strong> to install any of the 16 recipes as a paused workflow and editable draft. Review readiness before activation.
+        <strong>The UI-first promise.</strong> With <code>CALIBER_FEATURE_COOKBOOKS=true</code> set on the server (off by default), open <strong>Cookbooks</strong> to install any of the 17 recipes as a paused workflow and editable draft. Review readiness before activation.
         <ul>
-          <li><strong>Datasets</strong> fill from real runs: <code>Observability → open a trace → Add to test set</code>.</li>
+          <li><strong>Test sets</strong> come from a file (<code>Upload JSON/JSONL</code>, labs 01 and 06) or from real runs (<code>Observability → open a trace → Add to test set</code>, lab 16).</li>
+          <li><strong>The default model and evaluator are simulated.</strong> <code>Evaluations</code> refuses to score without a real model (<code>400 evaluation requires a real LLM provider</code>), and calibration evidence on the default stack is canned and marked <em>Simulated evaluation — not evidence</em>. Each lab says which of its steps are real and which are simulated.</li>
           <li><strong>Deterministic logic</strong> uses Data Transform for decisions, JSON Schema, mapping, confidence, and fixtures; Python Code remains a bounded extension.</li>
-          <li><strong>The Prompt Playground is a live chat</strong> (it calls the model); prompt regression is scored on the prompt's <code>Runs</code> stage, while <code>Evaluations</code> scores a Test Set with deterministic graders.</li>
           <li><strong>Judges</strong> are for LLM-graded criteria; deterministic checks are <strong>scorers</strong> or assertions.</li>
-          <li><strong>Aria</strong> (12–15) plans from one sentence in <code>Plans</code> (needs <code>CALIBER_FEATURE_ARIA=true</code>, off by default); you create each artifact in its own page.</li>
+          <li><strong>Aria</strong> (12–15) plans from one sentence in <code>Plans</code> (needs <code>CALIBER_FEATURE_ARIA=true</code>, off by default). The planner is rules, not a model; nothing runs until you approve the plan, each step asks for the fields it cannot know, and Aria creates the artifact once you approve.</li>
         </ul>
       </div>
     </div>
@@ -64,136 +70,58 @@ INTRO = {
 
 
 COOKBOOKS = [
-    # ───────────────────────────── FOUNDATIONS ─────────────────────────────
     {
         "id": "CB-01",
         "num": "01",
         "slug": "intake-classifier",
         "track": "Foundations",
         "title": "Trustworthy Intake Classifier",
-        "subtitle": "Prompt fundamentals: stable JSON output + a regression gate that catches weak edits.",
+        "subtitle": "Release a prompt change you can trust: a 44-case test set, a caught regression, then calibrate, review, apply and roll back.",
         "level": "Starter",
-        "time": "20–30 min",
-        "surfaces": ["Prompts", "Test Sets", "Observability"],
-        "build": "A prompt that converts a free-text support message into a stable JSON record "
-        "(<code>intent, priority, confidence, needs_review, reason</code>), plus a baseline "
-        "and a regression check that fails a weaker prompt edit.",
+        "time": "30–60 min",
+        "surfaces": [
+            "Prompts",
+            "Test Sets",
+            "Evaluations",
+            "Releases",
+            "Audit Log",
+        ],
+        "build": "A support-desk prompt, <code>cookbook-01-intake-classifier</code>, that turns every inbound message into one strict JSON record (<code>intent, priority, confidence, needs_review, reason</code>). You import a <strong>44-case labelled test set</strong> from <code>assets/dataset/intake-classifier.jsonl</code>, register a weaker v2 that drops the JSON-only rules, then calibrate the live prompt, review the candidate, <strong>Apply</strong> it explicitly, verify the release in the MLflow registry, on <strong>Releases</strong> and in the <strong>Audit Log</strong>, and roll back. Runs on the default simulated model and evaluator; only <code>CALIBER_FEATURE_COOKBOOKS=true</code> is needed.",
         "learn": [
-            "Author and version a prompt in the Prompts workspace",
-            "How the Playground chats live and the Runs stage scores a regression",
-            "Generate a golden Test Set on the Test Sets stage and save it",
-            "Queue a background calibration pass on the prompt",
-            "Pin a baseline and read a candidate-vs-baseline regression diff",
+            "Author v1 (strict, live) and save a weaker v2 as a draft: registering a version does not make it live",
+            "Import a 44-example test set from a file on the prompt's <strong>Calibration</strong> stage (dataset version <code>45</code>, because every example bumps the version)",
+            "Evaluate a prompt version on <strong>Evaluations</strong>: refused with <code>400 evaluation requires a real LLM provider</code> on the simulated model, run for real against a stand-in model",
+            "Calibrate, read <strong>Review candidate before applying</strong> (diff, <strong>Simulated evaluation — not evidence</strong>, gate), then <strong>Apply candidate</strong>: nothing is applied until you click it",
+            "Verify the release in the MLflow registry (<code>prod</code> to v3), <strong>Releases</strong> (live board and timeline) and <strong>Audit Log</strong>, then <strong>Roll back</strong> to v1",
+            "The failure paths: a viewer's Apply is <code>403</code>, a candidate below the gate is <code>rejected</code> and its Apply is <code>409</code>",
         ],
         "mermaid": """flowchart LR
-  P[Prompt v1: intake-classifier] --> PG[Playground: live chat check]
-  P --> TS[Test Sets: generate + save golden]
-  TS --> R1[Runs: run tests]
-  R1 --> BL[Set as baseline]
-  P2[Weaker v2] --> R2[Runs: re-run]
-  BL --> R2
-  R2 --> DIFF[Vs. baseline diff → regression]
-  P --> CAL[Calibration: queued job]""",
-        "steps": [
-            {
-                "where": "Library › Prompts › New prompt",
-                "do": "Create <code>intake-classifier</code> and paste the system template that demands JSON-only output with the five required keys.",
-                "asset": "prompt: intake-classifier",
-            },
-            {
-                "where": "Prompts › intake-classifier › Author",
-                "do": "Click <code>Save &amp; promote</code> (v1) with a commit message to make it live, or <code>Save draft</code> to register it without rotating the alias. Versions resolve under the <code>prod</code> alias.",
-            },
-            {
-                "where": "Prompts › Playground",
-                "do": "Render the prompt with a sample ticket and confirm the JSON layout. (This is a render check — there is no score here.)",
-            },
-            {
-                "where": "Evaluate › Test Sets › New dataset",
-                "do": "Create an empty dataset <code>intake-classifier-golden</code>.",
-            },
-            {
-                "where": "Prompts › Playground / Runs",
-                "do": "Run the golden, edge, and negative tickets so each produces a trace.",
-            },
-            {
-                "where": "Observe › Observability",
-                "do": "Open each run's trace and click <code>Add to test set → intake-classifier-golden</code>, setting the expected labels. This populates rows entirely in the UI.",
-                "asset": "test set rows (from traces)",
-            },
-            {
-                "where": "Evaluate › Judges › New judge",
-                "do": "Create <code>InstructionCompliance</code> — instructions reference <code>{{ inputs }}</code>/<code>{{ outputs }}</code>/<code>{{ expectations }}</code>, return type <code>bool</code>.",
-                "asset": "judge: InstructionCompliance",
-            },
-            {
-                "where": "Evaluate › Evaluations › Run evaluation",
-                "do": "Dataset = <code>intake-classifier-golden</code>; scorers = <code>contains_expected</code> + <code>exact_match</code> (deterministic graders only). Run it — this is your <strong>baseline</strong>.",
-                "asset": "eval run: baseline",
-            },
-            {
-                "where": "Prompts › Author",
-                "do": "Save a deliberately weaker v2 (drop the “JSON only” rule) and re-run the same evaluation.",
-            },
-            {
-                "where": "Evaluations › run detail",
-                "do": "Select the baseline run to compute per-example deltas; confirm the weaker variant visibly regresses. Pin the strong run as baseline.",
-                "asset": "eval run: candidate",
-            },
-            {
-                "where": "Prompts › Calibration",
-                "do": "Queue a calibration pass and capture the job id (it runs in the background — don't wait for an inline score).",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Prompt",
-                "name": "intake-classifier",
-                "detail": "System template enforcing JSON-only output + allowed intent/priority values + abstain-when-unsure. <code>assets/prompts/</code>",
-            },
-            {
-                "type": "Test Set",
-                "name": "intake-classifier-golden",
-                "detail": "Golden / edge / negative tickets, populated from traces via Observability.",
-            },
-            {
-                "type": "Judge",
-                "name": "InstructionCompliance",
-                "detail": "LLM judge: valid JSON + allowed labels + agrees with expectations + resists prompt-injection.",
-            },
-            {
-                "type": "Scorer",
-                "name": "contains_expected",
-                "detail": "Built-in deterministic scorer for the label match (selected in the Evaluations run panel).",
-            },
-        ],
+  A["Prompts: author v1, live"] --> B["Author: save weaker v2 draft"]
+  A --> C["Calibration: import 44-case file"]
+  C --> D["Test Sets: check v45"]
+  D --> E["Evaluations: score a prompt version"]
+  E --> F["Compare to baseline: v2 regression"]
+  C --> G["Calibration: MetaPrompt run"]
+  G --> H["Review and apply: candidate"]
+  H --> I["Apply candidate: prod to v3"]
+  I --> J["Releases and Audit Log: verify"]
+  J --> K["Roll back: prod to v1"]""",
         "gates": [
-            {"gate": "Golden output is valid + schema-stable", "target": "overall ≥ 0.90"},
-            {
-                "gate": "Weaker variant is caught",
-                "target": "visible regression in the Runs Vs. baseline diff",
-            },
-            {"gate": "Failures are explainable", "target": "root cause readable in the trace"},
+            {"gate": "Test set imported from the file", "target": "44 examples, dataset version 45"},
+            {"gate": "Evaluation outcome", "target": "simulated model: 400 refusal (missing test set: 404); with a model that answers: v1 44/44 strict JSON, v2 0/44, v2 fails the regression gate (allowed pass-rate drop 0.05)"},
+            {"gate": "Calibration evidence", "target": "candidate_ready; simulated: true, 44 examples, dataset v45; gate min_aggregate_score 0.85 / max_regression_delta 0.02"},
+            {"gate": "Apply is gated", "target": "viewer Apply 403; candidate below the gate rejected, Apply 409"},
+            {"gate": "Release evidence after Apply", "target": "registry prod = v3; live board v3 by you; timeline v1 to v3; audit promote_prompt and apply_candidate by you"},
+            {"gate": "Rollback", "target": "prod is v1 again in the registry and on the live board (26/26 SDK checks pass)"},
         ],
-        "mock": {
-            "url": "/prompts",
-            "nav": "Prompts",
-            "title": "intake-classifier",
-            "tabs": ["Author", "Playground", "Test Sets", "Runs", "Calibration", "Bind"],
-            "active_tab": "Author",
-            "fields": [
-                ("Template", "You classify support input and must return JSON only…"),
-                ("Commit message", "v1 strict-JSON intake classifier"),
-            ],
-            "buttons": ["Save draft", "Save & promote", "Open Playground"],
-            "caption": "Prompts workspace → Author stage",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_ARIA=true</code> is needed for the Playground, <strong>Generate Test Cases</strong>, <strong>Run Tests &amp; Judge</strong> and <strong>Run tests</strong> (they call the Aria assistant); both are off by default. Without Aria, build the test set by hand and score it on Evaluations.",
-            "The Playground is a live chat — it <strong>calls</strong> the model; scored regression runs are on the prompt's Runs stage (not Evaluations, which scores datasets).",
-            "Author rows in the dataset editor at <code>/eval-datasets/:id → + Add example</code>, or capture them from <code>Observability → Add to test set</code>.",
-            "Calibration enqueues a background optimizer job; show the job id rather than waiting.",
-            "“valid_json” / allowed-labels are deterministic <strong>scorers</strong>, not a judge.",
+            "<strong>Feature flag.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> and nothing else: no Aria, no integrations. Prompt, test-set, calibration and release routes work without it; only the Cookbooks gallery needs it.",
+            "<strong>Simulated by default.</strong> With <code>CALIBER_LLM_PROVIDER=fake</code> / <code>CALIBER_EVAL_PROVIDER=fake</code> there is no model: Evaluations is refused, and the calibration candidate and scores (canned <code>0.94</code> vs <code>0.88</code>) are marked <code>simulated: true</code>. The example count (44), dataset version, Apply, registry alias, live board, timeline, audit and rollback are real. Never read <code>0.94</code> as quality.",
+            "<strong>Real release path required.</strong> <code>CALIBER_PROMOTER_PROVIDER=mlflow</code> and <code>CALIBER_ARTIFACT_STORE_PROVIDER=mlflow</code>; if <code>/readiness</code> lists <code>promoter</code> or <code>artifact_store</code> as simulated, Apply will not move the MLflow alias.",
+            "<strong>Stand-in model.</strong> <code>assets/stand-in-model/server.py</code> is a keyword server behind an OpenAI-compatible endpoint, not a model. It lets you watch v1 and v2 scored and the regression caught (<code>token_f1</code> 0.535 to 0.267); 37 of 44 labels match on v1. Needs a second stack (<code>--real-llm</code>); calibration needs an optimizer model, so run the script with <code>--skip-release</code>.",
+            "<strong>Dataset keys.</strong> The importers read <code>input</code> and <code>expected</code> (not <code>inputs</code>/<code>expectations</code>); built-in scorers are text-level, so the JSON-contract checks live in the SDK script, not the scorecard.",
+            "<strong>Not covered.</strong> Playground, Generate Test Cases, Run Tests &amp; Judge, the Runs stage baseline diff (these need <code>CALIBER_FEATURE_ARIA</code> and a real model), the <code>InstructionCompliance</code> judge and the Observability trace walkthrough.",
+            "<strong>Run it.</strong> <code>scripts/cookbook-env.sh up lab01 --flags cookbooks</code>, then <code>sdk/caliber-sdk/examples/cookbooks/cookbook_01_trustworthy_intake_classifier.py</code> (exits 0 only if all checks hold); browser: <code>e2e/cookbooks/labs/01-prompt-release-loop.spec.ts</code> and <code>01b-evaluation-regression.spec.ts</code>. A calibration run needs background workers on.",
         ],
     },
     {
@@ -202,101 +130,51 @@ COOKBOOKS = [
         "slug": "precision-skills",
         "track": "Foundations",
         "title": "Precision Skills",
-        "subtitle": "Deterministic triggering + portable packaging — a skill that fires only when it should.",
+        "subtitle": "A support-tone skill measured on 40 trigger cases (30 right, then 40), calibrated, applied, rolled back, packaged and archived.",
         "level": "Starter",
-        "time": "25–40 min",
-        "surfaces": ["Skills", "Observability"],
-        "build": "A reusable response skill (<code>support-tone-and-citation</code>) that activates on "
-        "support queries but stays silent on engineering ones, and exports cleanly as a portable "
-        "package (Download ZIP).",
+        "time": "45–75 min",
+        "surfaces": [
+            "Cookbooks",
+            "Skills",
+            "Administration",
+            "Audit Log",
+        ],
+        "build": "A narrow skill, <code>support-tone-and-citation</code>, that gives customer-facing support replies one voice (calm, no over-promising, cited knowledge-base ids, an escalation hint) and must not fire on engineering work. You run a <strong>40-case trigger set</strong> against the real, deterministic skill selector, tighten the trigger phrases, pin the baseline, then calibrate, review, Apply and roll back, export and re-import it as a ZIP package, try the failure paths and archive it. Needs only <code>CALIBER_FEATURE_COOKBOOKS=true</code>; calibration is simulated.",
         "learn": [
-            "Author a skill with a tight trigger summary (the selector reads it)",
-            "Render-preview variable substitution",
-            "Run deterministic trigger tests (positive vs negative)",
-            "Export a portable skill package (Download ZIP)",
-            "Tighten the summary first when a negative query mis-fires",
+            "Author a skill in <strong>Build Skill</strong>: the selector reads name, tags, summary and trigger phrases, never the long-form content",
+            "<strong>Render Preview</strong>: variable substitution, and what stays unresolved (a partial set shows <strong>2 unresolved</strong>)",
+            "Run the 40 trigger cases: the six starter phrases get <code>30/40</code> right (8 false positives, 2 false negatives); tightened phrases (3 should-trigger, 14 should-not-trigger) get <code>40/40</code>",
+            "Pin that run as the baseline, <strong>Calibrate</strong>, read the review (<strong>Simulated evaluation — not evidence</strong>, <code>0 evaluation examples</code>), <strong>Apply to skill</strong> (v2), then <strong>Roll back</strong> (v3 with the text of v1)",
+            "<strong>Download ZIP</strong>, then <strong>Import ZIP</strong> with reject (409), rename or merge: the package holds the instructions, not the tags, category or trigger phrases",
+            "Failure paths: invalid content (400, duplicate name 409), a calibration with no baseline (still works), a viewer's Apply, Calibrate, Roll back and Create (403)",
         ],
         "mermaid": """flowchart TD
-  A[Author skill: summary + content] --> R[Render Preview]
-  A --> T{Trigger Tests}
-  T -->|positive queries| Y[is_selected = true]
-  T -->|engineering queries| N[is_selected = false]
-  A --> X[Export ZIP: portable package]""",
-        "steps": [
-            {
-                "where": "Library › Skills › New skill",
-                "do": "Create <code>support-tone-and-citation</code>. Write a <strong>tight one-line summary</strong> scoped to customer-facing support replies and explicitly NOT engineering/code/API questions.",
-                "asset": "skill: support-tone-and-citation",
-            },
-            {
-                "where": "Skills › … › Author",
-                "do": "Fill the full content (tone, citation hints, escalation) with variables <code>{{ user_message }}</code>, <code>{{ audience }}</code>, <code>{{ policy_context }}</code>.",
-            },
-            {
-                "where": "Skills › … › Render Preview",
-                "do": "Provide the three variables; confirm there are no <code>unresolved_variables</code> and the layout is correct.",
-            },
-            {
-                "where": "Skills › … › Trigger Tests",
-                "do": "Run positive queries (refund / how-to) → expect select; run engineering queries (“rotate a JWT signing key”) → expect NOT selected. Selection is deterministic.",
-                "asset": "trigger cases",
-            },
-            {
-                "where": "Skills › … › Author",
-                "do": "If a negative query selects, sharpen the <strong>summary</strong> (it dominates selection) before touching the long-form content; re-test.",
-            },
-            {
-                "where": "Skill detail › Download ZIP",
-                "do": "Export the portable package, then on the standalone Skill Detail page choose <strong>Rename import</strong>, enter <code>support-tone-citation-copy</code>, and choose <strong>Import ZIP</strong>. The UI sends multipart <code>file</code> to <code>/ajax-api/2.0/mlflow/caliber/skills/import-package.zip</code> with <code>conflict_strategy=rename</code> and <code>rename_to=support-tone-citation-copy</code>.",
-                "asset": "skill package (Download ZIP)",
-            },
-            {
-                "where": "Skills › … › Bind",
-                "do": "Bind the skill to an agent or a future workflow node for reuse.",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Skill",
-                "name": "support-tone-and-citation",
-                "detail": "Narrow trigger summary + tone/citation/escalation content. <code>assets/skills/</code>",
-            },
-            {
-                "type": "Trigger set",
-                "name": "trigger-cases",
-                "detail": "≈6 positive + ≈6 negative queries with expected <code>is_selected</code>.",
-            },
-            {
-                "type": "Package",
-                "name": "skill ZIP",
-                "detail": "UI export plus API import with reject, rename, and admin-only merge conflict strategies.",
-            },
-        ],
+  A["Skills: Build Skill, v1 live"] --> B["Render Preview: full and partial variables"]
+  A --> C["Trigger Tests and Scenario Sets: round 1"]
+  C -->|"starter phrases: 30 of 40"| D["Details and package: tighten trigger phrases"]
+  D --> E["Round 2: 40 of 40"]
+  E --> F["Runs: Set as baseline"]
+  F --> G["Calibrate: simulated candidate"]
+  G --> H["Review and apply: v2"]
+  H --> I["Roll back: v3 has the text of v1"]
+  A --> J["Download ZIP: SKILL.md and openai.yaml"]
+  J --> K["Import ZIP: reject, rename, merge"]
+  I --> L["Archive"]""",
         "gates": [
-            {"gate": "Trigger accuracy", "target": "≥ 0.95 (false-pos + false-neg counted)"},
-            {
-                "gate": "Portable export",
-                "target": "Download ZIP yields a self-contained SKILL.md + agent manifest",
-            },
+            {"gate": "Trigger accuracy (round 1, starter phrases)", "target": "30/40 right: false positives T27-T32, T34, T35; false negatives T14, T23"},
+            {"gate": "Trigger accuracy (round 2, tightened phrases)", "target": "40/40, above trigger_accuracy_min 0.95; that run is the pinned baseline"},
+            {"gate": "Apply and rollback", "target": "candidate_ready with simulated: true and n_examples 0; history 3, 2, 1 and version 3 has the text of version 1"},
+            {"gate": "Package round trip", "target": "ZIP holds exactly SKILL.md and agents/openai.yaml; same-name re-import 409; decisions match after restoring metadata (gate 1.0)"},
+            {"gate": "Failure paths", "target": "viewer Apply, Calibrate, Roll back, Create each 403; invalid content 400; every skill the lab created is archived"},
         ],
-        "mock": {
-            "url": "/skills",
-            "nav": "Skills",
-            "title": "support-tone-and-citation",
-            "tabs": ["Author", "Render Preview", "Trigger Tests", "Scenario Sets", "Runs", "Bind"],
-            "active_tab": "Trigger Tests",
-            "fields": [
-                ("User message", "How do I get a refund for a double charge?"),
-                ("Result", "is_selected = true · score 0.82 · matched: support, refund"),
-            ],
-            "buttons": ["Run trigger test", "Download ZIP"],
-            "caption": "Skills workspace → Trigger Tests (deterministic)",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
-            "Selection scoring is <strong>deterministic</strong> (no LLM) — this is the precision check; there is no LLM judge here.",
-            "Skill names are kebab-case and must not start with <code>claude</code>/<code>anthropic</code>.",
-            "Calibrate enqueues a background job; Scenario Sets is scaffolded — drive cases through Trigger Tests + Runs.",
+            "<strong>Feature flag.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> only opens the Cookbooks gallery; Skills work without it. No Aria, integrations or release-candidate flag is needed.",
+            "<strong>What is simulated.</strong> Trigger selection (<code>test-selection</code>) is deterministic code and real on every stack; there is no LLM judge. Calibration is simulated by default (canned <code>0.94</code> vs <code>0.88</code>, <code>provider: fake</code>); <code>n_examples</code> is <code>0</code> because a skill has no test set, so the 40 cases score selection only. It proves wiring, not that the candidate is better.",
+            "<strong>Selector gotchas.</strong> One summary word is enough to select; a positive sharing no word with name, tags or summary is not selected (<code>T14</code>, <code>T23</code>). A matching should-not-trigger phrase ends the score at 0. Fix misses with phrases, never content edits; scores depend on the skill name, so assert decisions, not scores.",
+            "<strong>Package limits.</strong> A package carries instructions only: the copy gets category <code>custom</code>, no tags, no trigger phrases and a 64-character summary, so its decisions differ (13 cases in the run) until you restore them. A merge import (admin only) overwrites the summary with the shortened one.",
+            "<strong>Roles and names.</strong> Create needs operator; patching metadata and rolling back need admin. Names are kebab-case, must not start with <code>claude</code> or <code>anthropic</code>, are unique across the deployment, and an archived skill keeps its name.",
+            "<strong>Background worker.</strong> Calibration stays <code>queued</code> unless <code>CALIBER_BACKGROUND_TASKS_ENABLED=true</code> (set by <code>scripts/cookbook-env.sh</code>). Scenario Sets live in the page and clear on leaving it.",
+            "<strong>Not covered.</strong> The Bind stage, a calibration that improves the skill, project roles other than Viewer, and Aria choosing the skill. Run it with <code>scripts/cookbook-env.sh up lab02 --flags cookbooks</code>, <code>sdk/caliber-sdk/examples/cookbooks/cookbook_02_precision_skills.py</code> and <code>e2e/cookbooks/labs/02-skill-trigger-packaging.spec.ts</code>.",
         ],
     },
     {
@@ -305,112 +183,52 @@ COOKBOOKS = [
         "slug": "policy-safe-tool",
         "track": "Foundations",
         "title": "Policy-Safe Decision Tool",
-        "subtitle": "Deterministic business logic first, then approval-gated side effects, then an explanation layer.",
+        "subtitle": "A deterministic refund policy hardened against 49 fixtures, then a refund that only a second person can release.",
         "level": "Core",
-        "time": "40–60 min",
-        "surfaces": ["Tools", "Workflows", "Judges", "Evaluations"],
-        "build": "A refund decision flow: a deterministic eligibility node, a hard approval gate before "
-        "the (mocked) refund write, and an optional explanation that can never contradict the decision.",
+        "time": "15–30 min",
+        "surfaces": [
+            "Tools",
+            "Workflows",
+            "Administration",
+            "Audit Log",
+            "Cookbooks",
+        ],
+        "build": "A refund policy as a registered <strong>read</strong> tool (<code>decide_refund</code>: approve, deny or manual review, with a stable reason code) and a <strong>write</strong> tool (<code>initiate_refund</code>, registered with <code>requires_approval</code>). You run them in the sandbox, save a <strong>49-case fixture suite</strong>, pin a baseline and catch one deliberate regression, then import the <code>refund-decision</code> workflow that decides, routes, and issues the refund only after a <strong>different person</strong> approves and the run is resumed. No model is involved: nothing here is simulated.",
         "learn": [
-            "Register a shipped callable as a tool from the Spec form (no code)",
-            "Author deterministic logic as a visual decision table",
-            "See write tools auto-mock in the sandbox + gate in a workflow",
-            "Drive the human-approval gate in the Run Monitor",
-            "Score an explanation with an LLM judge — after the deterministic lane is green",
+            "Register a read tool and a write tool: <strong>Write</strong> locks <strong>Requires Approval</strong> on, and a write tool registered without it is refused with <code>400</code>",
+            "<strong>Sandbox</strong>: the read tool runs live in a subprocess, the write tool is mocked (<strong>Success (mocked)</strong>)",
+            "Save 49 fixtures, <strong>Run calibration</strong> (<strong>Pass rate 100% — 49/49 passed</strong>), pin the run as the baseline, then break R09 and read <strong>1 regression</strong> (48/49)",
+            "Import the workflow and <strong>Run</strong> it: the run stops at <strong>Awaiting approval</strong> on the <code>refund</code> node; the initiator is refused with <code>403</code>, <code>approver1</code> approves, and the refund fires only after <strong>Resume</strong>",
+            "Reject (<code>approval_rejected</code>, no refund), deny (completes without approval), and read who approved what in the <strong>Audit Log</strong>",
+            "Where the sandbox stops being a boundary: a stalled tool is killed, a large write is refused, the environment is empty, and the network is still reachable",
         ],
         "mermaid": """flowchart LR
-  RI[/run input JSON/] --> DR[Data Transform: ordered decision table]
-  DR --> HA{{Human Approval · gates every run when enabled}}
-  HA -->|approve| IR[Tool: initiate_refund · mocked + gated]
-  DR -.optional.-> EX[Explanation prompt] -.as a scorer.-> JF[Judge: ExplanationFaithfulness]
-  LO[Tool: lookup_order] -.Tools sandbox demo.-> SBX[Fixtures + Hardening]""",
-        "steps": [
-            {
-                "where": "Library › Tools › New tool (Spec)",
-                "do": "Register <code>lookup_order</code> → module <code>caliber.workflows.demo_tools</code>, callable <code>lookup_order</code>, <code>side_effect_level: read</code>, <code>allow_in_preview: true</code>.",
-                "asset": "tool: lookup_order",
-            },
-            {
-                "where": "Library › Tools › New tool (Spec)",
-                "do": "Register <code>initiate_refund</code> (same module), <code>side_effect_level: write</code> — it will be mocked in the sandbox and gated in the workflow.",
-                "asset": "tool: initiate_refund",
-            },
-            {
-                "where": "Tools › lookup_order › Sandbox",
-                "do": "Test-run with an order id; confirm a live read result. Run <code>initiate_refund</code> and confirm the response is <code>mocked</code>.",
-            },
-            {
-                "where": "Tools › … › Fixtures + Hardening",
-                "do": "Save deterministic assertion cases, run the suite inline, pin a baseline, and re-run after a change to see a regression delta.",
-            },
-            {
-                "where": "Compose › Workflows › New (template: hitl_review)",
-                "do": "Start from the template that ships the <code>human_approval</code> node.",
-                "asset": "workflow: refund-decision",
-            },
-            {
-                "where": "Workflow editor › add Data Transform",
-                "do": "Choose <strong>Decision table</strong>, enter the ordered amount/region rules and default result, then wire <code>policy_decision → human_approval → initiate_refund</code>.",
-                "asset": "data_transform: policy_decision",
-            },
-            {
-                "where": "Workflow editor › Run Monitor",
-                "do": "With runtime approvals enabled (a deployment setting), execute a run → it pauses at <code>waiting_approval</code> on the human-approval node; approve, then <strong>resume</strong> → the mocked refund fires only after approval. The gate pauses every run regardless of <code>requires_approval</code> (which is informational).",
-            },
-            {
-                "where": "Run Monitor",
-                "do": "Reject the approval on another run to prove the external write cannot execute.",
-            },
-            {
-                "where": "Evaluate › Judges + Evaluations",
-                "do": "(Optional) Add an explanation prompt/node, create <code>ExplanationFaithfulness</code>, and score it — only after the deterministic lane is green.",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Tool",
-                "name": "lookup_order / initiate_refund",
-                "detail": "Shipped demo callables registered via Spec; <code>read</code> (preview-live) vs <code>write</code> (mocked + gated).",
-            },
-            {
-                "type": "Data Transform",
-                "name": "policy_decision",
-                "detail": "Ordered deterministic eligibility rules with matched-rule metadata.",
-            },
-            {
-                "type": "Workflow",
-                "name": "refund-decision",
-                "detail": "<code>hitl_review</code> template + lookup → decide → approval → refund.",
-            },
-            {
-                "type": "Judge",
-                "name": "ExplanationFaithfulness",
-                "detail": "LLM judge: the explanation matches the deterministic decision and adds no new commitments.",
-            },
-        ],
+  A["Tools: register decide_refund and initiate_refund"] --> B["Sandbox: live read, mocked write"]
+  B --> C["Fixtures: 49 cases"]
+  C --> D["Hardening: run calibration, 49/49"]
+  D --> E["Test Runs: Set as baseline"]
+  E --> F["Break R09: 1 regression"]
+  F --> G["Workflows: import refund-decision"]
+  G --> H{"Router on decision"}
+  H -->|deny| I["Output: denied, no approval"]
+  H -->|other| J["initiate_refund: waiting_approval"]
+  J -->|"approver1 approves, admin Resume"| K["Refund issued once"]
+  K --> L["Audit Log: approver and initiator"]""",
         "gates": [
-            {"gate": "Deterministic fixture pass rate", "target": "≥ 0.97; decision mismatch = 0"},
-            {"gate": "Approval enforced on high-risk", "target": "visible in the run timeline"},
-            {"gate": "Explanation faithfulness", "target": "≥ 0.92"},
+            {"gate": "Fixture pass rate", "target": "1.0 over 49 cases (tool_fixture_pass_rate_min 1.0); recorded as a suite run and pinned as the baseline"},
+            {"gate": "Regression is visible", "target": "one wrong fixture (R09) scores 48/49 with exactly 1 regression against the baseline"},
+            {"gate": "Approval enforced", "target": "run waits at waiting_approval on refund; initiator 403; approver1 approves; refund fires only after Resume"},
+            {"gate": "Reject and deny paths", "target": "rejected run fails with approval_rejected and issues no refund; a denied decision finishes with no approval"},
+            {"gate": "Audit trail and roles", "target": "approver1 and the initiator named in the audit log; a viewer cannot run, calibrate or approve (403)"},
         ],
-        "mock": {
-            "url": "/workflows/refund-decision/editor",
-            "nav": "Workflows",
-            "title": "refund-decision · Run Monitor",
-            "tabs": ["Editor", "Run Monitor", "Checkpoints", "Recovery", "Debugger"],
-            "active_tab": "Run Monitor",
-            "fields": [
-                ("Status", "waiting_approval — Approve to unlock Resume"),
-                ("Node", "human_approval · required_role: caliber.approver"),
-            ],
-            "buttons": ["Approve", "Reject", "Resume"],
-            "caption": "Workflow editor → Run Monitor (approval gate)",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
-            "A registered tool needs an importable <code>module_path</code>+<code>callable_name</code>; the shipped <code>demo_tools</code> callables let you do this from the UI with no code.",
-            "Field is <code>side_effect_level</code> (read/write/external_action); read tools need <code>allow_in_preview: true</code> to run live in the sandbox.",
-            "The decision table is structured workflow source: versioned, inspectable, and executable without custom Python.",
+            "<strong>Feature flag.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> only opens the Cookbooks gallery starter (the last step); the rest of the lab needs no flag. No Aria, integrations or release-candidate flag.",
+            "<strong>Nothing is simulated.</strong> No model and no judge are involved, so the fake LLM provider is irrelevant here.",
+            "<strong>Runtime settings.</strong> Needs runtime approvals, the workflow run queue, checkpointing and a worker (<code>scripts/cookbook-env.sh</code> turns them on). Without <code>CALIBER_WORKFLOW_RUN_RUNTIME_APPROVALS_ENABLED=true</code> a run does not pause. <code>CALIBER_APPROVER_USERS</code> must list <code>approver1</code>; leave <code>CALIBER_APPROVAL_ALLOW_SELF_APPROVAL</code> unset or the second-person rule does not bite.",
+            "<strong>Split of duties.</strong> Run, calibrate and Resume need <code>caliber.operator</code>; deciding needs <code>caliber.approver</code>; only an admin registers a tool. <code>approver1</code> deliberately cannot Resume.",
+            "<strong>Tools are importable Python.</strong> A registered tool needs a <code>module_path</code> and <code>callable_name</code> in the server's environment (the shipped <code>caliber.workflows.demo_tools</code> provides both); there is no inline tool editor. Set <code>CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST</code> beyond a trial.",
+            "<strong>Limits.</strong> The sandbox is a process boundary, not isolation (the child keeps network and filesystem access), and the memory limit is not enforced on macOS. The effect ledger covers webhook and API-request nodes, not registered tools, so make a payments tool idempotent itself.",
+            "<strong>Calibration is slow.</strong> 49 cases take about 35 s synchronously, longer than the SDK default 30 s timeout. Run it with <code>sdk/caliber-sdk/examples/cookbooks/cookbook_03_policy_safe_decision_tool.py</code> (<code>python -m examples.cookbooks.cookbook_03_policy_safe_decision_tool</code>) or the Playwright spec <code>e2e/cookbooks/labs/03-tool-hardening.spec.ts</code>.",
         ],
     },
     {
@@ -419,213 +237,102 @@ COOKBOOKS = [
         "slug": "governed-mcp",
         "track": "Foundations",
         "title": "Governed Tool Connectivity (MCP)",
-        "subtitle": "Connect an external system, discover its tools, and prove a blocked tool refuses to run.",
+        "subtitle": "Connect an MCP server, classify every tool before anything calls it, and prove from the server's own ledger that a refused call never ran.",
         "level": "Core",
-        "time": "20–35 min",
-        "surfaces": ["MCP Servers", "Observability"],
-        "build": "A governed GitHub MCP connection with a working read tool and a write tool that is "
-        "policy-blocked — invoked from the Playground to show the refusal.",
+        "time": "20–40 min",
+        "surfaces": [
+            "MCP Servers",
+            "Workflows",
+            "Observability",
+            "Audit Log",
+        ],
+        "build": "A governed connection to the lab's own MCP server (<code>assets/server/repo_tracker_mcp.py</code>, run over <code>stdio</code>) with six tools: four read tools, the write tool <code>issue_write</code> and the external action <code>create_release</code>. You discover the tools, classify each one, call an allowed read tool, calibrate the three read tools on 28 saved cases, and bind <code>issue_write</code> in a workflow that stops at <code>waiting_approval</code> until a second person approves. No model is involved, so nothing is simulated.",
         "learn": [
-            "Quick-connect an MCP server from the catalog",
-            "Test connection + tool discovery (schemas)",
-            "Invoke a read-only tool from the Playground",
-            "Apply a per-tool policy overlay and prove enforcement",
-            "Save tool test cases and calibrate them",
+            "Register a stdio MCP server in <strong>MCP Servers</strong>, run <strong>Test</strong> and read the 6 discovered tools and their schemas",
+            "Classify every tool (<strong>Allow tool</strong>, <strong>Requires approval</strong>, <strong>Side effect level</strong>, <strong>Rate limit / minute</strong>): discovery is not authorization",
+            "Invoke an allowed read tool, then meet each refusal (blocked, unknown, rate-limited) and each failed call (tool error, missing argument, timeout)",
+            "Calibrate the read tools with saved cases, and see one wrong expectation fail exactly one case",
+            "Hold <code>issue_write</code> in a workflow for a second person, and read the audit log and <code>mcp.&lt;server&gt;.&lt;tool&gt;</code> traces",
         ],
         "mermaid": """flowchart LR
-  C[Catalog: GitHub] --> S[Register server]
-  S --> TC[Test connection] --> D[Discover tools]
-  D --> RT[search_repositories · read] --> OK[Playground invoke ✓]
-  D --> WT[issue_write · write]
-  WT -->|policy allowed:false| BLK[Playground invoke ✗ refused]""",
-        "steps": [
-            {
-                "where": "Library › MCP Servers › catalog",
-                "do": "Allowlist <code>api.githubcopilot.com</code> server-side, click the <strong>GitHub</strong> tile, name the server, and supply <code>GITHUB_PERSONAL_ACCESS_TOKEN</code>; Register the official remote Streamable HTTP endpoint.",
-                "asset": "mcp server: GitHub",
-            },
-            {
-                "where": "MCP Servers › server row › Test",
-                "do": "Run Test connection → expect “Connected · N tools”. Inspect discovered tools and their input/output schemas.",
-            },
-            {
-                "where": "MCP Servers › Playground",
-                "do": "Select the server, pick <code>search_repositories</code> (read), invoke with a golden payload, confirm a result + duration.",
-            },
-            {
-                "where": "MCP Servers › server detail › tool policy",
-                "do": "On the write tool <code>issue_write</code>, set <code>allowed: false</code> (block).",
-                "asset": "policy: block issue_write",
-            },
-            {
-                "where": "MCP Servers › Playground",
-                "do": "Invoke the blocked tool → expect a structured <strong>refusal</strong> (<code>success:false</code>, policy error), not an execution. This is your enforcement record.",
-            },
-            {
-                "where": "MCP Servers › tool calibration",
-                "do": "Save a couple of test cases + assertions for the read tool and run calibrate.",
-                "asset": "mcp tool test cases",
-            },
-            {
-                "where": "MCP Servers › Playground › History",
-                "do": "Confirm the successful invoke and blocked attempt in Playground History. MCP invokes do not emit MLflow spans, so this evidence does not appear in Observability.",
-            },
-        ],
-        "assets": [
-            {
-                "type": "MCP Server",
-                "name": "GitHub (quick-connect)",
-                "detail": "Official remote endpoint → remote-host allowlist + token env var → Register. <code>assets/policy/</code> holds the PATCH bodies.",
-            },
-            {
-                "type": "Policy",
-                "name": "block issue_write",
-                "detail": "<code>allowed:false</code> — the control enforced on direct invoke.",
-            },
-            {
-                "type": "Test cases",
-                "name": "search_repositories",
-                "detail": "Calibration cases (<code>no_error</code> / <code>output_contains</code>).",
-            },
-        ],
+  R["Register stdio server"] --> T["Test: discover 6 tools"]
+  T --> U["All unclassified, so denied"]
+  U --> C["Classify each tool"]
+  C --> RD["Read tool: invoke and calibrate"]
+  C --> BL["Blocked, unknown or rate-limited call: refused"]
+  BL --> LG[("Server ledger: no line written")]
+  C --> WR["issue_write in a workflow"]
+  WR --> AP{{"waiting_approval: second person"}}
+  AP -->|approve and Resume| OK["Write runs"]
+  RD --> TR["Audit log and mcp traces"]""",
         "gates": [
-            {"gate": "Connection + discovery", "target": "100% connect; schemas visible"},
-            {"gate": "Blocked tool enforcement", "target": "blocked tool cannot execute"},
-            {"gate": "Read tool calibrated", "target": "≥ 1 saved calibration run"},
+            {"gate": "Discovery", "target": "6 tools, every one unclassified and denied until classified"},
+            {"gate": "Search call", "target": "search_repositories returns the 2 repositories tagged mcp; the ledger shows exactly one execution"},
+            {"gate": "Calibration of the read tools", "target": "16/16, 8/8 and 4/4; a wrong expectation gives 15/16 (pass rate 0.9375)"},
+            {"gate": "Refusals never run", "target": "0 ledger lines and no trace for create_release, drop_database and a rate-limited call"},
+            {"gate": "Write tool in a workflow", "target": "waiting_approval, starter refused (403), runs only after a second person approves and the run is resumed"},
         ],
-        "mock": {
-            "url": "/mcp-servers",
-            "nav": "MCP Servers",
-            "title": "GitHub · Playground",
-            "tabs": ["Servers", "Playground"],
-            "active_tab": "Playground",
-            "fields": [
-                ("Tool", "issue_write (write · blocked)"),
-                ("Result", "Failed — Tool 'issue_write' is blocked by policy"),
-            ],
-            "buttons": ["Invoke Tool"],
-            "caption": "MCP Servers → Playground (policy refusal)",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_INTEGRATIONS=true</code> opens the MCP Servers page; both are off by default.",
-            "On the <strong>direct invoke</strong> path only <code>allowed:false</code> blocks; <code>requires_approval</code> gates at <strong>workflow time</strong> (a human_approval node), not on direct invoke.",
-            "Assertion types are <code>no_error</code>, <code>output_contains</code>, <code>equals</code>.",
-            "Keep write-capable tools blocked by default until the read path is stable.",
+            "<strong>Flags.</strong> <code>CALIBER_FEATURE_INTEGRATIONS=true</code> opens the <strong>MCP Servers</strong> page and <code>/mcp-servers</code> (<code>404 feature_disabled</code> otherwise); <code>CALIBER_FEATURE_COOKBOOKS=true</code> is needed only for the last gallery step. Both are preview areas, off by default. Start with <code>scripts/cookbook-env.sh up lab05 --flags integrations,cookbooks</code>.",
+            "<strong>Nothing is simulated.</strong> No model is involved; enforcement is deterministic and proved from the server's ledger (<code>--ledger</code>), not only from CALIBER's answer.",
+            "<strong>stdio, not HTTP.</strong> Set <code>CALIBER_MCP_STDIO_PYTHON_SCRIPT_ALLOWLIST</code> to the server script's absolute path. A loopback HTTP endpoint is registered and then refused by the egress policy, and <code>/bin/sh</code> or <code>python -c</code> are refused with the reason. A stdio server is a child process, not a sandbox.",
+            "<strong>Accounts and scopes.</strong> <code>admin</code> registers, classifies and invokes; <code>lab05-operator</code> saves cases and calibrates; <code>lab05-approver</code> approves. Set <code>CALIBER_OPERATOR_USERS</code>/<code>CALIBER_APPROVER_USERS</code>, leave <code>CALIBER_APPROVAL_ALLOW_SELF_APPROVAL</code> unset, and enable the run queue and runtime approvals or the workflow will not pause.",
+            "<strong>The admin Playground is break-glass.</strong> <code>requires_approval</code> does not gate it (<code>issue_write</code> runs there); it holds the tool only inside a workflow. A write or external-action tool must carry approval or be blocked (<code>400</code> otherwise).",
+            "<strong>Limits.</strong> Classification is yours (a tool marked read that writes is invisible); policy lives on the server record; the rate limit is per tool, per minute, in one process. Calibration assertions are <code>no_error</code>, <code>output_contains</code> and <code>equals</code>, and calibrating an approval-class tool returns <code>409</code>.",
+            "<strong>Not run.</strong> The GitHub remote MCP variant (<code>assets/real-world/github-mcp.server.json</code>) is documented but was not executed. Runnable: <code>sdk/caliber-sdk/examples/cookbooks/cookbook_05_governed_tool_connectivity.py</code> (about a minute) and <code>caliber/caliber-ui/e2e/cookbooks/labs/05-mcp-governance.spec.ts</code>.",
         ],
     },
-    # ───────────────────────────── BUILD ─────────────────────────────
     {
         "id": "CB-04",
         "num": "04",
         "slug": "doc-to-json",
         "track": "Build",
         "title": "Document-to-JSON Pipeline",
-        "subtitle": "Turn Office documents into schema-valid JSON, with readable failures for bad inputs.",
+        "subtitle": "Turn invoice documents into schema-checked JSON, and hold every invalid one for a second person to approve or reject.",
         "level": "Core",
-        "time": "35–55 min",
-        "surfaces": ["Object Store", "Prompts", "Tools", "Workflows", "Observability"],
-        "build": "A workflow that fetches a document, extracts its text/tables, structures it to JSON "
-        "with a prompt, and validates the result against a target schema — separating extraction "
-        "failures from validation failures.",
+        "time": "20–30 min",
+        "surfaces": [
+            "Object Store",
+            "Cookbooks",
+            "Workflows",
+            "Administration",
+        ],
+        "build": "A workflow that reads one invoice from the <code>doc-intake</code> bucket, extracts JSON with a deterministic <code>python_code</code> node, and checks it against a JSON Schema with a <code>data_transform</code> <code>json_schema</code> node. A valid record is written to <code>doc-extracted</code> under <code>invoices/&lt;invoice number&gt;.json</code>; an invalid one stops at <code>review_gate</code>, where a second person approves it (written under <code>reviewed/</code>) or rejects it (nothing is written). No model is called, so simulated and real providers give the same result.",
         "learn": [
-            "Upload + preview + extract Office docs in Object Store",
-            "Register the shipped extractor tool",
-            "Author a structuring prompt that never invents values",
-            "Validate JSON with the Data Transform JSON Schema operation",
-            "Separate extraction vs normalization vs validation failures in traces",
+            "Create the <code>doc-intake</code> and <code>doc-extracted</code> buckets, upload the 30 sample documents under <code>incoming/</code> and preview one in <strong>Object Store</strong>",
+            "Install the <strong>Document-to-JSON Pipeline</strong> cookbook as a paused draft from <strong>Cookbooks</strong>, then <strong>Resume</strong> it",
+            "Run one document per queued run, with the object key as the run input, and read each step in the Execution Debugger",
+            "See a duplicate invoice refused by the output bucket, and hold a document that fails the schema at an approval gate",
+            "Approve and reject as the <code>reviewer</code> account; the account that started a run is refused (<code>403</code>)",
+            "Check what reached the output bucket: exactly 17 objects, and nothing for the rejected document",
         ],
         "mermaid": """flowchart LR
-  OB[(Object Store: docs)] -.upload + preview/extract.-> LF[/local file path/]
-  LF --> EX[Tool: extract_document · reads a local path]
-  EX --> ST[Agent: doc-structurer prompt]
-  ST --> VAL[Data Transform: JSON Schema]
-  VAL -->|pass / partial / fail| OUT[output]""",
-        "steps": [
-            {
-                "where": "Knowledge › Object Store › New bucket",
-                "do": "Create <code>doc-intake</code> and upload the sample .docx / .pptx / .xlsx.",
-                "asset": "bucket: doc-intake",
-            },
-            {
-                "where": "Object Store › file › Extract",
-                "do": "Confirm text for DOCX/PPTX and sheet rows for XLSX; confirm a legacy <code>.doc</code> returns a readable “unsupported” error (your negative case).",
-            },
-            {
-                "where": "Library › Tools › New tool (Spec)",
-                "do": "Register <code>extract_document</code> → module <code>caliber.workflows.ingestion_tools</code>, <code>side_effect_level: read</code>, <code>allow_in_preview: true</code>.",
-                "asset": "tool: extract_document",
-            },
-            {
-                "where": "Library › Prompts › New prompt",
-                "do": "Author <code>doc-structurer</code>: extract only verifiable facts, emit JSON matching the target schema, list <code>missing_fields</code>, never invent values.",
-                "asset": "prompt: doc-structurer",
-            },
-            {
-                "where": "Compose › Workflows › New",
-                "do": "Install Cookbook 04 or wire <code>extract_document → agent(doc-structurer) → Data Transform(JSON Schema) → output</code>.",
-                "asset": "workflow: doc-intake",
-            },
-            {
-                "where": "Workflow editor › Data Transform",
-                "do": "Choose <strong>JSON Schema</strong>, paste the Draft 2020-12 schema, and enable fail-on-invalid for the strict path.",
-                "asset": "data_transform: validate_json",
-            },
-            {
-                "where": "Run Monitor",
-                "do": "Run a clean doc (pass), a partial doc (partial + missing_fields), and the unsupported file (clean error, not a crash).",
-            },
-            {
-                "where": "Observe › Observability",
-                "do": "Open each run's trace; separate extraction-node failures from validation-node failures. Capture a readable validation error.",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Bucket",
-                "name": "doc-intake",
-                "detail": "S3/MinIO-backed; holds the sample documents + a JSON schema.",
-            },
-            {
-                "type": "Tool",
-                "name": "extract_document",
-                "detail": "Shipped ingestion callable (PDF/DOCX/PPTX/XLSX/MD).",
-            },
-            {
-                "type": "Prompt",
-                "name": "doc-structurer",
-                "detail": "Structuring prompt bound to the target schema.",
-            },
-            {
-                "type": "Data Transform",
-                "name": "validate_json",
-                "detail": "Draft 2020-12 validation with structured errors.",
-            },
-        ],
+  IN[("Bucket doc-intake: incoming/")] --> RD["read_document"]
+  RD --> EX["extract_fields: python_code"]
+  EX --> VS["validate_schema: JSON Schema"]
+  VS --> PK["package_result"]
+  PK --> RT{"route"}
+  RT -->|valid| EE["emit_extracted"]
+  EE --> WE[("write_extracted: doc-extracted/invoices/")]
+  RT -->|invalid| RG{{"review_gate: second person"}}
+  RG -->|approve and resume| WR[("write_reviewed: doc-extracted/reviewed/")]
+  RG -->|reject| FAIL["run fails, nothing written"]""",
         "gates": [
-            {"gate": "Golden schema pass rate", "target": "≥ 0.95"},
-            {
-                "gate": "Unsupported format error readability",
-                "target": "100% (identifies the stage)",
-            },
+            {"gate": "Valid invoices extracted and matching the expected JSON", "target": "16 of 16"},
+            {"gate": "Invalid documents held at review_gate with exactly the listed schema errors", "target": "13 of 13"},
+            {"gate": "Duplicate invoice refused by the output bucket", "target": "1 of 1"},
+            {"gate": "Account that started a run cannot approve it", "target": "403"},
+            {"gate": "Approved document written under reviewed/, rejected document writes nothing", "target": "doc-extracted holds exactly 17 objects"},
         ],
-        "mock": {
-            "url": "/object-store/doc-intake",
-            "nav": "Object Store",
-            "title": "doc-intake",
-            "tabs": ["Objects", "Preview", "Extract"],
-            "active_tab": "Extract",
-            "fields": [
-                ("invoice-clean.docx", "kind: document · 1,284 chars extracted"),
-                ("invoice.doc (legacy)", "kind: unsupported — convert to .docx"),
-            ],
-            "buttons": ["Extract", "Upload"],
-            "caption": "Object Store → Extract (Office docs)",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
-            "Extract supports <code>.docx/.pptx/.xlsx</code> — not legacy <code>.doc/.ppt/.xls</code>. The readable “unsupported” error comes from the Object Store <strong>extract endpoint</strong>.",
-            "Schema validation is deterministic (Data Transform node) — not an LLM judge.",
-            "Binary .docx/.xlsx can't be authored as text; <code>assets/dataset/sources/</code> ships stand-ins + conversion notes.",
+            "<strong>Flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (a preview area, off by default); no other flag is needed. The lab also needs an S3-compatible store: <code>scripts/cookbook-env.sh up lab04 --flags cookbooks --s3</code> starts a private in-memory one, so objects do not survive <code>restart</code>.",
+            "<strong>Nothing in the pipeline is simulated, and no model is called.</strong> The simulated default LLM and evaluator providers are never used; the result is deterministic. The object store is real S3 protocol (moto), not a production service.",
+            "<strong>Second person required.</strong> Start with <code>CALIBER_APPROVER_USERS=admin,reviewer CALIBER_OPERATOR_USERS=admin,reviewer</code> (approver to approve or reject, operator to resume). Leave <code>CALIBER_APPROVAL_ALLOW_SELF_APPROVAL</code> unset, and keep runtime approvals and the run queue on.",
+            "<strong>Text only.</strong> <code>input_bucket</code> decodes UTF-8 with replacement characters and keeps 100,000 bytes per object, so binary <code>.docx</code>/<code>.xlsx</code> cannot flow through it, and the 120 KB oversized file is truncated.",
+            "<strong>Preview is blocked.</strong> The editor's Preview refuses this workflow (it cannot isolate <code>python_code</code>, <code>input_bucket</code> or <code>output_bucket</code>); run it for real, queued, through <code>POST /workflow-runs</code>.",
+            "<strong>Extractor is rules, not a model.</strong> It understands only the layouts in the corpus (aligned text, Markdown table, CSV) and writes <code>null</code> for anything a document does not state. A new layout is a new dataset case and a new rule. One run handles one document.",
+            "<strong>Keep the gate's shape.</strong> After an approval only what flows through the gate reaches later nodes; the installed workflow puts the record and its schema errors in one text (<code>package_result</code>) for that reason.",
+            "<strong>Runnable.</strong> <code>sdk/caliber-sdk/examples/cookbooks/cookbook_04_document_to_json_pipeline.py</code> (about 75 s, 30 runs); UI: <code>caliber/caliber-ui/e2e/cookbooks/labs/04-document-extraction.spec.ts</code>; environment: <code>scripts/cookbook-env.sh up lab04</code>.",
         ],
     },
     {
@@ -634,126 +341,54 @@ COOKBOOKS = [
         "slug": "grounded-knowledge",
         "track": "Build",
         "title": "Grounded Knowledge Assistant",
-        "subtitle": "Cited answers, honest abstention on missing/conflicting evidence, and a measured retrieval lift.",
+        "subtitle": "A policy assistant you can measure: cited chunks, retrieval modes compared, calibration that lifts Recall@1, and low-confidence runs sent to review.",
         "level": "Core",
-        "time": "40–60 min",
-        "surfaces": ["Knowledge Base", "Prompts", "Workflows", "Evaluations", "Review Queues"],
-        "build": "A retrieval assistant over a small policy corpus that cites its sources, abstains when "
-        "evidence is missing, surfaces conflicts, and routes low-confidence answers to human review.",
+        "time": "120–180 min",
+        "surfaces": [
+            "Object Store",
+            "Knowledge Bases",
+            "Prompts",
+            "Workflows",
+            "Cookbooks",
+            "Observability",
+            "Review Queues",
+            "Evaluations",
+        ],
+        "build": "A retrieval assistant over 11 company policies (5,100 words): a <code>policy-corpus</code> bucket, a knowledge base <code>policy-qa-kb</code> built as two versions (1,400- and 500-character chunks), retrieval calibrated on 41 questions, and an installed <code>knowledge_rag</code> workflow bound to it. A top-1 similarity gate marks outside-the-corpus questions <code>needs_review</code> and a review queue receives them. Storage, chunking, embeddings and ranking are real; answer text and model-judged scores are simulated by default.",
         "learn": [
-            "Build a KB version from an Object Store corpus",
-            "Compare dense / hybrid / graph_hybrid retrieval in Explore",
-            "Run inline KB calibration (Recall@k, nDCG@k, Faithfulness)",
-            "Wire a knowledge_query → answer → router workflow",
-            "Route low-confidence runs to a Review Queue",
+            "Upload 11 policies to the object store and build knowledge base version 1 (a queued job a worker runs): 11 sources, 27 chunks, 384-dimension vectors",
+            "Ask in <strong>Dense</strong>, <strong>Hybrid</strong> and <strong>GraphRAG</strong> and check that the cited chunk holds the clause (<code>365 days</code>)",
+            "Import 41 calibration questions and run <strong>Calibrate</strong> (Recall@k, nDCG@k), set a baseline and compare modes",
+            "Build the tuned version 2 (69 chunks), <strong>Set active</strong> to switch versions and roll back",
+            "Meet real build failures: no object store, no embedding libraries, an unreadable file (build completes with <code>failed_sources: 1</code>), nothing readable (build fails)",
+            "Install the cookbook workflow, run it, and enqueue the low-confidence run in a <strong>Review Queue</strong>",
         ],
         "mermaid": """flowchart LR
-  C[(Corpus: policy docs)] --> KB[KB build → version]
-  KB --> EXP[Explore: dense/hybrid/graph]
-  KB --> CAL[Calibrate: Recall@k…]
-  KB --> KQ[knowledge_query] --> ANS[Agent: cite or abstain]
-  ANS --> RT{router}
-  RT -->|low confidence| RV[(Review Queue)]
-  ANS --> JF[Judge: CitationFaithfulness]""",
-        "steps": [
-            {
-                "where": "Knowledge › Object Store",
-                "do": "Upload the policy corpus (include a deliberate contradiction, e.g. refund window 30 vs 14 days).",
-            },
-            {
-                "where": "Knowledge › Knowledge Base › New knowledge base",
-                "do": "Pick the source bucket + docs, choose an embedding model under Advanced configuration, Create; wait for the build run to reach <code>completed</code>.",
-                "asset": "KB version",
-            },
-            {
-                "where": "Knowledge Base › Explore › Chunks",
-                "do": "Select the built version in the header switcher; confirm chunk quality + source lineage.",
-            },
-            {
-                "where": "Knowledge Base › Explore › Query",
-                "do": "Run the same question across <code>dense</code>, <code>hybrid</code>, <code>graph_hybrid</code>; note which retrieves the right chunk.",
-            },
-            {
-                "where": "Knowledge Base › Calibrate",
-                "do": "Supply question→expected pairs, run; read Recall@k / nDCG@k / Faithfulness / Answer-correctness. Tune, re-run, show recall improve; pin a baseline.",
-                "asset": "calibration run",
-            },
-            {
-                "where": "Library › Prompts › New prompt",
-                "do": "Author <code>kb-answer</code>: answer only from retrieved chunks, cite each claim, abstain on missing evidence, surface conflicts.",
-                "asset": "prompt: kb-answer",
-            },
-            {
-                "where": "Compose › Workflows › New (template: knowledge_rag)",
-                "do": "Wire <code>knowledge_query → Data Transform(confidence) → agent(kb-answer) → router → review_queue_enqueue/output</code>.",
-                "asset": "workflow: kb-assistant",
-            },
-            {
-                "where": "Run Monitor",
-                "do": "Run an answerable question (cited), a missing-evidence question (abstain), and a conflicting question (clarify).",
-            },
-            {
-                "where": "Evaluate › Evaluations",
-                "do": "Turn the questions into a Test Set (author rows at <code>/eval-datasets/:id → + Add example</code> or via Observability) and run it on the deterministic graders plus <code>CitationFaithfulness</code> ticked under <strong>Custom LLM judges</strong>.",
-                "asset": "judge: CitationFaithfulness",
-            },
-            {
-                "where": "Observe › Review Queues › New queue",
-                "do": "Create a citation/abstention queue; enqueue the ambiguous run's trace ids; reviewers answer — answers write back to the trace.",
-                "asset": "review queue",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Knowledge Base",
-                "name": "policy KB version",
-                "detail": "Built from the corpus; Explore/Calibrate/Use stages.",
-            },
-            {
-                "type": "Prompt",
-                "name": "kb-answer",
-                "detail": "Cite-only + abstain-on-conflict answer prompt.",
-            },
-            {
-                "type": "Workflow",
-                "name": "kb-assistant",
-                "detail": "<code>knowledge_rag</code> template + confidence branch to review.",
-            },
-            {
-                "type": "Judge",
-                "name": "CitationFaithfulness",
-                "detail": "LLM judge: every claim supported by a cited chunk.",
-            },
-        ],
+  C[("Bucket policy-corpus: 11 policies")] --> B1["Build KB v1: 27 chunks"]
+  B1 --> EX["Explore: dense, hybrid, GraphRAG"]
+  B1 --> CAL["Calibrate: 41 questions"]
+  CAL --> B2["Build v2: 69 chunks, auto-active"]
+  B2 --> ACT["Set active and rollback"]
+  B1 --> WF["Workflow: knowledge_query to Confidence"]
+  WF --> G{"Top-1 score gate 0.42"}
+  G -->|confident| OUT["Output with citations"]
+  G -->|needs_review| RQ[("Review Queue")]
+  RQ --> TR["Reviewer answer written back to trace"]""",
         "gates": [
-            {"gate": "Citation faithfulness", "target": "≥ 0.90"},
-            {"gate": "Abstention policy compliance", "target": "100% on missing/conflicting"},
-            {
-                "gate": "Retrieval lift after calibration",
-                "target": "Recall@k improves, faithfulness holds",
-            },
+            {"gate": "Version 1 build", "target": "completed, 11 sources, 27 chunks, active"},
+            {"gate": "Clause's chunk in the top 3 (hybrid)", "target": "41/41 (dense 40/41, graph_hybrid 35/41)"},
+            {"gate": "Score gate 0.42", "target": "refuses all 5 questions outside the corpus; cannot refuse the 2 trap questions"},
+            {"gate": "Calibration at top_k = 1, dense to hybrid", "target": "Recall@1 0.878 to 0.9268, nDCG@1 0.9024 to 0.9512"},
+            {"gate": "Version 2 and workflow review", "target": "69 chunks, rollback works; only the 0.25-confidence run is enqueued for review"},
         ],
-        "mock": {
-            "url": "/knowledge-bases",
-            "nav": "Knowledge Base",
-            "title": "policy-kb · v1 (active)",
-            "tabs": ["Build", "Explore", "Calibrate", "Use"],
-            "active_tab": "Explore",
-            "fields": [
-                ("Query", "What is the refund window?"),
-                (
-                    "graph_hybrid",
-                    "Refund window 30 days [REFUND-POLICY] — conflicts with [REFUND-FAQ] 14 days → clarify",
-                ),
-            ],
-            "buttons": ["Ask", "Sync to AGE"],
-            "caption": "Knowledge Base → Explore → Query (mode comparison)",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
-            "Explore sub-views are <code>Query</code> / <code>Chunks</code> / <code>Graph</code>. AGE retrieval needs a manual <strong>Sync to AGE</strong> first.",
-            "KB Calibrate runs inline and returns the four metrics immediately.",
-            "<code>CitationFaithfulness</code> is a real LLM judge; the abstain/clarify behavior is enforced by the prompt contract.",
+            "<strong>Flag.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> and nothing else (no Aria, no integrations). Knowledge needs more than the base install: an S3-compatible store, <code>pip install \"caliber-suite[knowledge,knowledge-local]\"</code> and the <code>all-MiniLM-L6-v2</code> model (about 90 MB). Start with <code>HF_HUB_OFFLINE=1 scripts/cookbook-env.sh up lab06 --flags cookbooks --s3</code>.",
+            "<strong>Real:</strong> object store, queue and worker, chunking, embeddings, ranking, Recall@k, nDCG@k, the score gate, activation and rollback. <strong>Simulated</strong> (default <code>fake</code> LLM/eval providers): answer text is an extractive digest, Faithfulness and Answer-correctness are blank (<code>—</code>), and <strong>Evaluations</strong> refuses scoring with <code>400 evaluation requires a real LLM provider</code>.",
+            "<strong>No decision is produced on a simulated stack.</strong> The <code>kb-answer</code> prompt and the <code>CitationFaithfulness</code> judge are stored for real, but answer, abstain or clarify and the 0.90 faithfulness target need a real model. The lab verifies the evidence (both conflicting refund documents are retrieved together) and what retrieval alone can refuse.",
+            "<strong>The gate has a limit.</strong> 0.42 is tuned on this question set. It cannot refuse the 2 trap questions (Enterprise terms), whose policy exists but whose clause does not (scores 0.56 and 0.66); that needs a model and the review queue. Re-derive the gate from your own scores.",
+            "<strong>Retrieval always returns chunks.</strong> The dress-code question still returns nearest chunks; refusing is a decision on top. <code>graph_hybrid</code> is worse here (35/41), and hybrid helps the 1,400-character chunks but hurts the 500-character ones, which is why you calibrate.",
+            "<strong>Build behavior.</strong> A finished build activates itself, even with an unreadable file, so read <code>failed_sources</code>. AGE retrieval is not used (pgvector and Apache AGE are off). The first build can sit <code>queued</code> for minutes without <code>HF_HUB_OFFLINE=1</code>.",
+            "<strong>Runnable.</strong> <code>sdk/caliber-sdk/examples/cookbooks/cookbook_06_grounded_knowledge_assistant.py</code> (about a minute, 51 ok lines) and <code>caliber/caliber-ui/e2e/cookbooks/labs/06-knowledge-retrieval.spec.ts</code>; environment: <code>scripts/cookbook-env.sh up lab06</code>.",
         ],
     },
     {
@@ -762,125 +397,50 @@ COOKBOOKS = [
         "slug": "support-copilot",
         "track": "Build",
         "title": "Support Triage Copilot",
-        "subtitle": "The full-stack recipe: classify → gather evidence → cited reply → approval-gated escalation.",
+        "subtitle": "Classify a ticket, route it to reply, clarify or escalate, pause refunds and bug filings at a second person's approval, and roll back a bad version.",
         "level": "Advanced",
-        "time": "60–90 min",
+        "time": "45–70 min",
         "surfaces": [
-            "Prompts",
-            "Skills",
-            "Tools",
-            "Knowledge Base",
-            "MCP Servers",
+            "Administration",
             "Workflows",
-            "Evaluations",
-            "Review Queues",
+            "Test Sets",
+            "Cookbooks",
+            "Audit Log",
         ],
-        "build": "An end-to-end support assistant that returns one of <code>reply / clarify / escalate_support "
-        "/ escalate_bug</code>, grounds replies in evidence + KB, and routes refunds and bug filings "
-        "through a human-approval gate.",
+        "build": "A <code>support-triage</code> workflow (9 nodes) that reads a ticket and returns one of <code>reply</code>, <code>clarify</code>, <code>escalate_support</code> or <code>escalate_bug</code>, with a severity and an SLA, and pauses every refund and bug filing at a <code>human_approval</code> gate. You run it through the queue over <strong>44 tickets</strong>, answer the gate as a second person (<code>lena</code>), break it with a bad version that the dataset catches, and roll the <code>staging</code> alias back. <strong>The classifier is deterministic rules in one Python Code node, not a model</strong>; the one agent node (<code>draft_reply</code>) runs on the simulated provider.",
         "learn": [
-            "Compose prompts + skills + tools + KB + MCP into one workflow",
-            "Reuse assets from cookbooks 01/02/03/05/06",
-            "Encode a four-outcome router",
-            "Gate external writes (GitHub issue) behind approval",
-            "Evaluate groundedness + route failures to review",
+            "Encode a four-outcome router (<code>classify</code> Python Code node, <code>triage_router</code>) and check it exactly against a 44-ticket test set: decision, severity, SLA minutes, approval flag and flags",
+            "Pause customer-impacting actions at a <code>human_approval</code> node: the account that started a run gets <code>403</code> when it approves, an approver needs <code>caliber.approver</code> plus the project role <code>reviewer</code> or <code>owner</code>, and a rejection never reaches <code>action_request</code>",
+            "Run a workflow through the queue and read the verdict from <code>summary.steps[]</code> and <code>summary.node_path</code>; Preview refuses a Python Code node and a synchronous run of an approval workflow is refused (400)",
+            "Gate a promotion to the <code>staging</code> alias behind a second person, catch a bad version with the dataset (<code>3 of 11 bug tickets wrong</code>) and roll back",
+            "Read the audit log for who enqueued, who approved and who resumed a run",
         ],
         "mermaid": """flowchart TD
-  T[ticket_intake: classify] --> AL[account_lookup tool]
-  AL --> IL[incident_lookup tool]
-  IL --> KQ[kb_query]
-  KQ --> RG[reply_generation: cited]
-  RG --> RT{router: 4 outcomes}
-  RT -->|escalate_bug| HA{{Human Approval}}
-  HA -->|approve| CI[MCP: issue_write]
-  RT -->|reply / clarify| OUT[output]""",
-        "steps": [
-            {
-                "where": "Library (reuse)",
-                "do": "Confirm reusable assets: tools <code>lookup_order</code>/<code>initiate_refund</code> (03), skill <code>support-tone-and-citation</code> (02), the support KB (06), the GitHub MCP server (05).",
-            },
-            {
-                "where": "Library › Prompts",
-                "do": "Author <code>ticket-intake</code> (emit intent + severity + decision) and <code>support-reply</code> (cited reply, never leak internal process).",
-                "asset": "prompts: intake + reply",
-            },
-            {
-                "where": "Compose › Workflows › New (template: hitl_review)",
-                "do": "Wire <code>ticket_intake → account_lookup → incident_lookup → kb_query → reply_generation → router → human_approval → issue_write</code>.",
-                "asset": "workflow: support-copilot",
-            },
-            {
-                "where": "Workflow editor › router node",
-                "do": "Branch on the reply's <code>decision</code>: reply/clarify finish at output; escalate_support opens an internal note; escalate_bug goes through approval → issue_write.",
-            },
-            {
-                "where": "MCP Servers › tool policy",
-                "do": "Keep GitHub <code>issue_write</code> as a write tool, wired AFTER the human_approval node.",
-            },
-            {
-                "where": "Run Monitor",
-                "do": "Run a how-to ticket (cited reply, no gate); a refund/bug ticket → <code>waiting_approval</code> → approve → issue created only after approval; reject another to prove it's blocked.",
-            },
-            {
-                "where": "Evaluate › Evaluations",
-                "do": "Turn outcomes into a Test Set; run it on the deterministic graders plus <code>GroundedSupportReply</code> ticked under <strong>Custom LLM judges</strong>.",
-                "asset": "judge: GroundedSupportReply",
-            },
-            {
-                "where": "Observe › Review Queues",
-                "do": "Route low-scoring runs to a review queue; reviewers answer; feed failures back into the dataset.",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Prompts",
-                "name": "ticket-intake, support-reply",
-                "detail": "Classifier + cited-reply prompts. <code>assets/prompts/</code>",
-            },
-            {
-                "type": "Skills",
-                "name": "tone, escalation, citation",
-                "detail": "Reused/extended from cookbook 02.",
-            },
-            {
-                "type": "Tools",
-                "name": "lookup_account_state, lookup_recent_incidents",
-                "detail": "Shipped <code>demo_tools</code> read callables.",
-            },
-            {
-                "type": "Workflow",
-                "name": "support-copilot",
-                "detail": "<code>hitl_review</code> template + four-outcome router + gated MCP write.",
-            },
-            {
-                "type": "Judge",
-                "name": "GroundedSupportReply",
-                "detail": "LLM judge: evidence-backed, customer-safe, correct decision.",
-            },
-        ],
+  S[start: ticket as JSON text] --> C[classify: Python Code rules]
+  C --> R{triage_router}
+  R -->|reply| DR[draft_reply: agent, simulated]
+  R -->|clarify| CQ[clarify_question: template]
+  R -->|escalate_support| SN[support_note: template]
+  R -->|approval required| HA{{review: human_approval}}
+  HA -->|second person approves| AR[action_request: template]
+  HA -->|reject| FAIL[run failed: nothing released]
+  DR --> F[final]
+  CQ --> F
+  SN --> F
+  AR --> F""",
         "gates": [
-            {"gate": "Grounded reply score", "target": "≥ 0.90"},
-            {"gate": "Approval compliance", "target": "100% on refund / external write"},
-            {"gate": "Escalation precision", "target": "≥ 0.85"},
+            {"gate": "Routing accuracy (decision, severity, SLA, approval, flags)", "target": "1.0 (44/44 tickets)"},
+            {"gate": "Approval compliance", "target": "1.0: exactly the 15 approval-required tickets pause at the gate"},
+            {"gate": "Unsafe release count", "target": "0 (a rejected run never reaches action_request)"},
+            {"gate": "Bad version caught by the dataset, then rolled back", "target": "3 of 11 bug tickets wrong; all pass again after rollback"},
         ],
-        "mock": {
-            "url": "/workflows/support-copilot/editor",
-            "nav": "Workflows",
-            "title": "support-copilot",
-            "tabs": ["Editor", "Run Monitor"],
-            "active_tab": "Run Monitor",
-            "fields": [
-                ("Decision", "escalate_bug · requires_approval: true"),
-                ("Status", "waiting_approval → approve to file GitHub issue"),
-            ],
-            "buttons": ["Approve", "Reject", "Resume"],
-            "caption": "Support copilot → Run Monitor (escalate_bug gate)",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_INTEGRATIONS=true</code> is needed for the GitHub MCP <code>issue_write</code> step; both are off by default.",
-            "This is the integration showcase — <strong>reuse</strong> 01/02/03/05/06 rather than rebuilding.",
-            "The external write is gated by the <code>human_approval</code> node (workflow-time), not by the prompt.",
-            "Citations are enforced by the reply prompt contract and verified by the judge.",
+            "<strong>Prerequisite flag.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> (the Cookbooks gallery is off by default); nothing else in this lab is behind a flag. Start the stack with <code>scripts/cookbook-env.sh up lab07 --flags cookbooks</code> and export <code>CALIBER_OPERATOR_USERS=admin,lena,sam</code>, <code>CALIBER_APPROVER_USERS=admin,lena</code> and <code>CALIBER_RELEASE_REQUIRE_HUMAN_APPROVAL_FOR_ENVIRONMENT_CLASSES=staging</code> first (<code>sam</code> is deliberately not an approver).",
+            "<strong>What is simulated.</strong> The classifier is rules, not a model; <code>draft_reply</code> runs on the fake provider and returns canned text (<code>[support-reply] processed: ...</code>), so the lab asserts the branch it ran on, never what it wrote. No judge or <code>Evaluations</code> run is used; <code>Evaluations</code> with a <code>Judge.&lt;id&gt;</code> scorer needs a real model.",
+            "<strong>Not covered.</strong> Knowledge-base retrieval, evidence tools, the GitHub MCP write and <code>GroundedSupportReply</code> judge scoring are not run and not claimed; the files in <code>assets/prompts</code>, <code>skills</code>, <code>tools</code> and <code>judges</code> are reference only. The <code>action_request</code> template stands in for the external write.",
+            "<strong>API-only parts.</strong> The alpha UI has no Deployments or Promotions tab, so the <code>staging</code> alias, gated promotion and rollback are API only. A <code>prod</code> alias needs a deploy gate that a Python Code workflow cannot have (lab 08 shows a gated <code>prod</code>).",
+            "<strong>Preview and runs.</strong> Preview refuses the <code>classify</code> Python Code node; run through the queue (<code>POST /workflow-runs</code>). The single worker takes about 5 seconds per ticket, so 44 tickets take about 4 minutes. Set <code>CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true</code> only for a single-operator install.",
+            "<strong>Run it.</strong> <code>PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_07_support_triage_copilot</code> (<code>sdk/caliber-sdk/examples/cookbooks/cookbook_07_support_triage_copilot.py</code>) prints <code>All documented outcomes verified.</code>; the UI path is <code>caliber/caliber-ui/e2e/cookbooks/labs/07-support-triage.spec.ts</code>. Add any ticket the rules get wrong to <code>assets/dataset/ticket-cases.jsonl</code> before changing a rule.",
         ],
     },
     {
@@ -889,208 +449,107 @@ COOKBOOKS = [
         "slug": "incident-copilot",
         "track": "Build",
         "title": "Incident Response Copilot",
-        "subtitle": "Separate facts from hypotheses, recommend the lowest-risk action, and gate rollbacks.",
+        "subtitle": "Turn an incident record into a severity and the lowest-risk action, gate a rollback behind a second person, and release to prod only through a deploy gate.",
         "level": "Advanced",
-        "time": "60–90 min",
-        "surfaces": ["Prompts", "Skills", "Tools", "Workflows", "Evaluations", "Review Queues"],
-        "build": "An incident workflow that gathers deployment + health evidence (synthetic fixtures), "
-        "produces a fact/hypothesis/open-question summary, recommends an action with a risk flag, "
-        "and gates rollback / external writes behind approval.",
+        "time": "40–65 min",
+        "surfaces": [
+            "Administration",
+            "Workflows",
+            "Test Sets",
+            "Cookbooks",
+            "Audit Log",
+        ],
+        "build": "An <code>incident-commander</code> workflow (14 nodes) that turns an incident record (alert, deployments, health numbers, a noisy log excerpt, paging and customer-report counts) into a severity and an action using declarative decision tables (Data Transform, Join, Template, Router), and pauses a <code>rollback</code> at a human approval. Because nothing in the decision needs isolating, <strong>Preview can run it</strong>, and the <code>prod</code> alias carries a deploy gate that replays the <strong>41-incident</strong> test set <code>incident-cases</code> before it moves. The only agent node, <code>draft_update</code>, runs on the simulated provider and its text is never asserted.",
         "learn": [
-            "Use safe fixture nodes and configure live operational connector starters",
-            "Author a commander prompt that never claims resolution without evidence",
-            "Route on risk + requires_approval",
-            "Gate rollback / external write with human approval",
-            "Score action correctness + review conflicting-evidence runs",
+            "Express a severity and action policy as two decision tables (first match wins) and check all 41 incidents: 8 <code>sev1</code>, 10 <code>sev2</code>, 12 <code>sev3</code>, 11 <code>sev4</code>, including noisy logs, conflicting evidence, missing metrics and the boundary cases <code>IN40</code> and <code>IN41</code>",
+            "Import a workflow that names a test set: it is refused with <code>unresolved_import_dependency</code> until the test set <code>incident-cases</code> exists in the workspace",
+            "Promote to <code>prod</code> through a deploy gate that replays the test set (pass rate 1.0, executor reported as <code>fake</code>), wait for a second person's approval, and see a bad version refused with <code>400 deploy gate failed</code> (pass rate 0.9512)",
+            "Gate only the 5 rollback incidents (<code>IN01</code>, <code>IN11</code>, <code>IN12</code>, <code>IN15</code>, <code>IN23</code>) at the <code>review</code> node: self-approval is <code>403</code>, an approval releases <code>ROLLBACK_APPROVED</code>, a rejection releases nothing",
+            "Run the failure drills: Error Boundary fallback, a missing tool refused at import, a blocked API Request host, and Wait For Event pause and resume",
         ],
         "mermaid": """flowchart TD
-  IN[ingest: alert/service/env] --> CD[Fixture or deployment-health API Request]
-  IN --> CH[Fixture or service-health API Request]
-  CD --> SUM[Agent: facts vs hypotheses]
-  CH --> SUM
-  SUM --> RT{router: risk}
-  RT -->|rollback / write| HA{{Human Approval}}
-  HA --> CI[MCP: incident issue]
-  RT -->|monitor / investigate| OUT[output]""",
-        "steps": [
-            {
-                "where": "Library › Prompts › New prompt",
-                "do": "Author <code>incident-commander</code>: distinguish <code>known_facts</code> / <code>hypotheses</code> / <code>open_questions</code>, recommend lowest-risk action, set <code>requires_approval</code>.",
-                "asset": "prompt: incident-commander",
-            },
-            {
-                "where": "Cookbooks › Incident Response Copilot › Install",
-                "do": "Use the safe deployment/service fixtures for the offline run. Configure the included API Request nodes for live endpoints only after replacing placeholders and reviewing egress.",
-                "asset": "fixture + connector starters",
-            },
-            {
-                "where": "Workflow editor",
-                "do": "Wire <code>ingest → deployments + service_health → summarize(incident-commander) → router → human_approval → issue_write → output</code>.",
-                "asset": "workflow: incident-copilot",
-            },
-            {
-                "where": "Run Monitor",
-                "do": "Run a clear post-deploy regression → rollback + <code>waiting_approval</code> → approve; run a low-severity blip → monitor (no gate); run ambiguous evidence → gather_more_evidence.",
-            },
-            {
-                "where": "Run Monitor",
-                "do": "Confirm the summary keeps facts / hypotheses / open-questions distinct, and the action carries a risk + approval flag.",
-            },
-            {
-                "where": "Evaluate › Evaluations",
-                "do": "Build a Test Set from the incident outputs; run it on the deterministic graders plus <code>IncidentActionCorrectness</code> ticked under <strong>Custom LLM judges</strong> (note Evaluations scores the model's direct answer, not the workflow).",
-                "asset": "judge: IncidentActionCorrectness",
-            },
-            {
-                "where": "Observe › Review Queues",
-                "do": "Enqueue low-scoring / conflicting-evidence runs; reviewers answer; harden the checklist skills before editing the prompt.",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Prompt",
-                "name": "incident-commander",
-                "detail": "Fact/hypothesis separation + risk-aware recommendation.",
-            },
-            {
-                "type": "Skills",
-                "name": "severity matrix, rollback checklist, stakeholder update",
-                "detail": "Reusable incident skills.",
-            },
-            {
-                "type": "Data Transform + API Request",
-                "name": "deployments, service_health",
-                "detail": "Offline fixtures paired with credential-free live connector starters.",
-            },
-            {
-                "type": "Judge",
-                "name": "IncidentActionCorrectness",
-                "detail": "LLM judge: action matches evidence + risk posture; approval set for rollback/write.",
-            },
-        ],
+  S[start: incident JSON] --> FO[fan_out: parallel]
+  FO --> IN[ingest]
+  FO --> SV[severity_table]
+  FO --> AC[action_table]
+  FO --> DU[draft_update: agent, simulated]
+  IN --> J[join]
+  SV --> J
+  AC --> J
+  DU --> J
+  J --> SU[summarize: Verdict]
+  SU --> RT{triage_router}
+  RT -->|rollback| HA{{review: human_approval}}
+  HA -->|approve| RR[rollback_request]
+  RT -->|escalate_human| HN[handoff_note]
+  RT -->|other actions| RC[recommendation]
+  RR --> F[final]
+  HN --> F
+  RC --> F""",
         "gates": [
-            {"gate": "Action correctness", "target": "≥ 0.88"},
-            {"gate": "Approval compliance", "target": "100% on rollback / write"},
-            {"gate": "Unsafe action rate", "target": "0"},
+            {"gate": "Verdict matches dataset (severity and action, Preview replay and queue)", "target": "41/41 incidents"},
+            {"gate": "Deploy gate pass rate for the good version", "target": "1.0 over 41 replays; the bad version scores 0.9512 and is refused"},
+            {"gate": "Approval compliance", "target": "1.0: exactly the 5 rollback incidents pause at the gate"},
+            {"gate": "Unsafe release count", "target": "0 (a rejected rollback releases nothing)"},
         ],
-        "mock": {
-            "url": "/workflows/incident-copilot/editor",
-            "nav": "Workflows",
-            "title": "incident-copilot · summarize",
-            "tabs": ["Editor", "Run Monitor", "Debugger"],
-            "active_tab": "Run Monitor",
-            "fields": [
-                ("known_facts", "gateway/prod p99=4200ms, error_rate=0.18 after deploy a1b9f3c"),
-                ("recommended_action", "rollback a1b9f3c · requires_approval: true"),
-            ],
-            "buttons": ["Approve", "Reject"],
-            "caption": "Incident copilot → Run Monitor (evidence + gated rollback)",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); <code>CALIBER_FEATURE_INTEGRATIONS=true</code> only for the optional MCP evidence nodes.",
-            "Live connector nodes are configuration starters; fixture success is not evidence that a deployment endpoint is reachable.",
-            "Rollback + external writes always require approval; read-only evidence gathering does not.",
-            "The fact/hypothesis separation is enforced by the prompt's output contract.",
+            "<strong>Prerequisite flag.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> (<code>scripts/cookbook-env.sh up lab08 --flags cookbooks</code>). The optional MCP evidence nodes of the original recipe would also need <code>CALIBER_FEATURE_INTEGRATIONS=true</code>; they are not part of this lab.",
+            "<strong>Release policy settings.</strong> Export <code>CALIBER_OPERATOR_USERS=admin,lena,sam</code>, <code>CALIBER_APPROVER_USERS=admin,lena</code>, <code>CALIBER_RELEASE_REQUIRE_HUMAN_APPROVAL_FOR_ENVIRONMENT_CLASSES=production</code> and set <code>CALIBER_RELEASE_REQUIRE_GRADED_EXECUTOR_FOR_ENVIRONMENT_CLASSES</code> to empty. Left at its default <code>production</code>, the <code>prod</code> promotion is refused until a real model is configured.",
+            "<strong>What is simulated.</strong> The decision is deterministic tables (no model). The deploy gate replays with the fake executor and says so (<code>provider: fake</code>, <code>deterministic: true</code>): it proves the graph and the data, not a model. Evidence is supplied inside each incident record. <code>Evaluations</code> on a workflow version is refused (400) without a real model.",
+            "<strong>Workflow calibration finds no candidate.</strong> On this rule-table workflow it runs, reports a baseline and finishes <code>rejected</code> (<code>no candidate met calibration gates</code>), so the Simulated evaluation marker was not observed here.",
+            "<strong>API-only parts.</strong> Aliases, the <code>prod</code> gate, promotions and rollback have no UI in this alpha build (single-environment mode); the UI spec covers import, Test Sets, Preview, publish, run and approve. Preview refuses a Python Code or API Request node.",
+            "<strong>Not covered.</strong> Live evidence (deployment and service-health APIs, a status-page snapshot, an incident issue) needs egress, MCP servers and credentials; the GitHub, Playwright and PostgreSQL MCP steps were removed, not run. <code>assets/prompts</code>, <code>skills</code> and <code>judges</code> are reference only.",
+            "<strong>Run it.</strong> <code>PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_08_incident_response_copilot</code> (<code>sdk/caliber-sdk/examples/cookbooks/cookbook_08_incident_response_copilot.py</code>) or the spec <code>caliber/caliber-ui/e2e/cookbooks/labs/08-incident-response.spec.ts</code>. Add every incident the rules get wrong to <code>assets/dataset/incident-cases.jsonl</code> so the gate protects the fix.",
         ],
     },
-    # ───────────────────────────── OPERATE ─────────────────────────────
     {
         "id": "CB-09",
         "num": "09",
         "slug": "self-healing-workflows",
         "track": "Operate",
         "title": "Self-Healing Workflows",
-        "subtitle": "An operator playbook: reproduce a failure, localize it in the Run Monitor, patch, and validate.",
+        "subtitle": "Reproduce production failures, read the run debugger and trace, write the patch as a new version, prove it on the same 35 tickets, and roll an alias back.",
         "level": "Core",
-        "time": "30–50 min",
-        "surfaces": ["Workflows", "Plans", "Observability"],
-        "build": "A repeatable recovery loop: drive a workflow to a failure, use the checkpoint / recovery / "
-        "debugger panels to find the root cause, apply a minimal manual patch (new version), and "
-        "prove the fix with a regression slice.",
+        "time": "20–30 min",
+        "surfaces": [
+            "Workflows",
+            "Run Monitor",
+            "Versions",
+            "Observability",
+        ],
+        "build": "A <code>refund-intake</code> workflow (<code>start</code>, <code>validate</code>, <code>check_reference</code>, <code>lookup</code>, <code>decide</code>, <code>final</code>) that is fine on the tickets you tested and fails on the ones production sends. Version 1 completes <strong>11 of 35</strong> tickets and fails 24, in three nodes for three reasons: a schema violation in <code>validate</code>, a poison record that makes <code>check_reference</code> time out, and an account-service error that fails <code>decide</code> two steps after <code>lookup</code>. You write the patch yourself (three node bodies, saved as version 2) and rerun all 35. <strong>No model is involved</strong> (no agent node) and the account service is a stand-in, <code>assets/upstream/account_service.py</code>.",
         "learn": [
-            "Reproduce a failure (reject path + a node fault)",
-            "Read the checkpoint, recovery, and debugger panels",
-            "Use retry lineage (Attempt N of M) + retry-from-checkpoint",
-            "Apply a minimal patch by editing the manifest + saving a new version",
-            "Validate with a regression slice",
+            "Reproduce a schema failure (<code>F12</code>), a poison record (<code>F29</code>) and an upstream failure (<code>F32</code>), which all show the same <strong>failed</strong> badge, and find the node in <strong>Recovery Diagnostics</strong> (<strong>Current node</strong>), <strong>Execution Debugger</strong> and the error trace",
+            "See that a node failure leaves no checkpoint (only approvals and waits do) and that <strong>Retry</strong> (<strong>Attempt 2 of 2</strong>) fails at the same node: a retry is not a fix for a code fault",
+            "Call <code>propose-patch</code> and see its limits: a generic prompt suggestion for the timed-out node and a <code>400</code> for a guardrail patch aimed at a code node; the <strong>CALIBER Patches</strong> tab stays empty",
+            "Write version 2 by hand (<code>assets/workflow/patch/validate.py</code>, <code>check_reference.py</code>, <code>decide.py</code>), prove it on all 35 tickets, and compare versions in <strong>Versions</strong>",
+            "Move the <code>staging</code> alias to version 2, run through it, roll back, and see <code>prod</code> refuse a version with no deploy gate",
         ],
         "mermaid": """flowchart LR
-  R[Run failing input] --> F[failed / waiting]
-  F --> DBG[Debugger + Checkpoint + Recovery]
-  DBG --> RC[Root cause @ node]
-  RC --> PATCH[Edit manifest → save new version]
-  PATCH --> V[Preview + real run]
-  V --> SLICE[Regression slice passes]""",
-        "steps": [
-            {
-                "where": "Agent resources › Workflows › New (template: hitl_review)",
-                "do": "Create a workflow; in the Run Monitor, execute to <code>waiting_approval</code>, then Reject → <code>failed</code> (the reproducible recovery case).",
-            },
-            {
-                "where": "Run Monitor › Recovery / Checkpoint / Debugger",
-                "do": "Open the panels: approval timeline, active checkpoint + state blob, and the per-step trace with event markers.",
-            },
-            {
-                "where": "Run Monitor",
-                "do": "Retry → confirm “Attempt 2 of N” in the lineage panel; for the hitl case, approve → resume → completed.",
-            },
-            {
-                "where": "Workflow editor › add Python Code node",
-                "do": "(Variant) Add a node that raises on a malformed field to manufacture a real node-level fault; localize the exception in the Debugger.",
-                "asset": "python_code: failing_node",
-            },
-            {
-                "where": "Workflow editor",
-                "do": "Apply the smallest fix (node config / branch) and <strong>Save</strong> the draft (the editor has no “save as new version” — versions come from Publish); patching is manual here — no Run Monitor control turns a failed run into a patch.",
-            },
-            {
-                "where": "Run Monitor",
-                "do": "Run a Preview + real run of the failing input on the new version; confirm it now succeeds.",
-            },
-            {
-                "where": "Operate › Observability",
-                "do": "Put the pre-fix and post-fix runs side by side; confirm the failing node is green and a small regression slice passes.",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Workflow",
-                "name": "recovery target",
-                "detail": "<code>hitl_review</code> (reject→retry→approve→resume) + an optional faulting Python Code node.",
-            },
-            {
-                "type": "Python Code",
-                "name": "failing_node",
-                "detail": "Deliberately raises on a bad field. <code>assets/tools/failing_node.py</code>",
-            },
-            {
-                "type": "Diagnosis note",
-                "name": "root-cause",
-                "detail": "Operator note tying the failure to a concrete node in the trace.",
-            },
-        ],
+  R[Run 35 tickets on v1] --> F[24 failed, 11 completed]
+  F --> D[Recovery Diagnostics, Execution Debugger, trace]
+  D --> RC[Root cause node: validate, check_reference or decide]
+  RC --> RT[Retry: Attempt 2 of 2 fails at same node]
+  RT --> PP[propose-patch: no code fix]
+  PP --> P[Edit 3 node bodies, save and publish v2]
+  P --> V[Run 35 tickets on v2: 0 failed]
+  V --> A[staging alias to v2, rollback restores v1]
+  A --> PR[prod refuses: no deploy gate]""",
         "gates": [
-            {"gate": "Root cause is explicit in the trace", "target": "node + evidence identified"},
-            {"gate": "Post-fix regression slice", "target": "≥ 0.95 pass; no new failures"},
+            {"gate": "Version 1 against the dataset", "target": "11 completed, 24 failed: 17 validate, 3 check_reference, 4 decide"},
+            {"gate": "Failing node is findable", "target": "ERROR trace span names the node; no checkpoint; retry fails at the same node"},
+            {"gate": "Version 2 against the dataset", "target": "35 completed, 0 failed (10 approve, 13 manual_review, 12 rejected_input)"},
+            {"gate": "Regression slice", "target": "the 11 tickets v1 handled give identical output"},
+            {"gate": "Alias and prod guard", "target": "rollback restores v1; prod promote of an ungated version is refused (400)"},
         ],
-        "mock": {
-            "url": "/workflows/recovery/editor",
-            "nav": "Workflows",
-            "title": "recovery · Debugger",
-            "tabs": ["Editor", "Run Monitor", "Checkpoints", "Recovery", "Debugger"],
-            "active_tab": "Debugger",
-            "fields": [
-                ("review (human_approval)", "approval.rejected → run failed"),
-                ("Lineage", "Attempt 2 of 2 · retry from checkpoint"),
-            ],
-            "buttons": ["Retry", "Approve", "Resume"],
-            "caption": "Run Monitor → Debugger + retry lineage",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
-            "Patching is <strong>manual</strong> — edit the manifest in the editor and save a new version; no Run Monitor control patches a failed run (a patch engine exists behind <code>propose-patch</code>, the CALIBER Patches tab and Aria's chat <code>propose_workflow_patch</code> tool, but no page calls it).",
-            "Aria can <em>narrate</em> a diagnosis but cannot debug/patch a workflow as a capability.",
-            "The most reliable demo failure is the <code>hitl_review</code> reject → retry → approve → resume loop.",
+            "<strong>Prerequisite flags.</strong> The lab itself needs none: workflows, the Run Monitor, versions and aliases are part of the supported alpha. <code>CALIBER_FEATURE_COOKBOOKS=true</code> only opens the gallery, whose starter this lab does not use. Aria is not used.",
+            "<strong>Egress and the stand-in service.</strong> Start <code>assets/upstream/account_service.py 8780</code> (not a real system; fixed 503, 500 and 404 ids) and the stack with <code>CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1 scripts/cookbook-env.sh up lab09 --flags cookbooks</code>; without the allowed host <code>lookup</code> fails with <code>outbound request to '127.0.0.1' is blocked</code>. Needs a workflow worker.",
+            "<strong>Nothing here needs a model.</strong> There is no agent node, so <code>CALIBER_LLM_PROVIDER=fake</code> does not matter and every number is measured. The poison records time out because Python <code>re</code> really backtracks.",
+            "<strong>Preview and deploy gates cannot run this workflow.</strong> Python Code and API Request nodes are refused (<code>preview blocked before execution ...</code>), so the proof is real runs of the dataset on version 2, and a <code>prod</code> promotion is refused for lack of a deploy gate.",
+            "<strong>Patching is manual.</strong> <code>propose-patch</code> is API only, agent-shaped (it cannot repair a code node) and no page calls it. Aria is not used and there is no UI for aliases: the alpha UI has one live alias (<code>prod</code>), so <code>staging</code> and its rollback are API only.",
+            "<strong>Run it.</strong> <code>PYTHONPATH=sdk/caliber-sdk python sdk/caliber-sdk/examples/cookbooks/cookbook_09_self_healing_workflows.py</code> (about three minutes, about 75 runs) or the spec <code>caliber/caliber-ui/e2e/cookbooks/labs/09-workflow-debugger.spec.ts</code> (<code>npx playwright test --config=playwright.labs.config.ts</code>); offline check <code>caliber/tests/test_cookbook_09_self_healing.py</code>.",
+            "<strong>Retry from a checkpoint</strong> exists for approvals and waits (lab 03), not for node failures; role failures are covered by lab 18.",
         ],
     },
     {
@@ -1099,231 +558,103 @@ COOKBOOKS = [
         "slug": "observability-triage",
         "track": "Operate",
         "title": "Production Observability & Triage",
-        "subtitle": "Turn live traces into a triaged review queue + a regression test set — the production monitoring loop.",
+        "subtitle": "Turn real production traces into a regression test set and a triage review queue, with the reviewers' answers written back onto the traces.",
         "level": "Core",
         "time": "30–45 min",
-        "surfaces": ["Observability", "Review Queues", "Test Sets", "Evaluations"],
-        "build": "An operations loop over a running workflow: monitor traces in Observability, filter to "
-        "errors, drill into a failing run to find the root cause, capture the failing examples into a "
-        "regression Test Set, and route them to a human triage Review Queue — so production signal "
-        "becomes durable evidence instead of being lost.",
+        "surfaces": [
+            "Observability",
+            "Test Sets",
+            "Review Queues",
+            "Workflows",
+        ],
+        "build": "You replay 40 production-like refund tickets through a real workflow (the buggy version 1 of cookbook 09), so CALIBER records 40 MLflow traces: 12 <code>ERROR</code> and 28 <code>OK</code>, four of which are silently wrong. You find failures with the status filter, read a trace's node tree for the failing node, capture the 16 traces that matter into a test set with their gold outcome, and route them to a <code>prod-triage</code> review queue whose answers appear as assessments on the traces. Nothing here needs a model.",
         "learn": [
-            "Filter live traces by status (OK / Error / In progress) and search by name",
-            "Read a trace's node tree, inputs/outputs, latency, and feedback to find a root cause",
-            "Capture a failing trace into a regression Test Set (Add to test set → Add example)",
-            "Stand up a triage Review Queue and enqueue the flagged trace ids",
-            "Answer review questions so labels write back onto the trace, and baseline the failure rate",
+            "Filter traces by status (<strong>All statuses</strong> / <strong>OK</strong> / <strong>Error</strong> / <strong>In progress</strong>) and search by text",
+            "Read the <strong>Spans</strong> tree: <code>node.validate</code>, <code>node.check_reference</code> or <code>node.decide</code> is <code>ERROR</code>; for an upstream failure <code>node.lookup</code> is <code>OK</code> and <code>decide</code> fails",
+            "Capture traces into a test set with <strong>Add to test set</strong> or <strong>Capture from trace</strong>, then replace the captured error text with the gold outcome",
+            "Stand up a review queue with five triage questions, enqueue trace ids and submit reviews so answers write back as trace assessments",
+            "See how Observability behaves on an unknown trace (404), no match (empty list) and MLflow down (503)",
+            "Find the 4 silent failures (<code>P25</code> to <code>P28</code>) that the Error filter cannot see",
         ],
         "mermaid": """flowchart LR
-  RUN[Live workflow runs] --> OBS[Observability: filter Status = Error]
-  OBS --> TR[Open failing trace: node tree + root cause]
-  TR -->|Add to test set| DS[(Test Set: prod-regression)]
-  TR -->|trace ids| RQ[Review Queue: prod-triage]
-  RQ -->|Submit review| WB[Labels written back to trace]
-  DS --> EV[Evaluations: deterministic baseline]
-  EV --> FIX[Re-run after fix: rate drops]""",
-        "steps": [
-            {
-                "where": "Prereq · a running workflow",
-                "do": "Have a workflow that has produced recent runs (ideally a few failing). Reuse cookbook 07 (support-copilot) or 09 (recovery) and run a handful of inputs so Observability has real traces, including at least one Error.",
-                "asset": "existing runs/traces",
-            },
-            {
-                "where": "Operate › Observability",
-                "do": "Open Observability and set the <strong>Status</strong> filter to <strong>Error</strong> to isolate failing runs; use the search box to scope by workflow name.",
-                "asset": "filtered error traces",
-            },
-            {
-                "where": "Operate › Observability",
-                "do": "Open a failing trace; the <code>trace_id</code> lands in the URL (<code>?trace=…</code>). Read the node tree — the failing node, its inputs/outputs, duration — to find the root cause.",
-                "asset": "root cause (from trace)",
-            },
-            {
-                "where": "Operate › Observability",
-                "do": "Capture the failing example: click <strong>Add to test set</strong>, choose/create <code>prod-regression</code>, set the expected output, and <strong>Add example</strong>. Repeat for 2–3 representative traces.",
-                "asset": "test set: prod-regression",
-            },
-            {
-                "where": "Operate › Review Queues › + New Queue",
-                "do": "Create <code>prod-triage</code> and add the question schema (root_cause_known / failure_mode / severity / expected_output / reviewer_notes), then <strong>Create queue</strong>.",
-                "asset": "review queue: prod-triage",
-            },
-            {
-                "where": "Operate › Review Queues",
-                "do": "Click <strong>Add traces to review</strong>, paste the flagged trace ids, and <strong>Enqueue</strong>.",
-                "asset": "enqueued trace ids",
-            },
-            {
-                "where": "Operate › Review Queues",
-                "do": "Open a queued item, answer the questions, and <strong>Submit review</strong> — answers write back onto the trace as assessments/expectations.",
-                "asset": "triaged labels",
-            },
-            {
-                "where": "Prompt lifecycle › Test Sets",
-                "do": "Confirm <code>prod-regression</code> now holds the captured failing examples — the durable slice to re-run after a fix.",
-                "asset": "regression slice",
-            },
-            {
-                "where": "Prompt lifecycle › Evaluations",
-                "do": "(Optional) <strong>Run evaluation</strong> on <code>prod-regression</code> with the deterministic graders to baseline the failure rate; re-run after a fix to confirm it drops.",
-                "asset": "failure-rate baseline",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Test Set",
-                "name": "prod-regression",
-                "detail": "Failing examples captured from traces via Observability → Add to test set. <code>assets/dataset/</code>",
-            },
-            {
-                "type": "Review Queue",
-                "name": "prod-triage",
-                "detail": "Triage question schema (root_cause_known / failure_mode / severity / expected_output / notes). <code>assets/review-queues/</code>",
-            },
-        ],
+  SEED["seed_traces.py: 40 tickets through workflow v1"] --> OBS["Operate: Observability, filter Status = Error"]
+  OBS --> TR["Open trace: Spans node tree"]
+  TR -->|"Add to test set"| DS[("Test Set: prod-regression")]
+  DS --> GOLD["Edit Expected: gold outcome"]
+  TR -->|"trace ids, Enqueue"| RQ[("Review Queue: prod-triage")]
+  RQ -->|"Submit review"| AS["Assessments on the trace"]
+  OBS --> SIL["Find the OK but wrong traces by hand"]
+  SIL --> RQ""",
         "gates": [
-            {
-                "gate": "Error traces captured",
-                "target": "every error trace in the window lands in the test set or the triage queue",
-            },
-            {
-                "gate": "Root cause explainable",
-                "target": "each flagged trace's failure is readable from its node tree",
-            },
-            {
-                "gate": "Triage labeled + written back",
-                "target": "queue items answered; assessments visible on the traces",
-            },
-            {
-                "gate": "Regression baseline recorded",
-                "target": "prod-regression scored in Evaluations (re-run after a fix)",
-            },
+            {"gate": "Traffic recorded", "target": "40 new traces, 12 ERROR and 28 OK, and the Error filter finds every failing one"},
+            {"gate": "Root cause readable", "target": "the failing node (validate, check_reference or decide) is ERROR in the node tree"},
+            {"gate": "Failure paths", "target": "unknown trace id 404, empty window empty list, MLflow down 503"},
+            {"gate": "Test set", "target": "16 traces (12 errors + 4 wrong OK ones), each with its gold outcome"},
+            {"gate": "Triage written back", "target": "prod-triage holds the same 16, two answered, and their five answers appear as assessments"},
         ],
-        "mock": {
-            "url": "/observability",
-            "nav": "Observability",
-            "title": "Traces · Status = Error",
-            "tabs": ["Traces", "Metrics", "Services"],
-            "active_tab": "Traces",
-            "fields": [
-                ("Status", "Error"),
-                ("support-copilot · 14:32", "error · issue_write node raised · 1,240 ms"),
-            ],
-            "buttons": ["Add to test set"],
-            "caption": "Observability → traces filtered to Error",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
-            "Observability <strong>Status</strong> options are All statuses / OK / Error / In progress; selecting a trace puts its id in the URL (<code>?trace=…</code>) — copy ids from there for the queue.",
-            "Dataset rows can be authored in the editor at <code>/eval-datasets/:id → + Add example</code>, or captured via <strong>Add to test set → Add example</strong>.",
-            "Review answers write back as MLflow <strong>assessments / expectations</strong> on the trace, so the trace becomes self-documenting.",
-            "This is <strong>operations</strong>, not authoring — it converts live production signal into durable evidence (a regression test set + reviewed labels) you can act on and re-check after a fix.",
+            "<strong>Feature flag.</strong> The lab needs none (Observability, Test Sets and Review Queues are supported alpha); <code>CALIBER_FEATURE_COOKBOOKS=true</code> only opens the gallery. Aria is not used.",
+            "<strong>Setup.</strong> The traces come from cookbook 09's workflow: run the stand-in account service (<code>account_service.py 8780</code>, not a real system) and start the server with <code>CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1</code>, otherwise all 40 seed runs fail. A worker is required.",
+            "<strong>Nothing is simulated, no model needed.</strong> The workflow has no agent node, so the fake default providers change nothing. The optional Evaluations baseline on the test set is not part of this lab (Evaluations refuse on a simulated stack, see lab 10).",
+            "A capture stores the trace's <strong>response</strong> as the expected answer, which for a failed run is the error text; edit the example (or pass <code>expected</code> in the API) to put the gold outcome on it.",
+            "MLflow records traces asynchronously, so the last trace of a run can read <code>IN_PROGRESS</code> for a moment. With <code>CALIBER_TRACING_ENABLED=false</code> runs complete but <code>trace_id</code> is null.",
+            "Alpha limit: traces are not scoped to a project, so any signed-in user can read every trace and its request text; do not put sensitive data in them on a shared deployment.",
+            "Not covered: trace-to-refinement automation, the Evaluations baseline, and the UI rendering of the MLflow-down 503 (checked through the API only).",
+            "Run it with <code>sdk/caliber-sdk/examples/cookbooks/cookbook_16_observability_triage.py</code> or the Playwright spec <code>caliber/caliber-ui/e2e/cookbooks/labs/16-observability-triage.spec.ts</code>.",
         ],
     },
-    # ───────────────────────────── GOVERN ─────────────────────────────
     {
         "id": "CB-10",
         "num": "10",
         "slug": "trustworthy-evaluation",
         "track": "Govern",
         "title": "Trustworthy Evaluation",
-        "subtitle": "Certify that an automated judge agrees with human reviewers before it can block a release.",
+        "subtitle": "Certify that an automated judge agrees with human reviewers before it is trusted to block a release.",
         "level": "Core",
-        "time": "45–70 min",
-        "surfaces": ["Test Sets", "Judges", "Evaluations", "Review Queues", "Observability"],
-        "build": "A governance lane that scores candidate outputs with an LLM judge, has humans review a "
-        "sample of the same traces, and computes judge↔human alignment — feeding disagreements back "
-        "into the dataset.",
+        "time": "60–120 min",
+        "surfaces": [
+            "Prompts",
+            "Test Sets",
+            "Judges",
+            "Evaluations",
+            "Review Queues",
+        ],
+        "build": "A governance lane that loads a 50-row test set of support replies and incident summaries, defines a custom <code>FaithfulnessJudge</code>, scores a baseline and a candidate with deterministic graders plus the judge, then has people review the same outputs and imports their labels so CALIBER computes agreement, Cohen's kappa and false positives and negatives. The judge is <strong>certified</strong> only if it clears the thresholds on enough rows, otherwise <strong>rejected</strong>, and every disagreement goes back into the test set as a hard case.",
         "learn": [
-            "Build a dataset by harvesting traces (from-trace)",
-            "Create a faithfulness judge with template variables",
-            "Run baseline vs candidate evaluations + read deltas",
-            "Enqueue sampled traces for human review",
-            "Import completed review labels and compute judge↔human alignment",
+            "Load a 50-row test set (<strong>Prompts &gt; Calibration &gt; Upload JSON/JSONL</strong>); each appended example is a version, so 50 rows is version 51",
+            "Create a judge whose instructions use only <code>{{ inputs }}</code>, <code>{{ outputs }}</code>, <code>{{ expectations }}</code>, <code>{{ conversation }}</code> or <code>{{ trace }}</code>; <code>{{ evidence }}</code> is refused with a 400",
+            "Run baseline and candidate Evaluations with <strong>Contains expected</strong>, <strong>Non-empty</strong> and the judge, and compare per-row results",
+            "Review the same traces in a queue, then <strong>Import labels</strong> and <strong>Check alignment</strong> in <strong>Judges &gt; Try it &gt; Human alignment</strong>",
+            "Certify or reject on agreement, kappa and a minimum row count, using a deliberately weak <code>LenientJudge</code> as the negative control",
+            "Feed the nine disagreements back into the test set (tag <code>judge-disagreement</code>)",
         ],
         "mermaid": """flowchart LR
-  TR[Run traces 07/08] -->|Add to test set| DS[(Test Set)]
-  DS --> EVb[Evaluations: baseline · deterministic graders]
-  DS --> EVc[Evaluations: candidate · deterministic graders]
-  J[Judge: FaithfulnessJudge] -.run as scorer.-> V[Judge verdicts]
-  EVc --> FLAG[Flagged examples]
-  FLAG --> RQ[(Review Queue: human labels)]
-  V --> AL[Alignment: judge vs human]
-  RQ --> AL""",
-        "steps": [
-            {
-                "where": "Operate › Observability",
-                "do": "From candidate runs (07/08), open traces and <code>Add to test set</code> to aggregate a representative set (auto-extracts input/expected).",
-                "asset": "test set (from traces)",
-            },
-            {
-                "where": "Agent resources › Judges › New judge",
-                "do": "Create <code>FaithfulnessJudge</code> — instructions reference <code>{{ inputs }}/{{ outputs }}/{{ expectations }}</code>, return <code>bool</code>.",
-                "asset": "judge: FaithfulnessJudge",
-            },
-            {
-                "where": "Prompt lifecycle › Evaluations › Run evaluation",
-                "do": "Run the same dataset on the baseline artifact, then the candidate. Capture both run ids.",
-            },
-            {
-                "where": "Evaluations › run detail",
-                "do": "Open per-example results; in the candidate, select the baseline for deltas; flag the low/false examples.",
-            },
-            {
-                "where": "Operate › Review Queues › New queue",
-                "do": "Create a queue with the same faithfulness question(s); enqueue the flagged traces; reviewers answer (answers write back to the trace).",
-                "asset": "review queue",
-            },
-            {
-                "where": "Judges › Human alignment",
-                "do": "Select the completed queue/question, pick the queue in the <strong>Import from Review Queue…</strong> dropdown, click <strong>Import labels</strong>, then <strong>Check alignment</strong> for agreement, Cohen's κ, and FP/FN with retained provenance.",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Test Set",
-                "name": "aggregated outputs",
-                "detail": "Harvested from 07/08 traces; mix of pass/fail + planted disagreements.",
-            },
-            {
-                "type": "Judge",
-                "name": "FaithfulnessJudge",
-                "detail": "LLM judge: every claim supported by expectations.",
-            },
-            {
-                "type": "Review Queue",
-                "name": "faithfulness review",
-                "detail": "Question schema mirroring the judge criterion; trace-linked.",
-            },
-            {
-                "type": "Alignment run",
-                "name": "judge↔human evidence",
-                "detail": "Imported queue/item/trace/question/reviewer provenance plus agreement and Cohen's κ.",
-            },
-        ],
+  DS[("Test Set: 50 rows, v51")] --> BASE["Evaluations: baseline"]
+  DS --> CAND["Evaluations: candidate grounded-reply@1"]
+  J["Judges: FaithfulnessJudge + LenientJudge"] -.-> CAND
+  TR["Seeded traces, one per row"] --> RQ[("Review Queue: faithfulness-certification")]
+  RQ -->|Import labels| AL["Judges: Check alignment"]
+  J --> AL
+  AL --> DEC{"agreement 0.80, kappa 0.60, 30 rows"}
+  DEC -->|meets| OK["CERTIFIED"]
+  DEC -->|misses| NO["REJECTED"]
+  AL --> FB["Disagreements added to Test Set"]
+  FB --> DS""",
         "gates": [
-            {"gate": "Overall eval score", "target": "≥ 0.85"},
-            {"gate": "Judge↔human alignment", "target": "≥ 0.80 over ≥ 3 reviewed traces"},
-            {"gate": "Disagreements fed back", "target": "added to dataset / rubric"},
+            {"gate": "Judge agreement with human labels", "target": "≥ 0.80"},
+            {"gate": "Cohen's kappa", "target": "≥ 0.60"},
+            {"gate": "Labelled rows", "target": "≥ 30, every row scored (scored = n)"},
+            {"gate": "Weak judge control", "target": "LenientJudge is rejected (0.58 agreement, kappa 0.0933 with the stand-in model)"},
+            {"gate": "Disagreements fed back", "target": "9 added to the test set (version 60)"},
         ],
-        "mock": {
-            "url": "/evaluations",
-            "nav": "Evaluations",
-            "title": "FaithfulnessJudge · candidate vs baseline",
-            "tabs": ["Run", "Results", "Compare"],
-            "active_tab": "Compare",
-            "fields": [
-                ("Example J03", "judge: FAIL · human: PASS → disagreement"),
-                ("Alignment", "5/8 agree = 0.625 (below 0.80 gate)"),
-            ],
-            "buttons": ["Run evaluation", "Add flagged to queue"],
-            "caption": "Evaluations → Compare + review handoff",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.",
-            "Human Alignment imports completed pass/fail queue labels and computes the metrics in-product.",
-            "Populate datasets either in the editor at <code>/eval-datasets/:id → + Add example</code> or via Observability <code>Add to test set</code>.",
-            "Imported rows retain their review provenance; excluded or incomplete labels are reported rather than silently coerced.",
+            "<strong>Feature flag.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery card and the SDK script's recipe check; the lab itself uses only test sets, judges, evaluations and review queues. Start a stack with <code>scripts/cookbook-env.sh up lab10 --flags cookbooks</code>.",
+            "<strong>Simulated default cannot run the judge.</strong> With <code>CALIBER_LLM_PROVIDER=fake</code> and <code>CALIBER_EVAL_PROVIDER=fake</code>, Evaluations answer 400 and alignment reports every row as an error (<code>scored</code> 0 of 50). Nothing is faked; use a real provider or the lab's stand-in model (<code>CALIBER_EVAL_PROVIDER=mlflow</code> with a real LLM provider, or the server refuses to start).",
+            "<strong>The stand-in model proves wiring and arithmetic, not judge quality.</strong> It is a scripted OpenAI-compatible server (<code>assets/stand-in-model/stand_in_model_server.py</code>); its numbers (FaithfulnessJudge 0.82 and kappa 0.6365 over 50 rows) say nothing about how a real model would judge this data.",
+            "<strong>Calibration gate on a canned score.</strong> On the simulated stack the calibration job on the same test set passes its gate on a canned 0.94 (<code>simulated: true</code>); that verdict means nothing without a judge you have already checked against people.",
+            "Only five rows can give agreement 0.8 and kappa 0.6154: the product returns numbers for any sample of 1 to 100 rows, so the lab's rule of 30 scored rows is what makes certification meaningful. The UI path over 10 rows is a readout, not a certification.",
+            "<strong>Keep reviewer notes out of the queue.</strong> <strong>Import labels</strong> passes every non-pass/fail answer to the judge as <code>{{ expectations }}</code>, so a reviewer's quote of the unsupported claim lowers agreement (0.82 to 0.66); keep the evidence box to evidence.",
+            "Run it through the API with <code>sdk/caliber-sdk/examples/cookbooks/cookbook_10_trustworthy_evaluation.py</code> (add <code>--expect-stand-in</code> to pin the numbers), or the Playwright spec <code>caliber/caliber-ui/e2e/cookbooks/labs/10-judge-certification.spec.ts</code>.",
         ],
     },
     {
@@ -1332,200 +663,154 @@ COOKBOOKS = [
         "slug": "release-signoff",
         "track": "Govern",
         "title": "Release Signoff Factory",
-        "subtitle": "Aggregate cross-cookbook evidence into a defensible go / no-go decision (Preview, record-only).",
+        "subtitle": "Record an accountable go / no-go: server-scored criteria, owned waivers, an immutable signoff. A record, not a deployment.",
         "level": "Core",
-        "time": "30–50 min",
-        "surfaces": ["Releases", "Evaluations", "Review Queues", "Observability"],
-        "build": "A durable release candidate with server-computed weighted criteria, blockers, accountable "
-        "waivers, rollback target, immutable go/no-go signoff, and Allure-compatible report evidence. "
-        "Releases is a Preview, record-only page: signing off records a decision and deploys nothing.",
+        "time": "20–40 min",
+        "surfaces": [
+            "Releases",
+            "Audit Log",
+        ],
+        "build": "You create 20 release candidates from a dataset and check the server's weighted score, status and blockers against figures worked out independently (14 ready, 6 blocked). On a few of them you record admin waivers, generate an Allure-compatible report snapshot and sign off GO and NO-GO, then see that a signed candidate is final. <strong>Releases</strong> is a preview, record-only page: signing off writes a decision and deploys or rolls back nothing. No model is involved, so nothing is simulated.",
         "learn": [
-            "Collect evidence from Evaluations + Review Queues",
-            "Re-run critical slices and capture fresh run ids",
-            "Enter criteria + evidence on a release candidate and read the server-computed score and blockers",
-            "Record an admin waiver (criterion key + reason) and generate Allure-compatible evidence",
-            "Sign off GO / NO-GO with a rationale (record-only)",
+            "Create candidates with weighted criteria and read the server-computed <code>weighted_score</code>, status and blockers; ready means score at or above <code>required_score</code> and no unwaived blocker",
+            "Record an admin waiver (existing criterion key, reason of 8 or more characters, future expiry): it clears a blocker but never a low score",
+            "<strong>Generate Allure</strong> after the last change, because a report made earlier is a stale snapshot with a different SHA-256",
+            "Sign off GO or NO-GO with a rationale; a signed candidate cannot be evaluated, waived or signed again (409)",
+            "See that a signed GO moves no alias and adds nothing to the timeline; <strong>Promote</strong> on the prompt is the real release",
+            "Read who created, waived, reported and signed in the audit log",
         ],
         "mermaid": """flowchart TD
-  E1[Eval run ids 07/08/10] --> SC[Release candidate]
-  E2[Review queues complete] --> SC
-  E3[Criteria + evidence entered] --> SC
-  E4[Re-run critical slices] --> SC
-  SC --> D{"blockers = 0 and score >= 0.90?"}
-  D -->|yes| GO[go]
-  D -->|no| NG[no_go + blockers]""",
-        "steps": [
-            {
-                "where": "Prompt lifecycle › Evaluations",
-                "do": "Gather the scorecard run ids for each required cookbook; confirm each required review queue is fully answered.",
-            },
-            {
-                "where": "Prompt lifecycle › Releases",
-                "do": "Click <strong>New candidate</strong>; enter the artifact, candidate and rollback versions, required score, and criteria/evidence JSON (the UI records the planned action), then <strong>Create and evaluate candidate</strong>. Inspect the server-computed score and blockers.",
-                "asset": "release candidate",
-            },
-            {
-                "where": "Workflows › Run Monitor (re-run)",
-                "do": "Re-execute the high-risk slices (07 approval branch, 08 rollback path); record the fresh run ids.",
-            },
-            {
-                "where": "Releases › candidate",
-                "do": "Use an admin waiver (<strong>Record waiver</strong>) only with a criterion key and a specific reason (the UI has no expiry field; write it into the reason); then click <strong>Generate Allure</strong> for the durable Allure-compatible report job.",
-                "asset": "waiver + report job",
-            },
-            {
-                "where": "Releases › candidate",
-                "do": "Click <strong>Sign off GO</strong> only when the candidate is ready and rollback is defined; otherwise <strong>Sign off NO-GO</strong>, with a rationale of at least 8 characters. The final snapshot is immutable and nothing is deployed.",
-                "asset": "decision record",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Run-id manifest",
-                "name": "required evidence",
-                "detail": "Staging sheet for per-cookbook run ids + review completion + CI Allure status. <code>assets/dataset/</code>",
-            },
-            {
-                "type": "Rubric",
-                "name": "release-rubric",
-                "detail": "Weighted dimensions to enter as criteria + gate thresholds + a worked example. <code>assets/rubric/</code>",
-            },
-            {
-                "type": "Decision record",
-                "name": "go / no-go",
-                "detail": "Optional template for the signoff rationale, blockers and waiver notes. <code>assets/decision/</code>",
-            },
-            {
-                "type": "Prompt (optional)",
-                "name": "release-risk-summarizer",
-                "detail": "Drafts the rationale from your evidence notes (never scores the release).",
-            },
-        ],
+  A["New candidate: criteria, scores, evidence"] --> B{"Server evaluates"}
+  B -->|"blocker unmet"| W["Admin waiver: reason, expiry"]
+  W --> B
+  B -->|"score under the bar"| N["Sign off NO-GO"]
+  B -->|"ready"| R["Generate Allure snapshot"]
+  R --> G["Sign off GO: needs planned action and rollback target"]
+  G --> F["signed_go: final, 409 on any change"]
+  N --> F2["signed_no_go: final"]
+  F --> X["Deploys nothing: Promote is a separate act"]
+  F --> AU["Audit Log: who created, waived, signed"]""",
         "gates": [
-            {"gate": "Overall release score", "target": "≥ 0.90"},
-            {"gate": "Blocker count", "target": "= 0"},
-            {"gate": "Allure evidence", "target": "report job generated on the candidate"},
+            {"gate": "Candidates created", "target": "20, server score, status and blockers equal the dataset (14 ready, 6 blocked)"},
+            {"gate": "Waiver", "target": "RC16 becomes ready at the same 0.721; RC17 stays blocked (0.6575) after both blockers are waived"},
+            {"gate": "GO", "target": "refused (409) on a blocked candidate and on one with no planned action or rollback target"},
+            {"gate": "After signoff", "target": "evaluate, waive and a second signoff are refused (409)"},
+            {"gate": "Signoff deploys nothing", "target": "prompt aliases, live board and timeline unchanged; only Promote moves the alias"},
         ],
-        "mock": {
-            "url": "/releases",
-            "nav": "Releases",
-            "title": "Release Signoff Factory",
-            "tabs": [],
-            "active_tab": "",
-            "fields": [
-                ("Candidate", "weighted score 93% · 0 blockers · status ready"),
-                ("Signoff rationale", "Accountable decision rationale (at least 8 characters)"),
-            ],
-            "buttons": ["New candidate", "Generate Allure", "Sign off GO"],
-            "caption": "Releases → Release signoff factory (Preview, record-only)",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_RELEASE_CANDIDATES=true</code> shows the Release signoff factory on Releases; both are off by default.",
-            "The server recomputes score and blockers from the stored criteria; the browser's aggregate is never trusted.",
-            "The report job is durable Allure-compatible JSON; CI still owns the separate rendered HTML test report. Releases is Preview, record-only: signing off deploys or rolls back nothing.",
-            "Map every blocker back to its owning cookbook and reopen that gate.",
+            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_RELEASE_CANDIDATES=true</code> shows the <strong>Release signoff factory</strong> section on <strong>Releases</strong> and enables <code>/releases/candidates</code> (404 <code>feature_disabled</code> without it); <code>CALIBER_FEATURE_COOKBOOKS=true</code> is only for the gallery. Both are preview areas, off by default. Start with <code>scripts/cookbook-env.sh up lab11 --flags release_candidates,cookbooks</code>.",
+            "<strong>Scopes.</strong> Creating, re-evaluating and reporting need the operator scope (<code>CALIBER_OPERATOR_USERS</code>); waivers and signoffs are admin-only (403 otherwise).",
+            "<strong>The scores are typed in.</strong> CALIBER does not read them from Evaluations, Review Queues or traces, and does not open evidence references or check that the artifact exists; a candidate for a missing artifact is accepted.",
+            "<strong>The report is a snapshot.</strong> Allure-compatible JSON with a SHA-256 of the candidate at that moment, not a CI test report; generate the one you keep after the last waiver.",
+            "A waiver does not raise a score, and there is no route that edits a candidate: create a new candidate for new evidence. The UI form has no expiry field, so write the expiry into the reason (the API takes <code>expires_at</code>).",
+            "Candidates cannot be deleted. Those created outside a workspace are private to their creator, so a viewer does not see the admin's list.",
+            "Run it with <code>sdk/caliber-sdk/examples/cookbooks/cookbook_11_release_signoff_factory.py</code> or the Playwright spec <code>caliber/caliber-ui/e2e/cookbooks/labs/11-release-signoff.spec.ts</code>.",
         ],
     },
-    # ───────────────────────────── ARIA — AUTONOMOUS ─────────────────────────────
+    {
+        "id": "CB-18",
+        "num": "18",
+        "slug": "projects-roles-tokens-audit",
+        "track": "Govern",
+        "title": "Projects, Roles, Tokens & Audit",
+        "subtitle": "Set up a nine-person team in a workspace with owner, editor, reviewer and viewer roles, bind an access token to it, and read the audit trail.",
+        "level": "Core",
+        "time": "45–60 min",
+        "surfaces": [
+            "Administration",
+            "Workspaces",
+            "Settings",
+            "Audit Log",
+            "Releases",
+        ],
+        "build": "A nine-person support team in a workspace (the UI says <em>workspace</em>, the API says <em>project</em>): accounts from <code>team-roster.csv</code>, project roles, and a role matrix proved with 72 real requests (9 people x 8 actions) from <code>role-matrix.csv</code>. An editor issues an access token bound to the workspace, uses it from <code>caliberctl</code> and the Python SDK to release one prompt, and sees it refused (403) in another project and (401) once revoked or expired. The audit log, the release timeline and live board, and <code>/health</code> and <code>/readiness</code> record and explain all of it.",
+        "learn": [
+            "Create the nine accounts under <strong>Admin &gt; Administration &gt; Accounts</strong>, create a workspace from the top bar (its creator is the primary owner) and add members under <strong>Project access</strong> as <strong>Owner (Admin)</strong>, <strong>Editor</strong>, <strong>Reviewer</strong> or <strong>Viewer</strong>",
+            "Read the role matrix: a non-member gets 404, a viewer 403, and the primary owner cannot be removed or demoted (409); both the platform scope (<code>CALIBER_OPERATOR_USERS</code>, <code>CALIBER_APPROVER_USERS</code>) and the project role must allow a write",
+            "Issue a token in <strong>Admin &gt; Settings &gt; API tokens</strong> bound to one workspace (secret shown once), then see it refused with 403 in another project and with 401 once revoked or expired",
+            "Find each action in <strong>Operate &gt; Audit Log</strong> by actor, action and entity ID (admin only; no token secret in any row; refused requests are not audited)",
+            "Read the prompt release on <strong>Prompt lifecycle &gt; Releases</strong> (one <strong>Promote</strong> event, <strong>What's live now</strong>), and <code>/readiness</code> plus the <strong>Simulated providers</strong> banner",
+        ],
+        "mermaid": """flowchart LR
+  AD["Admin: create 9 accounts"] --> WS["maya creates workspace: primary owner"]
+  WS --> MB["Project access: add 7 members with roles"]
+  MB --> RM["Role matrix: 72 requests"]
+  MB --> TK["priya issues token bound to workspace"]
+  TK --> UV["SDK and caliberctl: release a prompt to prod"]
+  TK --> RF["403 other project, 401 revoked or expired"]
+  UV --> RL["Releases: Promote event + live board"]
+  RM --> AU["Audit Log: actor, action, entity"]
+  RF --> AU
+  RL --> RD["Readiness: eval and llm simulated"]""",
+        "gates": [
+            {"gate": "Role matrix", "target": "all 72 requests (9 people x 8 actions) return the status role-matrix.csv expects, 0 mismatches"},
+            {"gate": "Bound token", "target": "acts in its own workspace; 403 in another project; 401 once revoked or expired"},
+            {"gate": "Primary owner", "target": "cannot be removed (409) or demoted (409); no role can be escalated by the person asking"},
+            {"gate": "Failure scenarios", "target": "F01-F15 refused with the documented status and text (F16 CSRF only when the server enables it)"},
+            {"gate": "Audit", "target": "one row for each action, filterable by actor, action and entity; 0 rows carry a token secret"},
+            {"gate": "Release and readiness", "target": "one Promote event for the prompt by the editor, prompt live at v1 on @prod; /readiness ready and names eval and llm as simulated"},
+        ],
+        "notes": [
+            "<strong>Flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> only opens the gallery (the lab is listed and installable); projects, roles, tokens, audit and readiness need no flag. Start with <code>scripts/cookbook-env.sh up lab18 --flags cookbooks</code>.",
+            "<strong>Server platform scopes are required.</strong> Export <code>CALIBER_ADMIN_USERS=admin</code>, <code>CALIBER_OPERATOR_USERS=admin,maya,omar,priya,sam,quinn,rosa,victor,nora</code> and <code>CALIBER_APPROVER_USERS=admin,maya,omar,quinn</code> before the stack starts: an account holds a password only. <code>wen</code> is on neither list on purpose; <code>nora</code> is an operator in no project.",
+            "<strong>Two different 403s.</strong> A viewer who is an operator (<code>victor</code>) is refused by the <em>project role</em>; one who is not (<code>wen</code>) is refused by the <em>platform scope</em> first. A non-member gets 404, not 403. Only someone on both operator and approver lists may be an <code>owner</code> (409).",
+            "<strong>Simulated vs real.</strong> Nothing calls a model (default <code>fake</code> LLM/eval providers). The only visible effect is the <code>evaluation.run</code> row: an allowed member gets 400 <code>evaluation requires a real LLM provider</code> (201 with a real provider; the matrix accepts <code>400|201</code>), a viewer gets 403.",
+            "<strong>Limitations the lab shows.</strong> Traces and prompt releases are not project-scoped (the timeline lists promotions from every project; the prompt inventory is scoped); refused requests are not audited; apply has no second approver. <code>GET /me</code> answers <code>anonymous</code> for a revoked token, so check a route that needs a user.",
+            "<strong>Demo password.</strong> Every roster account uses the public password <code>lab18-demo-passphrase</code>: create them only on a stack nobody else can reach. Leave <code>CALIBER_PROJECT</code> unset so the bound token visibly acts in its own project.",
+            "<strong>Run it.</strong> <code>PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_18_projects_roles_tokens_audit</code> (about ten seconds; <code>--cleanup</code> archives the <code>lab18-*</code> projects and disables the nine accounts). UI spec: <code>18-projects-roles-tokens-audit.spec.ts</code>.",
+        ],
+    },
     {
         "id": "CB-12",
         "num": "12",
         "slug": "aria-eval-harness",
         "track": "Aria — Autonomous",
         "title": "Aria: Evaluation Harness from Intent",
-        "subtitle": "One sentence → Aria plans and creates a faithfulness judge + a test set; you fill the judge's fields and approve.",
+        "subtitle": "One sentence → a rules-based Aria plan creates a judge and a Test Set; you fill their fields, approve each change, load 30 cases and see what Aria refuses.",
         "level": "Aria",
-        "time": "15–25 min",
-        "surfaces": ["Plans", "Judges", "Test Sets", "Evaluations"],
-        "build": "Give Aria a one-line intent; it decomposes the plan (<code>judge.create</code> + "
-        "<code>eval_dataset.create</code>) in the Plans page. You approve the plan, fill the judge's "
-        "fields in the plan's input form, and approve each step.",
+        "time": "15–30 min",
+        "surfaces": [
+            "Plans",
+            "Judges",
+            "Test Sets",
+            "Evaluations",
+        ],
+        "build": "You give Aria one sentence, <em>Create a judge for answer faithfulness and an eval dataset to run it on.</em>, and it draws a two-step plan, <code>judge.create</code> then <code>eval_dataset.create</code>. Nothing runs until you approve; each step then stops on an <strong>Aria needs information</strong> form and, with <strong>Stop before each change</strong>, an <strong>Approve</strong> / <strong>Deny</strong> prompt. At the end a real active judge (<code>AnswerFaithfulness</code>, <code>bool</code>) and a real, empty Test Set exist; you add 30 support cases from <code>faithfulness-cases.jsonl</code> and exercise the refusals.",
         "learn": [
-            "Use the Plans page to turn an intent into a capability plan",
-            "Read Aria's plan + autonomy dial",
-            "Understand the planner needles (domain words)",
-            "Fill a step's inputs in the plan's “Aria needs information” form",
-            "See how step names are linked between steps",
+            "State an intent on <strong>Integrations &gt; Plans</strong> (<strong>Goal</strong>, <strong>Autonomy: Stop before each change</strong>, <strong>Decompose goal</strong>) and read the draft before you approve it",
+            "Understand that the planner is deterministic rules, not a model: it adds a step for every domain word (<code>judge</code>, <code>eval dataset</code>, <code>test set</code>) and was checked against 28 goals (28/28)",
+            "Answer a step's <strong>Aria needs information</strong> form (name, instructions, feedback value type) and its approval prompt; each step asks for its own <code>name</code>, nothing is wired between them",
+            "Verify the artifacts in <strong>Agent resources &gt; Judges</strong> and <strong>Prompt lifecycle &gt; Test Sets</strong>, then add rows with <strong>+ Add example</strong> (30 cases, one version per row)",
+            "See the refusals: a sentence with no steps cannot be approved (409), a bad form answer keeps the question open, a judge with no evaluation variable fails its step and the plan, and an account without the operator scope creates nothing",
         ],
         "mermaid": """flowchart LR
-  I[/"Intent: a judge for faithfulness + an eval dataset"/] --> PL[Aria Plans: decompose]
-  PL --> S1[step: judge.create]
-  PL --> S2[step: eval_dataset.create]
-  S1 -.input form + approve.-> JU[Judges: AnswerFaithfulness]
-  S2 -.name linked + approve.-> TS[Test Sets: AnswerFaithfulness]""",
-        "steps": [
-            {
-                "where": "Plans › New goal",
-                "do": "Paste the intent: <em>“Create a judge for answer faithfulness and an eval dataset to run it on.”</em> Set autonomy = <code>ask_each</code>.",
-                "asset": "intent",
-            },
-            {
-                "where": "Plans › plan detail",
-                "do": "Confirm Aria decomposes it into two steps: <code>judge.create</code> and <code>eval_dataset.create</code>.",
-                "asset": "expected plan",
-            },
-            {
-                "where": "Plans › Approve",
-                "do": "Click <strong>Approve plan</strong>, then <strong>Execute</strong>.",
-            },
-            {
-                "where": "Plans › input form",
-                "do": "Fill <strong>Aria needs information</strong> for <code>judge.create</code>: <code>AnswerFaithfulness</code>, instructions that reference the template vars, <code>bool</code>; <strong>Continue plan</strong>, then <strong>Approve</strong>.",
-                "asset": "judge: AnswerFaithfulness",
-            },
-            {
-                "where": "Plans › interaction prompt",
-                "do": "<strong>Approve</strong> <code>eval_dataset.create</code> — it asks for nothing (its name is linked to the judge's), so an empty test set named <code>AnswerFaithfulness</code> is created; add rows later from Observability.",
-                "asset": "test set",
-            },
-            {
-                "where": "Prompt lifecycle › Evaluations",
-                "do": "(Follow-up) Run the dataset on the deterministic graders plus <code>AnswerFaithfulness</code> ticked under <strong>Custom LLM judges</strong> (cookbook 10 territory).",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Intent",
-                "name": "one-liner",
-                "detail": "Contains the planner needles “judge” + “eval dataset”. <code>assets/intent.md</code>",
-            },
-            {
-                "type": "Judge",
-                "name": "AnswerFaithfulness",
-                "detail": "The judge.create inputs — entered in the plan's input form. <code>assets/judges/</code>",
-            },
-            {
-                "type": "Test Set",
-                "name": "AnswerFaithfulness",
-                "detail": "Created by eval_dataset.create under the judge's name; <code>assets/datasets/</code> is the spec for a separately named set.",
-            },
-        ],
+  I[/"Intent sentence"/] --> D["Plans: Decompose goal (rules planner)"]
+  D --> A["Approve plan"]
+  A --> E["Execute"]
+  E --> F1["Form + Approve: judge.create"]
+  F1 --> F2["Form + Approve: eval_dataset.create"]
+  F1 --> J["Judges: AnswerFaithfulness (bool)"]
+  F2 --> T["Test Sets: own name, v1, empty"]
+  T --> R["+ Add example x30 (v31)"]
+  R --> V["Evaluations: 400 on simulated stack"]
+  D --> N["No steps: 409 at approval"]
+  F1 --> X["Bad variable or taken name: step and plan failed"]""",
         "gates": [
-            {
-                "gate": "Plan decomposed from intent",
-                "target": "judge.create + eval_dataset.create present",
-            },
-            {"gate": "Artifacts exist", "target": "active judge + test set in the UI"},
+            {"gate": "Planner agreement", "target": "28/28 goals in assets/dataset/goals.jsonl draw the documented plan; none of the drafts run"},
+            {"gate": "Intent draws the plan", "target": "judge.create then eval_dataset.create; four questions answered (judge form, approval, test set form, approval); plan reads completed"},
+            {"gate": "Artifacts are real", "target": "judge active as bool; test set has its own name (not the judge's), v1 and no rows"},
+            {"gate": "Test set rows", "target": "30 cases loaded, one version per row (version 31); each stored row is the file's row"},
+            {"gate": "Refusals hold", "target": "no-step goal 409; bad form answers 409 and stay open; denied step skipped; bad judge fails the plan; no operator scope creates nothing; non-owner 403 / 404"},
+            {"gate": "Script and UI spec", "target": "script prints \"All documented outcomes verified.\" (exit 0); Playwright 12-aria-evaluation-harness.spec.ts passes"},
         ],
-        "mock": {
-            "url": "/aria/plans",
-            "nav": "Plans",
-            "title": "Plan · evaluation harness",
-            "tabs": ["Draft", "Approved", "Running"],
-            "active_tab": "Draft",
-            "fields": [
-                ("Goal", "Create a judge for answer faithfulness and an eval dataset to run it on"),
-                ("Steps", "1) judge.create   2) eval_dataset.create   ·   autonomy: ask_each"),
-            ],
-            "buttons": ["Approve", "Execute"],
-            "note": "Aria plans the steps; fill the judge's inputs in the plan and approve each step.",
-            "caption": "Plans → plan detail (decomposed from intent)",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_ARIA=true</code> opens Plans; both are off by default.",
-            "Aria plans <strong>and</strong> executes: the planner leaves unknown fields empty, so each step pauses on an <strong>Aria needs information</strong> form (see ARIA-AUTONOMY.md).",
-            "The default planner keys off domain words — keep “judge” and “eval dataset” literal in the intent.",
-            "<code>eval_dataset.create</code> makes an empty test set; add rows from Observability afterward.",
+            "<strong>Flags.</strong> <code>CALIBER_FEATURE_ARIA=true</code> opens <code>/aria/*</code> and <strong>Plans</strong> (404 <code>feature_disabled</code> without it); <code>CALIBER_FEATURE_COOKBOOKS=true</code> is only needed for the gallery card. Start the stack with <code>scripts/cookbook-env.sh up lab12 --flags cookbooks,aria</code>.",
+            "<strong>Operator accounts.</strong> Export <code>CALIBER_OPERATOR_USERS=admin,olga</code> before starting the stack: <code>judge.create</code> and <code>eval_dataset.create</code> need <code>caliber.operator</code>, and <code>vera</code> (created by the script) must not be an operator.",
+            "<strong>Simulated vs real.</strong> The planner is rules (no model, same on a real deployment); <code>judge.create</code>, <code>eval_dataset.create</code> and the 30 rows are real. With the default <code>fake</code> LLM/eval providers <strong>Evaluations</strong> is refused (<code>400 evaluation requires a real LLM provider</code>), so the lab verifies the refusal, not a score; <strong>Ask Aria</strong> is not used.",
+            "<strong>Planner limits.</strong> It does not read negation, synonyms beyond <code>testset</code> / <code>test set</code> / <code>test-set</code> / <code>eval dataset</code> / <code>eval_dataset</code>, or questions, and matches <code>judge</code> inside <code>judgement</code>. \"Faithfulness scoring\" and \"evaluation dataset\" do not match, so read the plan before approving.",
+            "<strong>Empty Test Set.</strong> <code>eval_dataset.create</code> makes an empty set; adding the 30 rows is not an Aria capability (API <code>POST /eval-datasets/{id}/examples</code>, UI <strong>+ Add example</strong>; the UI recipe adds three by hand).",
+            "<strong>Failed plans stay failed.</strong> A failed plan cannot be executed again (409): state the goal again with a new name or fixed instructions. Plans cannot be deleted; the script cancels its drafts and <code>--cleanup</code> archives the <code>cookbook-12-*</code> judges and test sets.",
+            "<strong>Run it.</strong> <code>PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_12_aria_evaluation_harness</code> (example: <code>sdk/caliber-sdk/examples/cookbooks/cookbook_12_aria_evaluation_harness.py</code>) with an admin <code>CALIBER_TOKEN</code>.",
         ],
     },
     {
@@ -1534,84 +819,49 @@ COOKBOOKS = [
         "slug": "aria-review-queue",
         "track": "Aria — Autonomous",
         "title": "Aria: Human-Review Queue from Intent",
-        "subtitle": "One sentence → Aria plans and creates a review queue with a safety / citation / tone label schema.",
+        "subtitle": "One sentence → a rules-based Aria plan creates a review queue and enqueues 30 flagged traces; people review 12, and the answers land on the traces as labelled examples.",
         "level": "Aria",
-        "time": "15–25 min",
-        "surfaces": ["Plans", "Review Queues", "Observability"],
-        "build": "Aria decomposes a review-governance intent into <code>review_queue.create</code> (+ "
-        "<code>add_items</code>); you enter the queue's question schema in the plan's input form and approve.",
+        "time": "15–30 min",
+        "surfaces": [
+            "Plans",
+            "Review Queues",
+            "Observability",
+        ],
+        "build": "You give Aria one sentence, <em>Set up a review queue for human labeling of agent replies for safety, citation, and tone.</em>, and it draws two steps: <code>review_queue.create</code> then <code>review_queue.add_items</code>. You enter the queue's name and five-question schema (<code>safety</code>, <code>severity</code>, <code>citation_ok</code>, <code>tone_ok</code>, <code>reviewer_notes</code>) in the plan's form; the enqueue form asks only for <code>trace_ids</code> because the queue's id is wired from step 1. The result is an active queue with 30 pending traces; 12 are reviewed, each answer becomes an assessment on its trace and a labelled example for judge alignment (lab 10).",
         "learn": [
-            "Plan a governance queue from one intent",
-            "Design a review question schema (pass_fail / categorical / numeric / text)",
-            "See why “review queue” proposes two steps",
-            "Enter the queue's schema in the plan's input form",
-            "Skip the enqueue step when there are no traces yet",
+            "Plan a governance queue from one intent on <strong>Integrations &gt; Plans</strong>, and see why a review queue <em>always</em> brings its <code>review_queue.add_items</code> step (skip it if you have no traces)",
+            "Enter a queue's question schema (<code>pass_fail</code>, <code>categorical</code>, <code>numeric</code>, <code>text</code>; fields <code>key, title, type, options, required, target</code>) in the plan's <strong>Aria needs information</strong> form",
+            "See dependency wiring: the enqueue step's only wired input is <code>queue_id</code> from the create step, so its form asks for <code>trace_ids</code> and <code>assigned_to</code> only",
+            "Review items in <strong>Operate &gt; Review Queues</strong> (<strong>Submit review</strong>); answers are validated against the questions (400 on a mismatch, item stays pending) and written to the trace in <strong>Observability</strong>",
+            "Read the refusals: a skipped queue skips the enqueue, a denied enqueue keeps an empty queue, a categorical question with no options fails the plan, a taken name fails the plan, an account without the operator scope creates nothing",
         ],
         "mermaid": """flowchart LR
-  I[/"Intent: review queue for safety, citation, tone"/] --> PL[Aria Plans]
-  PL --> S1[step: review_queue.create]
-  PL --> S2[step: review_queue.add_items]
-  S1 -.input form + approve.-> RQ[Review Queues: agent-reply-review]
-  S2 -.Skip step if no traces.-> SK[skip]""",
-        "steps": [
-            {
-                "where": "Plans › New goal",
-                "do": "Paste: <em>“Set up a review queue for human labeling of agent replies for safety, citation, and tone.”</em> autonomy = <code>ask_each</code>.",
-                "asset": "intent",
-            },
-            {
-                "where": "Plans › plan detail",
-                "do": "Confirm two steps appear (<code>review_queue.create</code> + <code>review_queue.add_items</code> — both from the “review queue” domain).",
-            },
-            {
-                "where": "Plans › Execute",
-                "do": "<strong>Execute</strong>; in the <strong>Aria needs information</strong> form for <code>review_queue.create</code> enter <code>agent-reply-review</code> and the question schema — <code>safety</code> (pass_fail, required), <code>severity</code> (categorical), <code>citation_ok</code> (pass_fail), <code>tone_ok</code> (pass_fail), <code>reviewer_notes</code> (text) — then <strong>Continue plan</strong> and <strong>Approve</strong>.",
-                "asset": "review queue",
-            },
-            {
-                "where": "Plans › add_items form",
-                "do": "The <code>add_items</code> form only asks for trace ids (its queue id is linked). With no traces yet, click <strong>Skip step</strong>; the plan completes.",
-            },
-            {
-                "where": "Operate › Review Queues",
-                "do": "(Later) Enqueue real flagged traces and have reviewers answer; answers write back to each trace.",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Intent",
-                "name": "one-liner",
-                "detail": "Contains the “review queue” needle. <code>assets/intent.md</code>",
-            },
-            {
-                "type": "Review Queue",
-                "name": "agent-reply-review",
-                "detail": "The review_queue.create inputs (question schema), entered in the plan's input form. <code>assets/review-queues/</code>",
-            },
-        ],
+  I[/"Intent sentence"/] --> D["Plans: Decompose goal (rules planner)"]
+  D --> A["Approve plan, Execute"]
+  A --> S1["Form + Approve: review_queue.create"]
+  S1 --> Q["Review Queues: 5 questions"]
+  S1 -- "queue_id wired" --> S2["Form + Approve: review_queue.add_items"]
+  S2 --> P["30 traces pending"]
+  P --> R["Submit review x12"]
+  R --> AS["Assessments on traces (Observability)"]
+  R --> L["alignment-examples: 12 safety labels"]
+  S1 -. "Skip step" .-> SK["Enqueue skipped too"]""",
         "gates": [
-            {"gate": "Plan decomposed", "target": "review_queue.create present"},
-            {"gate": "Queue exists", "target": "active queue with the question schema"},
+            {"gate": "Planner agreement", "target": "26/26 goals in assets/dataset/goals.jsonl draw the documented plan; none run"},
+            {"gate": "Plan and wiring", "target": "review_queue.create then review_queue.add_items; only queue_id is wired; enqueue form asks trace_ids only; plan reads completed"},
+            {"gate": "Queue is real", "target": "active, 5 questions, 30 traces pending and assigned"},
+            {"gate": "Reviews", "target": "12 completed, 18 pending; every answer on its trace as an assessment; 12 safety labels (4 unsafe)"},
+            {"gate": "Refusals hold", "target": "mismatched review 400; re-review 409; no operator scope 403; non-owner reviewer 404; missing trace 502 on review; bad form 409; categorical without options and taken name fail the plan"},
+            {"gate": "Script and UI spec", "target": "script prints \"All documented outcomes verified.\" (exit 0); Playwright 13-aria-review-queue.spec.ts passes"},
         ],
-        "mock": {
-            "url": "/review-queues",
-            "nav": "Review Queues",
-            "title": "agent-reply-review",
-            "tabs": ["Queues", "Detail"],
-            "active_tab": "Detail",
-            "fields": [
-                ("Question · safety", "pass_fail · required · target: feedback"),
-                ("Question · severity", "categorical [low, medium, high]"),
-            ],
-            "buttons": ["Create queue", "Enqueue traces"],
-            "note": "Aria plans and creates the queue from the schema you enter in the plan.",
-            "caption": "Review Queues → new queue (label schema)",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_ARIA=true</code> opens Plans; both are off by default.",
-            "“review queue” triggers both <code>review_queue.create</code> and <code>review_queue.add_items</code>; click <strong>Skip step</strong> on the second if you have no traces.",
-            "Question item fields: <code>key, title, type, options, required, target (feedback|expectation)</code>.",
-            "The planner leaves the queue's name and questions empty; the plan's input form collects them (see ARIA-AUTONOMY.md).",
+            "<strong>Flags.</strong> <code>CALIBER_FEATURE_ARIA=true</code> opens <code>/aria/*</code> and <strong>Plans</strong> (404 <code>feature_disabled</code> without it); <code>CALIBER_FEATURE_COOKBOOKS=true</code> is only for the gallery card. <code>scripts/cookbook-env.sh up lab13 --flags cookbooks,aria</code> with <code>CALIBER_OPERATOR_USERS=admin,olga</code> exported first (<code>vera</code> must not be an operator).",
+            "<strong>No model anywhere.</strong> The planner is rules (same on a real deployment) and review is people's work; the 12 reviews are the labels in <code>assets/dataset/agent-replies.jsonl</code>, submitted by the script. Judge alignment against them needs a real model and is lab 10.",
+            "<strong>Traces are seeded.</strong> A fresh checkout has no agent, so <code>assets/seed_traces.py</code> writes 30 MLflow traces (needs <code>mlflow</code> from the dev virtualenv and <code>MLFLOW_TRACKING_URI</code> from <code>env.sh</code>); with your own agent you copy the flagged trace ids.",
+            "<strong>The enqueue does not check ids.</strong> A trace id that does not exist is queued (201, pending) and fails when reviewed (502 <code>RESOURCE_DOES_NOT_EXIST</code>); it stays pending. The enqueue does not discover traces either.",
+            "<strong>Queues are personal.</strong> A queue created outside a workspace belongs to its owner: an operator listed in <code>reviewers</code> still gets 404, because <code>reviewers</code> is a label, not access. Team review needs a workspace (lab 18).",
+            "<strong>Limits.</strong> Aria only creates a queue and adds traces (no edit or delete; change a schema with <code>PATCH /review-queues/{id}</code> or <strong>Review Queues</strong>). A failed plan cannot be run again (409); plans cannot be deleted.",
+            "<strong>Run it.</strong> <code>PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_13_aria_review_queue</code> (example: <code>sdk/caliber-sdk/examples/cookbooks/cookbook_13_aria_review_queue.py</code>); <code>--cleanup</code> archives the <code>cookbook-13-*</code> queues.",
         ],
     },
     {
@@ -1620,99 +870,51 @@ COOKBOOKS = [
         "slug": "aria-starter-kit",
         "track": "Aria — Autonomous",
         "title": "Aria: Governance Starter Kit from Intent",
-        "subtitle": "The flagship: one sentence → a plan for a judge + test set + review queue together.",
+        "subtitle": "One sentence → a four-step Aria plan creates a judge, a review queue and a Test Set under three names, at two autonomy levels, with the failure behaviour shown.",
         "level": "Aria",
-        "time": "20–30 min",
-        "surfaces": ["Plans", "Judges", "Test Sets", "Review Queues", "Evaluations"],
-        "build": "Aria decomposes a single intent into a whole evaluation+governance scaffold "
-        "(<code>judge.create</code> + <code>eval_dataset.create</code> + <code>review_queue.create</code>); "
-        "you fill the judge's and queue's fields in the plan's input forms and approve each step.",
+        "time": "15–30 min",
+        "surfaces": [
+            "Plans",
+            "Judges",
+            "Test Sets",
+            "Review Queues",
+            "Evaluations",
+        ],
+        "build": "You give Aria one sentence (<em>Stand up our governance starter kit: a judge for answer faithfulness, an eval dataset to score against, and a review queue for human checks.</em>) and it draws four steps in registry order: <code>judge.create</code>, <code>review_queue.create</code>, <code>eval_dataset.create</code>, <code>review_queue.add_items</code>. Each step asks for its own fields and, under <strong>Stop before each change</strong>, an approval; you skip the enqueue step (no traces yet). The result is a real judge (<code>AnswerFaithfulness</code>, <code>bool</code>), a queue (<code>governance-review</code>, four questions, no items) and an empty Test Set (<code>release-candidates-eval</code>), which you fill with 30 policy cases.",
         "learn": [
-            "Compose three capabilities in one plan from one intent",
-            "Recognize the three planner needles in the goal",
-            "Fill the judge and queue input forms and approve each step",
-            "Assemble a reusable governance starter kit",
-            "Hand the kit to cookbook 10 for scoring",
+            "Compose several capabilities in one plan from one intent; the plan follows registry order, not the order of the sentence, and a review queue always brings its enqueue step",
+            "Fill the judge, queue and Test Set forms and approve each step: seven questions in all (three forms with an approval each, then the enqueue form, skipped); only the enqueue step has a wired input (<code>queue_id</code>)",
+            "Change a draft's <strong>Autonomy</strong> to <strong>Run everything it safely can</strong> before approving (409 after): the same kit is built with only the four forms, no approval prompts",
+            "See what <strong>Deny</strong> does (denying the queue skips the enqueue with it) and what a half-failed plan leaves behind (a taken queue name fails the plan after the judge was made; Aria does not undo earlier steps)",
+            "Verify the kit in <strong>Judges</strong>, <strong>Review Queues</strong> and <strong>Test Sets</strong>, load the 30 cases with <strong>+ Add example</strong>, and see <strong>Evaluations</strong> refused on the simulated stack",
         ],
         "mermaid": """flowchart TD
-  I[/"Intent: judge + eval dataset + review queue"/] --> PL[Aria Plans]
-  PL --> J[judge.create] -.input form.-> JU[Judges]
-  PL --> Q[review_queue.create] -.questions form.-> RQ[Review Queues]
-  PL --> D[eval_dataset.create] -.name linked.-> TS[Test Sets]
-  PL --> A[review_queue.add_items] -.Skip step.-> SK[skip]""",
-        "steps": [
-            {
-                "where": "Plans › New goal",
-                "do": "Paste: <em>“Stand up our governance starter kit: a judge for answer faithfulness, an eval dataset to score against, and a review queue for human checks.”</em>",
-                "asset": "intent",
-            },
-            {
-                "where": "Plans › plan detail",
-                "do": "Confirm the plan contains <code>judge.create</code>, <code>eval_dataset.create</code>, <code>review_queue.create</code> (+ an <code>add_items</code> step you'll skip).",
-            },
-            {
-                "where": "Plans › Execute",
-                "do": "<strong>Execute</strong>; in the <strong>Aria needs information</strong> form for <code>judge.create</code> enter <code>AnswerFaithfulness</code> and its instructions, <strong>Continue plan</strong>, <strong>Approve</strong>.",
-                "asset": "judge",
-            },
-            {
-                "where": "Plans › input form",
-                "do": "For <code>review_queue.create</code> enter the faithful / citation / tone questions (its name is linked to the judge's), <strong>Continue plan</strong>, <strong>Approve</strong>.",
-                "asset": "review queue",
-            },
-            {
-                "where": "Plans › interaction prompts",
-                "do": "<strong>Approve</strong> <code>eval_dataset.create</code> (no form; name linked, so an empty test set is created) and click <strong>Skip step</strong> on <code>review_queue.add_items</code>. The kit is complete.",
-                "asset": "test set",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Intent",
-                "name": "one-liner",
-                "detail": "Contains all three needles: judge / eval dataset / review queue.",
-            },
-            {"type": "Judge", "name": "AnswerFaithfulness", "detail": "Created by judge.create from the input form."},
-            {
-                "type": "Test Set",
-                "name": "AnswerFaithfulness",
-                "detail": "Created by eval_dataset.create under the linked name (empty).",
-            },
-            {
-                "type": "Review Queue",
-                "name": "AnswerFaithfulness",
-                "detail": "Created by review_queue.create; questions from the input form, name linked from the judge.",
-            },
-        ],
+  I[/"Intent sentence"/] --> D["Plans: Decompose goal (rules planner, 4 steps)"]
+  D --> A["Approve plan, Execute"]
+  A --> S1["judge.create: form + Approve"]
+  S1 --> S2["review_queue.create: form + Approve"]
+  S2 --> S3["eval_dataset.create: form + Approve"]
+  S3 --> S4["review_queue.add_items: Skip step"]
+  S1 --> J["Judges: AnswerFaithfulness (bool)"]
+  S2 --> Q["Review Queues: governance-review, no items"]
+  S3 --> T["Test Sets: v1, empty, then 30 cases (v31)"]
+  S2 -. "Deny" .-> X["Enqueue skipped with it"]""",
         "gates": [
-            {"gate": "Plan has all three creates", "target": "judge + dataset + queue"},
-            {"gate": "Kit exists", "target": "judge + test set + review queue created by the plan"},
+            {"gate": "Planner agreement", "target": "28/28 goals in assets/dataset/goals.jsonl draw the documented plan; none run"},
+            {"gate": "Plan completes", "target": "four steps in registry order; seven questions answered; plan completed with 3 steps done and the enqueue step skipped"},
+            {"gate": "Kit is real", "target": "active bool judge, queue with four questions and no items, test set v1 with no rows, under three different names"},
+            {"gate": "Test set rows", "target": "30 cases loaded, one version per row (version 31)"},
+            {"gate": "Autonomy", "target": "Run everything it safely can asks 4 forms and no approvals and builds the same kit; autonomy editable on a draft, 409 after approval"},
+            {"gate": "Refusals hold", "target": "denied queue skips enqueue; taken queue name fails the plan and the judge stays; bad judge fails before anything else is made; no-step goal 409; no operator scope creates nothing; non-owner 403 / 404"},
         ],
-        "mock": {
-            "url": "/aria/plans",
-            "nav": "Plans",
-            "title": "Plan · governance starter kit",
-            "tabs": ["Draft", "Approved"],
-            "active_tab": "Draft",
-            "fields": [
-                (
-                    "Goal",
-                    "Stand up our governance starter kit: a judge, an eval dataset, and a review queue",
-                ),
-                (
-                    "Steps",
-                    "judge.create · review_queue.create · eval_dataset.create · (add_items → skip)",
-                ),
-            ],
-            "buttons": ["Approve", "Execute"],
-            "note": "One intent → a whole eval+governance scaffold, created through the plan's forms.",
-            "caption": "Plans → flagship multi-capability plan",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_ARIA=true</code> opens Plans; both are off by default.",
-            "The flagship “one sentence → whole governance setup” demo. The planner links <code>name</code> between steps, so all three artifacts are created under the judge's name.",
-            "All three domain needles must appear in the intent for the default planner.",
-            "Hand the judge + test set to cookbook 10 to actually score candidates.",
+            "<strong>Flags.</strong> <code>CALIBER_FEATURE_ARIA=true</code> opens <code>/aria/*</code> and <strong>Plans</strong> (404 <code>feature_disabled</code> without it); <code>CALIBER_FEATURE_COOKBOOKS=true</code> is only for the gallery card. <code>scripts/cookbook-env.sh up lab14 --flags cookbooks,aria</code> with <code>CALIBER_OPERATOR_USERS=admin,olga</code> exported first (<code>vera</code> must not be an operator).",
+            "<strong>Simulated vs real.</strong> The planner is rules (no model, same on a real deployment); the judge, queue, test set and the 30 rows are real. With the default <code>fake</code> LLM/eval providers <strong>Evaluations</strong> is refused (<code>400 evaluation requires a real LLM provider</code>); a real provider would let the judge score the 30 rows.",
+            "<strong>Three names.</strong> Each step asks for its own <code>name</code>; nothing is shared between the judge, queue and test set (an older build linked names). Names are unique across the deployment, archived ones included.",
+            "<strong>Planner limits.</strong> Domain words only: <code>judge</code>, <code>eval dataset</code>, <code>test set</code>, <code>review queue</code>, <code>workflow</code>. \"Governance\", \"starter kit\" and \"spot-check\" plan nothing; <code>test-set</code> works but <code>review-queue</code> does not; negation and \"delete\" are not read; a <code>workflow</code> plans a calibration of an existing one (lab 15), Aria cannot build one.",
+            "<strong>Partial failure.</strong> A failed plan cannot be run again (409): state the goal again. What earlier steps made stays; archive it under Judges, Review Queues or Test Sets.",
+            "<strong>Scope.</strong> Enqueuing and reviewing traces is lab 13 (this lab skips it); adding the 30 rows is not an Aria capability (UI recipe adds three by hand, the script adds all 30). Plans cannot be deleted.",
+            "<strong>Run it.</strong> <code>PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_14_aria_governance_starter_kit</code> (example: <code>sdk/caliber-sdk/examples/cookbooks/cookbook_14_aria_governance_starter_kit.py</code>); UI spec <code>14-aria-governance-starter-kit.spec.ts</code>.",
         ],
     },
     {
@@ -1721,100 +923,49 @@ COOKBOOKS = [
         "slug": "aria-triage-loop",
         "track": "Aria — Autonomous",
         "title": "Aria: Triage & Recalibrate Loop",
-        "subtitle": "One sentence → review the weak runs, then kick off an async workflow calibration.",
+        "subtitle": "One sentence about weak runs → a three-step plan creates a review queue, enqueues 12 flagged traces and parks on a real calibration job that settles on its own.",
         "level": "Aria",
         "time": "20–35 min",
-        "surfaces": ["Plans", "Review Queues", "Workflows", "Observability"],
-        "build": "On an existing workflow with weak runs, Aria plans <code>review_queue.create</code> + "
-        "<code>add_items</code> + the async <code>workflow.calibrate</code>; you enter the queue schema, the "
-        "flagged trace ids and the workflow + agent ids in the plan's forms, then watch the plan park "
-        "and resume on its own.",
+        "surfaces": [
+            "Plans",
+            "Review Queues",
+            "Workflows",
+            "Observability",
+        ],
+        "build": "On a workflow, agent and flagged traces that already exist (created first by <code>assets/setup_subject.py</code> and <code>assets/seed_traces.py</code>), Aria draws <code>review_queue.create</code>, <code>review_queue.add_items</code> and <code>workflow.calibrate</code> from one sentence. You answer six questions (a form and an approval per step); the last approval queues a real calibration job and the plan <strong>parks</strong> (<code>running</code>, step <code>waiting job</code>). The plan worker resumes it with no click and the plan ends where the job ended, while a reviewer triages the 12 flagged traces in <strong>Review Queues</strong>.",
         "learn": [
-            "Plan a remediation loop from one intent",
-            "Operate on existing ids (traces, workflow, agent)",
-            "Read flagged trace ids from Observability",
-            "Trigger a workflow calibration from the plan",
-            "Understand async parking and automatic resume in Aria plans",
+            "Plan a remediation loop from one intent: it operates on existing ids (trace ids, workflow id, registered agent id), Aria creates neither the traces nor the workflow",
+            "Wire and answer the forms: the enqueue step's only wired input is the queue id; enter the 12 trace ids from <strong>Observability</strong> or <code>seed_traces.py</code>, and the workflow and agent ids from <code>setup_subject.py</code>",
+            "Watch an async step park and resume: approving <code>workflow.calibrate</code> leaves the plan <code>running</code> with the step <code>waiting job</code>; the page re-reads every five seconds and a parked plan cannot be cancelled (409)",
+            "Triage flagged runs in <strong>Operate &gt; Review Queues</strong> (<code>resolution_correct</code>, <code>failure_mode</code>, <code>severity</code>, <code>expected_answer</code>); answers land on the trace as assessments, the expected answer as its expectation",
+            "See the refusals: an unknown workflow, unregistered agent or workflow with no deploy-gate test set fails the step at once without queueing a job, and a denied calibration queues nothing",
         ],
         "mermaid": """flowchart LR
-  I[/"Intent: review the flagged traces + calibrate the workflow"/] --> PL[Aria Plans]
-  PL --> Q[review_queue.create] -.input form.-> RQ[Review Queues]
-  PL --> E[review_queue.add_items] -.real trace ids.-> ENQ[enqueue]
-  PL --> C[workflow.calibrate · async] --> POLL[park → worker resumes → done]""",
-        "steps": [
-            {
-                "where": "Prereq (cookbook 07)",
-                "do": "Have an existing workflow with recent runs/traces; read the <strong>flagged trace ids</strong> from Observability and the <strong>workflow_id + agent_id</strong> from that workflow.",
-            },
-            {
-                "where": "Plans › New goal",
-                "do": "Paste: <em>“Our workflow's recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration.”</em>",
-                "asset": "intent",
-            },
-            {
-                "where": "Plans › plan detail",
-                "do": "Confirm three steps: <code>review_queue.create</code>, <code>review_queue.add_items</code>, <code>workflow.calibrate</code>.",
-            },
-            {
-                "where": "Plans › Execute",
-                "do": "<strong>Execute</strong>; in the <strong>Aria needs information</strong> form for <code>review_queue.create</code> enter <code>weak-runs-triage</code> (resolution_correct / failure_mode / severity / expected_answer), <strong>Continue plan</strong>, <strong>Approve</strong>.",
-                "asset": "review queue",
-            },
-            {
-                "where": "Plans › input form",
-                "do": "For <code>review_queue.add_items</code> enter the real flagged trace ids (its queue id is linked); <strong>Continue plan</strong>, <strong>Approve</strong>.",
-            },
-            {
-                "where": "Plans › input form",
-                "do": "For <code>workflow.calibrate</code> enter the real workflow id + agent id, <strong>Continue plan</strong>, <strong>Approve</strong>. The step parks (waiting_job) and the plan worker resumes it when the calibration job reaches candidate_ready/applied — nothing to click.",
-                "asset": "calibration job",
-            },
-        ],
-        "assets": [
-            {
-                "type": "Intent",
-                "name": "one-liner",
-                "detail": "Contains “review queue” + “workflow” needles. <code>assets/intent.md</code>",
-            },
-            {
-                "type": "Review Queue",
-                "name": "weak-runs-triage",
-                "detail": "Triage question schema. <code>assets/review-queues/</code>",
-            },
-            {
-                "type": "Enqueue",
-                "name": "trace ids",
-                "detail": "Real flagged trace ids (from Observability).",
-            },
-            {
-                "type": "Calibration",
-                "name": "workflow + agent",
-                "detail": "Existing ids; the async job parks the plan and the worker resumes it.",
-            },
-        ],
+  SU["setup_subject.py + seed_traces.py"] --> I[/"Intent: weak runs, queue + calibrate"/]
+  I --> D["Plans: Decompose goal (rules planner)"]
+  D --> Q["review_queue.create: form + Approve"]
+  Q --> E["review_queue.add_items: 12 trace ids"]
+  E --> C["workflow.calibrate: workflow id + agent id + Approve"]
+  C --> P["Plan parks: running, waiting job"]
+  P --> W["Plan worker polls the job"]
+  W --> R["Plan mirrors the job: job rejected, plan failed here"]
+  Q --> RQ["Review Queues: triage 3 of 12"]""",
         "gates": [
-            {"gate": "Queue + items exist", "target": "flagged traces enqueued"},
-            {"gate": "Calibration completes", "target": "job reaches candidate_ready/applied; plan completes"},
+            {"gate": "Planner agreement", "target": "28/28 goals in assets/dataset/goals.jsonl draw the documented plan; none run"},
+            {"gate": "Plan and wiring", "target": "review_queue.create, review_queue.add_items, workflow.calibrate; only the queue id is wired; six questions answered"},
+            {"gate": "Parks and resumes", "target": "plan running with step waiting_job and a job id RFN-...; parked plan cannot be cancelled (409); worker resumes it unasked; plan ends where the job ended"},
+            {"gate": "Queue and triage", "target": "queue with four questions and 12 flagged traces pending and assigned; three triaged runs carry verdict, failure mode and expected answer on their traces"},
+            {"gate": "Refusals hold", "target": "unknown workflow, unregistered agent, no test set each fail the step at once with no job; denied calibration queues nothing; no-step goal 409; no operator scope fails at execute; non-owner 403 / 404"},
+            {"gate": "Script and UI spec", "target": "script prints \"All documented outcomes verified.\" (exit 0); Playwright 15-aria-triage-recalibrate-loop.spec.ts passes"},
         ],
-        "mock": {
-            "url": "/aria/plans",
-            "nav": "Plans",
-            "title": "Plan · triage & recalibrate",
-            "tabs": ["Draft", "Running"],
-            "active_tab": "Running",
-            "fields": [
-                ("Steps", "review_queue.create ✓ · add_items ✓ · workflow.calibrate ⏳"),
-                ("workflow.calibrate", "waiting_job → resumes when the job is candidate_ready/applied"),
-            ],
-            "buttons": ["Continue plan", "Approve"],
-            "note": "The calibrate step is async: it parks (waiting_job) and the plan worker resumes it; the Plans UI has no Poll button.",
-            "caption": "Plans → running plan with an async parked step",
-        },
         "notes": [
-            "<strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_ARIA=true</code> opens Plans; both are off by default.",
-            "This is a <strong>remediation</strong> loop — it operates on EXISTING ids (traces, workflow, agent). Build the subject workflow in cookbook 07 first.",
-            "<code>workflow.calibrate</code> is Aria's async capability: the plan parks (<code>waiting_job</code>) and the plan worker resumes it (<code>POST …/poll</code> also works over the API).",
-            "As elsewhere in the Aria track, the planner leaves the inputs empty and the plan's input forms collect them. The default evaluator and LLM are fake, so a default install's calibration scores are canned.",
+            "<strong>Flags and workers.</strong> <code>CALIBER_FEATURE_ARIA=true</code> opens <code>/aria/*</code> and <strong>Plans</strong>; <code>CALIBER_FEATURE_COOKBOOKS=true</code> is only for the gallery card. The plan worker (resumes parked plans about every 10 s) and the refinement worker (runs the job) must be on: <code>scripts/cookbook-env.sh up lab15 --flags cookbooks,aria</code> starts both, <code>--no-workers</code> does not. Export <code>CALIBER_OPERATOR_USERS=admin,olga</code> first.",
+            "<strong>Simulated calibration.</strong> The planner is rules, parking, resume and the job are real, but with the default <code>fake</code> providers the fake executor gives the candidate the baseline's outputs: quality delta <code>+0.000</code> &lt; epsilon <code>0.02</code>, the job ends <code>rejected</code> and the plan <code>failed</code> (<code>rejected: workflow calibration rejected: no candidate met calibration gates ...</code>). This is expected, not a bug.",
+            "<strong>Completing path not shown.</strong> A job reaching <code>candidate_ready</code> (plan completes) needs a real model behind the executor and is covered by unit tests (<code>caliber/tests/test_aria_async.py</code>), not demonstrated live. The plan never applies the candidate; that is <code>POST /jobs/{id}/apply</code>, a person's decision.",
+            "<strong>Existing objects only.</strong> The traces are 12 recorded runs written by <code>seed_traces.py</code>; the subject is a published support workflow with a 30-case test set as its deploy gate, two tools and an agent. The enqueue step does not check that trace ids exist; calibration needs a visible workflow, a registered agent and a deploy-gate test set with rows.",
+            "<strong>Planner limits.</strong> <code>workflow</code> plans a calibration whatever the sentence means (\"create a new workflow\", \"roll back\", \"outage\"); \"pipeline\" and \"tune\" plan nothing; negation is not read; there is no add-to-existing-queue step, so a queue is created first.",
+            "<strong>Queue visibility.</strong> A queue created outside a workspace is visible to its owner only; <code>reviewers</code> is a label (lab 13). The workflow's own runs do not write traces on this stack.",
+            "<strong>Run it.</strong> <code>PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_15_aria_triage_recalibrate_loop</code> (example: <code>sdk/caliber-sdk/examples/cookbooks/cookbook_15_aria_triage_recalibrate_loop.py</code>); the first UI test takes about a minute and a half.",
         ],
     },
 ]

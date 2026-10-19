@@ -1,0 +1,43 @@
+# The data for this lab lives in assets/dataset/ and is read by the script as-is:
+#   team-roster.csv        nine people, their project roles and platform scopes
+#   role-matrix.csv        eight actions x six kinds of person -> expected status
+#   failure-scenarios.json sixteen refusals (F01-F16) -> expected status and message text
+golden:
+  - id: R01
+    action: prompt.promote
+    person: priya
+    project_role: editor
+    expected: {status: 200}
+  - id: R02
+    action: members.update
+    person: omar
+    project_role: owner
+    expected: {status: 200}
+edge:
+  - id: R03
+    action: prompt.promote
+    person: victor
+    project_role: viewer
+    note: holds caliber.operator, so the 403 names the project role
+    expected: {status: 403}
+  - id: R04
+    action: prompt.promote
+    person: wen
+    project_role: viewer
+    note: holds no operator scope, so the 403 names the platform scope
+    expected: {status: 403}
+  - id: R07
+    action: evaluation.run
+    person: quinn
+    project_role: reviewer
+    note: passes the role gate; the simulated provider answers 400 (201 with a real provider)
+    expected: {status: "400|201"}
+negative:
+  - id: R05
+    action: project.read
+    person: nora
+    project_role: none
+    expected: {status: 404}
+  - id: R06
+    scenario: F11
+    expected: {status: 401}

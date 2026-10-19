@@ -1,34 +1,34 @@
-workflow_goal: From one clear intent, have Aria plan and create a structured human-review queue for labeling agent replies (safety, citation, tone), collecting the question schema through the plan's input form.
-# Verified against the Aria capability registry + plan executor — see ../FEASIBILITY.md and ../ARIA-AUTONOMY.md.
+workflow_goal: From one clear intent, have Aria plan and create a human-review queue with a label schema and fill it with flagged traces, collecting each step's fields through the plan's input forms.
+# Verified against the Aria capability registry + plan executor - see ../ARIA-AUTONOMY.md.
 feasibility:
-  - Aria's capability registry today = judge.create, review_queue.create, eval_dataset.create, review_queue.add_items, workflow.calibrate (+ the read capabilities judge.list, review_queue.list, openapi_tool.list, openapi_tool.invoke). It can NOT author prompts, skills, tools, or workflows. This scenario lives entirely inside that set.
-  - The default HeuristicPlanner proposes a step for each non-read capability whose DOMAIN word (the part of the key before the dot) appears in the goal. review_queue.create AND review_queue.add_items share the domain "review_queue" -> needle "review queue". The canonical intent says "review queue" literally, so the planner proposes BOTH steps. Be honest about this — see the add_items handling below.
-  - review_queue.add_items requires queue_id + a non-empty trace_ids list; the handler raises if either is missing. So at execute time you either (a) supply real flagged trace_ids in the step's input form to enqueue them, or (b) click Skip step (or Deny) to skip it (queue-first, enqueue-later). The planner links queue_id to review_queue.create, so the form only asks for trace_ids (+ optional experiment_id/assigned_to). The queue itself is created by review_queue.create regardless.
-  - INPUTS - the planner emits review_queue.create with its fields empty; when the step is about to run the executor raises an `input` interaction (UI - "Aria needs information", Continue plan / Skip step; API - POST /aria/interactions/{id}/answer {inputs}). The answer is merged into the step and validated against the capability schema, then the plan resumes. The schema below IS the form's content (name, description, questions as JSON; it is also a POST /review-queues body).
-  - autonomy "ask_each" pauses on every mutate step so you confirm each one; "approve_plan"/"auto_guarded" auto-run mutate steps after the plan is approved; gated steps always pause. There is no gated step here — both steps are TIER_MUTATE.
-  - The queue is created EMPTY of items; submitting answers later writes mlflow feedback (assessments) and expectations (ground truth) back onto each enqueued trace (target: feedback vs expectation per question).
+  - Aria's capability registry today = judge.create, review_queue.create, eval_dataset.create, review_queue.add_items, workflow.calibrate (+ the read capabilities judge.list, review_queue.list, openapi_tool.list, openapi_tool.invoke). This scenario lives entirely inside that set.
+  - The default planner proposes a step for each non-read capability whose DOMAIN word appears in the goal. "review queue" proposes review_queue.create AND review_queue.add_items (same domain). It is rules, not a model: it does not read negation or questions, and needs the words "review queue" with a space.
+  - INPUTS - the planner leaves unknown fields empty; when a step is about to run the executor raises an `input` interaction (UI - "Aria needs information", Continue plan / Skip step; API - POST /aria/interactions/{id}/answer {inputs}). The answer is merged and validated against the capability schema (a bad one is a 409 and the question stays open), then the plan resumes.
+  - The planner wires a field that points at an earlier step's result: review_queue.add_items.queue_id comes from review_queue.create.queue_id, so the enqueue form asks for trace_ids only. A step whose producer was skipped is skipped too.
+  - add_items does not discover traces and does not check that the ids exist; an unknown id is queued and fails when a reviewer submits it.
+  - Reviewers: a queue created outside a workspace is visible to its owner only; the reviewers list is a label. Several reviewers need a workspace (lab 18).
 manual_flow:
   - step: state_intent
-    action: Open Plans, create a new goal with the one-line intent and pick autonomy (ask_each for the demo).
+    action: Open Integrations > Plans, state the one-line intent and pick the autonomy.
   - step: review_plan
-    action: Aria decomposes the intent into review_queue.create + review_queue.add_items (both domain review_queue); review the steps.
+    action: Aria drafts a plan (review_queue.create then review_queue.add_items); read the steps.
   - step: approve
-    action: Click Approve plan.
+    action: Press Approve plan.
   - step: execute_and_answer
-    action: Execute; fill the review_queue.create form with the concrete question schema and Continue plan, then Approve. For review_queue.add_items, either supply flagged trace_ids in its form OR click Skip step.
+    action: Execute; fill the queue's form (name, questions) and the enqueue form (trace ids), press Continue plan; Approve each step under ask_each.
   - step: verify
-    action: Confirm the queue is active in Review Queues with the question schema; the plan shows the create step completed (add_items completed if enqueued, skipped if denied).
+    action: Open Review Queues; review a trace; read the assessment on the trace.
 components:
   aria:
     intent: "Set up a review queue for human labeling of agent replies for safety, citation, and tone."
-    autonomy: ask_each        # or approve_plan to auto-run mutate steps after approval
+    autonomy: ask_each
     capabilities:
-      - review_queue.create     # TIER_MUTATE
-      - review_queue.add_items  # TIER_MUTATE (same domain "review_queue" -> also proposed by the heuristic planner)
-    step_inputs_needed:   # entered in the plan's input form (or POSTed as `inputs`)
-      - "review_queue.create: provide {name, questions:[{key,title,type,options?,required,target}], description?, reviewers?}"
-      - "review_queue.add_items: enter {trace_ids:[...]} (queue_id is linked from review_queue.create) to enqueue, OR Skip step (queue-first, enqueue-later)"
-  prompts: none          # Aria acts via capabilities, not prompt assets
+      - review_queue.create       # TIER_MUTATE
+      - review_queue.add_items    # TIER_MUTATE, queue_id wired from the create step
+    step_inputs_needed:
+      - "review_queue.create: name, questions (array of {key, title, type in [pass_fail, categorical, numeric, text], options (categorical), required, target in [feedback, expectation]}); optional description, reviewers"
+      - "review_queue.add_items: trace_ids; optional experiment_id, assigned_to (queue_id is wired)"
+  prompts: none
   skills: none
   tools: none
   mcp: none
@@ -43,16 +43,12 @@ contracts:
   output_artifacts:
     type: object
     required: [queue_id]
-    properties:
-      queue_id: {type: string}
-      added: {type: integer}   # present only if review_queue.add_items ran with trace_ids
 failure_modes:
-  - intent omits the "review queue" domain needle -> planner skips both review_queue steps
-  - review_queue.create answered with no questions -> rejects ("a review queue needs at least one question")
-  - a categorical question with no options -> rejects ("categorical questions require a non-empty 'options' list")
-  - duplicate question keys -> rejects ("question keys must be unique")
-  - review_queue.add_items submitted with no trace_ids -> the form requires them; click Skip step instead to skip cleanly
+  - intent omits "review queue" -> no review step (or no plan at all)
+  - a categorical question without options, or duplicate question keys -> the form accepts it, review_queue.create fails the step and the plan
+  - a taken queue name -> the step fails the plan
+  - the plan's owner lacks the operator scope -> the plan fails at execute and creates nothing
+  - a made-up trace id -> queued, then 502 when reviewed
 fallbacks:
-  - to skip add_items, click Skip step on its form (or Deny its approval prompt); the step is marked skipped and the queue still exists.
-  - if the queue step is missing from the plan, re-create the plan with the literal phrase "review queue" in the intent.
-  - enqueue later via Review Queues -> add items (POST /review-queues/{id}/items) once you have flagged trace ids.
+  - if there are no traces yet, Skip step (or Deny) on the enqueue step; the queue is still created.
+  - a failed plan cannot be run again: state the goal again.

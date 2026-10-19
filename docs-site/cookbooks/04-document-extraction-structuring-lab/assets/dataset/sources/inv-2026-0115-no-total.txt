@@ -1,0 +1,11 @@
+Granite Tools Ltd
+INVOICE
+Invoice No: GT-4417
+Invoice Date: 2026-03-05
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+2     Torque wrench 3/8 in                       $74.00       $148.00
+1     Socket set 40 pc                          $119.00       $119.00
+
+Thank you for your business.

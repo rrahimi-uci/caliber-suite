@@ -1,0 +1,10 @@
+Müller & Söhne GmbH
+INVOICE
+Invoice No: MS-2026-031
+Invoice Date: 2026-03-21
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+1     Wartungsvertrag Q1                      €2,400.00     €2,400.00
+
+Total                                             €2,400.00

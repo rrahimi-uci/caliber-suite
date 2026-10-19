@@ -1,30 +1,42 @@
-# Verified — see ../FEASIBILITY.md.
+# Verified by running the lab against a real stack -- see README.md ("Verify it worked").
 feasibility:
-  - PolicyCorrectness is a DETERMINISTIC enforcement check (a blocked tool refuses to invoke; assert via the tool calibration panel), not an LLM judge.
-  - MCP invokes that execute emit one MLflow TOOL span (mcp.<server>.<tool>) from the gateway; test-connection, discovery, policy changes and a blocked refusal emit none. The blocked refusal is only visible in the invoke-tool API response (the Playground disables Invoke for a blocked tool); Playground History is in-memory browser state.
+  - Enforcement is deterministic and proved from the MCP server's own ledger (assets/server/repo_tracker_mcp.py --ledger): a refused call writes no line. No model grades anything.
+  - Calibration is an assertion check (no_error, output_contains, equals) over saved cases, not an LLM judge.
 evaluation:
   deterministic_checks:
-    - name: PolicyCorrectness
-      type: deterministic_scorer  # policy-enforcement assertion, not an LLM judge
-      criteria: blocked/approval-required rules enforced
+    - name: ClassificationBeforeUse
+      type: deterministic_check
+      criteria: every discovered tool starts unclassified and denied; an unclassified call is refused
+    - name: RefusalsNeverRun
+      type: deterministic_check
+      criteria: blocked, unknown and rate-limited calls leave no ledger line and no trace
+    - name: ApprovalGateHolds
+      type: deterministic_check
+      criteria: the workflow's write does not execute before a second person approves and the run is resumed
   rule_checks:
     - discovery_schema_present
-    - policy_block_visible_and_enforced
+    - write_tool_requires_approval
 quality_gates:
-  connection_success_rate: 1.0
-  blocked_tool_enforcement: 1.0
-  at_least_one_read_tool_calibrated: true
+  tools_discovered: 6
+  calibration:
+    search_repositories: "16/16"
+    list_issues: "8/8"
+    get_issue: "4/4"
+  blocked_tool_executions: 0
+  wrong_expectation_fails_exactly_one_case: true
 monitoring:
-  # An executed invoke emits a TOOL span (mcp.<server>.<tool>) visible in Observability;
-  # test/discovery/policy paths and a blocked refusal emit none. Evidence:
+  # A call that passes policy leaves one TOOL span named mcp.<server>.<tool> (input, output, latency,
+  # status). Refusals, test-connection, discovery and policy changes leave none; a call made inside a
+  # workflow run is the same span nested in the run's trace.
   evidence:
-    - playground_invocation_history  # in-memory per-invoke rows for executed invokes (read = success:true)
-    - blocked_invoke_api_response    # success:false, error "MCP tool '<name>' is blocked by policy" from POST invoke-tool
-    - tool_blocked_badge             # red "Blocked" badge + disabled Invoke button on the issue_write tool
-    - calibration_verdicts           # saved per-case pass/fail + pass_rate on the read tool
+    - server_ledger          # the MCP server's own record of what ran
+    - invoke_tool_response   # success false + error for each refusal
+    - server_history         # create, policy and calibration actions
+    - audit_log
+    - mcp_traces
   metrics:
     - discovery_tool_count
-    - policy_block_count
+    - calibration_pass_rate
 feedback_loop:
-  - add a saved case for every production-relevant discovered tool.
-  - block workflow binding until direct invoke is stable.
+  - add a saved case for every production-relevant read tool.
+  - never bind a tool in a workflow until its classification and a calibration run are saved.

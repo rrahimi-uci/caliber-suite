@@ -36,15 +36,34 @@ banner at the top of the app says evaluation scores are canned, not measurements
 | connect evaluation to calibration | [Calibration](m-45-use-calibration.md) |
 | connect evaluation to runtime review and release | [Review and release flows](m-47-use-review-and-release-flows.md) |
 
-## 3. Common failure modes
+## 3. Judges and how far to trust them
+
+A custom judge is an LLM call, so a run that uses one needs a model. Evaluations check only the LLM
+provider: on the simulated default (`CALIBER_LLM_PROVIDER=fake`) `POST /evaluations` answers 400
+`evaluation requires a real LLM provider` and stores nothing, and the Judges alignment check returns every row
+as an error. A judge's instructions may use only `{{ inputs }}`, `{{ outputs }}`, `{{ expectations }}`,
+`{{ conversation }}` and `{{ trace }}`; any other variable is refused when you save it.
+
+Before a judge blocks anything, check it against people: **Judges**, **Try it**, **Human alignment** (or
+`POST /judges/{id}/alignment`, 1 to 100 labelled rows). It reports `agreement_rate`, `cohen_kappa` and the
+confusion counts (the judge's pass is the positive class). Rows the judge errors on are left out of the numbers,
+so read `scored` next to `n`. The product returns numbers for any sample size; five rows can clear a 0.8
+agreement bar by luck, so set a minimum yourself. **Import labels** passes every review answer except the
+pass/fail one to the judge as `{{ expectations }}`, so keep a reviewer's explanation out of that queue. Cookbook 10,
+Trustworthy Evaluation, works the whole loop on a 50-row test set.
+
+## 4. Common failure modes
 
 | Symptom | First thing to check |
 | --- | --- |
 | Scores are high but production still looks weak | the evidence set may not represent the live workload |
 | A judge looks inconsistent | inspect custom-judge setup and agreement expectations |
 | A good score did not change production | evaluation is evidence, not apply/release |
+| Evaluations answer 400 `evaluation requires a real LLM provider` | the provider is simulated; configure a real model |
+| An evaluation answers 400 `has no examples to score` | the test set is empty |
+| Alignment reports `scored` below `n` | the judge errored on some rows (a missing field, no model); fix those rows |
 
-## 4. Related docs
+## 5. Related docs
 
 - [Trust and governance](m-33-trust-and-governance.md)
 - [Calibration](m-45-use-calibration.md)

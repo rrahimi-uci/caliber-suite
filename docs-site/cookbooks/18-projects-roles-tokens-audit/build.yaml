@@ -1,0 +1,55 @@
+# Verified against the live build: the script `cookbook_18_projects_roles_tokens_audit.py` runs every
+# line of this contract against a real server. This lab builds no prompt, skill, tool or MCP server of
+# its own; its one prompt is a vehicle for the release the timeline shows.
+feasibility:
+  - Roles are owner, editor, reviewer and viewer (caliber/src/caliber/resource_access.py, PROJECT_ACTIONS). The project role narrows what an account may do in ONE project; the platform scopes (CALIBER_ADMIN_USERS, CALIBER_OPERATOR_USERS, CALIBER_APPROVER_USERS) decide what it may do at all, and both layers must allow a write.
+  - A non-member gets 404, not 403. A viewer gets 403 naming the missing project role if it holds the operator scope, and 403 naming the missing platform scope if it does not.
+  - A personal access token can be bound to one project at creation (POST /auth/tokens {project_id}); the UI offers it under Settings > API tokens > Workspace. A bound token naming another project gets 403, and one naming none acts in its bound project.
+  - A revoked or expired token gets 401 on any route that needs a user. GET /me and caliberctl whoami answer anonymous instead, by design.
+  - The audit log is admin-only and records what changed, not what was refused. A token's secret is never in a row.
+  - The release timeline and prompt promotions are not project-scoped in the alpha; the prompt inventory is.
+  - The only simulated step is evaluation.run, which answers 400 "requires a real LLM provider" after the role gate (201 with a real provider).
+manual_flow:
+  - step: accounts
+    action: an admin creates the nine accounts (Administration, or POST /auth/accounts)
+  - step: project
+    action: maya creates the workspace and adds the seven other members with their roles
+  - step: role_matrix
+    action: every person sends every action of role-matrix.csv; each status is compared
+  - step: bound_token
+    action: priya issues a token bound to the project and uses it from the SDK and caliberctl
+  - step: refusals
+    action: provoke the failure scenarios in failure-scenarios.json
+  - step: offboarding
+    action: maya removes victor; he gets 404 at once
+  - step: audit
+    action: the admin reads the audit log by entity, actor and action
+components:
+  prompts:
+    required:
+      - lab18-<run>-support-reply (released to @prod by the bound token)
+  skills: none
+  tools: none
+  mcp: none
+  workflow:
+    nodes:
+      - cookbook_guide
+    note: the catalog entry installs a paused hitl_review workflow draft into the project through the bound token
+contracts:
+  input_schema:
+    type: object
+    required: [roster, matrix, scenarios]
+    properties:
+      roster: {file: assets/dataset/team-roster.csv}
+      matrix: {file: assets/dataset/role-matrix.csv}
+      scenarios: {file: assets/dataset/failure-scenarios.json}
+  output_schema:
+    type: object
+    required: [project_id, members, matrix_requests, matrix_outcomes, failure_scenarios, bound_token_id, released_prompt, simulated_providers, csrf_enabled]
+failure_modes:
+  - platform_scopes_not_set_for_the_roster
+  - demo_password_differs_from_an_earlier_run
+  - base_url_includes_the_api_path
+  - token_secret_lost_after_creation
+fallbacks:
+  - the script names the missing scope or password and exits non-zero before changing anything it cannot undo.

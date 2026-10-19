@@ -1,0 +1,9 @@
+action_id,what_it_does,project_action,owner,editor,reviewer,viewer,viewer_no_operator,non_member
+project.read,Read the project (GET /projects/{id}),read,200,200,200,200,200,404
+members.list,List the project members (GET /projects/{id}/members),read,200,200,200,200,200,404
+dataset.create,Create a test set in the project (POST /eval-datasets),resource.write.evidence,201,201,201,403,403,404
+prompt.create,Create a prompt in the project (POST /prompts),resource.write.runtime,201,201,403,403,403,404
+prompt.promote,Release a prompt version to @prod (POST /prompts/{name}/aliases/prod),release.apply,200,200,403,403,403,404
+evaluation.run,Start an evaluation of a prompt (POST /evaluations),resource.execute,400|201,400|201,400|201,403,403,404
+project.update,Edit the project description (PATCH /projects/{id}),project.update,200,200,403,403,403,404
+members.update,Change a member's role (PATCH /projects/{id}/members/wen),project.manage_members,200,403,403,403,403,404

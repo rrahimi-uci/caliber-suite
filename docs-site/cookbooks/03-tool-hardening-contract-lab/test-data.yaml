@@ -1,17 +1,31 @@
-# Expected values below describe the python_code decide_refund variant (reason_code / requires_approval);
-# the Decision table node emits {decision, matched, matched_rule} only.
+# The 49 cases live in assets/dataset/refund-fixtures.jsonl (one case per line:
+# id, name, tags, inputs, expectations). Each is also a tool fixture: the script and the UI
+# compare the tool's exact JSON output to `expectations` (assertion type `equals`).
+dataset: assets/dataset/refund-fixtures.jsonl
+case_count: 49
+policy:
+  window_days: {standard: 30, plus: 45, premium: 60}
+  auto_approve_limit_usd: {standard: 200, plus: 350, premium: 500}
+  refund_velocity_limit_90d: 3
+  refundable_order_states: [delivered, shipped, returned]
 golden_cases:
-  - id: T01
-    input: {order_id: "ord_1002", account_id: "acct_1432"}
-    expected: {decision: "deny", requires_approval: true}
-  - id: T02
-    input: {order_id: "ord_1120", account_id: "acct_2101"}
-    expected: {decision: "approve", requires_approval: false}
+  - id: R01
+    note: small delivered order
+    expected: {decision: approve, reason_code: ELIGIBLE_AUTO_APPROVE, requires_approval: false}
+  - id: R23
+    note: cancelled order
+    expected: {decision: deny, reason_code: NOT_REFUNDABLE_STATE, requires_approval: false}
+  - id: R11
+    note: 250 USD refund on a standard account
+    expected: {decision: manual_review, reason_code: AMOUNT_OVER_THRESHOLD, requires_approval: true}
 edge_cases:
-  - id: T03
-    input: {order_id: "ord_legacy", account_id: "acct_legacy"}
-    expected: {decision: "manual_review", requires_approval: true}
+  - {id: R05, note: "day 30 is still inside the standard window", expected_decision: approve}
+  - {id: R06, note: "day 31 is outside", expected_decision: deny}
+  - {id: R09, note: "exactly 200.00 is auto-approved", expected_decision: approve}
+  - {id: R10, note: "200.01 goes to a person", expected_decision: manual_review}
+  - {id: R35, note: "third refund in 90 days goes to a person", expected_decision: manual_review}
 negative_cases:
-  - id: T04
-    input: {order_id: "", account_id: "acct_2101"}
-    expected_error: "validation_error"
+  - {id: R30, note: "risk lookup failed, flags missing: fail closed", expected_reason: MISSING_RISK_DATA}
+  - {id: R40, note: "amount is text", expected_reason: INVALID_INPUT}
+  - {id: R45, note: "unknown customer tier", expected_reason: INVALID_INPUT}
+  - {id: R49, note: "age is missing", expected_reason: INVALID_INPUT}

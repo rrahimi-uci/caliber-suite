@@ -9,6 +9,7 @@ something concrete to bind.
 
 from __future__ import annotations
 
+import math
 import re
 import subprocess
 import sys
@@ -46,9 +47,118 @@ def lookup_order(order_id: str = "") -> dict[str, Any]:
     return {"order_id": order_id or "12345", "items": ["ACME Laptop"], "status": "delivered"}
 
 
-def initiate_refund(order_id: str = "") -> dict[str, Any]:
-    """Begin a refund for an order (stub). Marked write in the registry."""
-    return {"order_id": order_id or "12345", "refund_status": "initiated", "amount_usd": 1299.0}
+def initiate_refund(order_id: str = "", amount: float | None = None) -> dict[str, Any]:
+    """Begin a refund for an order (stub). Marked write in the registry.
+
+    ``amount`` is the refund amount the caller decided on; without it the stub reports its
+    canned order total, which is what the older fixtures expect.
+    """
+    return {
+        "order_id": order_id or "12345",
+        "refund_status": "initiated",
+        "amount_usd": 1299.0 if amount is None else float(amount),
+    }
+
+
+# --- Deterministic refund policy (cookbook 03) ------------------------------
+#
+# A pure function: the same inputs always give the same answer, it reads no clock, network
+# or file, and every branch ends in a stable machine-readable ``reason_code``. Rules are
+# evaluated top to bottom and the first match wins. Anything that cannot be judged fails
+# closed to ``manual_review`` rather than to ``approve``.
+
+REFUND_POLICY_VERSION = "2026-10"
+#: customer tier -> (refund window in days, largest amount decided without a reviewer in USD)
+REFUND_TIER_POLICY: dict[str, tuple[int, float]] = {
+    "standard": (30, 200.0),
+    "plus": (45, 350.0),
+    "premium": (60, 500.0),
+}
+#: This many refunds in the last 90 days is a velocity pattern a person has to look at.
+REFUND_VELOCITY_LIMIT = 3
+REFUNDABLE_ORDER_STATES = frozenset({"delivered", "shipped", "returned"})
+
+
+def _refund_decision(decision: str, reason_code: str) -> dict[str, Any]:
+    return {
+        "decision": decision,
+        "reason_code": reason_code,
+        "requires_approval": decision == "manual_review",
+    }
+
+
+def _is_number(value: Any) -> bool:
+    return isinstance(value, (int, float)) and not isinstance(value, bool) and math.isfinite(value)
+
+
+def _is_count(value: Any) -> bool:
+    return isinstance(value, int) and not isinstance(value, bool) and value >= 0
+
+
+def decide_refund(  # noqa: PLR0911 - one early return per policy rule is the point
+    order_id: str = "",  # noqa: ARG001 - carried for traceability, not used by the policy
+    account_id: str = "",  # noqa: ARG001
+    order_state: Any = "",
+    amount: Any = None,
+    days_since_order: Any = None,
+    customer_tier: Any = "standard",
+    refunds_last_90d: Any = 0,
+    risk_flags: Any = None,
+) -> dict[str, Any]:
+    """Decide a refund request: ``approve``, ``deny`` or ``manual_review``. Read-only.
+
+    Returns ``{decision, reason_code, requires_approval}``. ``requires_approval`` is true
+    exactly when the decision is ``manual_review``.
+
+    Rules, first match wins:
+
+    1. malformed input (wrong type, non-finite or negative number, unknown tier)
+       -> ``manual_review`` / ``INVALID_INPUT``
+    2. ``risk_flags`` absent -> ``manual_review`` / ``MISSING_RISK_DATA``
+    3. order state empty -> ``manual_review`` / ``UNKNOWN_ORDER_STATE``
+    4. any risk flag -> ``manual_review`` / ``RISK_FLAG_PRESENT``
+    5. ``refunds_last_90d`` >= 3 -> ``manual_review`` / ``REFUND_VELOCITY``
+    6. order not delivered, shipped or returned -> ``deny`` / ``NOT_REFUNDABLE_STATE``
+    7. older than the tier's window (standard 30, plus 45, premium 60 days)
+       -> ``deny`` / ``OUTSIDE_WINDOW``
+    8. amount of zero or less -> ``deny`` / ``INVALID_AMOUNT``
+    9. amount above the tier's limit (standard 200, plus 350, premium 500 USD)
+       -> ``manual_review`` / ``AMOUNT_OVER_THRESHOLD``
+    10. otherwise -> ``approve`` / ``ELIGIBLE_AUTO_APPROVE``
+    """
+    tier = customer_tier.strip().lower() if isinstance(customer_tier, str) else None
+    well_formed = (
+        isinstance(order_state, str)
+        and _is_number(amount)
+        and _is_count(days_since_order)
+        and _is_count(refunds_last_90d)
+        and tier in REFUND_TIER_POLICY
+        and (
+            risk_flags is None
+            or (isinstance(risk_flags, list) and all(isinstance(f, str) for f in risk_flags))
+        )
+    )
+    if not well_formed:
+        return _refund_decision("manual_review", "INVALID_INPUT")
+    if risk_flags is None:
+        return _refund_decision("manual_review", "MISSING_RISK_DATA")
+    state = order_state.strip().lower()
+    if not state:
+        return _refund_decision("manual_review", "UNKNOWN_ORDER_STATE")
+    if any(flag.strip() for flag in risk_flags):
+        return _refund_decision("manual_review", "RISK_FLAG_PRESENT")
+    if refunds_last_90d >= REFUND_VELOCITY_LIMIT:
+        return _refund_decision("manual_review", "REFUND_VELOCITY")
+    if state not in REFUNDABLE_ORDER_STATES:
+        return _refund_decision("deny", "NOT_REFUNDABLE_STATE")
+    window_days, auto_limit = REFUND_TIER_POLICY[tier]  # type: ignore[index]
+    if days_since_order > window_days:
+        return _refund_decision("deny", "OUTSIDE_WINDOW")
+    if amount <= 0:
+        return _refund_decision("deny", "INVALID_AMOUNT")
+    if amount > auto_limit:
+        return _refund_decision("manual_review", "AMOUNT_OVER_THRESHOLD")
+    return _refund_decision("approve", "ELIGIBLE_AUTO_APPROVE")
 
 
 def track_shipment(tracking_id: str = "") -> dict[str, Any]:
@@ -383,6 +493,7 @@ __all__ = [
     "check_inventory",
     "create_artifact",
     "create_order",
+    "decide_refund",
     "escalate",
     "get_file_metadata",
     "get_order",

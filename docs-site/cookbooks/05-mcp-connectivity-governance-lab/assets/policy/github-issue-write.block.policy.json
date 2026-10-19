@@ -1,4 +1,0 @@
-{
-  "_comment": "PATCH /mcp-servers/{id}/tools/issue_write/policy. issue_write is the GitHub server's WRITE tool; in a read-only explorer it stays OFF. allowed:false blocks invocation outright — a re-invoke through the API returns success:false with error \"MCP tool 'issue_write' is blocked by policy\" and never reaches the transport; the Playground disables Invoke for a blocked tool. Strip this _comment before sending.",
-  "allowed": false
-}

@@ -272,20 +272,19 @@ Used by #85, #86, #98, and #99.
 For object storage, create bucket `pilot-doc-intake` and use the tracked safe
 sources under
 [`04-document-extraction-structuring-lab/assets/dataset/sources`](../../docs-site/cookbooks/04-document-extraction-structuring-lab/assets/dataset/sources/).
-The repository currently provides text/CSV-safe fixtures; use the exact files
-present in the checkout and do not invent `.docx` paths from the sample YAML.
+The repository provides 30 text, CSV and Markdown invoices (`inv-*.txt`, `.csv`, `.md`);
+use the exact files present in the checkout and do not invent `.docx` paths from the sample YAML.
 The minimum checks are:
 
-- `invoice-clean.md` or `invoice-clean.csv`: extraction succeeds;
-- `invoice-partial.md`: extraction succeeds and downstream validation reports
-  the missing field instead of inventing it;
-- an unsupported `.doc` only if the coordinator provides a real safe file:
-  expect a readable `kind="unsupported"` diagnostic, not a crash.
+- `inv-2026-0101-acme.txt` (or `inv-2026-0103-northwind.csv`): extraction succeeds and the
+  record is valid against the schema;
+- `inv-2026-0115-no-total.txt`: the document is held, and validation reports the missing
+  `total` instead of inventing it.
 
 Use the schema
-[`extracted-fields.schema.json`](../../docs-site/cookbooks/04-document-extraction-structuring-lab/assets/schema/extracted-fields.schema.json)
-and the structuring prompt
-[`doc-structurer.md`](../../docs-site/cookbooks/04-document-extraction-structuring-lab/assets/prompts/doc-structurer.md).
+[`invoice.schema.json`](../../docs-site/cookbooks/04-document-extraction-structuring-lab/assets/schema/invoice.schema.json)
+and the case list
+[`extraction-cases.jsonl`](../../docs-site/cookbooks/04-document-extraction-structuring-lab/assets/dataset/extraction-cases.jsonl).
 
 For knowledge retrieval, build a version from the policy sources under
 [`06-knowledge-retrieval-policy-qa-lab/assets/dataset/sources`](../../docs-site/cookbooks/06-knowledge-retrieval-policy-qa-lab/assets/dataset/sources/)

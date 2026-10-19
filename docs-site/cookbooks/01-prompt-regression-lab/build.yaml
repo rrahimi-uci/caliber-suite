@@ -1,22 +1,28 @@
 workflow_goal: Build a prompt-only intake classifier with no tool, skill, or MCP dependency.
-# Verified against the live build — see ../FEASIBILITY.md.
+# Verified by running every step against a real server; see README.md.
 feasibility:
-  - Prompts Playground is a live chat with the prompt (a real model call, not a scored run); run scored cases on the prompt's Test Sets + Runs stages (or Evaluations with What to score = Prompt version).
-  - Regression = baseline run vs comparison run on the prompt's Runs stage (Vs. baseline per-case diff).
-  - Under the default fake LLM/eval providers calibration and evaluation scores are canned, so quality gates such as min_overall_score are not meaningful until a real provider and CALIBER_EVAL_PROVIDER=mlflow are configured.
-  - Calibration queues a background optimizer job (MetaPrompt/GEPA); capture the job id, do not expect an inline score.
-  - InstructionCompliance is a real LLM judge; valid_json/allowed_intent_values use deterministic scorers (contains_expected), not a deterministic judge.
+  - Everything except scoring a prompt runs on the default simulated model and evaluator (CALIBER_LLM_PROVIDER=fake, CALIBER_EVAL_PROVIDER=fake). Calibration evidence is canned and marked simulated (provider fake, simulated true, "Simulated evaluation - not evidence" in the UI, eval_simulated on the registry version, timeline and audit rows).
+  - Real-model tier (verified on a local Ollama qwen2.5:7b; a hosted provider is the same minus the base-URL overrides, not run): Evaluations scores both versions, calibration uses the Guidelines judge (assets/calibration/guidelines.json) and yields real, non-simulated evidence; the optimizer, diagnosis, answers and judge all point at the local model via OPENAI_BASE_URL, OPENAI_API_BASE, CALIBER_LLM_DIAGNOSIS_MODEL, CALIBER_GEPA_REFLECTION_MODEL and MLFLOW_GENAI_JUDGE_DEFAULT_MODEL.
+  - Evaluations fails closed on a simulated model (400 evaluation requires a real LLM provider); the lab verifies that refusal. With a model that answers (a real provider, or assets/stand-in-model/server.py) it scores prompt versions and the Compare-to-baseline view shows the regression.
+  - Calibration queues a background optimizer job (MetaPrompt); wait for candidate_ready, then Apply explicitly.
+  - The prompt Playground, Generate Test Cases, Run Tests & Judge and the Runs stage call the Aria assistant; they are not part of this lab.
 manual_flow:
   - step: define_prompt
-    action: Author a system prompt that enforces strict JSON output and abstains on low-confidence inputs.
-  - step: run_cases
-    action: Generate cases on the prompt's Test Sets stage, run them with Run Tests & Judge, then score them on the Runs stage (the Playground is a live chat sanity check, not a scored run).
-  - step: save_baseline
-    action: Save and pin the strongest run as baseline.
-  - step: compare_variant
-    action: Run a weaker variant to verify visible regression.
+    action: Author the strict-JSON v1 prompt and make it live.
+  - step: import_test_set
+    action: Import assets/dataset/intake-classifier.jsonl (44 cases) via POST /eval-datasets plus one POST per example, or the Calibration stage's Upload JSON/JSONL.
+  - step: regress
+    action: Save the weaker v2 (assets/prompts/intake-classifier-weak.md) as a draft; it is not live.
+  - step: evaluate
+    action: Score v1 and v2 on Evaluations (needs a model that answers) and compare v2 to the v1 baseline.
   - step: calibrate
-    action: Queue calibration after baseline exists.
+    action: Calibrate the live prompt (MetaPrompt) and wait for candidate_ready.
+  - step: review_and_apply
+    action: Review the evidence and the diff, then Apply explicitly.
+  - step: verify_release
+    action: Check the MLflow prod alias, the live board, the release timeline and the audit log.
+  - step: rollback
+    action: Roll back and verify the alias returned.
 components:
   prompts:
     system: "You classify support input and must return JSON only."
@@ -33,7 +39,6 @@ contracts:
     properties:
       ticket_text: {type: string}
       channel: {type: string}
-      metadata: {type: object}
   output_schema:
     type: object
     required: [intent, priority, confidence, needs_review, reason]

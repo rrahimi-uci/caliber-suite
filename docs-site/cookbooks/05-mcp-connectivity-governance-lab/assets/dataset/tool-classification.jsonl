@@ -1,0 +1,6 @@
+{"tool": "search_repositories", "side_effect_level": "read", "allowed": true, "requires_approval": false, "why": "Read-only search over the tracker. Safe to call freely."}
+{"tool": "list_issues", "side_effect_level": "read", "allowed": true, "requires_approval": false, "why": "Read-only listing of one repository's issues."}
+{"tool": "get_issue", "side_effect_level": "read", "allowed": true, "requires_approval": false, "why": "Read-only fetch of one issue."}
+{"tool": "scan_dependencies", "side_effect_level": "read", "allowed": true, "requires_approval": false, "rate_limit_per_minute": 3, "why": "Read-only but slow and expensive upstream: capped at 3 calls a minute."}
+{"tool": "issue_write", "side_effect_level": "write", "allowed": true, "requires_approval": true, "why": "Changes the tracker. Allowed, but only as an approved action: write tools must carry requires_approval."}
+{"tool": "create_release", "side_effect_level": "external_action", "allowed": false, "requires_approval": true, "why": "Publishes a release and notifies a channel; cannot be undone. Blocked outright in this lab."}

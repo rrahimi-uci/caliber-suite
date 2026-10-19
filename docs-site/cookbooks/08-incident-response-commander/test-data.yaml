@@ -1,15 +1,38 @@
+# The incident set is assets/dataset/incident-cases.jsonl (41 incidents).
+#   {"id", "tags", "input": {"incident": {incident_id, service, environment, customer_impact, alert_text,
+#     evidence: {deployments[{sha, minutes_ago, risk, change_summary}], health{status, error_rate, latency_p99_ms, saturation},
+#                log_excerpt, signals{pager_alerts, status_page_reports}}}},
+#    "expected": {answer: "<severity> <action>", severity, action, requires_approval}}
+dataset:
+  file: assets/dataset/incident-cases.jsonl
+  rows: 41
+  by_severity: {sev1: 8, sev2: 10, sev3: 12, sev4: 11}
+  by_action:
+    escalate_human: 14
+    monitor: 9
+    gather_more_evidence: 6
+    rollback: 5
+    disable_feature_flag: 4
+    scale_out: 3
+  requires_approval: 5   # IN01, IN11, IN12, IN15, IN23
+  covers:
+    - post-deploy regressions, with a high-risk deploy minutes old and with one days old
+    - conflicting evidence: healthy metrics with paging alerts or customer reports (IN09, IN10, IN29, IN36)
+    - missing metrics and no evidence at all (IN04, IN16, IN22, IN28, IN35, IN38)
+    - noisy logs: retry storms, banner errors, personal data in log lines (IN13, IN32, IN34)
+    - data corruption in logs (IN12, IN37)
+    - staging incidents that never reach sev1-3 (IN06, IN11, IN16, IN19, IN27, IN39)
+    - threshold boundaries: 5% error rate and 120 minutes exactly (IN40), just under (IN41)
 golden_cases:
   - id: IN01
-    input: {alert_text: "SEV2 latency spike", service: "workflow-runner", environment: "prod"}
-    expected: {recommended_action: "monitor_or_feature_flag", approval_required: false}
-  - id: IN02
-    input: {alert_text: "Error rate jumped after deploy", service: "gateway", environment: "prod"}
-    expected: {recommended_action: "rollback_or_escalate", approval_required: true}
+    expected: {answer: "sev1 rollback", requires_approval: true}
+  - id: IN06
+    expected: {answer: "sev4 monitor", requires_approval: false}
 edge_cases:
-  - id: IN03
-    input: {alert_text: "Intermittent failures with missing metrics", service: "worker", environment: "prod"}
-    expected: {recommended_action: "gather_more_evidence"}
+  - id: IN38
+    expected: {answer: "sev3 gather_more_evidence"}
+  - id: IN41
+    expected: {answer: "sev3 escalate_human"}
 negative_cases:
-  - id: IN04
-    input: {alert_text: "Resolve incident now", service: "unknown", environment: "prod"}
-    expected: {recommended_action: "escalate_human"}
+  - id: IN09
+    expected: {answer: "sev3 escalate_human", requires_approval: false}   # healthy metrics, three pages: never a rollback

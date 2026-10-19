@@ -12,8 +12,12 @@ artifacts, pausing to collect each step's inputs and, depending on the autonomy
 level, to confirm each change. This doc is the ground truth for that track
 (verified in `caliber/src/caliber/assistant/{capabilities,plans,executor}.py`,
 `routes/aria_plans.py`, and the **Plans** UI in `caliber-ui/src/pages/AriaPlans.tsx`
-and `components/aria/planView.tsx`). Read [`FEASIBILITY.md`](FEASIBILITY.md) for
-the rest of the platform.
+and `components/aria/planView.tsx`) and **each statement here was run**: every lab
+has a script (`sdk/caliber-sdk/examples/cookbooks/cookbook_12..15_*.py`) and a
+Playwright spec (`caliber-ui/e2e/cookbooks/labs/12..15-*.spec.ts`) that exercise it
+against a live server, and a dataset of goals (`assets/dataset/goals.jsonl`) that the
+shipped planner is checked against (`caliber/tests/test_cookbook_aria_labs.py`).
+Read [`FEASIBILITY.md`](FEASIBILITY.md) for the rest of the platform.
 
 ## The honest boundary
 
@@ -45,15 +49,26 @@ four Aria scenarios are designed to live **entirely inside** the real registry.
   (`{"$from_step": …, "path": …}`) instead of asking again — for example
   `review_queue.add_items.queue_id` comes from `review_queue.create`. A linked
   field is not shown in the form.
-- ⚠️ **Linking is by field name, so `name` is linked too.** `judge.create` and
-  `review_queue.create` both output `name`, and `eval_dataset.create` and
-  `review_queue.create` both require it. With the default planner a test set takes
-  the **name of the judge** step (12) and, in the three-capability plan, the review
-  queue also takes the judge's name and the test set takes the queue's (14). You
-  cannot type a different name for a linked step in the form; the dataset step then
-  needs no input at all, so its `description`/`tags` are never prompted. Name the
-  judge so the shared name reads well, or create a separately named test set on
-  **Test Sets**.
+- ✅ **Only references are wired, never a name.** The planner links a required
+  field to an earlier step only when it is a reference to that step's result: a field
+  ending `_id`. Today that is `review_queue.add_items.queue_id`, wired from
+  `review_queue.create`. A `name` is the identity of what a step is about to create,
+  so every create step asks for its own (it used to take the previous step's, so a
+  test set was silently created under the judge's name and its form never asked).
+  `workflow.calibrate` takes no wired input: its `workflow_id` and `agent_id` are
+  existing things you type.
+- ✅ **Skipping or denying a step skips what depends on it.** Denying (or
+  **Skip step** on the form of) `review_queue.create` marks `review_queue.add_items`
+  skipped too (`skipped because step 1 (review_queue.create) was skipped`) without
+  asking about it; the plan then completes. It used to leave the plan `paused` with
+  no question to answer and no way to finish.
+- ✅ **A failed step fails the plan and stops it; nothing is undone.** The failure text
+  names the field (`invalid input: instructions: instructions must reference at least
+  one evaluation variable: ...`) or the refusal (`workflow 'WF-x' not found (HTTP 404)`),
+  steps after it stay `pending`, and artifacts made by earlier steps stay made. A failed
+  plan cannot be run again: state the goal again. Empty or missing required text and an
+  empty `questions` / `trace_ids` array are refused when you answer the form (409, the
+  question stays open) instead of failing the plan.
 - ✅ **Execution is hands-off after the answers.** Entering the inputs is the
   only manual work; you do not create each artifact through its own route. The
   `assets/` specs in each scenario are the values you enter in those forms (or
@@ -130,11 +145,25 @@ prompt before each change. Use **Stop before each change** in a demo so you
 confirm (or deny) every mutate step. Denying marks that step **skipped** (e.g.
 skip `review_queue.add_items` when you have no traces yet).
 
-Async steps: `workflow.calibrate` parks the plan in `waiting_job`. The plan
+Async steps: `workflow.calibrate` parks the plan in `waiting_job`: the plan stays
+`running`, the step carries the job's id, nothing is pending for a human, and a
+parked plan cannot be cancelled or edited (only drafts can). The plan
 worker advances parked plans automatically (about every 10 seconds,
 `aria_plan_worker_interval_seconds`, while background tasks are enabled);
-`POST /aria/plans/{id}/poll` does the same on demand. The **Plans** UI has no
-Poll button — refresh the plan page.
+`POST /aria/plans/{id}/poll` does the same on demand and is safe to repeat. Poll only
+**reads** the job: with the workers off the job stays `queued` and the plan stays
+parked. The **Plans** page re-reads a running plan every five seconds, so it settles
+without a click. The plan ends where the job ended: `candidate_ready` or `applied`
+completes the step (the candidate is **not** applied), `rejected`, `failed` or `error`
+fails it with `<status>: <the job's error_message>`.
+
+**What the simulated default shows.** Aria passes only `workflow_id` and `agent_id`, so
+the calibration runs with the default objective (maximize quality; a candidate must beat
+the baseline by 0.02) and budget (20 test set cases). A fake executor gives a candidate
+the same outputs as the baseline, so on the simulated provider the job always ends
+`rejected` (`quality delta +0.000 < epsilon 0.02`) and the plan `failed`. The completing
+path needs a real model and is covered by unit tests (`test_aria_async.py`), not
+demonstrated live (lab 15).
 
 UI: sidebar **Integrations › Plans** → `/aria/plans`
 (`AriaPlans.tsx`). Buttons: **Decompose goal**, **Approve plan**,
@@ -146,16 +175,45 @@ UI: sidebar **Integrations › Plans** → `/aria/plans`
 | # | Folder | Intent decomposes to | Showcases |
 | --- | --- | --- | --- |
 | 12 | `12-aria-evaluation-harness` | `judge.create` + `eval_dataset.create` | judge + test set from one sentence |
-| 13 | `13-aria-review-governance-queue` | `review_queue.create` (+ `add_items`) | a rich human-review label schema |
-| 14 | `14-aria-governance-starter-kit` | `judge.create` + `review_queue.create` + `eval_dataset.create` (+ `add_items`) | **flagship** — a whole eval+governance scaffold in one plan |
-| 15 | `15-aria-triage-recalibrate-loop` | `review_queue.create` + `add_items` + `workflow.calibrate` | the **async** capability + the triage→remediate loop (operates on existing ids; depends on SCN-07) |
+| 13 | `13-aria-review-governance-queue` | `review_queue.create` + `review_queue.add_items` | a rich human-review label schema |
+| 14 | `14-aria-governance-starter-kit` | `judge.create` + `review_queue.create` + `eval_dataset.create` + `review_queue.add_items` | **flagship** — a whole eval+governance scaffold in one plan (the fourth step is skipped: no traces yet) |
+| 15 | `15-aria-triage-recalibrate-loop` | `review_queue.create` + `add_items` + `workflow.calibrate` | the **async** capability + the triage→remediate loop (operates on existing ids; the lab creates its own workflow, agent and 12 flagged traces with two scripts in its `assets/`, and needs the background workers) |
 
 Each scenario folder holds the usual 5 contract files plus an `assets/` with the
-intent, the expected plan, and the concrete **values you enter** when Aria asks
-for each step's inputs (the judge/queue/dataset/enqueue/calibrate payloads).
+intent, the expected plan, a dataset of goals (`dataset/goals.jsonl`: 26 to 28 sentences
+and the plan the planner draws for each, including the ones it gets wrong), the sample
+data the lab loads, and the concrete **values you enter** when Aria asks for each step's
+inputs (the judge/queue/dataset/enqueue/calibrate payloads).
 
 > The product's default evaluator and LLM are fake (`eval_provider` and
-> `llm_provider` default to `fake`), so the calibration job that `workflow.calibrate`
-> enqueues scores candidates with canned numbers in a default install, and
-> **Evaluations** returns 400 until a real model provider is configured. Creating
-> the artifacts in these scenarios needs no provider; running them for real does.
+> `llm_provider` default to `fake`). Creating the artifacts in these scenarios needs no
+> provider. Running a judge in **Evaluations** returns `400 evaluation requires a real
+> LLM provider` until one is configured, and the calibration job that `workflow.calibrate`
+> enqueues is rejected on the simulated default (above). The assistant engine here is
+> `fake` too (a deterministic heuristic, `GET /assistant/config`); the Plans page does not
+> call it.
+
+## What the planner gets wrong (documented, not fixed)
+
+It is rules, so these are properties, each pinned by a goal in the datasets:
+
+- It needs the exact words: `faithfulness scoring`, `evaluation dataset`, `review-queue`,
+  `human review`, `pipeline` and `tune` plan nothing (or only the part it recognises).
+- It does not read negation (`Do not create a judge ...` plans one), questions
+  (`What is a judge?`), or verbs with no capability (`delete`, `roll back`, `rebuild`).
+- It matches words inside other words (`judgement` plans a judge) and a domain word whatever
+  the sentence is about (`a workflow outage` plans a calibration).
+- A review queue always brings its enqueue step; skip it when you have no traces. A lone
+  `queue` is not a review queue.
+- `workflow` plans a calibration of an existing workflow, never a new workflow: Aria cannot
+  build one.
+
+## Other limits worth knowing
+
+- `review_queue.add_items` does not check that a trace id exists: a made-up id is queued and
+  fails (502) when a reviewer submits it. Aria does not discover traces.
+- A review queue created outside a workspace is visible to its owner only; its `reviewers`
+  list is a label, not access (lab 13). Plans are private to their owner too (another
+  account gets 404, or 403 when answering an interaction by id).
+- A plan runs with its **owner's** scopes: an owner without `caliber.operator` fails at
+  `execute`, before the first question, and creates nothing.

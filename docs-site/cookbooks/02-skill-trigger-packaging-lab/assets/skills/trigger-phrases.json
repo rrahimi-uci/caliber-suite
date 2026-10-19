@@ -1,0 +1,26 @@
+{
+  "test_triggers": {
+    "should_trigger": [
+      "refund",
+      "subscription",
+      "charged me twice"
+    ],
+    "should_not_trigger": [
+      "stack trace",
+      "signing key",
+      "database index",
+      "sql migration",
+      "latency metrics",
+      "unit test",
+      "kubernetes",
+      "foreign key",
+      "api endpoint",
+      "pull request",
+      "ticket volume",
+      "postmortem",
+      "oauth",
+      "python script"
+    ]
+  },
+  "notes": "The tightened trigger metadata for support-tone-and-citation. The skill is created with only the six starter exclusions from support-tone-and-citation.md; trigger round 1 then misses 10 of the 40 cases. Replacing skill_metadata.test_triggers with this object (PATCH /skills/{id}, or Skill detail -> Edit -> Metadata JSON) gets round 2 to 40 of 40. should_trigger adds +8 to a match; should_not_trigger forces score 0. A phrase matches as a substring of the message (\"refund\" matches \"refunds\" and \"refund-eligibility\"), or when at least 80% of its words (every word of a one-word phrase) appear in the message, so keep phrases specific."
+}

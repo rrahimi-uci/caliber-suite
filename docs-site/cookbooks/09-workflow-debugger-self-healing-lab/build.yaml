@@ -1,51 +1,66 @@
-workflow_goal: Create an operator-safe workflow remediation loop from failure to validated patch.
-# Verified against the live build — see ../FEASIBILITY.md.
+workflow_goal: Take a workflow from failing in production to a proved patch and a reversible alias, without a model.
+# Verified by running every step against a real server; see README.md and the script/spec named below.
 feasibility:
-  - Recovery surfaces are real (Run Monitor, checkpoint/recovery/debugger panels, retry lineage, run-retry/run-resume/resume-by-event).
-  - Patching is MANUAL here — edit the manifest in the editor and save a new version. No Run Monitor control turns a failed run into a patch. A semantic patch engine exists (POST /workflow-versions/{id}/propose-patch stores a candidate listed on the workflow's CALIBER Patches tab; workflow Calibrate generates candidates; Aria's chat assistant has a propose_workflow_patch tool that only proposes a patch for an assistant workflow draft), but no UI page calls the propose-patch route and none of it is an Aria Plans capability.
-  - Aria/Aria Plans cannot debug a workflow as a capability; use it only to narrate the diagnosis, not to apply fixes.
-  - Reliable reproducible failure for a demo = the hitl_review template driven reject -> retry -> approve -> resume.
+  - Run Monitor, Recovery Diagnostics, Execution Debugger, Retry Lineage and the ERROR trace of a failed run are real. A node failure writes no checkpoint (only approvals and waits do), and the failing node is not a recorded step; Current node names it.
+  - A retry runs the same version on the same input. It cannot fix a code fault.
+  - POST /workflow-versions/{id}/propose-patch is API only, no page calls it, and it only knows agent-shaped fixes. For a Python node it returns a prompt suggestion with no graph change; a guardrail patch aimed at a code node is a 400.
+  - Preview and deploy gates refuse workflows with python_code or api_request nodes, so the fix is proved with real runs of the dataset on the new version.
+  - The alpha UI has one live alias (prod) and hides Deployments and Promotions. The staging alias, its rollback and the prod refusal are API; the UI's Promote shows the prod refusal.
 manual_flow:
+  - step: import
+    action: import assets/workflow/ticket-intake.v1.workflow.yaml and publish it
   - step: reproduce
-    action: run failing input and capture trace id
+    action: run F12, F29 and F32 in the Run Monitor
   - step: localize
-    action: use replay/debugger/checkpoints to locate failing node
-  - step: diagnose
-    action: produce symptoms, hypotheses, and minimal fix plan
+    action: read Recovery Diagnostics, the Execution Debugger and the ERROR span of the trace
+  - step: retry
+    action: Retry; the same node fails again (Attempt 2 of 2)
   - step: patch
-    action: apply draft fix and rerun preview
+    action: restore v1 as a draft, replace the code of validate, check_reference and decide with assets/workflow/patch/*.py, save and publish as v2
   - step: validate
-    action: run regression slice and confirm no new failures
+    action: run the same tickets on v2, and compare the versions
 components:
-  prompts:
-    optional:
-      - diagnosis-summary prompt
-  skills:
-    optional:
-      - workflow-failure-triage
-  tools:
-    optional:
-      - propose_workflow_patch  # Aria chat-assistant tool only (proposal for an assistant draft, nothing applied) — in this recipe patch manually in the editor (save new version)
-  mcp:
-    optional:
-      - Playwright for UI-state dependent workflows
+  prompts: {}
+  skills: {}
+  tools: {}
   workflow:
+    nodes:
+      - start
+      - validate (python_code)
+      - check_reference (python_code)
+      - lookup (api_request to the stand-in account service)
+      - decide (python_code)
+      - final
     focus:
-      - replay
-      - debugger
-      - recovery
-      - checkpoint_resume
+      - run debugger
+      - retry lineage
+      - versions
+      - deployment aliases
 contracts:
   input_schema:
     type: object
-    required: [workflow_id, failing_input]
+    description: A refund ticket as a JSON string (the run input).
+    required: [ticket_id, account_id, amount, currency, reason, order_ref]
   output_schema:
     type: object
-    required: [root_cause, fix_summary, verification_status]
+    description: The decision the final node returns (version 2 adds errors or upstream_status in two cases).
+    required: [ticket_id, decision, reason_code]
 failure_modes:
-  - replay_state_mismatch
-  - patch_without_reproducible_evidence
-  - fix_introduces_secondary_regression
+  - schema_violation_in_validate
+  - catastrophic_backtracking_timeout_in_check_reference
+  - upstream_error_crashing_decide
 fallbacks:
-  - hold publish and require manual review when evidence is insufficient.
-  - prefer minimal patch scope to isolate impact.
+  - reject an invalid ticket with its reasons instead of failing the run.
+  - degrade to manual review when the account lookup fails.
+golden_cases:
+  - id: F01
+    input: {payload: "healthy premium ticket"}
+    expected: {decision: approve, reason_code: ELIGIBLE_AUTO_APPROVE}
+edge_cases:
+  - id: F29
+    input: {payload: "order_ref with a trailing slash after 32 characters"}
+    expected: {v1_failing_node: check_reference, decision: manual_review, reason_code: ORDER_REF_UNVERIFIED}
+negative_cases:
+  - id: F18
+    input: {payload: "ticket with no account_id"}
+    expected: {v1_failing_node: validate, decision: rejected_input, reason_code: INVALID_TICKET}

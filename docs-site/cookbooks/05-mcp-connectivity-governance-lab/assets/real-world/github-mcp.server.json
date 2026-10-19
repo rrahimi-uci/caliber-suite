@@ -1,0 +1,9 @@
+{
+  "_comment": "NOT RUN in this lab: the real-world variant. Body of POST /mcp-servers for GitHub's official remote MCP server. It needs network access, a personal access token in the CALIBER server's environment (GITHUB_PERSONAL_ACCESS_TOKEN), api.githubcopilot.com in CALIBER_MCP_REMOTE_HOST_ALLOWLIST, and GitHub's tool names (search_repositories, issue_write, ...) classified after discovery. Strip this _comment key before sending. The same steps as the lab apply: test, discover, classify, then invoke.",
+  "name": "github-governed",
+  "transport": "streamable-http",
+  "uri": "https://api.githubcopilot.com/mcp/",
+  "auth_type": "token",
+  "auth_config": {"token_env_var": "GITHUB_PERSONAL_ACCESS_TOKEN"},
+  "env": {"GITHUB_PERSONAL_ACCESS_TOKEN": "${GITHUB_PERSONAL_ACCESS_TOKEN}"}
+}

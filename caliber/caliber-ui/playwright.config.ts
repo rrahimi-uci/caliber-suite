@@ -32,7 +32,7 @@ export default defineConfig({
   testDir: "./e2e",
   // The flag-off posture is its own run (``playwright.alpha.config.ts``); against this
   // flags-on server its assertions would be false.
-  testIgnore: ["feature-flags.spec.ts"],
+  testIgnore: ["feature-flags.spec.ts", "cookbooks/labs/**"],
   fullyParallel: false,
   workers: Number.isFinite(WORKERS) && WORKERS > 0 ? WORKERS : DEFAULT_WORKERS,
   timeout: 90_000,

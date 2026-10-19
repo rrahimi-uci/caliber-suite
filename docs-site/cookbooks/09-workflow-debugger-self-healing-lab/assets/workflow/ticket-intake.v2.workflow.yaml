@@ -1,0 +1,219 @@
+schema_version: 1
+workflow_id: refund-intake
+name: refund-intake
+description: Validate a refund ticket, look the account up, and decide approve or manual review. Version 2, the patched one. It normalizes what it can, rejects what it must, and degrades when the account service is down.
+runtime:
+  sdk: openai-agents-python
+  sdk_version_policy: runtime-pinned
+  compiler_version: caliber-workflow-compiler-v1
+  default_model_ref: CALIBER_WORKFLOW_DEFAULT_MODEL
+  session:
+    type: none
+nodes:
+  start:
+    id: start
+    type: start
+    outputs:
+      user_message:
+        type: string
+  validate:
+    id: validate
+    type: python_code
+    timeout_seconds: 5
+    inputs:
+      input:
+        type: string
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+    code: |
+      CURRENCIES = {"USD": "USD", "EUR": "EUR", "GBP": "GBP", "$": "USD", "\u20ac": "EUR", "\u00a3": "GBP"}
+
+      def _amount(value):
+          if isinstance(value, bool):
+              return None, "amount must be a number, got " + repr(value)
+          if isinstance(value, (int, float)):
+              return value, None
+          if isinstance(value, str):
+              text = value.strip()
+              for symbol in ("$", "\u20ac", "\u00a3", "USD", "EUR", "GBP"):
+                  text = text.replace(symbol, "")
+              text = text.strip()
+              if re.match(r"^[0-9]+,[0-9]{1,2}$", text):
+                  return None, "amount " + repr(value) + " is ambiguous: comma may be a decimal separator"
+              text = text.replace(",", "")
+              if re.match(r"^[0-9]+(\.[0-9]+)?$", text):
+                  return (float(text) if "." in text else int(text)), None
+          return None, "amount must be a number, got " + repr(value)
+
+      def run_python_node(input=None, context=None, inputs=None, run_input=''):
+          raw = input if input is not None else run_input
+          errors = []
+          try:
+              ticket = json.loads(raw) if isinstance(raw, str) else raw
+          except Exception:
+              return {"ok": False, "errors": ["ticket is not valid JSON"]}
+          if not isinstance(ticket, dict):
+              return {"ok": False, "errors": ["ticket must be a JSON object"]}
+          for key in ("ticket_id", "account_id", "amount", "currency", "reason", "order_ref"):
+              if key not in ticket:
+                  errors.append("missing required field '" + key + "'")
+          out = {"ticket_id": ticket.get("ticket_id")}
+          if "account_id" in ticket:
+              account_id = str(ticket["account_id"]).strip().upper()
+              if not re.match(r"^A-[0-9]{4}$", account_id):
+                  errors.append("account_id must look like A-1234, got " + repr(ticket["account_id"]))
+              out["account_id"] = account_id
+          if "amount" in ticket:
+              amount, problem = _amount(ticket["amount"])
+              if problem:
+                  errors.append(problem)
+              elif amount <= 0:
+                  errors.append("amount must be greater than 0, got " + repr(ticket["amount"]))
+              out["amount"] = amount
+          if "currency" in ticket:
+              currency = CURRENCIES.get(str(ticket["currency"]).strip().upper()) or CURRENCIES.get(str(ticket["currency"]).strip())
+              if currency is None:
+                  errors.append("unsupported currency " + repr(ticket["currency"]))
+              out["currency"] = currency
+          if "reason" in ticket:
+              if not str(ticket["reason"]).strip():
+                  errors.append("reason must not be empty")
+              out["reason"] = str(ticket["reason"]).strip()
+          if "order_ref" in ticket:
+              out["order_ref"] = str(ticket["order_ref"]).strip()
+          out["ok"] = not errors
+          if errors:
+              out["errors"] = errors
+          return out
+  check_reference:
+    id: check_reference
+    type: python_code
+    timeout_seconds: 2
+    inputs:
+      ticket:
+        type: structured
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+      query:
+        type: structured
+    code: |
+      ORDER_REF = re.compile(r"^[A-Z0-9]+(?:-[A-Z0-9]+)*-?$")
+
+      def run_python_node(input=None, context=None, inputs=None, run_input=''):
+          ticket = dict(inputs.get("ticket") or {})
+          ref = str(ticket.get("order_ref") or "")
+          ticket["reference_valid"] = len(ref) <= 64 and bool(ORDER_REF.match(ref))
+          ticket["query"] = {"account_id": ticket["account_id"]} if ticket.get("ok") else {}
+          return ticket
+  lookup:
+    id: lookup
+    type: api_request
+    mode: url
+    url: http://127.0.0.1:8780/accounts
+    method: GET
+    timeout_seconds: 3
+    inputs:
+      payload:
+        type: structured
+    outputs:
+      text:
+        type: string
+      response:
+        type: structured
+      metadata:
+        type: structured
+  decide:
+    id: decide
+    type: python_code
+    timeout_seconds: 5
+    inputs:
+      ticket:
+        type: structured
+      account:
+        type: structured
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+    code: |
+      LIMITS = {"standard": 200, "premium": 500}
+
+      def run_python_node(input=None, context=None, inputs=None, run_input=''):
+          ticket = inputs["ticket"]
+          if not ticket.get("ok"):
+              return {
+                  "ticket_id": ticket.get("ticket_id"),
+                  "decision": "rejected_input",
+                  "reason_code": "INVALID_TICKET",
+                  "errors": ticket.get("errors", []),
+              }
+          response = inputs["account"]
+          account = response.get("json")
+          if response.get("status_code") != 200 or not isinstance(account, dict) or account.get("tier") not in LIMITS:
+              return {
+                  "ticket_id": ticket["ticket_id"],
+                  "decision": "manual_review",
+                  "reason_code": "ACCOUNT_LOOKUP_FAILED",
+                  "upstream_status": response.get("status_code"),
+                  "amount": ticket["amount"],
+                  "currency": ticket["currency"],
+              }
+          if account.get("status") != "active":
+              decision, reason = "manual_review", "ACCOUNT_NOT_ACTIVE"
+          elif ticket["amount"] > LIMITS[account["tier"]]:
+              decision, reason = "manual_review", "AMOUNT_OVER_LIMIT"
+          elif not ticket["reference_valid"]:
+              decision, reason = "manual_review", "ORDER_REF_UNVERIFIED"
+          else:
+              decision, reason = "approve", "ELIGIBLE_AUTO_APPROVE"
+          return {
+              "ticket_id": ticket["ticket_id"],
+              "decision": decision,
+              "reason_code": reason,
+              "amount": ticket["amount"],
+              "currency": ticket["currency"],
+          }
+  final:
+    id: final
+    type: output
+    inputs:
+      response:
+        type: string
+edges:
+  - id: e_start_validate
+    from: start
+    to: validate
+    map:
+      user_message: input
+  - id: e_validate_reference
+    from: validate
+    to: check_reference
+    map:
+      result: ticket
+  - id: e_reference_lookup
+    from: check_reference
+    to: lookup
+    map:
+      query: payload
+  - id: e_reference_decide
+    from: check_reference
+    to: decide
+    map:
+      result: ticket
+  - id: e_lookup_decide
+    from: lookup
+    to: decide
+    map:
+      response: account
+  - id: e_decide_final
+    from: decide
+    to: final
+    map:
+      text: response

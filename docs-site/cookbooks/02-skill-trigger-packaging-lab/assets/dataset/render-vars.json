@@ -7,5 +7,16 @@
   "expected": {
     "unresolved_variables": []
   },
-  "notes": "Paste the `variables` object into Skills -> Render Preview (POST /skills/{id}/test-render {variables:{...}}). All three render_contract variables (user_message, audience, policy_context) are supplied, so the response's `unresolved_variables` must be []. The rendered output should read as a calm reply that cites [KB-1042]/[KB-1007] and avoids a fixed date."
+  "notes": "Paste the `variables` object into Skills -> Render Preview (POST /skills/{id}/test-render {variables:{...}}). All three render_contract variables (user_message, audience, policy_context) are supplied, so the response's `unresolved_variables` must be []. The rendered output should read as a calm reply that cites [KB-1042]/[KB-1007] and avoids a fixed date. The `partial` block supplies only `audience`; Render Preview then reports `policy_context` and `user_message` as unresolved and leaves their `{{ ... }}` placeholders in the output.",
+  "partial": {
+    "variables": {
+      "audience": "non-technical customer"
+    },
+    "expected": {
+      "unresolved_variables": [
+        "policy_context",
+        "user_message"
+      ]
+    }
+  }
 }

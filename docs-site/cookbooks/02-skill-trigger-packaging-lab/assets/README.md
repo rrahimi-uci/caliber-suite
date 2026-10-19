@@ -1,64 +1,37 @@
-# SCN-02 assets — create these
+# SCN-02 assets
 
-Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
+Concrete files for [the recipe](../README.md). All of them are read by the example script, the browser spec and
+`caliber/tests/test_cookbook_02_trigger_dataset.py`, so what is written here is what was run.
 
-| # | Artifact | File | Create via |
+| # | Artifact | File | Used by |
 | --- | --- | --- | --- |
-| 1 | Skill `support-tone-and-citation` | [`skills/support-tone-and-citation.md`](skills/support-tone-and-citation.md) | `Skills → Build Skill`. Paste **summary** (the frontmatter `summary` line — the selector matches query words against it, together with the skill's trigger phrases, name, and tags), **content** (everything below the frontmatter), `category`, `tags`. API: `POST /skills {name, summary, content, category, tags}` |
-| 2 | Render-vars sample | [`dataset/render-vars.json`](dataset/render-vars.json) | `Skills → <skill> → Render Preview`. Paste the `variables` object. API: `POST /skills/{id}/test-render {variables:{...}}` |
-| 3 | Trigger/selection cases | [`dataset/trigger-cases.jsonl`](dataset/trigger-cases.jsonl) | `Skills → <skill> → Trigger Tests`. Run each row's `inputs`. API: `POST /skills/{id}/test-selection {user_message, artifact_type?, session_goal?}` |
+| 1 | The skill `support-tone-and-citation`: front matter (`name`, `summary`, `category`, `tags`, the six starter `should_not_trigger` phrases, `render_variables`) and the instructions | [`skills/support-tone-and-citation.md`](skills/support-tone-and-citation.md) | `Skills > Build Skill` (wizard), or `POST /skills` with the front matter as fields and the body as `content` |
+| 2 | The tightened trigger phrases (3 `should_trigger`, 14 `should_not_trigger`) | [`skills/trigger-phrases.json`](skills/trigger-phrases.json) | Skill detail page > Edit > Metadata JSON, or `PATCH /skills/{id}` with `skill_metadata` |
+| 3 | The 40-case trigger test set | [`dataset/trigger-cases.jsonl`](dataset/trigger-cases.jsonl) | `POST /skills/{id}/test-selection` per row (UI: Trigger Tests, or Scenario Sets then Run) |
+| 4 | Render variables, and a partial set | [`dataset/render-vars.json`](dataset/render-vars.json) | `Skills > <skill> > Render Preview`, or `POST /skills/{id}/test-render` |
+| 5 | Invalid skill payloads and the reason each must be refused | [`skills/invalid-skills.json`](skills/invalid-skills.json) | `POST /skills` (the failure path) |
 
-Then exercise the full recipe in [`../README.md`](../README.md): Render Preview →
-Trigger Tests (positive + negative) → package export (**Download ZIP**;
-`GET /skills/{id}/package.zip`) → Calibrate (queued, capture job id) → Bind.
-(Re-import is UI-native on the standalone Skill Detail page: choose **Rename
-import**, enter `support-tone-citation-copy`, and choose **Import ZIP**. The UI
-sends multipart `POST
-/ajax-api/2.0/mlflow/caliber/skills/import-package.zip` with `file`,
-`conflict_strategy=rename`, and `rename_to=support-tone-citation-copy`.)
+There is **no `judges/` folder**: skill trigger quality is graded by a deterministic selector, not a judge.
 
-## No judges folder here
+## Trigger cases (`dataset/trigger-cases.jsonl`)
 
-Unlike SCN-01, there is **no `judges/` folder**. Skill trigger quality is graded
-by **`SelectionPrecision`, a deterministic scorer** — `POST /skills/{id}/test-selection`
-runs a deterministic selector (no LLM) and returns `is_selected`,
-`selection_score`, `selection_reason`. So instead of judge instructions, the
-selection expectations are documented below and encoded as the
-`expectations.is_selected` field in [`dataset/trigger-cases.jsonl`](dataset/trigger-cases.jsonl).
+One case per line: `{"id", "tags", "inputs": {"user_message", "artifact_type"?, "session_goal"?}, "expectations": {"is_selected"}}`. `inputs` is the
+`POST /skills/{id}/test-selection` body.
 
-### Selection expectations (what `SelectionPrecision` checks)
+- **Positive** (`is_selected: true`, 19): customer-facing support phrasing: refunds, billing disputes, account lockouts, plan changes, declined payments,
+  closing an account, hand-off notes. Three are `edge` cases (`T23` is the bare word `refund?`, `T24` and `T25` are terse or urgent).
+- **Negative** (`is_selected: false`, 21): engineering and unrelated work: key rotation, stack traces, database indexes, SQL migrations, latency metrics, unit tests,
+  a Kubernetes crash loop, translation, SQL joins, a colour palette, a blog post, general knowledge.
+- **Near misses** (8 of the negatives: `T27`-`T32`, `T34`, `T35`): engineering or internal requests that use the same words as support work (billing, invoice, customer, refund, ticket)
+  and fool a keyword selector.
+- The original twelve cases keep their ids `T01`-`T12`. An earlier audit found `T10`-`T12` selecting the skill (the summary names `schema`, `code`, `API` only to exclude them,
+  but the selector counts any summary word); the `should_not_trigger` phrases in the skill file fix them, verified with the real selector.
 
-- **Positive (`is_selected: true`)** — customer-facing support phrasing: refunds,
-  billing disputes, account lockout, plan changes, "how do I…/where is…" from a
-  customer, "draft a reply", "respond to the customer". 6 rows (`T01`–`T06`).
-- **Negative (`is_selected: false`)** — engineering/code/API/infra/schema work:
-  "rotate the JWT signing key", "fix this Python stack trace", "DB index
-  strategy", "SQL migration plan", "deployment latency metrics", "write a unit
-  test". 6 rows (`T07`–`T12`). The `summary` is deliberately narrow, and the
-  frontmatter's `should_not_trigger` phrases (entered in the wizard's **Triggers**
-  step) make sure these do **not** trigger.
-- **Gate.** Trigger accuracy ≥ `0.95`; and (at the API/verification level)
-  source-vs-imported decisions identical (`package_round_trip_success = 1.0`) — see
-  [`../verification.yaml`](../verification.yaml). The UI recipe itself ends at export
-  (Download ZIP); the round-trip is a backend check, not a UI step.
-- **If a negative selects (false positive),** add a `should_not_trigger` phrase
-  (an exclusion match scores 0) or narrow the **`summary`**, tags, and name; the
-  long-form content is never read by the selector. Then re-run the cases.
+What the real selector does with them (the README's table): the starter phrases (the six in the skill file) get **30 of 40** right (false positives `T27 T28 T29 T30 T31 T32 T34 T35`,
+false negatives `T14 T23`); `trigger-phrases.json` gets **40 of 40**, with and without `artifact_type`/`session_goal`.
 
-## Conventions used across the pack
+## Conventions
 
-- **Skill files** (`skills/*.md`): SKILL.md style — YAML frontmatter (`name`
-  [kebab-case, must **not** start with `claude`/`anthropic`], `summary`,
-  `category`, `tags`, and the `render_variables` it expects) then the literal
-  skill content. Paste the content below the frontmatter into the authoring
-  textarea; render variables are `{{ snake_case }}`. The `summary` is the
-  one-line text the deterministic selector matches query words against — keep it
-  narrow — and `should_not_trigger` lists the exclusion phrases for the Triggers step.
-- **Dataset files** (`dataset/*.jsonl`): one example per line,
-  `{"id", "tags", "inputs", "expectations"}`. For trigger tests, `inputs` is the
-  `POST /skills/{id}/test-selection` body (`user_message`, optional
-  `artifact_type`, optional `session_goal`) and `expectations` is
-  `{"is_selected": true|false}`.
-- **Render-vars** (`dataset/render-vars.json`): a sample `variables` object for
-  Render Preview plus the `expected.unresolved_variables` it should return
-  (empty when every `render_variables` entry is supplied).
+- **Skill file**: SKILL.md style. Front matter `name` (kebab-case, not starting with `claude`/`anthropic`), `summary`, `category`, `tags`, `should_not_trigger`, `render_variables`; then the literal
+  content. Variables are `{{ snake_case }}`. The `summary` is the one-line text the selector matches against; keep it narrow.
+- **Phrases match by substring** (`refund` matches `refunds`), so never use a short phrase (`api` would match `rapid`).

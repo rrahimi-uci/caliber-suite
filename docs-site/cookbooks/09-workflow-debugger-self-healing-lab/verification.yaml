@@ -1,26 +1,25 @@
-# Verified — see ../FEASIBILITY.md.
-feasibility:
-  - RootCauseQuality is a real LLM judge (optional); replay_before_patch and post-fix validation are operator-enforced in the Run Monitor (no auto gate). Patching is manual in this recipe.
-  - monitoring.traces below are evidence labels, not literal span names.
+# Verified by caliber/tests/test_cookbook_09_self_healing.py (offline, real runtime), the script
+# sdk/caliber-sdk/examples/cookbooks/cookbook_09_self_healing_workflows.py (live stack) and the spec
+# caliber/caliber-ui/e2e/cookbooks/labs/09-workflow-debugger.spec.ts (live stack, browser).
 evaluation:
-  judges:
-    - name: RootCauseQuality
-      type: custom_judge
-      criteria: diagnosis cites concrete failing evidence
   rule_checks:
-    - replay_before_patch_required
-    - publish_requires_post_fix_validation
+    - v1_fails_exactly_the_documented_tickets_at_the_documented_nodes
+    - failed_run_leaves_an_error_trace_naming_the_node
+    - retry_fails_at_the_same_node
+    - v2_completes_every_ticket
+    - v2_output_identical_to_v1_for_every_ticket_v1_completed
+    - alias_rollback_restores_the_previous_version
+    - prod_refuses_a_version_with_no_deploy_gate
 quality_gates:
-  replay_success_rate: 1.0
-  post_fix_regression_pass_rate_min: 0.95
+  v1_failed_tickets: 24
+  v2_failed_tickets: 0
+  regression_slice_identical: 11
 monitoring:
   traces:
-    - failing_run
-    - replay_session
+    - failing_run (ERROR root span, ERROR node span)
+    - retry_run (attempt 2 of 2)
     - patched_run
   metrics:
-    - time_to_root_cause
-    - time_to_verified_fix
+    - tickets_failed_by_node
 feedback_loop:
-  - convert every major incident fix into regression tests.
-  - improve debugger metadata when diagnosis quality is low.
+  - convert every incident into a ticket in the dataset, with the decision it should have reached.

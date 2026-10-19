@@ -5,13 +5,13 @@
     {
       "capability_key": "review_queue.create",
       "tier": "mutate",
-      "interaction": "input form (Aria needs information): enter name + questions from review-queues/agent-reply-review.queue.json, then Approve"
+      "interaction": "input form (Aria needs information): enter name, description, reviewers and questions from review-queues/agent-reply-review.queue.json, then Approve"
     },
     {
       "capability_key": "review_queue.add_items",
       "tier": "mutate",
-      "interaction": "input form for trace_ids (enqueue.json; queue_id is linked from review_queue.create) OR Skip step (queue-first, enqueue-later)"
+      "interaction": "input form: enter trace_ids (and optionally assigned_to) from enqueue.json; queue_id is wired from review_queue.create and is not asked for. Then Approve, or Skip step / Deny if you have no traces yet"
     }
   ],
-  "notes": "Both steps come from the single domain 'review_queue' (the needle 'review queue' in the goal). review_queue.create raises an input interaction for name + questions; add_items' queue_id is linked (depends_on = [review_queue.create]) so its input interaction asks for trace_ids only. Under autonomy=ask_each each step also raises an Approve/Deny permission interaction. Skipping or denying add_items marks that step skipped; the queue from review_queue.create still exists."
+  "notes": "Both steps come from the one domain word 'review queue'. add_items depends on create (its queue_id input is {$from_step, path: queue_id}). Under autonomy=ask_each every step raises an input form and then an Approve/Deny prompt; under approve_plan and auto_guarded only the input forms appear."
 }

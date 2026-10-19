@@ -1,0 +1,11 @@
+Tokyo Precision Parts KK
+INVOICE
+Invoice No: TP-20260317-02
+Invoice Date: 2026-03-17
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+10    Precision bearing set                      ¥4,800       ¥48,000
+6     Spindle oil 1 L                            ¥1,250        ¥7,500
+
+Total                                              ¥55,500

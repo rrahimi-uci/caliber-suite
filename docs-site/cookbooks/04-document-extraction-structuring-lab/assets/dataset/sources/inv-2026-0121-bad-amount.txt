@@ -1,0 +1,11 @@
+Lakeside Catering
+INVOICE
+Invoice No: LC-3341
+Invoice Date: 2026-03-12
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+10    Lunch boxes                                  $9.50        $95.00
+1     Venue surcharge                                N/A           N/A
+
+Total                                            $145.00

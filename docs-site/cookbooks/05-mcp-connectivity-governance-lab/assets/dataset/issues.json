@@ -1,0 +1,353 @@
+[
+ {
+  "repo": "acme/payments-api",
+  "number": 1,
+  "title": "Refunds over $10,000 time out",
+  "state": "open",
+  "labels": [
+   "bug",
+   "payments"
+  ],
+  "author": "priya"
+ },
+ {
+  "repo": "acme/payments-api",
+  "number": 2,
+  "title": "Add idempotency key to POST /v1/charges",
+  "state": "open",
+  "labels": [
+   "enhancement",
+   "payments"
+  ],
+  "author": "dkim"
+ },
+ {
+  "repo": "acme/payments-api",
+  "number": 3,
+  "title": "Webhook retries are not exponential",
+  "state": "open",
+  "labels": [
+   "bug",
+   "webhooks"
+  ],
+  "author": "mlopez"
+ },
+ {
+  "repo": "acme/payments-api",
+  "number": 4,
+  "title": "Support 3DS2 challenge flow",
+  "state": "open",
+  "labels": [
+   "enhancement",
+   "payments"
+  ],
+  "author": "priya"
+ },
+ {
+  "repo": "acme/payments-api",
+  "number": 5,
+  "title": "Document sandbox rate limits",
+  "state": "closed",
+  "labels": [
+   "docs"
+  ],
+  "author": "jchen"
+ },
+ {
+  "repo": "acme/payments-api",
+  "number": 6,
+  "title": "Null pointer in currency conversion for JPY",
+  "state": "closed",
+  "labels": [
+   "bug"
+  ],
+  "author": "samir"
+ },
+ {
+  "repo": "acme/payments-api",
+  "number": 7,
+  "title": "Paginate GET /v1/refunds",
+  "state": "open",
+  "labels": [
+   "api",
+   "enhancement"
+  ],
+  "author": "dkim"
+ },
+ {
+  "repo": "acme/ledger-core",
+  "number": 1,
+  "title": "Flaky test: test_ledger_reconcile",
+  "state": "open",
+  "labels": [
+   "flaky",
+   "tests"
+  ],
+  "author": "samir"
+ },
+ {
+  "repo": "acme/ledger-core",
+  "number": 2,
+  "title": "Reconciliation drifts by one cent on partial refunds",
+  "state": "closed",
+  "labels": [
+   "bug",
+   "ledger"
+  ],
+  "author": "mlopez"
+ },
+ {
+  "repo": "acme/ledger-core",
+  "number": 3,
+  "title": "Upgrade to Go 1.24",
+  "state": "closed",
+  "labels": [
+   "chore"
+  ],
+  "author": "jchen"
+ },
+ {
+  "repo": "acme/ledger-core",
+  "number": 4,
+  "title": "Expose per-account balance history",
+  "state": "closed",
+  "labels": [
+   "enhancement"
+  ],
+  "author": "priya"
+ },
+ {
+  "repo": "acme/ledger-core",
+  "number": 5,
+  "title": "Replace advisory locks with row versioning",
+  "state": "closed",
+  "labels": [
+   "performance"
+  ],
+  "author": "dkim"
+ },
+ {
+  "repo": "acme/checkout-web",
+  "number": 1,
+  "title": "Apple Pay button misaligned on Safari 17",
+  "state": "open",
+  "labels": [
+   "bug",
+   "ui"
+  ],
+  "author": "jchen"
+ },
+ {
+  "repo": "acme/checkout-web",
+  "number": 2,
+  "title": "Dashboard of saved cards shows duplicate rows",
+  "state": "open",
+  "labels": [
+   "bug",
+   "ui"
+  ],
+  "author": "priya"
+ },
+ {
+  "repo": "acme/checkout-web",
+  "number": 3,
+  "title": "Add a gift-card field",
+  "state": "open",
+  "labels": [
+   "enhancement"
+  ],
+  "author": "samir"
+ },
+ {
+  "repo": "acme/checkout-web",
+  "number": 4,
+  "title": "Address autocomplete ignores locale",
+  "state": "open",
+  "labels": [
+   "bug"
+  ],
+  "author": "mlopez"
+ },
+ {
+  "repo": "acme/checkout-web",
+  "number": 5,
+  "title": "Reduce bundle size below 250 kB",
+  "state": "closed",
+  "labels": [
+   "performance"
+  ],
+  "author": "dkim"
+ },
+ {
+  "repo": "acme/checkout-web",
+  "number": 6,
+  "title": "Typo on the order confirmation page",
+  "state": "closed",
+  "labels": [
+   "docs",
+   "good first issue"
+  ],
+  "author": "jchen"
+ },
+ {
+  "repo": "acme/fraud-rules",
+  "number": 1,
+  "title": "Velocity rule double counts retried charges",
+  "state": "open",
+  "labels": [
+   "bug",
+   "fraud"
+  ],
+  "author": "mlopez"
+ },
+ {
+  "repo": "acme/fraud-rules",
+  "number": 2,
+  "title": "Allow rules to be dry-run against yesterday's traffic",
+  "state": "closed",
+  "labels": [
+   "enhancement"
+  ],
+  "author": "samir"
+ },
+ {
+  "repo": "acme/fraud-rules",
+  "number": 3,
+  "title": "Add a rule for mismatched billing and shipping country",
+  "state": "closed",
+  "labels": [
+   "enhancement",
+   "fraud"
+  ],
+  "author": "priya"
+ },
+ {
+  "repo": "acme/fraud-rules",
+  "number": 4,
+  "title": "Rules loader crashes on empty file",
+  "state": "closed",
+  "labels": [
+   "bug"
+  ],
+  "author": "dkim"
+ },
+ {
+  "repo": "acme/fraud-rules",
+  "number": 5,
+  "title": "Pin scikit-learn to 1.5",
+  "state": "closed",
+  "labels": [
+   "chore"
+  ],
+  "author": "jchen"
+ },
+ {
+  "repo": "acme/docs",
+  "number": 1,
+  "title": "Runbook for failing payouts is out of date",
+  "state": "open",
+  "labels": [
+   "docs",
+   "oncall"
+  ],
+  "author": "samir"
+ },
+ {
+  "repo": "acme/docs",
+  "number": 2,
+  "title": "Add a glossary of ledger terms",
+  "state": "open",
+  "labels": [
+   "docs",
+   "enhancement"
+  ],
+  "author": "priya"
+ },
+ {
+  "repo": "acme/docs",
+  "number": 3,
+  "title": "Broken link in the onboarding guide",
+  "state": "open",
+  "labels": [
+   "docs",
+   "good first issue"
+  ],
+  "author": "jchen"
+ },
+ {
+  "repo": "acme/docs",
+  "number": 4,
+  "title": "Document the MCP gateway request flow",
+  "state": "open",
+  "labels": [
+   "docs",
+   "mcp"
+  ],
+  "author": "mlopez"
+ },
+ {
+  "repo": "acme/docs",
+  "number": 5,
+  "title": "Archive the legacy billing pages",
+  "state": "closed",
+  "labels": [
+   "docs",
+   "chore"
+  ],
+  "author": "dkim"
+ },
+ {
+  "repo": "acme/mcp-gateway",
+  "number": 1,
+  "title": "Timeouts are not propagated to stdio servers",
+  "state": "open",
+  "labels": [
+   "bug",
+   "mcp"
+  ],
+  "author": "mlopez"
+ },
+ {
+  "repo": "acme/mcp-gateway",
+  "number": 2,
+  "title": "Per-tool rate limits",
+  "state": "closed",
+  "labels": [
+   "enhancement",
+   "mcp"
+  ],
+  "author": "dkim"
+ },
+ {
+  "repo": "acme/mcp-gateway",
+  "number": 3,
+  "title": "Log the caller identity on every tool call",
+  "state": "closed",
+  "labels": [
+   "security",
+   "mcp"
+  ],
+  "author": "samir"
+ },
+ {
+  "repo": "acme/mcp-gateway",
+  "number": 4,
+  "title": "Refuse tools without an explicit classification",
+  "state": "closed",
+  "labels": [
+   "security",
+   "mcp"
+  ],
+  "author": "priya"
+ },
+ {
+  "repo": "acme/mcp-gateway",
+  "number": 5,
+  "title": "Return structured errors for blocked tools",
+  "state": "closed",
+  "labels": [
+   "enhancement"
+  ],
+  "author": "jchen"
+ }
+]

@@ -2,40 +2,32 @@
   "steps": [
     {
       "where": "Integrations › Plans",
-      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_ARIA=true</code> on the CALIBER server and restart it; Aria and the Plans page are off by default. In the left sidebar, under the <strong>Integrations</strong> group (the page carries a <strong>Preview</strong> badge), click <strong>Plans</strong>. This opens Aria's goal-planner, where you hand Aria one plain-English sentence and it decomposes it into a plan of platform steps you can review before anything runs.",
-      "see": "The <strong>Aria Plans</strong> page with a <em>Goal</em> text box, an <em>Autonomy</em> dropdown, a <em>Decompose goal</em> button, and a table of existing plans below."
-    },
-    {
-      "where": "Integrations › Plans › New goal",
-      "do": "Type Aria's one-line intent into the <strong>Goal</strong> box. Use the canonical wording verbatim — the literal phrase <code>review queue</code> is what makes Aria's default planner propose the review-queue steps. Then open the <strong>Autonomy</strong> dropdown and choose <strong>Stop before each change</strong> (this is the <code>ask_each</code> level — Aria pauses for your OK before every step that changes anything).",
+      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default) and the 30 traces from <code>seed_traces.py</code> must exist in MLflow. In the sidebar open <strong>Integrations</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/13-aria-review-governance-queue/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>. The planner is rules, not a model: it looks for the words <code>review queue</code>.",
       "fill": [
         [
           "Goal",
-          "Set up a review queue for human labeling of agent replies for safety, citation, and tone. <span style=\"color:#888\">(canonical intent — copy from <a href=\"../cookbooks/13-aria-review-governance-queue/assets/intent.md\">intent.md</a>)</span>"
+          "Set up a review queue for human labeling of agent replies for safety, citation, and tone."
         ],
         [
           "Autonomy",
-          "Stop before each change <span style=\"color:#888\">(= ask_each)</span>"
+          "Stop before each change"
         ]
       ],
       "click": "Decompose goal",
-      "see": "The button shows <em>Decomposing…</em>, then Aria opens the new plan's detail page automatically. The breadcrumb reads <code>Plans › PLAN-…</code> and the status badge says <strong>DRAFT</strong>.",
-      "asset": "Aria plan (draft)"
+      "see": "The plan opens with the status <code>draft</code>.",
+      "asset": "Draft plan",
+      "assetlink": [
+        {
+          "href": "../cookbooks/13-aria-review-governance-queue/assets/intent.md",
+          "label": "intent.md"
+        }
+      ]
     },
     {
-      "where": "Integrations › Plans › PLAN-… (draft)",
-      "do": "Read the <strong>Plan steps</strong> list and confirm Aria decomposed the one sentence into exactly the two steps you expect. Both come from the single domain <code>review_queue</code> (the needle \"review queue\" in your goal). Compare against <a href=\"../cookbooks/13-aria-review-governance-queue/assets/expected-plan.json\">expected-plan.json</a>.",
-      "fill": [
-        [
-          "Step 1",
-          "<code>review_queue.create</code> — tier mutate"
-        ],
-        [
-          "Step 2",
-          "<code>review_queue.add_items</code> — tier mutate (same domain, so it is proposed too)"
-        ]
-      ],
-      "see": "A numbered <strong>Plan steps</strong> list with row 1 <code>review_queue.create</code> and row 2 <code>review_queue.add_items</code>, each showing a <em>PENDING</em> status badge.",
+      "where": "Integrations › Plans › (draft plan)",
+      "do": "Read <strong>Plan steps</strong>. Aria drew <code>Create review queue</code> (<code>review_queue.create</code>) and <code>Enqueue traces for review</code> (<code>review_queue.add_items</code>): a review queue always brings both. The second reads <em>depends on 1 prior step(s)</em>. Nothing has run. Compare with <a href=\"../cookbooks/13-aria-review-governance-queue/assets/expected-plan.json\">expected-plan.json</a>.",
+      "see": "Two pending steps; the enqueue step depends on the queue step.",
+      "asset": "Reviewed plan (2 steps)",
       "assetlink": [
         {
           "href": "../cookbooks/13-aria-review-governance-queue/assets/expected-plan.json",
@@ -44,20 +36,15 @@
       ]
     },
     {
-      "where": "Integrations › Plans › PLAN-… (draft)",
-      "do": "Approve the <em>shape</em> of the plan (you are signing off on which steps Aria will run, not running them yet). Click <strong>Approve plan</strong> in the top-right of the plan header.",
+      "where": "Integrations › Plans › (draft plan)",
+      "do": "Press <strong>Approve plan</strong>.",
       "click": "Approve plan",
-      "see": "The status badge flips from <strong>DRAFT</strong> to <strong>APPROVED</strong>, and an <strong>Execute</strong> button appears in the header."
+      "see": "The status becomes <code>approved</code> and an <strong>Execute</strong> button appears.",
+      "asset": "Approved plan"
     },
     {
-      "where": "Integrations › Plans › PLAN-… (approved)",
-      "do": "Start running the plan. Click <strong>Execute</strong>. Aria reaches the first step, <code>review_queue.create</code>, but the planner could not know your queue's name or question schema, so it pauses on a violet <strong>Aria needs information</strong> form with a field per capability input (<em>name</em> and <em>questions</em> are required) and two buttons, <strong>Continue plan</strong> and <strong>Skip step</strong>.",
-      "click": "Execute",
-      "see": "The <code>review_queue.create</code> row shows <em>WAITING INPUT</em> and an <strong>Aria needs information</strong> form is open above the step list."
-    },
-    {
-      "where": "Integrations › Plans › PLAN-… (input form)",
-      "do": "Fill the form with the spec from <a href=\"../cookbooks/13-aria-review-governance-queue/assets/review-queues/agent-reply-review.queue.json\">agent-reply-review.queue.json</a> — these are the <code>review_queue.create</code> inputs. <strong>questions</strong> is a JSON array (the form shows a text area and rejects invalid JSON). Click <strong>Continue plan</strong>; Aria merges and validates the inputs, then — because autonomy is <em>ask_each</em> — raises an <strong>Aria needs your approval</strong> prompt for the step. Click <strong>Approve</strong>.",
+      "where": "Integrations › Plans › (approved plan)",
+      "do": "Press <strong>Execute</strong>. Aria stops on <strong>Aria needs information</strong> (<em>Provide the required inputs for step 1: Create review queue.</em>). Fill it from <a href=\"../cookbooks/13-aria-review-governance-queue/assets/review-queues/agent-reply-review.queue.json\">agent-reply-review.queue.json</a>: <strong>questions</strong> and <strong>reviewers</strong> are JSON arrays. Press <strong>Continue plan</strong>; then <strong>Approve</strong> the prompt <em>Approve step 1: Create review queue (review_queue.create)?</em>.",
       "fill": [
         [
           "name",
@@ -65,16 +52,20 @@
         ],
         [
           "description",
-          "Human labeling of agent replies: safety, citation accuracy, and tone. feedback questions log assessments; expectation questions log ground truth onto the trace."
+          "Human labeling of agent replies: safety, citation accuracy, and tone. ..."
         ],
         [
           "questions",
-          "<code>[{\"key\": \"safety\", \"title\": \"Is the reply safe (no harmful, unsafe, or policy-violating content)?\", \"type\": \"pass_fail\", \"required\": true, \"target\": \"feedback\"}, {\"key\": \"severity\", \"title\": \"If unsafe, how severe?\", \"type\": \"categorical\", \"options\": [\"low\", \"medium\", \"high\"], \"required\": false, \"target\": \"feedback\"}, {\"key\": \"citation_ok\", \"title\": \"Are all factual claims correctly cited / supported?\", \"type\": \"pass_fail\", \"required\": true, \"target\": \"feedback\"}, {\"key\": \"tone_ok\", \"title\": \"Is the tone appropriate for the audience?\", \"type\": \"pass_fail\", \"required\": true, \"target\": \"feedback\"}, {\"key\": \"reviewer_notes\", \"title\": \"Reviewer notes\", \"type\": \"text\", \"required\": false, \"target\": \"feedback\"}]</code>"
+          "[{\"key\":\"safety\",\"title\":\"Is the reply safe ...?\",\"type\":\"pass_fail\",\"required\":true,\"target\":\"feedback\"}, ...]"
+        ],
+        [
+          "reviewers",
+          "[\"olga\"]"
         ]
       ],
-      "click": "Continue plan",
-      "see": "After <strong>Approve</strong>, the <code>review_queue.create</code> row shows <em>DONE</em> and the plan moves on to <code>review_queue.add_items</code>.",
-      "asset": "Review queue: agent-reply-review (created by Aria)",
+      "click": "Approve",
+      "see": "The queue step reads <em>done</em> and the plan moves on to the enqueue step.",
+      "asset": "Review queue created by Aria",
       "assetlink": [
         {
           "href": "../cookbooks/13-aria-review-governance-queue/assets/review-queues/agent-reply-review.queue.json",
@@ -83,22 +74,71 @@
       ]
     },
     {
-      "where": "Integrations › Plans › PLAN-… (input form)",
-      "do": "Handle the second step, <code>review_queue.add_items</code>. The planner already linked its <code>queue_id</code> to the queue the previous step created, so the form only asks for <strong>trace ids</strong> (plus optional experiment id and assignee). You have no flagged traces yet (this scenario is queue-first), so click <strong>Skip step</strong>. (With real flagged ids you would paste them as a JSON array — see <a href=\"../cookbooks/13-aria-review-governance-queue/assets/enqueue.json\">enqueue.json</a> — click <strong>Continue plan</strong>, then <strong>Approve</strong>.)",
-      "click": "Skip step",
-      "see": "The <code>review_queue.add_items</code> row shows <strong>SKIPPED</strong> and the plan finishes with status <strong>COMPLETED</strong> (create done, add_items skipped).",
-      "asset": "Plan completed (queue created, enqueue skipped)"
-    },
-    {
-      "where": "Operate › Review Queues › agent-reply-review",
-      "do": "Verify the queue is live and reviewable. Under <strong>Operate</strong>, click <strong>Review Queues</strong>, then click the <strong>agent-reply-review</strong> name to open it. You should see the five questions rendered as a reviewer would answer them. The queue is empty of traces — that is expected (you skipped enqueue). When you have flagged traces, paste their ids into the <strong>Add traces to review</strong> box and click <strong>Enqueue</strong> (optional spec: <a href=\"../cookbooks/13-aria-review-governance-queue/assets/enqueue.json\">enqueue.json</a>).",
-      "see": "The queue detail page (breadcrumb <code>Review Queues › agent-reply-review</code>) with an <em>Add traces to review</em> input + <strong>Enqueue</strong> button, an empty <em>Items (0)</em> list, and the safety/severity/citation_ok/tone_ok/reviewer_notes questions ready to answer.",
+      "where": "Integrations › Plans › (running plan)",
+      "do": "The next form is <em>Provide the required inputs for step 2: Enqueue traces for review.</em> It has no queue id field: that is wired from the first step. Fill <strong>trace ids</strong> with a JSON array of ids (the output of <code>seed_traces.py</code>, or copied from <strong>Operate › Observability</strong>) and <strong>assigned to</strong>, press <strong>Continue plan</strong>, then <strong>Approve</strong>.",
+      "fill": [
+        [
+          "trace ids",
+          "[\"tr-...\", \"tr-...\"]"
+        ],
+        [
+          "assigned to",
+          "admin"
+        ]
+      ],
+      "click": "Approve",
+      "see": "The plan reads <code>completed</code> and both steps <em>done</em>.",
+      "asset": "Completed plan",
       "assetlink": [
         {
           "href": "../cookbooks/13-aria-review-governance-queue/assets/enqueue.json",
           "label": "enqueue.json"
+        },
+        {
+          "href": "../cookbooks/13-aria-review-governance-queue/assets/seed_traces.py",
+          "label": "seed_traces.py"
         }
       ]
+    },
+    {
+      "where": "Operate › Review Queues",
+      "do": "Open <strong>Review Queues</strong>.",
+      "see": "A row <code>agent-reply-review</code> with 5 questions, the reviewer <code>olga</code> and <code>0/5 reviewed</code> (for the five traces you queued).",
+      "asset": "Queue with its items"
+    },
+    {
+      "where": "Operate › Review Queues › (queue)",
+      "do": "Open the queue. <strong>Items (5)</strong> lists the trace ids and the first is selected. Answer the questions for it from <a href=\"../cookbooks/13-aria-review-governance-queue/assets/dataset/agent-replies.jsonl\">agent-replies.jsonl</a> (<code>review</code>): <strong>Pass</strong> or <strong>Fail</strong> for each yes/no question, a severity, a note. Press <strong>Submit review</strong>.",
+      "click": "Submit review",
+      "see": "The trace reads <em>completed</em> in the list and the form moves to the next one; on the list the row reads <code>1/5 reviewed</code>. The answers are now assessments on the trace.",
+      "asset": "One trace reviewed",
+      "assetlink": [
+        {
+          "href": "../cookbooks/13-aria-review-governance-queue/assets/dataset/agent-replies.jsonl",
+          "label": "agent-replies.jsonl"
+        }
+      ]
+    },
+    {
+      "where": "Operate › Review Queues › (queue)",
+      "do": "On another item answer only the safety question and press <strong>Submit review</strong>.",
+      "click": "Submit review",
+      "see": "The red message <code>missing required answer 'citation_ok'</code>; the item stays <em>pending</em>.",
+      "asset": "A review that does not fit is refused"
+    },
+    {
+      "where": "Integrations › Plans",
+      "do": "State the sentence again, press <strong>Decompose goal</strong>, <strong>Approve plan</strong>, <strong>Execute</strong>, and press <strong>Skip step</strong> on the queue's form.",
+      "click": "Skip step",
+      "see": "The plan reads <code>completed</code> and both steps <em>skipped</em>; the second says <code>skipped because step 1 (review_queue.create) was skipped</code>. Nothing was created.",
+      "asset": "Skipping a step skips what depends on it"
+    },
+    {
+      "where": "Integrations › Plans",
+      "do": "State the sentence again, approve and execute, fill <strong>name</strong> with a new name and <strong>questions</strong> with <code>[{\"key\": \"tone\", \"title\": \"Tone?\", \"type\": \"categorical\"}]</code>, and press <strong>Continue plan</strong>. The form accepts it; the queue does not.",
+      "click": "Continue plan",
+      "see": "The plan reads <code>failed</code> and the step shows <code>invalid input: questions.0: categorical questions require a non-empty 'options' list</code>. A failed plan cannot be run again: state the goal again.",
+      "asset": "Failed step with a readable reason"
     }
   ]
 }

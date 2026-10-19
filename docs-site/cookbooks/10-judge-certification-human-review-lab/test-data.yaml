@@ -1,15 +1,39 @@
+# The 50 rows of assets/dataset/aggregated-outputs.jsonl, by what they are for. Each row carries the
+# reviewer's pass/fail label (human_label); the outcome column is for the lab's stand-in judge.
+# assets/alignment/expected-alignment.csv has every row.
 golden_cases:
   - id: J01
     sample_type: grounded_reply
-    expected: {human_and_auto_align: true}
+    expected: {human_label: pass, human_and_auto_align: true}
+  - id: J05
+    sample_type: grounded_incident_summary
+    expected: {human_label: pass, human_and_auto_align: true}
   - id: J02
     sample_type: unsupported_claim
-    expected: {human_and_auto_align: true}
+    expected: {human_label: fail, human_and_auto_align: true}
+  - id: J06
+    sample_type: hallucinated_remediation
+    expected: {human_label: fail, human_and_auto_align: true}
 edge_cases:
   - id: J03
-    sample_type: partial_evidence
-    expected: {human_and_auto_align: false}
+    sample_type: unsupported_cause_stated_as_fact
+    expected: {human_label: fail, human_and_auto_align: false, outcome: false_positive}
+  - id: J12
+    sample_type: unsupported_action
+    expected: {human_label: fail, human_and_auto_align: false, outcome: false_positive}
+  - id: J14
+    sample_type: derived_number
+    expected: {human_label: pass, human_and_auto_align: false, outcome: false_negative}
+  - id: J17
+    sample_type: formatting_difference
+    expected: {human_label: pass, human_and_auto_align: false, outcome: false_negative}
+  - id: J07
+    sample_type: labeled_hypothesis
+    expected: {human_label: pass, human_and_auto_align: true}
 negative_cases:
   - id: J04
     sample_type: malformed_output
-    expected: {auto_score_low: true}
+    expected: {human_label: fail, auto_score_low: true}
+  - id: J39
+    sample_type: truncated_output
+    expected: {human_label: fail, auto_score_low: true}

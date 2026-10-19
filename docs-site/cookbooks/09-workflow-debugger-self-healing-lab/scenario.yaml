@@ -2,35 +2,35 @@ id: SCN-09
 slug: workflow-debugger-self-healing-lab
 name: "Self-Healing Workflows"
 track: build
-objective: Use CALIBER runtime and trace tools to replay, debug, recover, and patch failing workflows while preserving operator control.
+objective: Find why a workflow fails on production-shaped inputs, read the run debugger and trace evidence, patch the workflow as a new version, prove the fix on the same inputs and roll an alias back.
 why_it_matters:
-  - End-to-end systems need fast failure localization and safe remediation.
-  - Clarifies the boundary between assistant suggestions and human-approved changes.
+  - A workflow that passes the tickets you tested fails on the ones production sends, in different nodes and for different reasons.
+  - A retry cannot fix a code fault and propose-patch cannot repair a code node, so the operator writes and proves the fix.
 primary_persona: platform engineer
 secondary_personas:
   - AI engineer
-  - evaluator
 caliber_surfaces:
   - Workflows
-  - Aria
-  - Aria Plans
+  - Run Monitor
+  - Versions
   - Observability
 prerequisites:
-  - One failing workflow run with reproducible inputs.
-  - Access to replay/debugger/recovery surfaces.
-time_to_first_value: 90-150 minutes
+  - A server that can reach the stand-in account service (CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1) and a workflow worker.
+  - The 35 tickets in assets/dataset/failing-inputs.jsonl.
+time_to_first_value: 10-15 minutes
 success_criteria:
-  - Failing run is replayed and root cause isolated.
-  - Proposed patch is validated before publish.
+  - Version 1 completes 11 of 35 tickets and fails 24, at validate (17), check_reference (3) and decide (4).
+  - Version 2 completes all 35 and the 11 tickets version 1 handled give identical output.
+  - The staging alias serves version 2, runs through it succeed, and rollback restores version 1.
 demo_profile:
   recommended_sequence_index: 9
   tier: operations
-  live_demo_minutes: 30-50
-  depends_on:
-    - SCN-07
+  live_demo_minutes: 20-30
+  depends_on: []
   included_in:
     - end_to_end
-    - release_governance
   showcase_capabilities:
-    - replay/debugger/checkpoint recovery loop
-    - evidence-backed patch validation
+    - run debugger and recovery diagnostics
+    - retry lineage
+    - patch as a new workflow version, proved on the same dataset
+workflow_goal: Take a workflow from failing in production to a proved patch and a reversible alias, without a model.

@@ -1,26 +1,38 @@
-# Verified — see ../FEASIBILITY.md.
+# Verified by sdk/caliber-sdk/examples/cookbooks/cookbook_04_document_to_json_pipeline.py against a live server
+# and by caliber/caliber-ui/e2e/cookbooks/labs/04-document-extraction.spec.ts through the web app.
 feasibility:
-  - SchemaFidelity is a DETERMINISTIC check (python_code validator + exact_match/contains_expected scorer), not an LLM judge.
-  - monitoring.traces below are evidence labels, not literal span names.
+  - Every check below is deterministic. There is no judge and no score: the pipeline uses no model, so the simulated-provider default changes nothing.
 evaluation:
   deterministic_checks:
     - name: SchemaFidelity
-      type: deterministic_scorer  # JSON-schema validator + scorer, not an LLM judge
-      criteria: required fields and value types match target schema
+      type: json_schema        # data_transform json_schema node, Draft 2020-12
+      criteria: the record has the required invoice fields with the right types, a total that reconciles with the line items, clean encoding and no truncation
   rule_checks:
-    - object_lineage_present
-    - unsupported_format_returns_readable_error
+    - every_valid_document_lands_at_invoices_slash_invoice_number
+    - every_invalid_document_stops_at_the_approval_gate_with_the_listed_schema_errors
+    - duplicate_invoice_is_refused_by_the_output_bucket
+    - initiator_cannot_approve_their_own_run
+    - rejected_document_writes_nothing
 quality_gates:
-  schema_pass_rate_min: 0.95
-  unsupported_format_error_readability: 1.0
+  extracted_documents_match_expected_json: 16 of 16
+  held_documents_report_exactly_the_expected_errors: 13 of 13
+  duplicates_refused: 1 of 1
 monitoring:
   traces:
-    - object_extract
-    - structuring_prompt
-    - schema_validation
+    - the run debugger's step map: read_document, extract_fields, validate_schema, package_result, route, review_gate
   metrics:
-    - extraction_success_rate
-    - schema_failure_rate
+    - runs_by_status
 feedback_loop:
-  - convert repeated extraction failures into new parsing fixtures.
-  - revise schema or prompt when failures are systemic, not one-off.
+  - turn a document the extractor gets wrong into a new case in assets/dataset/extraction-cases.jsonl and a new rule in extract_invoice_fields.py.
+golden_cases:
+  source: assets/dataset/extraction-cases.jsonl
+  outcome: extracted
+  count: 16
+edge_cases:
+  source: assets/dataset/extraction-cases.jsonl
+  outcome: needs_review
+  count: 13
+negative_cases:
+  source: assets/dataset/extraction-cases.jsonl
+  outcome: duplicate
+  count: 1

@@ -16,6 +16,7 @@ from copy import deepcopy
 from functools import lru_cache
 from typing import Any
 
+from caliber.workflows.cookbook_document_pipeline import document_pipeline_graph
 from caliber.workflows.manifest import parse_manifest
 from caliber.workflows.template_catalog import (
     WORKFLOW_TEMPLATE_ID_MARKER,
@@ -34,13 +35,13 @@ _RECIPES: tuple[dict[str, Any], ...] = (
         "icon": "📥",
         "template_kind": "guarded_pipeline",
         "capabilities": ["prompts", "structured output", "test sets", "calibration"],
-        "prerequisites": ["Configured model provider for live inference"],
+        "prerequisites": ["Configured model provider to score a prompt on the Evaluations page"],
     },
     {
         "id": "02",
         "slug": "precision-skills",
         "title": "Precision Skills",
-        "summary": "Author, render, trigger-test, package, calibrate, and bind a reusable skill.",
+        "summary": "Author a skill, test when it triggers, tighten it, calibrate and apply a candidate, roll back, and package it.",
         "icon": "🧩",
         "template_kind": "single_agent",
         "capabilities": ["skills", "trigger tests", "packages", "calibration"],
@@ -60,21 +61,26 @@ _RECIPES: tuple[dict[str, Any], ...] = (
         "id": "04",
         "slug": "document-to-json-pipeline",
         "title": "Document-to-JSON Pipeline",
-        "summary": "Read a managed document, extract structured data, and validate its JSON Schema.",
+        "summary": (
+            "Read a text document from an object-store bucket, extract and validate invoice JSON, "
+            "write it to an output bucket, and hold invalid documents for approval."
+        ),
         "icon": "📄",
         "template_kind": "guarded_pipeline",
-        "capabilities": ["managed files", "structured output", "JSON Schema", "lineage"],
-        "prerequisites": ["A supported document uploaded to a CALIBER project"],
+        "capabilities": ["object store", "JSON Schema", "run debugger", "approval"],
+        "prerequisites": ["Invoice text documents uploaded to the doc-intake bucket"],
     },
     {
         "id": "05",
         "slug": "governed-tool-connectivity",
         "title": "Governed Tool Connectivity",
-        "summary": "Connect, discover, constrain, invoke, and calibrate an MCP tool.",
+        "summary": "Connect an MCP server, classify its tools before use, prove a refused call never runs, calibrate the read tools, and gate a write behind approval.",
         "icon": "🔌",
         "template_kind": "single_agent",
-        "capabilities": ["MCP", "tool policy", "secrets", "calibration"],
-        "prerequisites": ["Reachable MCP server and any required secret references"],
+        "capabilities": ["MCP", "tool policy", "approval gate", "calibration"],
+        "prerequisites": [
+            "A local MCP server CALIBER may run over stdio (the lab ships one) and the integrations preview flag"
+        ],
     },
     {
         "id": "06",
@@ -84,7 +90,10 @@ _RECIPES: tuple[dict[str, Any], ...] = (
         "icon": "📚",
         "template_kind": "knowledge_rag",
         "capabilities": ["knowledge", "citations", "confidence", "review queues"],
-        "prerequisites": ["Embedding and chat providers for live retrieval and answers"],
+        "prerequisites": [
+            "An S3-compatible object store and the local embedding model "
+            "(answer text and judged metrics are simulated without a chat provider)"
+        ],
     },
     {
         "id": "07",
@@ -94,7 +103,9 @@ _RECIPES: tuple[dict[str, Any], ...] = (
         "icon": "🎧",
         "template_kind": "hitl_review",
         "capabilities": ["routing", "incident lookup", "issue creation", "evaluation"],
-        "prerequisites": ["Configured incident source and issue tracker connector"],
+        "prerequisites": [
+            "A workflow worker with the run queue enabled, and a second account holding the approver scope"
+        ],
     },
     {
         "id": "08",
@@ -109,17 +120,24 @@ _RECIPES: tuple[dict[str, Any], ...] = (
             "fact/hypothesis separation",
             "approval",
         ],
-        "prerequisites": ["Configured deployment and service-health data sources"],
+        "prerequisites": [
+            "A workflow worker with the run queue enabled, a second approver, and the production deploy-gate policy variables from the README"
+        ],
     },
     {
         "id": "09",
         "slug": "self-healing-workflows",
         "title": "Self-Healing Workflows",
-        "summary": "Diagnose a failed run, recover from a checkpoint, patch configuration, and regress.",
+        "summary": (
+            "Find why a workflow fails on bad inputs, patch it as a new version, "
+            "prove the fix on the same inputs, and roll an alias back."
+        ),
         "icon": "🩹",
         "template_kind": "hitl_review",
-        "capabilities": ["checkpoints", "recovery", "debugger", "versioning"],
-        "prerequisites": ["Workflow worker when queued execution is enabled"],
+        "capabilities": ["run debugger", "retry lineage", "versioning", "aliases"],
+        "prerequisites": [
+            "A workflow worker for queued runs, and CALIBER_EGRESS_ALLOWED_HOSTS naming the stand-in account service"
+        ],
     },
     {
         "id": "10",
@@ -129,57 +147,69 @@ _RECIPES: tuple[dict[str, Any], ...] = (
         "icon": "📊",
         "template_kind": "single_agent",
         "capabilities": ["test sets", "judges", "evaluations", "human alignment"],
-        "prerequisites": ["Configured judge provider for model-backed grading"],
+        "prerequisites": [
+            "A real LLM provider with CALIBER_EVAL_PROVIDER=mlflow for judges and evaluations (the simulated default refuses them)"
+        ],
     },
     {
         "id": "11",
         "slug": "release-signoff-factory",
         "title": "Release Signoff Factory",
-        "summary": "Assemble evidence, score release criteria, resolve blockers and waivers, and record signoff.",
+        "summary": "Score release criteria on the server, resolve blockers with accountable waivers, and record an immutable go/no-go (record-only: nothing is deployed).",
         "icon": "🚀",
         "template_kind": "hitl_review",
         "capabilities": ["release candidates", "signoff", "waivers", "Allure evidence"],
-        "prerequisites": ["Evaluation, review, and trace evidence for the release candidate"],
+        "prerequisites": [
+            "Scores and evidence references to enter (CALIBER does not read or verify them) and the release-candidates preview flag"
+        ],
     },
     {
         "id": "12",
         "slug": "aria-evaluation-harness",
         "title": "Aria: Evaluation Harness from Intent",
-        "summary": "Create a judge and Test Set through a typed, approval-aware Aria plan.",
+        "summary": "Create a judge and Test Set through a typed, approval-aware Aria plan, then fill the Test Set.",
         "icon": "🧪",
         "template_kind": "single_agent",
         "capabilities": ["Aria", "typed inputs", "judges", "test sets"],
-        "prerequisites": ["Configured model provider to run the judge in Evaluations"],
+        "prerequisites": [
+            "Aria enabled (CALIBER_FEATURE_ARIA=true); a model provider only to run the judge in Evaluations"
+        ],
     },
     {
         "id": "13",
         "slug": "aria-review-governance-queue",
         "title": "Aria: Human-Review Queue from Intent",
-        "summary": "Create and populate a governed review queue through an Aria plan.",
+        "summary": "Create and populate a governed review queue through an Aria plan, then review traces.",
         "icon": "📝",
         "template_kind": "hitl_review",
         "capabilities": ["Aria", "review queues", "typed inputs", "dependency wiring"],
-        "prerequisites": ["Trace IDs only when the example queue should be populated"],
+        "prerequisites": [
+            "Aria enabled (CALIBER_FEATURE_ARIA=true); trace ids only when the queue should be populated"
+        ],
     },
     {
         "id": "14",
         "slug": "aria-governance-starter-kit",
         "title": "Aria: Governance Starter Kit from Intent",
-        "summary": "Create a judge, Test Set, and review queue as one governed plan.",
+        "summary": "Create a judge, Test Set, and review queue as one governed plan, at two autonomy levels.",
         "icon": "🛡️",
         "template_kind": "guarded_pipeline",
         "capabilities": ["Aria", "judges", "test sets", "review queues"],
-        "prerequisites": ["Configured model provider to run the judge in Evaluations"],
+        "prerequisites": [
+            "Aria enabled (CALIBER_FEATURE_ARIA=true); a model provider only to run the judge in Evaluations"
+        ],
     },
     {
         "id": "15",
         "slug": "aria-triage-recalibrate-loop",
         "title": "Aria: Triage & Recalibrate Loop",
-        "summary": "Triage flagged traces and launch a calibration job from a typed plan.",
+        "summary": "Triage flagged traces and launch a calibration job from a typed plan; the plan parks on the job and settles by itself.",
         "icon": "🔄",
         "template_kind": "refinement_loop",
         "capabilities": ["Aria", "review queues", "calibration", "job polling"],
-        "prerequisites": ["Existing workflow, agent, traces, provider, and refinement worker"],
+        "prerequisites": [
+            "Aria enabled (CALIBER_FEATURE_ARIA=true), background workers on, and an existing workflow with a deploy-gate test set, a registered agent and flagged traces; a model provider for a calibration to find a candidate"
+        ],
     },
     {
         "id": "16",
@@ -190,6 +220,23 @@ _RECIPES: tuple[dict[str, Any], ...] = (
         "template_kind": "event_resume",
         "capabilities": ["observability", "test sets", "review queues", "evaluation"],
         "prerequisites": ["Existing successful and failed traces"],
+    },
+    # Numbered 18, not 17: ``cookbook_17_financial_analysis`` is a standalone SDK automation
+    # with no catalog entry or documentation lab.
+    {
+        "id": "18",
+        "slug": "projects-roles-tokens-audit",
+        "title": "Projects, Roles, Tokens & Audit",
+        "summary": (
+            "Set up a team in a project with owner, editor, reviewer and viewer roles, bind an "
+            "access token to it, and read the audit trail."
+        ),
+        "icon": "🔐",
+        "template_kind": "hitl_review",
+        "capabilities": ["projects", "roles", "access tokens", "audit log", "readiness"],
+        "prerequisites": [
+            "Accounts for the team, with the operator and approver platform scopes set for them",
+        ],
     },
 )
 
@@ -324,41 +371,11 @@ def _specialize_manifest(recipe_id: str, manifest: dict[str, Any]) -> None:
             ],
         )
     elif recipe_id == "04":
-        nodes["validate_json"] = _data_transform_node(
-            "validate_json",
-            operation="json_schema",
-            config={
-                "schema": {
-                    "$schema": "https://json-schema.org/draft/2020-12/schema",
-                    "type": "object",
-                    "properties": {
-                        "document_type": {"type": "string"},
-                        "fields": {"type": "object"},
-                        "source_file": {"type": "string"},
-                    },
-                    "required": ["document_type", "fields", "source_file"],
-                    "additionalProperties": False,
-                }
-            },
-        )
-        _replace_edge(
-            manifest,
-            "e_agent_guard",
-            [
-                {
-                    "id": "e_agent_schema",
-                    "from": "agent",
-                    "to": "validate_json",
-                    "map": {"final_output": "text"},
-                },
-                {
-                    "id": "e_schema_guard",
-                    "from": "validate_json",
-                    "to": "guardrail",
-                    "map": {"text": "response"},
-                },
-            ],
-        )
+        # A real intake pipeline (no agent, no model): see ``cookbook_document_pipeline``.
+        nodes.clear()
+        pipeline_nodes, pipeline_edges = document_pipeline_graph()
+        nodes.update(pipeline_nodes)
+        manifest["edges"] = pipeline_edges
     elif recipe_id == "06":
         nodes["confidence"] = _data_transform_node(
             "confidence",
@@ -367,18 +384,20 @@ def _specialize_manifest(recipe_id: str, manifest: dict[str, Any]) -> None:
                 "bias": 0.1,
                 "review_threshold": 0.65,
                 "signals": [
+                    # The ``confidence`` node reads the whole ``knowledge_query`` result, which
+                    # groups its citations under ``versions`` (one entry per queried version).
                     {
                         "name": "has-citations",
-                        "path": "citations",
+                        "path": "versions.0.citations.0",
                         "operator": "exists",
                         "value": True,
                         "weight": 0.55,
                     },
                     {
                         "name": "multiple-sources",
-                        "path": "citation_count",
-                        "operator": "greater_or_equal",
-                        "value": 2,
+                        "path": "versions.0.citations.1",
+                        "operator": "exists",
+                        "value": True,
                         "weight": 0.25,
                     },
                 ],
@@ -525,96 +544,125 @@ def _annotate_manifest(recipe: dict[str, Any]) -> dict[str, Any]:
 #: Recipes whose README has no ``## Recipe`` section, so step count cannot be
 #: checked against a numbered list. Named rather than skipped, so that a README
 #: gaining one is a test failure rather than a silent gap in coverage.
-RECIPES_WITHOUT_NUMBERED_RECIPE_SECTION = frozenset({"16"})
+RECIPES_WITHOUT_NUMBERED_RECIPE_SECTION = frozenset({"18"})
 
 _RECIPE_STEPS: dict[str, tuple[dict[str, str], ...]] = {
     "01": (
         {"title": "Create the prompt", "route": "/prompts"},
-        {"title": "Author", "route": "/prompts"},
-        {"title": "Playground (live sanity check)", "route": "/prompts"},
-        {"title": "Build & run the test set", "route": "/eval-datasets"},
-        {"title": "(Optional) JSON/intent judge", "route": "/judges"},
-        {"title": "Run the baseline", "route": "/prompts"},
-        {"title": "Introduce a regression", "route": "/prompts"},
-        {"title": "Compare", "route": "/prompts"},
-        {"title": "Calibration (queued)", "route": "/prompts"},
-        {"title": "Observe", "route": "/observability"},
+        {"title": "Save the weaker v2 as a draft", "route": "/prompts"},
+        {"title": "Import the test set from the file", "route": "/prompts"},
+        {"title": "Check the imported test set", "route": "/eval-datasets"},
+        {"title": "Evaluate a prompt version", "route": "/evaluations"},
+        {"title": "See the regression against the baseline", "route": "/evaluations"},
+        {"title": "Calibrate and wait for the candidate", "route": "/prompts"},
+        {"title": "Review the evidence and the diff, then Apply", "route": "/prompts"},
+        {"title": "Verify the release on Releases", "route": "/releases"},
+        {"title": "Verify the audit log", "route": "/audit-log"},
+        {"title": "Roll back", "route": "/prompts"},
     ),
     "02": (
-        {"title": "Create the skill", "route": "/skills"},
+        {"title": "Open the gallery and create a workspace", "route": "/cookbooks"},
+        {"title": "Build the skill", "route": "/skills"},
         {"title": "Render Preview", "route": "/skills"},
-        {"title": "Trigger Tests (positive)", "route": "/skills"},
-        {"title": "Tighten + baseline", "route": "/skills"},
-        {"title": "Export package", "route": "/skills"},
-        {"title": "Import round-trip", "route": "/skills"},
-        {"title": "Calibrate (queued)", "route": "/skills"},
-        {"title": "Bind", "route": "/workflows"},
+        {"title": "Check selection: positive, negative, near miss", "route": "/skills"},
+        {"title": "Run the scenarios: round 1", "route": "/skills"},
+        {"title": "Tighten the trigger phrases", "route": "/skills"},
+        {"title": "Run round 2 and pin the baseline", "route": "/skills"},
+        {"title": "Calibrate and review the candidate", "route": "/skills"},
+        {"title": "Apply, then roll back", "route": "/skills"},
+        {"title": "Export and re-import the package", "route": "/skills"},
+        {"title": "Failure paths", "route": "/skills"},
+        {"title": "Archive", "route": "/skills"},
     ),
     "03": (
-        {"title": "Register the lookup tools", "route": "/tools"},
+        {"title": "Register the decision and refund tools", "route": "/tools"},
         {"title": "Sandbox", "route": "/tools"},
         {"title": "Fixtures", "route": "/tools"},
-        {"title": "Hardening (deterministic, inline)", "route": "/tools"},
-        {"title": "The decision logic", "route": "/tools"},
-        {"title": "Bind into a workflow with an approval gate", "route": "/workflows"},
-        {"title": "Prove the gate in the run monitor", "route": "/workflows"},
-        {"title": "Optional explanation", "route": "/prompts"},
+        {"title": "Hardening (run the suite)", "route": "/tools"},
+        {"title": "Baseline and a regression", "route": "/tools"},
+        {"title": "Import the workflow", "route": "/workflows"},
+        {"title": "Approve as a second person", "route": "/workflows"},
+        {"title": "Reject, deny and read the audit log", "route": "/audit-log"},
     ),
     "04": (
-        {"title": "Create a bucket + upload", "route": "/object-store"},
-        {"title": "Verify extraction (preview)", "route": "/object-store"},
-        {"title": "Register the extractor tool (optional)", "route": "/tools"},
-        {"title": "Author the structuring prompt", "route": "/prompts"},
-        {"title": "Build the workflow", "route": "/workflows"},
-        {"title": "Preview + real runs", "route": "/workflows"},
-        {"title": "Observe failures", "route": "/observability"},
-        {"title": "Tune", "route": "/prompts"},
+        {"title": "Create the workspace and add the reviewer", "route": "/administration"},
+        {"title": "Create the two buckets", "route": "/object-store"},
+        {"title": "Upload the sample invoices", "route": "/object-store"},
+        {"title": "Preview a stored document", "route": "/object-store"},
+        {"title": "Install the cookbook", "route": "/cookbooks"},
+        {"title": "Resume the installed workflow", "route": "/workflows"},
+        {"title": "Run a valid invoice", "route": "/workflows"},
+        {"title": "Run the same invoice again", "route": "/workflows"},
+        {"title": "Run an invoice that fails validation", "route": "/workflows"},
+        {"title": "Approve and reject as the reviewer", "route": "/workflows"},
+        {"title": "Check what reached the output bucket", "route": "/object-store"},
     ),
     "05": (
-        {"title": "Quick-connect", "route": "/mcp-servers"},
-        {"title": "Test connection + discovery", "route": "/mcp-servers"},
-        {"title": "Invoke a read-only tool", "route": "/mcp-servers"},
-        {"title": "Apply a policy overlay", "route": "/mcp-servers"},
-        {"title": "Re-invoke the governed tool", "route": "/mcp-servers"},
+        {"title": "Create the accounts and the workspace", "route": "/administration"},
+        {"title": "Register the server", "route": "/mcp-servers"},
+        {"title": "Test the connection", "route": "/mcp-servers"},
+        {"title": "Open the Playground and find nothing callable", "route": "/mcp-servers"},
+        {"title": "Classify every tool", "route": "/mcp-servers"},
+        {"title": "Invoke the read tool", "route": "/mcp-servers"},
+        {"title": "Meet the refusals", "route": "/mcp-servers"},
         {"title": "Calibrate the read tool", "route": "/mcp-servers"},
-        {"title": "Collect evidence", "route": "/observability"},
+        {"title": "Gate the write behind a second person", "route": "/workflows"},
+        {
+            "title": "Servers CALIBER will not run, the audit log and the traces",
+            "route": "/observability",
+        },
     ),
     "06": (
-        {"title": "Build a KB version", "route": "/knowledge-bases"},
-        {"title": "Explore → Chunks", "route": "/knowledge-bases"},
-        {"title": "Explore → Query (mode comparison)", "route": "/knowledge-bases"},
-        {"title": "Calibrate (inline metrics)", "route": "/knowledge-bases"},
-        {"title": "Build the answer workflow", "route": "/workflows"},
-        {"title": "Run scenario queries", "route": "/workflows"},
-        {"title": "Evaluate faithfulness", "route": "/evaluations"},
-        {"title": "Route to review", "route": "/review-queues"},
+        {"title": "Upload the policy documents to the Object Store", "route": "/object-store"},
+        {"title": "Build knowledge base version 1", "route": "/knowledge-bases"},
+        {"title": "Explore the chunks", "route": "/knowledge-bases"},
+        {"title": "Ask the same question in three retrieval modes", "route": "/knowledge-bases"},
+        {
+            "title": "Store the answer prompt and import the calibration questions",
+            "route": "/prompts",
+        },
+        {
+            "title": "Calibrate: a baseline, then a better configuration",
+            "route": "/knowledge-bases",
+        },
+        {"title": "Build the tuned version 2", "route": "/knowledge-bases"},
+        {"title": "Set the active version", "route": "/knowledge-bases"},
+        {"title": "Install the answer workflow", "route": "/cookbooks"},
+        {"title": "Bind it to the knowledge base and run it", "route": "/workflows"},
+        {"title": "Send the run's trace to a review queue", "route": "/review-queues"},
     ),
     "07": (
-        {"title": "Confirm reusable assets", "route": "/tools"},
-        {"title": "Build the workflow", "route": "/workflows"},
-        {"title": "Encode the four outcomes", "route": "/workflows"},
-        {"title": "Run the ticket cases", "route": "/workflows"},
-        {"title": "Verify the safety branches", "route": "/workflows"},
-        {"title": "Evaluate", "route": "/evaluations"},
-        {"title": "Iterate", "route": "/prompts"},
+        {"title": "Create the accounts and the workspace", "route": "/administration"},
+        {"title": "Import the triage workflow", "route": "/workflows"},
+        {"title": "Validate it; Preview is refused", "route": "/workflows"},
+        {"title": "Publish it", "route": "/workflows"},
+        {"title": "Run a how-to ticket and a bug ticket", "route": "/workflows"},
+        {"title": "Try to approve your own run", "route": "/workflows"},
+        {"title": "A second person approves and resumes", "route": "/workflows"},
+        {"title": "A rejection releases nothing", "route": "/workflows"},
     ),
     "08": (
-        {"title": "Author the commander prompt", "route": "/prompts"},
-        {"title": "Evidence nodes", "route": "/workflows"},
-        {"title": "Build the workflow", "route": "/workflows"},
-        {"title": "Run low-risk + high-risk cases", "route": "/workflows"},
-        {"title": "Verify evidence separation", "route": "/workflows"},
-        {"title": "Score + review", "route": "/evaluations"},
-        {"title": "Harden", "route": "/workflows"},
+        {"title": "Create the accounts and the workspace", "route": "/administration"},
+        {"title": "Import before the test set exists", "route": "/workflows"},
+        {"title": "Create the test set", "route": "/eval-datasets"},
+        {"title": "Import the incident workflow", "route": "/workflows"},
+        {"title": "Validate and Preview an incident", "route": "/workflows"},
+        {"title": "Publish it", "route": "/workflows"},
+        {"title": "Run incidents; the rollback waits", "route": "/workflows"},
+        {"title": "A second person approves the rollback", "route": "/workflows"},
     ),
     "09": (
-        {"title": "Reproduce the failure", "route": "/workflows"},
-        {"title": "Capture the run + open diagnostics", "route": "/workflows"},
-        {"title": "Localize the root cause", "route": "/observability"},
-        {"title": "Retry from checkpoint / lineage", "route": "/workflows"},
-        {"title": "Apply a minimal patch (manual)", "route": "/workflows"},
-        {"title": "Validate", "route": "/workflows"},
-        {"title": "Compare", "route": "/workflows"},
+        {"title": "Import version 1 of the workflow", "route": "/workflows"},
+        {"title": "Publish it", "route": "/workflows"},
+        {"title": "Run a healthy ticket", "route": "/workflows"},
+        {"title": "Reproduce a schema failure", "route": "/workflows"},
+        {"title": "Reproduce the poison record", "route": "/workflows"},
+        {"title": "Reproduce the upstream failure", "route": "/workflows"},
+        {"title": "Retry: the same code fails the same way", "route": "/workflows"},
+        {"title": "Look for a patch", "route": "/workflows"},
+        {"title": "Patch it as version 2", "route": "/workflows"},
+        {"title": "Prove it on the same tickets", "route": "/workflows"},
+        {"title": "Compare the versions, then try to promote", "route": "/workflows"},
     ),
     "10": (
         {"title": "Prepare the dataset", "route": "/eval-datasets"},
@@ -625,55 +673,93 @@ _RECIPE_STEPS: dict[str, tuple[dict[str, str], ...]] = {
         {"title": "Compute alignment", "route": "/judges"},
     ),
     "11": (
-        {"title": "Open the Release Signoff Factory", "route": "/releases"},
-        {"title": "Enter the candidate and artifact reference", "route": "/releases"},
-        {"title": "Add criteria JSON with weights and observed scores", "route": "/releases"},
-        {"title": "Create the candidate and inspect the weighted score", "route": "/releases"},
+        {"title": "Open the Release signoff factory", "route": "/releases"},
+        {"title": "Create a candidate with one blocker", "route": "/releases"},
+        {"title": "Record a waiver", "route": "/releases"},
         {"title": "Re-evaluate the candidate", "route": "/releases"},
-        {"title": "Record a criterion waiver if policy permits", "route": "/releases"},
         {"title": "Generate Allure", "route": "/releases"},
-        {"title": "Sign off GO or NO-GO with rationale", "route": "/releases"},
+        {"title": "Sign off GO", "route": "/releases"},
+        {"title": "Sign off NO-GO on a blocked candidate", "route": "/releases"},
+        {"title": "Reload and check what persists", "route": "/releases"},
     ),
     "12": (
         {"title": "State the intent", "route": "/aria/plans"},
         {"title": "Review the plan", "route": "/aria/plans"},
-        {"title": "Approve", "route": "/aria/plans"},
-        {"title": "Execute the plan + create the artifacts", "route": "/aria/plans"},
-        {"title": "Verify", "route": "/evaluations"},
-        {"title": "(Follow-up)", "route": "/aria/plans"},
+        {"title": "Approve the plan", "route": "/aria/plans"},
+        {"title": "Execute and answer the judge's questions", "route": "/aria/plans"},
+        {"title": "Answer the test set's questions", "route": "/aria/plans"},
+        {"title": "Verify the judge", "route": "/judges"},
+        {"title": "Verify the test set and add rows", "route": "/eval-datasets"},
+        {"title": "A sentence with no steps", "route": "/aria/plans"},
+        {"title": "Skip a step", "route": "/aria/plans"},
+        {"title": "A judge that cannot be created", "route": "/aria/plans"},
     ),
     "13": (
         {"title": "State the intent", "route": "/aria/plans"},
         {"title": "Review the plan", "route": "/aria/plans"},
-        {"title": "Approve", "route": "/aria/plans"},
-        {"title": "Execute the plan + create the queue", "route": "/aria/plans"},
-        {"title": "Verify", "route": "/review-queues"},
-        {"title": "(Follow-up)", "route": "/aria/plans"},
+        {"title": "Approve the plan", "route": "/aria/plans"},
+        {"title": "Execute and answer the queue's questions", "route": "/aria/plans"},
+        {"title": "Answer the enqueue step", "route": "/aria/plans"},
+        {"title": "Find the queue", "route": "/review-queues"},
+        {"title": "Review one trace", "route": "/review-queues"},
+        {"title": "A review that does not fit", "route": "/review-queues"},
+        {"title": "Skip the queue", "route": "/aria/plans"},
+        {"title": "A question schema the queue refuses", "route": "/aria/plans"},
     ),
     "14": (
         {"title": "State the intent", "route": "/aria/plans"},
         {"title": "Review the plan", "route": "/aria/plans"},
-        {"title": "Approve", "route": "/aria/plans"},
-        {"title": "Execute the plan + create the three artifacts", "route": "/aria/plans"},
-        {"title": "Verify", "route": "/review-queues"},
-        {"title": "(Follow-up)", "route": "/aria/plans"},
+        {"title": "Approve the plan", "route": "/aria/plans"},
+        {"title": "Execute and answer the judge's questions", "route": "/aria/plans"},
+        {"title": "Answer the queue's questions", "route": "/aria/plans"},
+        {"title": "Answer the test set's questions", "route": "/aria/plans"},
+        {"title": "Skip the enqueue step", "route": "/aria/plans"},
+        {"title": "Verify the judge and the queue", "route": "/review-queues"},
+        {"title": "Verify the test set and add rows", "route": "/eval-datasets"},
+        {"title": "Ask for less", "route": "/aria/plans"},
+        {"title": "Deny a step", "route": "/aria/plans"},
     ),
     "15": (
         {"title": "State the intent", "route": "/aria/plans"},
         {"title": "Review the plan", "route": "/aria/plans"},
-        {"title": "Approve", "route": "/aria/plans"},
-        {"title": "Execute the plan and fill each step's inputs", "route": "/aria/plans"},
-        {"title": "Wait for the async job to finish", "route": "/aria/plans"},
-        {"title": "Verify", "route": "/review-queues"},
-        {"title": "(Follow-up)", "route": "/aria/plans"},
+        {"title": "Approve the plan", "route": "/aria/plans"},
+        {"title": "Execute and answer the queue's questions", "route": "/aria/plans"},
+        {"title": "Answer the enqueue step", "route": "/aria/plans"},
+        {"title": "Answer the calibration step and watch the plan park", "route": "/aria/plans"},
+        {"title": "Wait: the plan settles by itself", "route": "/aria/plans"},
+        {"title": "Find the queue", "route": "/review-queues"},
+        {"title": "Triage one flagged run", "route": "/review-queues"},
+        {"title": "A workflow that does not exist", "route": "/aria/plans"},
+        {"title": "Deny the calibration", "route": "/aria/plans"},
     ),
-    # 16 has no ``## Recipe`` section. Its steps are derived from the four
-    # quality gates its README does define, which are the checkable outcomes.
     "16": (
-        {"title": "Capture every error trace in the window", "route": "/observability"},
-        {"title": "Explain each flagged trace from its node tree", "route": "/observability"},
-        {"title": "Label the triage queue and write assessments back", "route": "/review-queues"},
-        {"title": "Record the prod-regression baseline", "route": "/evaluations"},
+        {"title": "Filter the traces by status", "route": "/observability"},
+        {"title": "Open a failing trace and find the node", "route": "/observability"},
+        {"title": "Search with no match, open an unknown trace", "route": "/observability"},
+        {"title": "Create the test set", "route": "/eval-datasets"},
+        {
+            "title": "Capture failures from Observability and from the test set",
+            "route": "/observability",
+        },
+        {"title": "Put the gold outcome on a captured example", "route": "/eval-datasets"},
+        {"title": "Create the triage queue", "route": "/review-queues"},
+        {"title": "Enqueue two traces and review them", "route": "/review-queues"},
+        {"title": "Read the answers on the trace", "route": "/observability"},
+    ),
+    # 18's README is organised by the sections every lab README shares (API path, UI path,
+    # verification), not by a ``## Recipe`` list. Its steps are the ten numbered steps of
+    # "Run it through the UI", and ``test_cookbook_steps_contract`` pins their count to that list.
+    "18": (
+        {"title": "Create the team's accounts", "route": "/administration"},
+        {"title": "Create the workspace", "route": "/"},
+        {"title": "Add the members with their roles", "route": "/administration"},
+        {"title": "Prove a viewer is refused and an editor can write", "route": "/prompts"},
+        {"title": "Prove a non-member sees nothing", "route": "/"},
+        {"title": "Issue a token bound to the workspace", "route": "/settings"},
+        {"title": "Revoke the token", "route": "/settings"},
+        {"title": "Read the audit log", "route": "/audit-log"},
+        {"title": "Read the release timeline and the live board", "route": "/releases"},
+        {"title": "Read readiness: the health dot and the simulated-provider banner", "route": "/"},
     ),
 }
 

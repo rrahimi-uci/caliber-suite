@@ -1191,7 +1191,7 @@ deferral.
 - **Category:** Scope / product honesty / deployment configuration.
 - **Current state:**
   - [P1-10](#p1-10) labelled MCP servers, OpenAPI integrations, cookbooks, Aria and plans, the release-candidate signoff and Workspace releases, and [P1-11](#p1-11) disabled the Aria toggle when no engine is configured. Labelling does not remove anything: on a default install every one of those areas is still in the navigation, still served by the API, and still a way to reach behaviour the alpha does not stand behind (a signoff that deploys nothing, a Workspace release evaluation that stays `queued`, plans against a simulated engine).
-  - The sixteen cookbook labs build on those same areas: lab 05 and the GitHub write step of lab 07 use MCP servers, lab 11 uses the release-candidate signoff, labs 12 to 15 use Aria plans, and lab 01 uses the Playground and test generation that call the Aria assistant. The gallery is part of the surface, not a separate one.
+  - The seventeen cookbook labs build on those same areas: lab 05 uses MCP servers, lab 11 uses the release-candidate signoff and labs 12 to 15 use Aria plans (lab 01 no longer uses the Playground or test generation that call the Aria assistant). The gallery is part of the surface, not a separate one.
   - A tester who opens the alpha cannot tell from the product which areas the release is meant to be judged by, and an operator has no switch to give a team only the supported journey.
 - **Expected alpha state:**
   - Four server-side flags, all off by default and read at startup like other `CALIBER_*` variables: `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` and `CALIBER_FEATURE_RELEASE_CANDIDATES` (config fields `feature_<id>_enabled`).

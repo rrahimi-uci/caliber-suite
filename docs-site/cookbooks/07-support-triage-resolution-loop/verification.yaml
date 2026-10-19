@@ -1,30 +1,35 @@
-# Verified — see ../FEASIBILITY.md.
+# What the lab verifies, and how. Every item below is asserted by
+# sdk/caliber-sdk/examples/cookbooks/cookbook_07_support_triage_copilot.py against a real server,
+# and (for the UI items) by caliber/caliber-ui/e2e/cookbooks/labs/07-support-triage.spec.ts.
 feasibility:
-  - GroundedSupportReply is a real LLM judge; the approval/citation rule_checks are enforced by the human_approval gate + the prompt contract, observable in the run trace.
-  - monitoring.traces below are evidence labels, not literal span names.
+  - The routing is deterministic, so the dataset check is exact: no judge and no model scores anything here.
+  - The agent node (draft_reply) is simulated under the default fake provider; the lab asserts that it ran on the right branch, not what it wrote.
 evaluation:
-  judges:
-    - name: GroundedSupportReply
-      type: custom_judge
-      criteria: response claims are evidence-backed and customer-safe
+  judges: []
   rule_checks:
-    - citations_required_for_external_claims
-    - approval_required_for_refund_or_external_write
+    - routing_matches_dataset        # decision, severity, sla_minutes, requires_approval, flags for all 44 tickets
+    - approval_required_for_refund_or_bug_filing   # exactly the 15 approval-required tickets pause at the gate
+    - rejection_releases_nothing     # a rejected run never reaches action_request
 quality_gates:
-  grounded_reply_score_min: 0.90
+  routing_accuracy: 1.0
   approval_compliance: 1.0
-  escalation_precision_min: 0.85
+  unsafe_release_count: 0
+approval_rules:
+  - the account that started a run cannot approve it (403)
+  - an approver needs the caliber.approver scope (403 without it)
+  - a project role of reviewer or owner is needed (viewer gets 403)
+  - rejecting needs the scope only
+release_controls:
+  - staging promotion waits for approval when CALIBER_RELEASE_REQUIRE_HUMAN_APPROVAL_FOR_ENVIRONMENT_CLASSES includes staging
+  - a bad version is caught by re-running the dataset; rollback restores the previous version
+  - synchronous runs of a workflow with an approval gate are refused (400); use the queue
 monitoring:
   traces:
-    - ticket_intake
-    - evidence_lookup
-    - kb_retrieval
-    - approval_gate
-    - external_write
+    - classify
+    - triage_router
+    - review
   metrics:
-    - reply_success_rate
-    - escalation_rate
     - approval_wait_time
+    - escalation_rate
 feedback_loop:
-  - push reviewed failures into eval dataset.
-  - tune skill thresholds before loosening prompts.
+  - add any ticket the rules get wrong to assets/dataset/ticket-cases.jsonl before changing a rule.
