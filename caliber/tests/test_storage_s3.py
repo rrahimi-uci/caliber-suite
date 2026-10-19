@@ -74,6 +74,19 @@ def test_no_overwrite_conflict_and_missing() -> None:
 
 
 @mock_aws
+def test_missing_bucket_is_reported_as_a_bucket_not_an_object() -> None:
+    """A bucket that was never created must not be reported as a missing object."""
+    backend = S3StorageBackend(_cfg())  # the bucket is deliberately not created
+    with pytest.raises(StorageNotFoundError, match="bucket not found: 'caliber-test'"):
+        backend.list("incoming/")
+    with pytest.raises(StorageNotFoundError, match="bucket not found: 'caliber-test'"):
+        backend.write_bytes("invoices/x.json", b"{}")
+    _make_bucket()
+    with pytest.raises(StorageNotFoundError, match="object not found: 'nope.txt'"):
+        backend.read_bytes("nope.txt")
+
+
+@mock_aws
 def test_list_copy_move_delete() -> None:
     _make_bucket()
     backend = S3StorageBackend(_cfg())

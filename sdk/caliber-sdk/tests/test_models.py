@@ -158,3 +158,25 @@ def test_issued_token_token_field_is_keyword_only() -> None:
     # The documented, supported way still works.
     issued = core_models.IssuedToken(token_id="PAT-1", token="secret")
     assert issued.token == "secret"
+
+
+def test_workflow_run_reads_output_and_error_from_the_servers_summary() -> None:
+    from caliber_sdk.models._decode import decode
+    from caliber_sdk.models.workflows import WorkflowRun
+
+    done = decode(
+        WorkflowRun,
+        {"workflow_run_id": "WR-1", "status": "completed", "summary": {"output": "final text"}},
+    )
+    assert done.output == "final text"
+    assert done.error is None
+    failed = decode(
+        WorkflowRun,
+        {"workflow_run_id": "WR-2", "status": "failed", "error_summary": "boom"},
+    )
+    assert failed.error == "boom"
+    assert failed.output is None
+    explicit = decode(
+        WorkflowRun, {"workflow_run_id": "WR-3", "output": "own", "summary": {"output": "x"}}
+    )
+    assert explicit.output == "own"

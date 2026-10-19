@@ -307,6 +307,23 @@ function StatusPill({ status }: { status: ResourceStatus }): JSX.Element {
   );
 }
 
+/**
+ * The message for a failed request. A 400 from request validation carries its reasons in
+ * `body.errors`, and the top-level message alone ("request body validation failed") hides
+ * which field was wrong and why.
+ */
+function describeApiError(err: unknown, fallback: string): string {
+  if (!(err instanceof ApiError)) return fallback;
+  const reasons = (err.body?.errors ?? []).map((item) =>
+    item.msg.replace(/^Value error, /, ""),
+  );
+  return reasons.length ? `${err.message}: ${reasons.join("; ")}` : err.message;
+}
+
+function firstAlignmentError(result: JudgeAlignmentResult): string | undefined {
+  return result.per_example.find((row) => row.error)?.error ?? undefined;
+}
+
 function JudgePlayground({
   judge,
   onClose,
@@ -687,6 +704,13 @@ function JudgeAlignmentSection({ judge }: { judge: Judge }): JSX.Element {
           <div className="mt-1 text-xs text-gray-500">
             FP {result.confusion.false_pos} · FN {result.confusion.false_neg}
           </div>
+          {result.scored < result.n && (
+            <div data-testid="align-errors" className="mt-1 text-xs text-red-600">
+              {result.n - result.scored} example(s) could not be judged and are left out of the
+              numbers above
+              {firstAlignmentError(result) ? `: ${firstAlignmentError(result)}` : ""}
+            </div>
+          )}
         </div>
       )}
       <div className="mt-4 flex justify-end">
@@ -743,7 +767,7 @@ function CreateJudgePanel({
       await caliberApi.createJudge(form);
       onSuccess();
     } catch (err) {
-      setError(err instanceof ApiError ? err.message : "create failed");
+      setError(describeApiError(err, "create failed"));
     } finally {
       setSubmitting(false);
     }

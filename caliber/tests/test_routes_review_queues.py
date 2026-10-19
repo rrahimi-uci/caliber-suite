@@ -188,6 +188,47 @@ def test_completed_review_labels_import_as_alignment_examples(
     ]
 
 
+@pytest.mark.parametrize(
+    ("stored_response", "expected_outputs"),
+    [
+        ('"Your refund is on its way."', "Your refund is on its way."),
+        ('{"answer": "42"}', '{"answer": "42"}'),
+        ("plain text, not JSON", "plain text, not JSON"),
+        ('""', '""'),
+    ],
+)
+def test_alignment_import_unwraps_a_json_encoded_string_response(
+    client: TestClient,
+    monkeypatch: pytest.MonkeyPatch,
+    stored_response: str,
+    expected_outputs: str,
+) -> None:
+    """MLflow keeps a trace response as JSON text, so a plain-string reply arrives quoted.
+    The judge must read the reply itself: the quotes made a truncated answer look well formed."""
+    queue_id = _create_queue(client)
+    add = client.post(ITEMS_PATH.replace("{queue_id}", queue_id), json={"trace_ids": ["tr-1"]})
+    item_id = add.json()["data"][0]["item_id"]
+    client.app.state.review_writeback_client = FakeReviewWriteBackClient()
+    try:
+        client.post(
+            SUBMIT_PATH.replace("{queue_id}", queue_id).replace("{item_id}", item_id),
+            json={"answers": {"correct": True}},
+        )
+    finally:
+        client.app.state.review_writeback_client = None
+    monkeypatch.setattr(
+        review_queue_routes,
+        "fetch_trace_detail",
+        lambda trace_id: TraceDetail(trace_id=trace_id, request="q", response=stored_response),
+    )
+    response = client.get(
+        review_queue_routes.ALIGNMENT_EXAMPLES_PATH.replace("{queue_id}", queue_id),
+        params={"question_key": "correct"},
+    )
+    assert response.status_code == 200, response.text
+    assert [e["outputs"] for e in response.json()["data"]["examples"]] == [expected_outputs]
+
+
 def test_alignment_import_rejects_non_pass_fail_question(client: TestClient) -> None:
     queue_id = _create_queue(client)
     response = client.get(

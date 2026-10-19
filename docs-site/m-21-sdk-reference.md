@@ -4208,7 +4208,7 @@ Fetch one record from the skills surface identified by `skill_id`.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `create(name: str, *, content: str, owner: str, summary: str | None = None, description: str | None = None, tags: Sequence[str] | None = None) -> Skill`
+###### `create(name: str, *, content: str, owner: str, summary: str | None = None, description: str | None = None, tags: Sequence[str] | None = None, category: str | None = None, skill_metadata: dict[str, Any] | None = None) -> Skill`
 
 Create a skill.
 
@@ -4216,6 +4216,10 @@ Create a skill.
 here rather than defaulted to the caller's identity: a skill's owner is
 a governance field, and quietly inferring it would make authorship an
 accident of which credential happened to run the script.
+
+The selector reads ``summary``, ``tags``, ``category`` and the trigger
+phrases in ``skill_metadata["test_triggers"]`` (``should_trigger`` and
+``should_not_trigger`` lists); it never reads ``content``.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -4225,6 +4229,8 @@ accident of which credential happened to run the script.
 | `summary` | keyword-only | `str | None` | `None` |
 | `description` | keyword-only | `str | None` | `None` |
 | `tags` | keyword-only | `Sequence[str] | None` | `None` |
+| `category` | keyword-only | `str | None` | `None` |
+| `skill_metadata` | keyword-only | `dict[str, Any] | None` | `None` |
 
 **Returns:** [`Skill`](#skill)
 
@@ -4265,14 +4271,19 @@ Substitute ``{{variables}}`` and report what was left unresolved.
 - [`CaliberAPIError`](#caliberapierror)
 - [`CaliberTransportError`](#calibertransporterror)
 
-###### `test_selection(skill_id: str, query: str) -> SkillSelection`
+###### `test_selection(skill_id: str, query: str, *, artifact_type: str | None = None, session_goal: str | None = None) -> SkillSelection`
 
 Would this skill be auto-selected for this query?
+
+``artifact_type`` and ``session_goal`` are optional context the selector
+reads alongside the message (it scores the words of all three).
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
 | `skill_id` | positional-or-keyword | `str` | `—` |
 | `query` | positional-or-keyword | `str` | `—` |
+| `artifact_type` | keyword-only | `str | None` | `None` |
+| `session_goal` | keyword-only | `str | None` | `None` |
 
 **Returns:** [`SkillSelection`](#skillselection)
 
@@ -8064,7 +8075,12 @@ Fetch one record from the knowledge bases surface identified by `knowledge_base_
 
 ###### `create(name: str, **options) -> KnowledgeBase`
 
-Create a new record on the knowledge bases surface and return the server-normalized result. Validation and permission failures are surfaced through the standard CALIBER error hierarchy.
+Create a knowledge base and queue (or run) its first build.
+
+The server answers with the build result -- ``{knowledge_base, version, run}`` -- not a
+bare knowledge base, so the knowledge base is decoded from its own section and the first
+build's ``version`` and ``run`` rows ride along in ``extra``: wait on
+``kb.extra["version"]["knowledge_base_version_id"]``.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -8820,7 +8836,8 @@ This callable takes no public parameters.
 
 ###### `get(queue_id: str) -> ReviewQueue`
 
-Fetch one record from the review queues and queue items surface identified by `queue_id`.
+One queue. The server answers ``{"queue": {...}, "items": [...]}``; the queue is
+decoded and its items are kept in ``extra["items"]`` (a flat payload still decodes).
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -9805,7 +9822,8 @@ This callable takes no public parameters.
 
 ###### `get_candidate(candidate_id: str) -> ReleaseCandidate`
 
-Operate on the release candidates and signoffs surface with the supplied arguments and return the server response.
+One candidate. Its signoffs and report jobs are in ``.extra["signoffs"]`` and
+``.extra["report_jobs"]``.
 
 | Parameter | Kind | Type | Default |
 | --- | --- | --- | --- |
@@ -11746,6 +11764,7 @@ One row of a dataset.
 | `example_id` | `str` | `''` |
 | `dataset_id` | `str` | `''` |
 | `inputs` | `Any` | `None` |
+| `input` | `Any` | `None` |
 | `expected` | `Any` | `None` |
 | `example_metadata` | `dict[str, Any]` | `field(default_factory=dict)` |
 | `source_trace_id` | `str | None` | `None` |
@@ -11794,6 +11813,22 @@ the first time a scorer is added.
 | Field | Type | Default |
 | --- | --- | --- |
 | `evaluation_id` | `str` | `''` |
+| `run_id` | `str` | `''` |
+| `dataset_version` | `int | None` | `None` |
+| `label` | `str | None` | `None` |
+| `predict_target` | `str | None` | `None` |
+| `subject_ref` | `str | None` | `None` |
+| `model` | `str | None` | `None` |
+| `scorers` | `list[str]` | `field(default_factory=list)` |
+| `pass_threshold` | `float | None` | `None` |
+| `n_examples` | `int | None` | `None` |
+| `passed_count` | `int | None` | `None` |
+| `failed_count` | `int | None` | `None` |
+| `overall_score` | `float | None` | `None` |
+| `pass_rate` | `float | None` | `None` |
+| `aggregate` | `dict[str, Any]` | `field(default_factory=dict)` |
+| `evidence` | `dict[str, Any] | None` | `None` |
+| `error_message` | `str | None` | `None` |
 | `dataset_id` | `str | None` | `None` |
 | `name` | `str | None` | `None` |
 | `status` | `str` | `''` |
@@ -11835,6 +11870,12 @@ Cohen's kappa matters more than raw agreement: a judge that always says
 | `kappa` | `float | None` | `None` |
 | `sample_size` | `int` | `0` |
 | `per_example` | `list[dict[str, Any]]` | `field(default_factory=list)` |
+| `agreement_rate` | `float | None` | `None` |
+| `cohen_kappa` | `float | None` | `None` |
+| `n` | `int | None` | `None` |
+| `scored` | `int | None` | `None` |
+| `threshold` | `float | None` | `None` |
+| `confusion` | `dict[str, int]` | `field(default_factory=dict)` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 ##### `VerificationItem`
@@ -12063,6 +12104,9 @@ A durable background job (refinement, calibration, reporting).
 | `approval_id` | `str | None` | `None` |
 | `applied_by` | `str | None` | `None` |
 | `applied_version` | `int | None` | `None` |
+| `error_message` | `str | None` | `None` |
+| `current_stage` | `str | None` | `None` |
+| `artifact_type` | `str | None` | `None` |
 | `extra` | `dict[str, Any]` | `field(default_factory=dict)` |
 
 **Properties**
@@ -12103,6 +12147,7 @@ A structured human-review queue.
 | `owner` | `str | None` | `None` |
 | `status` | `str` | `''` |
 | `review_questions` | `list[dict[str, Any]]` | `field(default_factory=list)` |
+| `questions` | `list[dict[str, Any]]` | `field(default_factory=list)` |
 | `item_count` | `int | None` | `None` |
 | `created_at` | `str | None` | `None` |
 | `updated_at` | `str | None` | `None` |
@@ -12259,6 +12304,9 @@ One audit-log row.
 | Field | Type | Default |
 | --- | --- | --- |
 | `audit_id` | `str` | `''` |
+| `log_id` | `int | None` | `None` |
+| `timestamp` | `str | None` | `None` |
+| `severity` | `str | None` | `None` |
 | `actor` | `str` | `''` |
 | `action` | `str` | `''` |
 | `entity_type` | `str | None` | `None` |

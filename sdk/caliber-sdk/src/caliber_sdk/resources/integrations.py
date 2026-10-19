@@ -412,7 +412,20 @@ class KnowledgeBasesAPI(Resource):
         return decode(KnowledgeBase, self._get(f"/knowledge-bases/{knowledge_base_id}"))
 
     def create(self, name: str, **options: Any) -> KnowledgeBase:
-        return decode(KnowledgeBase, self._post("/knowledge-bases", json={"name": name, **options}))
+        """Create a knowledge base and queue (or run) its first build.
+
+        The server answers with the build result -- ``{knowledge_base, version, run}`` -- not a
+        bare knowledge base, so the knowledge base is decoded from its own section and the first
+        build's ``version`` and ``run`` rows ride along in ``extra``: wait on
+        ``kb.extra["version"]["knowledge_base_version_id"]``.
+        """
+        payload = self._post("/knowledge-bases", json={"name": name, **options})
+        if isinstance(payload, dict) and isinstance(payload.get("knowledge_base"), dict):
+            created = decode(KnowledgeBase, payload["knowledge_base"])
+            created.extra["version"] = payload.get("version")
+            created.extra["run"] = payload.get("run")
+            return created
+        return decode(KnowledgeBase, payload)
 
     def update(self, knowledge_base_id: str, **changes: Any) -> KnowledgeBase:
         return decode(

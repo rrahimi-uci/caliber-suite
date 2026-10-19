@@ -81,7 +81,8 @@ function selection(overrides: Partial<SkillSelectionResult> = {}): SkillSelectio
     skill_id: "SK-1",
     skill_name: "doc-summarizer",
     is_selected: true,
-    selection_score: 0.82,
+    // the selector's score is a sum of signal weights (a positive trigger alone is 8), not 0..1
+    selection_score: 10,
     selection_reason: "Matched summarize / document signals.",
     ...overrides,
   };
@@ -206,6 +207,15 @@ describe("SkillWorkspace", () => {
     expect(screen.queryByTestId("skill-workspace-header")).not.toBeInTheDocument();
   });
 
+  it("links the Workspace to the skill's detail page, where the package and metadata live", async () => {
+    renderSkills();
+    await openWorkspace();
+
+    const link = screen.getByTestId("skill-open-detail");
+    expect(link).toHaveTextContent("Details & package");
+    expect(link).toHaveAttribute("href", "/skills/SK-1");
+  });
+
   it("never shows an agent picker anywhere in skill testing", async () => {
     renderSkills();
     await openWorkspace();
@@ -236,7 +246,8 @@ describe("SkillWorkspace", () => {
 
     const result = await screen.findByTestId("skill-trigger-result");
     expect(within(result).getByTestId("skill-trigger-selected")).toHaveTextContent("selected");
-    expect(result).toHaveTextContent("82%");
+    expect(result).toHaveTextContent("Score 10");
+    expect(result).not.toHaveTextContent("%");
     expect(result).toHaveTextContent("Matched summarize / document signals.");
   });
 

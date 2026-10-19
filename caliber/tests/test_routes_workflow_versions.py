@@ -1495,6 +1495,22 @@ def test_propose_patch_prompt_only(client: TestClient) -> None:
     assert r.json()["data"]["patch_kind"] == "prompt"
 
 
+def test_propose_patch_that_cannot_apply_is_a_400_not_a_500(client: TestClient) -> None:
+    """A guardrail patch aimed at a node that is not a guardrail used to escape as a 500.
+
+    The generated op sets ``on_failure`` on the named node; an agent node has no such field, so
+    ``apply_patch`` raises ``PatchError``. The route reports that as a client error.
+    """
+    _wid, vid, _ = _support_workflow(client)
+    r = client.post(
+        f"{PREFIX}/workflow-versions/{vid}/propose-patch",
+        json={"evidence": {"category": "guardrail", "node_id": "support_agent"}},
+    )
+    assert r.status_code == 400, r.text
+    assert "cannot generate patch" in r.json()["detail"]
+    assert "on_failure" in r.json()["detail"]
+
+
 def test_list_patches(client: TestClient) -> None:
     wid, vid, _ = _support_workflow(client)
     client.post(

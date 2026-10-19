@@ -894,6 +894,61 @@ def test_mcp_tool_binding_executes_in_runtime(monkeypatch: pytest.MonkeyPatch) -
     assert support_step.tool_calls[0]["result"]["tool_name"] == "web_search"
 
 
+def test_resilient_wrapper_lets_a_dict_taking_mcp_tool_receive_structured_arguments(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A tool node's structured arguments must reach an MCP-bound tool as one dict.
+
+    ``_call_tool`` chooses the call shape from the callable's signature. The retry/timeout wrapper
+    hid that signature behind ``(*args, **kwargs)``, so keyword arguments were always chosen and the
+    MCP callable (``_invoke(arg)``) failed with "unexpected keyword argument 'repo'".
+    """
+    from types import SimpleNamespace
+
+    from caliber.workflows import runtime as rt
+
+    seen: dict[str, object] = {}
+
+    def _fake_invoke(**kwargs: object) -> dict[str, object]:
+        seen.update(kwargs)
+        return {"created": True}
+
+    monkeypatch.setattr(rt, "invoke_tool_by_server_id_sync", _fake_invoke)
+    binding = SimpleNamespace(
+        mcp_tool_name="issue_write",
+        mcp_server_id="MCP-1",
+        local_name="issue_write",
+        timeout_seconds=None,
+        max_retries=0,
+    )
+    wrapped = rt._resilient_callable(binding, rt._bind_mcp_tool(binding))
+    arguments = {"repo": "acme/docs", "title": "A title"}
+
+    out = rt._call_tool(wrapped, arguments, fallback_input="{}")
+
+    assert seen["arguments"] == arguments
+    assert seen["tool_name"] == "issue_write" and seen["server_id"] == "MCP-1"
+    assert out["result"] == {"created": True}
+
+
+def test_resilient_wrapper_still_calls_a_keyword_tool_with_keywords() -> None:
+    """The signature fix must not change tools that take keyword arguments."""
+    from types import SimpleNamespace
+
+    from caliber.workflows import runtime as rt
+
+    def _tool(order_id: str, amount: float) -> dict[str, object]:
+        return {"order_id": order_id, "amount": amount}
+
+    binding = SimpleNamespace(local_name="t", timeout_seconds=None, max_retries=0)
+    wrapped = rt._resilient_callable(binding, _tool)
+
+    assert rt._call_tool(wrapped, {"order_id": "o1", "amount": 5.0}, fallback_input="") == {
+        "order_id": "o1",
+        "amount": 5.0,
+    }
+
+
 def test_mcp_resource_node_executes_in_runtime(monkeypatch: pytest.MonkeyPatch) -> None:
     data = make_manifest()
     data["nodes"]["mcp_lookup"] = {
@@ -2280,6 +2335,98 @@ def test_wait_until_resume_checkpoint_manual_override_bypasses_deadline() -> Non
     wait_step = next(step for step in result.steps if step.node_id == "wait_until")
     assert wait_step.status == "ok"
     assert wait_step.output == "hello"
+
+
+def _router_into_shared_output_manifest() -> dict:
+    """start -> router -> (gate -> note_a | note_b) -> one Output node both branches feed."""
+    data = make_manifest()
+    data["nodes"] = {
+        "start": {"id": "start", "type": "start", "outputs": {"msg": {"type": "string"}}},
+        "router": {
+            "id": "router",
+            "type": "router",
+            "inputs": {"input": {"type": "string"}},
+            "outputs": {"route": {"type": "string"}},
+            "branches": [
+                {"condition": {"op": "contains", "value": "refund"}, "to": "gate"},
+                {"to": "note_b"},
+            ],
+        },
+        "gate": {
+            "id": "gate",
+            "type": "human_approval",
+            "inputs": {"response": {"type": "string"}},
+            "outputs": {"approved": {"type": "string"}},
+        },
+        "note_a": {
+            "id": "note_a",
+            "type": "template",
+            "template": "APPROVED {{input}}",
+            "inputs": {"input": {"type": "string"}},
+            "outputs": {"text": {"type": "string"}},
+        },
+        "note_b": {
+            "id": "note_b",
+            "type": "template",
+            "template": "PLAIN {{input}}",
+            "inputs": {"input": {"type": "string"}},
+            "outputs": {"text": {"type": "string"}},
+        },
+        "final": {"id": "final", "type": "output", "inputs": {"response": {"type": "string"}}},
+    }
+    data["edges"] = [
+        {"id": "e_start_router", "from": "start", "to": "router", "map": {"msg": "input"}},
+        {"id": "e_router_gate", "from": "router", "to": "gate", "map": {"route": "response"}},
+        {"id": "e_router_b", "from": "router", "to": "note_b", "map": {"route": "input"}},
+        {"id": "e_gate_a", "from": "gate", "to": "note_a", "map": {"approved": "input"}},
+        {"id": "e_a_final", "from": "note_a", "to": "final", "map": {"text": "response"}},
+        {"id": "e_b_final", "from": "note_b", "to": "final", "map": {"text": "response"}},
+    ]
+    return data
+
+
+def test_resume_past_a_gate_still_reaches_an_output_that_several_branches_feed() -> None:
+    """Regression: a resumed run used to finish after the resumed branch with no output.
+
+    The Output node has an incoming edge from the branch the router did NOT take. In a fresh run
+    the router marks that edge dead; a resume starts from the checkpoint and never ran the router,
+    so the edge stayed "undelivered and not dead" and the Output node was never ready.
+    """
+    data = _router_into_shared_output_manifest()
+    executor = FakeWorkflowExecutor()
+
+    fresh = execute(_plan(data), "please refund order 7", executor=executor)
+    assert fresh.status == "completed"
+    assert fresh.output == "APPROVED please refund order 7"
+
+    resumed = execute(
+        _plan(data),
+        "please refund order 7",
+        executor=executor,
+        resume_checkpoint=RuntimeResumeCheckpoint(
+            node_id="gate",
+            input_by_port={"response": "please refund order 7"},
+            replay_output=False,
+        ),
+    )
+    assert resumed.status == "completed"
+    assert [step.node_id for step in resumed.steps] == ["gate", "note_a", "final"]
+    assert resumed.output == "APPROVED please refund order 7"
+
+
+def test_resume_does_not_run_the_branch_the_router_skipped() -> None:
+    data = _router_into_shared_output_manifest()
+    resumed = execute(
+        _plan(data),
+        "please refund order 7",
+        executor=FakeWorkflowExecutor(),
+        resume_checkpoint=RuntimeResumeCheckpoint(
+            node_id="gate",
+            input_by_port={"response": "please refund order 7"},
+            replay_output=False,
+        ),
+    )
+    assert "note_b" not in [step.node_id for step in resumed.steps]
 
 
 def test_wait_for_event_node_blocks_without_event_payload() -> None:
@@ -4117,7 +4264,11 @@ def test_execute_propagates_mlflow_manifest_settings(
 
             @contextlib.contextmanager
             def _cm():
-                yield types.SimpleNamespace(mlflow_trace_id="trace-1")
+                yield types.SimpleNamespace(
+                    mlflow_trace_id="trace-1",
+                    mark_error=lambda *_a: None,
+                    set_io=lambda **_k: None,
+                )
 
             return _cm()
 

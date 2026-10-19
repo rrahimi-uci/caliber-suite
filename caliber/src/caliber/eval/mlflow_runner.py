@@ -451,9 +451,16 @@ def _require_requested_scores(scores: ScoreSet, requested: list[str], *, label: 
     """
     missing = [name for name in requested if name not in scores.dimensions]
     if missing:
+        hint = ""
+        if "Correctness" in missing:
+            hint = (
+                " Correctness needs an `expected_response` or `expected_facts` in every "
+                "example's expected values; for a test set labelled with other fields use a "
+                "scorer that needs only the input and the answer, such as Guidelines."
+            )
         raise EvalProviderError(
             f"{label} evaluation produced no valid score for selected scorer(s): "
-            f"{', '.join(missing)}. Check the scorer requirements and eval dataset fields."
+            f"{', '.join(missing)}. Check the scorer requirements and eval dataset fields.{hint}"
         )
 
 

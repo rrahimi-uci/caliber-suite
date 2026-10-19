@@ -200,6 +200,28 @@ def test_export_import_round_trip() -> None:
     assert {r["path"] for r in resources} == {"references/a.md"}
 
 
+@pytest.mark.parametrize(
+    ("description", "summary", "expected"),
+    [
+        ("", "Voice rules for  support replies.", "Voice rules for support replies."),
+        ("   ", "Voice rules for support replies.", "Voice rules for support replies."),
+        ("", "", "Use Data Cleaner in agent workflows."),
+        ("Written description.", "Ignored summary.", "Written description."),
+    ],
+)
+def test_export_of_a_skill_without_a_description_is_still_importable(
+    description: str, summary: str, expected: str
+) -> None:
+    """A skill with no description used to export ``description: ''``, which the importer
+    rejects ("SKILL.md frontmatter requires 'description'"), so Download then Import failed."""
+    skill = make_skill(description=description, summary=summary)
+    pkg = build_skill_package(skill)
+    imported = parse_skill_package(payloads({f.path: f.content for f in pkg.files}))
+    assert imported.description == expected
+    assert imported.name == skill.name
+    assert imported.content == skill.content.rstrip()
+
+
 # --------------------------------------------------------------------------- #
 # parse_skill_package — validation errors (all HTTP 400)
 # --------------------------------------------------------------------------- #

@@ -113,7 +113,8 @@ describe("ToolPlayground panel", () => {
 
     await user.click(screen.getByRole("button", { name: /Test Run/i }));
     expect(await screen.findByText("Error")).toBeInTheDocument();
-    expect(screen.getByText("Request failed")).toBeInTheDocument();
+    // The failure shows the reason the API gave (a 403 names the missing scope), not a generic line.
+    expect(screen.getByText("boom")).toBeInTheDocument();
   });
 });
 

@@ -118,6 +118,48 @@ def test_skill_selection_reports_score_and_reason() -> None:
     assert selection.selection_score == 0.8
 
 
+def test_skill_selection_sends_optional_context_only_when_given() -> None:
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(jsonlib.loads(request.content))
+        return envelope({"skill_id": "SK-1", "skill_name": "triage", "is_selected": False})
+
+    with client_with(handler) as caliber:
+        caliber.skills.test_selection("SK-1", "refund please")
+        caliber.skills.test_selection(
+            "SK-1", "refund please", artifact_type="support_reply", session_goal="Reply"
+        )
+
+    assert bodies == [
+        {"query": "refund please"},
+        {"query": "refund please", "artifact_type": "support_reply", "session_goal": "Reply"},
+    ]
+
+
+def test_skill_create_sends_category_and_metadata_only_when_given() -> None:
+    bodies: list[dict[str, Any]] = []
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        bodies.append(jsonlib.loads(request.content))
+        return envelope({"skill_id": "SK-1", "name": "triage"}, 201)
+
+    triggers = {"test_triggers": {"should_not_trigger": ["unit test"]}}
+    with client_with(handler) as caliber:
+        caliber.skills.create("triage", owner="@alice", content="Reply.")
+        caliber.skills.create(
+            "triage",
+            owner="@alice",
+            content="Reply.",
+            category="customer_support",
+            skill_metadata=triggers,
+        )
+
+    assert bodies[0] == {"name": "triage", "content": "Reply.", "owner": "@alice"}
+    assert bodies[1]["category"] == "customer_support"
+    assert bodies[1]["skill_metadata"] == triggers
+
+
 def test_skill_list_filters_are_sent_as_params() -> None:
     seen: dict[str, str] = {}
 

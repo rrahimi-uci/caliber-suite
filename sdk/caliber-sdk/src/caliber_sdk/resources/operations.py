@@ -91,7 +91,14 @@ class ReviewQueuesAPI(Resource):
         return decode_list(ReviewQueue, self._get("/review-queues"))
 
     def get(self, queue_id: str) -> ReviewQueue:
-        return decode(ReviewQueue, self._get(f"/review-queues/{queue_id}"))
+        """One queue. The server answers ``{"queue": {...}, "items": [...]}``; the queue is
+        decoded and its items are kept in ``extra["items"]`` (a flat payload still decodes)."""
+        payload = self._get(f"/review-queues/{queue_id}")
+        if isinstance(payload, dict) and isinstance(payload.get("queue"), dict):
+            queue = decode(ReviewQueue, payload["queue"])
+            queue.extra["items"] = list(payload.get("items") or [])
+            return queue
+        return decode(ReviewQueue, payload)
 
     def create(self, name: str, **options: Any) -> ReviewQueue:
         return decode(ReviewQueue, self._post("/review-queues", json={"name": name, **options}))
@@ -456,7 +463,18 @@ class ReleasesAPI(Resource):
         return decode_list(ReleaseCandidate, self._get("/releases/candidates"))
 
     def get_candidate(self, candidate_id: str) -> ReleaseCandidate:
-        return decode(ReleaseCandidate, self._get(f"/releases/candidates/{candidate_id}"))
+        """One candidate. Its signoffs and report jobs are in ``.extra["signoffs"]`` and
+        ``.extra["report_jobs"]``."""
+        payload = self._get(f"/releases/candidates/{candidate_id}")
+        # The server answers ``{"candidate": {...}, "signoffs": [...], "report_jobs": [...]}``.
+        # Decoding that envelope directly returned an empty candidate (every field defaulted, the
+        # real one buried in ``extra``).
+        if isinstance(payload, dict) and isinstance(payload.get("candidate"), dict):
+            candidate = decode(ReleaseCandidate, payload["candidate"])
+            candidate.extra["signoffs"] = list(payload.get("signoffs") or [])
+            candidate.extra["report_jobs"] = list(payload.get("report_jobs") or [])
+            return candidate
+        return decode(ReleaseCandidate, payload)
 
     def create_candidate(self, name: str, **options: Any) -> ReleaseCandidate:
         return decode(
@@ -631,7 +649,11 @@ class ObservabilityAPI(Resource):
 
     def traces(self, **params: Any) -> _List[Trace]:
         payload = self._get("/observability/traces", params=params or None)
-        items = payload.get("items") if isinstance(payload, dict) else payload
+        # The server answers ``{"traces": [...]}``; ``items`` is kept for older payloads.
+        if isinstance(payload, dict):
+            items = payload.get("traces", payload.get("items"))
+        else:
+            items = payload
         return decode_list(Trace, items)
 
     def trace(self, trace_id: str) -> Any:
@@ -661,7 +683,12 @@ class AuditAPI(Resource):
 
     def list(self, **params: Any) -> _List[AuditEntry]:
         payload = self._get("/audit-log", params=params or None)
-        items = payload.get("items") if isinstance(payload, dict) else payload
+        # The server answers ``{"entries": [...], "total", "limit", "offset"}``.
+        # ``items`` is kept as a fallback for a deployment that still sends it.
+        if isinstance(payload, dict):
+            items = payload.get("entries", payload.get("items"))
+        else:
+            items = payload
         return decode_list(AuditEntry, items)
 
     def export(self, *, format: str = "csv", **params: Any) -> bytes:

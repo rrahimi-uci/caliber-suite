@@ -247,9 +247,24 @@ def merge_openai_package_metadata(
     return merged
 
 
+def _skill_description(skill: CaliberSkill) -> str:
+    """The ``description`` a package carries.
+
+    A skill may be created with no description (the wizard does not require one), but the
+    package standard does, and the importer rejects a ``SKILL.md`` without it. Falling back
+    to the summary, then to a generated line, keeps every export importable.
+    """
+    if (skill.description or "").strip():
+        return skill.description
+    compact_summary = " ".join((skill.summary or "").split())
+    if compact_summary:
+        return compact_summary
+    return f"Use {_title_from_name(skill.name)} in agent workflows."
+
+
 def _skill_md(skill: CaliberSkill) -> str:
     frontmatter = yaml.safe_dump(
-        {"name": skill.name, "description": skill.description},
+        {"name": skill.name, "description": _skill_description(skill)},
         sort_keys=False,
         default_flow_style=False,
     )

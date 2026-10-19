@@ -203,6 +203,23 @@ def test_mcp_server_history_survives_deletion_and_includes_snapshot(
     assert "history-auth-secret" not in resp.text
 
 
+def test_delete_mcp_server_answers_204_with_an_empty_body(
+    client: TestClient, db_session: Session
+) -> None:
+    """A 204 carries no body: ``null`` under a 204 makes a real server drop the connection.
+
+    ``JSONResponse(content=None)`` renders the four bytes ``null``; h11 refuses to send them under a
+    204 (``Too much data for declared Content-Length``), so every delete over a real socket logged an
+    exception and reset the connection, and the caller's *next* request on it failed. The in-process
+    client does not enforce that, so the body is asserted directly.
+    """
+    _seed(db_session, server_id="MCP-empty", name="Empty body")
+    resp = client.delete(f"{BASE}/MCP-empty")
+    assert resp.status_code == 204
+    assert resp.content == b""
+    assert "content-length" not in resp.headers or resp.headers["content-length"] == "0"
+
+
 def test_delete_mcp_server_snapshots_definition_without_literal_secrets(
     client: TestClient, db_session: Session
 ) -> None:

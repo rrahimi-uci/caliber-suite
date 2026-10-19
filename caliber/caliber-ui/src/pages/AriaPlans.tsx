@@ -6,7 +6,7 @@
  * interactions. Mirrors the Review Queues chrome (list + detail coordinator).
  */
 
-import { useCallback, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 
 import { ApiError, caliberApi } from "@/api/caliberApi";
@@ -21,6 +21,14 @@ import {
 } from "@/components/aria/planView";
 import { useApi } from "@/hooks/useApi";
 import { relativeTime } from "@/lib/time";
+
+/**
+ * How often an open plan that is running re-reads itself. A plan is `running` while a step waits
+ * on a background job (`workflow.calibrate` parks it there): nothing on this page moves it, the plan
+ * worker does, and without a re-read the page kept showing "waiting job" until the person navigated
+ * away and back.
+ */
+export const PLAN_REFRESH_MS = 5000;
 
 export function AriaPlans(): JSX.Element {
   const [openPlanId, setOpenPlanId] = useState<string | null>(null);
@@ -237,6 +245,17 @@ function PlanDetail({
 
   const plan = data?.plan;
   const steps = data?.steps ?? [];
+
+  const planStatus = plan?.status;
+  useEffect(() => {
+    if (planStatus !== "running") return undefined;
+    const timer = window.setInterval(() => {
+      refresh();
+      refreshInteractions();
+    }, PLAN_REFRESH_MS);
+    return () => window.clearInterval(timer);
+  }, [planStatus, refresh, refreshInteractions]);
+
   const isDraft = plan?.status === "draft";
   const isExecutable =
     plan?.status === "approved" || plan?.status === "paused" || plan?.status === "running";

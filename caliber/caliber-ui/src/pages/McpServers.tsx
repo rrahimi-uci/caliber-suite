@@ -2367,6 +2367,9 @@ function PlaygroundTab({
           <>
             {selected && (
               <ToolPolicyEditor
+                // One editor per tool: without the key the previous tool's draft stays on screen
+                // for a frame after switching, and an edit made in that frame is then reset.
+                key={activeTool.name}
                 serverId={selected.server_id}
                 tool={activeTool}
                 onUpdated={(policy) => {

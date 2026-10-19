@@ -171,6 +171,91 @@ describe("Judges", () => {
     expect(panel).toBeInTheDocument();
   });
 
+  it("explains why the server refused a judge, not just that validation failed", async () => {
+    server.use(
+      http.get(`${API_BASE}/judges`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/judges`, () =>
+        HttpResponse.json(
+          {
+            detail: "request body validation failed",
+            status_code: 400,
+            errors: [
+              {
+                loc: ["instructions"],
+                msg: "Value error, instructions use unsupported template variable(s) {{ evidence }}",
+                type: "value_error",
+              },
+            ],
+          },
+          { status: 400 },
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("No judges yet.");
+    await user.click(screen.getByRole("button", { name: "+ New Judge" }));
+    await user.type(screen.getByPlaceholderText("answer-faithfulness"), "tone");
+    await user.type(screen.getByPlaceholderText(/faithfully answer/), "Is ");
+    await user.click(screen.getByRole("button", { name: "{{ outputs }}" }));
+    await user.click(screen.getByRole("button", { name: "Create judge" }));
+
+    expect(
+      await screen.findByText(
+        /request body validation failed: instructions use unsupported template variable\(s\) \{\{ evidence \}\}/,
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("says when alignment rows could not be judged and why", async () => {
+    server.use(
+      http.get(`${API_BASE}/judges`, () => HttpResponse.json(envelope([makeJudge()]))),
+      http.get(`${API_BASE}/review-queues`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/judges/:id/alignment`, () =>
+        HttpResponse.json(
+          envelope({
+            n: 2,
+            scored: 0,
+            agreement_rate: 0,
+            cohen_kappa: 0,
+            threshold: 0.5,
+            confusion: { true_pos: 0, false_pos: 0, true_neg: 0, false_neg: 0 },
+            per_example: [
+              {
+                outputs: "a",
+                human_label: true,
+                judge_label: null,
+                judge_score: null,
+                agree: false,
+                error: "judge invocation failed: OPENAI_API_KEY environment variable must be set",
+              },
+              {
+                outputs: "b",
+                human_label: false,
+                judge_label: null,
+                judge_score: null,
+                agree: false,
+                error: "judge invocation failed: OPENAI_API_KEY environment variable must be set",
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByText("answer-faithfulness");
+    await user.click(screen.getByTestId("judge-try-JDG-1"));
+    await user.click(screen.getByTestId("judge-mode-align"));
+    await user.type(screen.getByTestId("align-output-0"), "a");
+    await user.type(screen.getByTestId("align-output-1"), "b");
+    await user.click(screen.getByTestId("align-run"));
+
+    const errors = await screen.findByTestId("align-errors");
+    expect(errors).toHaveTextContent("2 example(s) could not be judged");
+    expect(errors).toHaveTextContent("OPENAI_API_KEY environment variable must be set");
+  });
+
   it("checks human alignment (agreement + kappa) from the playground", async () => {
     let alignBody: Record<string, unknown> | null = null;
     server.use(

@@ -1,10 +1,10 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
-import { AriaPlans } from "@/pages/AriaPlans";
+import { AriaPlans, PLAN_REFRESH_MS } from "@/pages/AriaPlans";
 import { server } from "@/test/server";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
@@ -214,6 +214,96 @@ describe("AriaPlans", () => {
     expect(
       screen.getByRole("button", { name: "Approve plan" }),
     ).toBeInTheDocument();
+  });
+
+  it("re-reads a running plan until the background job settles it, then stops", async () => {
+    // Only the interval is faked: msw's responses still resolve on real promises.
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      let reads = 0;
+      const parked = {
+        plan: makePlan({ status: "running", step_count: 1 }),
+        steps: [
+          makeStep({
+            capability_key: "workflow.calibrate",
+            status: "waiting_job",
+            job_id: "RFN-1",
+          }),
+        ],
+      };
+      const settled = {
+        plan: makePlan({ status: "failed", step_count: 1 }),
+        steps: [
+          makeStep({
+            capability_key: "workflow.calibrate",
+            status: "failed",
+            job_id: "RFN-1",
+            error: "rejected: workflow calibration rejected: no candidate met calibration gates",
+          }),
+        ],
+      };
+      server.use(
+        http.get(`${API_BASE}/aria/plans`, () =>
+          HttpResponse.json(envelope([makePlan({ status: "running" })])),
+        ),
+        http.get(`${API_BASE}/aria/plans/PLAN-1`, () => {
+          reads += 1;
+          return HttpResponse.json(envelope(reads < 2 ? parked : settled));
+        }),
+        http.get(`${API_BASE}/aria/plans/PLAN-1/interactions`, () =>
+          HttpResponse.json(envelope([])),
+        ),
+      );
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderPage();
+      await user.click(await screen.findByText("Create a faithfulness judge"));
+      expect(await screen.findByText("waiting job")).toBeInTheDocument();
+      expect(reads).toBe(1);
+
+      await vi.advanceTimersByTimeAsync(PLAN_REFRESH_MS);
+      expect(await screen.findByText(/no candidate met calibration gates/)).toBeInTheDocument();
+      expect(screen.getAllByTitle("failed").length).toBeGreaterThan(0);
+      expect(screen.queryByText("waiting job")).not.toBeInTheDocument();
+
+      // Settled: the interval is cleared, so there are no further reads.
+      const settledReads = reads;
+      await vi.advanceTimersByTimeAsync(PLAN_REFRESH_MS * 4);
+      expect(reads).toBe(settledReads);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("does not poll a plan that is waiting for a person", async () => {
+    vi.useFakeTimers({ toFake: ["setInterval", "clearInterval"] });
+    try {
+      let reads = 0;
+      server.use(
+        http.get(`${API_BASE}/aria/plans`, () =>
+          HttpResponse.json(envelope([makePlan({ status: "paused" })])),
+        ),
+        http.get(`${API_BASE}/aria/plans/PLAN-1`, () => {
+          reads += 1;
+          return HttpResponse.json(
+            envelope({
+              plan: makePlan({ status: "paused" }),
+              steps: [makeStep({ status: "waiting_input" })],
+            }),
+          );
+        }),
+        http.get(`${API_BASE}/aria/plans/PLAN-1/interactions`, () =>
+          HttpResponse.json(envelope([])),
+        ),
+      );
+      const user = userEvent.setup({ advanceTimers: vi.advanceTimersByTime });
+      renderPage();
+      await user.click(await screen.findByText("Create a faithfulness judge"));
+      await screen.findByText("Plan steps");
+      await vi.advanceTimersByTimeAsync(PLAN_REFRESH_MS * 3);
+      expect(reads).toBe(1);
+    } finally {
+      vi.useRealTimers();
+    }
   });
 
   it("approves a draft plan and reflects the approved status", async () => {

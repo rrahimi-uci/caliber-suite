@@ -24,6 +24,9 @@ from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Any, ClassVar, Protocol
 
+from pydantic import ValidationError
+from starlette.exceptions import HTTPException
+
 from caliber.assistant.capabilities import (
     TIER_GATED,
     TIER_READ,
@@ -125,7 +128,11 @@ class MLflowJobStatusResolver:
                 return JobStatus(state="failed", error=f"{kind} {job_id!r} not found")
             status = str(getattr(row, "status", "") or "")
             if status in failed:
-                return JobStatus(state="failed", error=status)
+                # Say why, not only that: a rejected calibration records its reasons on the job
+                # (for example "no candidate met calibration gates"), and the plan step used to
+                # show just "rejected".
+                reason = str(getattr(row, "error_message", "") or "").strip()
+                return JobStatus(state="failed", error=f"{status}: {reason}" if reason else status)
             if status in done:
                 return JobStatus(state="done", evidence={"status": status})
             return JobStatus(state="pending", evidence={"status": status})
@@ -640,6 +647,17 @@ class PlanExecutor:
                     continue
                 preapproved = step.step_id in approved
                 readiness = self._readiness(step, by_id, preapproved=preapproved)
+                if readiness == "skip":
+                    skipped_dep = next(
+                        by_id[d] for d in step.depends_on if by_id[d].status == "skipped"
+                    )
+                    step.status = "skipped"
+                    step.error = (
+                        f"skipped because step {skipped_dep.seq + 1} "
+                        f"({skipped_dep.capability_key}) was skipped"
+                    )
+                    session.commit()
+                    continue
                 if readiness != "ready":
                     if readiness == "blocked":
                         step.status = "blocked"
@@ -700,7 +718,8 @@ class PlanExecutor:
     def _readiness(
         step: CaliberAriaPlanStep, by_id: dict[str, CaliberAriaPlanStep], *, preapproved: bool
     ) -> str:
-        """``ready`` | ``blocked`` (dead dep) | ``wait_job`` (in flight) | ``wait``."""
+        """``ready`` | ``blocked`` (dead dep) | ``skip`` (dep skipped) | ``wait_job`` (in
+        flight) | ``wait``."""
         if step.status == "waiting_job":
             return "wait_job"  # an async job is in flight; a poll will advance it
         if step.status == "waiting_input" and not preapproved:
@@ -708,6 +727,11 @@ class PlanExecutor:
         deps = [by_id.get(d) for d in (step.depends_on or [])]
         if any(d is None or d.status == "failed" for d in deps):
             return "blocked"
+        if any(d is not None and d.status == "skipped" for d in deps):
+            # What it would act on was never created, so there is nothing for it to do. It used
+            # to wait forever: the plan sat ``paused`` with no question to answer and no way to
+            # finish.
+            return "skip"
         if not all(d is not None and d.status == "done" for d in deps):
             return "wait"
         return "ready"
@@ -796,7 +820,7 @@ class PlanExecutor:
                 plan_id,
                 step_id,
                 status="failed",
-                error=f"{type(exc).__name__}: {exc}",
+                error=_describe_failure(exc),
                 plan_status="failed",
             )
             return
@@ -1026,6 +1050,28 @@ class PlanExecutor:
                 status="pending",
             )
         )
+
+
+def _describe_failure(exc: Exception) -> str:
+    """The text a failed step shows.
+
+    A request-validation failure used to arrive as pydantic's full dump (the model name, the
+    rejected value and a link to pydantic's documentation), and a refusal from a route's helper
+    as ``HTTPException: 404: ...``. Name the field and the reason, or the message and the status,
+    instead; any other failure keeps its type and message.
+    """
+    if isinstance(exc, HTTPException):
+        # A capability that reuses a route's helper raises that route's error: say what it said
+        # and which status it would have answered, not the exception's class name.
+        return f"{exc.detail} (HTTP {exc.status_code})"
+    if isinstance(exc, ValidationError):
+        problems = []
+        for error in exc.errors():
+            where = ".".join(str(part) for part in error.get("loc", ()))
+            reason = str(error.get("msg", "invalid")).removeprefix("Value error, ")
+            problems.append(f"{where}: {reason}" if where else reason)
+        return "invalid input: " + "; ".join(problems)
+    return f"{type(exc).__name__}: {exc}"
 
 
 def _jsonable(value: Any) -> dict[str, Any]:

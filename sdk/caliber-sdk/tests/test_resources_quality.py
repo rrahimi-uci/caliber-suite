@@ -8,7 +8,7 @@ from typing import Any
 import httpx
 
 from caliber_sdk import CaliberClient
-from caliber_sdk.models import EvalDataset, decode
+from caliber_sdk.models import EvalDataset, Evaluation, decode
 
 BASE = "https://caliber.test"
 
@@ -287,3 +287,136 @@ def test_verification_queue_batch_reports_per_item_results() -> None:
     assert result.failed == 1
     assert result.results[0]["item_id"] == "FB-1"
     assert result.results[1]["reason"] == "already verified"
+
+
+def test_evaluation_decodes_the_scorecard_run_the_server_returns() -> None:
+    """The server names a scorecard run ``run_id`` and returns its scores inline."""
+    run = decode(
+        Evaluation,
+        {
+            "run_id": "EVR-1",
+            "status": "completed",
+            "n_examples": 44,
+            "pass_rate": 0.5,
+            "overall_score": 0.4,
+            "aggregate": {"token_f1": 0.4},
+            "results": [{"prediction": "{}"}],
+        },
+    )
+    assert run.run_id == "EVR-1"
+    assert run.is_terminal
+    assert run.aggregate == {"token_f1": 0.4}
+    assert run.extra == {}
+
+
+def test_audit_list_reads_the_servers_entries_key() -> None:
+    """``GET /audit-log`` answers ``{"entries": [...], "total": ...}``; it used to read ``items``
+    and so always returned an empty list."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        assert request.url.params["entity_id"] == "p1"
+        return envelope(
+            {
+                "entries": [
+                    {
+                        "log_id": 7,
+                        "timestamp": "2026-10-16T18:44:34",
+                        "actor": "admin",
+                        "action": "promote_prompt",
+                        "entity_type": "prompt",
+                        "entity_id": "p1",
+                        "severity": "standard",
+                        "details": {"to_version": 2},
+                    }
+                ],
+                "total": 1,
+                "limit": 50,
+                "offset": 0,
+            }
+        )
+
+    entries = client_with(handler).audit.list(entity_id="p1")
+    assert [(e.log_id, e.actor, e.action, e.details["to_version"]) for e in entries] == [
+        (7, "admin", "promote_prompt", 2)
+    ]
+    assert entries[0].extra == {}
+
+
+def test_judge_alignment_reads_the_servers_agreement_and_kappa() -> None:
+    """``POST /judges/{id}/alignment`` answers ``agreement_rate``/``cohen_kappa`` plus how many
+    rows were scored; the old ``agreement``/``kappa`` names left every metric empty."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope(
+            {
+                "n": 50,
+                "scored": 50,
+                "agreement_rate": 0.82,
+                "cohen_kappa": 0.6365,
+                "threshold": 0.5,
+                "confusion": {"true_pos": 23, "false_pos": 5, "true_neg": 18, "false_neg": 4},
+                "per_example": [{"outputs": "a", "human_label": True, "agree": True}],
+            }
+        )
+
+    report = client_with(handler).judges.alignment(
+        "J-1", examples=[{"outputs": "a", "label": True}]
+    )
+    assert (report.n, report.scored) == (50, 50)
+    assert (report.agreement_rate, report.cohen_kappa) == (0.82, 0.6365)
+    assert report.confusion["false_pos"] == 5
+    assert report.per_example[0]["agree"] is True
+    assert report.extra == {}
+
+
+def test_eval_example_and_review_queue_decode_the_servers_field_names() -> None:
+    from caliber_sdk.models import EvalExample, ReviewQueue
+
+    example = decode(EvalExample, {"example_id": "EX-1", "input": {"q": "a"}, "expected": {}})
+    assert example.input == {"q": "a"} and example.extra == {}
+    queue = decode(
+        ReviewQueue,
+        {"queue_id": "RVQ-1", "questions": [{"key": "faithful"}], "reviewers": [], "item_count": 3},
+    )
+    assert queue.questions == [{"key": "faithful"}]
+    assert queue.item_count == 3
+
+
+def test_review_queue_get_unwraps_the_servers_queue_and_items() -> None:
+    """``GET /review-queues/{id}`` answers ``{"queue": {...}, "items": [...]}``; decoding the whole
+    payload as a queue left every field empty (name, status and questions all blank)."""
+    payload = {
+        "queue": {
+            "queue_id": "RVQ-1",
+            "name": "agent-reply-review",
+            "status": "active",
+            "questions": [{"key": "safety"}],
+            "item_count": 2,
+        },
+        "items": [{"item_id": "RVI-1", "status": "pending"}, {"item_id": "RVI-2"}],
+    }
+    queue = client_with(lambda request: envelope(payload)).review_queues.get("RVQ-1")
+    assert (queue.queue_id, queue.name, queue.status) == ("RVQ-1", "agent-reply-review", "active")
+    assert queue.questions == [{"key": "safety"}] and queue.item_count == 2
+    assert [item["item_id"] for item in queue.extra["items"]] == ["RVI-1", "RVI-2"]
+
+
+def test_review_queue_get_still_decodes_a_flat_queue() -> None:
+    queue = client_with(
+        lambda request: envelope({"queue_id": "RVQ-2", "name": "flat", "status": "active"})
+    ).review_queues.get("RVQ-2")
+    assert (queue.queue_id, queue.name) == ("RVQ-2", "flat") and "items" not in queue.extra
+
+
+def test_observability_traces_reads_the_servers_traces_key() -> None:
+    """``GET /observability/traces`` answers ``{"traces": [...]}``; reading ``items`` meant the list
+    was always empty."""
+
+    def handler(request: httpx.Request) -> httpx.Response:
+        return envelope(
+            {"traces": [{"trace_id": "tr-1", "status": "OK", "name": "recorded-output"}]}
+        )
+
+    traces = client_with(handler).observability.traces(limit=1)
+    assert [t.trace_id for t in traces] == ["tr-1"]
+    assert traces[0].extra["name"] == "recorded-output"

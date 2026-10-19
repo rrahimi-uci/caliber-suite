@@ -84,11 +84,69 @@ def test_list_traces_returns_a_list(client: TestClient) -> None:
     assert isinstance(resp.json()["data"]["traces"], list)
 
 
-def test_get_trace_is_empty_for_unknown_id(client: TestClient) -> None:
+def test_get_trace_is_404_for_unknown_id(client: TestClient) -> None:
+    """A reachable store with no such trace is a 404, not an empty 200 that looks like a trace."""
     resp = client.get(f"{OBS}/traces/does-not-exist")
-    assert resp.status_code == 200, resp.text
-    data = resp.json()["data"]
-    assert data["spans"] == []
+    assert resp.status_code == 404, resp.text
+    assert "does-not-exist" in resp.json()["detail"]
+
+
+def test_get_trace_is_503_when_the_trace_store_is_down(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mlflow
+
+    def down(*_a: object, **_k: object) -> object:
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(mlflow, "get_trace", down)
+    resp = client.get(f"{OBS}/traces/tr-1")
+    assert resp.status_code == 503, resp.text
+    assert "not reachable" in resp.json()["detail"]
+
+
+def test_get_trace_none_from_an_unreachable_store_is_503_not_404(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """``get_trace(silent=True)`` returns ``None`` when the server is down; that is not a 404."""
+    import mlflow
+
+    def down(*_a: object, **_k: object) -> object:
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(mlflow, "get_trace", lambda *_a, **_k: None)
+    monkeypatch.setattr(mlflow, "search_experiments", down)
+    resp = client.get(f"{OBS}/traces/tr-1")
+    assert resp.status_code == 503, resp.text
+    assert "not reachable" in resp.json()["detail"]
+
+
+def test_list_traces_is_503_when_the_trace_store_is_down(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mlflow
+
+    def down(*_a: object, **_k: object) -> object:
+        raise RuntimeError("connection refused")
+
+    monkeypatch.setattr(mlflow, "search_experiments", down)
+    resp = client.get(f"{OBS}/traces")
+    assert resp.status_code == 503, resp.text
+    assert "not reachable" in resp.json()["detail"]
+
+
+def test_list_traces_is_503_when_the_search_itself_fails(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    import mlflow
+
+    def boom(**_k: object) -> object:
+        raise RuntimeError("search exploded")
+
+    monkeypatch.setattr(mlflow, "search_traces", boom)
+    resp = client.get(f"{OBS}/traces")
+    assert resp.status_code == 503, resp.text
+    assert "trace search failed" in resp.json()["detail"]
 
 
 def test_list_traces_maps_summary(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
@@ -341,7 +399,7 @@ def test_list_scopes_to_requested_experiment(
 
     resp = client.get(f"{OBS}/traces", params={"experiment_id": "7"})
     assert resp.status_code == 200, resp.text
-    assert captured["experiment_ids"] == ["7"]
+    assert captured["locations"] == ["7"]
 
 
 def test_list_experiments_endpoint(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:

@@ -257,6 +257,42 @@ class TraceSpan:
         except Exception:
             logger.debug("failed setting span attribute %s", key, exc_info=True)
 
+    def set_io(self, *, inputs: Any = None, outputs: Any = None) -> None:
+        """Record what went in and came out on this span (redacted, byte-capped).
+
+        MLflow builds a trace's request and response from its root span, so a root span without
+        them leaves Observability showing an empty request, and "Add to test set" has nothing to
+        capture. Best-effort like every other tracing call.
+        """
+        for name, value in (("set_inputs", inputs), ("set_outputs", outputs)):
+            if value is None:
+                continue
+            setter = getattr(self._span, name, None)
+            if not callable(setter):
+                continue
+            try:
+                setter(sanitize_trace_value(value, max_bytes=self._max_attribute_bytes))
+            except Exception:
+                logger.debug("failed recording %s on span %s", name, self.name, exc_info=True)
+
+    def mark_error(self, message: str | None = None) -> None:
+        """Mark this span ``ERROR`` without raising.
+
+        A run that fails is reported by its result, not by an exception, so the root span would
+        otherwise close ``OK`` and the trace would never show up under Observability's Error
+        filter even though a node inside it failed.
+        """
+        self.set_attribute("caliber.status", "failed")
+        if message:
+            self.set_attribute("caliber.error", message)
+        setter = getattr(self._span, "set_status", None)
+        if not callable(setter):
+            return
+        try:
+            setter("ERROR")
+        except Exception:
+            logger.debug("failed marking span %s as error", self.name, exc_info=True)
+
     def attach(self, name: str, content_bytes: bytes, content_type: str) -> bool:
         """Attach a binary artifact (image / PDF / audio) to this span.
 
@@ -535,7 +571,7 @@ class Tracer:
             handle.set_attribute("caliber.error_type", type(exc).__name__)
             raise
         finally:
-            if err is None:
+            if err is None and handle.attributes.get("caliber.status") != "failed":
                 handle.set_attribute("caliber.status", "completed")
             if cm is not None:
                 tb = getattr(err, "__traceback__", None)

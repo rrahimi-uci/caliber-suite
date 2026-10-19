@@ -173,12 +173,42 @@ def _scope_release_operations(stmt: Any, identity: CaliberIdentity) -> Any:
     return stmt.where(or_(*conditions))
 
 
+def _utc(value: datetime) -> datetime:
+    """A timestamp as an aware UTC value (a naive one is taken to be UTC)."""
+    return (
+        value.replace(tzinfo=timezone.utc)
+        if value.tzinfo is None
+        else value.astimezone(timezone.utc)
+    )
+
+
+def _active_waived_keys(candidate: CaliberReleaseCandidate) -> set[str]:
+    """Criterion keys whose waiver is still in force.
+
+    A waiver may carry ``expires_at`` (the API accepts it). It used to be stored and then ignored,
+    so an "expired" waiver cleared the blocker forever and a go decision could rest on an exception
+    that had lapsed. Expiry is checked every time the candidate is evaluated, including at signoff.
+    """
+    now = datetime.now(timezone.utc)
+    active: set[str] = set()
+    for item in list(candidate.waivers or []):
+        expires = item.get("expires_at")
+        if expires:
+            try:
+                if _utc(datetime.fromisoformat(str(expires))) <= now:
+                    continue
+            except ValueError:
+                continue  # an unreadable expiry is not a waiver anyone can rely on
+        active.add(str(item.get("criterion_key")))
+    return active
+
+
 def _evaluate_candidate(candidate: CaliberReleaseCandidate) -> None:
     criteria = list(candidate.criteria or [])
     total_weight = sum(float(item.get("weight", 0)) for item in criteria)
     weighted = sum(float(item.get("weight", 0)) * float(item.get("score", 0)) for item in criteria)
     candidate.weighted_score = round(weighted / total_weight, 6) if total_weight else 0.0
-    waived = {str(item.get("criterion_key")) for item in list(candidate.waivers or [])}
+    waived = _active_waived_keys(candidate)
     blockers = [
         {
             "criterion_key": str(item.get("key")),
@@ -377,9 +407,17 @@ def _add_release_waiver(
             raise HTTPException(
                 status_code=404, detail=f"release candidate {candidate_id!r} not found"
             )
+        if candidate.status in {"signed_go", "signed_no_go"}:
+            # ``_evaluate_candidate`` below rewrites ``status``: without this a waiver on a signed
+            # candidate quietly turned ``signed_go`` back into ``ready`` and allowed a second signoff.
+            raise HTTPException(status_code=409, detail="signed release candidates are immutable")
         criterion_keys = {str(item.get("key")) for item in candidate.criteria}
         if payload.criterion_key not in criterion_keys:
             raise HTTPException(status_code=400, detail="waiver criterion does not exist")
+        if payload.expires_at is not None and _utc(payload.expires_at) <= datetime.now(
+            timezone.utc
+        ):
+            raise HTTPException(status_code=400, detail="waiver expires_at must be in the future")
         waiver = {
             "criterion_key": payload.criterion_key,
             "reason": payload.reason,
@@ -493,7 +531,7 @@ def _allure_report(candidate: CaliberReleaseCandidate) -> dict[str, Any]:
     digest = hashlib.sha256(
         json.dumps(snapshot, sort_keys=True, separators=(",", ":")).encode("utf-8")
     ).hexdigest()
-    waived = {str(item.get("criterion_key")) for item in candidate.waivers}
+    waived = _active_waived_keys(candidate)
     results = []
     for criterion in candidate.criteria:
         key = str(criterion.get("key"))

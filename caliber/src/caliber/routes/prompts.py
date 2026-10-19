@@ -1082,8 +1082,16 @@ def _template_preview(template: str | None, limit: int = 200) -> str | None:
     return (template[:limit] + "...") if len(template) > limit else template
 
 
-def _extract_workflow_agent_prompts(session: Session) -> dict[str, dict[str, Any]]:  # noqa: PLR0912
-    """Collect prompt candidates from the latest version of each workflow."""
+def _extract_workflow_agent_prompts(  # noqa: PLR0912
+    session: Session, identity: CaliberIdentity
+) -> dict[str, dict[str, Any]]:
+    """Collect prompt candidates from the latest version of each workflow the caller can see.
+
+    Scoped through the same visibility predicate as the workflow list. This used to read every
+    workflow in the database, so the prompt inventory showed any signed-in user the name and the
+    inline template text of agent nodes in workflows they cannot open (another project's, or
+    another user's private one).
+    """
     stmt = (
         select(
             CaliberWorkflow.workflow_id,
@@ -1097,6 +1105,7 @@ def _extract_workflow_agent_prompts(session: Session) -> dict[str, dict[str, Any
         )
         .order_by(CaliberWorkflow.workflow_id.asc(), CaliberWorkflowVersion.version_number.desc())
     )
+    stmt = apply_visibility_filter(stmt, CaliberWorkflow, identity, identity.active_project_id)
     rows = session.execute(stmt).all()
 
     latest_by_workflow: dict[str, tuple[str, dict[str, Any]]] = {}
@@ -1189,7 +1198,7 @@ async def list_prompts(request: Request) -> JSONResponse:  # noqa: PLR0912, PLR0
             identity.active_project_id,
         )
         agent_rows = session.execute(stmt).scalars().all()
-        workflow_prompt_map = _extract_workflow_agent_prompts(session)
+        workflow_prompt_map = _extract_workflow_agent_prompts(session, identity)
         # Batch the status signals: which agent_ids have ≥1 test run, and which
         # have an ``applied`` (terminal-success) refinement job. One query each,
         # not N+1 per row.

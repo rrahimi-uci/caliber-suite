@@ -439,8 +439,39 @@ def _assessments(trace: Any) -> list[dict[str, Any]]:
     return out
 
 
-def fetch_trace_detail(trace_id: str | None) -> TraceDetail:
-    """Fetch the full in-app trace detail (guarded; empty on any failure)."""
+class TraceNotFoundError(LookupError):
+    """The trace store is reachable and has no trace with that id."""
+
+
+class TraceStoreUnavailableError(RuntimeError):
+    """The trace store (MLflow) cannot be reached, so "no such trace" cannot be said."""
+
+
+def probe_trace_store() -> None:
+    """Raise :class:`TraceStoreUnavailableError` unless MLflow answers a trivial query.
+
+    ``mlflow.get_trace(..., silent=True)`` returns ``None`` both for a missing trace and for an
+    unreachable server, so a caller that must tell them apart asks the store something it can
+    always answer.
+    """
+    try:
+        import mlflow  # noqa: PLC0415
+
+        mlflow.search_experiments(max_results=1)
+    except Exception as exc:
+        raise TraceStoreUnavailableError(
+            f"the trace store (MLflow) is not reachable: {type(exc).__name__}: {str(exc)[:300]}"
+        ) from exc
+
+
+def fetch_trace_detail(trace_id: str | None, *, strict: bool = False) -> TraceDetail:
+    """Fetch the full in-app trace detail.
+
+    Guarded by default: any failure yields an empty detail, which is what the run and test-set
+    callers want. ``strict=True`` is for the Observability route, which must not report an empty
+    trace for a missing id or an unreachable store: it raises :class:`TraceNotFoundError` or
+    :class:`TraceStoreUnavailableError` instead.
+    """
     if not trace_id:
         return TraceDetail(trace_id=None)
     try:
@@ -449,8 +480,15 @@ def fetch_trace_detail(trace_id: str | None) -> TraceDetail:
         trace = mlflow.get_trace(trace_id, silent=True)
     except Exception as exc:
         logger.warning("trace detail fetch failed for %s (%s); empty detail", trace_id, exc)
+        if strict:
+            raise TraceStoreUnavailableError(
+                f"the trace store (MLflow) is not reachable: {type(exc).__name__}: {str(exc)[:300]}"
+            ) from exc
         return TraceDetail(trace_id=trace_id)
     if trace is None:
+        if strict:
+            probe_trace_store()
+            raise TraceNotFoundError(trace_id)
         return TraceDetail(trace_id=trace_id)
     try:
         spans = map_trace_to_spans(trace)

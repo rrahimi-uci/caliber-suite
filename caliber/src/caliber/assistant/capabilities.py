@@ -338,8 +338,8 @@ def _register_builtins() -> None:
             handler=_judge_create,
             required_scopes=("operator",),
             properties={
-                "name": {"type": "string"},
-                "instructions": {"type": "string"},
+                "name": {"type": "string", "minLength": 1},
+                "instructions": {"type": "string", "minLength": 1},
                 "description": {"type": "string"},
                 "model": {"type": "string"},
                 "feedback_value_type": {"type": "string", "enum": ["bool", "int", "float", "str"]},
@@ -372,9 +372,9 @@ def _register_builtins() -> None:
             handler=_review_queue_create,
             required_scopes=("operator",),
             properties={
-                "name": {"type": "string"},
+                "name": {"type": "string", "minLength": 1},
                 "description": {"type": "string"},
-                "questions": {"type": "array", "items": _QUESTION_ITEM_SCHEMA},
+                "questions": {"type": "array", "minItems": 1, "items": _QUESTION_ITEM_SCHEMA},
                 "reviewers": {"type": "array", "items": {"type": "string"}},
             },
             required=("name", "questions"),
@@ -390,7 +390,7 @@ def _register_builtins() -> None:
             handler=_eval_dataset_create,
             required_scopes=("operator",),
             properties={
-                "name": {"type": "string"},
+                "name": {"type": "string", "minLength": 1},
                 "description": {"type": "string"},
                 "tags": {"type": "array", "items": {"type": "string"}},
             },
@@ -408,7 +408,7 @@ def _register_builtins() -> None:
             required_scopes=("operator",),
             properties={
                 "queue_id": {"type": "string"},
-                "trace_ids": {"type": "array", "items": {"type": "string"}},
+                "trace_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
                 "experiment_id": {"type": "string"},
                 "assigned_to": {"type": "string"},
             },
@@ -428,8 +428,8 @@ def _register_builtins() -> None:
             handler=_workflow_calibrate,
             required_scopes=("operator",),
             properties={
-                "workflow_id": {"type": "string"},
-                "agent_id": {"type": "string"},
+                "workflow_id": {"type": "string", "minLength": 1},
+                "agent_id": {"type": "string", "minLength": 1},
             },
             required=("workflow_id", "agent_id"),
             result_properties=("job_id",),

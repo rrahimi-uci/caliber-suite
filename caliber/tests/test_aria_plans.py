@@ -59,6 +59,25 @@ def test_heuristic_planner_wires_declared_step_outputs() -> None:
     }
 
 
+def test_heuristic_planner_never_links_a_name_between_steps() -> None:
+    # `name` is the identity of the artifact a step creates, not a reference to an earlier
+    # one: the test set used to take the judge's name, and the queue the judge's (alpha
+    # cookbook run, labs 12 and 14). Every create step now asks for its own name.
+    steps = HeuristicPlanner().plan(
+        "stand up a judge, an eval dataset and a review queue",
+        capabilities=registered_capabilities(),
+    )
+    by_key = {s.capability_key: s for s in steps}
+    assert {"judge.create", "eval_dataset.create", "review_queue.create"} <= set(by_key)
+    for key in ("judge.create", "eval_dataset.create", "review_queue.create"):
+        assert "name" not in by_key[key].inputs, key
+        assert by_key[key].depends_on == [], key
+    # References to an earlier artifact are still wired: the queue's id reaches add_items.
+    add_items = by_key["review_queue.add_items"]
+    assert set(add_items.inputs) == {"queue_id"}
+    assert add_items.depends_on == [steps.index(by_key["review_queue.create"])]
+
+
 def test_planner_is_registry_driven() -> None:
     # A planner sees a freshly-registered capability without code changes.
     def _h(_c, _a):  # pragma: no cover - not invoked here

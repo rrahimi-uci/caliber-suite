@@ -683,6 +683,75 @@ describe("McpServers", () => {
     });
   });
 
+  it("shows each tool's own policy editor when switching tools, without carrying a draft over", async () => {
+    const base = baseServer();
+    const second = { ...base.discovered_tools[0]!, name: "create_release" };
+    const policies: Record<string, Record<string, unknown>> = {
+      search_docs: {
+        allowed: true,
+        side_effect_level: "read",
+        requires_approval: false,
+        rate_limit_per_minute: null,
+      },
+      create_release: {
+        allowed: false,
+        side_effect_level: "write",
+        requires_approval: true,
+        rate_limit_per_minute: null,
+      },
+    };
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([base])),
+      ),
+      http.get(`${API_BASE}/mcp-servers/MCP-1/tools`, () =>
+        HttpResponse.json(
+          envelope({
+            server_id: "MCP-1",
+            tools: [base.discovered_tools[0]!, second].map((tool) => ({
+              ...tool,
+              classified: true,
+              policy: policies[tool.name],
+            })),
+          }),
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "MCP Servers" });
+    await user.click(screen.getByRole("button", { name: "Playground" }));
+
+    await user.click(
+      (await screen.findByText("search_docs")).closest(
+        "button",
+      ) as HTMLButtonElement,
+    );
+    const first = screen.getByRole("checkbox", { name: "Allow tool" });
+    expect(first).toBeChecked();
+    // an unsaved draft on the first tool
+    await user.click(first);
+    expect(first).not.toBeChecked();
+
+    await user.click(
+      screen.getByText("create_release").closest("button") as HTMLButtonElement,
+    );
+    const next = screen.getByRole("checkbox", { name: "Allow tool" });
+    // a fresh editor (not the previous one re-rendered), showing the second tool's policy
+    expect(next).not.toBe(first);
+    expect(next).not.toBeChecked();
+    expect(
+      screen.getByRole("checkbox", { name: "Requires approval" }),
+    ).toBeChecked();
+
+    // coming back discards the draft: the editor shows the stored policy of the first tool
+    await user.click(
+      screen.getByText("search_docs").closest("button") as HTMLButtonElement,
+    );
+    expect(screen.getByRole("checkbox", { name: "Allow tool" })).toBeChecked();
+  });
+
   it("registers remote servers and opens detail dialogs for connected catalog servers", async () => {
     const connectedGithub = {
       ...baseServer(),
