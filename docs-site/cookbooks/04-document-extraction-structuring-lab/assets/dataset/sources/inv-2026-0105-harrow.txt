@@ -1,0 +1,12 @@
+Harrow & Bell Surveyors
+INVOICE #HB-8812
+Date of issue: March 2, 2026
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+1     Site survey and report                    £950.00       £950.00
+3     Soil sampling kit                         £120.00       £360.00
+
+Subtotal                                            £1,310.00
+VAT 20%                                             £262.00
+Amount Due                                          £1,572.00

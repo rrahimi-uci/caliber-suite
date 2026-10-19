@@ -1,0 +1,140 @@
+{
+  "schema_version": 1,
+  "workflow_id": "support_policy_agent",
+  "name": "Support Policy Agent",
+  "artifacts": {
+    "prompts": {
+      "support_agent_prompt": {
+        "registry_name": "support-agent",
+        "alias": "prod"
+      }
+    },
+    "eval_datasets": {
+      "support_eval": {
+        "dataset_name": "support-policy-gate"
+      }
+    }
+  },
+  "nodes": {
+    "start": {
+      "id": "start",
+      "type": "start",
+      "outputs": {
+        "user_message": {
+          "type": "string"
+        }
+      }
+    },
+    "support_agent": {
+      "id": "support_agent",
+      "type": "agent",
+      "name": "support-agent",
+      "model": "inherit",
+      "instructions": {
+        "type": "mlflow_prompt",
+        "ref": "support_agent_prompt"
+      },
+      "tools": [
+        "lookup_policy",
+        "get_order"
+      ],
+      "inputs": {
+        "input": {
+          "type": "string"
+        }
+      },
+      "outputs": {
+        "final_output": {
+          "type": "string"
+        },
+        "tool_calls": {
+          "type": "structured"
+        }
+      }
+    },
+    "policy_guardrail": {
+      "id": "policy_guardrail",
+      "type": "guardrail",
+      "mode": "post_agent",
+      "inputs": {
+        "response": {
+          "type": "string"
+        }
+      },
+      "outputs": {
+        "passthrough": {
+          "type": "string"
+        }
+      },
+      "checks": [
+        {
+          "tool_required_before_claim": {
+            "tool": "lookup_policy",
+            "categories": [
+              "refund_policy",
+              "warranty_policy"
+            ]
+          }
+        }
+      ]
+    },
+    "final": {
+      "id": "final",
+      "type": "output",
+      "inputs": {
+        "response": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "edges": [
+    {
+      "id": "e_start_support",
+      "from": "start",
+      "to": "support_agent",
+      "map": {
+        "user_message": "input"
+      }
+    },
+    {
+      "id": "e_support_guardrail",
+      "from": "support_agent",
+      "to": "policy_guardrail",
+      "map": {
+        "final_output": "response"
+      }
+    },
+    {
+      "id": "e_guardrail_final",
+      "from": "policy_guardrail",
+      "to": "final",
+      "map": {
+        "passthrough": "response"
+      }
+    }
+  ],
+  "tools": {
+    "lookup_policy": {
+      "registry_ref": "tool.lookup_policy.v1",
+      "version_constraint": ">=1.0,<2.0"
+    },
+    "get_order": {
+      "registry_ref": "tool.get_order.v1",
+      "version_constraint": ">=1.0,<2.0"
+    }
+  },
+  "deploy_gates": {
+    "support_eval_gate": {
+      "type": "deploy_gate",
+      "dataset_ref": "support_eval",
+      "required_for_aliases": [
+        "dev"
+      ],
+      "thresholds": {
+        "min_completion_rate": 1.0
+      }
+    }
+  },
+  "description": "Answers refund, warranty and order questions with the policy and order tools, then checks the answer was grounded."
+}

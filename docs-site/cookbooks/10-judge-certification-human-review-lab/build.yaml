@@ -1,25 +1,27 @@
 workflow_goal: Establish a reliable automated+human scoring loop for release-critical decisions.
-# Verified against the live build — see ../FEASIBILITY.md.
+# Verified by running every step against a live server — see README.md ("Run it through the API").
 feasibility:
-  - Judges are custom LLM judges only (instructions reference {{ inputs }}/{{ outputs }}/{{ expectations }}, feedback_value_type bool/int/float/str). FaithfulnessJudge maps to this.
-  - alignment_score / disagreements ARE computed in-product (POST /judges/{id}/alignment; Judges -> Try it -> Human alignment -> Import labels -> Check alignment): the judge runs on each labeled output and returns agreement rate, Cohen's kappa, a confusion breakdown (FP/FN) and per-example agreement. Labels are imported from a completed Review Queue pass/fail question (with provenance) or typed in.
-  - The Test Sets detail page (/eval-datasets/:id) is wired (EvalDatasetDetail row editor) — author/edit rows with + Add example (revise/supersede/from-trace) or via the API. Harvest dataset rows from traces via POST /eval-datasets/{id}/examples/from-trace.
-  - The "workflow" here is a process (evaluate -> review_queue -> reconcile), not a built workflow graph.
+  - Judges are custom LLM judges only (instructions reference {{ inputs }}/{{ outputs }}/{{ expectations }}/{{ conversation }}/{{ trace }}, feedback_value_type bool/int/float/str). FaithfulnessJudge maps to this. A template with an unsupported variable such as {{ evidence }} is refused on save (400), naming the variable.
+  - Evaluations (POST /evaluations) and the judge itself need a model. With the default simulated providers (CALIBER_LLM_PROVIDER=fake) Evaluations answers 400 "evaluation requires a real LLM provider" and the alignment check reports every row as an error (judge invocation failed). Nothing is invented. The lab runs end to end against a real provider, or against the scripted stand-in model in assets/stand-in-model (wiring and arithmetic, not judge quality).
+  - alignment_score / disagreements ARE computed in-product (POST /judges/{id}/alignment; Judges -> Try it -> Human alignment -> Import labels -> Check alignment): the judge runs on each labeled output and returns agreement rate, Cohen's kappa, a confusion breakdown (FP/FN) and per-example agreement. Rows the judge errors on are left out of the numbers (scored < n). The product does not enforce a minimum sample; the lab's certification rule does (30 rows).
+  - Import labels hands the judge every answer on a queue item except the pass/fail one as {{ expectations }}. Put the evidence there; do not put the reviewer's explanation there.
+  - The 50-row test set loads through the API (one POST /eval-datasets/{id}/examples per row) or the UI (Prompts -> Calibration -> Upload Dataset, a JSON/JSONL file with input/expected/tags per row). The Test Sets detail page (/eval-datasets/:id) edits rows one at a time.
+  - The "workflow" here is a process (evaluate -> review_queue -> reconcile), not a built workflow graph. The Cookbooks gallery card for this recipe is an optional checklist; installing it is not needed.
 manual_flow:
   - step: prepare_dataset
-    action: aggregate representative outputs from build scenarios
+    action: load the 50-row test set (aggregated-outputs.jsonl)
   - step: define_judge
-    action: configure scoring rubric and template variables
+    action: configure scoring rubric and template variables (FaithfulnessJudge)
   - step: run_eval
-    action: score candidate outputs
+    action: score baseline and candidate with the deterministic scorers and the judge; read per-row results
   - step: human_review
-    action: enqueue and answer review questions for sampled traces
+    action: write the recorded outputs as traces, enqueue them, answer the faithful question with the evidence
   - step: calibrate
-    action: reconcile disagreements and update judge or artifact
+    action: import labels, check alignment, certify or reject on the thresholds, add every disagreement back as a hard case
 components:
   prompts:
-    optional:
-      - rubric wordsmithing variants
+    required:
+      - candidate prompt (grounded-reply), scored by the candidate Evaluations run
   skills:
     optional:
       - rubric-question-writer
@@ -36,10 +38,12 @@ contracts:
     required: [dataset_id, judge_id]
   output_schema:
     type: object
-    required: [overall_score, alignment_score, disagreements]
+    required: [alignment_score, disagreements]
 failure_modes:
   - judge_template_variable_mismatch
   - human_review_not_trace_linked
   - disagreement_hidden_by_aggregate_score
+  - reviewer_rationale_leaks_into_expectations
+  - alignment_certified_on_too_few_rows
 fallbacks:
   - block release gating until rubric or data issues are resolved.

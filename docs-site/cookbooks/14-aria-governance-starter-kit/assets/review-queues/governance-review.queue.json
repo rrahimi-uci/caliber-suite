@@ -1,6 +1,6 @@
 {
   "name": "governance-review",
-  "description": "Human spot-check of release-candidate answers: faithfulness, citation correctness, tone, and free-text notes. Pairs with the AnswerFaithfulness judge and the release-candidates-eval test set as the human layer of the governance kit.",
+  "description": "Human spot-check of release-candidate answers: faithfulness, citation correctness, tone, and free-text notes. The human layer of the governance kit, next to the AnswerFaithfulness judge and the release-candidates-eval test set.",
   "questions": [
     {
       "key": "faithful",
@@ -20,7 +20,11 @@
       "key": "tone",
       "title": "Tone of the answer",
       "type": "categorical",
-      "options": ["on_brand", "neutral", "off_brand"],
+      "options": [
+        "on_brand",
+        "neutral",
+        "off_brand"
+      ],
       "required": false,
       "target": "feedback"
     },
@@ -33,5 +37,5 @@
     }
   ],
   "reviewers": [],
-  "notes": "Inputs for the Aria review_queue.create step (enter questions and description in its form; `name` is linked from judge.create by the planner, so the queue is created under the judge's name — use this spec for a separately named queue; same shape as a POST /review-queues body). Each question item is {key, title, type in [pass_fail, categorical, numeric, text], options (for categorical), required, target in [feedback, expectation]}; only key + title are strictly required per item, and the queue requires name + a non-empty questions array. 'reviewers' is optional (a list of identities). Submitted answers write back onto each trace as MLflow assessments/expectations. Aria does NOT enqueue traces here — that is review_queue.add_items, which you skip in this scenario (Skip step; no traces yet); add traces later via POST /review-queues/{id}/items {trace_ids}."
+  "notes": "Inputs for the Aria review_queue.create step (the same shape as POST /review-queues). In the plan's form, questions and reviewers are JSON arrays. Each question item is {key, title, type in [pass_fail, categorical, numeric, text], options (required for categorical), required, target in [feedback, expectation]}; only key and title are required per item. Aria does not enqueue traces unless you answer the review_queue.add_items form: there are no traces yet in this lab, so you Skip step on it. Strip this notes key before posting the file as inputs."
 }

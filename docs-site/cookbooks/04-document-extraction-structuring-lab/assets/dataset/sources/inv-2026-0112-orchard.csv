@@ -1,0 +1,8 @@
+vendor,Orchard Hardware LLC
+invoice_number,OH-3009
+invoice_date,2026-03-22
+currency,USD
+description,quantity,unit_price,amount
+"Widget, large",10,7.40,74.00
+"Widget, small",25,3.10,77.50
+total,151.50

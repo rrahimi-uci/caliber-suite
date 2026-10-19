@@ -1,18 +1,23 @@
-# Verified — see ../FEASIBILITY.md.
+# Verified by running it: sdk/caliber-sdk/examples/cookbooks/cookbook_02_precision_skills.py (live), the Playwright spec
+# caliber/caliber-ui/e2e/cookbooks/labs/02-skill-trigger-packaging.spec.ts, and caliber/tests/test_cookbook_02_trigger_dataset.py (offline, real selector).
 feasibility:
-  - SelectionPrecision is a DETERMINISTIC scorer (POST /skills/{id}/test-selection, no LLM), not an LLM judge.
-  - monitoring.traces below are evidence labels, not literal span names.
+  - SelectionPrecision is a DETERMINISTIC check (POST /skills/{id}/test-selection, no model), not an LLM judge.
+  - Calibration evidence is simulated by default (provider fake, n_examples 0); the lab asserts the wiring, never a score.
 evaluation:
   deterministic_checks:
     - name: SelectionPrecision
-      type: deterministic_scorer  # skill selection scorer, not an LLM judge
-      criteria: expected vs actual trigger decisions
+      type: deterministic_scorer
+      criteria: expected vs actual trigger decision on the 40 cases of assets/dataset/trigger-cases.jsonl
+      round_1_starter_phrases: {correct: 30, false_positives: [T27, T28, T29, T30, T31, T32, T34, T35], false_negatives: [T14, T23]}
+      round_2_tightened_phrases: {correct: 40, false_positives: [], false_negatives: []}
   rule_checks:
-    - no_false_positive_on_engineering_queries
-    - package_round_trip_equivalence
+    - no_false_positive_on_engineering_queries   # T07-T12, T26-T40 stay unselected after tightening
+    - package_round_trip_keeps_instructions      # content and render output identical between source and copy
+    - package_round_trip_selection_metadata      # copy has no tags/category/trigger phrases until restored; then 0 differing decisions
+    - apply_then_rollback_versions               # history is 3, 2, 1 and version 3 has the text of version 1
 quality_gates:
   trigger_accuracy_min: 0.95
-  package_round_trip_success: 1.0
+  package_round_trip_decisions_after_restore: 1.0
 monitoring:
   traces:
     - skill_test_render
@@ -21,5 +26,5 @@ monitoring:
     - false_positive_count
     - false_negative_count
 feedback_loop:
-  - add every reviewed trigger miss into test-data.
-  - recalibrate after metadata or content edits.
+  - add every reviewed trigger miss to assets/dataset/trigger-cases.jsonl and to the phrases in assets/skills/trigger-phrases.json.
+  - re-run trigger tests after any change to summary, tags, name, category or trigger phrases (content edits cannot change a decision).

@@ -1,45 +1,53 @@
-workflow_goal: Prove MCP safety and reliability before any workflow dependency.
-# Verified against the live build — see ../FEASIBILITY.md.
+workflow_goal: Prove what CALIBER will and will not call on an MCP server before any workflow depends on it.
+# Verified by running the lab against a real stack (scripts/cookbook-env.sh up lab05) -- see README.md.
 feasibility:
-  - Policy field mapping — blocked = allowed:false is the ONLY control enforced on the DIRECT invoke path (a blocked tool refuses); requires_approval:true gates the tool at WORKFLOW time (human_approval node), NOT on direct invoke; side_effect_level = read|write|external_action.
-  - Every tool must be classified (allowed + side_effect_level + requires_approval) before invoke/test/calibrate; unclassified tools are refused. Catalog templates seed the classification; any policy PATCH saves the full merged policy. A write/external_action tool that stays allowed needs requires_approval:true (400 otherwise).
-  - In the Playground a blocked tool has Invoke disabled, so the refusal payload comes from POST /mcp-servers/{id}/invoke-tool (admin scope).
-  - Quick-connect catalog has 8 templates (GitHub, PostgreSQL, pgvector, Apache AGE, MinIO, Hugging Face, Ollama, Playwright); data-testid catalog-<id>.
-  - Tool calibration is real (PUT .../tools/{tool}/test-cases then POST .../tools/{tool}/calibrate); PolicyCorrectness is a deterministic assertion check, not an LLM judge.
+  - The MCP server is the lab's own (assets/server/repo_tracker_mcp.py, the official mcp SDK), started by CALIBER over stdio. A loopback HTTP endpoint is registered and then refused by the egress policy ("resolves into the blocked loopback range") even though the MCP host allowlist names loopback by default, so HTTP is not part of the executed lab. The GitHub variant (assets/real-world) needs network and credentials and was not run.
+  - Discovery is inventory, not authorization. Every discovered tool is denied until an admin saves allowed, side_effect_level and requires_approval; an allowed write or external_action tool must carry requires_approval (400 otherwise); a call to an unclassified tool is a refusal (success false, duration_ms 0), not an error.
+  - invoke-tool answers 200 with success false for refusals (unclassified, blocked, unknown tool, rate limited) and for the tool's own errors and timeouts. Only calls that pass policy start the server and leave an mcp.<server>.<tool> trace; refusals leave none. The server's call ledger is the proof that a refusal never ran.
+  - requires_approval is not enforced on the direct invoke / Playground path (an admin break-glass surface): the write tool ran when invoked directly. It is enforced in a workflow, where a tool node bound to an mcp_tool pauses at waiting_approval until a second person approves and the run is resumed. A workflow that binds a blocked tool is refused at submit (400 MCP runtime preflight failed).
+  - Calibration needs operator and the three real assertion kinds (no_error, output_contains, equals); it refuses a tool that requires approval (409) and a tool with no saved cases (400).
+  - Registration, test, discovery, classification and invoke need the platform admin scope; saving cases and calibrating need operator; inside a workspace the role floors apply on top.
+  - A stdio command must be on CALIBER_MCP_STDIO_COMMAND_ALLOWLIST and a Python script must be an allowlisted -m module or an absolute path in CALIBER_MCP_STDIO_PYTHON_SCRIPT_ALLOWLIST; stdio is containment, not a sandbox.
 manual_flow:
   - step: register
-    action: register server config and credentials
+    action: register the stdio server (command ${PYTHON}, args script + --ledger) in a workspace
   - step: discover
-    action: sync tools and inspect input/output schemas
+    action: test the connection and read the 6 tools with their input schemas
+  - step: classify
+    action: save allowed, side_effect_level, requires_approval and a rate limit for every tool
   - step: invoke
-    action: run read-only tool with golden payload
-  - step: govern
-    action: set block/approval policy on one risky tool
+    action: call the allowed read tool; meet the refusals and the tool's own failures
   - step: calibrate
-    action: save tool cases and run calibration
+    action: save cases and run calibration on the three read tools
+  - step: gate
+    action: bind the write tool in a workflow and approve it as a second person
 components:
   prompts: none
-  skills: optional_policy_summary_only
+  skills: none
   tools: discovered_mcp_tools_only
   mcp:
     required:
-      - one quick-connect server
+      - assets/server/repo_tracker_mcp.py over stdio
     policy_overlay:
-      - blocked            # PATCH .../tools/{tool}/policy {allowed:false}
-      - approval_required  # PATCH .../tools/{tool}/policy {requires_approval:true}
+      - allowed            # false blocks the tool; refused before the server starts
+      - requires_approval  # gates the tool in a workflow, not on the admin Playground
       - side_effect_level  # read | write | external_action
-  workflow: optional_future_binding_only
+      - rate_limit_per_minute  # process-local, per tool
+  workflow: assets/workflow/file-issue.workflow.yaml
 contracts:
   input_schema:
     type: object
     required: [tool_name, arguments]
   output_schema:
     type: object
-    required: [status, payload_or_error]
+    required: [server_id, tool_name, success, error, result, duration_ms]
 failure_modes:
-  - connection_failure
-  - discovery_schema_missing
-  - policy_not_enforced
+  - connection_failure          # the child exits: status becomes error and every invoke is refused until a Test succeeds
+  - unclassified_tool
+  - blocked_tool
+  - rate_limited_tool
+  - tool_error_or_timeout
+  - command_or_host_not_allowlisted
 fallbacks:
-  - stop integration and fix transport/auth before workflow use.
-  - keep write-capable tools blocked by default.
+  - stop integration and fix transport/allowlists before workflow use.
+  - keep write-capable tools blocked or approval-gated by default.

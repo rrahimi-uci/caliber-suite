@@ -1,0 +1,12 @@
+Delta Software Inc.
+INVOICE
+Invoice No: DS-9004
+Invoice Date: 2026-03-24
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+10    Annual licence, 10 seats                  $199.00     $1,990.00
+
+Subtotal                                         $1,990.00
+Sales tax (10%)                                  $199.00
+Grand Total                                      $2,189.00

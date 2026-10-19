@@ -2,25 +2,26 @@ id: SCN-02
 slug: skill-trigger-packaging-lab
 name: "Precision Skills"
 track: starter
-objective: Build one reusable skill with deterministic trigger behavior, package portability, and baseline-calibrated quality.
+objective: Build one skill whose trigger behaviour is measured on 40 cases, calibrate it, apply and roll back a candidate, and package it.
 why_it_matters:
   - Prevents over-broad skill activation in production assistants.
-  - Proves portability via export/import without semantic drift.
+  - Shows exactly what a skill package does and does not carry.
 primary_persona: AI engineer
 secondary_personas:
   - developer
   - evaluator
 caliber_surfaces:
   - Skills
-  - Evaluations
-  - Observability
+  - Cookbooks
+  - Administration
 prerequisites:
   - Skill workspace access.
   - Queries for positive and negative trigger testing.
 time_to_first_value: 45-75 minutes
 success_criteria:
-  - Trigger precision and recall pass threshold.
-  - Package round-trip preserves behavior.
+  - Trigger accuracy is at least 0.95 on the 40-case set (40 of 40 after tightening).
+  - Apply and rollback move the skill forward through versions 2 and 3.
+  - A package round trip keeps the instructions; the selection metadata is restored deliberately.
 demo_profile:
   recommended_sequence_index: 2
   tier: foundation
@@ -32,4 +33,4 @@ demo_profile:
     - release_governance
   showcase_capabilities:
     - deterministic skill triggering
-    - package portability and equivalence
+    - package export and import, with its limits stated

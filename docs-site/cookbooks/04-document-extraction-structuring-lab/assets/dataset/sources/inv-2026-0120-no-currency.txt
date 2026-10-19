@@ -1,0 +1,11 @@
+Overland Freight Co
+INVOICE
+Invoice No: OF-1120
+Invoice Date: 2026-03-10
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+1     Fuel surcharge                              58.20         58.20
+2     Freight, pallet                            145.00        290.00
+
+Total                                             348.20

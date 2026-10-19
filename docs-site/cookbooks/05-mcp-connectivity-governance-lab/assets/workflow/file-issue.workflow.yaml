@@ -1,0 +1,62 @@
+# A one-tool workflow: the run input (JSON) becomes the arguments of one governed MCP tool.
+# __SERVER_ID__, __TOOL__, __LEVEL__ and __APPROVAL__ are filled in by the lab script (or by hand, see the
+# README): the server id from POST /mcp-servers, the tool name, its side-effect level, and whether the
+# workflow gates it with requires_approval.
+schema_version: 1
+workflow_id: mcp-file-issue
+name: mcp-file-issue
+description: Call one governed MCP tool from a workflow; a write tool waits for a second person.
+runtime:
+  sdk: openai-agents-python
+  sdk_version_policy: runtime-pinned
+  compiler_version: caliber-workflow-compiler-v1
+  default_model_ref: CALIBER_WORKFLOW_DEFAULT_MODEL
+  session:
+    type: none
+nodes:
+  start:
+    id: start
+    type: start
+    outputs:
+      user_message:
+        type: string
+  call_tool:
+    id: call_tool
+    type: tool
+    tool_name: __TOOL__
+    inputs:
+      input:
+        type: string
+      arguments:
+        type: structured
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+      metadata:
+        type: structured
+  done:
+    id: done
+    type: output
+    inputs:
+      response:
+        type: string
+edges:
+  - id: e_start_call
+    from: start
+    to: call_tool
+    map:
+      user_message: input
+  - id: e_call_done
+    from: call_tool
+    to: done
+    map:
+      text: response
+tools:
+  __TOOL__:
+    type: mcp_tool
+    server_id: __SERVER_ID__
+    tool_name: __TOOL__
+    side_effect_level: __LEVEL__
+    requires_approval: __APPROVAL__

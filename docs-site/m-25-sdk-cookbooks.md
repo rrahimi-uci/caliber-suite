@@ -4,13 +4,20 @@
 # SDK recipes
 
 > **Disabled by default.** The cookbooks are a preview area and are off by default; enable with
-> `CALIBER_FEATURE_COOKBOOKS=true` on the server and restart it. Recipes 01 to 16 each install their catalog
-> entry with `caliber.cookbooks.install`, so against a default server they fail with a 404 whose `reason_code`
-> is `feature_disabled`. Some recipes use other preview areas as well: recipe 05 needs
+> `CALIBER_FEATURE_COOKBOOKS=true` on the server and restart it. Recipes 03 to 08, 10 and 18 install their catalog
+> entry with `caliber.cookbooks.install` (recipe 01 lists it), so against a default server they fail with a 404 whose
+> `reason_code` is `feature_disabled`. Some recipes use other preview areas as well: recipe 05 needs
 > `CALIBER_FEATURE_INTEGRATIONS` (MCP servers), recipe 11 needs `CALIBER_FEATURE_RELEASE_CANDIDATES`, and
 > recipes 12 to 15 and 17 need `CALIBER_FEATURE_ARIA`. Read `features` from the capabilities response first
 > (see the [SDK guide](m-20-sdk-guide.md#feature-flags-and-disabled-areas)). See also
 > [Feature flags](m-61-alpha-scope.md#feature-flags).
+
+Each recipe is the SDK counterpart of a lab under `docs-site/cookbooks/`, which was run for real against a disposable
+server (`scripts/cookbook-env.sh up NAME --flags ...`); the lab's README holds the exact setup, the expected `ok` lines, and
+what is simulated. On the alpha's default simulated model and evaluator the scripts assert structure and wiring (for
+example that **Evaluations** refuses with `400 evaluation requires a real LLM provider`), never a score. Each script
+prints one `ok` line per verified outcome and exits 0 only if all of them held; run it with
+`PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_NN_*.py` from a checkout.
 
 These recipes are the SDK-native counterparts to the platform cookbook gallery.
 Each example uses only `caliber-sdk` plus Python's standard library.
@@ -37,7 +44,7 @@ examples.
 
 ## Cookbook implementations
 
-Each script on this page finishes its scenario entirely through typed SDK calls. Recipes 01–16 extend versioned entries in the built-in cookbook catalog; standalone SDK automations such as recipe 17 create their own project and assets directly. `client.raw` is the SDK's permanent escape hatch for anything not yet wrapped, but none of these recipes currently need it.
+Each script on this page finishes its scenario entirely through typed SDK calls. Recipes 03 to 08, 10 and 18 install their versioned entry from the built-in cookbook catalog, recipe 01 checks that its entry is listed, the others drive the lab's own prompts, skills, workflows or assets directly, and recipe 17 is a standalone SDK automation that creates its own project and assets. `client.raw` is the SDK's permanent escape hatch for anything not yet wrapped; a few scripts use it for a readiness probe, an invalid payload or a route the typed layer does not cover, and each summary below says so. Some scripts sign test accounts in with plain `httpx` calls, since the SDK acts as one token.
 
 The code blocks are full files, not snippets. You can run them directly once `CALIBER_BASE_URL` and `CALIBER_TOKEN` are set.
 
@@ -49,13 +56,16 @@ python sdk/caliber-sdk/examples/cookbooks/cookbook_01_trustworthy_intake_classif
 
 ## Cookbook 01 — Trustworthy Intake Classifier
 
-Install the versioned recipe, then run the prompt workspace's own regression loop: author and promote the prompt, build the test set, pin a baseline run, introduce a regression, and read the Vs. baseline diff before queuing calibration.
+Author and promote a strict-JSON intake prompt, import the 44-case labelled test set, register a weaker v2, then calibrate the live prompt, apply the candidate and roll it back, verifying the registry alias, live board, release timeline and audit log at each step; it exits 0 only if all 26 checks hold. It needs `CALIBER_FEATURE_COOKBOOKS=true`, an operator or admin token and `MLFLOW_TRACKING_URI`; on the default simulated stack evaluation is refused with 400 (the script asserts that refusal) and calibration evidence is canned and marked `simulated`, while a real model gives a scorecard that catches the v2 regression (`--skip-release` stops after that). It uses `client.raw` for `/readiness` and for the two `/evaluations` failure probes, and a plain `httpx` login to mint the viewer token.
 
-**SDK surfaces:** `cookbooks`, `prompts`, `datasets`, `judges`
+**SDK surfaces:** `cookbooks`, `prompts`, `datasets`, `evaluations`, `jobs`, `releases`, `audit`, `auth`
 
-1. Inspect cookbook readiness and acknowledge prerequisites before installation.
-2. Install the built-in recipe, then author and promote the strict-JSON prompt version through the typed prompts resource.
-3. Build the regression test set, pin a baseline test run, introduce a deliberately weaker version, and diff the comparison run against that baseline before queuing a calibration run.
+1. Check readiness and that Cookbook 01 is listed with guided steps, then create the strict-JSON prompt v1 and promote it, verifying the `prod` alias in the MLflow registry.
+2. Import the 44-case labelled test set from the JSONL file and register a weaker v2 that is not made live.
+3. Evaluate v1 and v2 and catch the regression against the baseline (44/44 strict JSON against 0/44); on a simulated model verify the 400 refusal instead, and verify that evaluating a missing test set is a 404.
+4. Calibrate the live prompt through the typed prompts and jobs resources, wait for `candidate_ready`, and read its evidence (44 examples, dataset version, `simulated: true`) and diff.
+5. Exercise the failure paths: a viewer's apply is 403, a candidate below the gate is `rejected` and its apply is 409; then apply the candidate and verify the alias, live board, release timeline and audit log all name you.
+6. Roll back and verify the alias returned to v1 in the registry, on the live board and in the audit log.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_01_trustworthy_intake_classifier.py
@@ -63,13 +73,16 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_01_trustworthy_intake_classifier.py
 
 ## Cookbook 02 — Precision Skills
 
-Install the recipe, register the reusable skill, run render and selection tests, and trigger skill calibration through the typed skills resource.
+Author the support-tone skill from the lab's asset files, preview its rendering, run two rounds of trigger-selection cases (30/40 with the starter phrases, 40/40 after tightening) and pin round 2 as the baseline, then calibrate, apply, roll back, export and re-import the skill package, and prove the failure paths and archive; it exits 0 only when every documented outcome holds. It needs an admin token plus a plain `lab02-viewer` account for the 403 checks and does not install the cookbook; skill calibration has no test set, so under the default simulated providers the candidate and scores are canned and the script asserts wiring only, while trigger selection is deterministic and needs no model. It uses `client.raw` only to post the invalid skill payloads, and a plain `httpx` login to mint the viewer token.
 
-**SDK surfaces:** `cookbooks`, `skills`
+**SDK surfaces:** `skills`, `jobs`, `auth`
 
-1. Materialize the cookbook draft through the built-in installer.
-2. Create the skill and immediately prove its variable rendering and trigger-selection behavior.
-3. Start the server-side calibration job through `client.skills.calibrate()`, tagging the run with the installed workflow's id.
+1. Create the skill from the asset file (version 1, six starter exclusion phrases) and preview its rendering with all variables, then only one, checking the unresolved variables.
+2. Run trigger round 1 (30/40 right, below the 0.95 gate), tighten the trigger phrases without bumping the version, then run round 2 (40/40) and pin it as the baseline test run.
+3. Calibrate the skill, wait for `candidate_ready` (`simulated: true`, `n_examples: 0`), apply it as version 2, and roll back to the original text as version 3 (history 3, 2, 1).
+4. Export the package ZIP, check re-import under the same name is 409, import it under a new name, and show it keeps the instructions but not the tags, category or trigger phrases.
+5. Prove the failure paths: a viewer's apply, calibrate, rollback and create are each 403, invalid skill content is 400, a duplicate name is 409, and calibrating with no baseline pinned still works.
+6. Archive every skill the run created and confirm each leaves the default list.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_02_precision_skills.py
@@ -77,13 +90,16 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_02_precision_skills.py
 
 ## Cookbook 03 — Policy-Safe Decision Tool
 
-Install the recipe, register the deterministic tool, persist hardening cases, and run a calibration pass against those fixtures.
+Register a deterministic read tool (`decide_refund`) and a write tool (`initiate_refund`) in a project, sandbox-test them, run and pin the 49-fixture calibration as the baseline, provoke a one-case regression, then import a refund workflow whose write step needs a second person's approval and drive approve, reject, deny and manual-review runs, checking the audit trail and where the sandbox boundary stops. It needs an admin token, the `cookbooks` flag (for the last step, installing the gallery starter) and `CALIBER_APPROVER_USERS` including `approver1`; it creates `approver1` and `viewer1` accounts, does not use a model, and the simulated providers play no part. It uses `client.raw` once, to read `/system/effects`, and plain `httpx` to sign the two accounts in.
 
-**SDK surfaces:** `cookbooks`, `tools`
+**SDK surfaces:** `projects`, `tools`, `workflows`, `audit`, `auth`, `cookbooks`
 
-1. Install the versioned cookbook artifact after verifying readiness.
-2. Register the decision tool with explicit input and output schemas.
-3. Persist deterministic hardening fixtures and run a calibration pass to capture pass-rate evidence.
+1. Create a project, add `approver1` as reviewer and `viewer1` as viewer, and register the two tools; a write tool without `requires_approval` is refused with 400.
+2. Sandbox-test the tools (the read tool runs live in a subprocess, the write tool is mocked) and check viewer and approver scopes get 403.
+3. Save the 49 fixtures and calibrate to 49/49, record the suite run and pin it as the baseline, then run a regression drill whose single wrong fixture shows as exactly one regression against that baseline.
+4. Import the refund-decision workflow and run it through the approval gate: the run waits at the `refund` node, the initiator's own approval is 403, `approver1` approves, Resume is needed, then exactly one refund fires; a rejected run fails with `approval_rejected`, and a deny decision completes with no approval.
+5. Read the audit trail and the effect ledger, then probe the sandbox boundary: a stalled tool is killed, a large file write is refused, the environment is empty, and the network is still reachable.
+6. Install the Cookbook 03 gallery starter and verify its draft holds a decision table and a Human Approval node.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_03_policy_safe_decision_tool.py
@@ -91,13 +107,16 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_03_policy_safe_decision_tool.py
 
 ## Cookbook 04 — Document-to-JSON Pipeline
 
-Install the recipe, upload a source document into a project, and preview-run the generated workflow draft against the uploaded managed file.
+Upload 30 sample documents to an object-store bucket, install the built-in Document-to-JSON Pipeline in a project, run it once per document, and check every outcome against the lab's expectations: 16 valid invoices land as JSON in the output bucket, 13 invalid ones are held at the approval gate with exact schema errors, a duplicate is refused, and one held document is approved and one rejected, leaving exactly 17 output objects. It needs an admin token, the `cookbooks` flag, an S3-compatible object store behind the server and a `reviewer` account holding the operator and approver scopes; nothing calls a model, so simulated providers change nothing. It does not use `client.raw`; plain `httpx` signs the reviewer in.
 
-**SDK surfaces:** `cookbooks`, `projects`, `workflows`
+**SDK surfaces:** `cookbooks`, `projects`, `object_store`, `workflows`, `auth`
 
-1. Create a project-scoped home for the source documents and upload a managed file through the SDK.
-2. Install the cookbook draft so the platform materializes the maintained workflow manifest for you.
-3. Preview-run the installed workflow version against the uploaded file (real tool bindings are not used in preview mode) and return the file/workflow identities needed for the next execution step.
+1. Check the recipe's configuration checks and that the object store answers, then create a project with a second person (`reviewer`) in it.
+2. Create the `doc-intake` and `doc-extracted` buckets and upload the 30 documents under `incoming/`.
+3. Install the pipeline (it installs paused), validate the draft, resume it, and run it once per document with the object key as input; compare each extracted JSON field by field and each held document's schema errors by path.
+4. Verify a duplicate invoice and a key that matches no object both fail with a clear message.
+5. Exercise the approval gate: the account that started the run is refused with 403, the reviewer approves one held document (its JSON lands under `reviewed/`) and rejects another (`approval_rejected`, nothing written).
+6. Confirm the output bucket holds exactly the 17 expected objects.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_04_document_to_json_pipeline.py
@@ -105,13 +124,16 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_04_document_to_json_pipeline.py
 
 ## Cookbook 05 — Governed Tool Connectivity
 
-Install the recipe, connect an MCP server, test reachability, discover tools, invoke the read tool, enforce a policy block on the write tool, then re-invoke it to capture the structured refusal.
+Register the lab's own stdio MCP server in a project, discover its six tools (all start unclassified and denied), classify them, then invoke a read tool, check refusals (blocked, unknown, rate limited) and prove from the server's ledger that a refused call never reached it, calibrate three read tools (16/16, 8/8, 4/4) and catch a deliberately wrong expectation, and run the write tool behind a workflow approval gate. It needs an admin token, the `integrations` and `cookbooks` flags, operator and approver accounts, and the MCP server script on the stdio allowlist; it runs a real MCP server and no model, so nothing is simulated. It does not use `client.raw`; plain `httpx` signs the lab accounts in.
 
-**SDK surfaces:** `cookbooks`, `mcp_servers`
+**SDK surfaces:** `projects`, `mcp_servers`, `workflows`, `observability`, `audit`, `auth`, `cookbooks`
 
-1. Install the official recipe and connect the target MCP server through the registry surface.
-2. Probe the server, refresh the discovered inventory, and invoke a read tool to prove it works before anything is locked down.
-3. Apply a policy block to the write tool, save calibration cases for the read tool, then re-invoke the now-blocked tool to capture its structured refusal as evidence.
+1. Create a project with operator, approver and viewer accounts, register the stdio MCP server, run `test_connection` and `discover_tools`, and check the server-side refusals (an unclassified tool cannot be called, a write tool needs `requires_approval`).
+2. Classify every tool through `update_tool_policy`, then invoke the allowed read tool and check the ledger shows exactly one execution.
+3. Save 28 test cases and calibrate the three read tools, catch one wrong expectation (15/16, pass rate 0.9375), and check calibrating an approval-class, case-less or missing tool is refused (409, 400, 404).
+4. Check the refusals (blocked `create_release`, unknown `drop_database`, over the rate limit) and the tool's own errors, and that the ledger shows none of the refused calls ran.
+5. Bind the write tool in an imported workflow: it stops at `waiting_approval`, the initiator's approval is 403, and it runs once only after a second person approves and the run is resumed; a blocked tool in a workflow is refused at submit.
+6. Check that `/bin/sh`, `python -c` and loopback HTTP servers are registered but refused, then read the history, audit log and `mcp.<server>.<tool>` traces (a refusal leaves none) and install the gallery starter.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_05_governed_tool_connectivity.py
@@ -119,13 +141,16 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_05_governed_tool_connectivity.py
 
 ## Cookbook 06 — Grounded Knowledge Assistant
 
-Install the recipe, read the deployment's real chunking/embedding catalog, create the knowledge base and a version from it, query the corpus by version, and calibrate against a dedicated eval dataset.
+Upload 11 policy documents to an object-store bucket, build knowledge base version 1 and check that the answer cites the chunk holding the clause, compare dense, hybrid and graph_hybrid retrieval over 41 answerable questions, calibrate Recall@k and nDCG@k against a pinned baseline, build a tuned version 2, test activation, rollback and failing builds, then install the answer workflow and route its low-confidence run to a review queue. It needs an admin token, the `cookbooks` flag, an S3-compatible object store and the local `all-MiniLM-L6-v2` embedding model; retrieval and its metrics are real, while the answer text, model-judged metrics (Faithfulness, Answer-correctness) and prompt scoring (refused with 400) are simulated on the default stack. It uses `client.raw` once, for `/readiness`.
 
-**SDK surfaces:** `cookbooks`, `knowledge_bases`, `datasets`
+**SDK surfaces:** `cookbooks`, `knowledge_bases`, `object_store`, `datasets`, `workflows`, `review_queues`, `prompts`, `judges`, `evaluations`
 
-1. Install the recipe as the versioned workflow scaffold for the scenario.
-2. Read the deployment's real chunking-strategy and embedding-model catalog, then create the knowledge base and its first version from those choices.
-3. Query the corpus by version id, build a small eval dataset, and launch a calibration run scored against it.
+1. Read readiness, the object store status and the knowledge-base options (chunking strategies and embedding models), then upload the 11 documents to `policy-corpus/policies/`.
+2. Create the knowledge base and build version 1 through the queue and worker (11 sources, 27 chunks of 384-dimension vectors), and query it to check the answer cites the `data-retention-policy.md` chunk containing `365 days`.
+3. Compare dense, hybrid and graph_hybrid hit rates at top 3, check what a 0.42 score gate refuses (every out-of-corpus question, not the two trap questions), then calibrate and pin the baseline run.
+4. Build the tuned version 2 (69 chunks), and verify activation, rollback, a build that skips an unreadable file (it completes with `failed_sources: 1`), and a build with nothing readable (it fails and cannot be activated).
+5. Install the answer workflow, run three questions through it, and enqueue only the low-confidence run in a review queue, where the reviewer's answer is written back to the trace.
+6. Store the answer prompt and the faithfulness judge, and check scoring the prompt is refused with 400 on the simulated model.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_06_grounded_knowledge_assistant.py
@@ -133,13 +158,16 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_06_grounded_knowledge_assistant.py
 
 ## Cookbook 07 — Support Triage Copilot
 
-Install the recipe, create its evaluation and review assets, then drive the approval-gated escalation branch both ways: one run approved through to completion, a matching run rejected before its external write.
+Create a project with two reviewers, install the model-free Cookbooks starter and prove the approval rules on it, import the lab's support-triage workflow, promote it to a `staging` alias, and run all 44 tickets of `ticket-cases.jsonl` through the run queue, asserting decision, severity, SLA, approval flag, flags and node path (44/44) and that exactly the 15 approval-required tickets pause at the gate. It then answers the gate (one approved, one rejected, the rest cancelled), ships a deliberately bad version that the dataset catches, rolls back, and reads the run audit trail. It needs an admin-scoped SDK token, a server started with `CALIBER_FEATURE_COOKBOOKS=true`, `CALIBER_OPERATOR_USERS=admin,lena,sam`, `CALIBER_APPROVER_USERS=admin,lena` and a `staging` approval policy, and no model: the classifier is deterministic rules in one Python Code node and the `draft_reply` agent runs on the simulated provider. The script creates the `lena` and `sam` accounts, signs them in with plain `httpx` calls to `/auth/login`, and does not use `client.raw`.
 
-**SDK surfaces:** `cookbooks`, `review_queues`, `datasets`, `judges`, `evaluations`, `workflows`
+**SDK surfaces:** `cookbooks`, `projects`, `auth`, `workflows`, `datasets`, `audit`
 
-1. Install the maintained recipe instead of copying a workflow manifest into the script.
-2. Create the human-review queue, the support dataset, the grounding judge, and the evaluation run that score this loop.
-3. Publish the installed draft, then submit two escalation runs: approve and resume one to completion, and reject the other to prove no external write occurs.
+1. Create a project, add `lena` (approver) and `sam` (operator without `caliber.approver`) as reviewers, and check their scopes.
+2. Install the starter recipe (it arrives paused), activate and publish it, and prove the approval rules: the person who started the run cannot approve it (403), an operator without the scope cannot (403), a second person with the scope approves and the run completes, and a rejection ends it `failed` with `approval_rejected`.
+3. Import the triage workflow, validate it, confirm Preview refuses its `python_code` node, publish it, and promote the `staging` alias (approved by the second person when the server asks).
+4. Load the 44 tickets as a test set, read them back, run every ticket through the queue against the alias, and check each run's decision, severity, SLA, approval flag, flags and path; answer the gate on live runs (approve one and release the action, reject one and release nothing, cancel the rest).
+5. Publish a version with a bad rule, move the alias onto it, watch the dataset catch the regression (3 of 11 bug tickets wrong), then roll back and see the same tickets pass again.
+6. Read the audit log to find who enqueued, approved and resumed the approved run; `--cleanup` archives what earlier runs created.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_07_support_triage_copilot.py
@@ -147,13 +175,16 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_07_support_triage_copilot.py
 
 ## Cookbook 08 — Incident Response Copilot
 
-Install the recipe, collect observability evidence, create the incident review queue, and return the traces and queue needed for human approval.
+Install the incident-commander starter, import the lab workflow (refused until its 41-incident test set exists), Preview it, promote it through a gated `prod` alias whose deploy gate replays the dataset, then run all 41 incidents through the queue and assert severity, action and path (41/41) with exactly the 5 rollback incidents paused at the approval gate. It also checks that the gate refuses a bad version, exercises four failure drills (Error Boundary, unregistered tool, blocked API Request host, Wait For Event), rolls back, and asks for a workflow calibration. It needs an admin-scoped SDK token and a server started with `CALIBER_FEATURE_COOKBOOKS=true`, `CALIBER_OPERATOR_USERS=admin,lena,sam`, `CALIBER_APPROVER_USERS=admin,lena`, a `production` human-approval policy and the graded-executor requirement emptied; no model is needed. The deploy gate replays with the simulated executor and says so, `draft_update` runs on the simulated provider, and evidence is supplied inside each incident record. It does not use `client.raw` (it signs in as `lena` with plain `httpx` calls).
 
-**SDK surfaces:** `cookbooks`, `observability`, `review_queues`
+**SDK surfaces:** `cookbooks`, `projects`, `auth`, `workflows`, `datasets`, `evaluations`, `jobs`
 
-1. Install the recipe so the workflow draft and governance wiring come from the catalog, not the docs page.
-2. Pull the current trace set and operational metrics through the observability surface.
-3. Create the incident review queue and enqueue the trace ids that require human decision-making.
+1. Install the starter recipe and run it through the queue; Preview refuses it because its API Request nodes cannot be isolated.
+2. Import the 41-incident test set (the workflow import is refused until it exists), then import and validate the commander workflow and Preview it, where every node is declarative and the dataset's verdicts hold.
+3. Publish it and move the aliases: `staging` rotates at once, and `prod` replays all 41 incidents through the deploy gate (pass rate 1.0, executor reported as simulated) and waits for a second person to approve; a bad rollback rule is refused by the gate and `prod` stays on version 1.
+4. Run every incident through the queue against `prod`, check severity, action and path (41/41), and answer the rollback gate: self-approval 403, approve releases `ROLLBACK_APPROVED`, reject releases nothing, cancel the rest.
+5. Run the failure drills: an Error Boundary degrades a failing lookup to a fallback, an unregistered tool is refused at import, a blocked API Request host fails the run with the egress reason, and a Wait For Event run pauses with a readable checkpoint and completes when its event arrives.
+6. Promote a good version and roll `prod` back to version 1, create a workflow calibration run (it reports no candidate), and confirm the Evaluations route refuses workflow scoring without a real model (400).
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_08_incident_response_copilot.py
@@ -161,13 +192,16 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_08_incident_response_copilot.py
 
 ## Cookbook 09 — Self-Healing Workflows
 
-Install the recipe, publish the version, drive a run to a reproducible failure, capture its checkpoints and trace, retry it from that checkpoint, then approve the retry through to recovery and propose a patch candidate from the evidence.
+Import the lab's own `refund-intake` workflow (it does not install the Cookbooks starter), run 35 tickets through version 1 and assert that exactly the documented 24 fail (17 at `validate`, 3 at `check_reference`, 4 at `decide`), read the debugger evidence and a same-way-failing retry, show what `propose-patch` can and cannot do for a code node, then write the patch as version 2, rerun all 35 (none fails, the 11 that worked are byte-identical), and exercise the `staging` alias, a rollback, and the `prod` refusal. It needs an admin-scoped SDK token, the lab's stand-in account service (`assets/upstream/account_service.py`, port 8780, not a real system) and a server started with `CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1`; it needs no model and no feature flag. It uses only typed `client.workflows` calls (no `client.raw`); `--cleanup` deletes the workflow it created.
 
-**SDK surfaces:** `cookbooks`, `workflows`
+**SDK surfaces:** `workflows`
 
-1. Install the cookbook draft and promote the version from draft to runnable.
-2. Submit a run, reject its pending approval to reproduce a reliable failure, then capture its checkpoints and debugger trace.
-3. Retry from the last checkpoint, approve and resume the retried attempt to a recovered terminal state, and generate a patch candidate from the failure evidence.
+1. Import `ticket-intake.v1.workflow.yaml` as `refund-intake` and publish version 1.
+2. Run the 35 tickets of `failing-inputs.jsonl` through version 1 and check that exactly the documented tickets fail, at the documented node, with the documented error.
+3. Read the debugger evidence for one failing run of each kind (the `ERROR` span in the trace, the `workflow.run.failed` event, no checkpoint), then retry one and confirm it fails at the same node as attempt 2 of 2 with a two-attempt lineage.
+4. Ask `propose-patch` for a fix: it returns a generic prompt suggestion with no graph change for the timed-out node, and a guardrail patch aimed at a code node is refused with a 400.
+5. Write the patch (three node bodies) as version 2 of the same workflow, validate and publish it, and rerun all 35 tickets: none fails and the 11 that already worked produce identical output.
+6. Promote version 1 then version 2 to `staging`, run through the alias, roll the alias back and see the same ticket fail again, and confirm `prod` refuses a version with no deploy gate (400).
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_09_self_healing_workflows.py
@@ -175,13 +209,16 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_09_self_healing_workflows.py
 
 ## Cookbook 10 — Trustworthy Evaluation
 
-Install the recipe, build the dataset/judge/evaluation, enqueue a real trace for human review, then compute judge/human alignment (Cohen's kappa) against that completed review.
+Load a 50-row test set, create a `FaithfulnessJudge` and a deliberately weak `LenientJudge` (a template with an unsupported variable is refused with a 400), seed 50 traces, have them reviewed in a queue with the human labels from the dataset, import those labels, and compute the judge's agreement, Cohen's kappa and confusion counts, recomputing each independently and comparing it with the server's numbers before certifying or rejecting the judge on the lab's thresholds (agreement >= 0.80, kappa >= 0.60, at least 30 rows). It runs in two modes, chosen by asking the server: with a model behind it (a real provider or the lab's stand-in model) every step runs, and on the default simulated stack (`CALIBER_LLM_PROVIDER=fake`) the Evaluations and the judge are refused (400, 'real LLM provider') and the script verifies those refusals plus the model-free steps and a calibration job whose canned score is marked simulated. It needs an admin-scoped SDK token, `CALIBER_FEATURE_COOKBOOKS=true`, and `mlflow` plus `MLFLOW_TRACKING_URI`, because the lab's `seed_traces.py` writes the traces with MLflow directly, not through the SDK. It does not use `client.raw`; `--expect-stand-in` pins the stand-in model's exact numbers and `--cleanup` archives what it created.
 
-**SDK surfaces:** `cookbooks`, `datasets`, `judges`, `evaluations`, `review_queues`, `observability`
+**SDK surfaces:** `cookbooks`, `datasets`, `judges`, `evaluations`, `review_queues`, `prompts`, `jobs`
 
-1. Install the versioned recipe through the SDK so the platform owns the scaffold.
-2. Create the evaluation dataset, the custom judge, the evaluation run, and the disagreement-review queue.
-3. Enqueue a real trace, answer it, and compute the judge's alignment against that human label -- the recipe's defining evidence.
+1. Read the recipe through `client.cookbooks`, then create the 50-row test set (dataset version 51) and read it back.
+2. Create `FaithfulnessJudge` and `LenientJudge`, show a template using `{{ evidence }}` refused with a 400 that names it, and show an evaluation of an empty test set refused.
+3. Score a baseline and a candidate with the deterministic scorers and the judge and read the per-row results (with a model); on the simulated stack, verify the refusal the product gives instead.
+4. Seed 50 traces, create the review queue, enqueue every trace, submit the human answers, and import the labels (50 imported, none skipped).
+5. Compute judge/human alignment: recompute agreement, Cohen's kappa and confusion counts independently and compare, certify or reject each judge on the lab's rule, and show that five rows alone are not certifiable (with a model); with no model every row errors and a calibration job reports a simulated score.
+6. Feed the nine disagreements back into the test set as hard cases (dataset version 60, with a model).
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_10_trustworthy_evaluation.py
@@ -189,13 +226,16 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_10_trustworthy_evaluation.py
 
 ## Cookbook 11 — Release Signoff Factory
 
-Install the recipe, create a release candidate, re-evaluate it from current evidence, generate the durable report, and record the signoff.
+Create a real prompt with two versions, create the 20 release candidates of `release-candidates.jsonl` as an operator and assert the server's weighted score, status and blockers against the dataset's independently worked figures (14 ready, 6 blocked), then exercise refusals, waivers, the Allure-compatible report job, go and no-go signoffs, final-once-signed behaviour, and the audit trail. It asserts that signing off deploys nothing (no alias moves; a separate prompt promote does), and that a candidate for a non-existent artifact is accepted because CALIBER records the reference without looking it up. It needs an admin-scoped SDK token, `CALIBER_FEATURE_RELEASE_CANDIDATES=true`, and `CALIBER_OPERATOR_USERS` listing `lab11-operator` next to `admin`; no model is involved and nothing is simulated. It creates the `lab11-operator` and `lab11-viewer` accounts and signs them in with plain `httpx` calls to mint their tokens (no `client.raw`); it does not call the cookbooks resource.
 
-**SDK surfaces:** `cookbooks`, `releases`
+**SDK surfaces:** `releases`, `prompts`, `auth`, `audit`
 
-1. Install the maintained recipe instead of forking its workflow definition into the docs.
-2. Create the candidate with weighted criteria, evidence references, and rollback metadata.
-3. Re-evaluate, generate the report job, and record the final go/no-go decision with rationale.
+1. Create a `payments-assistant` prompt with two versions and check that no alias points at either.
+2. Create the 20 candidates as the operator and check each weighted score, status and blocker list against the dataset (14 ready, 6 blocked).
+3. Show what a candidate is refused for (zero weight, score above 1, a key with a space, no criteria, an unknown field, a viewer creating one) and that a candidate for a missing artifact is accepted.
+4. Record waivers (admin only; reason, expiry and criterion key validated) and show that a waiver clears a blocker but cannot make a low score ready (GO refused with 409), with a stale report snapshot hash before and after.
+5. Generate the report job, sign RC20 GO, RC19 NO-GO and RC18 GO as admin (an operator cannot), and show a signed candidate is final: re-evaluate, waiver and a second signoff all return 409.
+6. Show the signed GO deployed nothing (aliases, live board and timeline unchanged until a separate prompt promote), then read each action and its actor back from the audit log.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_11_release_signoff_factory.py
@@ -203,13 +243,16 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_11_release_signoff_factory.py
 
 ## Cookbook 12 — Aria: Evaluation Harness from Intent
 
-Install the recipe, drive the Aria plan through approval, and create the judge and eval dataset the plan's own interactions ask for -- the shipped planner leaves their inputs empty, so the real artifacts come from their typed calls.
+Check Aria's nine capabilities and draw a plan for each of 28 goals (28/28 match the dataset, every draft cancelled, nothing run), then state the canonical intent, approve the two-step plan (`judge.create`, `eval_dataset.create`), answer its four interactions with typed values, and assert the active judge and the empty version-1 test set exist under the typed names. It then loads the 30 rows of `faithfulness-cases.jsonl`, checks them back (version 31), and provokes the refusals (a goal with no steps, a bad form answer, a denied step, a judge with no evaluation variable, a taken name, no operator scope, a non-owner). It needs an admin-scoped SDK token, `CALIBER_FEATURE_ARIA=true` and `CALIBER_OPERATOR_USERS=admin,olga`, and creates the `olga` and `vera` accounts (signed in with plain `httpx` calls, no `client.raw`). Aria's planner is deterministic rules and no model is needed: running the judge in Evaluations is refused with a 400 on the simulated stack and the script verifies that refusal instead of a score (with a real provider it asserts all 30 rows were scored). It does not call the cookbooks resource.
 
-**SDK surfaces:** `cookbooks`, `aria`, `judges`, `datasets`
+**SDK surfaces:** `aria`, `judges`, `datasets`, `evaluations`, `auth`
 
-1. Install the recipe so the workflow scaffold stays aligned with the product catalog.
-2. Create the Aria plan from a typed intent, approve it, and execute it.
-3. Answer each pending interaction and create the judge/dataset it asks for through their own typed calls -- the documented execution gap means the plan alone would create neither.
+1. Check that Aria lists its nine capabilities with their tiers, and draw a plan for each of the 28 goals in `goals.jsonl`, comparing it with the dataset (28/28) and cancelling every draft.
+2. Create the plan from the typed intent (it draws `judge.create` then `eval_dataset.create`), approve it and execute it; it pauses on the judge step waiting for input.
+3. Answer the four interactions (judge fields, approve, test set fields, approve) until the plan reads `completed`, then check the judge is active as `bool` and the test set has its own name, version 1 and no rows.
+4. Add the 30 cases to the test set, read them back (30 rows, version 31, each stored row equal to the file's row), and run the test set in Evaluations, which is refused (400) without a real model.
+5. Provoke the refusals: a goal with no steps cannot be approved (409), a form rejects an unknown field, a wrong type, an empty name and a missing field, a denied step is skipped while the other runs, a judge with no evaluation variable fails its step, and a taken judge name fails its step.
+6. Show the role rules: an account without the operator scope is refused (403) and creates nothing, and an operator who does not own the plan cannot answer its question (403) or see it (404).
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_12_aria_evaluation_harness.py
@@ -217,13 +260,15 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_12_aria_evaluation_harness.py
 
 ## Cookbook 13 — Aria: Human-Review Queue from Intent
 
-Install the recipe, drive the Aria plan through approval, and create the real review queue its interaction asks for, denying the add-items step since no traces exist yet.
+Seed 30 flagged agent replies as MLflow traces, state one sentence of intent to Aria, answer its four questions so it creates a review queue and enqueues the 30 traces, review 12 of them as the queue's owner, and check that each answer landed on its trace as an assessment and as a labelled alignment example; then provoke the refusals (bad answers, a missing trace id, skipped, denied and failing steps, a non-operator account, an operator who does not own the queue) and assert the exact status codes. It needs `CALIBER_FEATURE_ARIA=true`, an admin-scoped token, `CALIBER_OPERATOR_USERS=admin,olga` (the script also creates `vera`, a non-operator), `mlflow` with `MLFLOW_TRACKING_URI` for the seed traces; no model is needed because Aria's planner is deterministic. It does not install a cookbook, and it reads the queue back with `client.raw` (`GET /review-queues/{id}`) in several places.
 
-**SDK surfaces:** `cookbooks`, `aria`, `review_queues`
+**SDK surfaces:** `aria`, `review_queues`, `observability`, `auth`
 
-1. Install the catalog-managed recipe for the review-governance scenario.
-2. Create the Aria plan, approve it, and execute it.
-3. Create the review queue through its own typed call when the plan's interaction asks for it, and deny the add-items interaction since no traces exist yet.
+1. Write the 30 flagged replies to MLflow as traces and draw a plan for each of the 26 goals in the dataset, checking every plan against the expected steps (every draft is cancelled, nothing runs).
+2. State the canonical intent and answer four questions: the queue's fields, an Approve, the 30 trace ids, an Approve; check the plan completed, the queue is active with its five questions, and it holds the 30 traces, all pending.
+3. Review 12 of the 30 as the queue's owner through `review_queues.submit`, then check each answer is on its trace as an assessment and that the safety answers are 12 labelled examples for judge alignment.
+4. Provoke the review refusals: a missing, mistyped, unknown-option or unknown-question answer (400), a second review (409), a non-operator (403), an operator who does not own the queue (404), and a trace id that does not exist (queued, then 502 on review).
+5. Provoke the plan refusals: a skipped queue skips the enqueue step, a denied enqueue keeps the empty queue, malformed forms stay open (409), a categorical question without options and a taken name fail their step, a goal with no steps is refused at approval, and a plan owned by a non-operator fails at execute.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_13_aria_review_queue.py
@@ -231,13 +276,15 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_13_aria_review_queue.py
 
 ## Cookbook 14 — Aria: Governance Starter Kit from Intent
 
-Install the recipe, drive the Aria plan through approval, and create all three governance artifacts -- judge, eval dataset, review queue -- its interactions ask for.
+State one sentence of intent to Aria and answer the seven questions its plan asks, so it creates a judge, a review queue and a test set (and skips the enqueue step, since no traces exist yet); then fill the test set with 30 cases, rerun the sentence under a lower autonomy level to show only the forms are asked, and provoke the refusals (a denied step that takes its dependent with it, a failure half way, an invalid judge, a goal with no steps, non-operator and non-owner accounts). It needs `CALIBER_FEATURE_ARIA=true`, an admin-scoped token and `CALIBER_OPERATOR_USERS=admin,olga` (the script also creates `vera`, a non-operator); no model is needed, and running the judge through Evaluations is expected to be refused (400) on a simulated provider, which the script verifies. It does not install a cookbook and does not use `client.raw`.
 
-**SDK surfaces:** `cookbooks`, `aria`, `judges`, `datasets`, `review_queues`
+**SDK surfaces:** `aria`, `judges`, `datasets`, `review_queues`, `evaluations`, `auth`
 
-1. Install the recipe that binds the governance starter-kit scenario to the live platform catalog.
-2. Create the Aria plan, approve it, and execute it.
-3. Create the judge, eval dataset, and review queue through their own typed calls as each interaction asks for them, denying add-items since no traces exist yet.
+1. Draw a plan for each of the 28 goals in the dataset and compare it with the expected steps (every draft is cancelled, nothing runs).
+2. State the canonical intent under 'Stop before each change' and answer seven questions (three forms with an Approve each, then the enqueue form, skipped because there are no traces); check the judge, the review queue and the test set exist under three different names.
+3. Add the 30 cases of the dataset to the test set through `eval_datasets.add_example`, check each stored row, and confirm that Evaluations are refused (400) without a real model.
+4. Run the same sentence under 'Run everything it safely can' after changing the draft's autonomy, and check that only the four forms are asked and the same kit is built; a plan can no longer be edited after approval (409).
+5. Provoke the refusals: a denied queue skips the enqueue step with it, a taken queue name fails the plan after the judge was made, a judge with no evaluation variable fails before anything is made, a goal with no steps is refused at approval, and a non-operator or non-owner cannot run or answer the plan.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_14_aria_governance_starter_kit.py
@@ -245,13 +292,15 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_14_aria_governance_starter_kit.py
 
 ## Cookbook 15 — Aria: Triage & Recalibrate Loop
 
-Install the recipe, drive the Aria plan through approval, create the triage queue and enqueue flagged traces, kick off a real workflow calibration, then poll the plan through its first async capability to completion.
+Register the existing subject Aria remediates (two tools, a published support workflow with its 30-case test set as deploy gate, an agent), seed 12 weak runs as MLflow traces, then state one sentence of intent and answer six questions so Aria creates a triage queue, enqueues the 12 traces and starts a real workflow calibration; the plan parks in `waiting_job`, is resumed by the plan worker (falling back to `aria.poll_plan`) and must end where the job ended, after which a reviewer triages three runs and the refusals are provoked. It needs `CALIBER_FEATURE_ARIA=true`, an admin-scoped token, `CALIBER_OPERATOR_USERS=admin,olga` (the script also creates `vera`, a non-operator), `mlflow` with `MLFLOW_TRACKING_URI`, and the server's plan and refinement workers running; no model is needed, and on a simulated deployment the calibration job ends `rejected` (gain 0.000, below the 0.02 gate) so the plan ends `failed` with that reason (a real model may reach `candidate_ready`, and the script accepts either). It does not install a cookbook; it reads the queue back with `client.raw` (`GET /review-queues/{id}`) twice.
 
-**SDK surfaces:** `cookbooks`, `aria`, `review_queues`, `observability`, `workflows`
+**SDK surfaces:** `aria`, `review_queues`, `observability`, `workflows`, `datasets`, `tools`, `jobs`, `auth`
 
-1. Install the recipe through the supported cookbook installer.
-2. Create the Aria plan, approve it, and execute it against this recipe's own installed workflow as the remediation subject.
-3. Create the queue, enqueue the flagged traces, and start the workflow calibration through their own typed calls, then poll the plan -- parked in `waiting_job` -- until the async job resolves.
+1. Register the two tools, import and publish the support workflow with its test set as the deploy gate, and register an agent (the existing subject Aria remediates); write the 12 weak runs to MLflow as traces and check the planner's drawn plan for each of the 28 goals.
+2. State the canonical intent and answer six questions (the queue's fields, an Approve, the 12 trace ids, an Approve, the workflow and agent ids, an Approve); the last Approve enqueues a calibration job and parks the plan as `running` with the step `waiting_job`, and a parked plan cannot be edited (409).
+3. Wait for the plan worker to resume the plan (or advance it with `aria.poll_plan`), then check it ends where the job ended, polling a finished plan changes nothing, and the job replayed 20 of the gate's 30 cases and reports its baseline.
+4. Check the triage queue holds the 12 flagged traces pending, then have a reviewer triage three of them and verify the verdict, failure mode and expected answer land on their traces.
+5. Provoke the refusals: an unknown workflow, an unregistered agent and a workflow with no deploy-gate test set fail at once and queue no job, malformed forms stay open (409), a denied calibration queues nothing, and a non-operator or non-owner cannot run, answer or poll a plan.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_15_aria_triage_recalibrate_loop.py
@@ -259,13 +308,15 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_15_aria_triage_recalibrate_loop.py
 
 ## Cookbook 16 — Production Observability & Triage
 
-Install the recipe, collect traces, create the regression dataset from a trace, and stand up the triage queue used to classify failures.
+Import and publish the cookbook 09 workflow and submit 40 production tickets as real runs, read the resulting traces back through Observability (12 ERROR, 28 OK, 4 of the OK ones silently wrong), capture the 16 traces that matter into a test set with their gold outcome, and stand up the triage queue, enqueue those traces and answer two, checking the answers become assessments on the traces. It needs no Aria flag and no model (the workflow has no agent node, so the simulated provider changes nothing), but it does need cookbook 09's stand-in account service (not a real system) on port 8780, `CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1` on the server, and the 40 sample tickets; it does not install a cookbook through `client.cookbooks` and does not use `client.raw`.
 
-**SDK surfaces:** `cookbooks`, `observability`, `datasets`, `review_queues`
+**SDK surfaces:** `workflows`, `observability`, `datasets`, `review_queues`
 
-1. Install the recipe so the production-triage workflow draft comes from the versioned catalog.
-2. Collect traces from the observability surface and promote one failing trace into the regression dataset.
-3. Create the triage queue and enqueue the failure set that needs human classification.
+1. Seed production traffic: import and publish the workflow and submit the 40 tickets as runs, so the traces are the ones the runtime records (none is written by the script).
+2. Read the traces back through Observability: the status counts (12 ERROR, 28 OK), the Error filter, and the request and node tree of one failing trace per failure kind; find the 4 OK traces whose answer differs from the gold outcome.
+3. Check the failure paths: an unknown trace id is a 404, a window in the future is an empty list, and a trace's run is found from its trace id.
+4. Capture the 16 failing or silently wrong traces into a test set with `eval_datasets.add_from_trace`, each with its gold outcome and tags.
+5. Create the triage queue, enqueue the same 16 traces, answer two of them and check the answers are written back onto the traces as assessments.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_16_observability_triage.py
@@ -273,14 +324,33 @@ sdk/caliber-sdk/examples/cookbooks/cookbook_16_observability_triage.py
 
 ## Cookbook 17 — Monthly Financial Analysis
 
-Create a project and object-store bucket, generate and persist realistic monthly financial CSV data, register and promote a dashboard-ready statistics prompt, execute it, then persist and verify the structured analysis -- entirely through typed SDK resources. This recipe requires an admin-scoped SDK token for object-store mutations and a configured model provider for live prompt execution.
+Create a project and object-store bucket, generate and persist realistic monthly financial CSV data, register and promote a dashboard-ready statistics prompt, execute it through a typed assistant session, then validate the returned mean/median/percentile/extrema JSON, persist it and download-verify it -- entirely through typed SDK resources. This standalone example (it has no lab folder and does not install a cookbook) needs an admin-scoped SDK token for object-store mutations, a connected object store, a configured model provider for live prompt execution, and `CALIBER_FEATURE_ARIA=true`, because the assistant-session surface (`/assistant/*`) is served only when that flag is on; it does not use `client.raw`.
 
 **SDK surfaces:** `projects`, `object_store`, `prompts`, `aria`
 
 1. Create the financial-analysis project and select it as the temporary SDK project scope.
 2. Create a dedicated blob bucket, generate the CSV in memory, upload and download-verify it, then import the object into the project's governed file registry for lineage.
-3. Create and re-read the registered prompt, promote its final version to the prod alias, verify it is visible through the Prompt dashboard inventory, execute it through the typed assistant-session surface, validate its mean/median/percentile/extrema JSON, then upload and download-verify the result in blob storage.
+3. Create and re-read the registered prompt, promote its final version to the prod alias, and verify it is visible through the Prompt dashboard inventory.
+4. Execute the prompt through the typed assistant-session surface (`aria.sessions.create` and `send_message`), surfacing any provider failure, and validate the mean/median/percentile/extrema JSON against statistics computed from the CSV.
+5. Upload the result document to blob storage and download-verify it.
 
 ```python-file
 sdk/caliber-sdk/examples/cookbooks/cookbook_17_financial_analysis.py
+```
+
+## Cookbook 18 — Projects, Roles, Tokens & Audit
+
+Create a project for a nine-person team, add the members with owner, editor, reviewer and viewer roles, prove the role matrix from a data file with real requests, issue a project-bound access token, show it refused outside its project and after revocation or expiry, release one prompt, and read every one of those actions back from the audit log, the release timeline and readiness. This recipe needs an admin-scoped SDK token and accounts whose platform scopes match the roster.
+
+**SDK surfaces:** `projects`, `auth`, `tokens`, `audit`, `releases`, `cookbooks`
+
+1. Check `/health` and `/readiness`, and record which providers are simulated.
+2. Create the team's accounts, sign each person in, create the project as its primary owner, and add the members with their roles.
+3. Send every roster person every action in the role matrix and assert the status code the data file expects (403 for a role that may not, 404 for a non-member).
+4. Issue a token bound to the project, use it from the SDK and `caliberctl` to create and release a prompt, and read the release back from the timeline and the live board.
+5. Provoke the refusals: the primary owner cannot be removed, roles cannot be escalated, a bound token is refused in another project, and a revoked or expired token gets 401.
+6. Read the audit log by actor, action and entity to find each of those actions, then offboard a member and end the sessions the script opened.
+
+```python-file
+sdk/caliber-sdk/examples/cookbooks/cookbook_18_projects_roles_tokens_audit.py
 ```

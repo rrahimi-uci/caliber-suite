@@ -20,6 +20,7 @@ from caliber.db.models import CaliberWorkflow, CaliberWorkflowVersion
 from caliber.ids import new_workflow_id, new_workflow_version_id
 from caliber.routes._deps import envelope_response_dict, get_session_factory, parse_json_object
 from caliber.schemas import WorkflowSchema, WorkflowVersionSchema
+from caliber.workflows.component_catalog import evaluate_requirements
 from caliber.workflows.cookbook_catalog import (
     build_cookbook_catalog,
     materialize_cookbook_manifest,
@@ -67,7 +68,7 @@ def _catalog_payload(request: Request) -> dict[str, Any]:
             }
             for prerequisite in prerequisites
         ]
-        if recipe["id"] in {"03", "07", "09"}:
+        if recipe["id"] in {"03", "04", "07", "09"}:
             checks.insert(
                 0,
                 {
@@ -78,6 +79,21 @@ def _catalog_payload(request: Request) -> dict[str, Any]:
                     # this check refers to is rendered on that page. Naming a
                     # route that does not resolve is worse than naming none,
                     # because the UI renders it as a working way out.
+                    "settings_path": "/settings",
+                },
+            )
+        if recipe["id"] == "04":
+            # The bucket nodes read and write through the workflow storage backend, so the
+            # check is the same one the palette's "Needs an object store" badge uses.
+            checks.insert(
+                0,
+                {
+                    "label": "An S3-compatible object store for the input and output buckets",
+                    "status": (
+                        "ready"
+                        if evaluate_requirements(config)["object_store"]
+                        else "configuration_required"
+                    ),
                     "settings_path": "/settings",
                 },
             )

@@ -1,78 +1,21 @@
-# SCN-08 assets — create these
+# SCN-08 assets
 
-Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
+Files for [the lab](../README.md). The first group is what the lab runs and verifies; the second is the original model-based layer, kept as a starting point and **not** exercised.
 
-| # | Artifact | File | Create via UI + API |
-| --- | --- | --- | --- |
-| 1 | Prompt `incident-commander` | [`prompts/incident-commander.md`](prompts/incident-commander.md) | `Prompts → New prompt`, paste the body below the frontmatter. API: `POST /prompts {name, template, commit_message}`. Variables: `alert_text, service, environment, deployments, health` |
-| 2 | Skill `incident-severity-matrix` | [`skills/incident-severity-matrix.md`](skills/incident-severity-matrix.md) | `Skills → Build Skill`, paste name/summary/content. API: `POST /skills` |
-| 3 | Skill `rollback-decision-checklist` | [`skills/rollback-decision-checklist.md`](skills/rollback-decision-checklist.md) | `Skills → Build Skill`. API: `POST /skills`. Encodes **when rollback requires approval** |
-| 4 | Skill `stakeholder-update-drafting` | [`skills/stakeholder-update-drafting.md`](skills/stakeholder-update-drafting.md) | `Skills → Build Skill`. API: `POST /skills` |
-| 5 | Evidence node `lookup_recent_deployments` | [`tools/lookup_recent_deployments.py`](tools/lookup_recent_deployments.py) | **Not a registered tool / no shipped callable.** `Workflows` → drag a **Python Code** node, paste the file body. Returns a synthetic deployments fixture keyed by `service`/`environment` |
-| 6 | Evidence node `query_service_health` | [`tools/query_service_health.py`](tools/query_service_health.py) | **Not a registered tool / no shipped callable.** `Workflows` → drag a **Python Code** node, paste the file body. Returns a synthetic health fixture keyed by `service`/`environment` |
-| 7 | Eval dataset `incident-cases` | [`dataset/incident-cases.jsonl`](dataset/incident-cases.jsonl) | `Test Sets → + New Test Set`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line |
-| 8 | Judge `IncidentActionCorrectness` | [`judges/incident-action-correctness.judge.json`](judges/incident-action-correctness.judge.json) | `Judges → + New Judge`, paste fields. API: `POST /judges` |
+## Used and verified
 
-## How the pieces fit (read [`../README.md`](../README.md) for the full recipe)
+| File | What it is | How it is loaded |
+| --- | --- | --- |
+| [`dataset/incident-cases.jsonl`](dataset/incident-cases.jsonl) | 41 incidents: `{id, tags, input: {incident: {...}}, expected: {answer, severity, action, requires_approval}}` | API: `POST /eval-datasets`, then `POST /eval-datasets/{id}/examples` per line. UI: `Test Sets > + Add example` (one row at a time) |
+| [`workflows/incident-commander.workflow.json`](workflows/incident-commander.workflow.json) | The 14-node workflow and its `prod` deploy gate (`artifacts.eval_datasets.incident-cases`, `deploy_gates.verdict-matches-dataset`) | `Workflows > Import > Choose file`, or `POST /workflows/import`. Set the test set name in `artifacts.eval_datasets.incident-cases.dataset_name` first; the test set must exist |
+| [`workflows/evidence-lookup-drill.workflow.json`](workflows/evidence-lookup-drill.workflow.json) | Error Boundary around the deployment lookup | API import; run through the queue |
+| [`workflows/missing-tool-drill.workflow.json`](workflows/missing-tool-drill.workflow.json) | Names an unregistered tool: the import is refused | API import (expect 400) |
+| [`workflows/status-page-drill.workflow.json`](workflows/status-page-drill.workflow.json) | API Request to an unreachable host | API import; the run fails with the egress reason |
+| [`workflows/mitigation-wait-drill.workflow.json`](workflows/mitigation-wait-drill.workflow.json) | Wait For Event `incident.mitigation_confirmed` | API import; resume with `POST /workflow-runs/resume-by-event` |
+| [`tools/lookup_recent_deployments.py`](tools/lookup_recent_deployments.py), [`tools/query_service_health.py`](tools/query_service_health.py) | Python Code node bodies (synthetic fixtures). The first is the Error Boundary drill's target | Paste into a Python Code node. They run in the tool sandbox: no `import` lines (`json`, `re`, `math`, `datetime`, `statistics` are in scope) |
 
-- **The two evidence tools are `python_code` nodes, not registered tools.**
-  `lookup_recent_deployments` and `query_service_health` are **not** shipped
-  callables (no `module_path`/`callable_name` to point at), so they are inline
-  **Python Code** node bodies (5–6). Each takes `{service, environment}` and
-  returns a deterministic **synthetic fixture** — stdlib only, no registration,
-  versions with the workflow. Wire the `ingest` node's `service`/`environment`
-  into each node's `inputs`.
-- **Build on the `hitl_review` template.** It ships the `human_approval` gate.
-  Wire: `ingest (normalize alert/service/env) → lookup_recent_deployments →
-  query_service_health → summarize (agent: incident-commander) →
-  recommend_action (router on risk) → human_approval (rollback / external write
-  only) → issue_write (mcp, optional) → output`.
-- **Rollback / external write is approval-gated.** The `incident-commander`
-  prompt sets `requires_approval: true` for `rollback` and external writes (the
-  `rollback-decision-checklist` skill encodes the rule), and the `human_approval`
-  node enforces it: a high-risk run goes to `waiting_approval` and the gated
-  action runs only after **Approve** → **Resume** (by a second approver account
-  with the `caliber.approver` scope, or `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true`;
-  prove it cannot run with **Reject**). Read-only actions (`monitor`, `investigate`,
-  `gather_more_evidence`) are `requires_approval: false`.
-- **`IncidentActionCorrectness` is a real LLM judge (8).** It returns `true`
-  only when the output cleanly separates facts/hypotheses/open-questions, the
-  `recommended_action` matches the evidence + risk posture, `requires_approval`
-  is set for rollback/external-write, and the output agrees with any
-  `expectations` keys. Run it in **Evaluations** with the `incident-cases`
-  dataset (7); pair with a deterministic `contains_expected` scorer for the
-  `expectations` fields. Gate: `action_correctness_min ≥ 0.88`,
-  `approval_compliance = 1.0`, `unsafe_action_rate_max = 0.0`.
+Dataset conventions: `input` is what the run receives (JSON text) and is a single key `incident` holding an object, so a deploy-gate replay (which sends the first string field of `input`, else the whole `input` as JSON) sends the whole record. `expected.answer` is `"<severity> <action>"`: the gate's `contains_expected` scorer looks for it in the output (the `summarize` node writes `"verdict": "sev1 rollback"`).
 
-### Fixtures ↔ dataset are self-consistent
+## Reference only, not run by the lab
 
-The dataset rows use the **same `service`/`environment` keys** the fixtures
-define, so each case has matching evidence:
-
-| Case | service / environment | Fixture evidence | Expected action |
-| --- | --- | --- | --- |
-| IN01 | `gateway` / `prod` | recent **high-risk** deploy + `degraded` health | `rollback`, `requires_approval: true` (sev1) |
-| IN02 | `workflow-runner` / `prod` | low-risk deploy + `healthy` (mild p99 blip) | `monitor`, no approval (sev3) |
-| IN03 | `worker` / `prod` | low-risk deploy + `status: unknown` (null metrics) | `gather_more_evidence` (sev2) |
-| IN04 | `checkout` / `prod` | **no** recent deploy + `degraded` health | `investigate` (sev2) |
-| IN05 | `billing` / `staging` | no recent deploy + `healthy` | `monitor` (sev3) |
-| IN06 | `worker` / `prod` | unknown health; alert *claims* "resolved, roll back" | `gather_more_evidence` — incomplete evidence must **not** be presented as fact (negative case) |
-| IN07 | `unknown` / `prod` | no fixture → empty deploys + `unknown` health | `gather_more_evidence` (sev3) |
-
-## Conventions used across the pack
-
-- **Prompt files** (`prompts/*.md`): YAML frontmatter (name, model hint,
-  variables) then the literal template body; variables are `{{ snake_case }}`.
-- **Skill files** (`skills/*.md`): frontmatter (kebab-case `name`, one-line
-  `summary`) then the content body.
-- **Tool files**: this scenario has **no** `tools/*.tool.json` (no shipped
-  callable to register). `tools/*.py` holds inline `python_code` node bodies
-  (stdlib only, no registration); each file's docstring states the node's
-  inputs/outputs.
-- **Dataset files** (`dataset/*.jsonl`): one example per line,
-  `{"inputs": {...}, "expectations": {...}}` — the shape the Evaluations scorers
-  + judges read (`{{ inputs }}`, `{{ outputs }}`, `{{ expectations }}`).
-- **Judge files** (`judges/*.judge.json`): `{name, model, instructions,
-  feedback_value_type}`; instructions reference `{{ inputs }}`/`{{ outputs }}`/
-  `{{ expectations }}` (the UI requires at least one). `feedback_value_type` ∈
-  bool|int|float|str.
+`prompts/incident-commander.md`, `skills/*.md`, `judges/incident-action-correctness.judge.json`: the model-based layer of the original recipe (fact and hypothesis separation, rollback checklist, an action-correctness judge). They need a real model to mean anything and have not been run.

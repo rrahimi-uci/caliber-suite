@@ -53,7 +53,9 @@ def _numbered_steps_in_readme(readme: Path) -> list[str]:
 
 def test_every_recipe_has_steps() -> None:
     recipes = _recipes()
-    assert len(recipes) == 16
+    # 01-16 and 18: 17 is a standalone SDK automation (``cookbook_17_financial_analysis``) with no
+    # catalog entry and no documentation lab.
+    assert [recipe["id"] for recipe in recipes] == [f"{n:02d}" for n in (*range(1, 17), 18)]
     for recipe in recipes:
         assert recipe["steps"], f"cookbook {recipe['id']} has no guided steps"
 
@@ -109,3 +111,25 @@ def test_the_exempt_list_names_only_real_recipes() -> None:
         f"exempt ids that are not recipes: "
         f"{sorted(RECIPES_WITHOUT_NUMBERED_RECIPE_SECTION - known)}"
     )
+
+
+def _ui_path_steps(readme: Path) -> list[str]:
+    """The numbered steps of a README's ``## Run it through the UI`` section."""
+    text = readme.read_text(encoding="utf-8")
+    assert "\n## Run it through the UI" in text, f"{readme} has no 'Run it through the UI' section"
+    body = text.split("\n## Run it through the UI", 1)[1]
+    body = re.split(r"\n## ", body, maxsplit=1)[0]
+    return NUMBERED_STEP.findall(body)
+
+
+def test_lab_18_catalog_steps_are_the_readmes_ui_path_and_the_training_steps() -> None:
+    """Lab 18's README is organised by the shared lab sections rather than a ``## Recipe`` list, so its
+    step count is pinned to the numbered steps of "Run it through the UI" and to
+    ``training-steps.json`` (which the training guide and the Playwright spec follow)."""
+    import json
+
+    recipe = next(item for item in _recipes() if item["id"] == "18")
+    readme = _readme_for(recipe)
+    assert "18" in RECIPES_WITHOUT_NUMBERED_RECIPE_SECTION
+    training = json.loads((readme.parent / "training-steps.json").read_text(encoding="utf-8"))
+    assert len(recipe["steps"]) == len(_ui_path_steps(readme)) == len(training["steps"]) == 10

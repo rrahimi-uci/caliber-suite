@@ -1,0 +1,11 @@
+Vendor: Sable Analytics
+Inv. No: SBL-5521
+Issued: 2026-03-23
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+7.5   Consulting hours                          $160.00     $1,200.00
+1     Travel expenses                           $212.40       $212.40
+
+TOTAL $1,412.40
+INVOICE issued under master services agreement MSA-2024-17.

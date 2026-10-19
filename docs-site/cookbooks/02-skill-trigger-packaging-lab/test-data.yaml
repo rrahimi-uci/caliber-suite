@@ -1,15 +1,47 @@
 golden_cases:
-  - id: S01
-    query: "Customer is upset about billing delay, draft a calm response with references."
+  - id: T01
+    query: "How do I get a refund for the duplicate charge on my account?"
     expected: {should_select: true}
-  - id: S02
-    query: "Summarize deployment latency metrics for engineers."
-    expected: {should_select: false}
+  - id: T05
+    query: "How do I tell the customer their plan downgrade takes effect next billing cycle?"
+    expected: {should_select: true}
+  - id: T13
+    query: "Draft an apology to a customer whose order arrived damaged and who wants their money back."
+    expected: {should_select: true}
 edge_cases:
-  - id: S03
-    query: "Need response for account lockout, uncertain root cause."
+  - id: T14
+    query: "A client says they were billed again after cancelling their subscription. Write the reply."
+    expected: {should_select: true}
+  - id: T23
+    query: "refund?"
+    expected: {should_select: true}
+  - id: T25
+    query: "URGENT: customer can't log in to their account, write the reply now."
     expected: {should_select: true}
 negative_cases:
-  - id: S04
-    query: "Generate SQL migration plan for schema changes."
+  - id: T07
+    query: "How do I rotate the JWT signing key without invalidating active sessions?"
     expected: {should_select: false}
+  - id: T10
+    query: "Generate a SQL migration plan for the schema changes in this PR."
+    expected: {should_select: false}
+  - id: T26
+    query: "Refactor the retry logic in the payment webhook handler to use exponential backoff."
+    expected: {should_select: false}
+  - id: T40
+    query: "What is the capital of Australia?"
+    expected: {should_select: false}
+near_miss_cases:
+  - id: T27
+    query: "Why is the Kubernetes pod for the billing service crash-looping with OOMKilled?"
+    expected: {should_select: false}
+  - id: T29
+    query: "Write an API endpoint that returns a customer's refund status by order id."
+    expected: {should_select: false}
+  - id: T31
+    query: "Summarize this week's support ticket volume and average resolution time for the operations dashboard."
+    expected: {should_select: false}
+  - id: T35
+    query: "Generate a Python script that parses CSV exports of customer accounts."
+    expected: {should_select: false}
+# A sample only. The full set is assets/dataset/trigger-cases.jsonl (40 cases, T01-T40); ids here are the same ids.

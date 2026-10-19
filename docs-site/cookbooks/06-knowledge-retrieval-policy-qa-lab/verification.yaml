@@ -1,29 +1,52 @@
-# Verified — see ../FEASIBILITY.md.
-feasibility:
-  - CitationFaithfulness is a real LLM judge selectable in an Evaluations run under "Custom LLM judges" (it runs as a Judge.<id> scorer alongside the four deterministic scorers). retrieval_recall_improvement is from the KB Calibrate metrics (Recall@k), whose gold sources are the chunk filenames (e.g. data-retention-policy.md).
-  - monitoring.traces below are evidence labels, not literal span names.
+# Verified by running the lab: see README.md. Numbers are what the script prints on the simulated stack
+# (real embeddings, real retrieval; simulated answer text and judges).
 evaluation:
   judges:
     - name: CitationFaithfulness
       type: custom_judge
       criteria: answer claims supported by cited chunks
+      status: stored and registered; running it needs a real model (Evaluations refuses a prompt score on a simulated model with 400)
   rule_checks:
-    - citations_present_for_substantive_answers
-    - abstain_on_conflict_or_missing_evidence
+    - cited_chunk_holds_the_clause          # the chunk the answer cites contains expected.evidence (script, per question)
+    - both_conflicting_sources_retrieved    # Q40/Q41 retrieve refund-policy.md and refund-faq.md together
+    - score_gate_refuses_outside_corpus     # top-1 dense similarity < 0.42 for every question with no document behind it
 quality_gates:
-  faithfulness_min: 0.90
-  abstention_policy_compliance: 1.0
-  retrieval_recall_improvement_after_calibration: true
+  hybrid_hit_at_3_min: 0.95                 # clause's chunk in the top 3 (observed 41/41; dense 40/41, graph_hybrid 35/41)
+  retrieval_recall_improvement_after_calibration: true   # Recall@1 0.878 -> 0.9268 at top_k=1 (nDCG@1 0.9024 -> 0.9512)
+  score_gate: 0.42                          # outside <= 0.384, answerable >= 0.444 on version 1; traps 0.56..0.66 are NOT refused
+  faithfulness_min: 0.90                    # needs a real judge model; null on the simulated stack
+  abstention_policy_compliance: 1.0         # needs a real model to decide; the gate covers 5 of the 7 abstain questions
 monitoring:
   traces:
     - kb_build_run
-    - retrieval_query
-    - answer_generation
+    - rag.query.dense                       # retriever spans written by every query
+    - workflow_run
     - review_queue_enqueue
   metrics:
-    - citation_coverage
-    - abstention_rate
-    - contradiction_rate
+    - hit_at_k
+    - recall_at_k
+    - ndcg_at_k
+    - needs_review_rate
+    - failed_sources
 feedback_loop:
-  - add failed retrieval queries to calibration dataset.
-  - revise chunking before prompt loosening.
+  - add every failed retrieval question to calibration-questions.jsonl with its gold source, and re-calibrate.
+  - revise chunking or retrieval mode before loosening the prompt; no setting wins everywhere (hybrid helps 1400-character chunks and hurts 500-character ones).
+  - re-derive the score gate from your own outside/answerable score ranges (the script prints both).
+golden_cases:
+  - id: Q15
+    input: {question: "How long are security audit logs retained?", policy_domain: "security"}
+    expected: {decision: "answer", cited_chunk_contains: "365 days", source: "data-retention-policy.md"}
+  - id: Q01
+    input: {question: "A customer was charged on 12 February 2026. How many days do they have to request a refund?", policy_domain: "billing"}
+    expected: {decision: "answer", cited_chunk_contains: "14-day window", source: "refund-policy.md"}
+edge_cases:
+  - id: Q40
+    input: {question: "How many days do I have to request a refund?", policy_domain: "billing"}
+    expected: {decision: "clarify", retrieves_together: ["refund-policy.md", "refund-faq.md"]}
+negative_cases:
+  - id: Q44
+    input: {question: "What is the dress code for client meetings?", policy_domain: "hr"}
+    expected: {decision: "abstain", gate: "top-1 similarity below 0.42 -> needs_review"}
+  - id: Q42
+    input: {question: "What is the first-response time for an Enterprise customer's P1 case?", policy_domain: "support"}
+    expected: {decision: "abstain", gate: "NOT caught by the score gate (0.56): needs a model and a review queue"}

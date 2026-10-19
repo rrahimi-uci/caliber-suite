@@ -1,33 +1,47 @@
-# Verified against the Aria capability registry + plan executor — see ../ARIA-AUTONOMY.md.
+# What the lab verifies, and how. Every item below is asserted by
+# sdk/caliber-sdk/examples/cookbooks/cookbook_14_aria_governance_starter_kit.py against a real server,
+# and (for the UI items) by caliber/caliber-ui/e2e/cookbooks/labs/14-aria-governance-starter-kit.spec.ts.
+# Verified against the Aria capability registry and plan executor; see ../ARIA-AUTONOMY.md.
 feasibility:
-  - These gates check Aria's PLAN and the REAL artifacts it created; there is no LLM judge OF Aria here.
-  - Plan + step status + interactions are observable via GET /aria/plans/{id} and /aria/plans/{id}/interactions.
-  - The kit is complete with judge + eval_dataset + review_queue created. review_queue.add_items is expected to be skipped (Skip step / Deny; no traces yet) and does not count toward the kit.
-  - The planner links `name` between steps, so the test set and the review queue are created under the judge's name (AnswerFaithfulness); gate on the plan steps and the new rows in Test Sets / Review Queues.
+  - Aria's planner is deterministic rules, so the plan is checked exactly; there is no judge of Aria's output here and no model in the verified path.
+  - Plan, step and question state are observable at GET /aria/plans/{id} and GET /aria/plans/{id}/interactions.
+  - Running the judge in Evaluations needs a real model provider; on the simulated default the lab verifies the 400 refusal, not a score.
 evaluation:
   plan_checks:
-    - plan_decomposed_from_intent
-    - plan_contains_judge_create
-    - plan_contains_eval_dataset_create
-    - plan_contains_review_queue_create
+    - planner_matches_dataset                  # 28/28 goals draw the documented steps; every draft is cancelled
+    - four_steps_in_registry_order
+    - only_the_enqueue_queue_id_is_wired       # the three names are asked for
+    - seven_questions_under_ask_each_four_under_auto_guarded
   artifact_checks:
-    - judge_active_and_references_a_template_variable
-    - eval_dataset_created
-    - review_queue_created_with_question_schema
+    - judge_active_and_boolean
+    - review_queue_with_four_questions_and_no_items
+    - test_set_has_its_own_name_and_version_1_and_no_rows
+    - test_set_holds_30_cases_at_version_31
+    - three_names_differ
+  refusal_checks:
+    - draft_autonomy_can_change_before_approval_and_not_after
+    - denied_queue_skips_the_enqueue_with_it
+    - failure_half_way_keeps_what_was_made_and_stops_the_rest
+    - judge_without_variable_fails_before_anything_else_is_made
+    - empty_plan_cannot_be_approved
+    - owner_without_operator_scope_fails_at_execute
+    - non_owner_cannot_answer_or_read_the_plan
+    - evaluation_refused_on_simulated_provider
 quality_gates:
+  planner_agreement: 1.0         # 28 of 28 goals
   steps_completed_min: 3
   required_interactions_answered: true
-  artifacts_real: true       # the judge + dataset + review queue exist in Judges / Test Sets / Review Queues
+  artifacts_real: true           # the judge, the queue, the test set and its rows exist
 monitoring:
-  evidence:        # labels for what to look for, not literal span names
+  evidence:
     - aria_plan_created
     - aria_step_completed
     - judge_created
-    - eval_dataset_created
     - review_queue_created
+    - eval_dataset_created
   metrics:
     - steps_completed
     - interactions_count
 feedback_loop:
-  - if the plan misses a capability, sharpen the intent wording (domain needles "judge" / "eval dataset" / "review queue") and re-decompose.
-  - promote the created judge + test set into the Evaluations scoring loop, then route hard/low-confidence cases into the new review queue (SCN-01 / SCN-10).
+  - if the plan misses a capability, use the domain words (judge, eval dataset, test set, review queue) and re-decompose; add the sentence to assets/dataset/goals.jsonl with the plan the server draws.
+  - enqueue real traces into the queue (lab 13) and run the test set with the judge once a real model provider is configured (labs 01 and 10).

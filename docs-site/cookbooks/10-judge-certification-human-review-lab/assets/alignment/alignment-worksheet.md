@@ -1,101 +1,95 @@
-# Alignment worksheet (optional cross-check)
+# Alignment worksheet: the arithmetic, by hand
 
-CALIBER computes alignment in-product: Judges → Try it → **Human alignment** →
-**Import labels** → **Check alignment** returns agreement rate, Cohen's κ and
-FP/FN. Use this worksheet only as a paper cross-check of that readout, tallying
-the automated judge verdicts against the human reviewer answers by hand on the
-sampled traces.
+CALIBER computes judge-versus-human alignment in the product (Judges > Try it > **Human alignment**
+> **Import labels** > **Check alignment**, or `POST /judges/{id}/alignment`). The product's job is to
+run the judge on each labelled row. Everything after that is arithmetic over two columns of
+pass/fail verdicts, and this worksheet shows it so you can check the readout yourself, or any other
+judge's.
 
-- **judge_verdict** — `Judge.FaithfulnessJudge` result for the row (bool → pass /
-  fail), read from the Evaluations scorecard per-example detail.
-- **human_verdict** — the reviewer's `faithful` answer from
-  [`../review/review-questions.json`](../review/review-questions.json) (yes →
-  pass, no → fail), read off the trace after the review queue is answered.
-- **agree?** — `yes` when both verdicts match, `no` when they differ.
+[`expected-alignment.csv`](expected-alignment.csv) holds both columns for the 50-row dataset:
+`human_label` (the reviewer's verdict, from the dataset file) and `stand_in_strict_judge` (what the
+lab's scripted stand-in model answers for `FaithfulnessJudge`). With a real model the judge column
+is yours to read off the **Evaluations** per-row results or the alignment response's `per_example`.
 
-## Fill-in table
+## 1. Tally the 2x2
 
-One row per sampled trace. Use the eval run's per-example trace id (or the row
-`id` if you are tracking by dataset row). Fill `judge_verdict` and
-`human_verdict` from the two surfaces; mark `agree?`.
+Treat the judge's *pass* as the positive class.
 
-| trace_id (or row id) | judge_verdict (pass/fail) | human_verdict (pass/fail) | agree? (yes/no) |
-| --- | --- | --- | --- |
-| J01 |  |  |  |
-| J02 |  |  |  |
-| J05 |  |  |  |
-| J06 |  |  |  |
-| J08 |  |  |  |
-| J03 |  |  |  |
-| J07 |  |  |  |
-| J04 |  |  |  |
+|                | human pass | human fail |
+| -------------- | ---------- | ---------- |
+| **judge pass** | TP = 23    | FP = 5     |
+| **judge fail** | FN = 4     | TN = 18    |
 
-> Sample at least 3 traces (the gate's `reviewed_trace_count_min`). Bias the
-> sample toward the examples the judge flagged false and a few it passed, so you
-> are testing both failure and success agreement — not just the easy passes.
+- **FP** (judge pass, human fail): the judge waved through something a person rejected. These are
+  the dangerous ones for a release gate: J03, J12, J19, J24, J33.
+- **FN** (judge fail, human pass): the judge blocked something a person accepted: J14, J17, J22, J30.
 
-## Compute alignment
+## 2. Agreement and kappa
 
-```
-alignment = agreements / total_reviewed
+```text
+n   = 23 + 5 + 18 + 4                      = 50
+p_o = (TP + TN) / n  = (23 + 18) / 50      = 0.82            (observed agreement)
+
+judge says pass:  (23 + 5) / 50 = 0.56     human says pass:  (23 + 4) / 50 = 0.54
+judge says fail:  (4 + 18) / 50 = 0.44     human says fail:  (5 + 18) / 50 = 0.46
+
+p_e = 0.56 × 0.54 + 0.44 × 0.46            = 0.3024 + 0.2024 = 0.5048   (agreement expected by chance)
+kappa = (p_o - p_e) / (1 - p_e)            = (0.82 - 0.5048) / 0.4952   = 0.6365
 ```
 
-Count the `agree? = yes` rows, divide by the number of rows you reviewed.
+The product reports `agreement_rate` 0.82 and `cohen_kappa` 0.6365 (the Judges page shows 82% and
+0.64). Kappa matters more than agreement: a judge that says "pass" to everything would agree with a
+mostly-passing sample and measure nothing.
 
-**Gate** (verification.yaml): `alignment ≥ 0.80` over `≥ 3` reviewed traces, and
-`overall_eval_score ≥ 0.85`.
+## 3. The certification rule used in this lab
 
-### Worked example (using this scenario's dataset)
+A judge is **certified** only when all three hold, otherwise it is **rejected** (or **not
+certifiable** if the sample is too small to say):
 
-The dataset in [`../dataset/aggregated-outputs.jsonl`](../dataset/aggregated-outputs.jsonl)
-is built so a strict faithfulness judge and the human reviewer line up on most
-rows but **deliberately disagree on two** — the `expected_disagreement`
-partial-evidence rows `J03` and `J07` (human passed them as reasonable; the
-strict judge fails them for an unsupported cause/ETA). Expected verdicts:
+| Check | Threshold | Why |
+| --- | --- | --- |
+| labelled rows scored | all of them, and at least 30 | a row the judge errored on is left out of the numbers; five rows can clear both bars by luck (below) |
+| agreement | 0.80 or more | the lab's gate (`verification.yaml`) |
+| Cohen's kappa | 0.60 or more | agreement alone is inflated by a skewed sample |
 
-| row | judge_verdict | human_verdict | agree? |
-| --- | --- | --- | --- |
-| J01 | pass | pass | yes |
-| J02 | fail | fail | yes |
-| J05 | pass | pass | yes |
-| J06 | fail | fail | yes |
-| J08 | pass | pass | yes |
-| J03 | fail | pass | **no** |
-| J07 | fail | pass | **no** |
-| J04 | fail | fail | yes |
+`FaithfulnessJudge` with the stand-in: 50 of 50 scored, agreement 0.82, kappa 0.6365: **certified**.
 
-- Review the **5 clear rows** (J01, J02, J05, J06, J08): `5/5 = 1.00` → **passes**
-  the ≥ 0.80 gate over ≥ 3 traces.
-- Review **all 8**: `6/8 = 0.75` → **below** the 0.80 gate. That dip is the
-  signal, not noise: the two partial-evidence rows are a genuine rubric
-  ambiguity to resolve before this judge gates releases.
+A weak judge, for contrast (`LenientJudge`, which passes anything that is not empty or cut off):
+TP 27, FP 21, TN 2, FN 0. Agreement (27 + 2) / 50 = 0.58, kappa = (0.58 - 0.5368) / 0.4632 = 0.0933:
+**rejected**. It never fails a wrong answer, so it agrees with the humans barely more than chance.
 
-(Your live numbers will depend on the actual judge model and reviewer answers;
-fill the blank table above from real runs — this worked example just shows the
-arithmetic and the expected shape.)
+## 4. Why thirty rows
 
-## What counts as a disagreement (and what to do with it)
+The first five rows (J01 to J05) give judge `[pass, fail, pass, fail, pass]` against human
+`[pass, fail, fail, fail, pass]`: agreement 4/5 = 0.80 and kappa = (0.8 - 0.48) / 0.52 = 0.6154. Both
+bars cleared on five rows, and the product returns those numbers without complaint. The 50-row
+numbers are 0.82 and 0.6365, so here the small sample happened to land near the truth; it would not
+always. Insist on a sample large enough to include the hard cases.
 
-A **disagreement** is any row where `agree? = no`:
+## 5. The ten rows of the UI path
 
-- **Judge fail, human pass** (e.g. J03, J07) — the rubric is too strict, or the
-  output is borderline. Either reword the judge instructions
-  ([`../judges/faithfulness-judge.judge.json`](../judges/faithfulness-judge.judge.json))
-  to define how much hedged/partial evidence is acceptable, or accept it as a
-  hard case the judge should learn from.
-- **Judge pass, human fail** — more dangerous: the judge is over-trusting. Tighten
-  the rubric so the missed unsupported claim is caught.
+The UI path has a person review ten traces (J01, J02, J03, J04, J05, J08, J09, J11, J14, J26):
+TP 4, FP 1 (J03), TN 4, FN 1 (J14). p_o = 8/10 = 0.80, p_e = 0.5 × 0.5 + 0.5 × 0.5 = 0.50, kappa =
+(0.80 - 0.50) / 0.50 = 0.60. The Judges page shows **Agreement 80%**, **Cohen's κ 0.60**, **FP 1 ·
+FN 1**, over 10/10 examples. That meets both numeric bars but not the 30-row minimum: a readout, not
+a certification. `LenientJudge` on the same ten rows: TP 5, FP 4, TN 1, FN 0, agreement 60%, kappa
+0.20.
 
-For every disagreement:
+## 6. What to do with a disagreement
 
-1. **Add the hard case back to the dataset.** Harvest the reviewed trace into the
-   dataset (`POST /eval-datasets/{id}/examples/from-trace {trace_id}`), or add the
-   row manually with the human verdict as `human_label`. This grows the
-   certification set with exactly the cases that exposed drift.
-2. **Reconcile the rubric.** Reword the judge instructions and/or the review
-   question so both express the same, now-clarified criterion (keep them in
-   sync). Use [`../skills/rubric-question-writer.md`](../skills/rubric-question-writer.md)
-   to keep the question single-criterion.
-3. **Re-run** the evaluation (recipe step 3) and re-check alignment (in the Judges page, or here) until it
-   clears the gate. Document the disagreements you resolved — that record is part
-   of the gate ("Disagreements are documented and fed back").
+Every row with `agree = NO` is a calibration input, not noise:
+
+1. Read the reviewer's reason (`human_label_reason` in the dataset file) and the judge's rationale.
+2. Decide which side is wrong. A row the judge misses because its rubric never mentions it (J03,
+   J12, J19, J24, J33: unsupported claims with no figures in them) is a rubric gap: reword the
+   instructions. A row a person would accept but the judge fails on formatting (J14, J17, J22, J30:
+   a derived or reformatted figure) is a rubric ambiguity: say whether derivations are allowed.
+3. Add the row back to the test set as a hard case (`POST /eval-datasets/{id}/examples/from-trace`
+   with `expected` overridden to the evidence, tag `judge-disagreement`) so every later run sees it.
+4. Re-run the Evaluations scorecard and the alignment check. Do not certify until it clears.
+
+One trap when you label through a Review Queue: **Import labels** passes every answer on the queue
+item other than the pass/fail one to the judge as `{{ expectations }}`. Keep those answers to the
+evidence. A reviewer's explanation that quotes the unsupported claim becomes "evidence" the judge
+then agrees with: with the stand-in, putting `human_label_reason` into the item drops agreement
+from 0.82 to 0.66 (FP 5 to 13) and kappa from 0.6365 to 0.2952.

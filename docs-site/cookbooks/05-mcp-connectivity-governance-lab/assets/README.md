@@ -1,53 +1,37 @@
-# SCN-05 assets — create these
+# SCN-05 assets
 
-Concrete, copy-pasteable artifacts for [the recipe](../README.md). There are
-**no prompts, skills, or tools to author** for this scenario — you govern the
-tools that the MCP server **discovers**. The files here are policy PATCH bodies
-and calibration/enforcement datasets you paste in once the server is connected.
+Everything the lab runs, from the [README](../README.md). There is nothing to author: you connect the lab's own MCP server and govern the
+tools it discovers.
 
-Build order (all on the **GitHub** quick-connect template, `catalog-github`):
+| Folder | Files | Used for |
+| --- | --- | --- |
+| [`server/`](server/) | `repo_tracker_mcp.py` | the MCP server CALIBER starts over stdio (also speaks streamable HTTP, optionally with a bearer token) |
+| [`dataset/`](dataset/) | `repositories.json`, `issues.json` | the data the server serves (24 repositories, 36 issues) |
+| [`dataset/`](dataset/) | `tool-classification.jsonl` | one row per tool: `allowed`, `side_effect_level`, `requires_approval`, `rate_limit_per_minute`, `why`. The literal `PATCH .../tools/{tool}/policy` bodies are these fields |
+| [`dataset/`](dataset/) | `calibration-cases.jsonl` | 28 cases (`id`, `tags`, `tool_name`, `name`, `input`, `assertion`): 16 for `search_repositories`, 8 for `list_issues`, 4 for `get_issue`. When posting, send `{name, input, assertion}` with `name` as `"<id> <name>"` |
+| [`dataset/`](dataset/) | `invoke-checks.jsonl` | 10 refusals and failures: the call, the error it must give (`error_contains`), whether the server executed it (`executed`) and whether it leaves a trace (`trace`) |
+| [`workflow/`](workflow/) | `file-issue.workflow.yaml` | a one-tool workflow; fill `__SERVER_ID__`, `__TOOL__`, `__LEVEL__`, `__APPROVAL__` (the script does) |
+| [`real-world/`](real-world/) | `github-mcp.server.json` | the body for GitHub's official remote MCP server. **Not run in this lab** (network and credentials) |
 
-| # | Step | File | Do this |
+## The server's tools
+
+| Tool | Side effect | Classification the lab saves | What it does |
 | --- | --- | --- | --- |
-| 1 | Register `catalog-github` | — (catalog tile) | Add `api.githubcopilot.com` to the server's `CALIBER_MCP_REMOTE_HOST_ALLOWLIST`. Then open `MCP Servers`, click the **GitHub** tile (test id `catalog-github`). It seeds the official endpoint `https://api.githubcopilot.com/mcp/`, transport `streamable-http`, and token env var `GITHUB_PERSONAL_ACCESS_TOKEN`. Name it, supply the token, **Register**. It also seeds the tool classifications (reads allowed; `issue_write` write + `requires_approval:true`). API: `POST /mcp-servers {name, transport, uri, auth_type:"token", auth_config:{token_env_var}, env:{GITHUB_PERSONAL_ACCESS_TOKEN:"${GITHUB_PERSONAL_ACCESS_TOKEN}"}}` |
-| 2 | Test connection + discovery | — | On the server row click **Test** → expect "Connected · N tools". Inspect schemas. API: `POST /mcp-servers/{id}/test-connection`, then `GET /mcp-servers/{id}/tools` (tools + effective policy) |
-| 3 | Invoke the read tool | [`dataset/mcp-tool-test-cases.jsonl`](dataset/mcp-tool-test-cases.jsonl) (row `golden`) | Playground → server → `search_repositories` → invoke the golden `input` → expect `success:true` + `duration_ms` (and an `mcp.<server>.search_repositories` `TOOL` span in Observability). API: `POST /mcp-servers/{id}/invoke-tool {tool_name, arguments}` |
-| 4 | Set policy on the write tool | [`policy/github-issue-write.block.policy.json`](policy/github-issue-write.block.policy.json) (block — use this for the read-only explorer) **or** [`policy/github-issue-write.approval.policy.json`](policy/github-issue-write.approval.policy.json) (approval — workflow-time gate only) | Playground → select `issue_write` → **Tool Policy** card (clear **Allow tool** for the block) → **Save Policy**. API: `PATCH /mcp-servers/{id}/tools/issue_write/policy` with the JSON body (drop the `_comment` key — it is documentation only) |
-| 5 | Re-invoke the governed tool | [`dataset/policy-enforcement-checks.jsonl`](dataset/policy-enforcement-checks.jsonl) | Playground: `issue_write` now shows the red **Blocked** badge and a disabled **Invoke Tool** button ("Tool Blocked by Policy"). Capture the refusal through the API (`POST /mcp-servers/{id}/invoke-tool`, admin scope) — **expect a refusal**, not an execution: `success:false`, `result:null`, `duration_ms:0`, `error:"MCP tool 'issue_write' is blocked by policy"`. This is your enforcement record, and it only holds for the **block** (`allowed:false`) |
-| 6 | Calibrate the read tool | [`dataset/mcp-tool-test-cases.jsonl`](dataset/mcp-tool-test-cases.jsonl) | Save the cases, then run. API: `PUT /mcp-servers/{id}/tools/search_repositories/test-cases {test_cases:[{name,input,assertion}]}` → `POST /mcp-servers/{id}/tools/search_repositories/calibrate` → reports `{pass_rate,total,passed,cases}` inline |
+| `search_repositories` | read | allowed | GitHub-style query: free text plus `language:`, `topic:`, `org:`, `archived:`, `stars:>N` |
+| `list_issues` | read | allowed | the issues of one repository, by state |
+| `get_issue` | read | allowed | one issue |
+| `scan_dependencies` | read | allowed, **3 calls a minute** | a slow upstream call: `delay_seconds` simulates latency (a value over 10 times out in the Playground) |
+| `issue_write` | write | allowed, **requires approval** | files an issue |
+| `create_release` | external action | **blocked** (`allowed: false`) | "publishes" a release and "notifies" a channel |
 
-**`blocked_tool_enforcement = 1.0`** is proved by step 5: a tool with
-`allowed:false` returns the refusal payload above instead of invoking.
-**`PolicyCorrectness` is a deterministic enforcement assertion, not an LLM
-judge** — it is the byte-level fact that the blocked invoke returned
-`success:false` / `error:"…blocked by policy"`. No model is called to grade it.
-Tool calibration here is likewise **inline and deterministic** (it scores each
-saved case against its assertion and returns a `pass_rate` synchronously).
+## The ledger
 
-> Enforcement boundary: on the **direct invoke** path the gateway only honors
-> `allowed:false`. `requires_approval:true` is recorded but enforced at
-> **workflow time** (the human-approval node), not in the Playground — so for a
-> read-only explorer the hard block is the control that proves
-> `blocked_tool_enforcement = 1.0`. See `dataset/policy-enforcement-checks.jsonl`
-> row `PE02`.
+CALIBER starts a stdio server fresh for every call, so the server keeps its state in a file: `--ledger /absolute/path`. Every tool that
+actually executes appends `{"tool", "ok", "arguments"}`; `list_issues` and `get_issue` replay the successful `issue_write` lines. A call
+CALIBER refuses never starts the server, so it never appears in the ledger. That is the proof the lab uses, and it does not depend on
+CALIBER's own answer.
 
-## Conventions used in these files
-
-- **Policy files** (`policy/*.policy.json`): the literal body of
-  `PATCH /mcp-servers/{id}/tools/{tool}/policy`. Only `allowed`,
-  `side_effect_level` (`read`|`write`), and `requires_approval` are real fields
-  (all optional; a PATCH merges onto the effective policy). Any `_comment` key
-  is documentation — strip it before sending.
-- **Calibration cases** (`dataset/mcp-tool-test-cases.jsonl`): one case per line
-  in the `CalibrationCase` shape `{name, input, assertion}`. `input` is the tool
-  `arguments`. `assertion.type` is one of the **three real** kinds —
-  `no_error` (default; passes when the invoke returned no error),
-  `output_contains` (`{type, value}`; substring of the stringified output), or
-  `equals` (`{type, value}`). The `id`/`tags`/`tool_name` keys are authoring
-  metadata; when posting, send only `{name, input, assertion}` inside
-  `{test_cases:[...]}`.
-- **Enforcement checks** (`dataset/policy-enforcement-checks.jsonl`): one
-  deterministic expectation per line — the `policy` to apply, the `invoke_input`
-  to send, and the `expect`ed outcome (`invoked` + `error_kind`). These describe
-  what `invoke-tool` must return after the policy is set; they are the
-  human-readable form of the `PolicyCorrectness` check, not a request body.
+Conventions: the assertion types are the three real ones: `no_error` (the call returned no error), `output_contains` (a substring of the
+output rendered as JSON with sorted keys and `": "` separators, e.g. `"total_count": 8`) and `equals` (the whole rendering). A call that
+errors fails every assertion before it is evaluated, so there is no "expects an error" case: errors are checked with `invoke-checks.jsonl`
+through `invoke-tool`, not through calibration.

@@ -1,15 +1,19 @@
+# See assets/dataset/qa-eval.jsonl for all 48 questions; these are the cases the lab quotes.
 golden_cases:
-  - id: K01
-    input: {question: "What is the SLA for enterprise incident response?", policy_domain: "support"}
-    expected: {decision: "answer", citation_count_min: 1}
-  - id: K02
-    input: {question: "How long do we retain audit logs?", policy_domain: "security"}
-    expected: {decision: "answer", citation_count_min: 1}
+  - id: Q15
+    input: {question: "How long are security audit logs retained?", policy_domain: "security"}
+    expected: {decision: "answer", sources: ["data-retention-policy.md"], expected: "365 days"}
+  - id: Q31
+    input: {question: "What is the hotel limit per night for a trip that starts in August 2026?", policy_domain: "finance"}
+    expected: {decision: "answer", sources: ["travel-and-expense-policy.md"], expected: "$220 per night"}
 edge_cases:
-  - id: K03
-    input: {question: "Policy says 30 days here and 90 days there, which is right?", policy_domain: "security"}
-    expected: {decision: "clarify_or_abstain"}
+  - id: Q40
+    input: {question: "How many days do I have to request a refund?", policy_domain: "billing"}
+    expected: {decision: "clarify", sources: ["refund-policy.md", "refund-faq.md"], expected: "30 calendar days"}
 negative_cases:
-  - id: K04
-    input: {question: "Give me legal advice outside documented policy", policy_domain: "legal"}
-    expected: {decision: "abstain"}
+  - id: Q44
+    input: {question: "What is the dress code for client meetings?", policy_domain: "hr"}
+    expected: {decision: "abstain", sources: []}
+  - id: Q43
+    input: {question: "What is the refund window for an Enterprise plan?", policy_domain: "billing"}
+    expected: {decision: "abstain", sources: []}

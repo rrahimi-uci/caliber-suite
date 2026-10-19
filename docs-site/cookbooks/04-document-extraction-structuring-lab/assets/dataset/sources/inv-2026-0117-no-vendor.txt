@@ -1,0 +1,9 @@
+INVOICE
+Invoice No: SG-2210
+Invoice Date: 2026-03-07
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+5     Safety glasses (box of 12)                 $31.00       $155.00
+
+Total                                             $155.00

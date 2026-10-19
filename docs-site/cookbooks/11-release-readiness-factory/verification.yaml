@@ -1,30 +1,38 @@
-# Verified — see ../FEASIBILITY.md.
+# Verified by running the lab against a real stack -- see README.md ("Verify it worked").
 feasibility:
-  - The release score and blockers are computed by the server from the criteria you enter on Releases (weighted_score = sum(weight x score) / sum(weight); blocking criteria below threshold and not waived are blockers). The release_rubric below is the criteria set to enter, not a hand calculation.
-  - allure_report_generated is real (Releases -> Generate Allure creates a durable Allure-compatible JSON report job); the static Allure HTML at Settings -> Allure Report (GET /observability/allure-report) is separate CI evidence produced by the test tooling.
-  - monitoring.traces below are evidence labels, not literal span names.
+  - The figures are computed by the server and checked against expectations worked out independently with exact fractions (assets/dataset/release-candidates.jsonl, "expect"); caliber/tests/test_cookbook_11_release_signoff_lab.py runs every row through the server's own scoring.
+  - Nothing here is judged by a model. The criteria scores are inputs.
 evaluation:
-  release_rubric:
-    component_readiness: 0.30
-    workflow_readiness: 0.30
-    review_coverage: 0.20
-    evidence_visibility: 0.20
+  deterministic_checks:
+    - name: ScoreAndBlockersMatch
+      type: deterministic_check
+      criteria: weighted_score, status and blockers equal the dataset's expectation for all 20 candidates
+    - name: WaiverIsNotAScore
+      type: deterministic_check
+      criteria: a waiver clears a blocker and leaves the weighted score unchanged
+    - name: SignedIsFinal
+      type: deterministic_check
+      criteria: evaluate, waive and a second signoff on a signed candidate answer 409
+    - name: SignoffDeploysNothing
+      type: deterministic_check
+      criteria: prompt aliases, the live board and the timeline are unchanged by a signed GO
   rule_checks:
-    - allure_report_job_generated
-    - required_scenario_evidence_present
+    - go_requires_ready_planned_action_and_rollback_target
+    - waiver_requires_admin_reason_existing_key_and_future_expiry
 quality_gates:
-  overall_release_score_min: 0.90
-  blocker_count_must_equal: 0
-  allure_report_job_required: true
+  candidates_created: 20
+  ready: 14
+  blocked: 6
+  go_on_blocked_candidate: refused
+  change_after_signoff: refused
 monitoring:
-  traces:
-    - release_summary_generation
-    - blocker_review
-    - allure_report_job
+  evidence:
+    - "candidate_record      # GET /releases/candidates/{id}: candidate, signoffs, report_jobs"
+    - report_job            # candidate_snapshot_sha256
+    - audit_log
   metrics:
-    - release_score
+    - weighted_score
     - blocker_count
-    - unresolved_review_count
 feedback_loop:
-  - map each blocker to the owning scenario and reopen that scenario gate.
-  - keep waiver log with the owner and the expiry written into the waiver reason (the UI has no expiry field).
+  - map each blocker to its owner and reopen that gate; do not waive to ship.
+  - write the waiver's expiry and compensating control into the reason (the form has no expiry field).

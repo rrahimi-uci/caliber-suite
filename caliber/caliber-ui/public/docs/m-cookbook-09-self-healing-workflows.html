@@ -66,413 +66,423 @@
       <header class="doc-header">
         <p class="doc-eyebrow">Cookbook 09 · Operate</p>
         <h1>Self-Healing Workflows</h1>
-        <p class="doc-lead">An operator playbook: reproduce a failure, localize it in the Run Monitor, patch, and validate.</p>
-        <div class="ck-badges"><span class="ck-badge ck-track">Operate</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">30–50 min</span></div>
+        <p class="doc-lead">Reproduce production failures, read the run debugger and trace, write the patch as a new version, prove it on the same 35 tickets, and roll an alias back.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Operate</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">20–30 min</span></div>
       </header>
       <div class="ck-cols">
-        <div class="callout"><strong>What you build.</strong> A repeatable recovery loop: drive a workflow to a failure, use the checkpoint / recovery / debugger panels to find the root cause, apply a minimal manual patch (new version), and prove the fix with a regression slice.
-          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Plans</span> <span class="ck-badge ck-surface">Observability</span></div></div>
-        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Reproduce a failure (reject path + a node fault)</li><li>Read the checkpoint, recovery, and debugger panels</li><li>Use retry lineage (Attempt N of M) + retry-from-checkpoint</li><li>Apply a minimal patch by editing the manifest + saving a new version</li><li>Validate with a regression slice</li></ul></div>
+        <div class="callout"><strong>What you build.</strong> A <code>refund-intake</code> workflow (<code>start</code>, <code>validate</code>, <code>check_reference</code>, <code>lookup</code>, <code>decide</code>, <code>final</code>) that is fine on the tickets you tested and fails on the ones production sends. Version 1 completes <strong>11 of 35</strong> tickets and fails 24, in three nodes for three reasons: a schema violation in <code>validate</code>, a poison record that makes <code>check_reference</code> time out, and an account-service error that fails <code>decide</code> two steps after <code>lookup</code>. You write the patch yourself (three node bodies, saved as version 2) and rerun all 35. <strong>No model is involved</strong> (no agent node) and the account service is a stand-in, <code>assets/upstream/account_service.py</code>.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Run Monitor</span> <span class="ck-badge ck-surface">Versions</span> <span class="ck-badge ck-surface">Observability</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Reproduce a schema failure (<code>F12</code>), a poison record (<code>F29</code>) and an upstream failure (<code>F32</code>), which all show the same <strong>failed</strong> badge, and find the node in <strong>Recovery Diagnostics</strong> (<strong>Current node</strong>), <strong>Execution Debugger</strong> and the error trace</li><li>See that a node failure leaves no checkpoint (only approvals and waits do) and that <strong>Retry</strong> (<strong>Attempt 2 of 2</strong>) fails at the same node: a retry is not a fix for a code fault</li><li>Call <code>propose-patch</code> and see its limits: a generic prompt suggestion for the timed-out node and a <code>400</code> for a guardrail patch aimed at a code node; the <strong>CALIBER Patches</strong> tab stays empty</li><li>Write version 2 by hand (<code>assets/workflow/patch/validate.py</code>, <code>check_reference.py</code>, <code>decide.py</code>), prove it on all 35 tickets, and compare versions in <strong>Versions</strong></li><li>Move the <code>staging</code> alias to version 2, run through it, roll back, and see <code>prod</code> refuse a version with no deploy gate</li></ul></div>
       </div>
       <h2 id="flow">Implementation flow</h2>
       <div class="diagram"><pre class="mermaid">flowchart LR
-  R[Run failing input] --&gt; F[failed / waiting]
-  F --&gt; DBG[Debugger + Checkpoint + Recovery]
-  DBG --&gt; RC[Root cause @ node]
-  RC --&gt; PATCH[Edit manifest → save new version]
-  PATCH --&gt; V[Preview + real run]
-  V --&gt; SLICE[Regression slice passes]</pre></div>
+  R[Run 35 tickets on v1] --&gt; F[24 failed, 11 completed]
+  F --&gt; D[Recovery Diagnostics, Execution Debugger, trace]
+  D --&gt; RC[Root cause node: validate, check_reference or decide]
+  RC --&gt; RT[Retry: Attempt 2 of 2 fails at same node]
+  RT --&gt; PP[propose-patch: no code fix]
+  PP --&gt; P[Edit 3 node bodies, save and publish v2]
+  P --&gt; V[Run 35 tickets on v2: 0 failed]
+  V --&gt; A[staging alias to v2, rollback restores v1]
+  A --&gt; PR[prod refuses: no deploy gate]</pre></div>
       <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
       <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
         and a snapshot of the CALIBER screen you'll be on.</p>
-      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › New Workflow</code> <span class="ck-made">creates · workflow: recovery target (from hitl_review template)</span></div><div class="ck-step-do">This is an operator playbook: <strong>reproduce a failure → localize it in the Run Monitor → patch manually → validate</strong>. Start with the most reliable reproducible failure (Option A). Click <strong>New Workflow</strong> and in the <strong>Start from a template</strong> panel pick the <strong>Human Review</strong> card (the <code>hitl_review</code> template). Its nodes are <code>start → agent → pii_guard (guardrail) → review (human_approval) → final</code>; the approval node id is <code>review</code>.</div><div class="ck-click">Click <span class="ck-btn">Human Review</span></div><div class="ck-see"><strong>You'll see:</strong> The workflow editor opens on the <strong>Editor</strong> canvas with the <code>hitl_review</code> graph. Click <strong>Save</strong> (the toolbar shows "Saved draft.") so you have a stable target.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › Import</code> <span class="ck-made">creates · workflow: refund-intake (v1 draft)</span> <a class="ck-assetref" href="#asset-assets-workflow-ticket-intake-v1-workflow-yaml">ticket-intake.v1.workflow.yaml ↓</a></div><div class="ck-step-do">Import version 1 of the workflow. Click <strong>Import</strong>, name it <code>refund-intake</code>, <strong>Choose file</strong> <code>ticket-intake.v1.workflow.yaml</code>, click <strong>Validate dependencies</strong>, then <strong>Import as new</strong>. Before this, start the stand-in account service the workflow calls (<code>assets/upstream/account_service.py 8780</code>) and the server with <code>CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1</code>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>refund-intake</code></td></tr><tr><td>File</td><td><code>ticket-intake.v1.workflow.yaml</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Import as new</span></div><div class="ck-see"><strong>You'll see:</strong> <strong>Preflight passed</strong>, then the editor opens on the graph <code>start → validate → check_reference → lookup → decide → final</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Agent resources › Workflows › New Workflow</span></div>
+        <span class="ck-mk-url">caliber · Agent resources › Workflows › Import</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">New Workflow</span></div>
-        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Human Review</span></div></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Import</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">refund-intake</span></label><label class="ck-mk-field"><span class="ck-mk-label">File</span><span class="ck-mk-input">ticket-intake.v1.workflow.yaml</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Import as new</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › recovery › Run Monitor</code> <span class="ck-made">creates · failing run id (approval_rejected at review)</span> <a class="ck-assetref" href="#asset-assets-dataset-failing-inputs-jsonl">failing-inputs.jsonl ↓</a></div><div class="ck-step-do">Reproduce the failure (Option A — approval reject). Click the <strong>Run Monitor</strong> toggle, paste a failing input from row <strong>WF01</strong> (an over-limit refund the reviewer should reject), and click <strong>Run</strong>. The run advances to <strong>waiting_approval</strong> at <code>review</code>. Now click <strong>Reject</strong> — the run goes to <strong>failed</strong> with an <code>approval_rejected</code> reason. <strong>Note the failing run id.</strong></div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Input (WF01 — over-limit refund, reviewer rejects)</td><td><code>{"response": "Refund of $4,800 approved for account A-1007."}</code> — from <a href="#asset-assets-dataset-failing-inputs-jsonl">failing-inputs.jsonl</a></td></tr><tr><td>Alternative input (WF05 — unsupported commitment)</td><td><code>{"response": "Account A-3300 will be unlocked and credited 3 months free."}</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Reject</span></div><div class="ck-see"><strong>You'll see:</strong> The run ends in <strong>failed</strong>; the timeline shows <code>review.waiting_approval</code> then <code>review.rejected</code> with the reject reason.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › refund-intake › editor</code> <span class="ck-made">creates · published version 1</span></div><div class="ck-step-do">Publish it. Click <strong>Publish</strong> in the toolbar: <strong>Validate</strong>, <strong>Next</strong>, <strong>Next</strong>, <strong>Publish</strong>.</div><div class="ck-click">Click <span class="ck-btn">Publish</span></div><div class="ck-see"><strong>You'll see:</strong> The editor shows <strong>Published.</strong>; the version is now read-only.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Agent resources › Workflows › recovery › Run Monitor</span></div>
+        <span class="ck-mk-url">caliber · Agent resources › Workflows › refund-intake › editor</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">editor</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Publish</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › refund-intake › Run Monitor</code> <span class="ck-made">creates · a completed run</span> <a class="ck-assetref" href="#asset-assets-dataset-failing-inputs-jsonl">failing-inputs.jsonl ↓</a></div><div class="ck-step-do">Run a healthy ticket. Open <strong>Run Monitor</strong>, paste the <code>input.payload</code> of row <strong>F01</strong> and click <strong>Run</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Run input</td><td>the <code>payload</code> of F01</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The run is <strong>completed</strong> and the output is <code>{"amount": 48.0, "currency": "USD", "decision": "approve", "reason_code": "ELIGIBLE_AUTO_APPROVE", "ticket_id": "T-3101"}</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Agent resources › Workflows › refund-intake › Run Monitor</span></div>
       <div class="ck-mk-screen">
         <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Input (WF01 — over-limit refund, reviewer rejects)</span><span class="ck-mk-input">{&quot;response&quot;: &quot;Refund of $4,800 approved for account A-1007.&quot;} — from failing-inputs.…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Alternative input (WF05 — unsupported commitment)</span><span class="ck-mk-input">{&quot;response&quot;: &quot;Account A-3300 will be unlocked and credited 3 months free.&quot;}</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Reject</span></div></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Run input</span><span class="ck-mk-input">the payload of F01</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › recovery › Run Monitor › Recovery Diagnostics / Resume Checkpoints / Execution Debugger</code> <span class="ck-made">creates · diagnostics: recovery timeline + checkpoint + debugger trace</span></div><div class="ck-step-do">Open the diagnostics panels in the Run Monitor for the failed run. Read the <strong>Recovery Diagnostics</strong> panel (approval/event timeline + integrity warnings — confirm the reject event and reviewer/reason), the <strong>Resume Checkpoints</strong> panel (the active node = <code>review</code> plus its state blob), and the <strong>Execution Debugger</strong> (per-step inputs/outputs with event markers — the <code>review</code> step shows the rejection).</div><div class="ck-see"><strong>You'll see:</strong> The Recovery Diagnostics panel shows the reject reason; the Resume Checkpoints panel shows <code>review</code> as the active checkpoint; the Debugger step trace highlights the <code>review</code> step with its event markers.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Run Monitor › Recovery Diagnostics / Resume Checkpoints / Execution Debugger</code> <span class="ck-made">creates · failing run: schema violation at validate</span></div><div class="ck-step-do">Reproduce a schema failure. Paste row <strong>F12</strong> (the amount is the string <code>"48.00"</code>) and click <strong>Run</strong>. Read <strong>Recovery Diagnostics</strong>, <strong>Resume Checkpoints</strong> and <strong>Execution Debugger</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Run input</td><td>the <code>payload</code> of F12</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> <strong>failed</strong>. Recovery Diagnostics says <em>This run ended in failed.</em> with <strong>Current node</strong> <code>validate</code> and <code>ValueError: amount must be a number, got '48.00'</code>. Resume Checkpoints: <em>No persisted checkpoints exist for this run yet</em>. The debugger shows 1 recorded step.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Agent resources › Workflows › recovery › Run Monitor › Recovery Diagnostics / Resume Checkpoints / Execution Debugger</span></div>
+        <span class="ck-mk-url">caliber · Run Monitor › Recovery Diagnostics / Resume Checkpoints / Execution Debugger</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Recovery Diagnostics / Resume Checkpoints / Execution Debugger</span></div>
-        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+        <div class="ck-mk-bar"><span class="ck-mk-title">Recovery Diagnostics / Resume Checkpoints / Execution Debugger</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Run input</span><span class="ck-mk-input">the payload of F12</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › recovery › Run Monitor › Execution Debugger</code> <span class="ck-made">creates · root-cause note (node review + reject reason)</span> <a class="ck-assetref" href="#asset-assets-skills-workflow-failure-triage-md">workflow-failure-triage.md ↓</a></div><div class="ck-step-do">Localize the root cause. In the Debugger step trace the failing node is <strong><code>review</code></strong> and the evidence is the reject reason. Write a one-line root-cause note tied to that node, e.g. <em>"the human_approval node 'review' was rejected (amount over discretionary limit), so the run failed"</em>. (The <code>workflow-failure-triage</code> skill maps this symptom → a <code>human_approval</code> node → the recovery probe; the optional <code>diagnosis-summary</code> prompt can render the note.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Root-cause note (tie to the node + evidence)</td><td>blame node <code>review</code>; cite the actual reject reason from the Recovery panel</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> A concrete root-cause statement naming the node id <code>review</code> and quoting the reject reason.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Run Monitor</code> <span class="ck-made">creates · failing run: timeout at check_reference</span></div><div class="ck-step-do">Reproduce the poison record. Paste row <strong>F29</strong> (an order reference that sends a nested-quantifier regex into catastrophic backtracking) and click <strong>Run</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Run input</td><td>the <code>payload</code> of F29</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> After about two seconds: <strong>failed</strong>, <code>python_code node 'check_reference' timed out after 2.0s</code>, 2 recorded steps.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Agent resources › Workflows › recovery › Run Monitor › Execution Debugger</span></div>
+        <span class="ck-mk-url">caliber · Run Monitor</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Execution Debugger</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Root-cause note (tie to the node + evidence)</span><span class="ck-mk-input">blame node review; cite the actual reject reason from the Recovery panel</span></label></div>
+        <div class="ck-mk-bar"><span class="ck-mk-title">Run Monitor</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Run input</span><span class="ck-mk-input">the payload of F29</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › recovery › Run Monitor › Retry Lineage</code> <span class="ck-made">creates · retry lineage: Attempt 2 of 2</span></div><div class="ck-step-do">Retry from the checkpoint. Click <strong>Retry</strong> (or use <strong>Retry from this checkpoint</strong> in the Resume Checkpoints panel). Confirm the <strong>Retry Lineage</strong> panel now shows <strong>"Attempt 2 of 2"</strong> and the run re-enters from the checkpoint back at <strong>waiting_approval</strong> on <code>review</code>.</div><div class="ck-click">Click <span class="ck-btn">Retry</span></div><div class="ck-see"><strong>You'll see:</strong> The Retry Lineage panel shows <strong>Attempt 2 of 2</strong>; the run is paused again at <strong>waiting_approval</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Run Monitor › Execution Debugger</code> <span class="ck-made">creates · failing run: upstream error surfacing in decide</span></div><div class="ck-step-do">Reproduce the upstream failure. Paste row <strong>F32</strong> (an account id the stand-in answers with 503) and click <strong>Run</strong>. Then in <strong>Execution Debugger</strong> select the <code>lookup</code> step.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Run input</td><td>the <code>payload</code> of F32</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> <strong>failed</strong> with <code>python_code node 'decide' failed: KeyError: 'tier'</code> and 4 recorded steps. The cause is the step before the failing node: <code>lookup</code> received status 503.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Agent resources › Workflows › recovery › Run Monitor › Retry Lineage</span></div>
+        <span class="ck-mk-url">caliber · Run Monitor › Execution Debugger</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Retry Lineage</span></div>
+        <div class="ck-mk-bar"><span class="ck-mk-title">Execution Debugger</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Run input</span><span class="ck-mk-input">the payload of F32</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Run Monitor › Retry Lineage</code> <span class="ck-made">creates · retry lineage (attempt 2 of 2)</span></div><div class="ck-step-do">Click <strong>Retry</strong>.</div><div class="ck-click">Click <span class="ck-btn">Retry</span></div><div class="ck-see"><strong>You'll see:</strong> <strong>Attempt 2 of 2</strong>, and the new run fails at <code>decide</code> again: a retry runs the same code on the same input.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Run Monitor › Retry Lineage</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Retry Lineage</span></div>
         <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Retry</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › recovery › Run Monitor</code> <span class="ck-made">creates · recovered run: completed via approve → resume</span></div><div class="ck-step-do">Approve and resume to recover. With the retried run paused at <strong>waiting_approval</strong>, click <strong>Approve</strong> on the <code>review</code> gate, then click <strong>Resume</strong>. The run reaches <strong>completed</strong> — that closes the reject → retry → approve → resume recovery loop on a shipped template, no code needed.</div><div class="ck-click">Click <span class="ck-btn">Approve</span></div><div class="ck-see"><strong>You'll see:</strong> After <strong>Approve</strong> then <strong>Resume</strong>, the run reaches <strong>completed</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › refund-intake › CALIBER Patches</code> <span class="ck-made">creates · no patch candidates</span></div><div class="ck-step-do">Look for a patch. Open the workflow page and the <strong>CALIBER Patches</strong> tab.</div><div class="ck-see"><strong>You'll see:</strong> <strong>No CALIBER patches yet</strong>. Nothing in the UI calls <code>propose-patch</code>; the API path shows what it returns for a Python node (a prompt suggestion, no graph change).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Agent resources › Workflows › recovery › Run Monitor</span></div>
+        <span class="ck-mk-url">caliber · Agent resources › Workflows › refund-intake › CALIBER Patches</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
-        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Approve</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › New Workflow</code> <span class="ck-made">creates · workflow: failing_node lab (blank + Python Code node)</span> <a class="ck-assetref" href="#asset-assets-tools-failing-node-py">failing_node.py ↓</a></div><div class="ck-step-do">Now do Option B — a real node-level exception you fix with a manual code patch. Click <strong>New Workflow</strong> and pick the <strong>Blank Canvas</strong> template. From the left Components palette drag a <strong>Python Code</strong> node, name it <strong><code>failing_node</code></strong>, click it to open the <strong>Inspector</strong>, and paste the entire file body. Wire <code>start</code>'s input into the node's <code>input</code> (or a named <code>payload</code>) input port, and wire the node's <code>result</code>/<code>text</code> to <code>final</code>. Click <strong>Save</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Python Code node — name / body</td><td><code>failing_node</code> — paste the full body of <a href="#asset-assets-tools-failing-node-py">failing_node.py</a></td></tr><tr><td>Wiring</td><td><code>start → failing_node.input</code> (the body also accepts a named <code>payload</code> port); <code>failing_node.result/text → final</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save</span></div><div class="ck-see"><strong>You'll see:</strong> A <code>blank</code> workflow with one <strong>Python Code</strong> node <code>failing_node</code> wired between start and final. The body validates the payload with <code>.get(...)</code> and (with the sentinel <code>STRICT = True</code>) raises a single composed <code>ValueError</code> when a malformed payload fails validation.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Agent resources › Workflows › New Workflow</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">New Workflow</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Python Code node — name / body</span><span class="ck-mk-input">failing_node — paste the full body of failing_node.py</span></label><label class="ck-mk-field"><span class="ck-mk-label">Wiring</span><span class="ck-mk-input">start → failing_node.input (the body also accepts a named payload port); failing_nod…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › failing_node lab › Run Monitor</code> <span class="ck-made">creates · failing run id (node_exception at failing_node)</span></div><div class="ck-step-do">Reproduce the node exception. Click the <strong>Run Monitor</strong> toggle, paste row <strong>WF02</strong> (a payload missing <code>account_id</code>) and click <strong>Run</strong>. The <code>failing_node</code> raises and the run lands in <strong>failed</strong> with a real exception. Note the failing run id. (Row WF03 — <code>amount: "N/A"</code> — reproduces a different <code>ValueError</code>.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Input (WF02 — missing account_id)</td><td><code>{"payload": {"amount": 50}}</code> → <code>ValueError: failing_node: invalid input -> missing or empty required field 'account_id'</code></td></tr><tr><td>Input (WF03 — non-numeric amount)</td><td><code>{"payload": {"account_id": "A-2210", "amount": "N/A"}}</code> → <code>ValueError: failing_node: invalid input -> field 'amount' is missing or not a number</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The run ends in <strong>failed</strong>; the timeline shows <code>start.completed</code> then <code>failing_node.error</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Agent resources › Workflows › failing_node lab › Run Monitor</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Input (WF02 — missing account_id)</span><span class="ck-mk-input">{&quot;payload&quot;: {&quot;amount&quot;: 50}} → ValueError: failing_node: invalid input -&gt; missing or …</span></label><label class="ck-mk-field"><span class="ck-mk-label">Input (WF03 — non-numeric amount)</span><span class="ck-mk-input">{&quot;payload&quot;: {&quot;account_id&quot;: &quot;A-2210&quot;, &quot;amount&quot;: &quot;N/A&quot;}} → ValueError: failing_node: i…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › failing_node lab › Run Monitor › Execution Debugger</code> <span class="ck-made">creates · localized fault: failing_node + ValueError</span></div><div class="ck-step-do">Localize the exception. Open the <strong>Execution Debugger</strong> panel: the last node with an <code>error</code> marker is <strong><code>failing_node</code></strong>. Read its input (the malformed <code>payload</code>) and the raised error text — that node id plus that exception <em>is</em> the concrete evidence any diagnosis must cite (and the only thing the <code>RootCauseQuality</code> judge accepts).</div><div class="ck-see"><strong>You'll see:</strong> The Debugger shows <code>failing_node</code> with an <code>error</code> marker, its malformed input payload, and the exact <code>ValueError</code> message.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Agent resources › Workflows › failing_node lab › Run Monitor › Execution Debugger</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Execution Debugger</span></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">CALIBER Patches</span></div>
         <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › failing_node lab › Editor › failing_node</code> <span class="ck-made">creates · patched workflow version (STRICT=False)</span></div><div class="ck-step-do">Apply the minimal patch — <strong>manually</strong>. No Run Monitor control patches a failed run and there is no Aria capability for this; the fix is a code edit. Click the <code>failing_node</code> node to open the <strong>Inspector</strong>, find the documented fix line, and change the sentinel <code>STRICT = True</code> → <code>STRICT = False</code>. That flips the node from <em>raising</em> the composed <code>ValueError</code> on a validation failure to <em>returning</em> a structured <code>rejected_input</code> result instead of throwing. Click <strong>Save</strong> — this save <em>is</em> the patch.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Edit (smallest scoped change)</td><td>in the <code>failing_node</code> body, set <code>STRICT = False</code> (the documented fix line in <a href="#asset-assets-tools-failing-node-py">failing_node.py</a>)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save</span></div><div class="ck-see"><strong>You'll see:</strong> The toolbar shows "Saved draft." The node now validates input and returns <code>{status: "rejected_input", ...}</code> rather than raising.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › refund-intake › Versions, then the editor</code> <span class="ck-made">creates · published version 2</span> <a class="ck-assetref" href="#asset-assets-workflow-patch-validate-py">validate.py ↓</a> <a class="ck-assetref" href="#asset-assets-workflow-patch-check-reference-py">check_reference.py ↓</a> <a class="ck-assetref" href="#asset-assets-workflow-patch-decide-py">decide.py ↓</a></div><div class="ck-step-do">Patch it. In <strong>Versions</strong> click <strong>Restore as draft</strong> on v1. In the editor click the <code>validate</code> node and replace its <strong>Code</strong> with the content of <code>patch/validate.py</code>; do the same for <code>check_reference</code> and <code>decide</code>. Click <strong>Save</strong>, then <strong>Publish</strong> as before.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>validate Code</td><td><code>patch/validate.py</code></td></tr><tr><td>check_reference Code</td><td><code>patch/check_reference.py</code></td></tr><tr><td>decide Code</td><td><code>patch/decide.py</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Publish</span></div><div class="ck-see"><strong>You'll see:</strong> <strong>Saved</strong>, then <strong>Published.</strong>: version 2.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Agent resources › Workflows › failing_node lab › Editor › failing_node</span></div>
+        <span class="ck-mk-url">caliber · Agent resources › Workflows › refund-intake › Versions, then the editor</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">failing_node</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Edit (smallest scoped change)</span><span class="ck-mk-input">in the failing_node body, set STRICT = False (the documented fix line in failing_nod…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save</span></div></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Versions, then the editor</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">validate Code</span><span class="ck-mk-input">patch/validate.py</span></label><label class="ck-mk-field"><span class="ck-mk-label">check_reference Code</span><span class="ck-mk-input">patch/check_reference.py</span></label><label class="ck-mk-field"><span class="ck-mk-label">decide Code</span><span class="ck-mk-input">patch/decide.py</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Publish</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › failing_node lab › Run Monitor</code> <span class="ck-made">creates · post-fix run id (completed, rejected_input)</span></div><div class="ck-step-do">Validate the fix on the same failing input. On the new version, run a <strong>Preview</strong> and then a real <strong>Run</strong> of the <em>same</em> WF02/WF03 input. Confirm it now reaches <strong>completed</strong> with <code>status = "rejected_input"</code> instead of crashing the run.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Re-run input</td><td>the same <code>{"payload": {"amount": 50}}</code> (WF02) that previously crashed</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The run reaches <strong>completed</strong> and the <code>failing_node</code> output is <code>{"status": "rejected_input", ...}</code> — the fault is now handled, not thrown.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Run Monitor (version 2)</code> <span class="ck-made">creates · fixed runs</span></div><div class="ck-step-do">Prove it. Run <strong>F12</strong>, <strong>F29</strong>, <strong>F32</strong> and <strong>F18</strong> (no account id) on version 2.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Run input</td><td>the <code>payload</code> of each row</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> All four are <strong>completed</strong>: F12 <code>ELIGIBLE_AUTO_APPROVE</code>, F29 <code>ORDER_REF_UNVERIFIED</code>, F32 <code>ACCOUNT_LOOKUP_FAILED</code> with <code>"upstream_status": 503</code>, F18 <code>"decision": "rejected_input"</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Agent resources › Workflows › failing_node lab › Run Monitor</span></div>
+        <span class="ck-mk-url">caliber · Run Monitor (version 2)</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Re-run input</span><span class="ck-mk-input">the same {&quot;payload&quot;: {&quot;amount&quot;: 50}} (WF02) that previously crashed</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+        <div class="ck-mk-bar"><span class="ck-mk-title">Run Monitor (version 2)</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Run input</span><span class="ck-mk-input">the payload of each row</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › failing_node lab › Run Monitor</code> <span class="ck-made">creates · regression slice: prior-good inputs still pass</span></div><div class="ck-step-do">Run a small regression slice to prove no new failures. Execute a couple of prior-good inputs (a well-formed payload) on the patched version and confirm they still succeed with <code>status = "ok"</code>. Keeping the patch minimal (one sentinel) is what makes this regression check trustworthy.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Regression input (prior-good)</td><td><code>{"payload": {"account_id": "A-1007", "amount": 50}}</code> → expect <code>status: "ok"</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The well-formed run completes with <code>status: "ok"</code>; the regression slice passes (gate target <strong>post_fix_regression_pass_rate_min ≥ 0.95</strong>).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows › refund-intake › Versions</code> <span class="ck-made">creates · version diff, prod refusal</span></div><div class="ck-step-do">Compare, then try to promote. Under <strong>Compare versions</strong> choose base v1 and newer v2. Then click <strong>Promote</strong> on v2 and confirm <strong>Promote v2 to LIVE</strong>.</div><div class="ck-click">Click <span class="ck-btn">Promote</span></div><div class="ck-see"><strong>You'll see:</strong> The comparison lists the three changed nodes. The promotion is refused: <em>promoting to 'prod' (production) requires a deploy gate; attach one whose required_for_aliases includes this alias</em>. (The <code>staging</code> alias and its rollback are API only.)</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Agent resources › Workflows › failing_node lab › Run Monitor</span></div>
+        <span class="ck-mk-url">caliber · Agent resources › Workflows › refund-intake › Versions</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Regression input (prior-good)</span><span class="ck-mk-input">{&quot;payload&quot;: {&quot;account_id&quot;: &quot;A-1007&quot;, &quot;amount&quot;: 50}} → expect status: &quot;ok&quot;</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Operate › Observability</code> <span class="ck-made">creates · comparison: pre-fix (failed) vs post-fix (completed) traces</span></div><div class="ck-step-do">Compare pre-fix and post-fix. Open <strong>Observability</strong> and put the failing run id and the patched (post-fix) run id side by side. Confirm the <code>failing_node</code> step is now green on the post-fix trace and that the failing node's evidence (the original exception) is explicit on the pre-fix trace — that is the <code>replay_success_rate = 1.0</code> evidence the gate wants. (Remember: the <code>monitoring.traces</code> labels in verification.yaml are evidence labels, not literal span names — read the node tree.)</div><div class="ck-see"><strong>You'll see:</strong> Two traces side by side: pre-fix shows the <code>failing_node</code> error; post-fix shows it green/completed with the same input.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Operate › Observability</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Observability</span><span class="ck-mk-title">Observability</span></div>
-        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Prompt lifecycle › Evaluations › Run evaluation</code> <span class="ck-made">creates · eval run: RootCauseQuality scorecard (optional)</span> <a class="ck-assetref" href="#asset-assets-dataset-failing-inputs-jsonl">failing-inputs.jsonl ↓</a> <a class="ck-assetref" href="#asset-assets-prompts-diagnosis-summary-md">diagnosis-summary.md ↓</a> <a class="ck-assetref" href="#asset-assets-judges-root-cause-quality-judge-json">root-cause-quality.judge.json ↓</a></div><div class="ck-step-do">Optional — put a number on diagnosis quality. First create the <code>failing-inputs</code> test set (<strong>Prompt lifecycle › Test Sets › + New Test Set</strong>; rows carry <code>failing_node</code>/<code>node_input</code>/<code>node_error</code>/<code>recent_events</code> and <code>expectations</code>), author the <code>diagnosis-summary</code> prompt (<strong>Prompt lifecycle › Prompts › New prompt</strong> — its variables map 1:1 onto the dataset inputs), and create the <code>RootCauseQuality</code> judge (<strong>Agent resources › Judges › + New Judge</strong>, Returns <code>bool</code>). Then click <strong>Run evaluation</strong>, pick <strong>Test set</strong> = <code>failing-inputs</code>, tick the deterministic graders and the <code>RootCauseQuality</code> judge under <strong>Custom LLM judges</strong> (it runs as a <code>Judge.&lt;id&gt;</code> scorer), and <strong>Run</strong>. The judge column flags a row as passing only when the diagnosis blames the actual failing node, cites the real error, and proposes a minimal scoped fix (the calibration path is an alternative).</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Test set</td><td><code>failing-inputs</code> — rows from <a href="#asset-assets-dataset-failing-inputs-jsonl">failing-inputs.jsonl</a></td></tr><tr><td>Prompt</td><td><code>diagnosis-summary</code> — body from <a href="#asset-assets-prompts-diagnosis-summary-md">diagnosis-summary.md</a></td></tr><tr><td>Judge</td><td><code>RootCauseQuality</code> (Returns <code>bool</code>) — instructions from <a href="#asset-assets-judges-root-cause-quality-judge-json">root-cause-quality.judge.json</a></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The scorecard grades each diagnosis pass/fail against the failing-run evidence. (Evaluations needs a configured provider; with none it returns a 400 — the expected real-only guard.)</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Prompt lifecycle › Evaluations › Run evaluation</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Evaluations</span><span class="ck-mk-title">Run evaluation</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Test set</span><span class="ck-mk-input">failing-inputs — rows from failing-inputs.jsonl</span></label><label class="ck-mk-field"><span class="ck-mk-label">Prompt</span><span class="ck-mk-input">diagnosis-summary — body from diagnosis-summary.md</span></label><label class="ck-mk-field"><span class="ck-mk-label">Judge</span><span class="ck-mk-input">RootCauseQuality (Returns bool) — instructions from root-cause-quality.judge.json</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Versions</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Promote</span></div></div>
       </div>
     </figure></div></div></li></ol>
-      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/09-workflow-debugger-self-healing-lab/assets/</code>.</p><div class="ck-asset" id="asset-assets-dataset-failing-inputs-jsonl">
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/09-workflow-debugger-self-healing-lab/assets/</code>.</p><div class="ck-asset" id="asset-assets-workflow-ticket-intake-v1-workflow-yaml">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/workflow/ticket-intake.v1.workflow.yaml</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="yaml"><code>schema_version: 1
+workflow_id: refund-intake
+name: refund-intake
+description: Validate a refund ticket, look the account up, and decide approve or manual review. Version 1, the one that fails in production.
+runtime:
+  sdk: openai-agents-python
+  sdk_version_policy: runtime-pinned
+  compiler_version: caliber-workflow-compiler-v1
+  default_model_ref: CALIBER_WORKFLOW_DEFAULT_MODEL
+  session:
+    type: none
+nodes:
+  start:
+    id: start
+    type: start
+    outputs:
+      user_message:
+        type: string
+  validate:
+    id: validate
+    type: python_code
+    timeout_seconds: 5
+    inputs:
+      input:
+        type: string
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+    code: |
+      def run_python_node(input=None, context=None, inputs=None, run_input=&#x27;&#x27;):
+          raw = input if input is not None else run_input
+          ticket = json.loads(raw) if isinstance(raw, str) else raw
+          if not isinstance(ticket, dict):
+              raise ValueError(&quot;ticket must be a JSON object&quot;)
+          for key in (&quot;ticket_id&quot;, &quot;account_id&quot;, &quot;amount&quot;, &quot;currency&quot;, &quot;reason&quot;, &quot;order_ref&quot;):
+              if key not in ticket:
+                  raise ValueError(&quot;missing required field &#x27;&quot; + key + &quot;&#x27;&quot;)
+          amount = ticket[&quot;amount&quot;]
+          if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+              raise ValueError(&quot;amount must be a number, got &quot; + repr(amount))
+          if amount &lt;= 0:
+              raise ValueError(&quot;amount must be greater than 0, got &quot; + repr(amount))
+          if ticket[&quot;currency&quot;] not in (&quot;USD&quot;, &quot;EUR&quot;, &quot;GBP&quot;):
+              raise ValueError(&quot;unsupported currency &quot; + repr(ticket[&quot;currency&quot;]))
+          if not re.match(r&quot;^A-[0-9]{4}$&quot;, str(ticket[&quot;account_id&quot;])):
+              raise ValueError(&quot;account_id must look like A-1234, got &quot; + repr(ticket[&quot;account_id&quot;]))
+          if not str(ticket[&quot;reason&quot;]).strip():
+              raise ValueError(&quot;reason must not be empty&quot;)
+          ticket[&quot;ok&quot;] = True
+          return ticket
+  check_reference:
+    id: check_reference
+    type: python_code
+    timeout_seconds: 2
+    inputs:
+      ticket:
+        type: structured
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+      query:
+        type: structured
+    code: |
+      ORDER_REF = re.compile(r&quot;^(?:[A-Z0-9]+-?)+$&quot;)
+
+      def run_python_node(input=None, context=None, inputs=None, run_input=&#x27;&#x27;):
+          ticket = dict(inputs.get(&quot;ticket&quot;) or {})
+          ticket[&quot;reference_valid&quot;] = bool(ORDER_REF.match(str(ticket.get(&quot;order_ref&quot;) or &quot;&quot;)))
+          ticket[&quot;query&quot;] = {&quot;account_id&quot;: ticket.get(&quot;account_id&quot;)}
+          return ticket
+  lookup:
+    id: lookup
+    type: api_request
+    mode: url
+    url: http://127.0.0.1:8780/accounts
+    method: GET
+    timeout_seconds: 3
+    inputs:
+      payload:
+        type: structured
+    outputs:
+      text:
+        type: string
+      response:
+        type: structured
+      metadata:
+        type: structured
+  decide:
+    id: decide
+    type: python_code
+    timeout_seconds: 5
+    inputs:
+      ticket:
+        type: structured
+      account:
+        type: structured
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+    code: |
+      LIMITS = {&quot;standard&quot;: 200, &quot;premium&quot;: 500}
+
+      def run_python_node(input=None, context=None, inputs=None, run_input=&#x27;&#x27;):
+          ticket = inputs[&quot;ticket&quot;]
+          account = inputs[&quot;account&quot;][&quot;json&quot;]
+          limit = LIMITS[account[&quot;tier&quot;]]
+          if account[&quot;status&quot;] != &quot;active&quot;:
+              decision, reason = &quot;manual_review&quot;, &quot;ACCOUNT_NOT_ACTIVE&quot;
+          elif ticket[&quot;amount&quot;] &gt; limit:
+              decision, reason = &quot;manual_review&quot;, &quot;AMOUNT_OVER_LIMIT&quot;
+          elif not ticket[&quot;reference_valid&quot;]:
+              decision, reason = &quot;manual_review&quot;, &quot;ORDER_REF_UNVERIFIED&quot;
+          else:
+              decision, reason = &quot;approve&quot;, &quot;ELIGIBLE_AUTO_APPROVE&quot;
+          result = {
+              &quot;ticket_id&quot;: ticket[&quot;ticket_id&quot;],
+              &quot;decision&quot;: decision,
+              &quot;reason_code&quot;: reason,
+              &quot;amount&quot;: ticket[&quot;amount&quot;],
+              &quot;currency&quot;: ticket[&quot;currency&quot;],
+          }
+          return result
+  final:
+    id: final
+    type: output
+    inputs:
+      response:
+        type: string
+edges:
+  - id: e_start_validate
+    from: start
+    to: validate
+    map:
+      user_message: input
+  - id: e_validate_reference
+    from: validate
+    to: check_reference
+    map:
+      result: ticket
+  - id: e_reference_lookup
+    from: check_reference
+    to: lookup
+    map:
+      query: payload
+  - id: e_reference_decide
+    from: check_reference
+    to: decide
+    map:
+      result: ticket
+  - id: e_lookup_decide
+    from: lookup
+    to: decide
+    map:
+      response: account
+  - id: e_decide_final
+    from: decide
+    to: final
+    map:
+      text: response
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-failing-inputs-jsonl">
       <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/failing-inputs.jsonl</span>
         <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
-      <pre data-lang="json"><code>{&quot;id&quot;: &quot;WF01&quot;, &quot;tags&quot;: [&quot;approval_rejected&quot;, &quot;hitl_review&quot;], &quot;inputs&quot;: {&quot;workflow_template&quot;: &quot;hitl_review&quot;, &quot;failing_node&quot;: &quot;review&quot;, &quot;node_input&quot;: {&quot;response&quot;: &quot;Refund of $4,800 approved for account A-1007.&quot;}, &quot;node_error&quot;: &quot;approval_rejected: reviewer rejected (amount over discretionary limit)&quot;, &quot;recent_events&quot;: [&quot;agent.completed&quot;, &quot;pii_guard.passed&quot;, &quot;review.waiting_approval&quot;, &quot;review.rejected&quot;]}, &quot;expectations&quot;: {&quot;failure_kind&quot;: &quot;approval_rejected&quot;, &quot;expected_root_cause&quot;: &quot;The human_approval node &#x27;review&#x27; was rejected by the reviewer, so the run failed; recover via run-retry -&gt; run-approve -&gt; run-resume.&quot;}}
-{&quot;id&quot;: &quot;WF02&quot;, &quot;tags&quot;: [&quot;node_exception&quot;, &quot;python_code&quot;, &quot;reproducer&quot;], &quot;inputs&quot;: {&quot;workflow_template&quot;: &quot;blank+failing_node&quot;, &quot;failing_node&quot;: &quot;failing_node&quot;, &quot;node_input&quot;: {&quot;payload&quot;: {&quot;amount&quot;: 50}}, &quot;node_error&quot;: &quot;ValueError: failing_node: invalid input -&gt; missing or empty required field &#x27;account_id&#x27;&quot;, &quot;recent_events&quot;: [&quot;start.completed&quot;, &quot;failing_node.error&quot;]}, &quot;expectations&quot;: {&quot;failure_kind&quot;: &quot;node_exception&quot;, &quot;expected_root_cause&quot;: &quot;The python_code node &#x27;failing_node&#x27; raised because the input payload was missing the required &#x27;account_id&#x27; field; minimal fix validates/defaults that field instead of indexing it.&quot;}}
-{&quot;id&quot;: &quot;WF03&quot;, &quot;tags&quot;: [&quot;node_exception&quot;, &quot;python_code&quot;], &quot;inputs&quot;: {&quot;workflow_template&quot;: &quot;blank+failing_node&quot;, &quot;failing_node&quot;: &quot;failing_node&quot;, &quot;node_input&quot;: {&quot;payload&quot;: {&quot;account_id&quot;: &quot;A-2210&quot;, &quot;amount&quot;: &quot;N/A&quot;}}, &quot;node_error&quot;: &quot;ValueError: failing_node: invalid input -&gt; field &#x27;amount&#x27; is missing or not a number&quot;, &quot;recent_events&quot;: [&quot;start.completed&quot;, &quot;failing_node.error&quot;]}, &quot;expectations&quot;: {&quot;failure_kind&quot;: &quot;node_exception&quot;, &quot;expected_root_cause&quot;: &quot;The python_code node &#x27;failing_node&#x27; raised because &#x27;amount&#x27; was non-numeric (&#x27;N/A&#x27;); minimal fix coerces/validates &#x27;amount&#x27; and returns a rejected_input result instead of throwing.&quot;}}
-{&quot;id&quot;: &quot;WF04&quot;, &quot;tags&quot;: [&quot;guardrail_block&quot;, &quot;hitl_review&quot;], &quot;inputs&quot;: {&quot;workflow_template&quot;: &quot;hitl_review&quot;, &quot;failing_node&quot;: &quot;pii_guard&quot;, &quot;node_input&quot;: {&quot;response&quot;: &quot;Sure — your card 4111 1111 1111 1111 was charged; email me at jdoe@example.com.&quot;}, &quot;node_error&quot;: &quot;guardrail_block: pii_detection matched [credit_card, email]; on_failure=redact&quot;, &quot;recent_events&quot;: [&quot;agent.completed&quot;, &quot;pii_guard.blocked&quot;]}, &quot;expectations&quot;: {&quot;failure_kind&quot;: &quot;guardrail_block&quot;, &quot;expected_root_cause&quot;: &quot;The guardrail node &#x27;pii_guard&#x27; blocked/redacted the agent response because it leaked a credit_card and email; fix tightens the upstream agent output (do not emit raw PII) or adjusts the guardrail scope.&quot;}}
-{&quot;id&quot;: &quot;WF05&quot;, &quot;tags&quot;: [&quot;approval_rejected&quot;, &quot;hitl_review&quot;, &quot;edge&quot;], &quot;inputs&quot;: {&quot;workflow_template&quot;: &quot;hitl_review&quot;, &quot;failing_node&quot;: &quot;review&quot;, &quot;node_input&quot;: {&quot;response&quot;: &quot;Account A-3300 will be unlocked and credited 3 months free.&quot;}, &quot;node_error&quot;: &quot;approval_rejected: reviewer rejected (commitment not supported by policy)&quot;, &quot;recent_events&quot;: [&quot;agent.completed&quot;, &quot;pii_guard.passed&quot;, &quot;review.waiting_approval&quot;, &quot;review.rejected&quot;]}, &quot;expectations&quot;: {&quot;failure_kind&quot;: &quot;approval_rejected&quot;, &quot;expected_root_cause&quot;: &quot;The human_approval node &#x27;review&#x27; was rejected because the drafted reply made an unsupported commitment; recover by editing the upstream draft, then run-retry -&gt; run-approve -&gt; run-resume.&quot;}}
-</code></pre>
-    </div><div class="ck-asset" id="asset-assets-skills-workflow-failure-triage-md">
-      <div class="ck-asset-bar"><span class="ck-asset-name">assets/skills/workflow-failure-triage.md</span>
+      <pre data-lang="json"><code>{&quot;id&quot;: &quot;F01&quot;, &quot;tags&quot;: [&quot;healthy&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3101\&quot;, \&quot;account_id\&quot;: \&quot;A-1007\&quot;, \&quot;amount\&quot;: 48.0, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged in transit\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-2291-A\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;completed&quot;, &quot;v1_failing_node&quot;: null, &quot;v1_error_contains&quot;: null, &quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;}}
+{&quot;id&quot;: &quot;F02&quot;, &quot;tags&quot;: [&quot;healthy&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3102\&quot;, \&quot;account_id\&quot;: \&quot;A-1188\&quot;, \&quot;amount\&quot;: 120, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Wrong size shipped, need a refund\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-7710\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;completed&quot;, &quot;v1_failing_node&quot;: null, &quot;v1_error_contains&quot;: null, &quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;}}
+{&quot;id&quot;: &quot;F03&quot;, &quot;tags&quot;: [&quot;healthy&quot;, &quot;premium_limit&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3103\&quot;, \&quot;account_id\&quot;: \&quot;A-1020\&quot;, \&quot;amount\&quot;: 450.0, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Blender stopped working after a week\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-3340-B\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;completed&quot;, &quot;v1_failing_node&quot;: null, &quot;v1_error_contains&quot;: null, &quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;}}
+{&quot;id&quot;: &quot;F04&quot;, &quot;tags&quot;: [&quot;healthy&quot;, &quot;over_limit&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3104\&quot;, \&quot;account_id\&quot;: \&quot;A-1188\&quot;, \&quot;amount\&quot;: 260, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Monitor has dead pixels\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-5102\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;completed&quot;, &quot;v1_failing_node&quot;: null, &quot;v1_error_contains&quot;: null, &quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;AMOUNT_OVER_LIMIT&quot;}}
+{&quot;id&quot;: &quot;F05&quot;, &quot;tags&quot;: [&quot;healthy&quot;, &quot;suspended_account&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3105\&quot;, \&quot;account_id\&quot;: \&quot;A-2210\&quot;, \&quot;amount\&quot;: 35, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Charged twice for the same order\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-2291-A\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;completed&quot;, &quot;v1_failing_node&quot;: null, &quot;v1_error_contains&quot;: null, &quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;ACCOUNT_NOT_ACTIVE&quot;}}
+{&quot;id&quot;: &quot;F06&quot;, &quot;tags&quot;: [&quot;healthy&quot;, &quot;unicode&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3106\&quot;, \&quot;account_id\&quot;: \&quot;A-1033\&quot;, \&quot;amount\&quot;: 18.5, \&quot;currency\&quot;: \&quot;EUR\&quot;, \&quot;reason\&quot;: \&quot;Café machine arrived cracked — photo attached\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-9001\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;completed&quot;, &quot;v1_failing_node&quot;: null, &quot;v1_error_contains&quot;: null, &quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;}}
+{&quot;id&quot;: &quot;F07&quot;, &quot;tags&quot;: [&quot;borderline&quot;, &quot;lowercase_order_ref&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3107\&quot;, \&quot;account_id\&quot;: \&quot;A-1188\&quot;, \&quot;amount\&quot;: 75, \&quot;currency\&quot;: \&quot;GBP\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ord-5521\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;completed&quot;, &quot;v1_failing_node&quot;: null, &quot;v1_error_contains&quot;: null, &quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;ORDER_REF_UNVERIFIED&quot;}}
+{&quot;id&quot;: &quot;F08&quot;, &quot;tags&quot;: [&quot;healthy&quot;, &quot;suspended_account&quot;, &quot;high_amount&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3108\&quot;, \&quot;account_id\&quot;: \&quot;A-3300\&quot;, \&quot;amount\&quot;: 999, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Subscription renewed after cancellation\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-2291-A\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;completed&quot;, &quot;v1_failing_node&quot;: null, &quot;v1_error_contains&quot;: null, &quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;ACCOUNT_NOT_ACTIVE&quot;}}
+{&quot;id&quot;: &quot;F09&quot;, &quot;tags&quot;: [&quot;borderline&quot;, &quot;trailing_hyphen&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3109\&quot;, \&quot;account_id\&quot;: \&quot;A-1188\&quot;, \&quot;amount\&quot;: 30, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-4410-\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;completed&quot;, &quot;v1_failing_node&quot;: null, &quot;v1_error_contains&quot;: null, &quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;}}
+{&quot;id&quot;: &quot;F10&quot;, &quot;tags&quot;: [&quot;borderline&quot;, &quot;long_reason&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3110\&quot;, \&quot;account_id\&quot;: \&quot;A-1020\&quot;, \&quot;amount\&quot;: 60.0, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. The parcel was left outside in the rain and the box was soaked through. \&quot;, \&quot;order_ref\&quot;: \&quot;ORD-6120\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;completed&quot;, &quot;v1_failing_node&quot;: null, &quot;v1_error_contains&quot;: null, &quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;}}
+{&quot;id&quot;: &quot;F11&quot;, &quot;tags&quot;: [&quot;borderline&quot;, &quot;lowercase_looks_like_poison&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3111\&quot;, \&quot;account_id\&quot;: \&quot;A-1188\&quot;, \&quot;amount\&quot;: 52, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;abcdefghijklmnopqrstuvwxyz0123456789\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;completed&quot;, &quot;v1_failing_node&quot;: null, &quot;v1_error_contains&quot;: null, &quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;ORDER_REF_UNVERIFIED&quot;}}
+{&quot;id&quot;: &quot;F12&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;normalizable&quot;, &quot;amount_as_string&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3112\&quot;, \&quot;account_id\&quot;: \&quot;A-1007\&quot;, \&quot;amount\&quot;: \&quot;48.00\&quot;, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-2291-A\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;failed&quot;, &quot;v1_failing_node&quot;: &quot;validate&quot;, &quot;v1_error_contains&quot;: &quot;amount must be a number, got &#x27;48.00&#x27;&quot;, &quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;}}
+{&quot;id&quot;: &quot;F13&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;normalizable&quot;, &quot;amount_as_string&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3113\&quot;, \&quot;account_id\&quot;: \&quot;A-1020\&quot;, \&quot;amount\&quot;: \&quot;$1,048.00\&quot;, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-8800\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;failed&quot;, &quot;v1_failing_node&quot;: &quot;validate&quot;, &quot;v1_error_contains&quot;: &quot;amount must be a number&quot;, &quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;AMOUNT_OVER_LIMIT&quot;}}
+{&quot;id&quot;: &quot;F14&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;normalizable&quot;, &quot;currency_case&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3114\&quot;, \&quot;account_id\&quot;: \&quot;A-1188\&quot;, \&quot;amount\&quot;: 22, \&quot;currency\&quot;: \&quot;usd\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-1209\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;failed&quot;, &quot;v1_failing_node&quot;: &quot;validate&quot;, &quot;v1_error_contains&quot;: &quot;unsupported currency &#x27;usd&#x27;&quot;, &quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;}}
+{&quot;id&quot;: &quot;F15&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;normalizable&quot;, &quot;currency_symbol&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3115\&quot;, \&quot;account_id\&quot;: \&quot;A-1188\&quot;, \&quot;amount\&quot;: 15, \&quot;currency\&quot;: \&quot;$\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-1210\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;failed&quot;, &quot;v1_failing_node&quot;: &quot;validate&quot;, &quot;v1_error_contains&quot;: &quot;unsupported currency &#x27;$&#x27;&quot;, &quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;}}
+{&quot;id&quot;: &quot;F16&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;normalizable&quot;, &quot;account_id_format&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3116\&quot;, \&quot;account_id\&quot;: \&quot; a-1188 \&quot;, \&quot;amount\&quot;: 80, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-1211\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;failed&quot;, &quot;v1_failing_node&quot;: &quot;validate&quot;, &quot;v1_error_contains&quot;: &quot;account_id must look like A-1234&quot;, &quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;}}
+{&quot;id&quot;: &quot;F17&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;ambiguous&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3117\&quot;, \&quot;account_id\&quot;: \&quot;A-1188\&quot;, \&quot;amount\&quot;: \&quot;€ 34,50\&quot;, \&quot;currency\&quot;: \&quot;EUR\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-2291-A\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;failed&quot;, &quot;v1_failing_node&quot;: &quot;validate&quot;, &quot;v1_error_contains&quot;: &quot;amount must be a number&quot;, &quot;decision&quot;: &quot;rejected_input&quot;, &quot;reason_code&quot;: &quot;INVALID_TICKET&quot;, &quot;v2_errors_contain&quot;: &quot;ambiguous&quot;}}
+{&quot;id&quot;: &quot;F18&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;missing_field&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3118\&quot;, \&quot;amount\&quot;: 48.0, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-2291-A\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;failed&quot;, &quot;v1_failing_node&quot;: &quot;validate&quot;, &quot;v1_error_contains&quot;: &quot;missing required field &#x27;account_id&#x27;&quot;, &quot;decision&quot;: &quot;rejected_input&quot;, &quot;reason_code&quot;: &quot;INVALID_TICKET&quot;, &quot;v2_errors_contain&quot;: &quot;missing required field &#x27;account_id&#x27;&quot;}}
+{&quot;id&quot;: &quot;F19&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;negative_amount&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3119\&quot;, \&quot;account_id\&quot;: \&quot;A-1188\&quot;, \&quot;amount\&quot;: -20, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-2291-A\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;failed&quot;, &quot;v1_failing_node&quot;: &quot;validate&quot;, &quot;v1_error_contains&quot;: &quot;amount must be greater than 0&quot;, &quot;decision&quot;: &quot;rejected_input&quot;, &quot;reason_code&quot;: &quot;INVALID_TICKET&quot;, &quot;v2_errors_contain&quot;: &quot;greater than 0&quot;}}
+{&quot;id&quot;: &quot;F20&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;zero_amount&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3120\&quot;, \&quot;account_id\&quot;: \&quot;A-1188\&quot;, \&quot;amount\&quot;: 0, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-2291-A\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;failed&quot;, &quot;v1_failing_node&quot;: &quot;validate&quot;, &quot;v1_error_contains&quot;: &quot;amount must be greater than 0&quot;, &quot;decision&quot;: &quot;rejected_input&quot;, &quot;reason_code&quot;: &quot;INVALID_TICKET&quot;, &quot;v2_errors_contain&quot;: &quot;greater than 0&quot;}}
+{&quot;id&quot;: &quot;F21&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;null_amount&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3121\&quot;, \&quot;account_id\&quot;: \&quot;A-1188\&quot;, \&quot;amount\&quot;: null, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-2291-A\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;failed&quot;, &quot;v1_failing_node&quot;: &quot;validate&quot;, &quot;v1_error_contains&quot;: &quot;amount must be a number, got None&quot;, &quot;decision&quot;: &quot;rejected_input&quot;, &quot;reason_code&quot;: &quot;INVALID_TICKET&quot;, &quot;v2_errors_contain&quot;: &quot;must be a number&quot;}}
+{&quot;id&quot;: &quot;F22&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;unsupported_currency&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3122\&quot;, \&quot;account_id\&quot;: \&quot;A-1188\&quot;, \&quot;amount\&quot;: 48.0, \&quot;currency\&quot;: \&quot;JPY\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-2291-A\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;failed&quot;, &quot;v1_failing_node&quot;: &quot;validate&quot;, &quot;v1_error_contains&quot;: &quot;unsupported currency &#x27;JPY&#x27;&quot;, &quot;decision&quot;: &quot;rejected_input&quot;, &quot;reason_code&quot;: &quot;INVALID_TICKET&quot;, &quot;v2_errors_contain&quot;: &quot;unsupported currency&quot;}}
+{&quot;id&quot;: &quot;F23&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;account_id_format&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3123\&quot;, \&quot;account_id\&quot;: \&quot;1007\&quot;, \&quot;amount\&quot;: 48.0, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;Item arrived damaged\&quot;, \&quot;order_ref\&quot;: \&quot;ORD-2291-A\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;failed&quot;, &quot;v1_failing_node&quot;: &quot;validate&quot;, &quot;v1_error_contains&quot;: &quot;account_id must look like A-1234&quot;, &quot;decision&quot;: &quot;rejected_input&quot;, &quot;reason_code&quot;: &quot;INVALID_TICKET&quot;, &quot;v2_errors_contain&quot;: &quot;account_id must look like&quot;}}
+{&quot;id&quot;: &quot;F24&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;empty_reason&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;{\&quot;ticket_id\&quot;: \&quot;T-3124\&quot;, \&quot;account_id\&quot;: \&quot;A-1188\&quot;, \&quot;amount\&quot;: 48.0, \&quot;currency\&quot;: \&quot;USD\&quot;, \&quot;reason\&quot;: \&quot;   \&quot;, \&quot;order_ref\&quot;: \&quot;ORD-2291-A\&quot;}&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;failed&quot;, &quot;v1_failing_node&quot;: &quot;validate&quot;, &quot;v1_error_contains&quot;: &quot;reason must not be empty&quot;, &quot;decision&quot;: &quot;rejected_input&quot;, &quot;reason_code&quot;: &quot;INVALID_TICKET&quot;, &quot;v2_errors_contain&quot;: &quot;reason must not be empty&quot;}}
+{&quot;id&quot;: &quot;F25&quot;, &quot;tags&quot;: [&quot;schema_violation&quot;, &quot;not_an_object&quot;], &quot;input&quot;: {&quot;payload&quot;: &quot;[1, 2, 3]&quot;}, &quot;expected&quot;: {&quot;v1_status&quot;: &quot;fa</code></pre><div class="ck-asset-trunc">… truncated — open the file in the repo for the full content.</div>
+    </div><div class="ck-asset" id="asset-assets-workflow-patch-validate-py">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/workflow/patch/validate.py</span>
         <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
-      <pre data-lang="markdown"><code>---
-name: workflow-failure-triage
-summary: &quot;Triage a failed CALIBER workflow run: classify the symptom (guardrail block / approval reject / node exception / wait timeout), point to the likely node, and name the next probe in the Run Monitor. Diagnosis only — patching is a manual editor edit.&quot;
-category: operations
-tags: [workflow, debugging, run-monitor, recovery, triage]
-render_variables: [run_status, failing_node, node_error, recent_events]
----
+      <pre data-lang="python"><code>CURRENCIES = {&quot;USD&quot;: &quot;USD&quot;, &quot;EUR&quot;: &quot;EUR&quot;, &quot;GBP&quot;: &quot;GBP&quot;, &quot;$&quot;: &quot;USD&quot;, &quot;\u20ac&quot;: &quot;EUR&quot;, &quot;\u00a3&quot;: &quot;GBP&quot;}
 
-# Workflow Failure Triage
-
-Use this checklist when a workflow run is in a terminal `failed` (or stuck)
-state and you need to localize the cause fast in the **Run Monitor**. It maps a
-symptom to the likely node type and the next concrete probe. It does NOT change
-the workflow: the fix is always a manual edit of the manifest in the editor
-followed by **save a new version** (no Run Monitor control patches a failed run),
-and any assistant text here is narration — the actual recovery is done with the
-run-retry / run-approve / run-resume controls.
-
-## First, read the run state
-
-- Open the run in **Run Monitor**. Note `{{ run_status }}` and the active node
-  from the **Checkpoint** panel (active node id + state blob).
-- Open the **Debugger** panel and find the last node with an `error` marker —
-  that node id is your prime suspect. Read its inputs/outputs.
-- Open the **Recovery** panel for the approval/event timeline and any integrity
-  warnings.
-
-## Symptom -&gt; likely node -&gt; next probe
-
-| Symptom (from status / debugger) | Likely failure kind | Likely node | Next probe |
-| --- | --- | --- | --- |
-| Run sat at `waiting_approval`, then went `failed` after a reject; error mentions approval/rejected | **approval_rejected** | a `human_approval` node (e.g. `review`) | Recovery panel: confirm the reject event + reviewer/reason. Recovery = `run-retry` then `run-approve` -&gt; `run-resume`. |
-| A node shows a raised exception in the debugger (`KeyError`, `ValueError`, traceback) | **node_exception** | a `python_code` / `tool` node | Debugger: read that node&#x27;s input; reproduce with the same input. Fix is a manual edit to that one node (validate/guard the bad field), save new version. |
-| Run failed at/after a `guardrail` node; output was blocked or redacted | **guardrail_block** | a `guardrail` node (e.g. `pii_guard`) | Inspect the guardrail node&#x27;s check + `on_failure`. Decide: tighten upstream output, or adjust the guardrail scope. Manual edit + new version. |
-| Run never reached terminal success; stuck/expired waiting on an event or clock | **wait_timeout** | a `wait_for_event` / `wait_until` node | Recovery panel: check the awaited event + timeout. Use `resume-by-event` if the event is now available; else adjust the timeout (manual edit). |
-| Run failed before the first node; &quot;workflow_not_found&quot; / bad input shape | **bad_request** (not a node fault) | none (run setup) | Re-check the workflow id and the input payload against the input schema before re-running. |
-
-## Localize, don&#x27;t guess
-
-- Tie every conclusion to a node id and the actual error text from the
-  debugger. If the evidence does not name a node and a reason, say so and gather
-  more trace detail before proposing a change.
-- Keep the fix minimal and scoped to the failing node. A smaller patch isolates
-  impact and is easier to validate.
-
-## After you localize
-
-1. Reproduce the failing input once more to confirm it is deterministic.
-2. Make the smallest manual edit in the editor that addresses the root cause;
-   **save a new version**.
-3. Validate: Preview + a real run of the failing input on the new version, then
-   re-run a small regression slice of prior-good inputs.
-4. Convert the incident into a regression case (add the reproducer to the
-   scenario dataset) so it cannot silently come back.
-
-Inputs you may be given for narration:
-- run status: `{{ run_status }}`
-- failing node: `{{ failing_node }}`
-- node error: `{{ node_error }}`
-- recent events: `{{ recent_events }}`
-</code></pre>
-    </div><div class="ck-asset" id="asset-assets-tools-failing-node-py">
-      <div class="ck-asset-bar"><span class="ck-asset-name">assets/tools/failing_node.py</span>
-        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
-      <pre data-lang="python"><code>&quot;&quot;&quot;failing_node — Caliber workflow `python_code` node body (deliberate fault).
-
-This is NOT a registered tool. Paste the body of this module into a CALIBER
-**Python Code** node (`Agent resources → Workflows` → drag a *Python Code* node). It
-needs no registration, versions with the workflow, and uses **stdlib only**.
-
-Its purpose is to MANUFACTURE a reproducible, code-level node failure for the
-workflow-debugger demo (the second failure option in this scenario&#x27;s README):
-on a malformed input it raises, so the run lands in `failed` with a real node
-exception you can localize in the Debugger panel.
-
-CONTRACT (how the sandbox calls this)
-  The node body runs inside the runtime wrapper:
-      run_python_node(input=None, context=None, inputs=None, run_input=&#x27;&#x27;)
-  Wire the upstream port so this node receives:
-      inputs[&quot;payload&quot;]  -&gt; a dict; MUST contain a non-empty &quot;account_id&quot;
-                            (str) and an &quot;amount&quot; (number &gt;= 0).
-  It also tolerates the payload arriving as the single `input` dict (or a JSON
-  string) so the node still works when the upstream emits one object.
-
-THE FAULT (what triggers it) — before the patch
-  Pre-patch, the body still validates the payload with `.get(...)` (it never
-  indexes a key directly), collects every problem into an `errors` list, and
-  when `STRICT = True` raises a single composed `ValueError` joining those
-  reasons. So ANY of these inputs reproduces a node-level exception (-&gt; `failed`):
-    * &quot;account_id&quot; missing entirely        -&gt; ValueError (missing/empty id)
-    * &quot;account_id&quot; present but empty &quot;&quot;     -&gt; ValueError (missing/empty id)
-    * &quot;amount&quot; non-numeric, e.g. &quot;N/A&quot;      -&gt; ValueError (bad amount)
-  The raised message is &quot;failing_node: invalid input -&gt; &quot; + &quot;; &quot;.join(errors).
-  In the Debugger step trace this node shows the raised error on its `error`
-  marker; that exception text + this node id IS the concrete evidence the
-  diagnosis-summary prompt and RootCauseQuality judge must cite.
-
-THE FIX (fixed behavior) — after the manual patch
-  The patch is a MANUAL editor edit (save a new workflow version): swap the
-  raising lookups for validated, defaulted access and emit a structured
-  `validation_error` on the result port instead of throwing. The dividing line
-  below — `STRICT = True` — is the smallest change that flips fault-&gt;handled.
-  Flip it to `False` (or delete the raising branch) and re-run the SAME failing
-  input to confirm the node now completes with `status=&quot;rejected_input&quot;`
-  instead of crashing the run. No Run Monitor control patches a failed run; this
-  edit is the patch.
-
-OUTPUTS (on the node&#x27;s `result` / `text` ports), post-fix
-  {
-    &quot;status&quot;:   &quot;ok&quot; | &quot;rejected_input&quot;,
-    &quot;account_id&quot;: &lt;validated id&gt; | None,
-    &quot;amount&quot;:     &lt;float&gt;        | None,
-    &quot;errors&quot;:     [&lt;human-readable reasons the input was rejected&gt;]
-  }
-&quot;&quot;&quot;
-
-# `json` is pre-injected into the node namespace by the workflow Python
-# sandbox, so we deliberately do NOT `import json` here — the sandbox&#x27;s
-# SAFE_BUILTINS has no `__import__`, and an import would crash the node.
-
-# The one knob the manual patch flips. True = original deliberately-faulty
-# behavior (raise on malformed input -&gt; reproducible node exception).
-# Set to False as the minimal scoped fix (validate + return, never throw).
-STRICT = True
-
-
-def _coerce_payload(value):
-    &quot;&quot;&quot;Accept a dict directly or a JSON string; anything else -&gt; {}.&quot;&quot;&quot;
-    if isinstance(value, dict):
-        return value
+def _amount(value):
+    if isinstance(value, bool):
+        return None, &quot;amount must be a number, got &quot; + repr(value)
+    if isinstance(value, (int, float)):
+        return value, None
     if isinstance(value, str):
-        try:
-            parsed = json.loads(value)
-        except Exception:
-            return {}
-        return parsed if isinstance(parsed, dict) else {}
-    return {}
+        text = value.strip()
+        for symbol in (&quot;$&quot;, &quot;\u20ac&quot;, &quot;\u00a3&quot;, &quot;USD&quot;, &quot;EUR&quot;, &quot;GBP&quot;):
+            text = text.replace(symbol, &quot;&quot;)
+        text = text.strip()
+        if re.match(r&quot;^[0-9]+,[0-9]{1,2}$&quot;, text):
+            return None, &quot;amount &quot; + repr(value) + &quot; is ambiguous: comma may be a decimal separator&quot;
+        text = text.replace(&quot;,&quot;, &quot;&quot;)
+        if re.match(r&quot;^[0-9]+(\.[0-9]+)?$&quot;, text):
+            return (float(text) if &quot;.&quot; in text else int(text)), None
+    return None, &quot;amount must be a number, got &quot; + repr(value)
 
-
-def _validate(payload):
-    &quot;&quot;&quot;Return (account_id, amount, errors) without raising.&quot;&quot;&quot;
+def run_python_node(input=None, context=None, inputs=None, run_input=&#x27;&#x27;):
+    raw = input if input is not None else run_input
     errors = []
-
-    account_id = payload.get(&quot;account_id&quot;)
-    if not isinstance(account_id, str) or not account_id.strip():
-        errors.append(&quot;missing or empty required field &#x27;account_id&#x27;&quot;)
-        account_id = None
-    else:
-        account_id = account_id.strip()
-
-    raw_amount = payload.get(&quot;amount&quot;)
-    amount = None
     try:
-        amount = float(raw_amount)
-        if amount &lt; 0:
-            errors.append(&quot;field &#x27;amount&#x27; must be &gt;= 0&quot;)
-            amount = None
+        ticket = json.loads(raw) if isinstance(raw, str) else raw
     except Exception:
-        errors.append(&quot;field &#x27;amount&#x27; is missing or not a number&quot;)
-
-    return account_id, amount, errors
-
-
-def run_python_node(input=None, context=None, inputs=None, run_input=&quot;&quot;):
-    src = inputs if isinstance(inputs, dict) else {}
-
-    # Resolve the payload from inputs[&quot;payload&quot;], else the single input object.
-    payload = _coerce_payload(src.get(&quot;payload&quot;))
-    if not payload:
-        payload = _coerce_payload(input if input is not None else context)
-
-    account_id, amount, errors = _validate(payload)
-
-    if STRICT and errors:
-        # --- DELIBERATE FAULT (pre-patch) -----------------------------------
-        # Reproduces a real node-level exception so the run lands in `failed`.
-        # The first failing reason becomes the raised message — exactly the
-        # evidence the debugger surfaces and the diagnosis must cite.
-        raise ValueError(
-            &quot;failing_node: invalid input -&gt; {}&quot;.format(&quot;; &quot;.join(errors))
-        )
-
-    # --- FIXED BEHAVIOR (post-patch: STRICT=False) --------------------------
+        return {&quot;ok&quot;: False, &quot;errors&quot;: [&quot;ticket is not valid JSON&quot;]}
+    if not isinstance(ticket, dict):
+        return {&quot;ok&quot;: False, &quot;errors&quot;: [&quot;ticket must be a JSON object&quot;]}
+    for key in (&quot;ticket_id&quot;, &quot;account_id&quot;, &quot;amount&quot;, &quot;currency&quot;, &quot;reason&quot;, &quot;order_ref&quot;):
+        if key not in ticket:
+            errors.append(&quot;missing required field &#x27;&quot; + key + &quot;&#x27;&quot;)
+    out = {&quot;ticket_id&quot;: ticket.get(&quot;ticket_id&quot;)}
+    if &quot;account_id&quot; in ticket:
+        account_id = str(ticket[&quot;account_id&quot;]).strip().upper()
+        if not re.match(r&quot;^A-[0-9]{4}$&quot;, account_id):
+            errors.append(&quot;account_id must look like A-1234, got &quot; + repr(ticket[&quot;account_id&quot;]))
+        out[&quot;account_id&quot;] = account_id
+    if &quot;amount&quot; in ticket:
+        amount, problem = _amount(ticket[&quot;amount&quot;])
+        if problem:
+            errors.append(problem)
+        elif amount &lt;= 0:
+            errors.append(&quot;amount must be greater than 0, got &quot; + repr(ticket[&quot;amount&quot;]))
+        out[&quot;amount&quot;] = amount
+    if &quot;currency&quot; in ticket:
+        currency = CURRENCIES.get(str(ticket[&quot;currency&quot;]).strip().upper()) or CURRENCIES.get(str(ticket[&quot;currency&quot;]).strip())
+        if currency is None:
+            errors.append(&quot;unsupported currency &quot; + repr(ticket[&quot;currency&quot;]))
+        out[&quot;currency&quot;] = currency
+    if &quot;reason&quot; in ticket:
+        if not str(ticket[&quot;reason&quot;]).strip():
+            errors.append(&quot;reason must not be empty&quot;)
+        out[&quot;reason&quot;] = str(ticket[&quot;reason&quot;]).strip()
+    if &quot;order_ref&quot; in ticket:
+        out[&quot;order_ref&quot;] = str(ticket[&quot;order_ref&quot;]).strip()
+    out[&quot;ok&quot;] = not errors
     if errors:
-        result = {
-            &quot;status&quot;: &quot;rejected_input&quot;,
-            &quot;account_id&quot;: account_id,
-            &quot;amount&quot;: amount,
-            &quot;errors&quot;: errors,
+        out[&quot;errors&quot;] = errors
+    return out
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-workflow-patch-check-reference-py">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/workflow/patch/check_reference.py</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="python"><code>ORDER_REF = re.compile(r&quot;^[A-Z0-9]+(?:-[A-Z0-9]+)*-?$&quot;)
+
+def run_python_node(input=None, context=None, inputs=None, run_input=&#x27;&#x27;):
+    ticket = dict(inputs.get(&quot;ticket&quot;) or {})
+    ref = str(ticket.get(&quot;order_ref&quot;) or &quot;&quot;)
+    ticket[&quot;reference_valid&quot;] = len(ref) &lt;= 64 and bool(ORDER_REF.match(ref))
+    ticket[&quot;query&quot;] = {&quot;account_id&quot;: ticket[&quot;account_id&quot;]} if ticket.get(&quot;ok&quot;) else {}
+    return ticket
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-workflow-patch-decide-py">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/workflow/patch/decide.py</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="python"><code>LIMITS = {&quot;standard&quot;: 200, &quot;premium&quot;: 500}
+
+def run_python_node(input=None, context=None, inputs=None, run_input=&#x27;&#x27;):
+    ticket = inputs[&quot;ticket&quot;]
+    if not ticket.get(&quot;ok&quot;):
+        return {
+            &quot;ticket_id&quot;: ticket.get(&quot;ticket_id&quot;),
+            &quot;decision&quot;: &quot;rejected_input&quot;,
+            &quot;reason_code&quot;: &quot;INVALID_TICKET&quot;,
+            &quot;errors&quot;: ticket.get(&quot;errors&quot;, []),
         }
+    response = inputs[&quot;account&quot;]
+    account = response.get(&quot;json&quot;)
+    if response.get(&quot;status_code&quot;) != 200 or not isinstance(account, dict) or account.get(&quot;tier&quot;) not in LIMITS:
+        return {
+            &quot;ticket_id&quot;: ticket[&quot;ticket_id&quot;],
+            &quot;decision&quot;: &quot;manual_review&quot;,
+            &quot;reason_code&quot;: &quot;ACCOUNT_LOOKUP_FAILED&quot;,
+            &quot;upstream_status&quot;: response.get(&quot;status_code&quot;),
+            &quot;amount&quot;: ticket[&quot;amount&quot;],
+            &quot;currency&quot;: ticket[&quot;currency&quot;],
+        }
+    if account.get(&quot;status&quot;) != &quot;active&quot;:
+        decision, reason = &quot;manual_review&quot;, &quot;ACCOUNT_NOT_ACTIVE&quot;
+    elif ticket[&quot;amount&quot;] &gt; LIMITS[account[&quot;tier&quot;]]:
+        decision, reason = &quot;manual_review&quot;, &quot;AMOUNT_OVER_LIMIT&quot;
+    elif not ticket[&quot;reference_valid&quot;]:
+        decision, reason = &quot;manual_review&quot;, &quot;ORDER_REF_UNVERIFIED&quot;
     else:
-        result = {
-            &quot;status&quot;: &quot;ok&quot;,
-            &quot;account_id&quot;: account_id,
-            &quot;amount&quot;: amount,
-            &quot;errors&quot;: [],
-        }
-    return {&quot;text&quot;: json.dumps(result), &quot;result&quot;: result}
-</code></pre>
-    </div><div class="ck-asset" id="asset-assets-prompts-diagnosis-summary-md">
-      <div class="ck-asset-bar"><span class="ck-asset-name">assets/prompts/diagnosis-summary.md</span>
-        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
-      <pre data-lang="markdown"><code>---
-name: diagnosis-summary
-model_hint: any capable instruct model; this is summarization over a trace, not generation
-variables: [failing_node, node_input, node_error, recent_events]
-commit_message: &quot;v1 trace-grounded workflow failure diagnosis&quot;
----
-
-You are a workflow recovery assistant. You read the evidence from ONE failing
-workflow run — the failing node, its input, the error it produced, and the
-recent run events — and you write a tight, trace-grounded diagnosis. You do not
-debug or patch anything; the operator does that in the Run Monitor. Your only
-job is to state the root cause from the evidence and propose the smallest
-scoped fix.
-
-You return JSON ONLY — no prose, no markdown, no code fences:
-{
-  &quot;root_cause&quot;: short string: WHY the run failed, stated from the evidence,
-  &quot;evidence_node&quot;: the node id you are blaming (must equal the failing node),
-  &quot;fix_summary&quot;: short string: the single smallest change that addresses the
-                 root cause (a manual editor edit + save-new-version; there is
-                 no automatic patch),
-  &quot;regression_slice&quot;: array of 2-4 short input descriptions to re-run after the
-                      fix to confirm no new failures (include the reproducer
-                      plus a couple of prior-good cases)
-}
-
-Rules:
-- Cite ONLY the concrete evidence below. The blamed `evidence_node` MUST be
-  exactly `{{ failing_node }}`. Quote or paraphrase the actual `{{ node_error }}`
-  text in `root_cause`; do not invent an error you were not shown.
-- Do NOT speculate beyond the trace. If the evidence does not determine the
-  cause, set `root_cause` to &quot;insufficient evidence&quot; and `fix_summary` to
-  &quot;gather more trace detail before patching&quot; — never guess a cause.
-- Classify the failure as exactly one of: an approval rejection (a
-  human_approval node was rejected), a node exception (a node raised), a
-  guardrail block (a guardrail node blocked), or a wait timeout (a
-  wait_for_event / wait_until node expired) — and let that classification drive
-  the `fix_summary`.
-- Keep `fix_summary` minimal and scoped to one node/config. Prefer the smallest
-  change that flips the failing node from fault to handled. Never propose a
-  change to a node other than the failing one unless the evidence names it.
-- Add no commitments, no timelines, and no claims about whether the fix will
-  pass — that is decided by re-running, not by you.
-
-Failing node id: {{ failing_node }}
-Failing node input:
-&quot;&quot;&quot;
-{{ node_input }}
-&quot;&quot;&quot;
-Failing node error / outcome:
-&quot;&quot;&quot;
-{{ node_error }}
-&quot;&quot;&quot;
-Recent run events (most recent last):
-&quot;&quot;&quot;
-{{ recent_events }}
-&quot;&quot;&quot;
-
-Return only the JSON diagnosis.
-</code></pre>
-    </div><div class="ck-asset" id="asset-assets-judges-root-cause-quality-judge-json">
-      <div class="ck-asset-bar"><span class="ck-asset-name">assets/judges/root-cause-quality.judge.json</span>
-        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
-      <pre data-lang="json"><code>{
-  &quot;name&quot;: &quot;RootCauseQuality&quot;,
-  &quot;model&quot;: &quot;set to your configured judge model (e.g. the gateway default)&quot;,
-  &quot;feedback_value_type&quot;: &quot;bool&quot;,
-  &quot;instructions&quot;: &quot;You audit a workflow-failure diagnosis for whether it is grounded in the actual run evidence and proposes a minimal, scoped fix. You are given the failing-run evidence {{ inputs }} (which includes failing_node, node_input, node_error, recent_events) and the diagnosis under test {{ outputs }} (a JSON object with root_cause, evidence_node, fix_summary, regression_slice). You may also be given labeled {{ expectations }} (failure_kind, expected_root_cause).\n\nReturn true ONLY if ALL of the following hold:\n1. {{ outputs }} is a single valid JSON object with the keys root_cause, evidence_node, fix_summary, regression_slice.\n2. outputs.evidence_node equals inputs.failing_node exactly (the diagnosis blames the node that actually failed — not a different node).\n3. outputs.root_cause cites the concrete failing evidence from {{ inputs }}: it reflects the actual inputs.node_error (e.g. the same error kind / missing field / rejected approval / blocked guardrail) and is consistent with inputs.recent_events. It must NOT introduce a cause that the evidence does not support.\n4. The diagnosis&#x27;s failure classification is consistent with the evidence and, when provided, with expectations.failure_kind (approval_rejected / node_exception / guardrail_block / wait_timeout).\n5. outputs.fix_summary is a SINGLE minimal, scoped change addressing that root cause (e.g. validate/default the missing field on the failing node, or re-run the approval, or tighten the upstream output) and does not expand scope to unrelated nodes or propose a broad rewrite.\n6. outputs.regression_slice is a non-empty list that includes re-running the reproducing input plus at least one prior-good case.\n\nReturn false if the diagnosis blames the wrong node, invents an error or cause not present in {{ inputs }}, speculates beyond the trace, or proposes a non-minimal / out-of-scope fix. Base the verdict only on the evidence in {{ inputs }} (and {{ expectations }} when present), not on your own opinion of the workflow.&quot;,
-  &quot;notes&quot;: &quot;Optional LLM judge (verification.yaml: RootCauseQuality, criteria &#x27;diagnosis cites concrete failing evidence&#x27;). feedback_value_type bool -&gt; pass/fail. Select it in an Evaluations run under &#x27;Custom LLM judges&#x27; (it runs as a Judge.&lt;id&gt; scorer; or use the calibration path) over dataset/failing-inputs.jsonl against the diagnosis-summary output. Template vars {{ inputs }}/{{ outputs }}/{{ expectations }} are bound by the eval runner per row.&quot;
-}
+        decision, reason = &quot;approve&quot;, &quot;ELIGIBLE_AUTO_APPROVE&quot;
+    return {
+        &quot;ticket_id&quot;: ticket[&quot;ticket_id&quot;],
+        &quot;decision&quot;: decision,
+        &quot;reason_code&quot;: reason,
+        &quot;amount&quot;: ticket[&quot;amount&quot;],
+        &quot;currency&quot;: ticket[&quot;currency&quot;],
+    }
 </code></pre>
     </div>
       <h2 id="gates">Evaluation &amp; quality gates</h2>
-      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Root cause is explicit in the trace</td><td>node + evidence identified</td></tr><tr><td>Post-fix regression slice</td><td>≥ 0.95 pass; no new failures</td></tr></tbody></table></div>
-      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li><strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.</li><li>Patching is <strong>manual</strong> — edit the manifest in the editor and save a new version; no Run Monitor control patches a failed run (a patch engine exists behind <code>propose-patch</code>, the CALIBER Patches tab and Aria's chat <code>propose_workflow_patch</code> tool, but no page calls it).</li><li>Aria can <em>narrate</em> a diagnosis but cannot debug/patch a workflow as a capability.</li><li>The most reliable demo failure is the <code>hitl_review</code> reject → retry → approve → resume loop.</li></ul></div>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Version 1 against the dataset</td><td>11 completed, 24 failed: 17 validate, 3 check_reference, 4 decide</td></tr><tr><td>Failing node is findable</td><td>ERROR trace span names the node; no checkpoint; retry fails at the same node</td></tr><tr><td>Version 2 against the dataset</td><td>35 completed, 0 failed (10 approve, 13 manual_review, 12 rejected_input)</td></tr><tr><td>Regression slice</td><td>the 11 tickets v1 handled give identical output</td></tr><tr><td>Alias and prod guard</td><td>rollback restores v1; prod promote of an ungated version is refused (400)</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li><strong>Prerequisite flags.</strong> The lab itself needs none: workflows, the Run Monitor, versions and aliases are part of the supported alpha. <code>CALIBER_FEATURE_COOKBOOKS=true</code> only opens the gallery, whose starter this lab does not use. Aria is not used.</li><li><strong>Egress and the stand-in service.</strong> Start <code>assets/upstream/account_service.py 8780</code> (not a real system; fixed 503, 500 and 404 ids) and the stack with <code>CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1 scripts/cookbook-env.sh up lab09 --flags cookbooks</code>; without the allowed host <code>lookup</code> fails with <code>outbound request to '127.0.0.1' is blocked</code>. Needs a workflow worker.</li><li><strong>Nothing here needs a model.</strong> There is no agent node, so <code>CALIBER_LLM_PROVIDER=fake</code> does not matter and every number is measured. The poison records time out because Python <code>re</code> really backtracks.</li><li><strong>Preview and deploy gates cannot run this workflow.</strong> Python Code and API Request nodes are refused (<code>preview blocked before execution ...</code>), so the proof is real runs of the dataset on version 2, and a <code>prod</code> promotion is refused for lack of a deploy gate.</li><li><strong>Patching is manual.</strong> <code>propose-patch</code> is API only, agent-shaped (it cannot repair a code node) and no page calls it. Aria is not used and there is no UI for aliases: the alpha UI has one live alias (<code>prod</code>), so <code>staging</code> and its rollback are API only.</li><li><strong>Run it.</strong> <code>PYTHONPATH=sdk/caliber-sdk python sdk/caliber-sdk/examples/cookbooks/cookbook_09_self_healing_workflows.py</code> (about three minutes, about 75 runs) or the spec <code>caliber/caliber-ui/e2e/cookbooks/labs/09-workflow-debugger.spec.ts</code> (<code>npx playwright test --config=playwright.labs.config.ts</code>); offline check <code>caliber/tests/test_cookbook_09_self_healing.py</code>.</li><li><strong>Retry from a checkpoint</strong> exists for approvals and waits (lab 03), not for node failures; role failures are covered by lab 18.</li></ul></div>
       <nav class="ck-pager"><a href="m-cookbook-08-incident-copilot.html">← Incident Response Copilot</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-16-observability-triage.html">Production Observability &amp; Triage →</a></nav>
         <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
         Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>

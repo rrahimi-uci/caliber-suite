@@ -1,0 +1,11 @@
+invoice_number,INV-2026-0103
+vendor,Northwind Traders GmbH
+invoice_date,2026-03-11
+currency,EUR
+description,quantity,unit_price,amount
+Oak planks 2.4 m,40,18.50,740.00
+Wood glue 5 L,6,22.90,137.40
+Delivery pallet,1,35.00,35.00
+subtotal,912.40
+tax,173.36
+total,1085.76

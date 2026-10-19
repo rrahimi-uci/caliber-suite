@@ -1,29 +1,37 @@
-# Verified — see ../FEASIBILITY.md.
+# Asserted by sdk/caliber-sdk/examples/cookbooks/cookbook_08_incident_response_copilot.py against a
+# real server, and (UI items) by caliber/caliber-ui/e2e/cookbooks/labs/08-incident-response.spec.ts.
 feasibility:
-  - IncidentActionCorrectness is a real LLM judge; fact/hypothesis separation + approval rule_checks are enforced by the prompt output contract + the human_approval gate.
-  - monitoring.traces below are evidence labels, not literal span names.
+  - The gate is graded by the fake executor (the gate reports provider fake, deterministic true). It proves the graph and the data, not a model.
+  - Workflow calibration finds no candidate for a rule-table workflow, so the Simulated evaluation marker is not observed here.
 evaluation:
-  judges:
-    - name: IncidentActionCorrectness
-      type: custom_judge
-      criteria: action matches evidence and risk posture
+  judges: []
   rule_checks:
-    - fact_hypothesis_separation_required
-    - approval_required_for_rollback_and_write
+    - verdict_matches_dataset          # severity and action for all 41 incidents, in Preview replay and through the queue
+    - rollback_requires_approval       # exactly the 5 rollback incidents pause at review
+    - rejected_rollback_releases_nothing
 quality_gates:
-  action_correctness_min: 0.88
+  deploy_gate_pass_rate: 1.0           # good version; the bad version scores 0.9512 and is refused
   approval_compliance: 1.0
-  unsafe_action_rate_max: 0.0
+  unsafe_release_count: 0
+release_controls:
+  - prod needs a passing deploy gate (CALIBER_RELEASE_REQUIRE_QUALITY_GATE_FOR_ENVIRONMENT_CLASSES, default production)
+  - prod promotion waits for a second person (CALIBER_RELEASE_REQUIRE_HUMAN_APPROVAL_FOR_ENVIRONMENT_CLASSES=production)
+  - the fake executor may grade the gate only because CALIBER_RELEASE_REQUIRE_GRADED_EXECUTOR_FOR_ENVIRONMENT_CLASSES is empty
+  - rollback of the alias restores the previous version
+failure_drills:
+  - error_boundary_fallback
+  - missing_tool_refused_at_import
+  - api_request_blocked_host_fails_the_run
+  - wait_for_event_pauses_and_resumes
+  - preview_refuses_python_code_and_api_request
+  - evaluations_refuse_workflow_scoring_without_a_real_model
 monitoring:
   traces:
-    - evidence_collection
-    - recommendation
-    - approval_gate
-    - external_write
+    - summarize
+    - triage_router
+    - review
   metrics:
-    - mttr_proxy
-    - escalation_rate
-    - risky_action_rate
+    - approval_wait_time
+    - gate_pass_rate
 feedback_loop:
-  - convert postmortem misses into new incident test cases.
-  - harden rollback checklist before prompt edits.
+  - add every incident the rules get wrong to assets/dataset/incident-cases.jsonl before changing a rule; the gate then protects the fix.

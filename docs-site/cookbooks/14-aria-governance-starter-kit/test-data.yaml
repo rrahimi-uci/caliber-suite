@@ -1,41 +1,39 @@
-# Aria autonomous scenario: the "input" is the INTENT; the "expected" is the plan
-# Aria drafts + the artifacts it creates. Concrete files are in assets/.
-intents:
-  - id: A14-canonical
+# Aria autonomous scenario: the "input" is the INTENT; the "expected" is the plan Aria drafts and the
+# artifacts it creates. Two data files and three form specs live in assets/.
+goals:
+  file: assets/dataset/goals.jsonl     # {id, goal, expected_steps, outcome, note}
+  rows: 28
+  by_outcome:
+    as_asked: 15     # the plan is what the sentence asked for (a review queue always brings add_items)
+    unasked: 6       # a step the sentence did not ask for (negation, a question, "delete", "judgement", "workflow")
+    missed: 3        # a step the sentence asked for is missing ("held-out set", "review-queue")
+    nothing: 4       # no steps: the plan cannot be approved (409)
+  canonical:
+    id: G01
     goal: "Stand up our governance starter kit: a judge for answer faithfulness, an eval dataset to score against, and a review queue for human checks."
     autonomy: ask_each
-    expected_plan_steps: [judge.create, eval_dataset.create, review_queue.create, review_queue.add_items]
-    note: "Contains all three domain needles — 'judge', 'eval dataset', 'review queue'. Because review_queue.create and review_queue.add_items share the 'review queue' domain, the planner proposes BOTH; Skip step on add_items (no traces yet)."
-  - id: A14-natural
-    goal: "Get our new support answers governed end to end: score them for faithfulness, keep a held-out test set, and let a human spot-check the tricky ones."
-    note: "Natural phrasing. The default HeuristicPlanner recognises 'test set' (-> eval_dataset.create) but not 'score for faithfulness' (needs the literal word 'judge') or 'human spot-check' (needs 'review queue'), so this plans only the test-set step. Use A14-canonical for the deterministic path."
-# What you enter when Aria pauses on an "Aria needs information" form (the `inputs` of the step).
-# The planner links `name` between steps, so review_queue.create takes the judge's name and
-# eval_dataset.create takes the queue's name (all three are created as AnswerFaithfulness); those two
-# steps do not prompt for a name, and eval_dataset.create prompts for nothing. The names and
-# description below are the reference specs if you create those artifacts yourself.
-interaction_answers:
-  judge.create:
-    name: AnswerFaithfulness
-    feedback_value_type: bool
-    instructions: "Given {{ inputs }} and the model {{ outputs }}, return true only if every claim in {{ outputs }} is supported by {{ expectations }}; otherwise false."
-  eval_dataset.create:
-    name: release-candidates-eval
-    description: "Held-out release-candidate Q/A for faithfulness scoring. Add example rows after creation, then run Evaluations with Judge.AnswerFaithfulness."
-  review_queue.create:
-    name: governance-review
-    description: "Human spot-check of release-candidate answers: faithfulness, citation correctness, tone, and free-text notes."
-    questions:
-      - {key: faithful, title: "Is the answer faithful to the evidence?", type: pass_fail, required: true, target: feedback}
-      - {key: citation_ok, title: "Are the citations correct and sufficient?", type: pass_fail, required: false, target: feedback}
-      - {key: tone, title: "Tone of the answer", type: categorical, options: [on_brand, neutral, off_brand], required: false, target: feedback}
-      - {key: notes, title: "Reviewer notes", type: text, required: false, target: feedback}
-# review_queue.add_items: click Skip step on its form — there are no traces to enqueue yet.
-# (queue_id is linked from review_queue.create; answering {approved:false} skips it over the API.)
-# After you run Evaluations and have traces, enqueue
-# the hard/low-confidence ones via Review Queues -> Add items (or POST /review-queues/{id}/items {trace_ids}).
-done_when:
-  - a judge named AnswerFaithfulness is active in Judges
-  - an empty test set (named AnswerFaithfulness, the judge step's name) exists in Test Sets
-  - a review queue (also named AnswerFaithfulness) exists in Review Queues with the four-question schema (faithful, citation_ok, tone, notes)
-  - the Aria plan shows the three create steps completed (add_items skipped)
+    expected_steps: [judge.create, review_queue.create, eval_dataset.create, review_queue.add_items]
+cases:
+  file: assets/dataset/release-candidate-cases.jsonl   # {id, tags, input: {question, evidence}, expected: {answer}}
+  rows: 30
+  categories: [leave, expenses, it, benefits, conduct, payroll, remote, onboarding]
+  high_risk: [C13, C14, C15, C21, C22]
+  hard_cases:
+    - C05: sick leave does not cover a pet
+    - C07: a 7 hour flight is economy
+    - C18: an unregistered partner is not covered
+    - C20: a degree programme is not a course
+    - C25: tax advice the assistant must not give
+    - C30: the buddy's name is not in the evidence
+  loading: POST /eval-datasets/{id}/examples (one row per call; every row is a new version, so 30 rows end at version 31)
+forms:
+  judge.create: assets/judges/answer-faithfulness.judge.json                    # name, feedback_value_type, instructions, tags
+  review_queue.create: assets/review-queues/governance-review.queue.json        # name, description, reviewers, questions (4)
+  eval_dataset.create: assets/datasets/release-candidates.dataset.json          # name, description, tags
+questions_asked:
+  ask_each: [input, permission, input, permission, input, permission, input]    # the last is the enqueue form, skipped
+  auto_guarded: [input, input, input, input]                                    # the same kit, no approvals
+refusals:
+  - id: A14-no-steps
+    goal: "Create the governance kit."
+    note: "201 with a warning; approve answers 409."

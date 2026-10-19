@@ -1,65 +1,52 @@
-workflow_goal: Enforce deterministic business logic first, then optionally add LLM explanation.
-# Verified against the live build — see ../FEASIBILITY.md.
+workflow_goal: Decide a refund with a deterministic registered tool, then issue it only after a second person approves.
+# Verified by running the lab against a live stack; see README.md.
 feasibility:
-  - Tools must be importable Python (module_path+callable_name); there is no inline tool editor. Use shipped caliber.workflows.demo_tools callables, or put logic in a python_code workflow node.
-  - The installable draft implements the policy as a Data Transform decision_table node (policy_decision), which emits {decision, matched, matched_rule} and no requires_approval. decide_refund as a python_code node is the optional alternative that also emits reason_code/requires_approval.
-  - Sandbox runs a read tool live only with allow_in_preview=true; otherwise it is mocked. POST /tools rejects write/external_action without requires_approval=true (400).
-  - Approve needs the caliber.approver scope and an account other than the run initiator (403 unless CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true).
-  - The write tool (initiate_refund) is mocked in the sandbox and becomes approval-gated in a workflow — exactly the safety behavior this scenario wants.
-  - Deterministic Hardening runs inline (POST /tools/{id}/calibrate); the LLM-judge lane is queued.
-  - approval_gate = the human_approval node; start the workflow from the hitl_review template.
-  - ExplanationFaithfulness is a real LLM judge; the deterministic rule_checks are enforced by the python_code node + the approval gate, not by a deterministic judge.
+  - A registered tool must be importable Python (module_path + callable_name) in the server's environment. This lab uses the shipped caliber.workflows.demo_tools module, which provides decide_refund (the policy) and initiate_refund (the write stub). To register your own, install your package into the server's environment first.
+  - The sandbox runs a read tool live (in a subprocess) only with allow_in_preview=true; a write tool is mocked and never imported in preview.
+  - POST /tools rejects a write or external_action tool without requires_approval=true (400). The wizard locks the toggle on for write.
+  - The gate is the write tool's own requires_approval flag: a tool node bound to it stops at waiting_approval. The import preview still reports the advisory write_tool_without_approval warning because the workflow has no Human Approval node.
+  - Approve needs the caliber.approver scope and, in a workspace, the reviewer/owner role; the run initiator is refused (403) unless CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true. Resume is a separate step that needs caliber.operator.
+  - Fixtures use the assertion types no_error, output_contains and equals. A tool error fails every assertion, so malformed input must produce a deterministic output rather than raise.
+  - Calibration (POST /tools/{id}/calibrate) runs inline, one subprocess per case (about 0.7 s each): 49 cases take about 35 s, longer than the SDK default timeout of 30 s.
 manual_flow:
   - step: register_tools
-    action: Register lookup and decision tools with schema contracts.
-  - step: run_fixtures
-    action: Execute fixture suite and inspect failing branches.
+    action: Register decide_refund (read, allow in preview) and initiate_refund (write, requires approval).
+  - step: sandbox
+    action: Run decide_refund live and see initiate_refund mocked.
+  - step: fixtures
+    action: Save the 49 fixture cases.
   - step: harden
-    action: Pin baseline and run hardening comparison.
-  - step: workflow_bind
-    action: Bind tool into minimal workflow branch.
-  - step: explain_optional
-    action: Add prompt/skills for customer-safe explanation without changing decision.
+    action: Run the suite, record it, pin the baseline, provoke and see a regression.
+  - step: workflow
+    action: Import the workflow, run it, approve as a second person, resume.
+  - step: failures
+    action: Reject a run, deny a decision, read the audit log.
 components:
-  prompts:
-    optional_explanation:
-      system: "Explain the deterministic decision without changing it."
-  skills:
-    - policy-reason-normalizer
-    - customer-safe-refund-language
   tools:
-    - lookup_order_state   # realize as caliber.workflows.demo_tools:lookup_order (read)
-    - lookup_risk_flags    # realize as a python_code node, or a registered read callable
-    - decide_refund        # optional python_code node; the installed draft uses a Data Transform decision_table instead
-    - initiate_refund      # caliber.workflows.demo_tools:initiate_refund (write -> mocked/approval-gated)
-  mcp:
-    optional:
-      - PostgreSQL read-only verification (quick-connect catalog)
+    - decide_refund       # caliber.workflows.demo_tools:decide_refund (read, allow_in_preview)
+    - initiate_refund     # caliber.workflows.demo_tools:initiate_refund (write, requires_approval)
   workflow:
-    template: hitl_review        # ships the human_approval gate
+    asset: assets/workflow/refund-decision.workflow.yaml
     nodes:
-      - tool_lookup              # tool node: lookup_order
-      - deterministic_decision   # Data Transform decision_table (or the optional python_code decide_refund)
-      - approval_gate            # human_approval node (pauses every run that reaches it)
-      - explanation_optional     # agent/prompt; must not change the decision
+      - policy          # tool node: decide_refund
+      - refund_request  # data_transform mapping: order_id and amount from the run input
+      - route           # router: a deny decision goes to `denied`, everything else to `refund`
+      - refund          # tool node: initiate_refund, held at waiting_approval
 contracts:
   input_schema:
     type: object
-    required: [order_id, account_id]
-  # The decision_table node emits only {decision, matched, matched_rule}; reason_code and
-  # requires_approval come from the optional python_code variant (assets/tools/decide_refund.py).
+    required: [order_state, amount, days_since_order]
   output_schema:
     type: object
     required: [decision, reason_code, requires_approval]
     properties:
-      decision: {type: string}
+      decision: {type: string, enum: [approve, deny, manual_review]}
       reason_code: {type: string}
       requires_approval: {type: boolean}
-      explanation: {type: string}
 failure_modes:
-  - schema_drift_between_tool_and_workflow
-  - decision_explanation_mismatch
-  - missing_approval_on_high_risk_case
+  - write tool registered without requires_approval
+  - viewer or approver without operator scope runs or calibrates a tool
+  - initiator approves their own run
+  - tool stalls past the sandbox deadline
 fallbacks:
-  - fail closed to manual review when risk data is missing.
-  - suppress explanation generation if deterministic decision is invalid.
+  - malformed or missing input fails closed to manual_review (INVALID_INPUT, MISSING_RISK_DATA, UNKNOWN_ORDER_STATE).

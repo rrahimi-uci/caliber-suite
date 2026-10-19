@@ -1,0 +1,165 @@
+schema_version: 1
+workflow_id: refund-intake
+name: refund-intake
+description: Validate a refund ticket, look the account up, and decide approve or manual review. Version 1, the one that fails in production.
+runtime:
+  sdk: openai-agents-python
+  sdk_version_policy: runtime-pinned
+  compiler_version: caliber-workflow-compiler-v1
+  default_model_ref: CALIBER_WORKFLOW_DEFAULT_MODEL
+  session:
+    type: none
+nodes:
+  start:
+    id: start
+    type: start
+    outputs:
+      user_message:
+        type: string
+  validate:
+    id: validate
+    type: python_code
+    timeout_seconds: 5
+    inputs:
+      input:
+        type: string
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+    code: |
+      def run_python_node(input=None, context=None, inputs=None, run_input=''):
+          raw = input if input is not None else run_input
+          ticket = json.loads(raw) if isinstance(raw, str) else raw
+          if not isinstance(ticket, dict):
+              raise ValueError("ticket must be a JSON object")
+          for key in ("ticket_id", "account_id", "amount", "currency", "reason", "order_ref"):
+              if key not in ticket:
+                  raise ValueError("missing required field '" + key + "'")
+          amount = ticket["amount"]
+          if isinstance(amount, bool) or not isinstance(amount, (int, float)):
+              raise ValueError("amount must be a number, got " + repr(amount))
+          if amount <= 0:
+              raise ValueError("amount must be greater than 0, got " + repr(amount))
+          if ticket["currency"] not in ("USD", "EUR", "GBP"):
+              raise ValueError("unsupported currency " + repr(ticket["currency"]))
+          if not re.match(r"^A-[0-9]{4}$", str(ticket["account_id"])):
+              raise ValueError("account_id must look like A-1234, got " + repr(ticket["account_id"]))
+          if not str(ticket["reason"]).strip():
+              raise ValueError("reason must not be empty")
+          ticket["ok"] = True
+          return ticket
+  check_reference:
+    id: check_reference
+    type: python_code
+    timeout_seconds: 2
+    inputs:
+      ticket:
+        type: structured
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+      query:
+        type: structured
+    code: |
+      ORDER_REF = re.compile(r"^(?:[A-Z0-9]+-?)+$")
+
+      def run_python_node(input=None, context=None, inputs=None, run_input=''):
+          ticket = dict(inputs.get("ticket") or {})
+          ticket["reference_valid"] = bool(ORDER_REF.match(str(ticket.get("order_ref") or "")))
+          ticket["query"] = {"account_id": ticket.get("account_id")}
+          return ticket
+  lookup:
+    id: lookup
+    type: api_request
+    mode: url
+    url: http://127.0.0.1:8780/accounts
+    method: GET
+    timeout_seconds: 3
+    inputs:
+      payload:
+        type: structured
+    outputs:
+      text:
+        type: string
+      response:
+        type: structured
+      metadata:
+        type: structured
+  decide:
+    id: decide
+    type: python_code
+    timeout_seconds: 5
+    inputs:
+      ticket:
+        type: structured
+      account:
+        type: structured
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+    code: |
+      LIMITS = {"standard": 200, "premium": 500}
+
+      def run_python_node(input=None, context=None, inputs=None, run_input=''):
+          ticket = inputs["ticket"]
+          account = inputs["account"]["json"]
+          limit = LIMITS[account["tier"]]
+          if account["status"] != "active":
+              decision, reason = "manual_review", "ACCOUNT_NOT_ACTIVE"
+          elif ticket["amount"] > limit:
+              decision, reason = "manual_review", "AMOUNT_OVER_LIMIT"
+          elif not ticket["reference_valid"]:
+              decision, reason = "manual_review", "ORDER_REF_UNVERIFIED"
+          else:
+              decision, reason = "approve", "ELIGIBLE_AUTO_APPROVE"
+          result = {
+              "ticket_id": ticket["ticket_id"],
+              "decision": decision,
+              "reason_code": reason,
+              "amount": ticket["amount"],
+              "currency": ticket["currency"],
+          }
+          return result
+  final:
+    id: final
+    type: output
+    inputs:
+      response:
+        type: string
+edges:
+  - id: e_start_validate
+    from: start
+    to: validate
+    map:
+      user_message: input
+  - id: e_validate_reference
+    from: validate
+    to: check_reference
+    map:
+      result: ticket
+  - id: e_reference_lookup
+    from: check_reference
+    to: lookup
+    map:
+      query: payload
+  - id: e_reference_decide
+    from: check_reference
+    to: decide
+    map:
+      result: ticket
+  - id: e_lookup_decide
+    from: lookup
+    to: decide
+    map:
+      response: account
+  - id: e_decide_final
+    from: decide
+    to: final
+    map:
+      text: response

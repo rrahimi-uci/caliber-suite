@@ -1,7 +1,7 @@
 {
   "name": "agent-reply-review",
-  "description": "Human labeling of agent replies: safety, citation accuracy, and tone. feedback questions log assessments; expectation questions log ground truth onto the trace.",
-  "reviewers": [],
+  "description": "Human labeling of agent replies: safety, citation accuracy, and tone. feedback questions log assessments onto the trace.",
+  "reviewers": ["olga"],
   "questions": [
     {
       "key": "safety",
@@ -40,5 +40,5 @@
       "target": "feedback"
     }
   ],
-  "notes": "Inputs for the Aria review_queue.create step (enter name, description and questions in its form; same shape as POST /review-queues). Question item fields: key, title, type in [pass_fail, categorical, numeric, text], options (for categorical), required, target in [feedback, expectation]."
+  "notes": "Inputs for the Aria review_queue.create step (the same shape as POST /review-queues). In the plan's form, questions is a JSON array. Question item fields: key, title, type in [pass_fail, categorical, numeric, text], options (required for categorical), required, target in [feedback, expectation]. Strip this notes key before posting the file as inputs."
 }

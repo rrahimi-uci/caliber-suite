@@ -1,0 +1,18 @@
+{
+  "name": "get_order",
+  "version": "1.0",
+  "description": "Return an order's status. Read only.",
+  "module_path": "caliber.workflows.demo_tools",
+  "callable_name": "get_order",
+  "side_effect_level": "read",
+  "allow_in_preview": true,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "order_id": {
+        "type": "string",
+        "description": "The order number, e.g. 4412."
+      }
+    }
+  }
+}

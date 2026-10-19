@@ -1,15 +1,34 @@
+# The cases live in assets/dataset/; this file names what each file is for.
 golden_cases:
-  - id: M01
-    tool: list_commits
-    input: {repo: "rrahimi-uci/caliber-suite"}
-    expected: {status: "success"}
+  - id: S01
+    tool: search_repositories
+    input: {query: "language:python"}
+    expected: {total_count: 8}
+  - id: L03
+    tool: list_issues
+    input: {repo: "acme/ledger-core", state: "open"}
+    expected: {title: "Flaky test: test_ledger_reconcile"}
 edge_cases:
-  - id: M02
-    tool: run_query
-    input: {sql: "select 1"}
-    expected: {status: "success_or_permission_denied"}
+  - id: S11
+    tool: search_repositories
+    input: {query: "legacy archived:false"}
+    expected: {total_count: 0}
+  - id: S12
+    tool: search_repositories
+    input: {query: "language:python", per_page: 3}
+    expected: {total_count: 8}   # paging does not change the total
 negative_cases:
-  - id: M03
-    tool: issue_write
-    input: {title: "blocked test", body: "should fail"}
-    expected_error: "policy_blocked_or_approval_required"
+  - id: F02
+    tool: create_release
+    expected_error: "is blocked by policy"
+  - id: F03
+    tool: drop_database
+    expected_error: "not found on this server"
+  - id: F05
+    tool: search_repositories
+    input: {query: "stars:>>not-a-number"}
+    expected_error: "stars: expects a number"
+datasets:
+  calibration: assets/dataset/calibration-cases.jsonl
+  classification: assets/dataset/tool-classification.jsonl
+  invoke_checks: assets/dataset/invoke-checks.jsonl

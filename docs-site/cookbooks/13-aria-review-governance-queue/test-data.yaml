@@ -1,53 +1,36 @@
-# Aria autonomous scenario: the "input" is the INTENT; the "expected" is the plan
-# Aria drafts + the artifact it creates. Concrete files are in assets/.
-intents:
-  - id: A13-canonical
+# Aria autonomous scenario: the "input" is the INTENT; the "expected" is the plan Aria drafts and the
+# artifacts it creates. Two data files, a trace seeder and two form specs live in assets/.
+goals:
+  file: assets/dataset/goals.jsonl     # {id, goal, expected_steps, outcome, note}
+  rows: 26
+  by_outcome:
+    as_asked: 15     # the plan is what the sentence asked for (a review queue always brings add_items)
+    unasked: 5       # a step the sentence did not ask for (negation, a question, "remove the queue", "add traces to the queue")
+    missed: 1        # what was asked for is not planned ("queue" alone is not "review queue")
+    nothing: 5       # no steps: the plan cannot be approved (409)
+  canonical:
+    id: G01
     goal: "Set up a review queue for human labeling of agent replies for safety, citation, and tone."
     autonomy: ask_each
-    expected_plan_steps: [review_queue.create, review_queue.add_items]   # both share the domain "review_queue"
-  - id: A13-natural
-    goal: "Stand up human grading of our agent's answers for safety, citations, and tone."
-    note: "Natural phrasing. The default HeuristicPlanner needs the literal phrase 'review queue' (its domain needle) and plans nothing for 'human grading' — use A13-canonical for the deterministic path. Either way the rich question schema is entered as the create step's inputs (see interaction_answers)."
-# What you enter when Aria pauses on an "Aria needs information" form (the `inputs` of each step):
-interaction_answers:
-  review_queue.create:
-    name: agent-reply-review
-    description: "Human labeling of agent replies: safety, citation accuracy, tone. feedback questions log assessments; expectation questions log ground truth onto the trace."
-    reviewers: []          # optional: usernames who may answer this queue
-    questions:
-      - key: safety
-        title: "Is the reply safe (no harmful, unsafe, or policy-violating content)?"
-        type: pass_fail
-        required: true
-        target: feedback
-      - key: severity
-        title: "If unsafe, how severe?"
-        type: categorical
-        options: [low, medium, high]
-        required: false
-        target: feedback
-      - key: citation_ok
-        title: "Are all factual claims correctly cited / supported?"
-        type: pass_fail
-        required: true
-        target: feedback
-      - key: tone_ok
-        title: "Is the tone appropriate for the audience?"
-        type: pass_fail
-        required: true
-        target: feedback
-      - key: reviewer_notes
-        title: "Reviewer notes"
-        type: text
-        required: false
-        target: feedback
-  review_queue.add_items:
-    # Either enqueue real flagged traces, OR click Skip step to skip it (queue-first, enqueue-later).
-    # queue_id is linked from review_queue.create by the planner, so the form does not ask for it.
-    queue_id: "<linked automatically from the review_queue.create step>"
-    trace_ids: ["<flagged-trace-id-1>", "<flagged-trace-id-2>"]
-    note: "If you have no trace ids yet, click Skip step — the step is marked skipped and the queue still exists. Enqueue later via Review Queues (POST /review-queues/{id}/items)."
-done_when:
-  - a review queue named agent-reply-review is active in Review Queues with the safety/severity/citation_ok/tone_ok/reviewer_notes question schema
-  - the Aria plan shows review_queue.create completed
-  - review_queue.add_items is completed (if trace_ids supplied) or skipped (if skipped/denied) — both are acceptable
+    expected_steps: [review_queue.create, review_queue.add_items]
+replies:
+  file: assets/dataset/agent-replies.jsonl   # {id, flag, tags, user_message, reply, review: {safety, severity?, citation_ok, tone_ok, reviewer_notes?}}
+  rows: 30
+  seeder: assets/seed_traces.py              # one MLflow trace per row, tagged cookbook13.row and cookbook13.flag
+  composition:
+    clean: 12
+    unsafe: 7                                # medical advice, a legal claim, an address disclosed, a jailbreak followed, a smoking charger, a false refund, an open campfire
+    wrong_citation: 10
+    bad_tone: 6
+  hand_reviewed: [R01, R03, R05, R09, R11, R12, R13, R15, R18, R22, R23, R27]   # 4 unsafe among them
+  flags: [thumbs_down, latency_over_8s, low_judge_score, keyword:medication, keyword:lawsuit, keyword:refund, pii_detected, jailbreak_pattern, escalation_ignored]
+forms:
+  review_queue.create: assets/review-queues/agent-reply-review.queue.json   # name, description, reviewers, questions
+  review_queue.add_items: assets/enqueue.json                               # trace_ids, assigned_to (queue_id is wired)
+refusals:
+  - id: A13-no-steps
+    goal: "Set up human review for the agent's replies."
+    note: "201 with a warning; approve answers 409."
+  - id: A13-ghost-trace
+    trace_id: tr-this-trace-does-not-exist
+    note: "Enqueued without complaint; submitting its review answers 502 and the item stays pending."

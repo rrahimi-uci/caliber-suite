@@ -2,11 +2,11 @@ id: SCN-15
 slug: aria-triage-recalibrate-loop
 name: "Aria: Triage & Recalibrate Loop"
 track: aria
-objective: Give Aria one intent about weak workflow runs and have it plan and create a review queue, enqueue the flagged traces, and kick off an ASYNC workflow calibration — then park until the job finishes and resume on its own. Closes the governance -> remediation loop with the parameters entered in the plan's input forms.
+objective: Give Aria one intent about weak workflow runs and have it plan and create a review queue, enqueue the flagged traces, and kick off an ASYNC workflow calibration - then park until the job finishes and resume on its own, ending where the job ended. Closes the governance -> remediation loop with the parameters entered in the plan's input forms.
 why_it_matters:
-  - Shows Aria's first ASYNC capability end to end - the plan parks (waiting_job) on a real background job and resumes itself when the job completes.
+  - Shows Aria's first ASYNC capability end to end - the plan parks (waiting_job) on a real background job, the plan worker resumes it, and the plan mirrors the job's outcome, with the job's reason when it fails.
   - Demonstrates the governance -> remediation loop - flag weak runs, route them to structured human review, AND recalibrate the workflow, all from one sentence.
-  - Bounded honestly by Aria's real capability registry - it operates on EXISTING traces + an EXISTING workflow; it does not author them.
+  - Bounded honestly by Aria's real capability registry - it operates on EXISTING traces and an EXISTING workflow and agent; it does not author them.
 primary_persona: platform engineer
 secondary_personas:
   - AI engineer
@@ -17,22 +17,24 @@ caliber_surfaces:
   - Workflows
   - Observability
 prerequisites:
-  - An EXISTING workflow with recent runs/traces to operate on (build it in SCN-07 first). This loop remediates; it does not create the subject.
-  - The flagged trace ids and the target workflow_id + agent_id (entered in the plan's input forms - Aria does not discover them).
-  - The operator role, a configured model provider, and a refinement worker; Aria Plans available (sidebar "Plans", under "Integrations").
+  - CALIBER_FEATURE_ARIA=true (Aria and its Plans page are a preview area, off by default). CALIBER_FEATURE_COOKBOOKS=true only for the gallery card.
+  - The server's background workers on (the plan worker resumes the parked plan, the refinement worker runs the calibration job).
+  - An EXISTING published workflow with a deploy-gate test set, a registered agent, and the flagged trace ids. assets/setup_subject.py and assets/seed_traces.py create them for the lab; in a real deployment they are yours.
+  - Two extra accounts for the refusals: olga (an operator who does not own the plan) and vera (not an operator). The server must list olga in CALIBER_OPERATOR_USERS and not vera.
+  - No model is needed for the plan or the queue. On the simulated default the calibration is rejected (no candidate can beat the baseline); a real model is needed for a candidate.
 time_to_first_value: 20-35 minutes
 success_criteria:
-  - From the intent alone, Aria drafts a plan containing review_queue.create + review_queue.add_items + workflow.calibrate.
-  - After approval and filling the input forms, a real review queue exists with the flagged traces enqueued.
-  - The workflow.calibrate step parks the plan on an async job; once the job reaches candidate_ready/applied the plan resumes + completes.
+  - From the intent alone, Aria drafts review_queue.create, review_queue.add_items and workflow.calibrate, and the planner draws the documented plan for all 28 goals in assets/dataset/goals.jsonl.
+  - After approval and filling the three input forms, a real review queue holds the 12 flagged traces.
+  - The workflow.calibrate step parks the plan on an async job, the plan worker resumes it, and the plan ends where the job ended (candidate_ready or applied -> completed; rejected, failed or error -> failed with the job's reason).
+  - The refusals hold: an unknown workflow, an unregistered agent and a workflow with no test set fail the step at once, a denied calibration queues no job, a role without the operator scope creates nothing.
 demo_profile:
   recommended_sequence_index: 15
   tier: aria
   live_demo_minutes: 20-30
-  depends_on:
-    - SCN-07
+  depends_on: []
   included_in:
     - aria_autonomous
   showcase_capabilities:
     - Aria plan decompose -> approve -> execute -> park-on-async-job -> auto-resume
-    - autonomous governance-to-remediation loop (review queue + enqueue + workflow recalibration) from a single intent
+    - governance-to-remediation loop (review queue + enqueue + workflow calibration) from a single intent

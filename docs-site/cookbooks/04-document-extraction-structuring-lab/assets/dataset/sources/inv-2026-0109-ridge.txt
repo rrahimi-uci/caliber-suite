@@ -1,0 +1,14 @@
+Ridge Office Interiors
+INVOICE
+Invoice No: RO-2201
+Invoice Date: 2026-03-19
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+3     Ergonomic chair                           $289.00       $867.00
+3     Standing desk frame                       $412.50     $1,237.50
+
+Subtotal                                          $2,104.50
+Tax (8.25%)                                       $173.62
+Shipping                                          $64.00
+Total                                             $2,342.12

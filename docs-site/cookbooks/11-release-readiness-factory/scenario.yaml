@@ -2,37 +2,35 @@ id: SCN-11
 slug: release-readiness-factory
 name: "Release Signoff Factory"
 track: gate
-objective: Aggregate cross-scenario evidence into a clear go/no-go release decision with traceable blockers.
+objective: "Record an accountable go/no-go decision for a release: weighted criteria scored by the server, blockers, waivers with an owner and an expiry, a report snapshot, and an immutable signoff. The record deploys nothing."
 why_it_matters:
-  - Turns scenario outputs into operational release confidence.
-  - Prevents subjective signoff without durable evidence.
+  - A decision with no record is a decision nobody can audit.
+  - A waiver is an exception someone owns, with a reason and an expiry; it is not a way to raise a score.
+  - Signing off is not releasing, and the lab shows both.
 primary_persona: release manager
 secondary_personas:
   - platform engineer
   - evaluator
 caliber_surfaces:
   - Releases
-  - Observability
-  - Evaluations
-  - Review Queues
+  - Audit Log
 prerequisites:
-  - Completed build scenarios with saved run IDs.
-  - An artifact/version and a rollback version for the candidate; the operator role (and an admin for waivers and signoff).
-time_to_first_value: 60-120 minutes
+  - CALIBER_FEATURE_RELEASE_CANDIDATES=true (preview area, off by default).
+  - An operator account (CALIBER_OPERATOR_USERS) to create candidates and an admin to waive and sign off.
+  - Scores and evidence references to enter; CALIBER does not read them from Evaluations or check them.
+time_to_first_value: 20-40 minutes
 success_criteria:
-  - Required gates pass with no unresolved blockers (the server reports the candidate as ready).
-  - Final decision maps back to concrete evidence.
+  - The server's weighted score, status and blockers match the dataset for all 20 candidates (14 ready, 6 blocked).
+  - A waiver clears a blocker but not a low score.
+  - A signed candidate cannot be evaluated, waived or signed again.
+  - After a signed GO the artifact's aliases, the live board and the timeline are unchanged.
 demo_profile:
   recommended_sequence_index: 11
   tier: gate
   live_demo_minutes: 20-35
-  depends_on:
-    - SCN-07
-    - SCN-08
-    - SCN-09
-    - SCN-10
+  depends_on: []
   included_in:
     - release_governance
   showcase_capabilities:
-    - cross-scenario release evidence aggregation
-    - server-computed go/no-go gating (Preview, record-only)
+    - server-computed readiness and blockers
+    - accountable waivers and immutable signoff (record-only)

@@ -1,23 +1,23 @@
 {
-  "goal": "Our workflow's recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration.",
+  "goal": "Our workflow's recent runs look weak - set up a review queue for the flagged traces and kick off a workflow calibration.",
   "autonomy": "ask_each",
   "expected_steps": [
     {
       "capability_key": "review_queue.create",
       "tier": "mutate",
-      "interaction": "input form (Aria needs information): enter name + questions from review-queues/triage-review.queue.json, then Approve"
+      "interaction": "input form (Aria needs information): enter name, description, reviewers and questions from review-queues/triage-review.queue.json, then Approve"
     },
     {
       "capability_key": "review_queue.add_items",
       "tier": "mutate",
-      "interaction": "input form: enter REAL flagged trace_ids of the weak runs (enqueue.json), then Approve; queue_id is linked from the previous step"
+      "interaction": "input form: enter the flagged trace_ids (from seed_traces.py) and optionally assigned_to (enqueue.json); queue_id is wired from review_queue.create and is not asked for. Then Approve"
     },
     {
       "capability_key": "workflow.calibrate",
       "tier": "mutate",
       "async": true,
-      "interaction": "input form: enter a REAL existing workflow_id + agent_id (calibrate.json), then Approve; approving enqueues the async job and the plan PARKS (waiting_job) until the plan worker (or POST /aria/plans/{id}/poll) sees the refinement job reach candidate_ready/applied"
+      "interaction": "input form: enter an existing workflow_id and agent_id (from setup_subject.py; see calibrate.json), then Approve. Approving enqueues a refinement job and the plan PARKS (status running, step waiting_job) until the plan worker, or POST /aria/plans/{id}/poll, sees the job finish"
     }
   ],
-  "notes": "review_queue.add_items depends on review_queue.create (its queue_id is linked by the planner); workflow.calibrate has no dependency, and you fill the forms in step order. review_queue.add_items + workflow.calibrate operate on EXISTING ids (traces, workflow, agent) — Aria does not create them. The final step is asynchronous: the plan parks until the job is done (the worker resumes it automatically), then completes."
+  "notes": "review_queue.add_items depends on review_queue.create (its queue_id is wired); workflow.calibrate depends on nothing. add_items and calibrate operate on EXISTING ids (traces, workflow, agent): Aria does not create them. The calibration job ends candidate_ready or applied (the plan completes), or rejected / failed / error (the plan fails with the job's reason). On a simulated deployment the job is rejected: the fake executor gives a candidate the same outputs as the baseline, so the quality gain (+0.000) is below the 0.02 it must clear."
 }

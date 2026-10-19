@@ -1,6 +1,6 @@
 {
   "name": "support-faithfulness-eval",
-  "description": "Held-out support Q/A for faithfulness scoring. Aria creates the empty versioned test set; add example rows after creation, then run it in Evaluations with the deterministic graders plus AnswerFaithfulness ticked under Custom LLM judges (it runs as a Judge.<id> scorer).",
+  "description": "Held-out support questions with the policy text each answer must stay inside, for faithfulness scoring.",
   "tags": ["aria-created", "faithfulness", "support"],
-  "notes": "Reference spec (a POST /eval-datasets body; owner is forced to the acting identity). With the default planner Aria's eval_dataset.create step takes its name from the judge step and asks for nothing, so use this to create a separately named set on Test Sets or via the API. Example rows are NOT added by Aria — add them via POST /eval-datasets/{id}/examples or harvest-from-trace, e.g. reuse cookbooks/01-prompt-regression-lab/assets/dataset/ as a starting point."
+  "notes": "These are the eval_dataset.create inputs: enter name, description and tags in the plan's input form (the same shape is a POST /eval-datasets body; the owner is always the signed-in account). Aria creates the EMPTY versioned test set. The 30 example rows are in dataset/faithfulness-cases.jsonl and are added separately (POST /eval-datasets/{id}/examples, or + Add example on the test set's page): adding rows is not an Aria capability."
 }

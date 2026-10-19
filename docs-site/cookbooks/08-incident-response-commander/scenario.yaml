@@ -2,39 +2,36 @@ id: SCN-08
 slug: incident-response-commander
 name: "Incident Response Copilot"
 track: build
-objective: Build an incident workflow that separates facts from hypotheses, recommends risk-aware actions, and gates high-impact operations.
+objective: Turn an incident record into a severity and the lowest-risk action with a declarative workflow, gate a rollback behind a second person, and release it to prod only through a deploy gate that replays a 41-incident test set.
 why_it_matters:
-  - Shows CALIBER can support operational decision-making, not only text generation.
-  - Makes approval boundaries and observability first-class.
+  - Shows CALIBER can support operational decisions, not only text generation, with the approval and release boundaries enforced.
+  - A bad rule is caught by the dataset before it reaches prod, and rollback restores the last good version.
 primary_persona: platform engineer
 secondary_personas:
   - AI engineer
   - solution architect
 caliber_surfaces:
-  - Prompts
-  - Skills
-  - Tools
-  - MCP Servers
   - Workflows
-  - Evaluations
-  - Review Queues
-  - Observability
+  - Test Sets
+  - Projects and roles
+  - Cookbooks
+  - Audit Log
 prerequisites:
-  - Incident replay data or synthetic incident fixtures.
-  - Optional MCP integrations for browser evidence and issue tracking.
-time_to_first_value: 180-240 minutes
+  - CALIBER_FEATURE_COOKBOOKS=true.
+  - A second account holding caliber.approver (the lab creates lena and sam).
+  - The release policy settings in the lab README (production approval, fake executor allowed for the gate).
+time_to_first_value: 30-45 minutes
 success_criteria:
-  - Recommendations clearly separate facts/hypotheses.
-  - Rollback and external writes are approval-gated.
+  - All 41 incidents get the expected severity and action; only rollbacks pause for approval.
+  - The prod gate passes the good version, refuses the bad one, and prod only moves after a second person approves.
+  - Each failure drill (Error Boundary, missing tool, blocked API Request, Wait For Event) behaves as documented.
 demo_profile:
   recommended_sequence_index: 8
   tier: build
   live_demo_minutes: 40-65
-  depends_on:
-    - SCN-03
-    - SCN-05
+  depends_on: []
   included_in:
     - release_governance
   showcase_capabilities:
-    - evidence-aware incident recommendations
+    - dataset-gated promotion to a production alias
     - high-risk action control and approvals

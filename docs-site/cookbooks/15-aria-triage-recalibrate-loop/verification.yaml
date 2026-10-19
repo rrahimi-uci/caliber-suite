@@ -1,39 +1,55 @@
-# Verified against the Aria capability registry + plan executor — see ../ARIA-AUTONOMY.md and ../FEASIBILITY.md.
+# What the lab verifies, and how. Every item below is asserted by
+# sdk/caliber-sdk/examples/cookbooks/cookbook_15_aria_triage_recalibrate_loop.py against a real server,
+# and (for the UI items) by caliber/caliber-ui/e2e/cookbooks/labs/15-aria-triage-recalibrate-loop.spec.ts.
+# Verified against the Aria capability registry and plan executor; see ../ARIA-AUTONOMY.md.
 feasibility:
-  - These gates check Aria's PLAN and the REAL artifacts it created/triggered; there is no LLM judge OF Aria here.
-  - Plan + step status + interactions are observable via GET /aria/plans/{id} and /aria/plans/{id}/interactions.
-  - The async step is observable as status "waiting_job" on the workflow.calibrate step; it advances to "done" when the plan worker (or POST /aria/plans/{id}/poll) finds the refinement_job in candidate_ready or applied (CaliberRefinementJob.status never reaches completed; rejected/failed/error fail the step).
+  - Aria's planner is deterministic rules, so the plan is checked exactly; there is no judge of Aria's output here.
+  - Plan, step and question state are observable at GET /aria/plans/{id} and GET /aria/plans/{id}/interactions. The async step is observable as status "waiting_job" with a job_id; the job at GET /jobs/{job_id}.
+  - The plan worker (about every 10 seconds) or POST /aria/plans/{id}/poll maps the refinement job to done (candidate_ready, applied) or failed (rejected, failed, error, with the job's error_message) and resumes the plan.
+  - On the simulated default the calibration job is REJECTED (a fake executor cannot make a candidate beat the baseline: quality delta +0.000 < epsilon 0.02), so the plan ends failed. The completing path (candidate_ready) needs a real model and is covered by unit tests, not demonstrated live.
 evaluation:
   plan_checks:
-    - plan_decomposed_from_intent
-    - plan_contains_review_queue_create
-    - plan_contains_review_queue_add_items
-    - plan_contains_workflow_calibrate
+    - planner_matches_dataset                      # 28/28 goals draw the documented steps; every draft is cancelled
+    - three_steps_in_registry_order
+    - only_the_enqueue_queue_id_is_wired
+    - six_questions_a_form_and_an_approval_per_step
+  async_checks:
+    - approving_the_calibration_parks_the_plan      # plan running, step waiting_job with a job id, no pending question
+    - parked_plan_cannot_be_cancelled_or_edited
+    - plan_worker_resumes_the_plan_unprompted       # advanced_by worker; poll is the documented fallback
+    - plan_ends_where_the_job_ended                 # completed on candidate_ready/applied; failed with "<status>: <error_message>" otherwise
+    - polling_a_finished_plan_changes_nothing
   artifact_checks:
-    - review_queue_created_with_question_schema
-    - flagged_traces_enqueued_to_queue
-    - workflow_calibration_job_enqueued        # returns an AsyncJobHandle; step parks in waiting_job
-    - workflow_calibration_job_completed        # the refinement job reached candidate_ready/applied (resolver done) and the plan resumed
+    - subject_exists_tools_workflow_test_set_agent
+    - review_queue_with_four_questions_and_12_pending_assigned_traces
+    - three_triaged_runs_carry_verdict_failure_mode_and_expectation_on_their_traces
+  refusal_checks:
+    - unknown_workflow_unregistered_agent_and_no_gate_dataset_fail_the_step_at_once
+    - refusals_queue_no_job
+    - form_refuses_empty_id_missing_field_and_unknown_field
+    - denied_calibration_queues_no_job
+    - skipped_queue_skips_its_enqueue
+    - empty_plan_cannot_be_approved
+    - owner_without_operator_scope_fails_at_execute
+    - non_owner_cannot_answer_or_poll_the_plan
 quality_gates:
-  steps_completed_min: 3
-  required_interactions_answered: true       # review_queue.create, review_queue.add_items, workflow.calibrate
-  async_job_polled_to_terminal: true         # the calibrate step reached "done" via the plan worker or poll (not left in waiting_job)
-  artifacts_real: true                       # the review queue + enqueued items exist; the calibration job is real
+  planner_agreement: 1.0         # 28 of 28 goals
+  steps_completed_min: 2         # the queue and the enqueue; the calibration step mirrors its job
+  required_interactions_answered: true
+  async_job_resolved_to_terminal: true     # the calibrate step left waiting_job without a human
+  artifacts_real: true
 monitoring:
-  evidence:        # labels for what to look for, not literal span names
+  evidence:
     - aria_plan_created
     - aria_step_completed
     - review_queue_created
-    - review_items_enqueued
-    - workflow_calibration_enqueued
-    - aria_step_waiting_job          # the plan parked on the async calibration job
-    - async_job_resolved_done        # the resolver mapped the refinement_job (candidate_ready/applied) to done; the plan resumed
+    - review_items_added
+    - create_workflow_calibration_job
+    - submit_review_item
   metrics:
     - steps_completed
     - interactions_count
-    - items_enqueued
-    - time_parked_to_terminal
+    - calibration_job_duration
 feedback_loop:
-  - if the plan misses a capability, sharpen the intent wording (domain needles "review queue" / "workflow") and re-decompose.
-  - have reviewers answer the queue's questions (answers write back onto the traces as MLflow assessments/expectations), then compare the recalibrated workflow against its baseline runs in Observability / Evaluations (SCN-01 / SCN-10).
-  - feed the reviewed hard cases into the workflow's eval dataset and re-run, closing the governance -> remediation -> re-evaluation loop.
+  - reviewers answer the queue's questions; "expected_answer" lands on each trace as ground truth the next calibration can use.
+  - when the calibration finds a candidate (real model), review its diff and apply it as a person (POST /jobs/{id}/apply).

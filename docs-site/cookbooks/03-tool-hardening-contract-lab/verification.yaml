@@ -1,29 +1,30 @@
-# Verified — see ../FEASIBILITY.md.
-feasibility:
-  - ExplanationFaithfulness is a real LLM judge; deterministic_decision_preserved / approval_required_for_high_risk are enforced by the python_code node + the human_approval gate, not by a judge.
-  - monitoring.traces below are evidence labels, not literal span names.
+# Every check below is asserted by the SDK script (sdk/caliber-sdk/examples/cookbooks/
+# cookbook_03_policy_safe_decision_tool.py) and, where the UI shows it, by the Playwright spec
+# (caliber/caliber-ui/e2e/cookbooks/labs/03-tool-hardening.spec.ts). Nothing here depends on a
+# model: the policy is deterministic and no LLM or judge is called.
 evaluation:
-  judges:
-    - name: ExplanationFaithfulness
-      type: custom_judge
-      criteria: explanation must match deterministic decision
   rule_checks:
-    - deterministic_decision_preserved
-    - approval_required_for_high_risk
+    - fixture_suite_all_pass          # calibration pass_rate == 1.0 over 49 cases
+    - baseline_pinned                 # the suite run is the tool's baseline
+    - regression_visible_vs_baseline  # one wrong fixture -> exactly one regression
+    - write_tool_requires_approval    # POST /tools write without requires_approval -> 400
+    - refund_waits_for_second_person  # initiator approve -> 403; approver1 approve + Resume -> refund
+    - rejected_run_issues_no_refund
+    - denied_decision_needs_no_approval
+    - audit_names_approver
 quality_gates:
-  tool_fixture_pass_rate_min: 0.97
+  tool_fixture_pass_rate_min: 1.0
   decision_mismatch_rate: 0.0
-  explanation_faithfulness_min: 0.92
+simulated:
+  - "Nothing in this lab is simulated: no model, no judge. The fake LLM provider is irrelevant here."
+known_limits:
+  - "Registered tools are not covered by the effect ledger (it covers webhook and api_request nodes): GET /system/effects shows no row for the refund."
+  - "The sandbox is a process boundary, not isolation: the child keeps ambient network and filesystem access."
+  - "RLIMIT_AS is not enforced on macOS, so the memory limit could not be exercised there."
 monitoring:
-  traces:
-    - tool_lookup
-    - deterministic_decision
-    - approval_gate
-    - explanation_node
-  metrics:
-    - approve_rate
-    - deny_rate
-    - manual_review_rate
+  evidence:
+    - tool test runs (kind suite) and the pinned baseline
+    - workflow run events (workflow.run.waiting_approval, workflow.run.approval.approved, workflow.run.resumed)
+    - audit log entries for register_tool, calibrate_tool, set_tool_baseline, approve/reject, resume_workflow_run
 feedback_loop:
-  - convert reviewed failures into new deterministic fixtures.
-  - recalibrate explanation only after deterministic lane is green.
+  - Turn a reviewed wrong decision into a new fixture, re-run the suite, and compare with the baseline.

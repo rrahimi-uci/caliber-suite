@@ -2,27 +2,30 @@ id: SCN-05
 slug: mcp-connectivity-governance-lab
 name: "Governed Tool Connectivity (MCP)"
 track: starter
-objective: Connect one MCP server, enforce policy overlays, and validate that direct invoke behavior is safe before workflow integration.
+objective: Connect one MCP server, classify every tool it offers, and prove that a refused call never reaches the server while an allowed call runs, is calibrated and leaves a trace.
 why_it_matters:
-  - External tools are a major reliability and safety boundary.
-  - Policy enforcement must be proven in direct invoke paths.
+  - An MCP server is someone else's code; the boundary is the classification you save before anything calls it.
+  - A refusal has to be proved from the server's side (its own ledger), not only from the gateway's answer.
+  - A write belongs behind a second person, and the admin Playground is a break-glass surface, not that gate.
 primary_persona: platform engineer
 secondary_personas:
   - developer
   - AI engineer
 caliber_surfaces:
-  # Executed invokes emit a TOOL span, but test/discovery/policy paths and a blocked
-  # refusal do not; the main evidence lives in MCP Servers › Playground (History is
-  # in-memory) and the invoke-tool API response.
   - MCP Servers
+  - Workflows
   - Observability
+  - Audit Log
 prerequisites:
-  - One MCP server template and credentials.
-  - At least one read-only tool in discovered inventory.
-time_to_first_value: 45-90 minutes
+  - CALIBER_FEATURE_INTEGRATIONS=true (preview area, off by default).
+  - The lab's MCP server script (assets/server/repo_tracker_mcp.py) allowlisted in CALIBER_MCP_STDIO_PYTHON_SCRIPT_ALLOWLIST.
+  - Accounts for an operator, an approver and a viewer; CALIBER_OPERATOR_USERS and CALIBER_APPROVER_USERS name the first two.
+time_to_first_value: 20-40 minutes
 success_criteria:
-  - Discovery works and schemas are visible.
-  - Blocked or approval-required tools fail correctly.
+  - Discovery finds 6 tools, every one unclassified and denied until classified.
+  - A blocked, unknown or rate-limited call is refused and the server's ledger shows it never ran.
+  - The three read tools calibrate at 16/16, 8/8 and 4/4, and a wrong expectation fails exactly one case.
+  - The write tool waits for a second person in a workflow.
 demo_profile:
   recommended_sequence_index: 4
   tier: foundation
@@ -34,4 +37,5 @@ demo_profile:
     - release_governance
   showcase_capabilities:
     - MCP connection and discovery
-    - policy overlays and enforcement
+    - classification before use
+    - refusals proved from the server's ledger

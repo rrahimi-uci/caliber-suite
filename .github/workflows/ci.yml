@@ -466,6 +466,13 @@ jobs:
           tests/test_bare_lookup_inventory.py
           tests/test_plugin_contract.py
           tests/test_feature_flags.py
+      - name: Run the SDK cookbook example tests against their stateful stand-ins
+        # Every cookbook lab has an SDK example script that is replayed here against a
+        # stateful stand-in server (the labs themselves run for real in cookbook-labs.yml).
+        # The SDK's own job installs only the SDK, so these tests would skip there; here
+        # the server package, PyYAML and mcp are present.
+        working-directory: sdk/caliber-sdk
+        run: pytest -q -p no:cacheprovider tests/test_cookbook_*.py
 
   # `docs/workspace-plan.md` section 15.2: "Each schema step has a
   # fresh-install test, upgrade test from the preceding revision, and

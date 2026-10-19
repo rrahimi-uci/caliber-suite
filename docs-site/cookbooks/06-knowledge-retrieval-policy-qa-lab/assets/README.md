@@ -1,126 +1,31 @@
-# SCN-06 assets — create these
+# Cookbook 06 assets
 
-Concrete, copy-pasteable artifacts for [the recipe](../README.md): a grounded
-policy-QA assistant that cites its sources, abstains when evidence is missing,
-and asks to clarify when sources conflict. Build order:
+Everything the lab loads, and how: [the README](../README.md) is the walk-through, [`cookbook_06_grounded_knowledge_assistant.py`](../../../../sdk/caliber-sdk/examples/cookbooks/cookbook_06_grounded_knowledge_assistant.py) runs it through the API, and [`06-knowledge-retrieval.spec.ts`](../../../../caliber/caliber-ui/e2e/cookbooks/labs/06-knowledge-retrieval.spec.ts) runs it through the browser.
 
-| # | Artifact | File | Create via |
+| # | Artifact | File | Loaded by |
 | --- | --- | --- | --- |
-| 1 | Policy corpus (4 docs) | [`dataset/sources/`](dataset/sources/) | `Object Store → Upload` into a bucket (e.g. `policy-corpus`); upload the four `*.md` (skip the READMEs). See [`dataset/sources/README.md`](dataset/sources/README.md) for the **deliberate 30-vs-14-day contradiction**. |
-| 2 | KB version | (built from the corpus) | `Knowledge Bases → New knowledge base` → pick the bucket + the 4 docs → choose an embedding model under **Advanced configuration** → **Create knowledge base**; wait (needs the object store, the `knowledge-local` extra and the embedding model download, or creation answers `503`) for the build run to reach `completed`. API: `POST /knowledge-bases`, `POST /knowledge-bases/{id}/versions`. |
-| 3 | Calibration set | [`dataset/calibration-questions.jsonl`](dataset/calibration-questions.jsonl) | Build a Test Set whose gold lives in `expectations.sources` (list) + `expectations.answer`; POST one row per line to `/eval-datasets/{id}/examples`, then pick it as the **Test set** in `Knowledge Bases → Calibrate` (Calibrate needs this Test Set to exist first). API: `POST /knowledge-bases/{id}/calibrate {version_id, eval_dataset_id, retrieval_mode, top_k}`. |
-| 4 | Prompt `kb-answer` | [`prompts/kb-answer.md`](prompts/kb-answer.md) | `Prompts → New prompt`; paste the template body (text below the frontmatter). API: `POST /prompts {name, template, commit_message}`. |
-| 5 | Skills (optional, 2) | [`skills/citation-and-next-steps.md`](skills/citation-and-next-steps.md), [`skills/contradiction-detector.md`](skills/contradiction-detector.md) | `Skills → Build Skill`; paste `summary` + `content` + `category` + `tags`. API: `POST /skills`. |
-| 6 | Answer workflow | (template `knowledge_rag`) | `Workflows → New Workflow` → template **`knowledge_rag`** (or `graph_hybrid_rag`); wire the nodes below; bind `kb-answer` to the agent node. API: `POST /workflows`. |
-| 7 | Eval dataset `policy-qa-eval` | [`dataset/qa-eval.jsonl`](dataset/qa-eval.jsonl) | `Test Sets → + New Test Set`, then add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line. |
-| 8 | Judge `CitationFaithfulness` | [`judges/citation-faithfulness.judge.json`](judges/citation-faithfulness.judge.json) | `Judges → + New Judge`, paste fields. API: `POST /judges`. |
+| 1 | Policy corpus (11 documents) | [`dataset/sources/`](dataset/sources/) (see its README) | `Object Store > Upload` into bucket `policy-corpus`, folder `policies/`; API `POST /object-store/buckets/{bucket}/objects` |
+| 2 | Knowledge base versions | built from the corpus | `Knowledge Bases > New knowledge base` / `New version`; API `POST /knowledge-bases`, `POST /knowledge-bases/{id}/versions`. Version 1: Markdown Aware, 1400/120. Version 2: 500/60. Model `sentence-transformers/all-MiniLM-L6-v2`. |
+| 3 | Calibration test set (41 questions) | [`dataset/calibration-questions.jsonl`](dataset/calibration-questions.jsonl) | `Prompts > a prompt > Calibration > Upload Dataset`; API `POST /eval-datasets` then `POST /eval-datasets/{id}/examples` per line. Read by `Knowledge Bases > Calibrate`. |
+| 4 | QA test set (48 questions: answer, clarify, abstain, traps) | [`dataset/qa-eval.jsonl`](dataset/qa-eval.jsonl) | Same importers. The script uses it to check retrieval, the clause's chunk and the score gate. |
+| 5 | Prompt `kb-answer` | [`prompts/kb-answer.md`](prompts/kb-answer.md) | `Prompts > New prompt` (paste the body); API `POST /prompts`. Needs a model to be scored. |
+| 6 | Judge `CitationFaithfulness` | [`judges/citation-faithfulness.judge.json`](judges/citation-faithfulness.judge.json) | `Judges > New Judge`; API `POST /judges`. Needs a model to run. |
+| 7 | Answer workflow | template `knowledge_rag` (cookbook 06) | `Cookbooks > Install`; API `POST /cookbooks/06/install`, then bind the Knowledge node. |
+| 8 | Unreadable file | [`dataset/unreadable/scanned-handbook.pdf`](dataset/unreadable/scanned-handbook.pdf) | Upload under `unreadable/` and add it to a build, for the failure scenario. |
 
-## Run the recipe
+## Row shape
 
-Follow [`../README.md`](../README.md) end to end; these assets slot into it as:
+One JSON object per line, `{"id", "tags", "input", "expected"}`: the shape both importers read (`input` and `expected`, singular).
 
-1. **Upload the corpus → build a KB version** (assets 1–2). After the build run
-   reaches `completed`, open **Explore → Chunks** and confirm the four policy
-   docs chunked with correct source lineage — chunks are attributed by their
-   **filename / source_key** (`refund-policy.md`, `refund-faq.md`,
-   `security-policy.md`, `data-retention-policy.md`), which is the identifier the
-   calibrator matches gold `sources` against (not the in-document `Source id:`).
-2. **Compare retrieval modes.** In **Explore → Query**, run the same question
-   (e.g. *"How long are audit logs retained?"*) across `dense`, then `hybrid`,
-   then `graph_hybrid`; note which mode surfaces the `data-retention-policy.md`
-   chunk highest. (If AGE is enabled: **Explore → Graph → Sync to AGE**, then
-   re-query as `age_graph`.) API: `POST /knowledge/query {version_ids,
-   question, top_k?, retrieval_modes?}` (at most two modes per call).
-3. **Run KB Calibrate** (asset 3) with `calibration-questions.jsonl`; read
-   **Recall@k / nDCG@k / Faithfulness / Answer-correctness**. Tune chunking or
-   switch mode, re-run, and **show recall improve** without dropping
-   faithfulness. Pin a baseline (`POST /knowledge-bases/{id}/baseline`).
-4. **Build the answer workflow** (asset 6) on template **`knowledge_rag`**:
+- `input`: `{"question", "policy_domain"}` (the calibration file keeps only `question`).
+- `expected` in `qa-eval.jsonl`: `decision` (`answer`, `clarify`, `abstain`), `must_cite`, `expected` (a substring of the supporting text), `sources` (gold file names; empty when nothing in the corpus answers), `clause` (document and section), `evidence` (a literal passage that holds the clause), `answer` (the gold answer, in words).
+- `expected` in `calibration-questions.jsonl`: `sources`, `answer`, `evidence`. **Calibrate reads only `sources` and `answer`.** Chunks are matched to gold by **file name** (`data-retention-policy.md`), not by the `Document ID:` printed in the document.
 
-   ```
-   retrieve_chunks       (knowledge_query — selects the KB version, mode hybrid)
-     -> score_confidence (python_code — derive confidence + a conflict flag from the retrieved set)
-     -> draft_answer     (agent — bind prompt `kb-answer`; pass question, policy_domain, retrieved_chunks)
-     -> abstain_or_answer (router — branch on decision: answer | abstain | clarify)
-     -> output
-   ```
+## What is verified where
 
-   Add a branch off the router that **enqueues a review item** when
-   `decision != "answer"` or `confidence` is low. `kb-answer` already emits the
-   `{decision, answer, citations, confidence}` contract the router reads; the two
-   skills in asset 5 are optional reinforcement (`contradiction-detector` ahead
-   of the agent to force `clarify` on the 30-vs-14-day conflict;
-   `citation-and-next-steps` after it to format citations + a next step).
-5. **Run the three scenario behaviors** from the workflow run monitor:
-   - *answerable* → cited answer (e.g. audit-log retention → `decision: answer`,
-     cites `DATA-RETENTION-POLICY`).
-   - *missing-evidence* → `decision: abstain` + `missing_evidence` (e.g. the
-     enterprise-incident SLA in minutes — not in the corpus).
-   - *conflicting-sources* → `decision: clarify` (the refund-window question
-     retrieves both `REFUND-POLICY` (30 days) and `REFUND-FAQ` (14 days)).
-6. **Evaluate faithfulness** (assets 7–8). Create the `policy-qa-eval` dataset
-   from `qa-eval.jsonl`, then `Evaluations → Run evaluation` with the
-   deterministic graders (`contains_expected`) plus the `CitationFaithfulness`
-   judge ticked under **Custom LLM judges** (it runs as a `Judge.<id>` scorer for
-   an automatic per-row verdict). Gate:
-   `faithfulness_min ≥ 0.90`, `abstention_policy_compliance = 1.0`
-   (see [`../verification.yaml`](../verification.yaml)).
-7. **Route low-confidence to review.** `Review Queues → + New Queue`
-   (citation/abstention questions); enqueue the trace ids of the `abstain` and
-   `clarify` runs; answer them — answers write back onto the trace. API:
-   `POST /review-queues`, `POST /review-queues/{id}/items {trace_ids}`.
+- [`caliber/tests/test_cookbook_06_knowledge_lab.py`](../../../../caliber/tests/test_cookbook_06_knowledge_lab.py): every `evidence` is a literal passage of its document, the row shape, the question mix (39 answer, 2 clarify, 7 abstain), the calibration set is the answerable part of the QA set, and the installed template's confidence node reads a real query result.
+- The script and the spec, against a live stack: everything else. See the README for what is simulated.
 
-   > Feed back: add any failed retrieval question to
-   > `calibration-questions.jsonl` and re-calibrate (revise chunking before
-   > loosening the prompt), per `verification.yaml`'s feedback loop.
+## Skills
 
-## How the pieces stay consistent
-
-The corpus, prompt, datasets, and judge are authored together:
-
-- **`contains_expected`** reads the top-level `expectations.expected` substring
-  on the answerable rows of `qa-eval.jsonl`; each expected substring (`365 days`,
-  `AES-256`, `MFA`, `Billing portal`, `30 days`) is a literal fact in the
-  corpus. The abstain rows (Q06/Q07) set `expected: ""`, so the substring scorer
-  is meaningful only on the answerable rows.
-- **`Judge.CitationFaithfulness`** reads `decision` + `must_cite` on every row:
-  it passes an `answer` only if every claim is cited, an `abstain` only if it
-  declined with a `missing_evidence` list, and a `clarify` only if it surfaced
-  the conflict instead of picking a side.
-- The **`clarify` row (Q05)** only behaves correctly because the corpus ships the
-  `REFUND-POLICY` (30-day) vs `REFUND-FAQ` (14-day) contradiction. Keep both
-  source docs.
-
-## Conventions used across the pack
-
-- **Prompt files** (`prompts/*.md`): YAML frontmatter (name, model hint,
-  variables) then the literal template body. Paste the body into the authoring
-  textarea; variables are `{{ snake_case }}` — here `{{ question }}`,
-  `{{ policy_domain }}`, `{{ retrieved_chunks }}`.
-- **Skill files** (`skills/*.md`): SKILL.md style — frontmatter (`name`
-  [kebab-case, must **not** start with `claude`/`anthropic`], `summary`,
-  `category`, `tags`, `render_variables`) then the literal content. The
-  `summary` is the narrow one-line trigger text the deterministic selector
-  reads; paste the content below the frontmatter into the authoring textarea.
-- **Source corpus** (`dataset/sources/*.md`): plain Markdown ingested into the
-  Object Store and then a KB version. Each doc carries a `Source id:` so answers
-  and the judge can cite a concrete source.
-- **Eval dataset** (`dataset/qa-eval.jsonl`): one example per line,
-  `{"id", "tags", "inputs", "expectations"}` — the shape Evaluations scorers +
-  judges read (`{{ inputs }}`, `{{ outputs }}`, `{{ expectations }}`). `inputs`
-  is `{question, policy_domain}`; `expectations` is `{decision, must_cite,
-  expected}` — `expected` is the gold substring `contains_expected` matches
-  (empty string on the abstain rows).
-- **Calibration set** (`dataset/calibration-questions.jsonl`): one pair per line,
-  `inputs.question` → `expectations.{sources, answer}`. KB Calibrate reads gold
-  ONLY from `expectations.sources` (a **list** of source ids) and
-  `expectations.answer`, and scores Recall@k / nDCG@k / Faithfulness /
-  Answer-correctness from these; `sources` are the gold source ids retrieval
-  should surface. Populate the Test Set by POSTing each row to
-  `/eval-datasets/{id}/examples` (the Observability *Add to test set* widget
-  cannot capture `sources`/`answer`).
-- **Judge files** (`judges/*.judge.json`): `{name, model, instructions,
-  feedback_value_type}`; instructions reference `{{ inputs }}`/`{{ outputs }}`/
-  `{{ expectations }}` (the UI requires at least one). `feedback_value_type` ∈
-  bool|int|float|str. `CitationFaithfulness` is `bool` (pass/fail) and is the
-  real `custom_judge` from `verification.yaml`.
+The original recipe listed two optional skills (`contradiction-detector`, `citation-and-next-steps`). They are not part of the verified path (a skill runs only through an agent, and the simulated stack has no model to run one), so they are no longer in this lab; `citation-and-next-steps` remains with cookbook 07, which uses it.

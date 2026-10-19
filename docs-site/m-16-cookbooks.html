@@ -64,8 +64,8 @@
       <header class="doc-header">
         <p class="doc-eyebrow">Cookbooks</p>
         <h1>Cookbooks</h1>
-        <p class="doc-lead">Sixteen practical, build-along recipes that teach the CALIBER platform end-to-end — each backed by a versioned, installable system example with readiness checks and an explicit review-before-activation boundary.</p>
-        <div class="ck-meta"><span class="ck-badge">16 cookbooks</span><span class="ck-badge">5 tracks</span><span class="ck-badge">UI-first</span><span class="ck-badge">Training-ready</span><span class="ck-badge">Mermaid flows + UI mockups</span></div>
+        <p class="doc-lead">Seventeen practical, build-along recipes that teach the CALIBER platform end-to-end — each backed by a versioned, installable system example with readiness checks and an explicit review-before-activation boundary.</p>
+        <div class="ck-meta"><span class="ck-badge">17 cookbooks</span><span class="ck-badge">5 tracks</span><span class="ck-badge">UI-first</span><span class="ck-badge">Training-ready</span><span class="ck-badge">Mermaid flows + UI mockups</span></div>
       </header>
       
     <div class="ck-cols">
@@ -79,19 +79,19 @@
           <li>Every <strong>green link</strong> opens the copy-paste asset file in that cookbook's
             <code>assets/</code> folder — paste its contents into the matching field.</li>
           <li><strong>Preview areas are off by default.</strong> Each cookbook's notes name the feature flags it needs
-            (<code>CALIBER_FEATURE_COOKBOOKS</code> for the gallery; <code>CALIBER_FEATURE_ARIA</code>,
-            <code>CALIBER_FEATURE_INTEGRATIONS</code> or <code>CALIBER_FEATURE_RELEASE_CANDIDATES</code> where a lab uses that area).
-            Set them on the server and restart.</li>
+            (<code>CALIBER_FEATURE_COOKBOOKS</code> for the gallery; <code>CALIBER_FEATURE_ARIA</code> for labs 12–15,
+            <code>CALIBER_FEATURE_INTEGRATIONS</code> for lab 05 or <code>CALIBER_FEATURE_RELEASE_CANDIDATES</code> for lab 11).
+            Set them on the server and restart. <code>scripts/cookbook-env.sh up NAME --flags …</code> starts a disposable stack with them.</li>
         </ul>
       </div>
       <div class="callout">
-        <strong>The UI-first promise.</strong> With <code>CALIBER_FEATURE_COOKBOOKS=true</code> set on the server (off by default), open <strong>Cookbooks</strong> to install any of the 16 recipes as a paused workflow and editable draft. Review readiness before activation.
+        <strong>The UI-first promise.</strong> With <code>CALIBER_FEATURE_COOKBOOKS=true</code> set on the server (off by default), open <strong>Cookbooks</strong> to install any of the 17 recipes as a paused workflow and editable draft. Review readiness before activation.
         <ul>
-          <li><strong>Datasets</strong> fill from real runs: <code>Observability → open a trace → Add to test set</code>.</li>
+          <li><strong>Test sets</strong> come from a file (<code>Upload JSON/JSONL</code>, labs 01 and 06) or from real runs (<code>Observability → open a trace → Add to test set</code>, lab 16).</li>
+          <li><strong>The default model and evaluator are simulated.</strong> <code>Evaluations</code> refuses to score without a real model (<code>400 evaluation requires a real LLM provider</code>), and calibration evidence on the default stack is canned and marked <em>Simulated evaluation — not evidence</em>. Each lab says which of its steps are real and which are simulated.</li>
           <li><strong>Deterministic logic</strong> uses Data Transform for decisions, JSON Schema, mapping, confidence, and fixtures; Python Code remains a bounded extension.</li>
-          <li><strong>The Prompt Playground is a live chat</strong> (it calls the model); prompt regression is scored on the prompt's <code>Runs</code> stage, while <code>Evaluations</code> scores a Test Set with deterministic graders.</li>
           <li><strong>Judges</strong> are for LLM-graded criteria; deterministic checks are <strong>scorers</strong> or assertions.</li>
-          <li><strong>Aria</strong> (12–15) plans from one sentence in <code>Plans</code> (needs <code>CALIBER_FEATURE_ARIA=true</code>, off by default); you create each artifact in its own page.</li>
+          <li><strong>Aria</strong> (12–15) plans from one sentence in <code>Plans</code> (needs <code>CALIBER_FEATURE_ARIA=true</code>, off by default). The planner is rules, not a model; nothing runs until you approve the plan, each step asks for the fields it cannot know, and Aria creates the artifact once you approve.</li>
         </ul>
       </div>
     </div>
@@ -102,97 +102,103 @@
       <h2 id="foundations">Foundations</h2><div class="ck-card-grid"><a class="ck-card" href="m-cookbook-01-intake-classifier.html">
               <div class="ck-card-num">01</div>
               <strong>Trustworthy Intake Classifier</strong>
-              <span class="ck-card-sub">Prompt fundamentals: stable JSON output + a regression gate that catches weak edits.</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Starter</span><span class="ck-badge ck-orange">20–30 min</span></div>
+              <span class="ck-card-sub">Release a prompt change you can trust: a 44-case test set, a caught regression, then calibrate, review, apply and roll back.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Starter</span><span class="ck-badge ck-orange">30–60 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a><a class="ck-card" href="m-cookbook-02-precision-skills.html">
               <div class="ck-card-num">02</div>
               <strong>Precision Skills</strong>
-              <span class="ck-card-sub">Deterministic triggering + portable packaging — a skill that fires only when it should.</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Starter</span><span class="ck-badge ck-orange">25–40 min</span></div>
+              <span class="ck-card-sub">A support-tone skill measured on 40 trigger cases (30 right, then 40), calibrated, applied, rolled back, packaged and archived.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Starter</span><span class="ck-badge ck-orange">45–75 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a><a class="ck-card" href="m-cookbook-03-policy-safe-tool.html">
               <div class="ck-card-num">03</div>
               <strong>Policy-Safe Decision Tool</strong>
-              <span class="ck-card-sub">Deterministic business logic first, then approval-gated side effects, then an explanation layer.</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">40–60 min</span></div>
+              <span class="ck-card-sub">A deterministic refund policy hardened against 49 fixtures, then a refund that only a second person can release.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">15–30 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a><a class="ck-card" href="m-cookbook-05-governed-mcp.html">
               <div class="ck-card-num">05</div>
               <strong>Governed Tool Connectivity (MCP)</strong>
-              <span class="ck-card-sub">Connect an external system, discover its tools, and prove a blocked tool refuses to run.</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">20–35 min</span></div>
+              <span class="ck-card-sub">Connect an MCP server, classify every tool before anything calls it, and prove from the server&#x27;s own ledger that a refused call never ran.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">20–40 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a></div><h2 id="build">Build</h2><div class="ck-card-grid"><a class="ck-card" href="m-cookbook-04-doc-to-json.html">
               <div class="ck-card-num">04</div>
               <strong>Document-to-JSON Pipeline</strong>
-              <span class="ck-card-sub">Turn Office documents into schema-valid JSON, with readable failures for bad inputs.</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">35–55 min</span></div>
+              <span class="ck-card-sub">Turn invoice documents into schema-checked JSON, and hold every invalid one for a second person to approve or reject.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">20–30 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a><a class="ck-card" href="m-cookbook-06-grounded-knowledge.html">
               <div class="ck-card-num">06</div>
               <strong>Grounded Knowledge Assistant</strong>
-              <span class="ck-card-sub">Cited answers, honest abstention on missing/conflicting evidence, and a measured retrieval lift.</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">40–60 min</span></div>
+              <span class="ck-card-sub">A policy assistant you can measure: cited chunks, retrieval modes compared, calibration that lifts Recall@1, and low-confidence runs sent to review.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">120–180 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a><a class="ck-card" href="m-cookbook-07-support-copilot.html">
               <div class="ck-card-num">07</div>
               <strong>Support Triage Copilot</strong>
-              <span class="ck-card-sub">The full-stack recipe: classify → gather evidence → cited reply → approval-gated escalation.</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Advanced</span><span class="ck-badge ck-orange">60–90 min</span></div>
+              <span class="ck-card-sub">Classify a ticket, route it to reply, clarify or escalate, pause refunds and bug filings at a second person&#x27;s approval, and roll back a bad version.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Advanced</span><span class="ck-badge ck-orange">45–70 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a><a class="ck-card" href="m-cookbook-08-incident-copilot.html">
               <div class="ck-card-num">08</div>
               <strong>Incident Response Copilot</strong>
-              <span class="ck-card-sub">Separate facts from hypotheses, recommend the lowest-risk action, and gate rollbacks.</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Advanced</span><span class="ck-badge ck-orange">60–90 min</span></div>
+              <span class="ck-card-sub">Turn an incident record into a severity and the lowest-risk action, gate a rollback behind a second person, and release to prod only through a deploy gate.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Advanced</span><span class="ck-badge ck-orange">40–65 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a></div><h2 id="operate">Operate</h2><div class="ck-card-grid"><a class="ck-card" href="m-cookbook-09-self-healing-workflows.html">
               <div class="ck-card-num">09</div>
               <strong>Self-Healing Workflows</strong>
-              <span class="ck-card-sub">An operator playbook: reproduce a failure, localize it in the Run Monitor, patch, and validate.</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">30–50 min</span></div>
+              <span class="ck-card-sub">Reproduce production failures, read the run debugger and trace, write the patch as a new version, prove it on the same 35 tickets, and roll an alias back.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">20–30 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a><a class="ck-card" href="m-cookbook-16-observability-triage.html">
               <div class="ck-card-num">16</div>
               <strong>Production Observability &amp; Triage</strong>
-              <span class="ck-card-sub">Turn live traces into a triaged review queue + a regression test set — the production monitoring loop.</span>
+              <span class="ck-card-sub">Turn real production traces into a regression test set and a triage review queue, with the reviewers&#x27; answers written back onto the traces.</span>
               <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">30–45 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a></div><h2 id="govern">Govern</h2><div class="ck-card-grid"><a class="ck-card" href="m-cookbook-10-trustworthy-evaluation.html">
               <div class="ck-card-num">10</div>
               <strong>Trustworthy Evaluation</strong>
-              <span class="ck-card-sub">Certify that an automated judge agrees with human reviewers before it can block a release.</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">45–70 min</span></div>
+              <span class="ck-card-sub">Certify that an automated judge agrees with human reviewers before it is trusted to block a release.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">60–120 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a><a class="ck-card" href="m-cookbook-11-release-signoff.html">
               <div class="ck-card-num">11</div>
               <strong>Release Signoff Factory</strong>
-              <span class="ck-card-sub">Aggregate cross-cookbook evidence into a defensible go / no-go decision (Preview, record-only).</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">30–50 min</span></div>
+              <span class="ck-card-sub">Record an accountable go / no-go: server-scored criteria, owned waivers, an immutable signoff. A record, not a deployment.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">20–40 min</span></div>
+              <span class="ck-card-go">Open cookbook →</span>
+            </a><a class="ck-card" href="m-cookbook-18-projects-roles-tokens-audit.html">
+              <div class="ck-card-num">18</div>
+              <strong>Projects, Roles, Tokens &amp; Audit</strong>
+              <span class="ck-card-sub">Set up a nine-person team in a workspace with owner, editor, reviewer and viewer roles, bind an access token to it, and read the audit trail.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">45–60 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a></div><h2 id="aria-autonomous">Aria — Autonomous</h2><div class="ck-card-grid"><a class="ck-card" href="m-cookbook-12-aria-eval-harness.html">
               <div class="ck-card-num">12</div>
               <strong>Aria: Evaluation Harness from Intent</strong>
-              <span class="ck-card-sub">One sentence → Aria plans and creates a faithfulness judge + a test set; you fill the judge&#x27;s fields and approve.</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Aria</span><span class="ck-badge ck-orange">15–25 min</span></div>
+              <span class="ck-card-sub">One sentence → a rules-based Aria plan creates a judge and a Test Set; you fill their fields, approve each change, load 30 cases and see what Aria refuses.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Aria</span><span class="ck-badge ck-orange">15–30 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a><a class="ck-card" href="m-cookbook-13-aria-review-queue.html">
               <div class="ck-card-num">13</div>
               <strong>Aria: Human-Review Queue from Intent</strong>
-              <span class="ck-card-sub">One sentence → Aria plans and creates a review queue with a safety / citation / tone label schema.</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Aria</span><span class="ck-badge ck-orange">15–25 min</span></div>
+              <span class="ck-card-sub">One sentence → a rules-based Aria plan creates a review queue and enqueues 30 flagged traces; people review 12, and the answers land on the traces as labelled examples.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Aria</span><span class="ck-badge ck-orange">15–30 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a><a class="ck-card" href="m-cookbook-14-aria-starter-kit.html">
               <div class="ck-card-num">14</div>
               <strong>Aria: Governance Starter Kit from Intent</strong>
-              <span class="ck-card-sub">The flagship: one sentence → a plan for a judge + test set + review queue together.</span>
-              <div class="ck-badges"><span class="ck-badge ck-ok">Aria</span><span class="ck-badge ck-orange">20–30 min</span></div>
+              <span class="ck-card-sub">One sentence → a four-step Aria plan creates a judge, a review queue and a Test Set under three names, at two autonomy levels, with the failure behaviour shown.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Aria</span><span class="ck-badge ck-orange">15–30 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a><a class="ck-card" href="m-cookbook-15-aria-triage-loop.html">
               <div class="ck-card-num">15</div>
               <strong>Aria: Triage &amp; Recalibrate Loop</strong>
-              <span class="ck-card-sub">One sentence → review the weak runs, then kick off an async workflow calibration.</span>
+              <span class="ck-card-sub">One sentence about weak runs → a three-step plan creates a review queue, enqueues 12 flagged traces and parks on a real calibration job that settles on its own.</span>
               <div class="ck-badges"><span class="ck-badge ck-ok">Aria</span><span class="ck-badge ck-orange">20–35 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a></div>

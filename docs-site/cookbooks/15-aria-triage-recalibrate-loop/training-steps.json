@@ -1,60 +1,41 @@
 {
   "steps": [
     {
-      "where": "Agent resources › Workflows (prerequisite)",
-      "do": "<strong>Prerequisite — this loop remediates things that already exist.</strong> Before starting, build and run the <strong>Support Triage Copilot</strong> from cookbook 07 so you have a real workflow with recent runs. You will need three real ids from it: a few <em>flagged trace ids</em>, the <em>workflow_id</em>, and an <em>agent_id</em> bound in that workflow. Aria does not create the subject workflow or its traces.",
-      "see": "An existing workflow (from SCN-07) listed under <strong>Workflows</strong>, with recent runs you can open."
-    },
-    {
-      "where": "Operate › Observability",
-      "do": "Collect the <strong>flagged trace ids</strong> you will enqueue. In the sidebar, under <strong>Operate</strong>, click <strong>Observability</strong>, stay on the <strong>Traces</strong> tab, and set the <strong>Filter by status</strong> dropdown to <strong>Error</strong> to surface the weak runs. Click each weak trace to open it on the right — its full <code>trace_id</code> appears in the page URL (<code>?trace=…</code>) and you can also paste an id into the <em>Search traces</em> box to confirm it. Note 2-3 trace ids — you will paste them later.",
-      "fill": [
-        [
-          "Filter by status",
-          "<code>Error</code> <span style=\"color:#888\">(the option values are All statuses / OK / Error / In progress)</span>"
-        ],
-        [
-          "What to copy",
-          "2-3 <code>trace_id</code> values from the weak runs (from the URL after selecting each trace)"
-        ]
-      ],
-      "see": "A filtered list of trace rows (each showing the trace <em>name</em> + an <em>ERROR</em> status badge). Selecting a row opens its detail and puts the full <code>trace_id</code> in the URL — keep those ids handy for the enqueue step."
-    },
-    {
-      "where": "Integrations › Plans › New goal",
-      "do": "<strong>Before you start:</strong> set <code>CALIBER_FEATURE_ARIA=true</code> on the CALIBER server and restart it; Aria and the Plans page are off by default. In the sidebar, under <strong>Integrations</strong> (the page carries a <strong>Preview</strong> badge), click <strong>Plans</strong>. Type Aria's one-line intent into the <strong>Goal</strong> box, verbatim — the phrase <code>review queue</code> proposes both queue steps and the word <code>workflow</code> (calibration) proposes the calibrate step. Set <strong>Autonomy</strong> to <strong>Stop before each change</strong> (the <code>ask_each</code> level).",
+      "where": "Integrations › Plans",
+      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default) and its background workers. This loop remediates things that already exist, so first run <code>assets/setup_subject.py</code> (it prints a <code>workflow_id</code> and an <code>agent_id</code>) and <code>assets/seed_traces.py</code> (it prints the 12 flagged trace ids). In the sidebar open <strong>Integrations</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>.",
       "fill": [
         [
           "Goal",
-          "Our workflow's recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration. <span style=\"color:#888\">(canonical intent — copy from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/intent.md\">intent.md</a>)</span>"
+          "Our workflow's recent runs look weak - set up a review queue for the flagged traces and kick off a workflow calibration."
         ],
         [
           "Autonomy",
-          "Stop before each change <span style=\"color:#888\">(= ask_each)</span>"
+          "Stop before each change"
         ]
       ],
       "click": "Decompose goal",
-      "see": "The button shows <em>Decomposing…</em>, then Aria opens the plan's detail page. Breadcrumb <code>Plans › PLAN-…</code>, status badge <strong>DRAFT</strong>.",
-      "asset": "Aria plan (draft)"
+      "see": "The plan opens with the status <code>draft</code>.",
+      "asset": "Draft plan",
+      "assetlink": [
+        {
+          "href": "../cookbooks/15-aria-triage-recalibrate-loop/assets/intent.md",
+          "label": "intent.md"
+        },
+        {
+          "href": "../cookbooks/15-aria-triage-recalibrate-loop/assets/setup_subject.py",
+          "label": "setup_subject.py"
+        },
+        {
+          "href": "../cookbooks/15-aria-triage-recalibrate-loop/assets/seed_traces.py",
+          "label": "seed_traces.py"
+        }
+      ]
     },
     {
-      "where": "Integrations › Plans › PLAN-… (draft)",
-      "do": "Confirm Aria decomposed the sentence into the three remediation steps. Note the third step, <code>workflow.calibrate</code>, is Aria's first <strong>async</strong> capability. Compare against <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/expected-plan.json\">expected-plan.json</a>.",
-      "fill": [
-        [
-          "Step 1",
-          "<code>review_queue.create</code> — tier mutate"
-        ],
-        [
-          "Step 2",
-          "<code>review_queue.add_items</code> — tier mutate (needs EXISTING trace ids)"
-        ],
-        [
-          "Step 3",
-          "<code>workflow.calibrate</code> — tier mutate, ASYNC (needs EXISTING workflow_id + agent_id)"
-        ]
-      ],
-      "see": "A three-row <strong>Plan steps</strong> list (<code>review_queue.create</code>, <code>review_queue.add_items</code>, <code>workflow.calibrate</code>), each with a <em>PENDING</em> badge.",
+      "where": "Integrations › Plans › (draft plan)",
+      "do": "Read <strong>Plan steps</strong>. Aria drew three steps: <code>review_queue.create</code>, <code>review_queue.add_items</code> (<em>depends on 1 prior step(s)</em>) and <code>workflow.calibrate</code> (it depends on nothing). Nothing has run. Compare with <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/expected-plan.json\">expected-plan.json</a>.",
+      "see": "Three pending steps.",
+      "asset": "Reviewed plan (3 steps)",
       "assetlink": [
         {
           "href": "../cookbooks/15-aria-triage-recalibrate-loop/assets/expected-plan.json",
@@ -63,37 +44,32 @@
       ]
     },
     {
-      "where": "Integrations › Plans › PLAN-… (draft)",
-      "do": "Approve the plan shape. Click <strong>Approve plan</strong> in the top-right of the plan header.",
+      "where": "Integrations › Plans › (draft plan)",
+      "do": "Press <strong>Approve plan</strong>.",
       "click": "Approve plan",
-      "see": "The status badge flips from <strong>DRAFT</strong> to <strong>APPROVED</strong>, and an <strong>Execute</strong> button appears."
+      "see": "The status becomes <code>approved</code> and an <strong>Execute</strong> button appears.",
+      "asset": "Approved plan"
     },
     {
-      "where": "Integrations › Plans › PLAN-… (approved)",
-      "do": "Start running the plan. Click <strong>Execute</strong>. Aria reaches the first step, <code>review_queue.create</code>, but the planner could not know your queue's name or question schema, so it pauses on a violet <strong>Aria needs information</strong> form with two buttons, <strong>Continue plan</strong> and <strong>Skip step</strong>. Each of the three steps works the same way: an input form for the fields the planner could not fill, then (under <em>ask_each</em>) an <strong>Approve</strong> / <strong>Deny</strong> prompt.",
-      "click": "Execute",
-      "see": "The <code>review_queue.create</code> row shows <em>WAITING INPUT</em> and an <strong>Aria needs information</strong> form is open above the step list."
-    },
-    {
-      "where": "Integrations › Plans › PLAN-… (input form)",
-      "do": "Fill the review-queue form from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/review-queues/triage-review.queue.json\">triage-review.queue.json</a>: the <strong>name</strong>, a <strong>description</strong>, and the four-question <strong>questions</strong> JSON array (the form rejects invalid JSON). Note two special types: <code>failure_mode</code> is <em>categorical</em> (with options) and <code>expected_answer</code> uses target <strong>expectation</strong> (its answer becomes ground truth on the trace). Click <strong>Continue plan</strong>, then <strong>Approve</strong>.",
+      "where": "Integrations › Plans › (approved plan)",
+      "do": "Press <strong>Execute</strong>. Aria stops on <strong>Aria needs information</strong> (<em>Provide the required inputs for step 1: Create review queue.</em>). Fill <strong>name</strong>, <strong>description</strong>, <strong>questions</strong> and <strong>reviewers</strong> (JSON arrays) from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/review-queues/triage-review.queue.json\">triage-review.queue.json</a>, press <strong>Continue plan</strong>, then <strong>Approve</strong> <em>Approve step 1: Create review queue (review_queue.create)?</em>.",
       "fill": [
         [
           "name",
           "weak-runs-triage"
         ],
         [
-          "description",
-          "Human triage of weak workflow runs: was the resolution correct, what failed, how severe, and what the answer should have been."
+          "questions",
+          "[{\"key\":\"resolution_correct\",\"title\":\"Did the workflow reach the correct resolution?\",\"type\":\"pass_fail\",...}, ...]"
         ],
         [
-          "questions",
-          "<code>[{\"key\": \"resolution_correct\", \"title\": \"Did the workflow reach the correct resolution?\", \"type\": \"pass_fail\", \"required\": true, \"target\": \"feedback\"}, {\"key\": \"failure_mode\", \"title\": \"Primary failure mode\", \"type\": \"categorical\", \"options\": [\"wrong_tool\", \"missing_evidence\", \"hallucinated_claim\", \"bad_escalation\", \"none\"], \"required\": true, \"target\": \"feedback\"}, {\"key\": \"severity\", \"title\": \"Severity (1-5)\", \"type\": \"numeric\", \"required\": false, \"target\": \"feedback\"}, {\"key\": \"expected_answer\", \"title\": \"What should the answer have been? (becomes the expectation)\", \"type\": \"text\", \"required\": false, \"target\": \"expectation\"}]</code>"
+          "reviewers",
+          "[\"olga\"]"
         ]
       ],
-      "click": "Continue plan",
-      "see": "After <strong>Approve</strong>, <code>review_queue.create</code> shows <em>DONE</em> and the plan pauses on the <code>review_queue.add_items</code> form.",
-      "asset": "Review queue: weak-runs-triage (created by Aria)",
+      "click": "Approve",
+      "see": "The queue step reads <em>done</em>.",
+      "asset": "Review queue created by Aria",
       "assetlink": [
         {
           "href": "../cookbooks/15-aria-triage-recalibrate-loop/assets/review-queues/triage-review.queue.json",
@@ -102,17 +78,21 @@
       ]
     },
     {
-      "where": "Integrations › Plans › PLAN-… (input form)",
-      "do": "Enqueue the real flagged traces (the <code>review_queue.add_items</code> step). The planner linked this step's <code>queue_id</code> to the queue just created, so the form asks only for <strong>trace ids</strong> (a JSON array; optional experiment id and assignee). Enter the <strong>real</strong> trace ids you noted from Observability — replace the placeholders in <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/enqueue.json\">enqueue.json</a> — click <strong>Continue plan</strong>, then <strong>Approve</strong>.",
+      "where": "Integrations › Plans › (running plan)",
+      "do": "<em>Provide the required inputs for step 2: Enqueue traces for review.</em> There is no queue id field: it is wired from the first step. Fill <strong>trace ids</strong> with a JSON array of the 12 ids <code>seed_traces.py</code> printed and <strong>assigned to</strong>, press <strong>Continue plan</strong>, then <strong>Approve</strong>.",
       "fill": [
         [
           "trace ids",
-          "<code>[\"tr-…\", \"tr-…\", \"tr-…\"]</code> <span style=\"color:#888\">(the REAL flagged trace ids from Observability — not placeholders)</span>"
+          "[\"tr-...\", ...]"
+        ],
+        [
+          "assigned to",
+          "admin"
         ]
       ],
-      "click": "Continue plan",
-      "see": "After <strong>Approve</strong>, <code>review_queue.add_items</code> shows <em>DONE</em> and the plan pauses on the <code>workflow.calibrate</code> form.",
-      "asset": "Flagged traces enqueued for triage",
+      "click": "Approve",
+      "see": "The enqueue step reads <em>done</em>.",
+      "asset": "12 flagged traces queued",
       "assetlink": [
         {
           "href": "../cookbooks/15-aria-triage-recalibrate-loop/assets/enqueue.json",
@@ -121,21 +101,21 @@
       ]
     },
     {
-      "where": "Integrations › Plans › PLAN-… (input form)",
-      "do": "Kick off the workflow calibration (the <code>workflow.calibrate</code> step). Enter the <strong>real</strong> <code>workflow_id</code> and <code>agent_id</code> from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/calibrate.json\">calibrate.json</a> (the SCN-07 workflow and the agent bound in it), click <strong>Continue plan</strong>, then <strong>Approve</strong>. Approving enqueues a real workflow-calibration (refinement) job; the step <strong>parks</strong> in <em>WAITING JOB</em> and the plan stays <strong>RUNNING</strong> — it does not pause for a human.",
+      "where": "Integrations › Plans › (running plan)",
+      "do": "<em>Provide the required inputs for step 3: Calibrate workflow.</em> Fill <strong>workflow id</strong> and <strong>agent id</strong> with the ids <code>setup_subject.py</code> printed (<a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/calibrate.json\">calibrate.json</a>), press <strong>Continue plan</strong>, then <strong>Approve</strong> <em>Approve step 3: Calibrate workflow (workflow.calibrate)?</em>. Approving enqueues a real calibration job.",
       "fill": [
         [
           "workflow id",
-          "<span style=\"color:#888\">the REAL existing workflow id (the SCN-07 workflow)</span>"
+          "WF-..."
         ],
         [
           "agent id",
-          "<span style=\"color:#888\">the REAL agent id bound in that workflow</span>"
+          "cookbook-15-agent-..."
         ]
       ],
-      "click": "Continue plan",
-      "see": "After <strong>Approve</strong>, the <code>workflow.calibrate</code> row shows <em>WAITING JOB</em> and the plan status is <strong>RUNNING</strong>. A new entry also appears under the workflow's <strong>Calibration runs</strong> — the real async refinement job.",
-      "asset": "Workflow calibration job (async, plan parked)",
+      "click": "Approve",
+      "see": "The plan header reads <code>running</code> and the step <em>waiting job</em>; there is nothing to answer. The plan is parked on the job.",
+      "asset": "Plan parked on the calibration job",
       "assetlink": [
         {
           "href": "../cookbooks/15-aria-triage-recalibrate-loop/assets/calibrate.json",
@@ -144,20 +124,43 @@
       ]
     },
     {
-      "where": "Integrations › Plans › PLAN-… (waiting on a job)",
-      "do": "Let the async job run. This is the genuinely asynchronous part of the loop and there is nothing to click: the plan worker polls the job about every 10 seconds and resumes the plan by itself. Refresh the plan page (the Plans UI has no Poll button) until the step leaves <em>WAITING JOB</em>. The job counts as done when it reaches <code>candidate_ready</code> (or <code>applied</code>); <code>rejected</code>, <code>failed</code> or <code>error</code> fails the step and the plan. The plan does not apply the candidate. (Over the API, <code>POST /aria/plans/{id}/poll</code> advances it on demand.) With the default fake evaluator the job's scores are canned.",
-      "see": "The <code>workflow.calibrate</code> row flips to <em>DONE</em> and the plan reaches <strong>COMPLETED</strong> with all three steps done.",
-      "asset": "Plan resumed and completed after the async job"
+      "where": "Integrations › Plans › (running plan)",
+      "do": "Do not click anything. The page re-reads a running plan every five seconds, and the plan worker resumes it when the job finishes (about half a minute).",
+      "see": "On the simulated stack the status becomes <code>failed</code>: steps 1 and 2 <em>done</em>, step 3 <em>failed</em> with <code>rejected: workflow calibration rejected: no candidate met calibration gates; quality delta +0.000 &lt; epsilon 0.02</code> (a fake executor cannot make a candidate beat the baseline). With a real model the job can reach <code>candidate_ready</code> and the plan reads <code>completed</code>.",
+      "asset": "Plan settled by itself, ending where the job ended"
     },
     {
-      "where": "Operate › Review Queues  +  Agent resources › Workflows",
-      "do": "Final verification across surfaces. <strong>Review Queues › weak-runs-triage</strong> shows the flagged traces enqueued and ready to review. <strong>Workflows › (your workflow) › Calibration runs</strong> shows the calibration job at <em>candidate ready</em> (or <em>applied</em>). The Aria plan (under <strong>Plans</strong>, status <strong>COMPLETED</strong>, all three steps done) is the orchestration record for the whole triage → remediation loop.",
-      "see": "A populated <code>weak-runs-triage</code> queue, a finished calibration run on the workflow, and a completed Aria plan — the governance → remediation loop end to end."
+      "where": "Operate › Review Queues",
+      "do": "Open <strong>Review Queues</strong>.",
+      "see": "A row <code>weak-runs-triage</code> with 4 questions, the reviewer <code>olga</code> and <code>0/12 reviewed</code>.",
+      "asset": "Queue with 12 flagged traces"
     },
     {
-      "where": "Operate › Review Queues › weak-runs-triage (follow-up)",
-      "do": "<strong>(Optional follow-up)</strong> Have reviewers answer the queue's questions — the <strong>expectation</strong>-targeted <code>expected_answer</code> writes ground truth back onto each trace. Then compare the recalibrated workflow against its baseline runs and feed the hard cases into its eval dataset (see SCN-01 / SCN-10) to keep tightening the loop.",
-      "see": "Submitted reviews write assessments + expectations back onto the traces, giving you ground-truth labels to compare the recalibrated workflow against its baseline."
+      "where": "Operate › Review Queues › (queue)",
+      "do": "Open the queue (<strong>Items (12)</strong>) and pick the trace of <code>S19</code>. Answer from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/dataset/support-runs.jsonl\">support-runs.jsonl</a>: <strong>Fail</strong> for <em>Did the workflow reach the correct resolution?</em>, <code>missing_evidence</code> for <em>Primary failure mode</em>, <code>3</code> for <em>Severity (1-5)</em>, and the reference answer for <em>What should the answer have been?</em>. Press <strong>Submit review</strong>.",
+      "click": "Submit review",
+      "see": "The trace reads <em>completed</em> and the list row reads <code>1/12 reviewed</code>. The answers are assessments on the trace; the expected answer is its expectation.",
+      "asset": "One flagged run triaged",
+      "assetlink": [
+        {
+          "href": "../cookbooks/15-aria-triage-recalibrate-loop/assets/dataset/support-runs.jsonl",
+          "label": "support-runs.jsonl"
+        }
+      ]
+    },
+    {
+      "where": "Integrations › Plans",
+      "do": "State <code>Calibrate the support workflow.</code>, press <strong>Decompose goal</strong>, <strong>Approve plan</strong>, <strong>Execute</strong>, fill <strong>workflow id</strong> with <code>WF-does-not-exist</code> and any agent id, and press <strong>Continue plan</strong>.",
+      "click": "Continue plan",
+      "see": "The plan reads <code>failed</code> at once; the step shows <code>workflow 'WF-does-not-exist' not found (HTTP 404)</code> and does not read <em>waiting job</em>: no job was queued.",
+      "asset": "Calibration step fails at once"
+    },
+    {
+      "where": "Integrations › Plans",
+      "do": "State the same sentence under <strong>Stop before each change</strong>, approve and execute, fill the two real ids, press <strong>Continue plan</strong>, and at <em>Approve step 1: Calibrate workflow (workflow.calibrate)?</em> press <strong>Deny</strong>.",
+      "click": "Deny",
+      "see": "The plan reads <code>completed</code> and the step <em>skipped</em>; no job was queued.",
+      "asset": "A denied calibration queues nothing"
     }
   ]
 }

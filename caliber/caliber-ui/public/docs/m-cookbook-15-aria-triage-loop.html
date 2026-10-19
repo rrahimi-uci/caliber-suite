@@ -66,106 +66,104 @@
       <header class="doc-header">
         <p class="doc-eyebrow">Cookbook 15 · Aria — Autonomous</p>
         <h1>Aria: Triage &amp; Recalibrate Loop</h1>
-        <p class="doc-lead">One sentence → review the weak runs, then kick off an async workflow calibration.</p>
+        <p class="doc-lead">One sentence about weak runs → a three-step plan creates a review queue, enqueues 12 flagged traces and parks on a real calibration job that settles on its own.</p>
         <div class="ck-badges"><span class="ck-badge ck-track">Aria — Autonomous</span><span class="ck-badge ck-ok">Aria</span><span class="ck-badge ck-orange">20–35 min</span></div>
       </header>
       <div class="ck-cols">
-        <div class="callout"><strong>What you build.</strong> On an existing workflow with weak runs, Aria plans <code>review_queue.create</code> + <code>add_items</code> + the async <code>workflow.calibrate</code>; you enter the queue schema, the flagged trace ids and the workflow + agent ids in the plan's forms, then watch the plan park and resume on its own.
+        <div class="callout"><strong>What you build.</strong> On a workflow, agent and flagged traces that already exist (created first by <code>assets/setup_subject.py</code> and <code>assets/seed_traces.py</code>), Aria draws <code>review_queue.create</code>, <code>review_queue.add_items</code> and <code>workflow.calibrate</code> from one sentence. You answer six questions (a form and an approval per step); the last approval queues a real calibration job and the plan <strong>parks</strong> (<code>running</code>, step <code>waiting job</code>). The plan worker resumes it with no click and the plan ends where the job ended, while a reviewer triages the 12 flagged traces in <strong>Review Queues</strong>.
           <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Plans</span> <span class="ck-badge ck-surface">Review Queues</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Observability</span></div></div>
-        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Plan a remediation loop from one intent</li><li>Operate on existing ids (traces, workflow, agent)</li><li>Read flagged trace ids from Observability</li><li>Trigger a workflow calibration from the plan</li><li>Understand async parking and automatic resume in Aria plans</li></ul></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Plan a remediation loop from one intent: it operates on existing ids (trace ids, workflow id, registered agent id), Aria creates neither the traces nor the workflow</li><li>Wire and answer the forms: the enqueue step's only wired input is the queue id; enter the 12 trace ids from <strong>Observability</strong> or <code>seed_traces.py</code>, and the workflow and agent ids from <code>setup_subject.py</code></li><li>Watch an async step park and resume: approving <code>workflow.calibrate</code> leaves the plan <code>running</code> with the step <code>waiting job</code>; the page re-reads every five seconds and a parked plan cannot be cancelled (409)</li><li>Triage flagged runs in <strong>Operate &gt; Review Queues</strong> (<code>resolution_correct</code>, <code>failure_mode</code>, <code>severity</code>, <code>expected_answer</code>); answers land on the trace as assessments, the expected answer as its expectation</li><li>See the refusals: an unknown workflow, unregistered agent or workflow with no deploy-gate test set fails the step at once without queueing a job, and a denied calibration queues nothing</li></ul></div>
       </div>
       <h2 id="flow">Implementation flow</h2>
       <div class="diagram"><pre class="mermaid">flowchart LR
-  I[/&quot;Intent: review the flagged traces + calibrate the workflow&quot;/] --&gt; PL[Aria Plans]
-  PL --&gt; Q[review_queue.create] -.input form.-&gt; RQ[Review Queues]
-  PL --&gt; E[review_queue.add_items] -.real trace ids.-&gt; ENQ[enqueue]
-  PL --&gt; C[workflow.calibrate · async] --&gt; POLL[park → worker resumes → done]</pre></div>
+  SU[&quot;setup_subject.py + seed_traces.py&quot;] --&gt; I[/&quot;Intent: weak runs, queue + calibrate&quot;/]
+  I --&gt; D[&quot;Plans: Decompose goal (rules planner)&quot;]
+  D --&gt; Q[&quot;review_queue.create: form + Approve&quot;]
+  Q --&gt; E[&quot;review_queue.add_items: 12 trace ids&quot;]
+  E --&gt; C[&quot;workflow.calibrate: workflow id + agent id + Approve&quot;]
+  C --&gt; P[&quot;Plan parks: running, waiting job&quot;]
+  P --&gt; W[&quot;Plan worker polls the job&quot;]
+  W --&gt; R[&quot;Plan mirrors the job: job rejected, plan failed here&quot;]
+  Q --&gt; RQ[&quot;Review Queues: triage 3 of 12&quot;]</pre></div>
       <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
       <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
         and a snapshot of the CALIBER screen you'll be on.</p>
-      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows (prerequisite)</code></div><div class="ck-step-do"><strong>Prerequisite — this loop remediates things that already exist.</strong> Before starting, build and run the <strong>Support Triage Copilot</strong> from cookbook 07 so you have a real workflow with recent runs. You will need three real ids from it: a few <em>flagged trace ids</em>, the <em>workflow_id</em>, and an <em>agent_id</em> bound in that workflow. Aria does not create the subject workflow or its traces.</div><div class="ck-see"><strong>You'll see:</strong> An existing workflow (from SCN-07) listed under <strong>Workflows</strong>, with recent runs you can open.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans</code> <span class="ck-made">creates · Draft plan</span> <a class="ck-assetref" href="#asset-assets-intent-md">intent.md ↓</a> <a class="ck-assetref" href="#asset-assets-setup-subject-py">setup_subject.py ↓</a> <a class="ck-assetref" href="#asset-assets-seed-traces-py">seed_traces.py ↓</a></div><div class="ck-step-do"><strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default) and its background workers. This loop remediates things that already exist, so first run <code>assets/setup_subject.py</code> (it prints a <code>workflow_id</code> and an <code>agent_id</code>) and <code>assets/seed_traces.py</code> (it prints the 12 flagged trace ids). In the sidebar open <strong>Integrations</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href="#asset-assets-intent-md">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Goal</td><td>Our workflow's recent runs look weak - set up a review queue for the flagged traces and kick off a workflow calibration.</td></tr><tr><td>Autonomy</td><td>Stop before each change</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Decompose goal</span></div><div class="ck-see"><strong>You'll see:</strong> The plan opens with the status <code>draft</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Agent resources › Workflows (prerequisite)</span></div>
+        <span class="ck-mk-url">caliber · Integrations › Plans</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Workflows (prerequisite)</span></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">Plans</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Goal</span><span class="ck-mk-input">Our workflow&#x27;s recent runs look weak - set up a review queue for the flagged traces …</span></label><label class="ck-mk-field"><span class="ck-mk-label">Autonomy</span><span class="ck-mk-input">Stop before each change</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Decompose goal</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › (draft plan)</code> <span class="ck-made">creates · Reviewed plan (3 steps)</span> <a class="ck-assetref" href="#asset-assets-expected-plan-json">expected-plan.json ↓</a></div><div class="ck-step-do">Read <strong>Plan steps</strong>. Aria drew three steps: <code>review_queue.create</code>, <code>review_queue.add_items</code> (<em>depends on 1 prior step(s)</em>) and <code>workflow.calibrate</code> (it depends on nothing). Nothing has run. Compare with <a href="#asset-assets-expected-plan-json">expected-plan.json</a>.</div><div class="ck-see"><strong>You'll see:</strong> Three pending steps.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Integrations › Plans › (draft plan)</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">(draft plan)</span></div>
         <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Operate › Observability</code></div><div class="ck-step-do">Collect the <strong>flagged trace ids</strong> you will enqueue. In the sidebar, under <strong>Operate</strong>, click <strong>Observability</strong>, stay on the <strong>Traces</strong> tab, and set the <strong>Filter by status</strong> dropdown to <strong>Error</strong> to surface the weak runs. Click each weak trace to open it on the right — its full <code>trace_id</code> appears in the page URL (<code>?trace=…</code>) and you can also paste an id into the <em>Search traces</em> box to confirm it. Note 2-3 trace ids — you will paste them later.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Filter by status</td><td><code>Error</code> <span style="color:#888">(the option values are All statuses / OK / Error / In progress)</span></td></tr><tr><td>What to copy</td><td>2-3 <code>trace_id</code> values from the weak runs (from the URL after selecting each trace)</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> A filtered list of trace rows (each showing the trace <em>name</em> + an <em>ERROR</em> status badge). Selecting a row opens its detail and puts the full <code>trace_id</code> in the URL — keep those ids handy for the enqueue step.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › (draft plan)</code> <span class="ck-made">creates · Approved plan</span></div><div class="ck-step-do">Press <strong>Approve plan</strong>.</div><div class="ck-click">Click <span class="ck-btn">Approve plan</span></div><div class="ck-see"><strong>You'll see:</strong> The status becomes <code>approved</code> and an <strong>Execute</strong> button appears.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Operate › Observability</span></div>
+        <span class="ck-mk-url">caliber · Integrations › Plans › (draft plan)</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Observability</span><span class="ck-mk-title">Observability</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Filter by status</span><span class="ck-mk-input">Error (the option values are All statuses / OK / Error / In progress)</span></label><label class="ck-mk-field"><span class="ck-mk-label">What to copy</span><span class="ck-mk-input">2-3 trace_id values from the weak runs (from the URL after selecting each trace)</span></label></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › New goal</code> <span class="ck-made">creates · Aria plan (draft)</span></div><div class="ck-step-do"><strong>Before you start:</strong> set <code>CALIBER_FEATURE_ARIA=true</code> on the CALIBER server and restart it; Aria and the Plans page are off by default. In the sidebar, under <strong>Integrations</strong> (the page carries a <strong>Preview</strong> badge), click <strong>Plans</strong>. Type Aria's one-line intent into the <strong>Goal</strong> box, verbatim — the phrase <code>review queue</code> proposes both queue steps and the word <code>workflow</code> (calibration) proposes the calibrate step. Set <strong>Autonomy</strong> to <strong>Stop before each change</strong> (the <code>ask_each</code> level).</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Goal</td><td>Our workflow's recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration. <span style="color:#888">(canonical intent — copy from <a href="#asset-assets-intent-md">intent.md</a>)</span></td></tr><tr><td>Autonomy</td><td>Stop before each change <span style="color:#888">(= ask_each)</span></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Decompose goal</span></div><div class="ck-see"><strong>You'll see:</strong> The button shows <em>Decomposing…</em>, then Aria opens the plan's detail page. Breadcrumb <code>Plans › PLAN-…</code>, status badge <strong>DRAFT</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Integrations › Plans › New goal</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">New goal</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Goal</span><span class="ck-mk-input">Our workflow&#x27;s recent runs look weak — set up a review queue for the flagged traces …</span></label><label class="ck-mk-field"><span class="ck-mk-label">Autonomy</span><span class="ck-mk-input">Stop before each change (= ask_each)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Decompose goal</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › PLAN-… (draft)</code>  <a class="ck-assetref" href="#asset-assets-expected-plan-json">expected-plan.json ↓</a></div><div class="ck-step-do">Confirm Aria decomposed the sentence into the three remediation steps. Note the third step, <code>workflow.calibrate</code>, is Aria's first <strong>async</strong> capability. Compare against <a href="#asset-assets-expected-plan-json">expected-plan.json</a>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Step 1</td><td><code>review_queue.create</code> — tier mutate</td></tr><tr><td>Step 2</td><td><code>review_queue.add_items</code> — tier mutate (needs EXISTING trace ids)</td></tr><tr><td>Step 3</td><td><code>workflow.calibrate</code> — tier mutate, ASYNC (needs EXISTING workflow_id + agent_id)</td></tr></tbody></table></div><div class="ck-see"><strong>You'll see:</strong> A three-row <strong>Plan steps</strong> list (<code>review_queue.create</code>, <code>review_queue.add_items</code>, <code>workflow.calibrate</code>), each with a <em>PENDING</em> badge.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Integrations › Plans › PLAN-… (draft)</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">PLAN-… (draft)</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Step 1</span><span class="ck-mk-input">review_queue.create — tier mutate</span></label><label class="ck-mk-field"><span class="ck-mk-label">Step 2</span><span class="ck-mk-input">review_queue.add_items — tier mutate (needs EXISTING trace ids)</span></label><label class="ck-mk-field"><span class="ck-mk-label">Step 3</span><span class="ck-mk-input">workflow.calibrate — tier mutate, ASYNC (needs EXISTING workflow_id + agent_id)</span></label></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › PLAN-… (draft)</code></div><div class="ck-step-do">Approve the plan shape. Click <strong>Approve plan</strong> in the top-right of the plan header.</div><div class="ck-click">Click <span class="ck-btn">Approve plan</span></div><div class="ck-see"><strong>You'll see:</strong> The status badge flips from <strong>DRAFT</strong> to <strong>APPROVED</strong>, and an <strong>Execute</strong> button appears.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Integrations › Plans › PLAN-… (draft)</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">PLAN-… (draft)</span></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">(draft plan)</span></div>
         <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Approve plan</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › PLAN-… (approved)</code></div><div class="ck-step-do">Start running the plan. Click <strong>Execute</strong>. Aria reaches the first step, <code>review_queue.create</code>, but the planner could not know your queue's name or question schema, so it pauses on a violet <strong>Aria needs information</strong> form with two buttons, <strong>Continue plan</strong> and <strong>Skip step</strong>. Each of the three steps works the same way: an input form for the fields the planner could not fill, then (under <em>ask_each</em>) an <strong>Approve</strong> / <strong>Deny</strong> prompt.</div><div class="ck-click">Click <span class="ck-btn">Execute</span></div><div class="ck-see"><strong>You'll see:</strong> The <code>review_queue.create</code> row shows <em>WAITING INPUT</em> and an <strong>Aria needs information</strong> form is open above the step list.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › (approved plan)</code> <span class="ck-made">creates · Review queue created by Aria</span> <a class="ck-assetref" href="#asset-assets-review-queues-triage-review-queue-json">triage-review.queue.json ↓</a></div><div class="ck-step-do">Press <strong>Execute</strong>. Aria stops on <strong>Aria needs information</strong> (<em>Provide the required inputs for step 1: Create review queue.</em>). Fill <strong>name</strong>, <strong>description</strong>, <strong>questions</strong> and <strong>reviewers</strong> (JSON arrays) from <a href="#asset-assets-review-queues-triage-review-queue-json">triage-review.queue.json</a>, press <strong>Continue plan</strong>, then <strong>Approve</strong> <em>Approve step 1: Create review queue (review_queue.create)?</em>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>name</td><td>weak-runs-triage</td></tr><tr><td>questions</td><td>[{"key":"resolution_correct","title":"Did the workflow reach the correct resolution?","type":"pass_fail",...}, ...]</td></tr><tr><td>reviewers</td><td>["olga"]</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Approve</span></div><div class="ck-see"><strong>You'll see:</strong> The queue step reads <em>done</em>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Integrations › Plans › PLAN-… (approved)</span></div>
+        <span class="ck-mk-url">caliber · Integrations › Plans › (approved plan)</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">PLAN-… (approved)</span></div>
-        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Execute</span></div></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">(approved plan)</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">name</span><span class="ck-mk-input">weak-runs-triage</span></label><label class="ck-mk-field"><span class="ck-mk-label">questions</span><span class="ck-mk-input">[{&quot;key&quot;:&quot;resolution_correct&quot;,&quot;title&quot;:&quot;Did the workflow reach the correct resolution?…</span></label><label class="ck-mk-field"><span class="ck-mk-label">reviewers</span><span class="ck-mk-input">[&quot;olga&quot;]</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Approve</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › PLAN-… (input form)</code> <span class="ck-made">creates · Review queue: weak-runs-triage (created by Aria)</span> <a class="ck-assetref" href="#asset-assets-review-queues-triage-review-queue-json">triage-review.queue.json ↓</a></div><div class="ck-step-do">Fill the review-queue form from <a href="#asset-assets-review-queues-triage-review-queue-json">triage-review.queue.json</a>: the <strong>name</strong>, a <strong>description</strong>, and the four-question <strong>questions</strong> JSON array (the form rejects invalid JSON). Note two special types: <code>failure_mode</code> is <em>categorical</em> (with options) and <code>expected_answer</code> uses target <strong>expectation</strong> (its answer becomes ground truth on the trace). Click <strong>Continue plan</strong>, then <strong>Approve</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>name</td><td>weak-runs-triage</td></tr><tr><td>description</td><td>Human triage of weak workflow runs: was the resolution correct, what failed, how severe, and what the answer should have been.</td></tr><tr><td>questions</td><td><code>[{"key": "resolution_correct", "title": "Did the workflow reach the correct resolution?", "type": "pass_fail", "required": true, "target": "feedback"}, {"key": "failure_mode", "title": "Primary failure mode", "type": "categorical", "options": ["wrong_tool", "missing_evidence", "hallucinated_claim", "bad_escalation", "none"], "required": true, "target": "feedback"}, {"key": "severity", "title": "Severity (1-5)", "type": "numeric", "required": false, "target": "feedback"}, {"key": "expected_answer", "title": "What should the answer have been? (becomes the expectation)", "type": "text", "required": false, "target": "expectation"}]</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Continue plan</span></div><div class="ck-see"><strong>You'll see:</strong> After <strong>Approve</strong>, <code>review_queue.create</code> shows <em>DONE</em> and the plan pauses on the <code>review_queue.add_items</code> form.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › (running plan)</code> <span class="ck-made">creates · 12 flagged traces queued</span> <a class="ck-assetref" href="#asset-assets-enqueue-json">enqueue.json ↓</a></div><div class="ck-step-do"><em>Provide the required inputs for step 2: Enqueue traces for review.</em> There is no queue id field: it is wired from the first step. Fill <strong>trace ids</strong> with a JSON array of the 12 ids <code>seed_traces.py</code> printed and <strong>assigned to</strong>, press <strong>Continue plan</strong>, then <strong>Approve</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>trace ids</td><td>["tr-...", ...]</td></tr><tr><td>assigned to</td><td>admin</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Approve</span></div><div class="ck-see"><strong>You'll see:</strong> The enqueue step reads <em>done</em>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Integrations › Plans › PLAN-… (input form)</span></div>
+        <span class="ck-mk-url">caliber · Integrations › Plans › (running plan)</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">PLAN-… (input form)</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">name</span><span class="ck-mk-input">weak-runs-triage</span></label><label class="ck-mk-field"><span class="ck-mk-label">description</span><span class="ck-mk-input">Human triage of weak workflow runs: was the resolution correct, what failed, how sev…</span></label><label class="ck-mk-field"><span class="ck-mk-label">questions</span><span class="ck-mk-input">[{&quot;key&quot;: &quot;resolution_correct&quot;, &quot;title&quot;: &quot;Did the workflow reach the correct resoluti…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Continue plan</span></div></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">(running plan)</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">trace ids</span><span class="ck-mk-input">[&quot;tr-...&quot;, ...]</span></label><label class="ck-mk-field"><span class="ck-mk-label">assigned to</span><span class="ck-mk-input">admin</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Approve</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › PLAN-… (input form)</code> <span class="ck-made">creates · Flagged traces enqueued for triage</span> <a class="ck-assetref" href="#asset-assets-enqueue-json">enqueue.json ↓</a></div><div class="ck-step-do">Enqueue the real flagged traces (the <code>review_queue.add_items</code> step). The planner linked this step's <code>queue_id</code> to the queue just created, so the form asks only for <strong>trace ids</strong> (a JSON array; optional experiment id and assignee). Enter the <strong>real</strong> trace ids you noted from Observability — replace the placeholders in <a href="#asset-assets-enqueue-json">enqueue.json</a> — click <strong>Continue plan</strong>, then <strong>Approve</strong>.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>trace ids</td><td><code>["tr-…", "tr-…", "tr-…"]</code> <span style="color:#888">(the REAL flagged trace ids from Observability — not placeholders)</span></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Continue plan</span></div><div class="ck-see"><strong>You'll see:</strong> After <strong>Approve</strong>, <code>review_queue.add_items</code> shows <em>DONE</em> and the plan pauses on the <code>workflow.calibrate</code> form.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › (running plan)</code> <span class="ck-made">creates · Plan parked on the calibration job</span> <a class="ck-assetref" href="#asset-assets-calibrate-json">calibrate.json ↓</a></div><div class="ck-step-do"><em>Provide the required inputs for step 3: Calibrate workflow.</em> Fill <strong>workflow id</strong> and <strong>agent id</strong> with the ids <code>setup_subject.py</code> printed (<a href="#asset-assets-calibrate-json">calibrate.json</a>), press <strong>Continue plan</strong>, then <strong>Approve</strong> <em>Approve step 3: Calibrate workflow (workflow.calibrate)?</em>. Approving enqueues a real calibration job.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>workflow id</td><td>WF-...</td></tr><tr><td>agent id</td><td>cookbook-15-agent-...</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Approve</span></div><div class="ck-see"><strong>You'll see:</strong> The plan header reads <code>running</code> and the step <em>waiting job</em>; there is nothing to answer. The plan is parked on the job.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Integrations › Plans › PLAN-… (input form)</span></div>
+        <span class="ck-mk-url">caliber · Integrations › Plans › (running plan)</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">PLAN-… (input form)</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">trace ids</span><span class="ck-mk-input">[&quot;tr-…&quot;, &quot;tr-…&quot;, &quot;tr-…&quot;] (the REAL flagged trace ids from Observability — not placeh…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Continue plan</span></div></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">(running plan)</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">workflow id</span><span class="ck-mk-input">WF-...</span></label><label class="ck-mk-field"><span class="ck-mk-label">agent id</span><span class="ck-mk-input">cookbook-15-agent-...</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Approve</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › PLAN-… (input form)</code> <span class="ck-made">creates · Workflow calibration job (async, plan parked)</span> <a class="ck-assetref" href="#asset-assets-calibrate-json">calibrate.json ↓</a></div><div class="ck-step-do">Kick off the workflow calibration (the <code>workflow.calibrate</code> step). Enter the <strong>real</strong> <code>workflow_id</code> and <code>agent_id</code> from <a href="#asset-assets-calibrate-json">calibrate.json</a> (the SCN-07 workflow and the agent bound in it), click <strong>Continue plan</strong>, then <strong>Approve</strong>. Approving enqueues a real workflow-calibration (refinement) job; the step <strong>parks</strong> in <em>WAITING JOB</em> and the plan stays <strong>RUNNING</strong> — it does not pause for a human.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>workflow id</td><td><span style="color:#888">the REAL existing workflow id (the SCN-07 workflow)</span></td></tr><tr><td>agent id</td><td><span style="color:#888">the REAL agent id bound in that workflow</span></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Continue plan</span></div><div class="ck-see"><strong>You'll see:</strong> After <strong>Approve</strong>, the <code>workflow.calibrate</code> row shows <em>WAITING JOB</em> and the plan status is <strong>RUNNING</strong>. A new entry also appears under the workflow's <strong>Calibration runs</strong> — the real async refinement job.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › (running plan)</code> <span class="ck-made">creates · Plan settled by itself, ending where the job ended</span></div><div class="ck-step-do">Do not click anything. The page re-reads a running plan every five seconds, and the plan worker resumes it when the job finishes (about half a minute).</div><div class="ck-see"><strong>You'll see:</strong> On the simulated stack the status becomes <code>failed</code>: steps 1 and 2 <em>done</em>, step 3 <em>failed</em> with <code>rejected: workflow calibration rejected: no candidate met calibration gates; quality delta +0.000 &lt; epsilon 0.02</code> (a fake executor cannot make a candidate beat the baseline). With a real model the job can reach <code>candidate_ready</code> and the plan reads <code>completed</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Integrations › Plans › PLAN-… (input form)</span></div>
+        <span class="ck-mk-url">caliber · Integrations › Plans › (running plan)</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">PLAN-… (input form)</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">workflow id</span><span class="ck-mk-input">the REAL existing workflow id (the SCN-07 workflow)</span></label><label class="ck-mk-field"><span class="ck-mk-label">agent id</span><span class="ck-mk-input">the REAL agent id bound in that workflow</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Continue plan</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans › PLAN-… (waiting on a job)</code> <span class="ck-made">creates · Plan resumed and completed after the async job</span></div><div class="ck-step-do">Let the async job run. This is the genuinely asynchronous part of the loop and there is nothing to click: the plan worker polls the job about every 10 seconds and resumes the plan by itself. Refresh the plan page (the Plans UI has no Poll button) until the step leaves <em>WAITING JOB</em>. The job counts as done when it reaches <code>candidate_ready</code> (or <code>applied</code>); <code>rejected</code>, <code>failed</code> or <code>error</code> fails the step and the plan. The plan does not apply the candidate. (Over the API, <code>POST /aria/plans/{id}/poll</code> advances it on demand.) With the default fake evaluator the job's scores are canned.</div><div class="ck-see"><strong>You'll see:</strong> The <code>workflow.calibrate</code> row flips to <em>DONE</em> and the plan reaches <strong>COMPLETED</strong> with all three steps done.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Integrations › Plans › PLAN-… (waiting on a job)</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">PLAN-… (waiting on a job)</span></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">(running plan)</span></div>
         <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Operate › Review Queues  +  Agent resources › Workflows</code></div><div class="ck-step-do">Final verification across surfaces. <strong>Review Queues › weak-runs-triage</strong> shows the flagged traces enqueued and ready to review. <strong>Workflows › (your workflow) › Calibration runs</strong> shows the calibration job at <em>candidate ready</em> (or <em>applied</em>). The Aria plan (under <strong>Plans</strong>, status <strong>COMPLETED</strong>, all three steps done) is the orchestration record for the whole triage → remediation loop.</div><div class="ck-see"><strong>You'll see:</strong> A populated <code>weak-runs-triage</code> queue, a finished calibration run on the workflow, and a completed Aria plan — the governance → remediation loop end to end.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Operate › Review Queues</code> <span class="ck-made">creates · Queue with 12 flagged traces</span></div><div class="ck-step-do">Open <strong>Review Queues</strong>.</div><div class="ck-see"><strong>You'll see:</strong> A row <code>weak-runs-triage</code> with 4 questions, the reviewer <code>olga</code> and <code>0/12 reviewed</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Operate › Review Queues  +  Agent resources › Workflows</span></div>
+        <span class="ck-mk-url">caliber · Operate › Review Queues</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Workflows</span></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Review Queues</span><span class="ck-mk-title">Review Queues</span></div>
         <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Operate › Review Queues › weak-runs-triage (follow-up)</code></div><div class="ck-step-do"><strong>(Optional follow-up)</strong> Have reviewers answer the queue's questions — the <strong>expectation</strong>-targeted <code>expected_answer</code> writes ground truth back onto each trace. Then compare the recalibrated workflow against its baseline runs and feed the hard cases into its eval dataset (see SCN-01 / SCN-10) to keep tightening the loop.</div><div class="ck-see"><strong>You'll see:</strong> Submitted reviews write assessments + expectations back onto the traces, giving you ground-truth labels to compare the recalibrated workflow against its baseline.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Operate › Review Queues › (queue)</code> <span class="ck-made">creates · One flagged run triaged</span> <a class="ck-assetref" href="#asset-assets-dataset-support-runs-jsonl">support-runs.jsonl ↓</a></div><div class="ck-step-do">Open the queue (<strong>Items (12)</strong>) and pick the trace of <code>S19</code>. Answer from <a href="#asset-assets-dataset-support-runs-jsonl">support-runs.jsonl</a>: <strong>Fail</strong> for <em>Did the workflow reach the correct resolution?</em>, <code>missing_evidence</code> for <em>Primary failure mode</em>, <code>3</code> for <em>Severity (1-5)</em>, and the reference answer for <em>What should the answer have been?</em>. Press <strong>Submit review</strong>.</div><div class="ck-click">Click <span class="ck-btn">Submit review</span></div><div class="ck-see"><strong>You'll see:</strong> The trace reads <em>completed</em> and the list row reads <code>1/12 reviewed</code>. The answers are assessments on the trace; the expected answer is its expectation.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Operate › Review Queues › weak-runs-triage (follow-up)</span></div>
+        <span class="ck-mk-url">caliber · Operate › Review Queues › (queue)</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Review Queues</span><span class="ck-mk-title">weak-runs-triage (follow-up)</span></div>
-        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Review Queues</span><span class="ck-mk-title">(queue)</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Submit review</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans</code> <span class="ck-made">creates · Calibration step fails at once</span></div><div class="ck-step-do">State <code>Calibrate the support workflow.</code>, press <strong>Decompose goal</strong>, <strong>Approve plan</strong>, <strong>Execute</strong>, fill <strong>workflow id</strong> with <code>WF-does-not-exist</code> and any agent id, and press <strong>Continue plan</strong>.</div><div class="ck-click">Click <span class="ck-btn">Continue plan</span></div><div class="ck-see"><strong>You'll see:</strong> The plan reads <code>failed</code> at once; the step shows <code>workflow 'WF-does-not-exist' not found (HTTP 404)</code> and does not read <em>waiting job</em>: no job was queued.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Integrations › Plans</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">Plans</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Continue plan</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › Plans</code> <span class="ck-made">creates · A denied calibration queues nothing</span></div><div class="ck-step-do">State the same sentence under <strong>Stop before each change</strong>, approve and execute, fill the two real ids, press <strong>Continue plan</strong>, and at <em>Approve step 1: Calibrate workflow (workflow.calibrate)?</em> press <strong>Deny</strong>.</div><div class="ck-click">Click <span class="ck-btn">Deny</span></div><div class="ck-see"><strong>You'll see:</strong> The plan reads <code>completed</code> and the step <em>skipped</em>; no job was queued.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Integrations › Plans</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Plans</span><span class="ck-mk-title">Plans</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Deny</span></div></div>
       </div>
     </figure></div></div></li></ol>
       <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/15-aria-triage-recalibrate-loop/assets/</code>.</p><div class="ck-asset" id="asset-assets-intent-md">
@@ -173,60 +171,254 @@
         <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
       <pre data-lang="markdown"><code># The intent you give Aria
 
-## Canonical (works with the default HeuristicPlanner)
+## Canonical (works with the default planner)
 
-&gt; Our workflow&#x27;s recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration.
+&gt; Our workflow&#x27;s recent runs look weak - set up a review queue for the flagged traces and kick off a workflow calibration.
 
 Why this wording: the default planner proposes a step for each capability whose
-**domain word** appears in the goal. The phrase **&quot;review queue&quot;** maps to
-**both** `review_queue.create` **and** `review_queue.add_items`; the word
-**&quot;workflow&quot;** (calibration) maps to `workflow.calibrate`. Keep both literal
-needles in the sentence.
+**domain word** appears in the goal. &quot;review queue&quot; gives `review_queue.create` **and**
+`review_queue.add_items` (same domain); &quot;workflow&quot; gives `workflow.calibrate`. Keep both in
+the sentence.
 
-Autonomy: **Stop before each change** (`ask_each`: an **Approve** / **Deny** prompt before every mutate step, after the input form).
+Autonomy: **Stop before each change** (`ask_each`: an **Approve** / **Deny** prompt before
+every step that changes something, after the input form).
 
-## Natural-language variant (not understood by the default planner)
+## This loop remediates things that already exist
 
-&gt; Our latest runs aren&#x27;t great — get a human to look at the bad ones and then tune the pipeline.
+`review_queue.add_items` needs trace ids that exist, and `workflow.calibrate` needs a workflow
+and an agent that exist. Aria creates neither: it does not discover traces, and it cannot
+build a workflow (`Create a new workflow for returns.` plans a *calibration*, not a workflow).
+`setup_subject.py` creates the lab&#x27;s subject (two tools, a published workflow with its test
+set as the deploy gate, an agent) and `seed_traces.py` writes the flagged traces; in a real
+deployment they are yours.
 
-This reads better, but the default heuristic planner has no mapping from &quot;get a
-human to look at the bad ones&quot; to the review-queue steps or &quot;tune the pipeline&quot;
-to `workflow.calibrate` (the sentence contains neither &quot;review queue&quot; nor
-&quot;workflow&quot;), so it plans nothing. Use the canonical wording.
+## What the planner does with other sentences
 
-## Remember: this loop remediates EXISTING things
+`dataset/goals.jsonl` holds 28 goals and the plan the server draws for each one; the script
+checks all 28 against the real server. In short:
 
-`review_queue.add_items` needs **real existing** `trace_ids` and
-`workflow.calibrate` needs an **existing** `workflow_id` + `agent_id`. Aria does
-not create the subject workflow or its traces — build that in **SCN-07** first,
-then enter the ids in the input forms when Aria pauses (see [`enqueue.json`](enqueue.json) and
-[`calibrate.json`](calibrate.json)).
+- Any sentence with `review queue` plans both the queue and its enqueue step; any with
+  `workflow` plans a calibration, whatever the sentence is about (`We are in the middle of a
+  workflow outage.` plans one). Both can appear in one plan, always in the order queue, enqueue,
+  calibrate.
+- &quot;pipeline&quot;, &quot;tune&quot;, &quot;human review&quot;, &quot;get a human to look&quot; and &quot;re-run the evaluation&quot; are
+  not domain words: `Tune the pipeline and get a human to look at the bad runs.` plans nothing.
+  There is no language model behind the planner.
+- It does not read negation (`Do not calibrate the workflow, only set up the review queue.`
+  still plans the calibration), questions, &quot;rebuild&quot; or &quot;roll back&quot;: there is no capability
+  for those, and the word `workflow` still plans a calibration.
+- A sentence with no domain word makes a plan with no steps; it cannot be approved
+  (HTTP 409).
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-setup-subject-py">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/setup_subject.py</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="python"><code>#!/usr/bin/env python3
+&quot;&quot;&quot;Create the things lab 15 remediates: the tools, a published workflow, its test set and an agent.
+
+Aria&#x27;s plan in this lab does not create any of them (``workflow.calibrate`` takes an *existing*
+workflow and agent), so a fresh stack needs them first. In a real deployment they are your own.
+This registers the two tools (``lookup_policy``, ``get_order``; one that is already registered is
+kept), loads the 30 cases of ``dataset/support-runs.jsonl`` into a test set, imports and publishes
+``workflows/support-policy-agent.workflow.json`` with that test set as its deploy gate, and
+registers an agent. Every name carries ``--suffix`` so a second run does not collide with the first.
+
+    export CALIBER_BASE_URL=http://127.0.0.1:5001   # the server root
+    export CALIBER_TOKEN=calpat_...      # an admin token (or CALIBER_USER / CALIBER_PASSWORD)
+    PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python \
+        docs-site/cookbooks/15-aria-triage-recalibrate-loop/assets/setup_subject.py --suffix demo
+
+Prints ``{&quot;workflow_id&quot;, &quot;agent_id&quot;, &quot;dataset_id&quot;, &quot;workflow_name&quot;, &quot;gate_name&quot;, &quot;tools&quot;}`` as JSON.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import argparse
+import json
+import os
+import sys
+import time
+from pathlib import Path
+from typing import Any
+
+ASSETS = Path(__file__).resolve().parent
+NAME_PREFIX = &quot;cookbook-15-&quot;
+
+
+def register_tools(caliber: Any, assets: Path = ASSETS) -&gt; list[str]:
+    &quot;&quot;&quot;Register the lab&#x27;s tools; one already registered with the same name and version is kept.&quot;&quot;&quot;
+    existing = {(tool.name, tool.version) for tool in caliber.tools.list()}
+    registered: list[str] = []
+    for path in sorted((assets / &quot;tools&quot;).glob(&quot;*.tool.json&quot;)):
+        spec = json.loads(path.read_text(encoding=&quot;utf-8&quot;))
+        spec.pop(&quot;notes&quot;, None)
+        name, version = spec.pop(&quot;name&quot;), spec.pop(&quot;version&quot;)
+        if (name, version) not in existing:
+            caliber.tools.register(
+                name,
+                version=version,
+                module_path=spec.pop(&quot;module_path&quot;),
+                callable_name=spec.pop(&quot;callable_name&quot;),
+                **spec,
+            )
+        registered.append(name)
+    return registered
+
+
+def setup(caliber: Any, suffix: str, assets: Path = ASSETS) -&gt; dict[str, Any]:
+    &quot;&quot;&quot;Create the subject and return its ids and names.&quot;&quot;&quot;
+    owner = caliber.me.get().user_id
+    tools = register_tools(caliber, assets)
+    runs = [
+        json.loads(line)
+        for line in (assets / &quot;dataset/support-runs.jsonl&quot;).read_text(&quot;utf-8&quot;).splitlines()
+        if line.strip()
+    ]
+    gate_name = f&quot;{NAME_PREFIX}support-policy-gate-{suffix}&quot;
+    gate = caliber.eval_datasets.create(
+        gate_name, owner=owner, description=&quot;Support questions with the tools each one needs.&quot;
+    )
+    for row in runs:
+        caliber.eval_datasets.add_example(
+            gate.dataset_id,
+            input={&quot;input&quot;: row[&quot;question&quot;]},
+            expected={&quot;expected&quot;: row[&quot;reference&quot;], &quot;required_tools&quot;: row[&quot;required_tools&quot;]},
+            tags=[&quot;weak&quot; if row[&quot;weak&quot;] else &quot;ok&quot;],
+        )
+    manifest = json.loads(
+        (assets / &quot;workflows/support-policy-agent.workflow.json&quot;).read_text(encoding=&quot;utf-8&quot;)
+    )
+    manifest[&quot;artifacts&quot;][&quot;eval_datasets&quot;][&quot;support_eval&quot;][&quot;dataset_name&quot;] = gate_name
+    workflow_name = f&quot;{NAME_PREFIX}support-policy-agent-{suffix}&quot;
+    workflow = caliber.workflows.import_workflow(manifest=manifest, name=workflow_name)
+    version = caliber.workflows.versions.list(workflow.workflow_id)[0]
+    caliber.workflows.versions.publish(version.version_id)
+    agent_id = f&quot;{NAME_PREFIX}agent-{suffix}&quot;
+    caliber.agents.create(agent_id, experiment_id=f&quot;exp-{agent_id}&quot;, name=&quot;support policy agent&quot;)
+    return {
+        &quot;workflow_id&quot;: workflow.workflow_id,
+        &quot;workflow_name&quot;: workflow_name,
+        &quot;version_id&quot;: version.version_id,
+        &quot;agent_id&quot;: agent_id,
+        &quot;dataset_id&quot;: gate.dataset_id,
+        &quot;gate_name&quot;: gate_name,
+        &quot;tools&quot;: tools,
+    }
+
+
+def _client() -&gt; Any:
+    from caliber_sdk import CaliberClient
+
+    base = os.environ[&quot;CALIBER_BASE_URL&quot;]
+    token = os.environ.get(&quot;CALIBER_TOKEN&quot;)
+    if not token:
+        import httpx
+
+        response = httpx.post(
+            f&quot;{base.rstrip(&#x27;/&#x27;)}/ajax-api/2.0/mlflow/caliber/auth/login&quot;,
+            json={
+                &quot;user_id&quot;: os.environ.get(&quot;CALIBER_USER&quot;, &quot;admin&quot;),
+                &quot;password&quot;: os.environ.get(&quot;CALIBER_PASSWORD&quot;, &quot;admin&quot;),
+            },
+            timeout=30,
+        )
+        response.raise_for_status()
+        token = response.cookies[&quot;caliber_session&quot;]
+    return CaliberClient(base, token=token)
+
+
+if __name__ == &quot;__main__&quot;:
+    parser = argparse.ArgumentParser(description=__doc__.split(&quot;\n&quot;, 1)[0])
+    parser.add_argument(&quot;--suffix&quot;, default=time.strftime(&quot;%Y%m%d-%H%M%S&quot;))
+    args = parser.parse_args()
+    with _client() as client:
+        json.dump(setup(client, args.suffix), sys.stdout, indent=2)
+        sys.stdout.write(&quot;\n&quot;)
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-seed-traces-py">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/seed_traces.py</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="python"><code>#!/usr/bin/env python3
+&quot;&quot;&quot;Record the 12 weak support runs as MLflow traces, so a review queue can hold them.
+
+In a real deployment these traces are produced by your workflow and flagged by a person, a metric or
+a guardrail. A fresh checkout has none, and Operate &gt; Review Queues works on traces, so this script
+writes one trace per *weak* row of ``dataset/support-runs.jsonl``: the request is the customer&#x27;s
+question, the response is the reply the agent gave, and the tags say which run it is
+(``cookbook15.row``, S19..S30) and what went wrong (``cookbook15.failure_mode`` and
+``cookbook15.reason``). The runs the agent got right are not written: nobody flags them.
+
+Needs the ``mlflow`` package and ``MLFLOW_TRACKING_URI`` (the MLflow server CALIBER uses).
+Prints a JSON map ``{&quot;S19&quot;: &quot;&lt;trace_id&gt;&quot;, ...}`` on stdout. Every run writes 12 new traces, so run
+it once per environment.
+
+    MLFLOW_TRACKING_URI=http://127.0.0.1:5000 \
+      python docs-site/cookbooks/15-aria-triage-recalibrate-loop/assets/seed_traces.py &gt; traces.json
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import json
+import sys
+from pathlib import Path
+
+DATASET = Path(__file__).resolve().parent / &quot;dataset&quot; / &quot;support-runs.jsonl&quot;
+EXPERIMENT = &quot;cookbook-15-weak-support-runs&quot;
+
+
+def seed(dataset: Path = DATASET) -&gt; dict[str, str]:
+    &quot;&quot;&quot;Write one trace per weak row and return ``{row id: trace id}``.&quot;&quot;&quot;
+    import mlflow
+
+    mlflow.set_experiment(EXPERIMENT)
+    trace_ids: dict[str, str] = {}
+    for line in dataset.read_text(encoding=&quot;utf-8&quot;).splitlines():
+        if not line.strip():
+            continue
+        row = json.loads(line)
+        if not row[&quot;weak&quot;]:
+            continue
+        with mlflow.start_span(name=&quot;support-policy-agent&quot;, span_type=&quot;CHAIN&quot;) as span:
+            span.set_inputs({&quot;question&quot;: row[&quot;question&quot;]})
+            span.set_outputs(row[&quot;reply&quot;])
+            trace_id = span.trace_id
+        mlflow.set_trace_tag(trace_id, &quot;cookbook15.row&quot;, row[&quot;id&quot;])
+        mlflow.set_trace_tag(trace_id, &quot;cookbook15.failure_mode&quot;, row[&quot;reason&quot;].split(&quot;:&quot;, 1)[0])
+        mlflow.set_trace_tag(trace_id, &quot;cookbook15.reason&quot;, row[&quot;reason&quot;])
+        trace_ids[row[&quot;id&quot;]] = trace_id
+    mlflow.flush_trace_async_logging()
+    return trace_ids
+
+
+if __name__ == &quot;__main__&quot;:
+    json.dump(seed(), sys.stdout, indent=2)
+    sys.stdout.write(&quot;\n&quot;)
 </code></pre>
     </div><div class="ck-asset" id="asset-assets-expected-plan-json">
       <div class="ck-asset-bar"><span class="ck-asset-name">assets/expected-plan.json</span>
         <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
       <pre data-lang="json"><code>{
-  &quot;goal&quot;: &quot;Our workflow&#x27;s recent runs look weak — set up a review queue for the flagged traces and kick off a workflow calibration.&quot;,
+  &quot;goal&quot;: &quot;Our workflow&#x27;s recent runs look weak - set up a review queue for the flagged traces and kick off a workflow calibration.&quot;,
   &quot;autonomy&quot;: &quot;ask_each&quot;,
   &quot;expected_steps&quot;: [
     {
       &quot;capability_key&quot;: &quot;review_queue.create&quot;,
       &quot;tier&quot;: &quot;mutate&quot;,
-      &quot;interaction&quot;: &quot;input form (Aria needs information): enter name + questions from review-queues/triage-review.queue.json, then Approve&quot;
+      &quot;interaction&quot;: &quot;input form (Aria needs information): enter name, description, reviewers and questions from review-queues/triage-review.queue.json, then Approve&quot;
     },
     {
       &quot;capability_key&quot;: &quot;review_queue.add_items&quot;,
       &quot;tier&quot;: &quot;mutate&quot;,
-      &quot;interaction&quot;: &quot;input form: enter REAL flagged trace_ids of the weak runs (enqueue.json), then Approve; queue_id is linked from the previous step&quot;
+      &quot;interaction&quot;: &quot;input form: enter the flagged trace_ids (from seed_traces.py) and optionally assigned_to (enqueue.json); queue_id is wired from review_queue.create and is not asked for. Then Approve&quot;
     },
     {
       &quot;capability_key&quot;: &quot;workflow.calibrate&quot;,
       &quot;tier&quot;: &quot;mutate&quot;,
       &quot;async&quot;: true,
-      &quot;interaction&quot;: &quot;input form: enter a REAL existing workflow_id + agent_id (calibrate.json), then Approve; approving enqueues the async job and the plan PARKS (waiting_job) until the plan worker (or POST /aria/plans/{id}/poll) sees the refinement job reach candidate_ready/applied&quot;
+      &quot;interaction&quot;: &quot;input form: enter an existing workflow_id and agent_id (from setup_subject.py; see calibrate.json), then Approve. Approving enqueues a refinement job and the plan PARKS (status running, step waiting_job) until the plan worker, or POST /aria/plans/{id}/poll, sees the job finish&quot;
     }
   ],
-  &quot;notes&quot;: &quot;review_queue.add_items depends on review_queue.create (its queue_id is linked by the planner); workflow.calibrate has no dependency, and you fill the forms in step order. review_queue.add_items + workflow.calibrate operate on EXISTING ids (traces, workflow, agent) — Aria does not create them. The final step is asynchronous: the plan parks until the job is done (the worker resumes it automatically), then completes.&quot;
+  &quot;notes&quot;: &quot;review_queue.add_items depends on review_queue.create (its queue_id is wired); workflow.calibrate depends on nothing. add_items and calibrate operate on EXISTING ids (traces, workflow, agent): Aria does not create them. The calibration job ends candidate_ready or applied (the plan completes), or rejected / failed / error (the plan fails with the job&#x27;s reason). On a simulated deployment the job is rejected: the fake executor gives a candidate the same outputs as the baseline, so the quality gain (+0.000) is below the 0.02 it must clear.&quot;
 }
 </code></pre>
     </div><div class="ck-asset" id="asset-assets-review-queues-triage-review-queue-json">
@@ -234,8 +426,10 @@ then enter the ids in the input forms when Aria pauses (see [`enqueue.json`](enq
         <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
       <pre data-lang="json"><code>{
   &quot;name&quot;: &quot;weak-runs-triage&quot;,
-  &quot;description&quot;: &quot;Human triage of weak workflow runs: was the resolution correct, what failed, how severe, and what the answer should have been.&quot;,
-  &quot;reviewers&quot;: [],
+  &quot;description&quot;: &quot;Human triage of weak support runs: was the resolution correct, what failed, how severe, and what the answer should have been.&quot;,
+  &quot;reviewers&quot;: [
+    &quot;olga&quot;
+  ],
   &quot;questions&quot;: [
     {
       &quot;key&quot;: &quot;resolution_correct&quot;,
@@ -248,7 +442,13 @@ then enter the ids in the input forms when Aria pauses (see [`enqueue.json`](enq
       &quot;key&quot;: &quot;failure_mode&quot;,
       &quot;title&quot;: &quot;Primary failure mode&quot;,
       &quot;type&quot;: &quot;categorical&quot;,
-      &quot;options&quot;: [&quot;wrong_tool&quot;, &quot;missing_evidence&quot;, &quot;hallucinated_claim&quot;, &quot;bad_escalation&quot;, &quot;none&quot;],
+      &quot;options&quot;: [
+        &quot;wrong_tool&quot;,
+        &quot;missing_evidence&quot;,
+        &quot;hallucinated_claim&quot;,
+        &quot;bad_escalation&quot;,
+        &quot;none&quot;
+      ],
       &quot;required&quot;: true,
       &quot;target&quot;: &quot;feedback&quot;
     },
@@ -267,36 +467,68 @@ then enter the ids in the input forms when Aria pauses (see [`enqueue.json`](enq
       &quot;target&quot;: &quot;expectation&quot;
     }
   ],
-  &quot;notes&quot;: &quot;Inputs for the Aria review_queue.create step (enter name, description and questions in its form; same shape as POST /review-queues). &#x27;target: expectation&#x27; writes the reviewer&#x27;s answer back onto the trace as ground truth; &#x27;target: feedback&#x27; logs it as an assessment.&quot;
+  &quot;notes&quot;: &quot;Inputs for the Aria review_queue.create step (the same shape as POST /review-queues). In the plan&#x27;s form, questions and reviewers are JSON arrays. &#x27;target: expectation&#x27; writes the reviewer&#x27;s answer back onto the trace as ground truth; &#x27;target: feedback&#x27; logs it as an assessment. The failure_mode options are the ones the lab&#x27;s weak runs use (see dataset/support-runs.jsonl). Strip this notes key before posting the file as inputs.&quot;
 }
 </code></pre>
     </div><div class="ck-asset" id="asset-assets-enqueue-json">
       <div class="ck-asset-bar"><span class="ck-asset-name">assets/enqueue.json</span>
         <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
       <pre data-lang="json"><code>{
-  &quot;queue_id&quot;: &quot;&lt;linked automatically from the review_queue.create step; not entered in the form&gt;&quot;,
   &quot;trace_ids&quot;: [
-    &quot;&lt;REAL flagged trace id 1 from Observability&gt;&quot;,
-    &quot;&lt;REAL flagged trace id 2 from Observability&gt;&quot;,
-    &quot;&lt;REAL flagged trace id 3 from Observability&gt;&quot;
+    &quot;&lt;trace id of S19 from seed_traces.py&gt;&quot;,
+    &quot;&lt;trace id of S20 from seed_traces.py&gt;&quot;
   ],
-  &quot;assigned_to&quot;: &quot;@reviewer&quot;,
-  &quot;notes&quot;: &quot;Inputs for the Aria review_queue.add_items step (enter trace_ids in its form; same shape as POST /review-queues/{id}/items). PLACEHOLDERS — replace trace_ids with REAL ids of the weak runs (read them from Observability); queue_id is linked from the create step. Aria does not discover traces. experiment_id is optional.&quot;
+  &quot;assigned_to&quot;: &quot;admin&quot;,
+  &quot;notes&quot;: &quot;Inputs for the Aria review_queue.add_items step (the queue&#x27;s id is wired from the create step and is not asked for). trace_ids is a JSON array of ids that exist in MLflow: Aria does not discover traces and the enqueue does not check that an id exists (a made-up id is queued, and fails later when a reviewer submits it). seed_traces.py writes the 12 weak runs of dataset/support-runs.jsonl and prints their ids. assigned_to is optional. Strip this notes key before posting the file as inputs.&quot;
 }
 </code></pre>
     </div><div class="ck-asset" id="asset-assets-calibrate-json">
       <div class="ck-asset-bar"><span class="ck-asset-name">assets/calibrate.json</span>
         <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
       <pre data-lang="json"><code>{
-  &quot;workflow_id&quot;: &quot;&lt;REAL existing workflow id — e.g. the SCN-07 support workflow you built&gt;&quot;,
-  &quot;agent_id&quot;: &quot;&lt;REAL existing agent id bound in that workflow&gt;&quot;,
-  &quot;notes&quot;: &quot;Inputs for the Aria workflow.calibrate step. This is the only ASYNC capability: approving it enqueues a real workflow-calibration job and the plan PARKS in waiting_job. The plan worker (or POST /aria/plans/{plan_id}/poll) resolves the refinement_job (candidate_ready/applied = done; rejected/failed/error = failed); the plan then resumes and completes. PLACEHOLDERS — replace with a real workflow_id + agent_id (build the workflow in SCN-07). Aria does not create the workflow or agent.&quot;
+  &quot;workflow_id&quot;: &quot;&lt;id printed by setup_subject.py: an existing, published workflow with a deploy-gate test set&gt;&quot;,
+  &quot;agent_id&quot;: &quot;&lt;id printed by setup_subject.py: a registered, enabled agent&gt;&quot;,
+  &quot;notes&quot;: &quot;Inputs for the Aria workflow.calibrate step (the same two fields as POST /workflows/{workflow_id}/calibration/runs {agent_id}). This is the only ASYNC capability: approving it enqueues a real refinement job and the plan PARKS in waiting_job (the plan stays running). The plan worker, or POST /aria/plans/{plan_id}/poll, resolves the job: candidate_ready or applied finishes the step (the plan completes), rejected, failed or error fails it with the job&#x27;s reason. Aria passes only these two fields, so the calibration uses the default objective (maximize quality, the candidate must beat the baseline by 0.02) and the default budget (20 test set cases, 3 candidates). A workflow with no deploy-gate test set, an unknown workflow or an unregistered agent fails the step at once. Replace the placeholders with ids that exist: setup_subject.py creates a workflow and an agent for the lab.&quot;
 }
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-support-runs-jsonl">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/support-runs.jsonl</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="json"><code>{&quot;id&quot;: &quot;S01&quot;, &quot;question&quot;: &quot;What is your refund policy?&quot;, &quot;reply&quot;: &quot;Purchases can be returned within 30 days of delivery for a full refund, in the original packaging.&quot;, &quot;tools_called&quot;: [&quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Returns are accepted within 30 days of delivery for a full refund in the original packaging.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S02&quot;, &quot;question&quot;: &quot;Where is my order 4412?&quot;, &quot;reply&quot;: &quot;Order 4412 shipped on Tuesday and is due on Friday.&quot;, &quot;tools_called&quot;: [&quot;get_order&quot;], &quot;required_tools&quot;: [&quot;get_order&quot;], &quot;reference&quot;: &quot;Order 4412 shipped Tuesday and is due Friday.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S03&quot;, &quot;question&quot;: &quot;Can I return a laptop I bought 20 days ago?&quot;, &quot;reply&quot;: &quot;Yes. Laptops can be returned within 30 days of delivery, so day 20 is inside the window.&quot;, &quot;tools_called&quot;: [&quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Yes, laptops can be returned within 30 days of delivery.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S04&quot;, &quot;question&quot;: &quot;How long is the warranty on the X200 headphones?&quot;, &quot;reply&quot;: &quot;Audio products have a 12-month limited warranty covering manufacturing defects.&quot;, &quot;tools_called&quot;: [&quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;The X200 has a 12-month limited warranty for manufacturing defects.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S05&quot;, &quot;question&quot;: &quot;Order 8890 arrived broken. Can I send it back?&quot;, &quot;reply&quot;: &quot;Order 8890 was delivered yesterday, so it is inside the 60-day window for damaged items. Send it back at no cost and attach photos of the damage.&quot;, &quot;tools_called&quot;: [&quot;get_order&quot;, &quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;get_order&quot;, &quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Damaged items can be returned at no cost within 60 days of delivery; photos speed up approval.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S06&quot;, &quot;question&quot;: &quot;Do you ship to Canada?&quot;, &quot;reply&quot;: &quot;We currently ship to the United States and its territories only.&quot;, &quot;tools_called&quot;: [&quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;No. We ship to the United States and its territories only.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S07&quot;, &quot;question&quot;: &quot;Has order 7301 been delivered?&quot;, &quot;reply&quot;: &quot;Order 7301 was delivered on Monday at 14:12.&quot;, &quot;tools_called&quot;: [&quot;get_order&quot;], &quot;required_tools&quot;: [&quot;get_order&quot;], &quot;reference&quot;: &quot;Order 7301 was delivered Monday.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S08&quot;, &quot;question&quot;: &quot;Can I get a refund on a gift card?&quot;, &quot;reply&quot;: &quot;No. Gift cards are non-refundable and cannot be exchanged for cash.&quot;, &quot;tools_called&quot;: [&quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Gift cards are non-refundable.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S09&quot;, &quot;question&quot;: &quot;Is shipping free over 50 dollars?&quot;, &quot;reply&quot;: &quot;Yes. Orders over 50 USD ship free with standard shipping.&quot;, &quot;tools_called&quot;: [&quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Orders over 50 USD ship free with standard shipping.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S10&quot;, &quot;question&quot;: &quot;Hi there!&quot;, &quot;reply&quot;: &quot;Hello! How can I help you today?&quot;, &quot;tools_called&quot;: [], &quot;required_tools&quot;: [], &quot;reference&quot;: &quot;A short greeting.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S11&quot;, &quot;question&quot;: &quot;What is the status of order 1156 and can I still cancel it?&quot;, &quot;reply&quot;: &quot;Order 1156 has not shipped yet. Orders can be cancelled until they ship, so I can cancel it for you now.&quot;, &quot;tools_called&quot;: [&quot;get_order&quot;, &quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;get_order&quot;, &quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Order 1156 has not shipped; unshipped orders can be cancelled.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S12&quot;, &quot;question&quot;: &quot;Is the charger covered by warranty?&quot;, &quot;reply&quot;: &quot;Cables and chargers have a 24-month limited warranty.&quot;, &quot;tools_called&quot;: [&quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Chargers have a 24-month limited warranty.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S13&quot;, &quot;question&quot;: &quot;How long do refunds take?&quot;, &quot;reply&quot;: &quot;Refunds go to the original payment method within 5 business days of us receiving the return.&quot;, &quot;tools_called&quot;: [&quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Refunds are issued within 5 business days of receiving the return.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S14&quot;, &quot;question&quot;: &quot;Thanks, that was helpful.&quot;, &quot;reply&quot;: &quot;You are welcome! Is there anything else I can help with?&quot;, &quot;tools_called&quot;: [], &quot;required_tools&quot;: [], &quot;reference&quot;: &quot;A short thank you.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S15&quot;, &quot;question&quot;: &quot;Where is order 9024?&quot;, &quot;reply&quot;: &quot;Order 9024 is in transit with the carrier and is due on Thursday.&quot;, &quot;tools_called&quot;: [&quot;get_order&quot;], &quot;required_tools&quot;: [&quot;get_order&quot;], &quot;reference&quot;: &quot;Order 9024 is in transit, due Thursday.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S16&quot;, &quot;question&quot;: &quot;Can I change the delivery address on order 2217?&quot;, &quot;reply&quot;: &quot;Order 2217 has not shipped, so the address can still be changed. Please send the new address.&quot;, &quot;tools_called&quot;: [&quot;get_order&quot;, &quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;get_order&quot;, &quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Unshipped orders can have the address changed.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S17&quot;, &quot;question&quot;: &quot;Do you offer a student discount?&quot;, &quot;reply&quot;: &quot;I do not have information about a student discount, so I have asked a teammate to confirm and reply by email today.&quot;, &quot;tools_called&quot;: [&quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;No policy text mentions a student discount; escalate rather than guess.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S18&quot;, &quot;question&quot;: &quot;What is the return window for mattresses?&quot;, &quot;reply&quot;: &quot;Mattresses can be returned within 100 days if you follow the trial rules on the Sleep Trial page.&quot;, &quot;tools_called&quot;: [&quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Mattresses can be returned within 100 days under the trial rules.&quot;, &quot;weak&quot;: false, &quot;reason&quot;: &quot;&quot;}
+{&quot;id&quot;: &quot;S19&quot;, &quot;question&quot;: &quot;Can I return a laptop I bought 45 days ago?&quot;, &quot;reply&quot;: &quot;Sure, laptops can be returned any time within 60 days.&quot;, &quot;tools_called&quot;: [], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;No. Laptops can be returned within 30 days of delivery.&quot;, &quot;weak&quot;: true, &quot;reason&quot;: &quot;missing_evidence: answered from memory without calling lookup_policy, and gave the wrong window&quot;}
+{&quot;id&quot;: &quot;S20&quot;, &quot;question&quot;: &quot;What is your refund policy for opened software?&quot;, &quot;reply&quot;: &quot;All purchases are refundable within 30 days.&quot;, &quot;tools_called&quot;: [], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Opened software is not refundable.&quot;, &quot;weak&quot;: true, &quot;reason&quot;: &quot;missing_evidence: no lookup_policy call; contradicts the policy on opened software&quot;}
+{&quot;id&quot;: &quot;S21&quot;, &quot;question&quot;: &quot;Where is order 5530?&quot;, &quot;reply&quot;: &quot;Our returns policy allows 30 days for returns, so please check back later.&quot;, &quot;tools_called&quot;: [&quot;lookup_policy&quot;], &quot;required_tools&quot;: [&quot;get_order&quot;], &quot;reference&quot;: &quot;Order 5530 shipped Monday and is due Thursday.&quot;, &quot;weak&quot;: true, &quot;reason&quot;: &quot;wrong_tool: called lookup_policy for an order question and never called get_order&quot;}
+{&quot;id&quot;: &quot;S22&quot;, &quot;question&quot;: &quot;Is water damage on the X200 headphones covered by the warranty?&quot;, &quot;reply&quot;: &quot;Yes, the X200 has a lifetime warranty that covers water damage, according to our terms.&quot;, &quot;tools_called&quot;: [], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;No. Water damage and worn ear pads are not covered by the 12-month limited warranty.&quot;, &quot;weak&quot;: true, &quot;reason&quot;: &quot;hallucinated_claim: invented a lifetime warranty with no lookup_policy call&quot;}
+{&quot;id&quot;: &quot;S23&quot;, &quot;question&quot;: &quot;My order 6671 showed up with a cracked screen. What now?&quot;, &quot;reply&quot;: &quot;I am sorry to hear that. I have escalated this to a human agent who will contact you.&quot;, &quot;tools_called&quot;: [], &quot;required_tools&quot;: [&quot;get_order&quot;, &quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Damaged items can be returned or replaced at no cost within 60 days of delivery; photos speed up approval.&quot;, &quot;weak&quot;: true, &quot;reason&quot;: &quot;bad_escalation: escalated without looking up the order or the damaged-item policy&quot;}
+{&quot;id&quot;: &quot;S24&quot;, &quot;question&quot;: &quot;I bought a gift card by mistake. Can you refund it?&quot;, &quot;reply&quot;: &quot;Of course, I have refunded your gift card to your original payment method.&quot;, &quot;tools_called&quot;: [], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Gift cards are non-refundable.&quot;, &quot;weak&quot;: true, &quot;reason&quot;: &quot;hallucinated_claim: promised a refund that the policy forbids and no refund was made&quot;}
+{&quot;id&quot;: &quot;S25&quot;, &quot;question&quot;: &quot;Did order 3320 arrive yet?&quot;, &quot;reply&quot;: &quot;Your order has probably been delivered by now.&quot;, &quot;tools_called&quot;: [], &quot;required_tools&quot;: [&quot;get_order&quot;], &quot;reference&quot;: &quot;Order 3320 was delivered Tuesday.&quot;, &quot;weak&quot;: true, &quot;reason&quot;: &quot;missing_evidence: guessed instead of calling get_order&quot;}
+{&quot;id&quot;: &quot;S26&quot;, &quot;question&quot;: &quot;Do I get free shipping on a 45 dollar order?&quot;, &quot;reply&quot;: &quot;Yes, orders over 35 USD ship free.&quot;, &quot;tools_called&quot;: [], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;No. Free shipping needs an order over 50 USD.&quot;, &quot;weak&quot;: true, &quot;reason&quot;: &quot;hallucinated_claim: invented a 35 USD free-shipping threshold, no lookup_policy call&quot;}
+{&quot;id&quot;: &quot;S27&quot;, &quot;question&quot;: &quot;When will the money for my return be back on my card?&quot;, &quot;reply&quot;: &quot;Refunds take 2 to 3 weeks.&quot;, &quot;tools_called&quot;: [&quot;get_order&quot;], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Refunds are issued within 5 business days of us receiving the return.&quot;, &quot;weak&quot;: true, &quot;reason&quot;: &quot;wrong_tool: called get_order for a policy question&quot;}
+{&quot;id&quot;: &quot;S28&quot;, &quot;question&quot;: &quot;Where is order 2784 and can I still cancel it?&quot;, &quot;reply&quot;: &quot;Order 2784 has not shipped yet.&quot;, &quot;tools_called&quot;: [&quot;get_order&quot;], &quot;required_tools&quot;: [&quot;get_order&quot;, &quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Order 2784 has not shipped; unshipped orders can be cancelled.&quot;, &quot;weak&quot;: true, &quot;reason&quot;: &quot;missing_evidence: checked the order but never looked up the cancellation policy&quot;}
+{&quot;id&quot;: &quot;S29&quot;, &quot;question&quot;: &quot;Can you deliver to Toronto?&quot;, &quot;reply&quot;: &quot;Yes, we ship to Toronto within 7 business days.&quot;, &quot;tools_called&quot;: [], &quot;required_tools&quot;: [&quot;lookup_policy&quot;], &quot;reference&quot;: &quot;No. We ship to the United States and its territories only.&quot;, &quot;weak&quot;: true, &quot;reason&quot;: &quot;hallucinated_claim: shipped to a country that is not served&quot;}
+{&quot;id&quot;: &quot;S30&quot;, &quot;question&quot;: &quot;I moved. Can you change the address on order 5098?&quot;, &quot;reply&quot;: &quot;I will pass you to a colleague for that.&quot;, &quot;tools_called&quot;: [], &quot;required_tools&quot;: [&quot;get_order&quot;, &quot;lookup_policy&quot;], &quot;reference&quot;: &quot;Unshipped orders can have the address changed.&quot;, &quot;weak&quot;: true, &quot;reason&quot;: &quot;bad_escalation: escalated a request the policy allows the agent to handle&quot;}
 </code></pre>
     </div>
       <h2 id="gates">Evaluation &amp; quality gates</h2>
-      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Queue + items exist</td><td>flagged traces enqueued</td></tr><tr><td>Calibration completes</td><td>job reaches candidate_ready/applied; plan completes</td></tr></tbody></table></div>
-      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li><strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery and <code>CALIBER_FEATURE_ARIA=true</code> opens Plans; both are off by default.</li><li>This is a <strong>remediation</strong> loop — it operates on EXISTING ids (traces, workflow, agent). Build the subject workflow in cookbook 07 first.</li><li><code>workflow.calibrate</code> is Aria's async capability: the plan parks (<code>waiting_job</code>) and the plan worker resumes it (<code>POST …/poll</code> also works over the API).</li><li>As elsewhere in the Aria track, the planner leaves the inputs empty and the plan's input forms collect them. The default evaluator and LLM are fake, so a default install's calibration scores are canned.</li></ul></div>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Planner agreement</td><td>28/28 goals in assets/dataset/goals.jsonl draw the documented plan; none run</td></tr><tr><td>Plan and wiring</td><td>review_queue.create, review_queue.add_items, workflow.calibrate; only the queue id is wired; six questions answered</td></tr><tr><td>Parks and resumes</td><td>plan running with step waiting_job and a job id RFN-...; parked plan cannot be cancelled (409); worker resumes it unasked; plan ends where the job ended</td></tr><tr><td>Queue and triage</td><td>queue with four questions and 12 flagged traces pending and assigned; three triaged runs carry verdict, failure mode and expected answer on their traces</td></tr><tr><td>Refusals hold</td><td>unknown workflow, unregistered agent, no test set each fail the step at once with no job; denied calibration queues nothing; no-step goal 409; no operator scope fails at execute; non-owner 403 / 404</td></tr><tr><td>Script and UI spec</td><td>script prints "All documented outcomes verified." (exit 0); Playwright 15-aria-triage-recalibrate-loop.spec.ts passes</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li><strong>Flags and workers.</strong> <code>CALIBER_FEATURE_ARIA=true</code> opens <code>/aria/*</code> and <strong>Plans</strong>; <code>CALIBER_FEATURE_COOKBOOKS=true</code> is only for the gallery card. The plan worker (resumes parked plans about every 10 s) and the refinement worker (runs the job) must be on: <code>scripts/cookbook-env.sh up lab15 --flags cookbooks,aria</code> starts both, <code>--no-workers</code> does not. Export <code>CALIBER_OPERATOR_USERS=admin,olga</code> first.</li><li><strong>Simulated calibration.</strong> The planner is rules, parking, resume and the job are real, but with the default <code>fake</code> providers the fake executor gives the candidate the baseline's outputs: quality delta <code>+0.000</code> &lt; epsilon <code>0.02</code>, the job ends <code>rejected</code> and the plan <code>failed</code> (<code>rejected: workflow calibration rejected: no candidate met calibration gates ...</code>). This is expected, not a bug.</li><li><strong>Completing path not shown.</strong> A job reaching <code>candidate_ready</code> (plan completes) needs a real model behind the executor and is covered by unit tests (<code>caliber/tests/test_aria_async.py</code>), not demonstrated live. The plan never applies the candidate; that is <code>POST /jobs/{id}/apply</code>, a person's decision.</li><li><strong>Existing objects only.</strong> The traces are 12 recorded runs written by <code>seed_traces.py</code>; the subject is a published support workflow with a 30-case test set as its deploy gate, two tools and an agent. The enqueue step does not check that trace ids exist; calibration needs a visible workflow, a registered agent and a deploy-gate test set with rows.</li><li><strong>Planner limits.</strong> <code>workflow</code> plans a calibration whatever the sentence means ("create a new workflow", "roll back", "outage"); "pipeline" and "tune" plan nothing; negation is not read; there is no add-to-existing-queue step, so a queue is created first.</li><li><strong>Queue visibility.</strong> A queue created outside a workspace is visible to its owner only; <code>reviewers</code> is a label (lab 13). The workflow's own runs do not write traces on this stack.</li><li><strong>Run it.</strong> <code>PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_15_aria_triage_recalibrate_loop</code> (example: <code>sdk/caliber-sdk/examples/cookbooks/cookbook_15_aria_triage_recalibrate_loop.py</code>); the first UI test takes about a minute and a half.</li></ul></div>
       <nav class="ck-pager"><a href="m-cookbook-14-aria-starter-kit.html">← Aria: Governance Starter Kit from Intent</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><span></span></nav>
         <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
         Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>

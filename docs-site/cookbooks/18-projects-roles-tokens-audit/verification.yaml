@@ -1,0 +1,54 @@
+# Verified: each gate below is a check the script prints as "ok" and the Playwright spec asserts.
+feasibility:
+  - The role matrix is deterministic and needs no model: every cell is a status code.
+  - evaluation.run is the only cell touched by the simulated provider (CALIBER_LLM_PROVIDER=fake); the lab asserts the role gate (400 or 201 for a member, 403 for a viewer), never a score.
+  - monitoring.traces below are evidence labels, not literal span names.
+evaluation:
+  judges: []
+  rule_checks:
+    - role_matrix_matches_the_data_file
+    - member_list_is_exactly_the_roster
+    - bound_token_refused_outside_its_project
+    - revoked_and_expired_tokens_get_401
+    - primary_owner_cannot_be_removed
+    - audit_rows_exist_for_each_action
+    - no_secret_in_any_audit_row
+    - prompt_release_on_timeline_once
+    - readiness_names_simulated_providers
+quality_gates:
+  role_matrix_requests: 72
+  role_matrix_mismatches_max: 0
+  failure_scenarios_run_min: 15
+  audit_rows_with_a_token_secret_max: 0
+  timeline_events_for_the_released_prompt: 1
+monitoring:
+  traces:
+    - login
+    - project_member_changes
+    - token_issue_and_revoke
+    - prompt_promote
+  metrics:
+    - refused_requests_by_status
+feedback_loop:
+  - a role the matrix gets wrong is a product defect or a documentation defect: fix whichever is wrong and rerun the script.
+golden_cases:
+  - id: R01
+    sample_type: editor_releases_prompt
+    expected: {status: 200}
+  - id: R02
+    sample_type: owner_changes_a_member_role
+    expected: {status: 200}
+edge_cases:
+  - id: R03
+    sample_type: viewer_with_operator_scope_releases
+    expected: {status: 403, detail_contains: "project role 'viewer'"}
+  - id: R04
+    sample_type: viewer_without_operator_scope_releases
+    expected: {status: 403, detail_contains: "missing required scope"}
+negative_cases:
+  - id: R05
+    sample_type: non_member_reads_project
+    expected: {status: 404}
+  - id: R06
+    sample_type: revoked_token_lists_projects
+    expected: {status: 401}

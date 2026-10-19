@@ -5,23 +5,23 @@
     {
       "capability_key": "judge.create",
       "tier": "mutate",
-      "interaction": "input form (Aria needs information): enter the judge fields from judges/answer-faithfulness.judge.json, then Approve"
+      "interaction": "input form (Aria needs information): enter name, instructions, feedback value type and tags from judges/answer-faithfulness.judge.json, then Approve"
     },
     {
       "capability_key": "review_queue.create",
       "tier": "mutate",
-      "interaction": "input form: enter questions (and optional description) from review-queues/governance-review.queue.json, then Approve; name is linked from judge.create"
+      "interaction": "input form: enter name, description and questions from review-queues/governance-review.queue.json, then Approve"
     },
     {
       "capability_key": "eval_dataset.create",
       "tier": "mutate",
-      "interaction": "no input form: name is linked from review_queue.create, so just Approve (datasets/release-candidates.dataset.json is a reference spec)"
+      "interaction": "input form: enter name, description and tags from datasets/release-candidates.dataset.json, then Approve"
     },
     {
       "capability_key": "review_queue.add_items",
       "tier": "mutate",
-      "interaction": "SKIP this step (Skip step / answer {approved:false}) — no traces to enqueue yet. It is proposed only because it shares the 'review queue' domain. Enter trace_ids instead if you already have traces; queue_id is linked from review_queue.create."
+      "interaction": "SKIP this step (Skip step on its form): there are no traces to enqueue yet. It is proposed only because it shares the 'review queue' domain. Its queue_id is wired from review_queue.create."
     }
   ],
-  "notes": "Step order follows registry order; the planner links required fields by output name: review_queue.create.name <- judge.create, eval_dataset.create.name <- review_queue.create, review_queue.add_items.queue_id <- review_queue.create (depends_on set accordingly). The 'review queue' needle matches both review_queue.create and review_queue.add_items, so both appear. judge.create, review_queue.create and add_items raise input interactions for their unfilled fields; under autonomy=ask_each each step then also raises an Approve/Deny permission interaction (skip add_items). Under approve_plan/auto_guarded the steps run automatically after their input forms — so for this scenario prefer ask_each so you can skip add_items."
+  "notes": "Steps run in registry order (judge, review queue, test set, enqueue), not the order of the sentence. Each step asks for its own name: the planner only wires a field that points at an earlier step's result, here review_queue.add_items.queue_id <- review_queue.create. Under autonomy=ask_each every step raises an input form and then an Approve/Deny prompt; under approve_plan and auto_guarded only the input forms appear."
 }

@@ -2,11 +2,11 @@ id: SCN-14
 slug: aria-governance-starter-kit
 name: "Aria: Governance Starter Kit from Intent"
 track: aria
-objective: Give Aria a single intent and have it plan and stand up a whole evaluation + governance scaffold — a faithfulness judge, an eval dataset to score against, AND a human-review queue — in one plan, with the judge and queue fields entered in the plan's input forms.
+objective: Give Aria a single intent and have it plan and stand up a whole evaluation and governance scaffold - a faithfulness judge, a test set to score against, and a human-review queue - in one plan, with each step's fields entered in the plan's input forms, then load 30 policy cases into the test set and see what the plan does when you deny a step, ask for less, or a step fails half way.
 why_it_matters:
   - The flagship "one sentence -> whole governance setup" showcase: judge + test set + review queue, all real, from a single intent.
-  - Proves Aria composes MULTIPLE mutate capabilities into one plan -> approve -> execute flow, bounded honestly by its real capability registry.
-  - Establishes the autonomous-orchestration pattern teams adopt on day one to make a new agent governable.
+  - Proves Aria composes multiple mutate capabilities into one plan -> approve -> execute flow, bounded honestly by its real capability registry and its rules-based planner.
+  - Shows what an autonomous plan does and does not guarantee: a denied step takes its dependents with it, a failure keeps what was already made.
 primary_persona: platform engineer
 secondary_personas:
   - AI engineer
@@ -18,12 +18,15 @@ caliber_surfaces:
   - Review Queues
   - Evaluations
 prerequisites:
-  - A configured model provider (the judge runs on a real model in Evaluations; creating it does not need one).
-  - Aria Plans available (sidebar "Plans", under "Integrations").
+  - CALIBER_FEATURE_ARIA=true (Aria and its Plans page are a preview area, off by default). CALIBER_FEATURE_COOKBOOKS=true only for the gallery card.
+  - Two extra accounts for the refusals: olga (an operator who does not own the plan) and vera (not an operator). The server must list olga in CALIBER_OPERATOR_USERS and not vera.
+  - No model is needed to create the artifacts; a real model provider is needed only to run the judge in Evaluations (refused on the simulated default).
 time_to_first_value: 15-30 minutes
 success_criteria:
-  - From the intent alone, Aria drafts a plan containing judge.create + eval_dataset.create + review_queue.create.
-  - After approval and answering the input forms and approval prompts, a real active judge, a test set, and a review queue all exist.
+  - From the intent alone, Aria drafts judge, review queue, test set and the enqueue step in registry order, and the planner draws the documented plan for all 28 goals in assets/dataset/goals.jsonl.
+  - After approval and answering the forms and approval prompts, a real active judge, a review queue and a test set exist under three different names, and the test set takes the 30 cases.
+  - The same sentence under a lower autonomy builds the same kit with no approval prompts.
+  - The refusals hold: a denied step takes its dependent with it, a failure half way keeps what was made, a role without the operator scope creates nothing.
 demo_profile:
   recommended_sequence_index: 14
   tier: aria
@@ -33,5 +36,5 @@ demo_profile:
     - aria_autonomous
   showcase_capabilities:
     - Aria plan decompose -> approve -> execute
-    - autonomous judge + test-set + review-queue creation from a single intent
-    - multi-capability plan composition (three mutate steps in one plan)
+    - judge, review queue and test set created from a single intent
+    - multi-capability plan composition, with autonomy levels

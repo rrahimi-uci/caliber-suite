@@ -1,0 +1,18 @@
+{
+  "name": "lookup_policy",
+  "version": "1.0",
+  "description": "Look up the support policy text that applies to a question. Read only.",
+  "module_path": "caliber.workflows.demo_tools",
+  "callable_name": "lookup_policy",
+  "side_effect_level": "read",
+  "allow_in_preview": true,
+  "input_schema": {
+    "type": "object",
+    "properties": {
+      "query": {
+        "type": "string",
+        "description": "The customer's question or the policy topic."
+      }
+    }
+  }
+}

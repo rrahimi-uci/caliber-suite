@@ -1,0 +1,11 @@
+Vector Networks
+INVOICE
+Invoice No: VN-6650
+Invoice Date: 2026-03-08
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+2     Network switch 24-port                    $310.00       $620.00
+20    Patch cable 1 m                             $3.50        $70.00
+
+Total                                             $1,000.00

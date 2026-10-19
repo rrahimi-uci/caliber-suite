@@ -1,26 +1,34 @@
-# Aria autonomous scenario: the "input" is the INTENT; the "expected" is the plan
-# Aria drafts + the artifacts it creates. Concrete files are in assets/.
-intents:
-  - id: A12-canonical
+# Aria autonomous scenario: the "input" is the INTENT; the "expected" is the plan Aria drafts and the
+# artifacts it creates. Two data files and three form specs live in assets/.
+goals:
+  file: assets/dataset/goals.jsonl     # {id, goal, expected_steps, outcome, note}
+  rows: 28
+  by_outcome:
+    as_asked: 18     # the plan is what the sentence asked for
+    unasked: 5       # the plan has a step the sentence did not ask for (negation, "judgement", a question, a review queue's add_items)
+    missed: 1        # a step the sentence asked for is missing ("faithfulness scoring" is not the word judge)
+    nothing: 4       # no steps: the plan cannot be approved (409)
+  canonical:
+    id: G01
     goal: "Create a judge for answer faithfulness and an eval dataset to run it on."
     autonomy: ask_each
-    expected_plan_steps: [judge.create, eval_dataset.create]
-  - id: A12-natural
-    goal: "Set up faithfulness scoring for our support answers, with a test set to run it on."
-    note: "Natural phrasing. The default HeuristicPlanner recognises 'test set' (-> eval_dataset.create) but not 'faithfulness scoring' (-> judge.create, which needs the literal word 'judge'), so this plans only one step. Use A12-canonical for the deterministic path."
-# What you enter when Aria pauses on the "Aria needs information" form (the `inputs` of the
-# judge.create step). eval_dataset.create has no form: its name is linked from judge.create, so the
-# test set is created as AnswerFaithfulness; the values below are the reference spec if you create a
-# separately named set yourself.
-interaction_answers:
-  judge.create:
-    name: AnswerFaithfulness
-    feedback_value_type: bool
-    instructions: "Given {{ inputs }} and the model {{ outputs }}, return true only if every claim in {{ outputs }} is supported by {{ expectations }}; otherwise false."
-  eval_dataset.create:
-    name: support-faithfulness-eval
-    description: "Held-out support Q/A for faithfulness scoring. Add example rows after creation, then run Evaluations."
-done_when:
-  - a judge named AnswerFaithfulness is active in Judges
-  - an empty test set named AnswerFaithfulness (the judge step's name) exists in Test Sets
-  - the Aria plan shows both steps completed
+    expected_steps: [judge.create, eval_dataset.create]
+cases:
+  file: assets/dataset/faithfulness-cases.jsonl   # {id, tags, input: {question, evidence}, expected: {answer}}
+  rows: 30
+  categories: [refund, shipping, account, billing, warranty, safety]
+  hard_cases:
+    - F02: a refund asked for after the 30-day window
+    - F05: a gift card that is not refundable
+    - F07: evidence that covers only part of the question
+    - F09: a country that is not served
+    - F13: evidence that does not cover the question (the answer must say so)
+    - F30: medical advice the support team must refuse
+  loading: POST /eval-datasets/{id}/examples (one row per call; every row is a new version, so 30 rows end at version 31)
+forms:
+  judge.create: assets/judges/answer-faithfulness.judge.json       # name, feedback_value_type, instructions
+  eval_dataset.create: assets/datasets/support-faithfulness.dataset.json   # name, description, tags
+refusals:
+  - id: A12-no-steps
+    goal: "Write me a poem about customer support."
+    note: "201 with a warning; approve answers 409; the Plans page shows the warning and opens no plan."

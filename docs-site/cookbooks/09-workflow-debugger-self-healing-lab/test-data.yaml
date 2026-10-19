@@ -1,12 +1,29 @@
-golden_cases:
-  - id: WF01
-    input: {workflow_id: "wf_support_triage", failing_input: {ticket_text: "Missing account id", channel: "chat"}}
-    expected: {verification_status: "fixed"}
-edge_cases:
-  - id: WF02
-    input: {workflow_id: "wf_incident", failing_input: {alert_text: "partial telemetry", service: "gateway"}}
-    expected: {verification_status: "fixed_or_manual_review"}
-negative_cases:
-  - id: WF03
-    input: {workflow_id: "unknown", failing_input: {}}
-    expected_error: "workflow_not_found"
+# The ticket set. Each row's input.payload is the exact run input; expected carries what version 1
+# does (v1_status, v1_failing_node, v1_error_contains) and what version 2 decides.
+dataset: assets/dataset/failing-inputs.jsonl
+rows: 35
+cases:
+  - id: F01
+    kind: healthy
+    expected: {v1_status: completed, decision: approve, reason_code: ELIGIBLE_AUTO_APPROVE}
+  - id: F12
+    kind: schema_violation (normalizable)
+    expected: {v1_status: failed, v1_failing_node: validate, decision: approve}
+  - id: F18
+    kind: schema_violation (must stay rejected)
+    expected: {v1_status: failed, v1_failing_node: validate, decision: rejected_input}
+  - id: F29
+    kind: poison record
+    expected: {v1_status: failed, v1_failing_node: check_reference, decision: manual_review}
+  - id: F32
+    kind: upstream failure
+    expected: {v1_status: failed, v1_failing_node: decide, decision: manual_review, reason_code: ACCOUNT_LOOKUP_FAILED, upstream_status: 503}
+counts:
+  healthy: 7
+  borderline_but_fine: 4
+  schema_violation: 17
+  poison: 3
+  upstream: 4
+  v1_completed: 11
+  v1_failed: {validate: 17, check_reference: 3, decide: 4}
+  v2_decisions: {approve: 10, manual_review: 13, rejected_input: 12}

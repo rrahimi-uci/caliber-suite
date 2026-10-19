@@ -1,0 +1,279 @@
+[
+ {
+  "full_name": "acme/payments-api",
+  "language": "Python",
+  "stars": 412,
+  "topics": [
+   "payments",
+   "fastapi",
+   "api"
+  ],
+  "description": "Card and bank payments API for the Acme platform.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/payments-sdk-js",
+  "language": "TypeScript",
+  "stars": 188,
+  "topics": [
+   "payments",
+   "sdk"
+  ],
+  "description": "JavaScript client for the payments API.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/checkout-web",
+  "language": "TypeScript",
+  "stars": 96,
+  "topics": [
+   "checkout",
+   "react"
+  ],
+  "description": "The web checkout used by the storefront.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/ledger-core",
+  "language": "Go",
+  "stars": 530,
+  "topics": [
+   "ledger",
+   "accounting",
+   "go"
+  ],
+  "description": "Double-entry ledger service.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/fraud-rules",
+  "language": "Python",
+  "stars": 141,
+  "topics": [
+   "fraud",
+   "rules",
+   "python"
+  ],
+  "description": "Rule engine for payment risk scoring.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/mcp-gateway",
+  "language": "Python",
+  "stars": 77,
+  "topics": [
+   "mcp",
+   "gateway",
+   "agents"
+  ],
+  "description": "Internal gateway that fronts our MCP tool servers.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/mcp-servers-internal",
+  "language": "Python",
+  "stars": 64,
+  "topics": [
+   "mcp",
+   "tools"
+  ],
+  "description": "Internal MCP servers: tickets, runbooks, deploys.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/infra-terraform",
+  "language": "HCL",
+  "stars": 203,
+  "topics": [
+   "terraform",
+   "aws",
+   "infra"
+  ],
+  "description": "Terraform modules for the production AWS estate.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/k8s-manifests",
+  "language": "YAML",
+  "stars": 119,
+  "topics": [
+   "kubernetes",
+   "gitops"
+  ],
+  "description": "Kubernetes manifests, reconciled by Argo CD.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/observability-stack",
+  "language": "Go",
+  "stars": 88,
+  "topics": [
+   "observability",
+   "otel",
+   "metrics"
+  ],
+  "description": "Collector config and dashboards.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/data-pipelines",
+  "language": "Python",
+  "stars": 155,
+  "topics": [
+   "data",
+   "airflow",
+   "etl"
+  ],
+  "description": "Airflow DAGs for the warehouse.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/ml-ranking",
+  "language": "Python",
+  "stars": 72,
+  "topics": [
+   "ml",
+   "ranking",
+   "python"
+  ],
+  "description": "Search ranking model training code.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/design-system",
+  "language": "TypeScript",
+  "stars": 260,
+  "topics": [
+   "design",
+   "react",
+   "components"
+  ],
+  "description": "Shared React components and tokens.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/mobile-ios",
+  "language": "Swift",
+  "stars": 58,
+  "topics": [
+   "ios",
+   "mobile"
+  ],
+  "description": "iOS app.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/mobile-android",
+  "language": "Kotlin",
+  "stars": 61,
+  "topics": [
+   "android",
+   "mobile"
+  ],
+  "description": "Android app.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/docs",
+  "language": "Markdown",
+  "stars": 34,
+  "topics": [
+   "docs",
+   "handbook"
+  ],
+  "description": "Engineering handbook and runbooks.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/legacy-billing",
+  "language": "Java",
+  "stars": 23,
+  "topics": [
+   "billing",
+   "legacy"
+  ],
+  "description": "Retired monthly billing batch. Read-only.",
+  "archived": true
+ },
+ {
+  "full_name": "acme/old-admin-panel",
+  "language": "PHP",
+  "stars": 9,
+  "topics": [
+   "admin",
+   "legacy"
+  ],
+  "description": "Retired admin panel. Read-only.",
+  "archived": true
+ },
+ {
+  "full_name": "acme/release-notes-bot",
+  "language": "Python",
+  "stars": 41,
+  "topics": [
+   "bot",
+   "release",
+   "slack"
+  ],
+  "description": "Posts release notes to Slack.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/security-policies",
+  "language": "Markdown",
+  "stars": 52,
+  "topics": [
+   "security",
+   "policy"
+  ],
+  "description": "Security standards and exception process.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/oncall-runbooks",
+  "language": "Markdown",
+  "stars": 47,
+  "topics": [
+   "oncall",
+   "runbooks",
+   "python"
+  ],
+  "description": "Runbooks for the pager rotation.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/feature-flags",
+  "language": "Go",
+  "stars": 83,
+  "topics": [
+   "flags",
+   "go"
+  ],
+  "description": "Feature flag service.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/auth-service",
+  "language": "Go",
+  "stars": 177,
+  "topics": [
+   "auth",
+   "oidc",
+   "go"
+  ],
+  "description": "OIDC provider and session service.",
+  "archived": false
+ },
+ {
+  "full_name": "acme/notifications",
+  "language": "Python",
+  "stars": 66,
+  "topics": [
+   "email",
+   "push",
+   "python"
+  ],
+  "description": "Email and push notification workers.",
+  "archived": false
+ }
+]

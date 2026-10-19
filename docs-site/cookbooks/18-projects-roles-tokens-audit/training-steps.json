@@ -1,0 +1,162 @@
+{
+  "steps": [
+    {
+      "where": "Admin › Administration › Accounts",
+      "do": "Sign in as <code>admin</code> / <code>admin</code>. An account holds a password only, so first create the nine people in <a href=\"../cookbooks/18-projects-roles-tokens-audit/assets/dataset/team-roster.csv\">team-roster.csv</a>. For each one type the <strong>User ID</strong> and the <strong>Password</strong> (at least 12 characters; this lab uses <code>lab18-demo-passphrase</code>, which is public, so use it only on a stack nobody else can reach) and click <strong>Create account</strong>. The server must already list the roster in <code>CALIBER_OPERATOR_USERS</code> and <code>CALIBER_APPROVER_USERS</code> (see the README): those lists, not the project role, decide who may write or approve at all.",
+      "fill": [
+        [
+          "User ID",
+          "<code>maya</code>, <code>omar</code>, <code>priya</code>, <code>sam</code>, <code>quinn</code>, <code>rosa</code>, <code>victor</code>, <code>wen</code>, <code>nora</code>"
+        ],
+        [
+          "Password",
+          "<code>lab18-demo-passphrase</code>"
+        ]
+      ],
+      "click": "Create account",
+      "see": "A green note <code>Created maya.</code> after each, and nine rows in the table, each <strong>Active</strong>. An account an earlier cleanup disabled shows an <strong>Enable</strong> button instead.",
+      "asset": "nine accounts",
+      "assetlink": [
+        {
+          "href": "../cookbooks/18-projects-roles-tokens-audit/assets/dataset/team-roster.csv",
+          "label": "team-roster.csv"
+        }
+      ]
+    },
+    {
+      "where": "Top bar › Create workspace",
+      "do": "Sign out and sign in as <code>maya</code> (a team lead who holds both the operator and approver scopes). In the top bar click the <strong>+</strong> beside the workspace selector (<strong>Create workspace</strong>), name it, and click <strong>Create and select</strong>. The UI says <em>workspace</em>; the API says <em>project</em>. They are the same object.",
+      "fill": [
+        [
+          "Workspace name",
+          "<code>lab18-support-copilot</code>"
+        ]
+      ],
+      "click": "Create and select",
+      "see": "The workspace selector now shows the new workspace. The person who creates a workspace is its <strong>primary owner</strong>: that role cannot be removed or demoted later.",
+      "asset": "workspace lab18-support-copilot (maya is primary owner)"
+    },
+    {
+      "where": "Admin › Administration › Project access",
+      "do": "Still as <code>maya</code>, open <strong>Administration</strong> and scroll to <strong>Project access</strong>. The <strong>Project for access management</strong> selector shows your workspace. For each of the other seven members in the roster type the <strong>User ID</strong>, choose the <strong>Role</strong> and click <strong>Add member</strong>. Do not add <code>nora</code>: she is the non-member. (The Accounts and Secrets sections show <code>missing required scope ... caliber.admin</code> for <code>maya</code>: she is an owner, not an admin, and Project access works regardless.)",
+      "fill": [
+        [
+          "omar",
+          "Owner (Admin)"
+        ],
+        [
+          "priya, sam",
+          "Editor"
+        ],
+        [
+          "quinn, rosa",
+          "Reviewer"
+        ],
+        [
+          "victor, wen",
+          "Viewer"
+        ]
+      ],
+      "click": "Add member",
+      "see": "A green note <code>Added omar to lab18-support-copilot.</code> after each. The table lists <code>maya (primary owner)</code> with no <strong>Remove</strong> button and each member with the role you chose; <code>nora</code> is not listed.",
+      "asset": "seven members with roles",
+      "assetlink": [
+        {
+          "href": "../cookbooks/18-projects-roles-tokens-audit/assets/dataset/team-roster.csv",
+          "label": "team-roster.csv"
+        }
+      ]
+    },
+    {
+      "where": "Prompt lifecycle › Prompts › New prompt",
+      "do": "Sign in as <code>victor</code> (viewer), choose the workspace in the top bar, open <strong>Prompts</strong>, click <strong>New prompt</strong> then <strong>Write / paste</strong>, enter a <strong>Prompt name</strong> and some <strong>Prompt text</strong>, and click <strong>Create and Open</strong>. Then open <strong>Administration › Project access</strong> as <code>victor</code>. Finally sign in as <code>priya</code> (editor), choose the workspace, and create the prompt the same way.",
+      "fill": [
+        [
+          "Prompt name",
+          "<code>lab18-support-reply</code>"
+        ],
+        [
+          "Prompt text",
+          "<code>Reply to the customer politely.</code> then a blank line and <code>Question: {question}</code>"
+        ]
+      ],
+      "click": "Create and Open",
+      "see": "For <code>victor</code>: <code>project role 'viewer' cannot perform resource.write.runtime</code>, and on Administration the line <strong>Only a project Admin can manage members.</strong> with no <strong>Add member</strong> form. For <code>priya</code>: the prompt opens with <strong>v1</strong> marked <strong>Live</strong>, because creating a prompt releases its first version to <code>@prod</code>.",
+      "asset": "viewer refused, editor creates and releases a prompt"
+    },
+    {
+      "where": "Top bar › workspace selector (as a non-member)",
+      "do": "Sign in as <code>nora</code>, who is an operator but belongs to no workspace. Open the workspace selector.",
+      "see": "It holds only <strong>All workspaces</strong>: the workspace does not appear at all. Through the API every request she makes against it is a 404, not a 403: as far as she can tell it does not exist.",
+      "asset": "non-member sees no workspace"
+    },
+    {
+      "where": "Admin › Settings › API tokens",
+      "do": "Sign in as <code>priya</code> and open <strong>Settings</strong> then the <strong>API tokens</strong> tab. Name the token, keep <strong>Expires</strong> at 30 days, pick the workspace in <strong>Workspace</strong> (each is listed with your role in it), tick <strong>caliber.operator</strong> and click <strong>Create token</strong>. Copy the secret now; it is shown once.",
+      "fill": [
+        [
+          "Token name",
+          "<code>support-ci</code>"
+        ],
+        [
+          "Expires",
+          "<code>30 days</code>"
+        ],
+        [
+          "Workspace",
+          "<code>lab18-support-copilot (editor)</code>"
+        ],
+        [
+          "Scopes",
+          "<code>caliber.operator</code> (and <code>caliber.viewer</code>, preselected)"
+        ]
+      ],
+      "click": "Create token",
+      "see": "A green box: <strong>Copy this token now. It will not be shown again.</strong> with the <code>calpat_...</code> secret. Click <strong>I have copied it</strong>: the secret is gone for good. <strong>Your tokens</strong> lists <code>support-ci</code> as <strong>Active</strong> with its scopes and workspace. Use it as <code>CALIBER_TOKEN</code> with <code>caliberctl</code> or the SDK: it acts in this workspace, is refused (403) in any other, and can never do more than <code>priya</code> can.",
+      "asset": "token support-ci bound to the workspace"
+    },
+    {
+      "where": "Admin › Settings › API tokens › Revoke",
+      "do": "On the <code>support-ci</code> row click <strong>Revoke</strong>, read the confirmation and click <strong>Revoke token</strong>.",
+      "click": "Revoke token",
+      "see": "The row reads <strong>Revoked</strong> and its <strong>Rotate</strong> and <strong>Revoke</strong> buttons are gone. Anything still using the secret now gets 401.",
+      "asset": "revoked token"
+    },
+    {
+      "where": "Operate › Audit Log",
+      "do": "Sign in as <code>admin</code> and open <strong>Audit Log</strong> (only an admin can: <code>maya</code> sees <strong>Admin access required</strong>). Find the workspace's id first: set <strong>Actor</strong> <code>maya</code> and <strong>Action</strong> <code>create_project</code>; the row that names your workspace shows <code>project · PRJ-...</code> in <strong>Entity</strong>. Clear both and put that id in <strong>Entity ID</strong>, then try <strong>Action</strong> <code>add_project_member</code>, and finally <strong>Actor</strong> <code>priya</code> with <strong>Action</strong> <code>create_personal_access_token</code> and then <code>revoke_personal_access_token</code>.",
+      "fill": [
+        [
+          "Entity ID",
+          "the workspace id (<code>PRJ-...</code>)"
+        ],
+        [
+          "Action",
+          "<code>add_project_member</code>"
+        ],
+        [
+          "Actor",
+          "<code>priya</code>"
+        ],
+        [
+          "Action",
+          "<code>create_personal_access_token</code>"
+        ]
+      ],
+      "see": "With the entity id: one <code>create_project</code> row by <code>maya</code> and seven <code>add_project_member</code> rows whose details name each role. For <code>priya</code>: a <code>create_personal_access_token</code> row whose details carry the workspace id and the scopes, and no secret, and later the <code>revoke_personal_access_token</code> row. Refused requests (a viewer's 403) write no row: the log records what changed.",
+      "asset": "audit rows by entity, actor and action"
+    },
+    {
+      "where": "Prompt lifecycle › Releases",
+      "do": "Open <strong>Releases</strong>. <strong>What's live now</strong> is the live board; <strong>Timeline</strong> is the history of promotions and rollbacks. The release timeline is not workspace-scoped in the alpha, so other prompts may appear too.",
+      "see": "<strong>What's live now</strong> has a row for your prompt at <code>v1</code> on <code>@prod</code>, <code>priya</code> as the actor; <strong>Timeline</strong> has one <strong>Promote</strong> event for it, also by <code>priya</code>.",
+      "asset": "prompt release on the timeline and live board"
+    },
+    {
+      "where": "Any page › top bar and banner",
+      "do": "Look at the top bar and the banner under it. The green dot is <code>/health</code> (the process and the database are up); the banner is built from <code>/readiness</code>. You can also read both by hand: <code>curl $CALIBER_API/health</code> and <code>curl $CALIBER_API/readiness</code>.",
+      "see": "The amber banner says <strong>Simulated providers: eval, llm are running in fake mode</strong> and <strong>Evaluation scores are canned, not measurements.</strong>; the dot's tooltip is <strong>API and database reachable</strong>. A missing dependency would add a red <strong>Not ready</strong> line naming it, and <code>/readiness</code> would answer 503.",
+      "asset": "health dot and simulated-provider banner"
+    }
+  ]
+}

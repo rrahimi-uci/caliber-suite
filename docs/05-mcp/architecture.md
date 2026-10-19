@@ -291,6 +291,11 @@ boundary. The following controls apply:
   (`CALIBER_MCP_REMOTE_HOST_ALLOWLIST`, default `localhost,127.0.0.1,::1`).
   Non-loopback plain HTTP is rejected unless an operator explicitly enables it
   (`CALIBER_MCP_ALLOW_INSECURE_HTTP`); embedded URI credentials are rejected.
+  Naming a host in the allowlist does not exempt it from the egress policy: its resolved address is
+  also checked against `CALIBER_EGRESS_BLOCKED_CATEGORIES`, which blocks loopback and private ranges by
+  default. A server on `127.0.0.1` is therefore refused (`resolves into the blocked loopback range`,
+  shown by test-connection and in readiness) even though the default allowlist lists that host. To run
+  an MCP server on the same machine, register it over `stdio`.
   Readiness also resolves the host through the same egress policy the workflow
   HTTP guard uses and reports a host that lands in a blocked address category.
 - The UI supports no authentication or an environment-backed bearer token.

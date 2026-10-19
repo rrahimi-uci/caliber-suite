@@ -5,7 +5,6 @@ from __future__ import annotations
 import csv
 import io
 import json as jsonlib
-from collections.abc import Iterator
 from typing import Any
 
 import httpx
@@ -13,20 +12,10 @@ import pytest
 
 from caliber_sdk import CaliberClient
 from examples.cookbooks.cookbook_01_trustworthy_intake_classifier import run as run_01
+from examples.cookbooks.cookbook_02_precision_skills import assets_dir, load_cases
 from examples.cookbooks.cookbook_02_precision_skills import run as run_02
-from examples.cookbooks.cookbook_03_policy_safe_decision_tool import run as run_03
-from examples.cookbooks.cookbook_04_document_to_json_pipeline import run as run_04
-from examples.cookbooks.cookbook_05_governed_tool_connectivity import run as run_05
-from examples.cookbooks.cookbook_06_grounded_knowledge_assistant import run as run_06
-from examples.cookbooks.cookbook_07_support_triage_copilot import run as run_07
-from examples.cookbooks.cookbook_08_incident_response_copilot import run as run_08
 from examples.cookbooks.cookbook_09_self_healing_workflows import run as run_09
 from examples.cookbooks.cookbook_10_trustworthy_evaluation import run as run_10
-from examples.cookbooks.cookbook_11_release_signoff_factory import run as run_11
-from examples.cookbooks.cookbook_12_aria_evaluation_harness import run as run_12
-from examples.cookbooks.cookbook_13_aria_review_queue import run as run_13
-from examples.cookbooks.cookbook_14_aria_governance_starter_kit import run as run_14
-from examples.cookbooks.cookbook_15_aria_triage_recalibrate_loop import run as run_15
 from examples.cookbooks.cookbook_16_observability_triage import run as run_16
 from examples.cookbooks.cookbook_17_financial_analysis import (
     CSV_FIELDS,
@@ -39,6 +28,7 @@ from examples.cookbooks.cookbook_17_financial_analysis import (
     parse_turn_analysis,
 )
 from examples.cookbooks.cookbook_17_financial_analysis import run as run_17
+from examples.cookbooks.cookbook_18_projects_roles_tokens_audit import run as run_18
 
 BASE = "https://caliber.test"
 
@@ -96,689 +86,886 @@ def cookbook_listing(
     )
 
 
-def installed_payload(cookbook_id: str, workflow_id: str, version_id: str) -> dict[str, Any]:
-    return {
-        "recipe": {"id": cookbook_id},
-        "workflow": {"workflow_id": workflow_id, "status": "paused"},
-        "version": {"version_id": version_id, "status": "draft"},
-        "activation_requires_review": True,
+PROMPT_01 = "cookbook-01-intake-classifier-t"
+
+
+def _error(status: int, detail: str) -> httpx.Response:
+    return httpx.Response(status, json={"detail": detail, "status_code": status})
+
+
+def _error_forbidden(request: httpx.Request) -> httpx.Response:
+    return _error(403, "missing required scope; expected one of ['caliber.operator']")
+
+
+def _dataset_rows_01() -> int:
+    from examples.cookbooks.cookbook_01_trustworthy_intake_classifier import (
+        default_assets_dir,
+        load_dataset,
+    )
+
+    return len(load_dataset(default_assets_dir() / "dataset/intake-classifier.jsonl"))
+
+
+def _stub_01(
+    *,
+    llm_simulated: bool,
+    registry: dict[str, int],
+    weak_keeps_json: bool = False,
+    eval_error: str | None = None,
+    real_job: str = "candidate_ready",
+    seen: dict[str, Any] | None = None,
+) -> CaliberClient:
+    """A server for Cookbook 01, with the stateful bits (alias, applied jobs) the script checks.
+
+    ``llm_simulated=False`` is a stack with a real model. ``weak_keeps_json`` makes the weaker v2
+    still answer with a bare JSON record, as a real instruction-tuned model does (a stand-in model
+    does not). ``eval_error`` makes every scored run fail the way the server reports it (201 with
+    ``status: failed``). ``real_job`` is how a real calibration run ends. ``seen`` collects the
+    calibration requests.
+    """
+    n = _dataset_rows_01()
+    seen = seen if seen is not None else {}
+    seen.setdefault("calibrations", [])
+    applied: set[str] = set()
+    runs = iter(["RFN-good", "RFN-strict"])
+    eval_runs = iter(["EVR-1", "EVR-2"])
+    record = {
+        "intent": "billing",
+        "priority": "high",
+        "confidence": 0.9,
+        "needs_review": False,
+        "reason": "r",
     }
 
-
-def plan_detail(
-    plan_id: str, status: str, *, steps: list[dict[str, Any]] | None = None
-) -> dict[str, Any]:
-    return {
-        "plan": {"plan_id": plan_id, "goal": "g", "status": status},
-        "steps": steps
-        if steps is not None
-        else [{"step_id": f"{plan_id}-1", "plan_id": plan_id, "title": "step"}],
-    }
-
-
-def plan_step(plan_id: str, index: int, capability_key: str) -> dict[str, Any]:
-    return {
-        "step_id": f"{plan_id}-{index}",
-        "plan_id": plan_id,
-        "title": capability_key,
-        "capability_key": capability_key,
-    }
-
-
-def plan_interaction(plan_id: str, step_id: str, interaction_id: str) -> dict[str, Any]:
-    return {
-        "interaction_id": interaction_id,
-        "plan_id": plan_id,
-        "step_id": step_id,
-        "kind": "confirm",
-    }
-
-
-def trace_items(*trace_ids: str) -> dict[str, Any]:
-    return {"items": [{"trace_id": trace_id} for trace_id in trace_ids]}
-
-
-def test_cookbook_01_runs_the_prompt_workspace_baseline_diff_loop() -> None:
-    """Regression is scored on the prompt workspace's Test Sets -> Runs loop
-    (pin a baseline, then read the Vs. baseline diff), not a generic
-    dataset+judge+evaluation flow -- see the recipe's own README."""
-
-    test_run_ids = iter(["PTR-01-baseline", "PTR-01-comparison"])
-
-    def create_test_run(request: httpx.Request) -> dict[str, Any]:
+    def evaluation(request: httpx.Request) -> Any:
         body = jsonlib.loads(request.content)
-        assert body["agent_id"] == "cookbook-01-intake-classifier"
-        assert len(body["results"]) == 2
-        return {"test_run_id": next(test_run_ids)}
+        if body["dataset_id"] != "ED-01":
+            return _error(404, f"eval dataset {body['dataset_id']!r} not found")
+        if llm_simulated:
+            return _error(400, "evaluation requires a real LLM provider; set CALIBER_LLM_PROVIDER")
+        if eval_error:
+            return {
+                "run_id": next(eval_runs),
+                "status": "failed",
+                "label": body["label"],
+                "n_examples": n,
+                "pass_rate": 0.0,
+                "aggregate": {},
+                "error_message": eval_error,
+                "results": [{"prediction": "", "error": eval_error}] * n,
+            }
+        strong = body["subject_ref"].endswith("@1")
+        keeps_json = strong or weak_keeps_json
+        prediction = jsonlib.dumps(record) if keeps_json else "Sure!\n```json\n{}\n```"
+        if weak_keeps_json:
+            pass_rate, f1 = (0.2, 0.43) if strong else (0.02, 0.35)
+        else:
+            pass_rate, f1 = (0.77, 0.54) if strong else (0.0, 0.27)
+        return {
+            "run_id": next(eval_runs),
+            "status": "completed",
+            "label": body["label"],
+            "n_examples": n,
+            "pass_rate": pass_rate,
+            "aggregate": {"token_f1": f1},
+            "results": [{"prediction": prediction}] * n,
+        }
 
-    caliber = stub_server(
+    def calibration(request: httpx.Request) -> dict[str, Any]:
+        seen["calibrations"].append(jsonlib.loads(request.content))
+        return {"job": {"job_id": next(runs)}}
+
+    def job(request: httpx.Request) -> dict[str, Any]:
+        job_id = request.url.path.rsplit("/", 1)[-1]
+        if job_id == "RFN-strict":
+            return {"job_id": job_id, "status": "rejected"}
+        if not llm_simulated and real_job == "failed":
+            return {
+                "job_id": job_id,
+                "status": "failed",
+                "error_message": "eval provider error: no valid score for Guidelines",
+            }
+        if not llm_simulated and real_job == "rejected":
+            return {
+                "job_id": job_id,
+                "status": "rejected",
+                "error_message": "regression gate failed: overall 0.568 below min_aggregate_score",
+            }
+        evidence = (
+            {"provider": "fake", "simulated": True}
+            if llm_simulated
+            else {
+                "provider": "mlflow",
+                "simulated": False,
+                "baseline": {"overall": 0.5227},
+                "candidate": {"overall": 0.5682},
+            }
+        )
+        return {
+            "job_id": job_id,
+            "status": "applied" if job_id in applied else "candidate_ready",
+            "candidate": {
+                "content": "new",
+                "baseline_content": "old",
+                "diff_summary": "+3 / -0 lines",
+            },
+            "eval_results": {
+                "n_examples": n,
+                "eval_dataset_version": n + 1,
+                "gate": {"passed": True},
+                **evidence,
+            },
+        }
+
+    def apply(request: httpx.Request) -> Any:
+        job_id = request.url.path.split("/")[-2]
+        real_not_ready = not llm_simulated and real_job != "candidate_ready"
+        if job_id in applied or job_id == "RFN-strict" or real_not_ready:
+            return _error(409, f"job {job_id!r} cannot be applied")
+        applied.add(job_id)
+        registry["prod"] = 3
+        return {"job_id": job_id, "promotion": {"artifact_ref": f"prompts:/{PROMPT_01}/3"}}
+
+    def rollback(request: httpx.Request) -> dict[str, Any]:
+        registry["prod"] = 1
+        return {"version": 1, "rolled_back_from": 3}
+
+    def live(request: httpx.Request) -> list[dict[str, Any]]:
+        return [
+            {
+                "artifact_type": "prompt",
+                "artifact_id": PROMPT_01,
+                "version_id": f"v{registry['prod']}",
+                "by": "@alice",
+            }
+        ]
+
+    def audit(request: httpx.Request) -> dict[str, Any]:
+        action = request.url.params["action"]
+        details = {
+            "promote_prompt": {"job_id": "RFN-good"},
+            "apply_candidate": {},
+            "rollback_prompt": {"to_version": 1},
+        }[action]
+        return {"entries": [{"log_id": 1, "actor": "@alice", "action": action, "details": details}]}
+
+    return stub_server(
         {
-            "GET /cookbooks": cookbook_listing(
-                "01",
-                "Trustworthy Intake Classifier",
-                prerequisite="Configured model provider",
-            ),
-            "POST /cookbooks/01/install": installed_payload("01", "WF-01", "WFV-01"),
-            "POST /prompts": {"name": "cookbook-01-intake-classifier"},
-            "POST /prompts/cookbook-01-intake-classifier/aliases/prod": {"version": 1},
             "GET /me": {"user_id": "@alice"},
+            "GET /readiness": {"simulated": ["llm", "eval"] if llm_simulated else []},
+            "GET /cookbooks": {"recipes": [{"id": "01", "title": "T", "steps": [{"id": "01.1"}]}]},
+            "POST /prompts": {"name": PROMPT_01},
+            f"POST /prompts/{PROMPT_01}/aliases/prod": {"version": 1},
+            f"POST /prompts/{PROMPT_01}/versions": {"version": 2},
             "POST /eval-datasets": {"dataset_id": "ED-01"},
             "POST /eval-datasets/ED-01/examples": {"example_id": "EX-01"},
-            "POST /prompts/test-runs": create_test_run,
-            "POST /prompts/cookbook-01-intake-classifier/baseline": {
-                "baseline_run_id": "PTR-01-baseline"
-            },
-            "POST /prompts/cookbook-01-intake-classifier/versions": {"version": 2},
-            "GET /prompts/test-runs/PTR-01-baseline": {
-                "test_run_id": "PTR-01-baseline",
-                "results": [
-                    {"testCaseId": "P01", "verdict": "pass"},
-                    {"testCaseId": "P02", "verdict": "pass"},
-                ],
-            },
-            "GET /prompts/test-runs/PTR-01-comparison": {
-                "test_run_id": "PTR-01-comparison",
-                "results": [
-                    {"testCaseId": "P01", "verdict": "fail"},
-                    {"testCaseId": "P02", "verdict": "fail"},
-                ],
-            },
-            "POST /judges": {"judge_id": "J-01"},
-            "POST /prompts/calibration/runs": {
-                "job": {"job_id": "CAL-01"},
-                "item": {"item_id": "VI-01"},
-            },
+            "GET /eval-datasets/ED-01/examples": [{"example_id": f"EX-{i}"} for i in range(n)],
+            "GET /eval-datasets/ED-01": {"dataset_id": "ED-01", "version": n + 1},
+            "POST /evaluations": evaluation,
+            "POST /prompts/calibration/runs": calibration,
+            "GET /jobs/RFN-good": job,
+            "GET /jobs/RFN-strict": job,
+            "POST /jobs/RFN-good/apply": apply,
+            "POST /jobs/RFN-strict/apply": apply,
+            f"GET /prompts/{PROMPT_01}/versions": [
+                {
+                    "version": 3,
+                    "provenance": {
+                        "job_id": "RFN-good",
+                        "eval_simulated": "true" if llm_simulated else "false",
+                    },
+                }
+            ],
+            "GET /releases/live": live,
+            "GET /releases/timeline": lambda r: [
+                {
+                    "entity_id": PROMPT_01,
+                    "action": "promote_prompt",
+                    "actor": "@alice",
+                    "details": {"from_version": 1, "to_version": 3},
+                }
+            ],
+            "GET /audit-log": audit,
+            f"POST /prompts/{PROMPT_01}/rollback": rollback,
         }
     )
-    with caliber:
-        result = run_01(caliber)
-    assert result["prompt_name"] == "cookbook-01-intake-classifier"
-    assert result["dataset_id"] == "ED-01"
-    assert result["baseline_run_id"] == "PTR-01-baseline"
-    assert result["comparison_run_id"] == "PTR-01-comparison"
-    assert result["regressions"] == ["P01", "P02"]
-    assert result["judge_id"] == "J-01"
-    assert result["calibration_job_id"] == "CAL-01"
 
 
-def test_cookbook_02_creates_and_calibrates_skill() -> None:
-    caliber = stub_server(
-        {
-            "GET /cookbooks": recipe_payload("02", "Precision Skills"),
-            "POST /cookbooks/02/install": installed_payload("02", "WF-02", "WFV-02"),
-            "GET /me": {"user_id": "@alice"},
-            "POST /skills": {"skill_id": "SK-02"},
-            "POST /skills/SK-02/test-render": {"word_count": 8},
-            "POST /skills/SK-02/test-selection": {"selection_score": 0.82},
-            "POST /skills/SK-02/calibrate": {"job_id": "JOB-02", "status": "queued"},
-        }
+def test_cookbook_01_releases_a_prompt_change_end_to_end_on_a_simulated_model() -> None:
+    """The whole loop on the default simulated model: the evaluation is refused (and that is
+    verified), the calibration evidence is marked simulated, a viewer cannot apply, a failing
+    gate blocks, and Apply then rollback move the registry alias and leave an audit trail."""
+    registry = {"prod": 1}
+    viewer = stub_server({"POST /jobs/RFN-good/apply": _error_forbidden})
+    with _stub_01(llm_simulated=True, registry=registry) as caliber, viewer:
+        result = run_01(
+            caliber,
+            suffix="t",
+            viewer=viewer,
+            registry=lambda name: registry["prod"],
+            poll_interval=0.01,
+        )
+    assert result["prompt_name"] == PROMPT_01
+    assert result["llm_simulated"] is True
+    assert result["evaluation"] == "refused: needs a real model"
+    assert result["examples"] == _dataset_rows_01()
+    assert result["applied_version"] == 3
+    assert result["evidence"]["simulated"] is True
+    assert result["blocked_job_id"] == "RFN-strict"
+    assert all(result["checks"].values())
+    assert registry["prod"] == 1  # rolled back
+
+
+def test_cookbook_01_catches_the_regression_with_a_model_that_answers() -> None:
+    """With a model, evaluation scores v1 and the weaker v2 and the contract checks catch it."""
+    registry = {"prod": 1}
+    with _stub_01(llm_simulated=False, registry=registry) as caliber:
+        result = run_01(
+            caliber,
+            suffix="t",
+            registry=lambda name: registry["prod"],
+            skip_release=True,
+            expect_regression=True,
+        )
+    evaluation = result["evaluation"]
+    assert evaluation["contract_v1"]["valid_json"] == _dataset_rows_01()
+    assert evaluation["contract_v2"]["valid_json"] == 0
+    assert evaluation["regressed_examples"] == _dataset_rows_01()
+    assert evaluation["pass_rate"] == [0.77, 0.0]
+    assert "applied_version" not in result
+
+
+def test_cookbook_01_fails_loudly_when_a_documented_outcome_does_not_hold() -> None:
+    from examples.cookbooks.cookbook_01_trustworthy_intake_classifier import (
+        LabVerificationError,
     )
-    with caliber:
-        result = run_02(caliber)
-    assert result["skill_id"] == "SK-02"
-    assert result["selection_score"] == 0.82
+
+    registry = {"prod": 2}  # the registry disagrees: v1 is not live
+    with (
+        _stub_01(llm_simulated=False, registry=registry) as caliber,
+        pytest.raises(LabVerificationError, match="v1 is live in the MLflow registry"),
+    ):
+        run_01(caliber, suffix="t", registry=lambda name: registry["prod"], skip_release=True)
 
 
-def test_cookbook_03_registers_tool_and_saves_hardening_cases() -> None:
-    caliber = stub_server(
-        {
-            "GET /cookbooks": cookbook_listing(
-                "03",
-                "Policy-Safe Decision Tool",
-                prerequisite="Runtime approvals",
-            ),
-            "POST /cookbooks/03/install": installed_payload("03", "WF-03", "WFV-03"),
-            "POST /tools": {"tool_id": "TOOL-03"},
-            "PUT /tools/TOOL-03/test-cases": {"saved": 2},
-            "POST /tools/TOOL-03/calibrate": {"job_id": "CAL-03", "status": "queued"},
-        }
+def test_cookbook_01_real_model_loop_asserts_invariants_not_values(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """On a stack with a real model (``simulated`` empty) the same script scores both prompts, and
+    a v2 that still answers with JSON (a real model usually does) is not a failure: only
+    invariants hold. The calibration evidence must be real, not marked simulated, the calibration
+    scorer is the configured ``Guidelines`` judge (``Correctness`` needs labels this test set lacks)
+    and the gate overrides come from the environment."""
+    monkeypatch.setenv("COOKBOOK_01_MIN_SCORE", "0.5")
+    monkeypatch.setenv("COOKBOOK_01_MAX_REGRESSION", "0.25")
+    registry = {"prod": 1}
+    seen: dict[str, Any] = {}
+    viewer = stub_server({"POST /jobs/RFN-good/apply": _error_forbidden})
+    with (
+        _stub_01(
+            llm_simulated=False, registry=registry, weak_keeps_json=True, seen=seen
+        ) as caliber,
+        viewer,
+    ):
+        result = run_01(
+            caliber,
+            suffix="t",
+            viewer=viewer,
+            registry=lambda name: registry["prod"],
+            poll_interval=0.01,
+        )
+    assert result["llm_simulated"] is False and result["eval_simulated"] is False
+    evaluation = result["evaluation"]
+    assert evaluation["contract_v2"]["valid_json"] == _dataset_rows_01()  # the contract held
+    assert evaluation["regressed_examples"] == 0
+    assert evaluation["gate_fires"] is True  # the scorecard still caught it
+    assert result["evidence"] == {
+        "provider": "mlflow",
+        "simulated": False,
+        "n_examples": _dataset_rows_01(),
+        "baseline": 0.5227,
+        "candidate": 0.5682,
+    }
+    assert "blocked_job_id" not in result  # a real judge could score 1.0: no strict-gate check
+    assert len(seen["calibrations"]) == 1
+    request = seen["calibrations"][0]
+    assert request["scorers"][0]["name"] == "Guidelines"
+    assert request["scorers"][0]["config"]["guidelines"]
+    assert request["gate"] == {"min_aggregate_score": 0.5, "max_regression_delta": 0.25}
+    assert result["applied_version"] == 3
+    assert all(result["checks"].values())
+    assert registry["prod"] == 1  # rolled back
+
+
+def test_cookbook_01_real_model_without_gate_overrides_uses_the_product_gate(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    monkeypatch.delenv("COOKBOOK_01_MIN_SCORE", raising=False)
+    monkeypatch.delenv("COOKBOOK_01_MAX_REGRESSION", raising=False)
+    registry = {"prod": 1}
+    seen: dict[str, Any] = {}
+    with _stub_01(llm_simulated=False, registry=registry, seen=seen) as caliber:
+        run_01(
+            caliber,
+            suffix="t",
+            registry=lambda name: registry["prod"],
+            poll_interval=0.01,
+            calibration_timeout=5,
+        )
+    assert "gate" not in seen["calibrations"][0]
+
+
+def test_cookbook_01_reports_a_failed_evaluation_with_the_server_error() -> None:
+    """A run that cannot reach the model comes back 201 with ``status: failed`` and an empty
+    aggregate. The script used to die with ``KeyError: 'token_f1'``; it now names the cause."""
+    from examples.cookbooks.cookbook_01_trustworthy_intake_classifier import (
+        LabVerificationError,
     )
-    with caliber:
-        result = run_03(caliber)
-    assert result["tool_id"] == "TOOL-03"
-    assert result["calibration_job_id"] == "CAL-03"
+
+    registry = {"prod": 1}
+    with (
+        _stub_01(llm_simulated=False, registry=registry, eval_error="Connection error.") as caliber,
+        pytest.raises(LabVerificationError) as raised,
+    ):
+        run_01(caliber, suffix="t", registry=lambda name: registry["prod"], skip_release=True)
+    assert "evaluation baseline v1 completed on every example" in str(raised.value)
 
 
-def test_cookbook_04_uploads_managed_file_and_preview_runs_workflow() -> None:
-    caliber = stub_server(
-        {
-            "GET /cookbooks": cookbook_listing(
-                "04",
-                "Document-to-JSON Pipeline",
-                prerequisite="A supported document uploaded to a CALIBER project",
-            ),
-            "POST /projects": {"project_id": "PRJ-04"},
-            "POST /projects/PRJ-04/files": {"file_id": "FILE-04"},
-            "POST /cookbooks/04/install": installed_payload("04", "WF-04", "WFV-04"),
-            "POST /workflow-versions/WFV-04/preview-run": {"status": "succeeded"},
-        }
+def test_cookbook_01_failed_evaluation_message_carries_the_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from examples.cookbooks.cookbook_01_trustworthy_intake_classifier import (
+        LabVerificationError,
     )
-    with caliber:
-        result = run_04(caliber)
-    assert result["project_id"] == "PRJ-04"
-    assert result["file_id"] == "FILE-04"
-    assert result["preview"] == {"status": "succeeded"}
+
+    registry = {"prod": 1}
+    with (
+        _stub_01(
+            llm_simulated=False, registry=registry, eval_error="Error code: 404 - model not found"
+        ) as caliber,
+        pytest.raises(LabVerificationError),
+    ):
+        run_01(caliber, suffix="t", registry=lambda name: registry["prod"], skip_release=True)
+    out = capsys.readouterr().out
+    assert "FAIL evaluation baseline v1 completed on every example" in out
+    assert "evaluation failed: Error code: 404 - model not found" in out
 
 
-def test_cookbook_05_proves_the_governed_tool_block_before_and_after() -> None:
-    invoke_calls: Iterator[dict[str, Any]] = iter(
+def test_cookbook_01_real_calibration_rejected_by_the_gate_is_reported(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    """A real judge can honestly reject the candidate; the script says why and cannot apply it."""
+    from examples.cookbooks.cookbook_01_trustworthy_intake_classifier import (
+        LabVerificationError,
+    )
+
+    registry = {"prod": 1}
+    with (
+        _stub_01(llm_simulated=False, registry=registry, real_job="rejected") as caliber,
+        pytest.raises(LabVerificationError, match="calibration reached candidate_ready"),
+    ):
+        run_01(
+            caliber,
+            suffix="t",
+            registry=lambda name: registry["prod"],
+            poll_interval=0.01,
+            calibration_timeout=5,
+        )
+    out = capsys.readouterr().out
+    assert "ok   a rejected candidate cannot be applied (409)" in out
+    assert "rejected by the gate: regression gate failed: overall 0.568" in out
+    assert registry["prod"] == 1  # nothing was applied
+
+
+def test_cookbook_01_real_calibration_failure_is_reported_with_the_job_error(
+    capsys: pytest.CaptureFixture[str],
+) -> None:
+    from examples.cookbooks.cookbook_01_trustworthy_intake_classifier import (
+        LabVerificationError,
+    )
+
+    registry = {"prod": 1}
+    with (
+        _stub_01(llm_simulated=False, registry=registry, real_job="failed") as caliber,
+        pytest.raises(LabVerificationError, match="calibration did not fail"),
+    ):
+        run_01(
+            caliber,
+            suffix="t",
+            registry=lambda name: registry["prod"],
+            poll_interval=0.01,
+            calibration_timeout=5,
+        )
+    assert "calibration failed: eval provider error: no valid score" in capsys.readouterr().out
+
+
+def test_cookbook_01_contract_report_rules() -> None:
+    from examples.cookbooks.cookbook_01_trustworthy_intake_classifier import contract_report
+
+    good = jsonlib.dumps(
+        {"intent": "bug", "priority": "low", "confidence": 1, "needs_review": False, "reason": "x"}
+    )
+    report = contract_report(
         [
-            {"success": True, "error": None, "result": {"items": []}},
-            {"success": False, "error": "tool 'issue_write' is not allowed", "result": None},
-        ]
+            good,
+            "Sure! " + good,  # prose around the JSON
+            jsonlib.dumps({"intent": "refund", "priority": "low"}),  # bad enum and keys
+            "",
+        ],
+        [{"intent": "bug"}, {"intent": "bug"}, {"intent": "bug"}, {"intent": "bug"}],
     )
-
-    def create_server(request: httpx.Request) -> dict[str, Any]:
-        body = jsonlib.loads(request.content)
-        # `transport` is hyphenated and the URL field is `uri`, not `url`.
-        assert body["transport"] == "streamable-http"
-        assert body["uri"] == "https://api.githubcopilot.com/mcp/"
-        return {"server_id": "MCP-05"}
-
-    def invoke_tool(request: httpx.Request) -> dict[str, Any]:
-        return next(invoke_calls)
-
-    caliber = stub_server(
-        {
-            "GET /cookbooks": cookbook_listing(
-                "05",
-                "Governed Tool Connectivity",
-                prerequisite="Reachable MCP server",
-            ),
-            "POST /cookbooks/05/install": installed_payload("05", "WF-05", "WFV-05"),
-            "POST /mcp-servers": create_server,
-            "POST /mcp-servers/MCP-05/test-connection": {"ok": True},
-            "POST /mcp-servers/MCP-05/discover-tools": {"discovered": 2},
-            "POST /mcp-servers/MCP-05/invoke-tool": invoke_tool,
-            "PATCH /mcp-servers/MCP-05/tools/issue_write/policy": {"allowed": False},
-            "PUT /mcp-servers/MCP-05/tools/search_repositories/test-cases": {"saved": 1},
-            "POST /mcp-servers/MCP-05/tools/search_repositories/calibrate": {"status": "passed"},
-        }
-    )
-    with caliber:
-        result = run_05(caliber)
-    assert result["server_id"] == "MCP-05"
-    assert result["connection"] == {"ok": True}
-    allowed_call, blocked_call = result["allowed_call"], result["blocked_call"]
-    assert isinstance(allowed_call, dict) and allowed_call["success"] is True
-    assert isinstance(blocked_call, dict) and blocked_call["success"] is False
+    assert report["valid_json"] == 2
+    assert report["allowed_intent_values"] == 1
+    assert report["schema_keys"] == 1
+    assert report["label_agreement"] == 1
+    assert report["contract_ok"] == [True, False, False, False]
 
 
-def test_cookbook_06_builds_and_queries_knowledge_base() -> None:
-    def create_kb(request: httpx.Request) -> dict[str, Any]:
-        body = jsonlib.loads(request.content)
-        # Real catalog choices from `options()`, not free-form guesses.
-        assert body["chunking_strategy"] == "fixed_size"
-        assert body["embedding_model"] == "text-embedding-3-small"
-        assert body["source_bucket"]
-        return {"knowledge_base_id": "KB-06"}
+def test_cookbook_02_runs_the_skill_lab_end_to_end() -> None:
+    """The lab's whole API path, replayed against a small stateful stand-in for the skills routes
+    (``cookbook_02_fake_server``). The real selector, job and package format are covered by
+    ``caliber/tests/test_cookbook_02_trigger_dataset.py`` and by the live run in the README."""
+    pytest.importorskip("yaml", reason="the lab reads the skill's YAML frontmatter")
+    from cookbook_02_fake_server import FakeSkillServer
 
-    def query(request: httpx.Request) -> dict[str, Any]:
-        body = jsonlib.loads(request.content)
-        assert body["version_ids"] == ["KBV-06"]
-        assert "knowledge_base_id" not in body
-        return {"answer": "Escalate to billing review."}
+    cases = load_cases(assets_dir())
+    server = FakeSkillServer(cases)
+    caliber = server.client(CaliberClient)
+    viewer = FakeSkillServer(cases, viewer=True).client(CaliberClient)
+    with caliber, viewer:
+        report = run_02(caliber, viewer=viewer, skill_name="support-tone-and-citation-test")
 
-    caliber = stub_server(
-        {
-            "GET /cookbooks": cookbook_listing(
-                "06",
-                "Grounded Knowledge Assistant",
-                prerequisite="Embedding provider",
-            ),
-            "POST /cookbooks/06/install": installed_payload("06", "WF-06", "WFV-06"),
-            "GET /knowledge-bases/options": {
-                "chunking_strategies": [{"id": "fixed_size", "name": "Fixed size"}],
-                "embedding_models": [{"id": "text-embedding-3-small", "name": "Small"}],
-            },
-            "POST /knowledge-bases": create_kb,
-            "POST /knowledge-bases/KB-06/versions": {"version_id": "KBV-06"},
-            "POST /knowledge/query": query,
-            "GET /me": {"user_id": "@alice"},
-            "POST /eval-datasets": {"dataset_id": "ED-06"},
-            "POST /eval-datasets/ED-06/examples": {"example_id": "EX-06"},
-            "POST /knowledge-bases/KB-06/calibrate": {"score": 0.91},
-        }
-    )
-    with caliber:
-        result = run_06(caliber)
-    assert result["knowledge_base_id"] == "KB-06"
-    assert result["version_id"] == "KBV-06"
-    assert result["eval_dataset_id"] == "ED-06"
-
-
-def test_cookbook_07_drives_the_approval_gate_both_ways() -> None:
-    """One run is approved and resumes to completion; a matching second run
-    is rejected and must never reach a terminal success -- the two safety
-    branches the recipe's own README calls out as its demo evidence."""
-
-    run_status: dict[str, str] = {}
-
-    def submit_run(request: httpx.Request) -> dict[str, Any]:
-        body = jsonlib.loads(request.content)
-        run_id = "WR-07-approve" if body["idempotency_key"].endswith("approve") else "WR-07-reject"
-        run_status[run_id] = "waiting_approval"
-        return {"workflow_run_id": run_id, "status": "queued"}
-
-    def get_run(run_id: str) -> Any:
-        return lambda _request: {"workflow_run_id": run_id, "status": run_status[run_id]}
-
-    def resume_run(request: httpx.Request) -> dict[str, Any]:
-        run_status["WR-07-approve"] = "succeeded"
-        return {"workflow_run_id": "WR-07-approve", "status": "succeeded"}
-
-    def reject_run(request: httpx.Request) -> dict[str, Any]:
-        run_status["WR-07-reject"] = "failed"
-        return {"rejected": True}
-
-    caliber = stub_server(
-        {
-            "GET /cookbooks": cookbook_listing(
-                "07",
-                "Support Triage Copilot",
-                prerequisite="Issue tracker connector",
-            ),
-            "POST /cookbooks/07/install": installed_payload("07", "WF-07", "WFV-07"),
-            "GET /me": {"user_id": "@alice"},
-            "POST /review-queues": {"queue_id": "RQ-07"},
-            "POST /eval-datasets": {"dataset_id": "ED-07"},
-            "POST /judges": {"judge_id": "J-07"},
-            "POST /evaluations": {"evaluation_id": "EV-07"},
-            "POST /workflow-versions/WFV-07/publish": {
-                "version_id": "WFV-07",
-                "status": "published",
-            },
-            "POST /workflow-runs": submit_run,
-            "GET /workflow-runs/WR-07-approve": get_run("WR-07-approve"),
-            "GET /workflow-runs/WR-07-reject": get_run("WR-07-reject"),
-            "POST /workflow-runs/WR-07-approve/approval/approve": {"approved": True},
-            "POST /workflow-runs/WR-07-approve/resume": resume_run,
-            "POST /workflow-runs/WR-07-reject/approval/reject": reject_run,
-        }
-    )
-    with caliber:
-        result = run_07(caliber)
-    assert result["queue_id"] == "RQ-07"
-    assert result["evaluation_id"] == "EV-07"
-    assert result["approved_status"] == "succeeded"
-    assert result["rejected_status"] == "failed"
-
-
-def test_cookbook_08_collects_observability_and_enqueues_reviews() -> None:
-    caliber = stub_server(
-        {
-            "GET /cookbooks": cookbook_listing(
-                "08",
-                "Incident Response Copilot",
-                prerequisite="Deployment health data source",
-            ),
-            "POST /cookbooks/08/install": installed_payload("08", "WF-08", "WFV-08"),
-            "GET /observability/traces": trace_items("TR-08A", "TR-08B"),
-            "GET /observability/metrics": {"error_rate": 0.4},
-            "POST /review-queues": {"queue_id": "RQ-08"},
-            "POST /review-queues/RQ-08/items": {"queued": 2},
-        }
-    )
-    with caliber:
-        result = run_08(caliber)
-    assert result["queue_id"] == "RQ-08"
-    assert result["trace_ids"] == ["TR-08A", "TR-08B"]
-
-
-def test_cookbook_09_reproduces_retries_and_recovers_a_failing_run() -> None:
-    run_status: dict[str, str] = {}
-
-    def submit_run(request: httpx.Request) -> dict[str, Any]:
-        run_status["WR-09"] = "waiting_approval"
-        return {"workflow_run_id": "WR-09", "status": "queued"}
-
-    def get_run(run_id: str) -> Any:
-        return lambda _request: {"workflow_run_id": run_id, "status": run_status[run_id]}
-
-    def reject_run(request: httpx.Request) -> dict[str, Any]:
-        run_status["WR-09"] = "failed"
-        return {"rejected": True}
-
-    def retry_run(request: httpx.Request) -> dict[str, Any]:
-        run_status["WR-09-retry"] = "waiting_approval"
-        return {"workflow_run_id": "WR-09-retry", "status": "queued"}
-
-    def resume_run(request: httpx.Request) -> dict[str, Any]:
-        run_status["WR-09-retry"] = "succeeded"
-        return {"workflow_run_id": "WR-09-retry", "status": "succeeded"}
-
-    caliber = stub_server(
-        {
-            "GET /cookbooks": cookbook_listing(
-                "09",
-                "Self-Healing Workflows",
-                prerequisite="Workflow worker",
-            ),
-            "POST /cookbooks/09/install": installed_payload("09", "WF-09", "WFV-09"),
-            "POST /workflow-versions/WFV-09/publish": {
-                "version_id": "WFV-09",
-                "status": "published",
-            },
-            "POST /workflow-runs": submit_run,
-            "GET /workflow-runs/WR-09": get_run("WR-09"),
-            "POST /workflow-runs/WR-09/approval/reject": reject_run,
-            "GET /workflow-runs/WR-09/checkpoints": [{"checkpoint_id": "CKPT-09"}],
-            "GET /workflow-runs/WR-09/trace": {"spans": []},
-            "POST /workflow-runs/WR-09/retry": retry_run,
-            "GET /workflow-runs/WR-09-retry/lineage": {"parent_run_id": "WR-09"},
-            "GET /workflow-runs/WR-09-retry": get_run("WR-09-retry"),
-            "POST /workflow-runs/WR-09-retry/approval/approve": {"approved": True},
-            "POST /workflow-runs/WR-09-retry/resume": resume_run,
-            "POST /workflow-versions/WFV-09/propose-patch": {"patch_id": "PATCH-09"},
-        }
-    )
-    with caliber:
-        result = run_09(caliber)
-    assert result["failing_run_id"] == "WR-09"
-    assert result["failing_status"] == "failed"
-    assert result["checkpoint_count"] == 1
-    assert result["has_trace"] is True
-    assert result["retried_run_id"] == "WR-09-retry"
-    assert result["recovered_run_id"] == "WR-09-retry"
-    assert result["recovered_status"] == "succeeded"
-    assert result["patch_id"] == "PATCH-09"
-
-
-def test_cookbook_10_computes_judge_human_alignment() -> None:
-    """The recipe's defining mechanic is judge/human alignment (Cohen's
-    kappa), not just that a judge and a queue exist side by side."""
-
-    def submit_answer(request: httpx.Request) -> dict[str, Any]:
-        body = jsonlib.loads(request.content)
-        assert body == {"answers": {"judge_is_correct": True}}
-        return {"item_id": "RI-10", "status": "completed"}
-
-    def alignment(request: httpx.Request) -> dict[str, Any]:
-        body = jsonlib.loads(request.content)
-        # `provenance` must be stripped before this call -- the request
-        # schema forbids it as an extra field.
-        assert set(body["examples"][0]) == {"inputs", "outputs", "expectations", "label"}
-        return {"judge_id": "J-10", "kappa": 1.0, "agreement": 1.0, "sample_size": 1}
-
-    caliber = stub_server(
-        {
-            "GET /cookbooks": cookbook_listing(
-                "10",
-                "Trustworthy Evaluation",
-                prerequisite="Judge provider",
-            ),
-            "POST /cookbooks/10/install": installed_payload("10", "WF-10", "WFV-10"),
-            "GET /me": {"user_id": "@alice"},
-            "POST /eval-datasets": {"dataset_id": "ED-10"},
-            "POST /judges": {"judge_id": "J-10"},
-            "POST /evaluations": {"evaluation_id": "EV-10"},
-            "POST /review-queues": {"queue_id": "RQ-10"},
-            "GET /observability/traces": trace_items("TR-10"),
-            "POST /review-queues/RQ-10/items": [{"item_id": "RI-10"}],
-            "POST /review-queues/RQ-10/items/RI-10/submit": submit_answer,
-            "GET /review-queues/RQ-10/alignment-examples": {
-                "examples": [
-                    {
-                        "inputs": {"trace_id": "TR-10"},
-                        "outputs": "billing dispute",
-                        "expectations": {},
-                        "label": True,
-                        "provenance": {"queue_id": "RQ-10", "item_id": "RI-10"},
-                    }
-                ],
-                "skipped": [],
-            },
-            "POST /judges/J-10/alignment": alignment,
-        }
-    )
-    with caliber:
-        result = run_10(caliber)
-    assert result["queue_id"] == "RQ-10"
-    assert result["judge_id"] == "J-10"
-    assert result["alignment_kappa"] == 1.0
-
-
-def test_cookbook_11_drives_release_signoff_end_to_end() -> None:
-    caliber = stub_server(
-        {
-            "GET /cookbooks": cookbook_listing(
-                "11",
-                "Release Signoff Factory",
-                prerequisite="Evaluation evidence",
-            ),
-            "POST /cookbooks/11/install": installed_payload("11", "WF-11", "WFV-11"),
-            "POST /releases/candidates": {"candidate_id": "RC-11", "weighted_score": 0.91},
-            "POST /releases/candidates/RC-11/evaluate": {
-                "candidate_id": "RC-11",
-                "weighted_score": 0.94,
-            },
-            "POST /releases/candidates/RC-11/reports": {"job_id": "REP-11"},
-            "POST /releases/candidates/RC-11/signoffs": {"signoff_id": "SIG-11", "decision": "go"},
-        }
-    )
-    with caliber:
-        result = run_11(caliber)
-    assert result["candidate_id"] == "RC-11"
-    assert result["score"] == 0.94
-
-
-def test_cookbook_12_creates_the_judge_and_dataset_past_the_execution_gap() -> None:
-    """The shipped planner leaves step inputs empty (the recipe's own
-    verified "Execution gap"): approving the plan alone creates nothing, so
-    the real judge/dataset must come from their own typed calls."""
-
-    steps = [
-        plan_step("PLAN-12", 1, "judge.create"),
-        plan_step("PLAN-12", 2, "eval_dataset.create"),
+    assert report["verified"] is True
+    assert report["cases"] == 40
+    assert report["round1"]["accuracy"] == 0.75
+    assert report["round1"]["false_positives"] == [
+        "T27",
+        "T28",
+        "T29",
+        "T30",
+        "T31",
+        "T32",
+        "T34",
+        "T35",
     ]
-    plan_states = iter(["paused"])
-    answers = iter(["running", "completed"])
-    caliber = stub_server(
-        {
-            "GET /cookbooks": recipe_payload("12", "Aria Evaluation Harness from Intent"),
-            "POST /cookbooks/12/install": installed_payload("12", "WF-12", "WFV-12"),
-            "GET /me": {"user_id": "@alice"},
-            "POST /aria/plans": plan_detail("PLAN-12", "planning", steps=steps),
-            "GET /aria/plans/PLAN-12": lambda _r: plan_detail(
-                "PLAN-12", next(plan_states), steps=steps
-            ),
-            "POST /aria/plans/PLAN-12/approve": plan_detail("PLAN-12", "approved", steps=steps),
-            "POST /aria/plans/PLAN-12/execute": plan_detail("PLAN-12", "running", steps=steps),
-            "GET /aria/plans/PLAN-12/interactions": [
-                plan_interaction("PLAN-12", "PLAN-12-1", "INT-12-1"),
-                plan_interaction("PLAN-12", "PLAN-12-2", "INT-12-2"),
-            ],
-            "POST /judges": {"judge_id": "J-12"},
-            "POST /eval-datasets": {"dataset_id": "ED-12"},
-            "POST /aria/interactions/INT-12-1/answer": lambda _r: plan_detail(
-                "PLAN-12", next(answers), steps=steps
-            ),
-            "POST /aria/interactions/INT-12-2/answer": lambda _r: plan_detail(
-                "PLAN-12", next(answers), steps=steps
-            ),
-        }
-    )
-    with caliber:
-        result = run_12(caliber)
-    assert result["plan_id"] == "PLAN-12"
-    assert result["status"] == "completed"
-    assert result["judge_id"] == "J-12"
-    assert result["dataset_id"] == "ED-12"
-
-
-def test_cookbook_13_creates_the_review_queue_past_the_execution_gap() -> None:
-    steps = [
-        plan_step("PLAN-13", 1, "review_queue.create"),
-        plan_step("PLAN-13", 2, "review_queue.add_items"),
+    assert report["round1"]["false_negatives"] == ["T14", "T23"]
+    assert report["round2"]["accuracy"] == 1.0
+    assert report["render"]["unresolved"] == []
+    assert report["render"]["partial_unresolved"] == ["policy_context", "user_message"]
+    assert report["calibration"]["simulated"] is True and report["calibration"]["n_examples"] == 0
+    assert report["versions"]["history"] == [3, 2, 1]
+    assert report["package"]["decisions_differing_after_metadata_restored"] == []
+    assert report["package"]["decisions_differing_before_metadata_restored"]
+    assert set(report["failures"]["viewer"]) == {"apply", "calibrate", "rollback", "create"}
+    assert all(reason.startswith("403 ") for reason in report["failures"]["viewer"].values())
+    assert report["failures"]["no_baseline"]["baseline_run_id"] is None
+    assert report["archived"] == 3
+    # the order the README documents
+    calls = server.calls
+    ordered = [
+        "POST /skills",
+        "POST /skills/test-runs",
+        "POST /skills/SK-01/baseline",
+        "POST /skills/SK-01/calibrate",
+        "POST /jobs/RFN-01/apply",
+        "POST /skills/SK-01/rollback",
+        "GET /skills/SK-01/package.zip",
+        "POST /skills/import-package.zip",
     ]
-    plan_states = iter(["paused"])
-    answers = iter(["running", "completed"])
-    caliber = stub_server(
-        {
-            "GET /cookbooks": cookbook_listing(
-                "13",
-                "Aria Review Queue",
-                prerequisite="Trace ids",
-            ),
-            "POST /cookbooks/13/install": installed_payload("13", "WF-13", "WFV-13"),
-            "POST /aria/plans": plan_detail("PLAN-13", "planning", steps=steps),
-            "GET /aria/plans/PLAN-13": lambda _r: plan_detail(
-                "PLAN-13", next(plan_states), steps=steps
-            ),
-            "POST /aria/plans/PLAN-13/approve": plan_detail("PLAN-13", "approved", steps=steps),
-            "POST /aria/plans/PLAN-13/execute": plan_detail("PLAN-13", "running", steps=steps),
-            "GET /aria/plans/PLAN-13/interactions": [
-                plan_interaction("PLAN-13", "PLAN-13-1", "INT-13-1"),
-                plan_interaction("PLAN-13", "PLAN-13-2", "INT-13-2"),
-            ],
-            "POST /review-queues": {"queue_id": "RQ-13"},
-            "POST /aria/interactions/INT-13-1/answer": lambda _r: plan_detail(
-                "PLAN-13", next(answers), steps=steps
-            ),
-            "POST /aria/interactions/INT-13-2/answer": lambda _r: plan_detail(
-                "PLAN-13", next(answers), steps=steps
-            ),
-        }
-    )
+    positions = [calls.index(call) for call in ordered]
+    assert positions == sorted(positions)
+
+
+def _lab09(**fake_options: Any) -> tuple[Any, Any]:
+    from cookbook_09_fake_server import FakeWorkflowServer
+
+    from examples.cookbooks.cookbook_09_self_healing_workflows import ASSETS, load_rows
+
+    server = FakeWorkflowServer(load_rows(ASSETS), **fake_options)
+    return server, server.client(CaliberClient)
+
+
+def test_cookbook_09_finds_patches_proves_and_rolls_back() -> None:
+    """The whole lab: 24 of 35 tickets fail on version 1, none on the patched version 2, the
+    regression slice is untouched, and the staging alias rolls back."""
+    server, caliber = _lab09()
     with caliber:
-        result = run_13(caliber)
-    assert result["plan_id"] == "PLAN-13"
-    assert result["status"] == "completed"
-    assert result["queue_id"] == "RQ-13"
+        result = run_09(caliber, suffix="t", cleanup=True)
 
-
-def test_cookbook_14_creates_all_three_governance_assets_past_the_execution_gap() -> None:
-    steps = [
-        plan_step("PLAN-14", 1, "judge.create"),
-        plan_step("PLAN-14", 2, "eval_dataset.create"),
-        plan_step("PLAN-14", 3, "review_queue.create"),
-        plan_step("PLAN-14", 4, "review_queue.add_items"),
+    assert result["v1"] == {"completed": 11, "failed": 24}
+    assert result["v1_failed_at"] == {"check_reference": 3, "decide": 4, "validate": 17}
+    assert result["v2"] == {
+        "completed": 35,
+        "failed": 0,
+        "decisions": {"approve": 10, "manual_review": 13, "rejected_input": 12},
+    }
+    assert result["regression_slice"] == 11
+    assert result["retry"] == {"attempts": 2, "retry_run_id": "WR-38", "status": "failed"}
+    assert result["propose_patch"] == {"patch_id": "WP-1", "patch_kind": "prompt", "refused": 400}
+    assert result["alias"] == {"through_alias": ["completed", "failed"], "prod_refused": 400}
+    assert result["debugger"]["decide"]["completed_steps"] == [
+        "start",
+        "validate",
+        "check_reference",
+        "lookup",
     ]
-    plan_states = iter(["paused"])
-    answers = iter(["running", "running", "running", "completed"])
-    caliber = stub_server(
-        {
-            "GET /cookbooks": recipe_payload("14", "Aria Governance Starter Kit"),
-            "POST /cookbooks/14/install": installed_payload("14", "WF-14", "WFV-14"),
-            "GET /me": {"user_id": "@alice"},
-            "POST /aria/plans": plan_detail("PLAN-14", "planning", steps=steps),
-            "GET /aria/plans/PLAN-14": lambda _r: plan_detail(
-                "PLAN-14", next(plan_states), steps=steps
-            ),
-            "POST /aria/plans/PLAN-14/approve": plan_detail("PLAN-14", "approved", steps=steps),
-            "POST /aria/plans/PLAN-14/execute": plan_detail("PLAN-14", "running", steps=steps),
-            "GET /aria/plans/PLAN-14/interactions": [
-                plan_interaction("PLAN-14", "PLAN-14-1", "INT-14-1"),
-                plan_interaction("PLAN-14", "PLAN-14-2", "INT-14-2"),
-                plan_interaction("PLAN-14", "PLAN-14-3", "INT-14-3"),
-                plan_interaction("PLAN-14", "PLAN-14-4", "INT-14-4"),
-            ],
-            "POST /judges": {"judge_id": "J-14"},
-            "POST /eval-datasets": {"dataset_id": "ED-14"},
-            "POST /review-queues": {"queue_id": "RQ-14"},
-            "POST /aria/interactions/INT-14-1/answer": lambda _r: plan_detail(
-                "PLAN-14", next(answers), steps=steps
-            ),
-            "POST /aria/interactions/INT-14-2/answer": lambda _r: plan_detail(
-                "PLAN-14", next(answers), steps=steps
-            ),
-            "POST /aria/interactions/INT-14-3/answer": lambda _r: plan_detail(
-                "PLAN-14", next(answers), steps=steps
-            ),
-            "POST /aria/interactions/INT-14-4/answer": lambda _r: plan_detail(
-                "PLAN-14", next(answers), steps=steps
-            ),
-        }
+    assert all(entry["checkpoints"] == 0 for entry in result["debugger"].values())
+    assert server.deleted == [result["workflow_id"]]
+    # the call sequence the README documents
+    assert server.calls[0] == "POST /workflows/import"
+    workflow_id = result["workflow_id"]
+    assert f"POST /workflow-versions/{result['version_1']}/propose-patch" in server.calls
+    assert server.calls.index(f"POST /workflows/{workflow_id}/versions") < server.calls.index(
+        f"POST /workflows/{workflow_id}/deployments/staging/promote"
     )
+
+
+def test_cookbook_09_stops_when_the_patch_does_not_fix_the_failures() -> None:
+    from examples.cookbooks.cookbook_09_self_healing_workflows import VerificationError
+
+    _server, caliber = _lab09(broken_patch=True)
+    with caliber, pytest.raises(VerificationError, match="v2 should complete"):
+        run_09(caliber, suffix="broken")
+
+
+def test_cookbook_09_stops_when_version_1_does_not_fail_as_documented() -> None:
+    from types import SimpleNamespace
+
+    from examples.cookbooks import cookbook_09_self_healing_workflows as lab
+
+    rows = lab.load_rows(lab.ASSETS)
+    runs = {}
+    for row in rows:
+        expected = row["expected"]
+        if expected["v1_status"] == "completed":
+            out = jsonlib.dumps(
+                {"decision": expected["decision"], "reason_code": expected["reason_code"]}
+            )
+            runs[row["id"]] = SimpleNamespace(
+                status="completed", extra={"summary": {"output": out}, "error_summary": None}
+            )
+        else:
+            error = (
+                f"python_code node '{expected['v1_failing_node']}' failed: "
+                f"{expected['v1_error_contains']}"
+            )
+            runs[row["id"]] = SimpleNamespace(status="failed", extra={"error_summary": error})
+    assert dict(lab.verify_version_1(rows, runs)) == lab.EXPECTED_V1_FAILURES
+
+    runs["F12"].extra["error_summary"] = "python_code node 'validate' failed: something else"
+    with pytest.raises(lab.VerificationError, match="F12: unexpected error"):
+        lab.verify_version_1(rows, runs)
+    runs["F12"].extra["error_summary"] = "python_code node 'decide' failed: KeyError"
+    with pytest.raises(lab.VerificationError, match="F12: failed at decide"):
+        lab.verify_version_1(rows, runs)
+    runs["F12"].status = "completed"
+    with pytest.raises(lab.VerificationError, match="F12: v1 should fail"):
+        lab.verify_version_1(rows, runs)
+
+
+def test_cookbook_09_helpers() -> None:
+    from examples.cookbooks import cookbook_09_self_healing_workflows as lab
+
+    error = "ToolExecutionError: python_code node 'decide' failed: KeyError"
+    assert lab.failing_node(error) == "decide"
+    assert lab.failing_node("no node named here") is None
+    assert lab.failing_node(None) is None
+    with pytest.raises(lab.VerificationError, match="boom"):
+        lab.check(False, "boom")
+    lab.check(True, "never raised")
+
+
+def _lab10(
+    *, simulated: bool = False, server_cls: type | None = None
+) -> tuple[Any, Any, dict[str, Any]]:
+    from cookbook_10_fake_server import FakeLabServer
+
+    from examples.cookbooks.cookbook_10_trustworthy_evaluation import ASSETS, load_rows
+
+    rows = load_rows(ASSETS)
+    server = (server_cls or FakeLabServer)(rows, simulated=simulated)
+    trace_ids = {row["id"]: f"tr-{row['id']}" for row in rows}
+    server.trace_row = {trace_ids[row["id"]]: row for row in rows}
+    return server, server.client(CaliberClient), trace_ids
+
+
+def test_cookbook_10_certifies_one_judge_and_rejects_another() -> None:
+    """The lab's whole API path with a model behind the server: the numbers are the ones the README
+    documents (checked against a live stack with the stand-in model), arithmetic recomputed."""
+    server, caliber, trace_ids = _lab10()
     with caliber:
-        result = run_14(caliber)
-    assert result["plan_id"] == "PLAN-14"
-    assert result["status"] == "completed"
-    assert result["judge_id"] == "J-14"
-    assert result["dataset_id"] == "ED-14"
-    assert result["queue_id"] == "RQ-14"
+        result = run_10(caliber, trace_ids=trace_ids, suffix="t", expect_stand_in=True)
 
+    assert result["mode"] == "model" and result["result"] == "verified"
+    assert result["cookbook"] == {"id": "10", "title": "Trustworthy Evaluation", "steps": 6}
+    assert result["dataset"]["examples"] == 50 and result["dataset"]["version"] == 51
+    assert result["invalid_template"] == {"status": 400, "variable": "evidence"}
+    assert result["empty_dataset_evaluation"] == {"status": 400}
+    runs = result["evaluations"]
+    assert runs["baseline"]["judge"] == 1.0 and runs["baseline"]["contains_expected"] == 0.0
+    assert runs["candidate"]["judge"] == 0.56 and runs["candidate"]["overall"] == 0.74
+    assert runs["delta_overall"] == 0.0733
+    assert result["review"]["labels_imported"] == 50
 
-def test_cookbook_15_drives_the_triage_then_recalibrate_loop() -> None:
-    """`workflow.calibrate` is Aria's first async capability: the step parks
-    in `waiting_job` and the plan stays `running` until polled to
-    resolution, rather than pausing for a human or finishing inline."""
-
-    steps = [
-        plan_step("PLAN-15", 1, "review_queue.create"),
-        plan_step("PLAN-15", 2, "review_queue.add_items"),
-        plan_step("PLAN-15", 3, "workflow.calibrate"),
+    strict = result["alignment"]["faithfulness"]
+    assert (strict["agreement"], strict["kappa"], strict["decision"]) == (
+        0.82,
+        0.6365,
+        "CERTIFIED",
+    )
+    assert strict["confusion"] == {"true_pos": 23, "false_pos": 5, "true_neg": 18, "false_neg": 4}
+    assert strict["disagreements"] == [
+        "J03",
+        "J12",
+        "J14",
+        "J17",
+        "J19",
+        "J22",
+        "J24",
+        "J30",
+        "J33",
     ]
-    plan_states = iter(["paused"])
-    # The first two interactions still advance the plan; the calibrate
-    # interaction parks it in `running` rather than completing inline.
-    answers = iter(["running", "running", "running"])
-    caliber = stub_server(
-        {
-            "GET /cookbooks": cookbook_listing(
-                "15",
-                "Aria Triage & Recalibrate Loop",
-                prerequisite="Existing traces",
-            ),
-            "POST /cookbooks/15/install": installed_payload("15", "WF-15", "WFV-15"),
-            "GET /observability/traces": trace_items("TR-15"),
-            "POST /aria/plans": plan_detail("PLAN-15", "planning", steps=steps),
-            "GET /aria/plans/PLAN-15": lambda _r: plan_detail(
-                "PLAN-15", next(plan_states), steps=steps
-            ),
-            "POST /aria/plans/PLAN-15/approve": plan_detail("PLAN-15", "approved", steps=steps),
-            "POST /aria/plans/PLAN-15/execute": plan_detail("PLAN-15", "running", steps=steps),
-            "GET /aria/plans/PLAN-15/interactions": [
-                plan_interaction("PLAN-15", "PLAN-15-1", "INT-15-1"),
-                plan_interaction("PLAN-15", "PLAN-15-2", "INT-15-2"),
-                plan_interaction("PLAN-15", "PLAN-15-3", "INT-15-3"),
-            ],
-            "POST /review-queues": {"queue_id": "RQ-15"},
-            "POST /review-queues/RQ-15/items": [{"item_id": "RI-15"}],
-            "POST /workflows/WF-15/calibration/runs": {"job_id": "JOB-15"},
-            "POST /aria/interactions/INT-15-1/answer": lambda _r: plan_detail(
-                "PLAN-15", next(answers), steps=steps
-            ),
-            "POST /aria/interactions/INT-15-2/answer": lambda _r: plan_detail(
-                "PLAN-15", next(answers), steps=steps
-            ),
-            "POST /aria/interactions/INT-15-3/answer": lambda _r: plan_detail(
-                "PLAN-15", next(answers), steps=steps
-            ),
-            "POST /aria/plans/PLAN-15/poll": plan_detail("PLAN-15", "completed", steps=steps),
-        }
+    lenient = result["alignment"]["lenient"]
+    assert (lenient["agreement"], lenient["kappa"], lenient["decision"]) == (
+        0.58,
+        0.0933,
+        "REJECTED",
     )
-    with caliber:
-        result = run_15(caliber)
-    assert result["plan_id"] == "PLAN-15"
-    assert result["status"] == "completed"
-    assert result["queue_id"] == "RQ-15"
-    assert result["enqueued_trace_ids"] == ["TR-15"]
-    assert result["calibration_job_id"] == "JOB-15"
+    # Five rows already clear both bars (0.8 / 0.62), which is why the lab demands thirty.
+    few = result["alignment"]["too_few_rows"]
+    assert (few["n"], few["agreement"], few["decision"]) == (5, 0.8, "NOT_CERTIFIABLE")
+    leak = result["alignment"]["rationale_leak"]
+    assert leak["agreement"] == 0.66 and leak["agreement"] < strict["agreement"]
+    assert result["feedback"] == {"hard_cases_added": 9, "dataset_version": 60}
+    assert "POST /judges/JDG-1/alignment" in server.calls
+    assert "archived" not in result and server.archived == []
 
 
-def test_cookbook_16_promotes_a_trace_into_a_dataset_and_queue() -> None:
-    caliber = stub_server(
-        {
-            "GET /cookbooks": cookbook_listing(
-                "16",
-                "Production Observability & Triage",
-                prerequisite="Existing traces",
-            ),
-            "POST /cookbooks/16/install": installed_payload("16", "WF-16", "WFV-16"),
-            "GET /observability/traces": trace_items("TR-16A", "TR-16B"),
-            "GET /me": {"user_id": "@alice"},
-            "POST /eval-datasets": {"dataset_id": "ED-16"},
-            "POST /eval-datasets/ED-16/examples/from-trace": {"example_id": "EX-16"},
-            "POST /review-queues": {"queue_id": "RQ-16"},
-            "POST /review-queues/RQ-16/items": {"queued": 2},
-        }
+def test_cookbook_10_cleanup_archives_what_it_created() -> None:
+    server, caliber, trace_ids = _lab10()
+    with caliber:
+        result = run_10(caliber, trace_ids=trace_ids, suffix="c", cleanup=True)
+    assert result["archived"] == {"datasets": 2, "judges": 2, "queues": 1, "prompts": 1}
+    assert sorted(server.archived) == sorted(
+        ["ED-1", "ED-2", "JDG-1", "JDG-2", "RVQ-1", "grounded-reply-c"]
+    )
+
+
+def test_cookbook_10_on_a_simulated_stack_verifies_the_refusals_instead() -> None:
+    """With no model behind the server, Evaluations and the judge cannot run; the script reports
+    exactly that, and still verifies everything that needs no model."""
+    _server, caliber, trace_ids = _lab10(simulated=True)
+    with caliber:
+        result = run_10(caliber, trace_ids=trace_ids, suffix="s")
+
+    assert result["mode"] == "simulated" and result["result"] == "verified"
+    assert result["evaluation_refused"]["status"] == 400
+    assert "real LLM provider" in result["evaluation_refused"]["detail"]
+    assert "evaluations" not in result and "feedback" not in result
+    assert result["review"]["labels_imported"] == 50
+    assert result["alignment"]["scored"] == 0
+    assert result["alignment"]["decision"] == "NOT_CERTIFIABLE"
+    assert "OPENAI_API_KEY" in result["alignment"]["first_row_error"]
+    calibration = result["calibration"]
+    assert calibration["status"] == "candidate_ready" and calibration["simulated"] is True
+    assert calibration["n_examples"] == 50 and calibration["dataset_version"] == 51
+    assert calibration["gate_passed_on_a_canned_score"] is True
+
+
+def test_cookbook_10_fails_loudly_when_a_documented_outcome_does_not_hold() -> None:
+    """A judge that disagrees with the pinned numbers must stop the script (exit non-zero), not be
+    reported as verified."""
+    from cookbook_10_fake_server import FakeLabServer
+
+    from examples.cookbooks.cookbook_10_trustworthy_evaluation import VerificationError
+
+    class AlwaysPasses(FakeLabServer):
+        def _verdict(self, judge_id: str, outputs: str, expectations: dict[str, Any]) -> bool:
+            return True
+
+    _, caliber, trace_ids = _lab10(server_cls=AlwaysPasses)
+    with caliber, pytest.raises(VerificationError):
+        run_10(caliber, trace_ids=trace_ids, suffix="x", expect_stand_in=True)
+
+    # Without the pins the same judge is simply reported, and rejected on the lab's thresholds.
+    _, caliber, trace_ids = _lab10(server_cls=AlwaysPasses)
+    with caliber:
+        result = run_10(caliber, trace_ids=trace_ids, suffix="y")
+    assert result["alignment"]["faithfulness"]["decision"] == "REJECTED"
+
+
+def test_cookbook_10_names_the_providers_refusal_when_a_real_key_is_rejected() -> None:
+    """A real provider that refuses the key leaves the run `failed` with the provider's message;
+    the script must stop and say so, not report a bare status (observed on a real stack)."""
+    from cookbook_10_fake_server import FakeLabServer
+
+    from examples.cookbooks.cookbook_10_trustworthy_evaluation import VerificationError
+
+    class BadKey(FakeLabServer):
+        def __init__(self, rows: list[dict[str, Any]], *, simulated: bool = False) -> None:
+            super().__init__(rows, simulated=simulated, rejected_key=True)
+
+    _, caliber, trace_ids = _lab10(server_cls=BadKey)
+    with caliber, pytest.raises(VerificationError, match=r"baseline run is failed: .*401"):
+        run_10(caliber, trace_ids=trace_ids, suffix="k")
+
+
+@pytest.mark.parametrize(
+    ("scored", "n", "agreement", "kappa", "decision"),
+    [
+        (50, 50, 0.82, 0.6365, "CERTIFIED"),
+        (50, 50, 0.80, 0.60, "CERTIFIED"),
+        (50, 50, 0.79, 0.90, "REJECTED"),
+        (50, 50, 0.95, 0.59, "REJECTED"),
+        (5, 5, 1.0, 1.0, "NOT_CERTIFIABLE"),
+        (29, 29, 1.0, 1.0, "NOT_CERTIFIABLE"),
+        (30, 30, 0.9, 0.8, "CERTIFIED"),
+        (40, 50, 0.9, 0.8, "NOT_CERTIFIABLE"),
+    ],
+)
+def test_cookbook_10_certification_rule(
+    scored: int, n: int, agreement: float, kappa: float, decision: str
+) -> None:
+    from examples.cookbooks.cookbook_10_trustworthy_evaluation import decide
+
+    assert decide(scored, n, agreement, kappa) == decision
+
+
+def test_cookbook_10_metrics_match_a_worked_example() -> None:
+    """Judge pass/fail against human pass/fail over ten rows, worked by hand:
+    TP 4, FP 1, TN 4, FN 1 -> p_o 0.8, p_e 0.5, kappa 0.6."""
+    from examples.cookbooks.cookbook_10_trustworthy_evaluation import (
+        agreement,
+        cohen_kappa,
+        confusion,
+    )
+
+    judge = [True] * 4 + [True] + [False] * 4 + [False]
+    human = [True] * 4 + [False] + [False] * 4 + [True]
+    assert agreement(judge, human) == 0.8
+    assert round(cohen_kappa(judge, human), 4) == 0.6
+    assert confusion(judge, human) == {"true_pos": 4, "false_pos": 1, "true_neg": 4, "false_neg": 1}
+    # A judge that always says "pass" agrees with a mostly-passing sample and measures nothing.
+    assert cohen_kappa([True] * 10, [True] * 9 + [False]) == 0.0
+    assert cohen_kappa([True] * 10, [True] * 10) == 1.0
+
+
+def _lab16(**fake_options: Any) -> tuple[Any, Any]:
+    from cookbook_16_fake_server import FakeObservabilityServer
+
+    from examples.cookbooks.cookbook_16_observability_triage import ASSETS, _seed_module
+
+    rows = _seed_module(ASSETS).load_rows(ASSETS / "dataset/prod-regression.sample.jsonl")
+    server = FakeObservabilityServer(rows, **fake_options)
+    return server, server.client(CaliberClient)
+
+
+def test_cookbook_16_seeds_reads_captures_and_triages() -> None:
+    """40 real runs become 12 error and 28 ok traces; 16 are captured and queued, 2 reviewed."""
+    server, caliber = _lab16()
+    with caliber:
+        result = run_16(caliber, suffix="t", cleanup=True)
+
+    assert result["seeded"] == 40
+    assert result["traces"] == {"ERROR": 12, "OK": 28}
+    assert result["node_tree"] == {
+        "poison": "node.check_reference",
+        "upstream": "node.decide",
+        "validate": "node.validate",
+    }
+    assert result["ok_but_wrong"] == ["P25", "P26", "P27", "P28"]
+    assert result["failure_paths"]["unknown_trace"] == 404
+    assert result["failure_paths"]["future_window"] == 0
+    assert result["test_set"]["examples"] == 16
+    assert result["triage"]["queued"] == 16 and result["triage"]["answered"] == 2
+    assert set(result["triage"]["assessments"]["P38"]) >= {"failure_mode", "severity"}
+    # every captured example carries its gold outcome and its source trace
+    assert all(
+        "from-trace" in ex["tags"] and "decision" in ex["expected"]
+        for ex in next(iter(server.examples.values()))
+    )
+    assert sorted(server.archived) == sorted([*server.datasets, *server.queues])
+    assert server.calls.index("POST /workflows/import") < server.calls.index("POST /review-queues")
+
+
+def test_cookbook_16_stops_when_failed_runs_do_not_leave_error_traces() -> None:
+    from examples.cookbooks.cookbook_16_observability_triage import VerificationError
+
+    _server, caliber = _lab16(ignore_failures=True)
+    with caliber, pytest.raises(VerificationError, match="trace status counts"):
+        run_16(caliber, suffix="broken")
+
+
+def test_cookbook_16_helpers() -> None:
+    from examples.cookbooks import cookbook_16_observability_triage as lab
+
+    assert lab.kind_of({"tags": ["error", "poison", "timeout"]}) == "poison"
+    assert lab.kind_of({"tags": ["ok", "correct"]}) is None
+    with pytest.raises(lab.VerificationError, match="boom"):
+        lab.check(False, "boom")
+    with pytest.raises(lab.VerificationError, match="expected 40"):
+        lab.run(None, assets=_short_assets())  # type: ignore[arg-type]
+
+
+def _short_assets() -> Any:
+    """A copy of the assets whose dataset has one row, to prove the size check fires first."""
+    import shutil
+    import tempfile
+    from pathlib import Path
+
+    from examples.cookbooks.cookbook_16_observability_triage import ASSETS
+
+    root = Path(tempfile.mkdtemp(prefix="lab16-assets-"))
+    shutil.copytree(ASSETS, root / "assets")
+    dataset = root / "assets/dataset/prod-regression.sample.jsonl"
+    dataset.write_text(dataset.read_text().splitlines()[0] + "\n")
+    return root / "assets"
+
+
+def test_cookbook_18_verifies_roles_tokens_and_audit_against_the_stand_in_server() -> None:
+    """The lab's whole API path: team, role matrix, bound token, refusals, audit.
+
+    The stateful stand-in (``cookbook_18_fake_server``) enforces the project-role rules the docs
+    state; the script reads the roster, role matrix and failure scenarios from the lab's own
+    dataset files and must verify every cell. ``test_cookbook_18_roles_tokens_audit.py`` covers the
+    data files, the refusals, and that a server which breaks a rule fails the run."""
+    from cookbook_18_fake_server import FakeCaliber
+
+    from examples.cookbooks.cookbook_18_projects_roles_tokens_audit import load_roster
+
+    fake = FakeCaliber(load_roster())
+
+    def user_client(token: str, project: str | None = None) -> CaliberClient:
+        return CaliberClient(
+            BASE,
+            token=token,
+            project=project,
+            http_client=httpx.Client(transport=fake.transport()),
+            max_retries=0,
+        )
+
+    caliber = CaliberClient(
+        BASE,
+        token=fake.ADMIN_TOKEN,
+        http_client=httpx.Client(transport=fake.transport()),
+        max_retries=0,
     )
     with caliber:
-        result = run_16(caliber)
-    assert result["dataset_id"] == "ED-16"
-    assert result["queue_id"] == "RQ-16"
-    assert result["trace_ids"] == ["TR-16A", "TR-16B"]
+        result = run_18(
+            caliber,
+            base_url=BASE,
+            login_attempt=fake.login_attempt,
+            user_client=user_client,
+            use_caliberctl=False,
+            sleep=fake.age,
+            run_key="unit-test",
+        )
+    assert result["members"] == 8
+    assert result["matrix_requests"] == 72
+    assert result["simulated_providers"] == ["eval", "llm"]
+    scenarios = result["failure_scenarios"]
+    assert isinstance(scenarios, dict)
+    assert set(scenarios) >= {"F01", "F10", "F11", "F12", "F15"}
 
 
 def _financial_analysis_fixture() -> dict[str, Any]:

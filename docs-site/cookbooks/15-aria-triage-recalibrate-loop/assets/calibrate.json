@@ -1,5 +1,5 @@
 {
-  "workflow_id": "<REAL existing workflow id — e.g. the SCN-07 support workflow you built>",
-  "agent_id": "<REAL existing agent id bound in that workflow>",
-  "notes": "Inputs for the Aria workflow.calibrate step. This is the only ASYNC capability: approving it enqueues a real workflow-calibration job and the plan PARKS in waiting_job. The plan worker (or POST /aria/plans/{plan_id}/poll) resolves the refinement_job (candidate_ready/applied = done; rejected/failed/error = failed); the plan then resumes and completes. PLACEHOLDERS — replace with a real workflow_id + agent_id (build the workflow in SCN-07). Aria does not create the workflow or agent."
+  "workflow_id": "<id printed by setup_subject.py: an existing, published workflow with a deploy-gate test set>",
+  "agent_id": "<id printed by setup_subject.py: a registered, enabled agent>",
+  "notes": "Inputs for the Aria workflow.calibrate step (the same two fields as POST /workflows/{workflow_id}/calibration/runs {agent_id}). This is the only ASYNC capability: approving it enqueues a real refinement job and the plan PARKS in waiting_job (the plan stays running). The plan worker, or POST /aria/plans/{plan_id}/poll, resolves the job: candidate_ready or applied finishes the step (the plan completes), rejected, failed or error fails it with the job's reason. Aria passes only these two fields, so the calibration uses the default objective (maximize quality, the candidate must beat the baseline by 0.02) and the default budget (20 test set cases, 3 candidates). A workflow with no deploy-gate test set, an unknown workflow or an unregistered agent fails the step at once. Replace the placeholders with ids that exist: setup_subject.py creates a workflow and an agent for the lab."
 }

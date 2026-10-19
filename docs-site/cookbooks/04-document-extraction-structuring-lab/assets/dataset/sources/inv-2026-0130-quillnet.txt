@@ -1,0 +1,10 @@
+Quillnet Registrar
+INVOICE
+Invoice No: QN-0001
+Invoice Date: 2026-03-27
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+1     Domain renewal                          $1,000.00     $1,000.00
+
+Total: $1,000

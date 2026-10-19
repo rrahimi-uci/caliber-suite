@@ -1,0 +1,12 @@
+PURCHASE ORDER
+PO Number: PO-7731
+Date: 2026-03-15
+Buyer: Caliber Demo Co.
+Supplier: Harbor Metrology
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+2     Calibration service                       $450.00       $900.00
+
+Order Total                                      $900.00
+Please confirm receipt of this order.

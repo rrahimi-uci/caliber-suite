@@ -1,22 +1,36 @@
-# Verified against the Aria capability registry + plan executor — see ../ARIA-AUTONOMY.md.
+# What the lab verifies, and how. Every item below is asserted by
+# sdk/caliber-sdk/examples/cookbooks/cookbook_12_aria_evaluation_harness.py against a real server,
+# and (for the UI items) by caliber/caliber-ui/e2e/cookbooks/labs/12-aria-evaluation-harness.spec.ts.
+# Verified against the Aria capability registry and plan executor; see ../ARIA-AUTONOMY.md.
 feasibility:
-  - These gates check Aria's PLAN and the REAL artifacts it created; there is no LLM judge OF Aria here.
-  - Plan + step status + interactions are observable via GET /aria/plans/{id} and /aria/plans/{id}/interactions.
-  - The test set takes the judge's name (the planner links eval_dataset.create name from judge.create), so eval_dataset_created is checked by the plan step and a new row in Test Sets, not by a separate name.
+  - Aria's planner is deterministic rules, so the plan is checked exactly; there is no judge of Aria's output here and no model in the verified path.
+  - Plan, step and question state are observable at GET /aria/plans/{id} and GET /aria/plans/{id}/interactions.
+  - Running the judge in Evaluations needs a real model provider; on the simulated default the lab verifies the 400 refusal, not a score.
 evaluation:
   plan_checks:
-    - plan_decomposed_from_intent
-    - plan_contains_judge_create
-    - plan_contains_eval_dataset_create
+    - planner_matches_dataset                  # 28/28 goals draw the documented steps; every draft is cancelled
+    - plan_contains_judge_create_then_eval_dataset_create
+    - no_name_wired_between_steps              # each step asks for its own name
   artifact_checks:
-    - judge_active_and_references_a_template_variable
-    - eval_dataset_created
+    - judge_active_with_typed_name_type_and_instructions
+    - test_set_has_its_own_name_and_version_1_and_no_rows
+    - test_set_holds_30_cases_at_version_31
+  refusal_checks:
+    - empty_plan_cannot_be_approved
+    - form_refuses_unknown_field_wrong_type_empty_and_missing
+    - denied_step_is_skipped_and_the_other_still_runs
+    - judge_without_variable_fails_step_and_plan
+    - duplicate_name_fails_step
+    - owner_without_operator_scope_fails_at_execute
+    - non_owner_cannot_answer_or_read_the_plan
+    - evaluation_refused_on_simulated_provider
 quality_gates:
+  planner_agreement: 1.0         # 28 of 28 goals
   steps_completed_min: 2
   required_interactions_answered: true
-  artifacts_real: true       # the judge + dataset exist in Judges / Test Sets
+  artifacts_real: true           # the judge, the test set and its rows exist
 monitoring:
-  evidence:        # labels for what to look for, not literal span names
+  evidence:
     - aria_plan_created
     - aria_step_completed
     - judge_created
@@ -25,5 +39,5 @@ monitoring:
     - steps_completed
     - interactions_count
 feedback_loop:
-  - if the plan misses a capability, sharpen the intent wording (domain needles) and re-decompose.
-  - promote the created judge + test set into the Evaluations scoring loop (SCN-01 / SCN-10).
+  - if the plan misses a capability, use the domain words (judge, eval dataset, test set) and re-decompose; add the sentence to assets/dataset/goals.jsonl with the plan the server draws.
+  - promote the created judge and test set into the Evaluations scoring loop (labs 01 and 10) once a real model provider is configured.

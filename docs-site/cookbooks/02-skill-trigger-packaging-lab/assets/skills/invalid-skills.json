@@ -1,0 +1,32 @@
+[
+  {
+    "label": "name is not kebab-case",
+    "payload": {"name": "Support_Tone", "owner": "admin", "content": "Reply politely."},
+    "status": 400,
+    "expect": "String should match pattern"
+  },
+  {
+    "label": "reserved name prefix",
+    "payload": {"name": "claude-helper", "owner": "admin", "content": "Reply politely."},
+    "status": 400,
+    "expect": "skill names starting with 'claude' are reserved"
+  },
+  {
+    "label": "angle brackets in the summary",
+    "payload": {"name": "xml-summary", "owner": "admin", "content": "Reply politely.", "summary": "Use <b>bold</b> replies"},
+    "status": 400,
+    "expect": "summary must not contain XML angle brackets"
+  },
+  {
+    "label": "empty content",
+    "payload": {"name": "empty-content", "owner": "admin", "content": ""},
+    "status": 400,
+    "expect": "String should have at least 1 character"
+  },
+  {
+    "label": "unknown field",
+    "payload": {"name": "unknown-field", "owner": "admin", "content": "Reply politely.", "bogus": 1},
+    "status": 400,
+    "expect": "Extra inputs are not permitted"
+  }
+]

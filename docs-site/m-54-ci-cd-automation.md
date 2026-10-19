@@ -69,6 +69,15 @@ The current CI pipeline keeps this explicit:
   (`scripts/verify-knowledge-stack.sh`). It is deliberately not a
   required check and `scripts/ci-local.sh` does not mirror it; run
   `scripts/verify-compose-stack.sh` by hand to do the same locally
+- `.github/workflows/cookbook-labs.yml` runs every cookbook lab for real
+  (`scripts/cookbook-run-all.sh`): a fresh stack per lab, the lab's SDK example
+  script and its Playwright spec, then a cross-lab journey on one shared stack.
+  It runs weekly (Wednesdays 06:23 UTC), on manual dispatch (optionally a
+  comma list of labs), and on pull requests that change a lab, its script or
+  spec, or the runner, with the simulated providers and no model key. It is not
+  a required check (a full pass takes about half an hour). The SDK example
+  tests, which replay each script against a stateful stand-in server, run on
+  every pull request in the `Backend core journey` job
 
 ## 3. Preserve human review where the product expects it
 

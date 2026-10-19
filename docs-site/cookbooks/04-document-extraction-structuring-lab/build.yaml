@@ -1,54 +1,45 @@
-workflow_goal: Convert heterogeneous Office inputs into reliable structured JSON.
-# Verified against the live build — see ../FEASIBILITY.md.
+# The installed workflow is the built-in Cookbook 04 draft (caliber.workflows.cookbook_document_pipeline).
+# Nothing in it calls a model: the extractor is deterministic python_code and the check is a JSON Schema.
 feasibility:
-  - Object Store extract supports .docx/.pptx/.xlsx (not legacy .doc/.ppt/.xls); endpoint GET /object-store/buckets/{bucket}/object/extract?key=...
-  - Extraction inside a workflow = the shipped tool caliber.workflows.ingestion_tools:extract_document (PDF/DOCX/PPTX/XLSX/MD + OCR), which opens a LOCAL file path (ref). The input_bucket node decodes objects as UTF-8 text capped at 100 KB by default, so binary Office files cannot flow through it.
-  - The Data Transform json_schema node returns {valid, metadata.errors} only; validation_status/missing_fields come from the python_code validator.
-  - validate_document_json is best a python_code node (JSON-schema check); no tool registration needed.
-  - SchemaFidelity is not a judge — it is the python_code validator pass/fail plus an exact_match/contains_expected scorer in Evaluations.
-manual_flow:
-  - step: ingest
-    action: Upload files and verify preview extraction.
-  - step: normalize
-    action: Apply structuring prompt to extracted text/table rows.
-  - step: validate
-    action: Run JSON schema validation tool.
-  - step: preview_run
-    action: Execute workflow preview on golden and edge documents.
-  - step: tune
-    action: adjust prompt/schema based on validation failures.
+  - input_bucket reads text objects only. It decodes UTF-8 with replacement characters and keeps at most max_bytes_per_file (100,000) bytes of each object, marking it truncated. Binary Office files cannot flow through it.
+  - A run handles one document: the run input is the object key and read_document lists exactly that key (max_files 5, recursive false).
+  - The python_code sandbox pre-loads re, json and datetime and refuses import.
+  - data_transform json_schema validates against Draft 2020-12 and, with fail_on_invalid false, publishes valid=false and metadata.errors (path, message, validator) instead of failing the run.
+  - output_bucket with overwrite false refuses to replace an existing object, which is the duplicate guard.
+  - A workflow with a human_approval node can only be started as a queued run (CALIBER_WORKFLOW_RUN_QUEUE_ENABLED, checkpointing and runtime approvals on); Preview refuses bucket and python_code nodes.
+  - The account that started a run cannot approve it unless CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true; approving does not resume the run, and resuming needs the operator scope.
+  - After an approval, only what flows through the approval gate is delivered to later nodes (see "Limits" in the README), so the record and its schema errors travel in one text through package_result and the gate.
 components:
-  prompts:
-    system: "Extract only verifiable facts from source document content."
-    developer: "Emit JSON matching target schema; never invent missing values."
-  skills:
-    optional:
-      - extraction-notes-formatter
-  tools:
-    - extract_document        # caliber.workflows.ingestion_tools:extract_document (read)
-    - validate_document_json  # realize as a python_code node (JSON-schema check)
-  mcp:
-    optional:
-      - MinIO or S3-compatible source bucket (Object Store is already S3/MinIO-backed)
+  prompts: {}
+  skills: {}
+  tools: []
+  mcp: {}
   workflow:
-    template: blank
+    template: cookbook 04 (installed from the Cookbooks gallery)
     nodes:
-      - fetch_object      # optional input_bucket node, text objects only (.md/.csv/.txt)
-      - extract_content   # tool node: extract_document (ref = local doc_path)
-      - structure_json    # agent/template node applying the structuring prompt
-      - validate_schema   # python_code node: validate_document_json
-      - emit_artifact     # output (or output_bucket) node
+      - read_document        # input_bucket: doc-intake, prefix = the run input (the object key)
+      - extract_fields       # python_code: assets/tools/extract_invoice_fields.py
+      - validate_schema      # data_transform json_schema, fail_on_invalid false: assets/schema/invoice.schema.json
+      - package_result       # python_code: record + schema errors as one JSON text, and valid
+      - route                # router on valid
+      - emit_extracted       # python_code: names invoices/<invoice number>.json
+      - write_extracted      # output_bucket: doc-extracted/invoices, overwrite false
+      - review_gate          # human_approval, required_role caliber.approver
+      - emit_reviewed        # python_code: records the approval and the schema errors
+      - write_reviewed       # output_bucket: doc-extracted/reviewed, overwrite true
+      - final                # output
 contracts:
   input_schema:
-    type: object
-    required: [doc_path, document_type]
+    type: string
+    description: the object key of one document in doc-intake, for example incoming/inv-2026-0101-acme.txt
   output_schema:
     type: object
-    required: [document_id, extracted_fields, validation_status]
+    required: [document_type, invoice_number, vendor, invoice_date, currency, line_items, total]
 failure_modes:
-  - extraction_timeout
-  - malformed_table_rows
   - schema_validation_failure
+  - duplicate_invoice
+  - missing_bucket
+  - object_store_unreachable
+  - truncated_or_non_utf8_input
 fallbacks:
-  - emit partial extraction with explicit missing_fields.
-  - route invalid docs to manual review queue.
+  - hold the document at the approval gate and let a second person approve (written under reviewed/) or reject (nothing is written).

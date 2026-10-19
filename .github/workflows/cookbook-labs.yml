@@ -1,0 +1,99 @@
+name: Cookbook labs
+
+# Runs every cookbook lab for real: a fresh CALIBER stack per lab, the lab's SDK example
+# script (the API path) and its Playwright spec (the UI path), exactly as the lab README
+# documents them (scripts/cookbook-run-all.sh). The cookbook is executable documentation,
+# and a lab that only passes against a stub server is a claim nobody has checked.
+#
+# Why this is its own workflow: a full pass takes about half an hour (one stack and one
+# browser run per lab), so it is not a required check on every PR. It runs weekly (upstream
+# drift: MLflow, the MiniLM model, Playwright), on demand, and on pull requests that change
+# a lab, its script or spec, or the runner. It uses the simulated tier (no model key): the
+# labs are written for it, and each README says what the simulated run proves.
+#
+# A failed scheduled run is reported by GitHub to the person who last edited the cron line
+# below. It never blocks a merge.
+
+on:
+  schedule:
+    # Wednesdays 06:23 UTC. An off-the-hour minute avoids the top-of-the-hour scheduler queue.
+    - cron: "23 6 * * 3"
+  workflow_dispatch:
+    inputs:
+      labs:
+        description: "Comma list of labs to run (for example 01,02,18); empty runs all"
+        required: false
+        default: ""
+  pull_request:
+    paths:
+      - "docs-site/cookbooks/**"
+      - "sdk/caliber-sdk/examples/cookbooks/**"
+      - "caliber/caliber-ui/e2e/cookbooks/labs/**"
+      - "caliber/caliber-ui/playwright.labs.config.ts"
+      - "scripts/cookbook-*"
+      - ".github/workflows/cookbook-labs.yml"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: cookbook-labs-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  labs:
+    name: Run every cookbook lab (API and UI)
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v5
+      - uses: astral-sh/setup-uv@v10.0.1
+        with:
+          enable-cache: true
+          cache-dependency-glob: caliber/pyproject.toml
+      - uses: actions/setup-python@v7
+        with:
+          python-version: "3.12"
+      - name: Install CALIBER, the SDK and the CLI into caliber/.venv
+        # The runner uses caliber/.venv, the development venv `make install` creates. The
+        # knowledge extras carry the local embedding model lab 06 builds with.
+        working-directory: caliber
+        run: |
+          uv venv .venv --python 3.12
+          uv pip install --python .venv/bin/python -e ".[dev,llm,knowledge,knowledge-local]"
+          uv pip install --python .venv/bin/python -e ../sdk/caliber-sdk -e ../sdk/caliber-cli
+      - uses: actions/setup-node@v7
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: caliber/caliber-ui/package-lock.json
+      - name: Install UI dependencies and Chromium
+        working-directory: caliber/caliber-ui
+        run: |
+          npm ci
+          npx playwright install --with-deps chromium
+      - name: Cache the embedding model lab 06 needs
+        uses: actions/cache@v4
+        with:
+          path: ~/.cache/huggingface
+          key: hf-all-minilm-l6-v2
+      - name: Run the labs
+        env:
+          LABS: ${{ github.event.inputs.labs }}
+        run: |
+          if [[ -n "${LABS:-}" ]]; then
+            scripts/cookbook-run-all.sh --labs "$LABS"
+          else
+            scripts/cookbook-run-all.sh
+          fi
+      - name: Run the cross-lab journey on one shared stack
+        if: ${{ github.event_name != 'pull_request' }}
+        run: scripts/cookbook-run-all.sh --journey
+      - name: Upload the logs
+        if: ${{ failure() }}
+        uses: actions/upload-artifact@v7
+        with:
+          name: cookbook-run-logs
+          path: .tmp/cookbook-run-all/latest
+          if-no-files-found: warn
+          retention-days: 7

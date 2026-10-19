@@ -2,37 +2,38 @@ id: SCN-04
 slug: document-extraction-structuring-lab
 name: "Document-to-JSON Pipeline"
 track: build
-objective: Build a document intake pipeline that extracts Office content and returns schema-valid JSON for downstream KB or workflow use.
+objective: Build an intake pipeline that reads invoice documents from an object-store bucket, extracts and validates structured JSON, writes the valid ones to an output bucket and holds the invalid ones for a person to approve or reject.
 why_it_matters:
-  - Catches source quality issues before retrieval layers hide them.
-  - Produces reusable structured artifacts from unstructured files.
+  - Catches source quality problems (missing totals, wrong encodings, truncated files, documents that are not invoices) before anything downstream trusts the data.
+  - Shows the whole alpha path for a data pipeline: object store in, deterministic transform, schema check, approval gate, object store out, with a run debugger for every step.
 primary_persona: developer
 secondary_personas:
   - AI engineer
-  - evaluator
+  - reviewer
 caliber_surfaces:
   - Object Store
-  - Prompts
-  - Tools
+  - Cookbooks
   - Workflows
-  - Observability
+  - Administration
 prerequisites:
-  - DOCX, PPTX, and XLSX sample corpus.
-  - JSON schema for target extraction output.
-time_to_first_value: 90-150 minutes
+  - A server started with the cookbooks flag on and an S3-compatible object store behind it (the lab starts its own with `--s3`).
+  - A second person with the operator and approver platform scopes (the lab uses a `reviewer` account).
+  - The 30 sample documents in assets/dataset/sources/.
+time_to_first_value: 20-30 minutes
 success_criteria:
-  - Supported files extract and normalize correctly.
-  - Invalid or unsupported files fail with readable diagnostics.
+  - Each of the 16 valid invoices is written to doc-extracted/invoices/<invoice number>.json and matches its expected JSON.
+  - Each of the 13 invalid documents stops at the approval gate and reports exactly the schema errors the dataset lists.
+  - A duplicate invoice is refused by the output bucket; the account that started a run cannot approve it; a rejected document writes nothing.
 demo_profile:
   recommended_sequence_index: 5
   tier: build
-  live_demo_minutes: 35-55
-  depends_on:
-    - SCN-01
-    - SCN-03
+  live_demo_minutes: 25-35
+  depends_on: []
   included_in:
     - end_to_end
-    - release_governance
   showcase_capabilities:
-    - object ingestion and preview
-    - document-to-JSON contract validation
+    - object store in and out
+    - deterministic JSON Schema validation
+    - approval gate with a second person
+    - run debugger
+workflow_goal: Turn a folder of mixed-quality invoice text files into validated JSON, with a human decision for every document the schema rejects.

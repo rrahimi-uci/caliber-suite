@@ -1,76 +1,19 @@
-# SCN-04 assets — create these
+# Cookbook 04 assets
 
-Concrete, copy-pasteable artifacts for [the recipe](../README.md). Build order:
+Everything the lab uses, and how each file is loaded. The README's "Dataset and sample files" section describes the corpus case by case.
 
-| # | Artifact | File | Create via |
-| --- | --- | --- | --- |
-| 1 | Bucket + uploads `doc-intake` | [`dataset/sources/`](dataset/sources/) | `Object Store`: type `doc-intake` into the new-bucket field and click **+**, then **Upload** the documents. The sources are **stand-in text** + instructions to make real `.docx`/`.xlsx` — see [`dataset/sources/README.md`](dataset/sources/README.md). API: `POST /object-store/buckets`, `POST /object-store/buckets/doc-intake/objects` (multipart `file`). |
-| 2 | Prompt `doc-structurer` | [`prompts/doc-structurer.md`](prompts/doc-structurer.md) | `Prompts → New prompt`, paste the body (text below the frontmatter). API: `POST /prompts {name, template, commit_message}` |
-| 3 | Tool `extract_document` | [`tools/extract-document.tool.json`](tools/extract-document.tool.json) | `Tools → Register Tool → Spec`, paste fields; sandbox-test it (read tool, runs live). API: `POST /tools` |
-| 4 | Target schema `extracted_fields` | [`schema/extracted-fields.schema.json`](schema/extracted-fields.schema.json) | Not a registered object — paste into the `doc-structurer` `target_schema` variable and into the validate node's `target_schema` input. |
-| 5 | Validator node `validate_document_json` | [`tools/validate_document_json.py`](tools/validate_document_json.py) | A **`python_code` node body** (no registration). Paste into the Python Code node in the workflow. |
-| 6 | Workflow `doc-intake-to-json` | (assemble in Studio) | `Workflows → New Workflow`, template **`blank`**. Nodes: `extract_document` (tool, `ref` = the run input's local `doc_path`) → `agent`/`template` (`doc-structurer`) → `python_code` (`validate_document_json`) → `output`. (`input_bucket` decodes UTF-8 and caps at 100 KB, so it only suits text stand-ins, not Office binaries.) |
-| 7 | Eval dataset `doc-extraction-cases` | [`dataset/extraction-cases.jsonl`](dataset/extraction-cases.jsonl) | `Test Sets → + New Test Set`, add each row. API: `POST /eval-datasets {name}` → `POST /eval-datasets/{id}/examples` per line |
+| Artifact | File | How it is used |
+| --- | --- | --- |
+| 30 sample documents | [`dataset/sources/`](dataset/sources/) | Uploaded to the `doc-intake` bucket under `incoming/` (UI: **Object Store** > `doc-intake` > New folder `incoming` > **Upload**, select all; API: `caliber.object_store.upload("doc-intake", filename=..., content=..., key="incoming/<file>")`). UTF-8 text, CSV and Markdown, plus an ISO-8859-1 file, a file over 100 KB and an empty file. |
+| Cases and expected outcomes | [`dataset/extraction-cases.jsonl`](dataset/extraction-cases.jsonl) | One line per document: `inputs.key`, `expectations.outcome` (`extracted`, `needs_review` or `duplicate`) and either the exact expected `record` or the exact set of schema error `errors`. Read by the SDK script, the Playwright spec and the offline tests. |
+| Extractor | [`tools/extract_invoice_fields.py`](tools/extract_invoice_fields.py) | The body of the `extract_fields` `python_code` node. No imports (the sandbox pre-loads `re`, `json`, `datetime`). |
+| Invoice schema | [`schema/invoice.schema.json`](schema/invoice.schema.json) | The Draft 2020-12 schema in the `validate_schema` node. |
 
-Then run the pipeline on each input: a golden file (valid → `validation_status:
-pass`), the partial file (missing `total` → `partial`, `missing_fields`
-populated), and the corrupt `.docx` (extraction error surfaced cleanly, run
-`fail` — not a crash; the legacy `.doc` diagnostic comes from the Object Store
-preview, not the run). Capture run ids + one readable
-validation-error payload for the demo evidence list in [`../README.md`](../README.md).
+The workflow itself is not a file here: the Cookbooks gallery installs it (`caliber.workflows.cookbook_document_pipeline`), and `caliber/tests/test_cookbook_document_pipeline.py` checks that the extractor and the schema above are byte-for-byte what it installs.
 
-## SchemaFidelity is deterministic — there is no "judge" here
+## Conventions
 
-`SchemaFidelity` in [`../verification.yaml`](../verification.yaml) is **not an
-LLM judge**. It is two deterministic pieces:
-
-1. The **`python_code` validator** [`tools/validate_document_json.py`](tools/validate_document_json.py)
-   — required-keys + value-type check against the target schema — which sets
-   `validation_status` ∈ `pass` | `partial` | `fail` and `missing_fields[]`.
-2. A deterministic **scorer** in Evaluations (`contains_expected`, or
-   `exact_match`) that compares the run output's `validation_status` /
-   `missing_fields` against each dataset row's `expectations`.
-
-Do **not** create a Judge for this. (Per [`../../FEASIBILITY.md`](../../FEASIBILITY.md):
-"deterministic judge" is not a thing — use a deterministic scorer or a
-tool/python_code assertion. Reserve Judges for LLM-graded criteria.)
-
-## You cannot author the binary Office files as text
-
-`.docx` / `.pptx` / `.xlsx` are ZIP containers; this pack cannot ship them as
-text. [`dataset/sources/`](dataset/sources/) therefore ships **source content**
-you can read (`invoice-clean.md`, `invoice-clean.csv`, `invoice-partial.md`)
-plus [`dataset/sources/README.md`](dataset/sources/README.md) with one-liners to
-convert them into real `.docx`/`.xlsx` (LibreOffice `soffice --headless` or
-`python-docx`/`openpyxl`) and to produce the negative-case files (a genuine
-legacy `.doc` and a truncated/corrupt `.docx`).
-
-> **Dry run:** `extract_document` reads `.md`/`.csv`/`.txt` directly, so you can
-> wire and smoke-test the prompt + validator against the `.md`/`.csv` stand-ins
-> **without** producing Office binaries. The golden/partial assertions still
-> hold; only the negative cases (legacy `.doc`, corrupt `.docx`) need real
-> binaries.
-
-## Conventions used across the pack
-
-- **Prompt files** (`prompts/*.md`): YAML frontmatter (name, model hint,
-  variables) then the literal template body. Paste the body into the authoring
-  textarea; variables are `{{ snake_case }}`.
-- **Tool files** (`tools/*.tool.json`): the `POST /tools` body
-  (`module_path`+`callable_name` must be importable). `extract_document` points
-  at the shipped `caliber.workflows.ingestion_tools` module.
-- **`python_code` node bodies** (`tools/*.py`): pasted into a Python Code node,
-  not registered. The sandbox runs the body inside
-  `run_python_node(input=None, context=None, inputs=None, run_input='')`; wire
-  the upstream ports into the node's `inputs` and `return` a dict whose `result`
-  port carries the structured output. `validate_document_json` is **stdlib-only**
-  (the sandbox blocks `import` of third-party libs and file I/O).
-- **Schema files** (`schema/*.json`): plain JSON Schema (draft-07). Not a
-  registered object — referenced by the prompt's `target_schema` variable and
-  the validator's `target_schema` input.
-- **Dataset files** (`dataset/*.jsonl`): one example per line,
-  `{"inputs": {...}, "expectations": {...}}`. Here `inputs` =
-  `{doc_path, document_type}` (an absolute LOCAL filesystem path) and
-  `expectations` =
-  `{validation_status, must_contain_fields[], ...}` — the shape the Evaluations
-  scorers read (`{{ inputs }}`, `{{ outputs }}`, `{{ expectations }}`).
+- **Keys.** A run's input is one object key, for example `incoming/inv-2026-0101-acme.txt`. The `input_bucket` node lists that exact key, so a key that is a prefix of several objects fails (`expected exactly one object ... found 2`).
+- **Dataset rows.** `{"id", "tags", "note", "inputs": {"key"}, "expectations": {...}, "source_bytes"}`. A valid invoice's `expectations.record` lists only the fields the lab checks (the extractor also writes `subtotal`, `tax`, `source_key`, ...).
+- **Nulls.** An absent field is `null` in the extractor's output, never a guess; the schema then names the type it wanted (`None is not of type 'number'`).
+- **Adding a document.** Add the file, add a line to `extraction-cases.jsonl` with what you expect, run `caliber/.venv/bin/python -m pytest caliber/tests/test_cookbook_document_pipeline.py`, fix the extractor until it passes, and update the counts in the README.

@@ -1,0 +1,20 @@
+Acme Industrial Supply Co.
+1200 Foundry Road, Dayton OH 45402
+
+INVOICE
+Invoice No: INV-2026-0101
+Invoice Date: 2026-03-04
+Due Date: 2026-04-03
+Bill To: Caliber Demo Co., 500 Market St, Seattle WA
+
+Qty   Description                          Unit Price      Amount
+----  -----------------------------------  ------------  ------------
+4     Hydraulic hose assembly, 2 m               $86.50       $346.00
+12    Quick-release coupling                     $14.25       $171.00
+2     Pressure gauge 0-250 psi                   $41.00        $82.00
+
+Subtotal                                            $599.00
+Tax (8%)                                            $47.92
+Total                                               $646.92
+
+Payment terms: Net 30. Quote the invoice number on your remittance.

@@ -1,0 +1,32 @@
+{
+  "name": "decide_refund",
+  "version": "1.0",
+  "description": "Deterministic refund policy: approve, deny or send to manual review, with a stable reason code.",
+  "module_path": "caliber.workflows.demo_tools",
+  "callable_name": "decide_refund",
+  "side_effect_level": "read",
+  "allow_in_preview": true,
+  "input_schema": {
+    "type": "object",
+    "required": ["order_state", "amount", "days_since_order"],
+    "properties": {
+      "order_id": {"type": "string", "description": "Carried for traceability; the policy does not read it."},
+      "account_id": {"type": "string", "description": "Carried for traceability; the policy does not read it."},
+      "order_state": {"type": "string", "description": "delivered, shipped or returned can be refunded; anything else is denied; empty fails closed."},
+      "amount": {"type": "number", "description": "Refund amount in USD."},
+      "days_since_order": {"type": "integer", "minimum": 0, "description": "Whole days since the order."},
+      "customer_tier": {"type": "string", "enum": ["standard", "plus", "premium"], "default": "standard"},
+      "refunds_last_90d": {"type": "integer", "minimum": 0, "default": 0, "description": "Refunds already issued to this account in the last 90 days."},
+      "risk_flags": {"type": "array", "items": {"type": "string"}, "description": "Fraud or risk signals. Omit or null when the risk lookup failed: the policy fails closed."}
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["decision", "reason_code", "requires_approval"],
+    "properties": {
+      "decision": {"type": "string", "enum": ["approve", "deny", "manual_review"]},
+      "reason_code": {"type": "string"},
+      "requires_approval": {"type": "boolean", "description": "True exactly when the decision is manual_review."}
+    }
+  }
+}

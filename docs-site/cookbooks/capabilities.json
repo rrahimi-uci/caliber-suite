@@ -11,7 +11,7 @@
       ],
       "id": "01",
       "prerequisites": [
-        "Configured model provider for live inference"
+        "Configured model provider to score a prompt on the Evaluations page"
       ],
       "slug": "trustworthy-intake-classifier",
       "summary": "Classify intake requests with structured output, evaluation, and calibration evidence.",
@@ -28,7 +28,7 @@
       "id": "02",
       "prerequisites": [],
       "slug": "precision-skills",
-      "summary": "Author, render, trigger-test, package, calibrate, and bind a reusable skill.",
+      "summary": "Author a skill, test when it triggers, tighten it, calibrate and apply a candidate, roll back, and package it.",
       "title": "Precision Skills"
     },
     {
@@ -50,17 +50,17 @@
     {
       "activation_requires_review": true,
       "capabilities": [
-        "managed files",
-        "structured output",
+        "object store",
         "JSON Schema",
-        "lineage"
+        "run debugger",
+        "approval"
       ],
       "id": "04",
       "prerequisites": [
-        "A supported document uploaded to a CALIBER project"
+        "Invoice text documents uploaded to the doc-intake bucket"
       ],
       "slug": "document-to-json-pipeline",
-      "summary": "Read a managed document, extract structured data, and validate its JSON Schema.",
+      "summary": "Read a text document from an object-store bucket, extract and validate invoice JSON, write it to an output bucket, and hold invalid documents for approval.",
       "title": "Document-to-JSON Pipeline"
     },
     {
@@ -68,15 +68,15 @@
       "capabilities": [
         "MCP",
         "tool policy",
-        "secrets",
+        "approval gate",
         "calibration"
       ],
       "id": "05",
       "prerequisites": [
-        "Reachable MCP server and any required secret references"
+        "A local MCP server CALIBER may run over stdio (the lab ships one) and the integrations preview flag"
       ],
       "slug": "governed-tool-connectivity",
-      "summary": "Connect, discover, constrain, invoke, and calibrate an MCP tool.",
+      "summary": "Connect an MCP server, classify its tools before use, prove a refused call never runs, calibrate the read tools, and gate a write behind approval.",
       "title": "Governed Tool Connectivity"
     },
     {
@@ -89,7 +89,7 @@
       ],
       "id": "06",
       "prerequisites": [
-        "Embedding and chat providers for live retrieval and answers"
+        "An S3-compatible object store and the local embedding model (answer text and judged metrics are simulated without a chat provider)"
       ],
       "slug": "grounded-knowledge-assistant",
       "summary": "Build a knowledge base, answer with citations, and route low-confidence responses.",
@@ -105,7 +105,7 @@
       ],
       "id": "07",
       "prerequisites": [
-        "Configured incident source and issue tracker connector"
+        "A workflow worker with the run queue enabled, and a second account holding the approver scope"
       ],
       "slug": "support-triage-copilot",
       "summary": "Ground support triage, route risk, and gate issue creation behind approval.",
@@ -121,7 +121,7 @@
       ],
       "id": "08",
       "prerequisites": [
-        "Configured deployment and service-health data sources"
+        "A workflow worker with the run queue enabled, a second approver, and the production deploy-gate policy variables from the README"
       ],
       "slug": "incident-response-copilot",
       "summary": "Collect deployment and health evidence before proposing governed incident actions.",
@@ -130,17 +130,17 @@
     {
       "activation_requires_review": true,
       "capabilities": [
-        "checkpoints",
-        "recovery",
-        "debugger",
-        "versioning"
+        "run debugger",
+        "retry lineage",
+        "versioning",
+        "aliases"
       ],
       "id": "09",
       "prerequisites": [
-        "Workflow worker when queued execution is enabled"
+        "A workflow worker for queued runs, and CALIBER_EGRESS_ALLOWED_HOSTS naming the stand-in account service"
       ],
       "slug": "self-healing-workflows",
-      "summary": "Diagnose a failed run, recover from a checkpoint, patch configuration, and regress.",
+      "summary": "Find why a workflow fails on bad inputs, patch it as a new version, prove the fix on the same inputs, and roll an alias back.",
       "title": "Self-Healing Workflows"
     },
     {
@@ -153,7 +153,7 @@
       ],
       "id": "10",
       "prerequisites": [
-        "Configured judge provider for model-backed grading"
+        "A real LLM provider with CALIBER_EVAL_PROVIDER=mlflow for judges and evaluations (the simulated default refuses them)"
       ],
       "slug": "trustworthy-evaluation",
       "summary": "Compare candidates, review difficult traces, and measure judge-human alignment.",
@@ -169,10 +169,10 @@
       ],
       "id": "11",
       "prerequisites": [
-        "Evaluation, review, and trace evidence for the release candidate"
+        "Scores and evidence references to enter (CALIBER does not read or verify them) and the release-candidates preview flag"
       ],
       "slug": "release-signoff-factory",
-      "summary": "Assemble evidence, score release criteria, resolve blockers and waivers, and record signoff.",
+      "summary": "Score release criteria on the server, resolve blockers with accountable waivers, and record an immutable go/no-go (record-only: nothing is deployed).",
       "title": "Release Signoff Factory"
     },
     {
@@ -185,10 +185,10 @@
       ],
       "id": "12",
       "prerequisites": [
-        "Configured model provider to run the judge in Evaluations"
+        "Aria enabled (CALIBER_FEATURE_ARIA=true); a model provider only to run the judge in Evaluations"
       ],
       "slug": "aria-evaluation-harness",
-      "summary": "Create a judge and Test Set through a typed, approval-aware Aria plan.",
+      "summary": "Create a judge and Test Set through a typed, approval-aware Aria plan, then fill the Test Set.",
       "title": "Aria: Evaluation Harness from Intent"
     },
     {
@@ -201,10 +201,10 @@
       ],
       "id": "13",
       "prerequisites": [
-        "Trace IDs only when the example queue should be populated"
+        "Aria enabled (CALIBER_FEATURE_ARIA=true); trace ids only when the queue should be populated"
       ],
       "slug": "aria-review-governance-queue",
-      "summary": "Create and populate a governed review queue through an Aria plan.",
+      "summary": "Create and populate a governed review queue through an Aria plan, then review traces.",
       "title": "Aria: Human-Review Queue from Intent"
     },
     {
@@ -217,10 +217,10 @@
       ],
       "id": "14",
       "prerequisites": [
-        "Configured model provider to run the judge in Evaluations"
+        "Aria enabled (CALIBER_FEATURE_ARIA=true); a model provider only to run the judge in Evaluations"
       ],
       "slug": "aria-governance-starter-kit",
-      "summary": "Create a judge, Test Set, and review queue as one governed plan.",
+      "summary": "Create a judge, Test Set, and review queue as one governed plan, at two autonomy levels.",
       "title": "Aria: Governance Starter Kit from Intent"
     },
     {
@@ -233,10 +233,10 @@
       ],
       "id": "15",
       "prerequisites": [
-        "Existing workflow, agent, traces, provider, and refinement worker"
+        "Aria enabled (CALIBER_FEATURE_ARIA=true), background workers on, and an existing workflow with a deploy-gate test set, a registered agent and flagged traces; a model provider for a calibration to find a candidate"
       ],
       "slug": "aria-triage-recalibrate-loop",
-      "summary": "Triage flagged traces and launch a calibration job from a typed plan.",
+      "summary": "Triage flagged traces and launch a calibration job from a typed plan; the plan parks on the job and settles by itself.",
       "title": "Aria: Triage & Recalibrate Loop"
     },
     {
@@ -254,6 +254,23 @@
       "slug": "production-observability-triage",
       "summary": "Capture production failures, review root cause, and retain regression evidence.",
       "title": "Production Observability & Triage"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "projects",
+        "roles",
+        "access tokens",
+        "audit log",
+        "readiness"
+      ],
+      "id": "18",
+      "prerequisites": [
+        "Accounts for the team, with the operator and approver platform scopes set for them"
+      ],
+      "slug": "projects-roles-tokens-audit",
+      "summary": "Set up a team in a project with owner, editor, reviewer and viewer roles, bind an access token to it, and read the audit trail.",
+      "title": "Projects, Roles, Tokens & Audit"
     }
   ],
   "schema_version": 1,

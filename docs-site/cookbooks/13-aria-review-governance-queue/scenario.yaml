@@ -2,10 +2,10 @@ id: SCN-13
 slug: aria-review-governance-queue
 name: "Aria: Human-Review Queue from Intent"
 track: aria
-objective: Give Aria a single clear intent and have it plan and create a structured human-review queue for labeling agent replies — end to end, with the question schema entered in the plan's input form.
+objective: Give Aria a single clear intent and have it plan and create a structured human-review queue for labeling agent replies and fill it with 30 flagged traces — end to end, with the question schema and the trace ids entered in the plan's input forms — then review some of them and see each answer land on its trace.
 why_it_matters:
-  - Shows Aria turning one sentence about governance into a real, structured review queue via plan -> approve -> execute.
-  - Stands up the human-in-the-loop labeling surface (safety / citation / tone) that feeds expectations + assessments back onto traces, bounded honestly by Aria's real capability registry.
+  - Shows Aria turning one sentence about governance into a real, populated review queue via plan -> approve -> execute.
+  - Stands up the human-in-the-loop labeling surface (safety / citation / tone) that feeds assessments back onto traces and labelled examples to judge alignment, bounded honestly by Aria's real capability registry.
 primary_persona: evaluator
 secondary_personas:
   - compliance analyst
@@ -15,12 +15,16 @@ caliber_surfaces:
   - Review Queues
   - Observability
 prerequisites:
-  - Aria Plans available (sidebar "Plans", under "Integrations"). No model provider is needed to create the queue.
-  - Flagged trace ids on hand if you intend to enqueue items (optional — the queue can be created first and filled later).
+  - CALIBER_FEATURE_ARIA=true (Aria and its Plans page are a preview area, off by default). CALIBER_FEATURE_COOKBOOKS=true only for the gallery card.
+  - Two extra accounts for the refusals: olga (an operator who does not own the queue) and vera (not an operator). The server must list olga in CALIBER_OPERATOR_USERS and not vera.
+  - Trace ids to enqueue. The lab writes 30 with assets/seed_traces.py (needs mlflow and MLFLOW_TRACKING_URI); in a real deployment they are your agent's flagged traces.
+  - No model provider is needed.
 time_to_first_value: 15-30 minutes
 success_criteria:
-  - From the intent alone, Aria drafts a plan containing review_queue.create (and, same domain, review_queue.add_items).
-  - After approval and entering a real question schema in the create step's input form, a real active review queue exists.
+  - From the intent alone, Aria drafts review_queue.create then review_queue.add_items (a review queue always brings both), and the planner draws the documented plan for all 26 goals in assets/dataset/goals.jsonl.
+  - After approval and the two input forms, an active review queue with five questions holds 30 pending traces; the enqueue form did not ask for the queue's id.
+  - 12 reviews land on their traces as assessments and become labelled examples; reviews that do not fit the questions are refused.
+  - The refusals hold: skipping the queue skips the enqueue with it, a made-up trace id fails when reviewed, a role without the operator scope creates nothing.
 demo_profile:
   recommended_sequence_index: 13
   tier: aria
@@ -30,5 +34,5 @@ demo_profile:
     - aria_autonomous
   showcase_capabilities:
     - Aria plan decompose -> approve -> execute
-    - autonomous human-review queue creation from a single intent
-    - honest same-domain planning (create + add_items) with Skip step
+    - a review queue created and filled from a single intent
+    - dependency wiring: the enqueue step's queue id comes from the create step

@@ -12,9 +12,21 @@ from caliber_sdk import CaliberClient
 #: because it finished or because it is paused on a human decision. Several
 #: cookbooks poll for this exact set rather than only the SDK's own terminal
 #: states, since ``waiting_approval`` is not terminal but a script must still
-#: stop polling there to answer it.
+#: stop polling there to answer it. ``completed`` is the status a real server reports for a run
+#: that finished (``succeeded`` is the spelling older stubs used); ``waiting_event`` is a run paused
+#: on a wait-for-event node, which only an event (or a manual resume) moves on.
 PAUSED_OR_TERMINAL_RUN_STATES = frozenset(
-    {"waiting_approval", "succeeded", "failed", "cancelled", "canceled", "timed_out"}
+    {
+        "waiting_approval",
+        "waiting_event",
+        "succeeded",
+        "completed",
+        "failed",
+        "cancelled",
+        "canceled",
+        "timed_out",
+        "expired",
+    }
 )
 
 

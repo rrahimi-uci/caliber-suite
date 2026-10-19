@@ -1,20 +1,32 @@
-# Verified — see ../FEASIBILITY.md.
+# Verified by running the lab against a live server — see README.md.
 feasibility:
-  - FaithfulnessJudge is a real LLM judge (instructions must reference {{ inputs }}/{{ outputs }}/{{ expectations }}). review_items_link_to_trace is real (answers write back to the trace).
+  - FaithfulnessJudge is a real LLM judge (instructions may reference only {{ inputs }}, {{ outputs }}, {{ expectations }}, {{ conversation }}, {{ trace }}; anything else is refused on save). review_items_link_to_trace is real (answers write back to the trace).
   - automated_human_alignment / disagreement_rate ARE computed in-product (Judges -> Try it -> Human alignment: Import labels, then Check alignment) from the judge's verdict on each output versus the imported reviewer pass/fail label, with agreement rate, Cohen's kappa and FP/FN.
+  - The judge and Evaluations need a model. On the simulated default the product refuses (Evaluations 400; alignment scored 0 of n); the numbers below are from a stack with a model behind it (a real provider, or the lab's scripted stand-in model, which proves wiring and arithmetic, not judge quality).
   - monitoring.traces below are evidence labels, not literal span names.
 evaluation:
   judges:
     - name: FaithfulnessJudge
       type: custom_judge
-      criteria: output claims supported by expectations
+      criteria: every figure and claim in the output is supported by the evidence
+    - name: LenientJudge
+      type: custom_judge
+      criteria: negative control; passes anything that is not empty or truncated, and must be rejected
   rule_checks:
     - judge_template_variables_valid
     - review_items_link_to_trace
+    - alignment_scored_every_labelled_row
 quality_gates:
-  overall_eval_score_min: 0.85
+  # The lab certifies the JUDGE, not the candidate: the candidate-versus-baseline scorecard is
+  # recorded as evidence, but a judge is certified on its agreement with people.
   automated_human_alignment_min: 0.80
-  reviewed_trace_count_min: 3
+  cohen_kappa_min: 0.60
+  labelled_row_count_min: 30
+  scored_rows_equal_labelled_rows: true
+  # Reference values with the lab's stand-in model on the shipped 50 rows:
+  reference_stand_in:
+    FaithfulnessJudge: {agreement: 0.82, cohen_kappa: 0.6365, decision: CERTIFIED}
+    LenientJudge: {agreement: 0.58, cohen_kappa: 0.0933, decision: REJECTED}
 monitoring:
   traces:
     - judge_creation
@@ -25,4 +37,4 @@ monitoring:
     - review_turnaround_time
 feedback_loop:
   - treat disagreement as calibration input, not noise.
-  - expand dataset with hard disagreement cases.
+  - expand the test set with hard disagreement cases (tag judge-disagreement) and rerun alignment.

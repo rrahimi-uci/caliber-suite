@@ -1,0 +1,328 @@
+{
+  "schema_version": 1,
+  "workflow_id": "WF-IMPORTED",
+  "name": "support-triage-lab",
+  "description": "Cookbook 07: classify a support ticket (rules, deterministic), route it to reply / clarify / escalate_support / an approval-gated action.",
+  "runtime": {
+    "sdk": "openai-agents-python",
+    "sdk_version_policy": "runtime-pinned",
+    "compiler_version": "caliber-workflow-compiler-v1",
+    "default_model_ref": "CALIBER_WORKFLOW_DEFAULT_MODEL",
+    "session": {
+      "type": "none"
+    }
+  },
+  "nodes": {
+    "start": {
+      "id": "start",
+      "type": "start",
+      "label": "Ticket",
+      "outputs": {
+        "ticket": {
+          "type": "string"
+        }
+      }
+    },
+    "classify": {
+      "id": "classify",
+      "type": "python_code",
+      "label": "Classify ticket (rules)",
+      "code": "# Body of the `classify` Python Code node in support-triage.workflow.json.\n#\n# The node runs in CALIBER's tool sandbox: no `import` statements (json, re, math, datetime and\n# statistics are already in scope), a restricted set of builtins, no private/dunder attributes.\n# It reads one ticket (a JSON string, or plain text) and returns the triage record the router\n# and the verifier read. Rules run top to bottom and the first match wins, so the order below\n# IS the policy; keep it in step with the table in the lab README.\n\n\ndef run_python_node(input=None, context=None, inputs=None, run_input=\"\"):\n    raw = input or run_input or \"\"\n    ticket = {}\n    try:\n        parsed = json.loads(raw)\n        ticket = parsed if isinstance(parsed, dict) else {\"ticket_text\": str(raw)}\n    except ValueError:\n        ticket = {\"ticket_text\": str(raw)}\n\n    text = str(ticket.get(\"ticket_text\") or \"\").strip()\n    low = text.lower()\n    tier = str(ticket.get(\"customer_tier\") or \"free\").lower()\n    if tier not in (\"free\", \"pro\", \"enterprise\"):\n        tier = \"free\"\n    account_id = str(ticket.get(\"account_id\") or \"\").strip()\n    duplicate_of = str(ticket.get(\"duplicate_of\") or \"\").strip()\n\n    def has(words):\n        return any(w in low for w in words)\n\n    injection = has(\n        [\n            \"ignore your instructions\",\n            \"ignore all previous\",\n            \"ignore previous instructions\",\n            \"reveal your system prompt\",\n            \"you are now in\",\n        ]\n    )\n    abusive = has(\n        [\"idiot\", \"stupid\", \"garbage\", \"worthless\", \"useless\", \"pathetic\", \"moron\", \"hate you\"]\n    )\n    card = re.search(r\"\\b(?:\\d[ -]?){13,16}\\b\", text) is not None\n    ssn = re.search(r\"\\b\\d{3}-\\d{2}-\\d{4}\\b\", text) is not None\n    secret = has([\"password is\", \"api key is\", \"sk_live_\", \"sk_test_\", \"private key\"])\n    pii = card or ssn or secret\n    legal = has(\n        [\n            \"gdpr\",\n            \"delete all personal data\",\n            \"right to be forgotten\",\n            \"subpoena\",\n            \"lawyer\",\n            \"legal action\",\n            \"data breach\",\n        ]\n    )\n    data_loss = has([\"data loss\", \"lost data\", \"we lost\", \"disappeared\"])\n    bug = data_loss or has(\n        [\n            \"500\",\n            \"502\",\n            \"503\",\n            \"504\",\n            \"error code\",\n            \"stack trace\",\n            \"traceback\",\n            \"exception\",\n            \"crash\",\n            \"regression\",\n            \"stuck\",\n            \"not loading\",\n            \"timeout\",\n            \"timed out\",\n            \"outage\",\n            \"is down\",\n            \"cannot log in\",\n            \"can't log in\",\n            \"misaligned\",\n            \"fails with\",\n        ]\n    )\n    billing = has(\n        [\n            \"charged twice\",\n            \"double charged\",\n            \"was charged\",\n            \"were charged\",\n            \"unauthorized charge\",\n            \"chargeback\",\n            \"overcharged\",\n            \"need a refund\",\n            \"want a refund\",\n            \"please refund\",\n            \"refund the\",\n            \"refund my\",\n        ]\n    )\n    how_to = has(\n        [\n            \"how do i\",\n            \"how can i\",\n            \"how to\",\n            \"where do i\",\n            \"where can i\",\n            \"is it possible to\",\n            \"does caliber support\",\n        ]\n    )\n\n    flags = []\n    severity = \"low\"\n    decision = \"clarify\"\n    approval = False\n\n    if not text:\n        flags.append(\"empty_ticket\")\n    elif injection:\n        flags.append(\"prompt_injection\")\n    elif abusive:\n        decision, severity = \"escalate_support\", \"medium\"\n        flags.append(\"abusive\")\n    elif pii:\n        decision, severity = \"escalate_support\", \"high\"\n        flags.append(\"pii_exposed\")\n    elif legal:\n        decision, severity = \"escalate_support\", \"high\"\n        flags.append(\"legal_or_privacy\")\n    elif duplicate_of:\n        decision = \"reply\"\n        flags.append(\"duplicate\")\n    elif bug:\n        decision, approval = \"escalate_bug\", True\n        urgent_markers = has([\"production\", \"outage\", \"is down\", \"all users\", \"blocking\", \"whole team\"])\n        if data_loss or (urgent_markers and tier == \"enterprise\"):\n            severity = \"urgent\"\n        elif urgent_markers:\n            severity = \"high\"\n        elif has([\"cosmetic\", \"minor\"]):\n            severity = \"low\"\n        else:\n            severity = \"medium\"\n        if billing and account_id:\n            flags.append(\"refund_request\")\n    elif billing:\n        if account_id:\n            decision, approval = \"escalate_support\", True\n            severity = \"high\" if has([\"unauthorized\", \"fraud\"]) or tier == \"enterprise\" else \"medium\"\n            flags.append(\"refund_request\")\n        else:\n            flags.append(\"missing_account_id\")\n    elif how_to:\n        decision = \"reply\"\n\n    sla_table = {\n        \"enterprise\": {\"urgent\": 15, \"high\": 60, \"medium\": 240, \"low\": 720},\n        \"pro\": {\"urgent\": 30, \"high\": 120, \"medium\": 480, \"low\": 1440},\n        \"free\": {\"urgent\": 120, \"high\": 480, \"medium\": 1440, \"low\": 4320},\n    }\n    result = {\n        \"decision\": decision,\n        \"severity\": severity,\n        \"sla_minutes\": sla_table[tier][severity],\n        \"requires_approval\": approval,\n        \"flags\": sorted(flags),\n        \"customer_tier\": tier,\n        \"channel\": str(ticket.get(\"channel\") or \"\"),\n        \"account_id\": account_id,\n        \"duplicate_of\": duplicate_of,\n        \"ticket_text\": text,\n    }\n    return {\n        \"text\": json.dumps(result),\n        \"result\": result,\n        \"decision\": decision,\n        \"approval\": \"true\" if approval else \"false\",\n    }\n",
+      "timeout_seconds": 10,
+      "inputs": {
+        "input": {
+          "type": "string"
+        }
+      },
+      "outputs": {
+        "text": {
+          "type": "string"
+        },
+        "result": {
+          "type": "structured"
+        },
+        "metadata": {
+          "type": "structured"
+        },
+        "decision": {
+          "type": "string"
+        },
+        "approval": {
+          "type": "string"
+        }
+      }
+    },
+    "triage_router": {
+      "id": "triage_router",
+      "type": "router",
+      "label": "Route by decision",
+      "inputs": {
+        "triage": {
+          "type": "string"
+        },
+        "decision": {
+          "type": "string"
+        },
+        "approval": {
+          "type": "string"
+        }
+      },
+      "outputs": {
+        "route": {
+          "type": "string"
+        }
+      },
+      "branches": [
+        {
+          "condition": {
+            "field": "approval",
+            "op": "equals",
+            "value": "true"
+          },
+          "to": "review"
+        },
+        {
+          "condition": {
+            "field": "decision",
+            "op": "equals",
+            "value": "reply"
+          },
+          "to": "draft_reply"
+        },
+        {
+          "condition": {
+            "field": "decision",
+            "op": "equals",
+            "value": "escalate_support"
+          },
+          "to": "support_note"
+        },
+        {
+          "to": "clarify_question"
+        }
+      ]
+    },
+    "draft_reply": {
+      "id": "draft_reply",
+      "type": "agent",
+      "name": "support-reply",
+      "model": "inherit",
+      "label": "Draft the customer reply (agent)",
+      "instructions": {
+        "type": "inline",
+        "text": "You write the customer reply for a SaaS support team. Use only the triage record you are given. Answer how-to questions in three short steps, acknowledge a duplicate by naming the ticket it was merged into, never promise a refund, and never reveal internal process."
+      },
+      "tools": [],
+      "inputs": {
+        "input": {
+          "type": "string"
+        },
+        "history": {
+          "type": "structured"
+        }
+      },
+      "outputs": {
+        "final_output": {
+          "type": "string"
+        },
+        "history": {
+          "type": "structured"
+        }
+      }
+    },
+    "clarify_question": {
+      "id": "clarify_question",
+      "type": "template",
+      "label": "Ask for what is missing",
+      "template": "CLARIFY. Thanks for contacting support. To act on this we need your account or order id and what you expected to happen.\nTriage: {{input}}",
+      "inputs": {
+        "input": {
+          "type": "string"
+        },
+        "variables": {
+          "type": "structured"
+        }
+      },
+      "outputs": {
+        "text": {
+          "type": "string"
+        },
+        "result": {
+          "type": "structured"
+        },
+        "metadata": {
+          "type": "structured"
+        }
+      }
+    },
+    "support_note": {
+      "id": "support_note",
+      "type": "template",
+      "label": "Internal note for a human agent",
+      "template": "ESCALATE_SUPPORT. Internal note, no customer reply was sent.\nTriage: {{input}}",
+      "inputs": {
+        "input": {
+          "type": "string"
+        },
+        "variables": {
+          "type": "structured"
+        }
+      },
+      "outputs": {
+        "text": {
+          "type": "string"
+        },
+        "result": {
+          "type": "structured"
+        },
+        "metadata": {
+          "type": "structured"
+        }
+      }
+    },
+    "review": {
+      "id": "review",
+      "type": "human_approval",
+      "label": "Approve the refund / bug filing",
+      "required_role": "caliber.approver",
+      "approval_count": 1,
+      "inputs": {
+        "response": {
+          "type": "string"
+        }
+      },
+      "outputs": {
+        "approved": {
+          "type": "string"
+        }
+      }
+    },
+    "action_request": {
+      "id": "action_request",
+      "type": "template",
+      "label": "Action released after approval",
+      "template": "APPROVED_ACTION. A human approved this; the refund or the bug issue is released now.\nTriage: {{input}}",
+      "inputs": {
+        "input": {
+          "type": "string"
+        },
+        "variables": {
+          "type": "structured"
+        }
+      },
+      "outputs": {
+        "text": {
+          "type": "string"
+        },
+        "result": {
+          "type": "structured"
+        },
+        "metadata": {
+          "type": "structured"
+        }
+      }
+    },
+    "final": {
+      "id": "final",
+      "type": "output",
+      "inputs": {
+        "response": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "edges": [
+    {
+      "id": "e_start_classify",
+      "from": "start",
+      "to": "classify",
+      "map": {
+        "ticket": "input"
+      }
+    },
+    {
+      "id": "e_classify_router",
+      "from": "classify",
+      "to": "triage_router",
+      "map": {
+        "text": "triage",
+        "decision": "decision",
+        "approval": "approval"
+      }
+    },
+    {
+      "id": "e_router_review",
+      "from": "triage_router",
+      "to": "review",
+      "map": {
+        "route": "response"
+      }
+    },
+    {
+      "id": "e_router_reply",
+      "from": "triage_router",
+      "to": "draft_reply",
+      "map": {
+        "route": "input"
+      }
+    },
+    {
+      "id": "e_router_note",
+      "from": "triage_router",
+      "to": "support_note",
+      "map": {
+        "route": "input"
+      }
+    },
+    {
+      "id": "e_router_clarify",
+      "from": "triage_router",
+      "to": "clarify_question",
+      "map": {
+        "route": "input"
+      }
+    },
+    {
+      "id": "e_review_action",
+      "from": "review",
+      "to": "action_request",
+      "map": {
+        "approved": "input"
+      }
+    },
+    {
+      "id": "e_reply_final",
+      "from": "draft_reply",
+      "to": "final",
+      "map": {
+        "final_output": "response"
+      }
+    },
+    {
+      "id": "e_note_final",
+      "from": "support_note",
+      "to": "final",
+      "map": {
+        "text": "response"
+      }
+    },
+    {
+      "id": "e_clarify_final",
+      "from": "clarify_question",
+      "to": "final",
+      "map": {
+        "text": "response"
+      }
+    },
+    {
+      "id": "e_action_final",
+      "from": "action_request",
+      "to": "final",
+      "map": {
+        "text": "response"
+      }
+    }
+  ],
+  "tools": {}
+}

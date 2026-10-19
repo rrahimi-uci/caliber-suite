@@ -1,0 +1,98 @@
+{
+  "schema_version": 1,
+  "workflow_id": "WF-IMPORTED",
+  "name": "evidence-lookup-drill",
+  "description": "Cookbook 08 drill: the deployment lookup sits behind an Error Boundary, so a bad request degrades to a fallback instead of failing the run.",
+  "runtime": {
+    "sdk": "openai-agents-python",
+    "sdk_version_policy": "runtime-pinned",
+    "compiler_version": "caliber-workflow-compiler-v1",
+    "default_model_ref": "CALIBER_WORKFLOW_DEFAULT_MODEL",
+    "session": {
+      "type": "none"
+    }
+  },
+  "nodes": {
+    "start": {
+      "id": "start",
+      "type": "start",
+      "label": "Input",
+      "outputs": {
+        "msg": {
+          "type": "string"
+        }
+      }
+    },
+    "boundary": {
+      "id": "boundary",
+      "type": "error_boundary",
+      "label": "Deployment lookup, with a fallback",
+      "target_node_id": "lookup",
+      "fallback_text": "NO_EVIDENCE: the deployment lookup failed; gather evidence by hand.",
+      "inputs": {
+        "input": {
+          "type": "string"
+        }
+      },
+      "outputs": {
+        "output": {
+          "type": "string"
+        },
+        "error": {
+          "type": "structured"
+        }
+      }
+    },
+    "lookup": {
+      "id": "lookup",
+      "type": "python_code",
+      "label": "lookup_recent_deployments",
+      "code": "\"\"\"lookup_recent_deployments: body of a CALIBER ``python_code`` node.\n\nNot a registered tool: paste this file into a Python Code node (or ship it in a workflow manifest,\nsee ``workflows/evidence-lookup-drill.workflow.json``). It returns a small synthetic deployment\nfixture for one service and environment so a workflow has evidence to reason over.\n\nThe node runs in the tool sandbox: there are no ``import`` statements (``json``, ``re``, ``math``,\n``datetime`` and ``statistics`` are already in scope) and only a restricted set of builtins.\n\nInput (the node's ``input`` text): a JSON object ``{\"service\": \"gateway\", \"environment\": \"prod\"}``.\nAnything that is not JSON raises, which is what the lab's Error Boundary drill relies on.\n\nOutput (``text`` is JSON, ``result`` the same data): ``{\"deployments\": [...]}``, newest first, each\n``{sha, minutes_ago, risk, change_summary}``; ``[]`` is an honest \"no recent deploy\", never invented.\n\"\"\"\n\n# Synthetic fixtures, keyed \"service/environment\" (lower case). Newest deploy first.\n_DEPLOYMENTS = {\n    \"gateway/prod\": [\n        {\"sha\": \"a1b9f3c\", \"minutes_ago\": 12, \"risk\": \"high\",\n         \"change_summary\": \"Refactor upstream connection pool + raise keep-alive limits\"},\n        {\"sha\": \"7d2e0a4\", \"minutes_ago\": 4300, \"risk\": \"low\",\n         \"change_summary\": \"Bump request-logging dependency (patch)\"},\n    ],\n    \"workflow-runner/prod\": [\n        {\"sha\": \"c4f8821\", \"minutes_ago\": 90, \"risk\": \"low\",\n         \"change_summary\": \"Add p99 latency histogram metric (instrumentation only)\"},\n    ],\n    \"worker/prod\": [\n        {\"sha\": \"e90ab12\", \"minutes_ago\": 40, \"risk\": \"low\",\n         \"change_summary\": \"Tune retry backoff for transient queue errors\"},\n    ],\n    # checkout/prod and billing/staging intentionally have no recent deploy.\n}\n\n\ndef run_python_node(input=None, context=None, inputs=None, run_input=\"\"):\n    request = json.loads(input or run_input)  # raises on anything that is not JSON\n    key = (str(request.get(\"service\", \"\")).strip().lower() + \"/\"\n           + str(request.get(\"environment\", \"\")).strip().lower())\n    data = {\"deployments\": [dict(d) for d in _DEPLOYMENTS.get(key, [])]}\n    return {\"text\": json.dumps(data), \"result\": data}\n",
+      "timeout_seconds": 10,
+      "inputs": {
+        "input": {
+          "type": "string"
+        }
+      },
+      "outputs": {
+        "text": {
+          "type": "string"
+        },
+        "result": {
+          "type": "structured"
+        },
+        "metadata": {
+          "type": "structured"
+        }
+      }
+    },
+    "final": {
+      "id": "final",
+      "type": "output",
+      "inputs": {
+        "response": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "edges": [
+    {
+      "id": "e_start_boundary",
+      "from": "start",
+      "to": "boundary",
+      "map": {
+        "msg": "input"
+      }
+    },
+    {
+      "id": "e_boundary_final",
+      "from": "boundary",
+      "to": "final",
+      "map": {
+        "output": "response"
+      }
+    }
+  ],
+  "tools": {}
+}

@@ -1,0 +1,118 @@
+{
+  "description": "Failure and edge scenarios for lab 18. Each id is implemented by the SDK example; the expected status and the text the server's detail must contain come from here.",
+  "scenarios": [
+    {
+      "id": "F01",
+      "title": "The primary owner cannot be removed",
+      "request": "omar (owner) DELETE /projects/{id}/members/maya",
+      "expected_status": 409,
+      "detail_contains": "primary owner cannot be removed"
+    },
+    {
+      "id": "F02",
+      "title": "The primary owner cannot be demoted",
+      "request": "omar (owner) PATCH /projects/{id}/members/maya {role: viewer}",
+      "expected_status": 409,
+      "detail_contains": "primary owner cannot be changed"
+    },
+    {
+      "id": "F03",
+      "title": "An editor cannot promote themselves to owner",
+      "request": "priya (editor) PATCH /projects/{id}/members/priya {role: owner}",
+      "expected_status": 403,
+      "detail_contains": "project.manage_members"
+    },
+    {
+      "id": "F04",
+      "title": "A reviewer cannot add a member",
+      "request": "quinn (reviewer) POST /projects/{id}/members {user_id: nora, role: viewer}",
+      "expected_status": 403,
+      "detail_contains": "project.manage_members"
+    },
+    {
+      "id": "F05",
+      "title": "An owner cannot grant owner to someone without both platform scopes",
+      "request": "maya (owner) PATCH /projects/{id}/members/victor {role: owner}",
+      "expected_status": 409,
+      "detail_contains": "required for the owner role"
+    },
+    {
+      "id": "F06",
+      "title": "An unknown project role is rejected",
+      "request": "maya (owner) POST /projects/{id}/members {user_id: nora, role: admin}",
+      "expected_status": 400,
+      "detail_contains": "role must be owner, editor, reviewer, or viewer"
+    },
+    {
+      "id": "F07",
+      "title": "A token cannot be issued with a scope its owner lacks",
+      "request": "priya POST /auth/tokens {scopes: [caliber.admin]}",
+      "expected_status": 403,
+      "detail_contains": "cannot grant scopes you do not hold"
+    },
+    {
+      "id": "F08",
+      "title": "A non-member cannot bind a token to the project",
+      "request": "nora POST /auth/tokens {project_id: <project>}",
+      "expected_status": 404,
+      "detail_contains": "not found"
+    },
+    {
+      "id": "F09",
+      "title": "A viewer-scoped token cannot write even for an owner",
+      "request": "maya's token with scopes [caliber.viewer] POST /prompts",
+      "expected_status": 403,
+      "detail_contains": "missing required scope"
+    },
+    {
+      "id": "F10",
+      "title": "A bound token is refused for another project",
+      "request": "priya's token bound to the support project, X-CALIBER-Project: <billing project>",
+      "expected_status": 403,
+      "detail_contains": "is bound to project"
+    },
+    {
+      "id": "F11",
+      "title": "A revoked token stops authenticating",
+      "request": "GET /projects with the revoked token",
+      "expected_status": 401,
+      "detail_contains": "authentication required"
+    },
+    {
+      "id": "F12",
+      "title": "An expired token stops authenticating",
+      "request": "GET /projects with a token whose expires_at has passed",
+      "expected_status": 401,
+      "detail_contains": "authentication required"
+    },
+    {
+      "id": "F13",
+      "title": "A made-up token is rejected",
+      "request": "GET /projects with Authorization: Bearer calpat_not-a-real-token",
+      "expected_status": 401,
+      "detail_contains": "authentication required"
+    },
+    {
+      "id": "F14",
+      "title": "A wrong password does not sign in",
+      "request": "POST /auth/login {user_id: maya, password: wrong}",
+      "expected_status": 401,
+      "detail_contains": "invalid credentials"
+    },
+    {
+      "id": "F15",
+      "title": "Only an admin can read the audit log",
+      "request": "maya GET /audit-log",
+      "expected_status": 403,
+      "detail_contains": "caliber.admin"
+    },
+    {
+      "id": "F16",
+      "title": "A write without the CSRF header is refused when CSRF is enabled",
+      "request": "maya POST /projects/{id}/members without X-CALIBER-CSRF (only when GET /csrf says enabled)",
+      "expected_status": 403,
+      "detail_contains": "CSRF",
+      "only_when": "csrf_enabled"
+    }
+  ]
+}

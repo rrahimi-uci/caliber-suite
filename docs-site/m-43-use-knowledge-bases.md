@@ -34,6 +34,23 @@ failure comes late (a build that stops, not a form that refuses) when one is mis
 torch version is on the advisory list. It cannot install a missing package, so a missing package is never
 reported as something an override fixes.
 
+## What a build does when something is wrong
+
+Found by running the policy-QA cookbook ([lab 06](cookbooks/06-knowledge-retrieval-policy-qa-lab/README.md)) against a real stack:
+
+- **A finished build activates itself.** `completed` makes the version the knowledge base's active version, the one workflows and other
+  consumers resolve. Activating an earlier version (`POST .../versions/{id}/activate`) is audited; a build's own activation is not, so
+  `POST .../rollback` answers `409 ... rollback needs an audited activation to restore` until you have activated a version explicitly.
+- **One unreadable file does not fail a build.** It becomes a source with `status: failed` and an `error_summary`, the run log gets a
+  `source_failed` event, `summary.failed_sources` counts it, and the version is `completed` and **live without that document**. Check
+  `failed_sources` before trusting a build. A build in which nothing is readable fails (`The selected files did not produce any chunks`),
+  leaves the active version alone, cannot be activated, and querying it returns no chunks with `answer_error: Version is not ready for retrieval.`
+- **A version that is not active can still be queried** by id: querying needs the version `completed`, not active.
+- **The first build resolves the embedding model against huggingface.co** even when it is cached. On a slow or blocked network it can sit
+  for minutes; cache the model once and set `HF_HUB_OFFLINE=1`.
+- **On the simulated stack the answer text is an extractive digest**, and the model-judged calibration metrics (Faithfulness,
+  Answer-correctness) are `null`. Recall@k and nDCG@k are real.
+
 ## What is verified, and what is not
 
 `tests/test_knowledge_stack_journey.py` runs create, build, version, query, activate and roll back against the

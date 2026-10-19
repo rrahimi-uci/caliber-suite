@@ -66,173 +66,128 @@
       <header class="doc-header">
         <p class="doc-eyebrow">Cookbook 03 · Foundations</p>
         <h1>Policy-Safe Decision Tool</h1>
-        <p class="doc-lead">Deterministic business logic first, then approval-gated side effects, then an explanation layer.</p>
-        <div class="ck-badges"><span class="ck-badge ck-track">Foundations</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">40–60 min</span></div>
+        <p class="doc-lead">A deterministic refund policy hardened against 49 fixtures, then a refund that only a second person can release.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Foundations</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">15–30 min</span></div>
       </header>
       <div class="ck-cols">
-        <div class="callout"><strong>What you build.</strong> A refund decision flow: a deterministic eligibility node, a hard approval gate before the (mocked) refund write, and an optional explanation that can never contradict the decision.
-          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Tools</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Judges</span> <span class="ck-badge ck-surface">Evaluations</span></div></div>
-        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Register a shipped callable as a tool from the Spec form (no code)</li><li>Author deterministic logic as a visual decision table</li><li>See write tools auto-mock in the sandbox + gate in a workflow</li><li>Drive the human-approval gate in the Run Monitor</li><li>Score an explanation with an LLM judge — after the deterministic lane is green</li></ul></div>
+        <div class="callout"><strong>What you build.</strong> A refund policy as a registered <strong>read</strong> tool (<code>decide_refund</code>: approve, deny or manual review, with a stable reason code) and a <strong>write</strong> tool (<code>initiate_refund</code>, registered with <code>requires_approval</code>). You run them in the sandbox, save a <strong>49-case fixture suite</strong>, pin a baseline and catch one deliberate regression, then import the <code>refund-decision</code> workflow that decides, routes, and issues the refund only after a <strong>different person</strong> approves and the run is resumed. No model is involved: nothing here is simulated.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">Tools</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Administration</span> <span class="ck-badge ck-surface">Audit Log</span> <span class="ck-badge ck-surface">Cookbooks</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Register a read tool and a write tool: <strong>Write</strong> locks <strong>Requires Approval</strong> on, and a write tool registered without it is refused with <code>400</code></li><li><strong>Sandbox</strong>: the read tool runs live in a subprocess, the write tool is mocked (<strong>Success (mocked)</strong>)</li><li>Save 49 fixtures, <strong>Run calibration</strong> (<strong>Pass rate 100% — 49/49 passed</strong>), pin the run as the baseline, then break R09 and read <strong>1 regression</strong> (48/49)</li><li>Import the workflow and <strong>Run</strong> it: the run stops at <strong>Awaiting approval</strong> on the <code>refund</code> node; the initiator is refused with <code>403</code>, <code>approver1</code> approves, and the refund fires only after <strong>Resume</strong></li><li>Reject (<code>approval_rejected</code>, no refund), deny (completes without approval), and read who approved what in the <strong>Audit Log</strong></li><li>Where the sandbox stops being a boundary: a stalled tool is killed, a large write is refused, the environment is empty, and the network is still reachable</li></ul></div>
       </div>
       <h2 id="flow">Implementation flow</h2>
       <div class="diagram"><pre class="mermaid">flowchart LR
-  RI[/run input JSON/] --&gt; DR[Data Transform: ordered decision table]
-  DR --&gt; HA{{Human Approval · gates every run when enabled}}
-  HA --&gt;|approve| IR[Tool: initiate_refund · mocked + gated]
-  DR -.optional.-&gt; EX[Explanation prompt] -.as a scorer.-&gt; JF[Judge: ExplanationFaithfulness]
-  LO[Tool: lookup_order] -.Tools sandbox demo.-&gt; SBX[Fixtures + Hardening]</pre></div>
+  A[&quot;Tools: register decide_refund and initiate_refund&quot;] --&gt; B[&quot;Sandbox: live read, mocked write&quot;]
+  B --&gt; C[&quot;Fixtures: 49 cases&quot;]
+  C --&gt; D[&quot;Hardening: run calibration, 49/49&quot;]
+  D --&gt; E[&quot;Test Runs: Set as baseline&quot;]
+  E --&gt; F[&quot;Break R09: 1 regression&quot;]
+  F --&gt; G[&quot;Workflows: import refund-decision&quot;]
+  G --&gt; H{&quot;Router on decision&quot;}
+  H --&gt;|deny| I[&quot;Output: denied, no approval&quot;]
+  H --&gt;|other| J[&quot;initiate_refund: waiting_approval&quot;]
+  J --&gt;|&quot;approver1 approves, admin Resume&quot;| K[&quot;Refund issued once&quot;]
+  K --&gt; L[&quot;Audit Log: approver and initiator&quot;]</pre></div>
       <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
       <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
         and a snapshot of the CALIBER screen you'll be on.</p>
-      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Tools › Register Tool</code> <span class="ck-made">creates · tool: lookup_order (read)</span> <a class="ck-assetref" href="#asset-assets-tools-lookup-order-tool-json">lookup-order.tool.json ↓</a></div><div class="ck-step-do">Register the read-only order lookup. Clicking <strong>Register Tool</strong> opens the tool wizard. A registered <strong>Tool</strong> must point at importable Python, so you give it a <code>Module Path</code> and <code>Callable Name</code> for a shipped callable — no code to write. Mark it <code>read</code> and allow it in preview so the sandbox runs it live.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>lookup_order</code></td></tr><tr><td>Module Path</td><td><code>caliber.workflows.demo_tools</code></td></tr><tr><td>Callable Name</td><td><code>lookup_order</code></td></tr><tr><td>Side effect level</td><td><code>read</code></td></tr><tr><td>Allow in preview</td><td>enabled (run the real callable in sandbox)</td></tr><tr><td>Input / Output schema</td><td>paste the <code>input_schema</code> (requires <code>order_id</code>) and <code>output_schema</code> from <a href="#asset-assets-tools-lookup-order-tool-json">lookup-order.tool.json</a> into the Schema step's raw-JSON fields</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Register Tool</span></div><div class="ck-see"><strong>You'll see:</strong> The tool <code>lookup_order</code> is registered and opens in its workspace with stage tabs (<strong>Spec</strong>, Sandbox, Fixtures, Test Runs, Hardening, Publish).</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Tools › Register Tool</code> <span class="ck-made">creates · tool: decide_refund (read)</span> <a class="ck-assetref" href="#asset-assets-tools-decide-refund-tool-json">decide-refund.tool.json ↓</a></div><div class="ck-step-do">Register the policy tool. The wizard has five steps: <strong>Identity</strong>, <strong>Implementation</strong>, <strong>Schema</strong>, <strong>Playground</strong>, <strong>Safety &amp; Review</strong>. A registered tool must point at importable Python, so you give a <code>Module Path</code> and a <code>Callable Name</code> from the shipped demo module. On the Schema step use each schema's <strong>Raw JSON</strong> toggle and paste <code>input_schema</code> and <code>output_schema</code> from the asset.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>decide_refund</code></td></tr><tr><td>Version</td><td><code>1.0</code></td></tr><tr><td>Module Path</td><td><code>caliber.workflows.demo_tools</code></td></tr><tr><td>Callable Name</td><td><code>decide_refund</code></td></tr><tr><td>Side effect level</td><td>Read (the default)</td></tr><tr><td>Allow in Preview</td><td>on, so the sandbox runs the real callable</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Register Tool</span></div><div class="ck-see"><strong>You'll see:</strong> The tool opens on its detail page. Back in the Tools list its row has no <strong>Built-in</strong> or <strong>Unavailable</strong> label: those mark CALIBER's own tools.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
         <span class="ck-mk-url">caliber · Tools › Register Tool</span></div>
       <div class="ck-mk-screen">
         <div class="ck-mk-bar"><span class="ck-mk-page">Tools</span><span class="ck-mk-title">Register Tool</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">lookup_order</span></label><label class="ck-mk-field"><span class="ck-mk-label">Module Path</span><span class="ck-mk-input">caliber.workflows.demo_tools</span></label><label class="ck-mk-field"><span class="ck-mk-label">Callable Name</span><span class="ck-mk-input">lookup_order</span></label><label class="ck-mk-field"><span class="ck-mk-label">Side effect level</span><span class="ck-mk-input">read</span></label><label class="ck-mk-field"><span class="ck-mk-label">Allow in preview</span><span class="ck-mk-input">enabled (run the real callable in sandbox)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Register Tool</span></div></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">decide_refund</span></label><label class="ck-mk-field"><span class="ck-mk-label">Version</span><span class="ck-mk-input">1.0</span></label><label class="ck-mk-field"><span class="ck-mk-label">Module Path</span><span class="ck-mk-input">caliber.workflows.demo_tools</span></label><label class="ck-mk-field"><span class="ck-mk-label">Callable Name</span><span class="ck-mk-input">decide_refund</span></label><label class="ck-mk-field"><span class="ck-mk-label">Side effect level</span><span class="ck-mk-input">Read (the default)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Register Tool</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Tools › Register Tool</code> <span class="ck-made">creates · tool: initiate_refund (write)</span> <a class="ck-assetref" href="#asset-assets-tools-initiate-refund-tool-json">initiate-refund.tool.json ↓</a></div><div class="ck-step-do">Register the refund <strong>write</strong> tool the same way. Because <code>side_effect_level</code> is <code>write</code>, it is automatically mocked in the sandbox and becomes approval-gated when used in a workflow — exactly the safety behavior this lab wants. Leave Allow-in-preview off (writes are mocked regardless). Requires approval is switched on for you (the API rejects a write tool without it).</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>initiate_refund</code></td></tr><tr><td>Module Path</td><td><code>caliber.workflows.demo_tools</code></td></tr><tr><td>Callable Name</td><td><code>initiate_refund</code></td></tr><tr><td>Side effect level</td><td><code>write</code></td></tr><tr><td>Requires approval</td><td>on (the wizard turns it on for <code>write</code>; with the API send <code>requires_approval: true</code>)</td></tr><tr><td>Input / Output schema</td><td>paste the <code>input_schema</code> (requires <code>order_id</code>) and <code>output_schema</code> from <a href="#asset-assets-tools-initiate-refund-tool-json">initiate-refund.tool.json</a></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Register Tool</span></div><div class="ck-see"><strong>You'll see:</strong> The tool <code>initiate_refund</code> appears in the Tools list and opens in its own workspace.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Tools › Register Tool</code> <span class="ck-made">creates · tool: initiate_refund (write)</span> <a class="ck-assetref" href="#asset-assets-tools-initiate-refund-tool-json">initiate-refund.tool.json ↓</a></div><div class="ck-step-do">Register the write tool the same way. On the Safety &amp; Review step click <strong>Write</strong>: <strong>Requires Approval</strong> switches on and is locked, because the registry refuses a write tool without it. (Through the API that refusal is an HTTP 400.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>initiate_refund</code></td></tr><tr><td>Version</td><td><code>1.0</code></td></tr><tr><td>Module Path</td><td><code>caliber.workflows.demo_tools</code></td></tr><tr><td>Callable Name</td><td><code>initiate_refund</code></td></tr><tr><td>Side effect level</td><td>Write</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Register Tool</span></div><div class="ck-see"><strong>You'll see:</strong> <code>initiate_refund</code> is registered with <strong>Requires Approval</strong> on and cannot be turned off.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
         <span class="ck-mk-url">caliber · Tools › Register Tool</span></div>
       <div class="ck-mk-screen">
         <div class="ck-mk-bar"><span class="ck-mk-page">Tools</span><span class="ck-mk-title">Register Tool</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">initiate_refund</span></label><label class="ck-mk-field"><span class="ck-mk-label">Module Path</span><span class="ck-mk-input">caliber.workflows.demo_tools</span></label><label class="ck-mk-field"><span class="ck-mk-label">Callable Name</span><span class="ck-mk-input">initiate_refund</span></label><label class="ck-mk-field"><span class="ck-mk-label">Side effect level</span><span class="ck-mk-input">write</span></label><label class="ck-mk-field"><span class="ck-mk-label">Requires approval</span><span class="ck-mk-input">on (the wizard turns it on for write; with the API send requires_approval: true)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Register Tool</span></div></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">initiate_refund</span></label><label class="ck-mk-field"><span class="ck-mk-label">Version</span><span class="ck-mk-input">1.0</span></label><label class="ck-mk-field"><span class="ck-mk-label">Module Path</span><span class="ck-mk-input">caliber.workflows.demo_tools</span></label><label class="ck-mk-field"><span class="ck-mk-label">Callable Name</span><span class="ck-mk-input">initiate_refund</span></label><label class="ck-mk-field"><span class="ck-mk-label">Side effect level</span><span class="ck-mk-input">Write</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Register Tool</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Tools › lookup_order › Sandbox</code></div><div class="ck-step-do">Run the read tool live in the <strong>Sandbox</strong> to confirm it imports and returns real output. Because it is a <code>read</code> tool with preview allowed, you get the genuine lookup result.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Input JSON</td><td><code>{"order_id": "ord_1120"}</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Test Run</span></div><div class="ck-see"><strong>You'll see:</strong> A real response object (e.g. <code>{order_id, items, status}</code>) with no <code>mocked</code> flag — proving the live read works.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Tools › decide_refund › Sandbox</code></div><div class="ck-step-do">Open the tool from the Tools list, then the <strong>Sandbox</strong> tab. Run the policy with the first fixture's inputs. Then open <code>initiate_refund</code> and run it: a write tool is never called in the sandbox.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Input JSON (decide_refund)</td><td><code>{"order_id": "ord_1007", "account_id": "acct_2013", "order_state": "delivered", "amount": 49.0, "days_since_order": 5, "customer_tier": "standard", "refunds_last_90d": 0, "risk_flags": []}</code></td></tr><tr><td>Input JSON (initiate_refund)</td><td><code>{"order_id": "ord_1007", "amount": 49.0}</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Test Run</span></div><div class="ck-see"><strong>You'll see:</strong> <strong>Success</strong> with <code>decision: approve</code>, <code>reason_code: ELIGIBLE_AUTO_APPROVE</code>. For the write tool: <strong>Success (mocked)</strong> and the output <code>{"_preview_mock": true}</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Tools › lookup_order › Sandbox</span></div>
+        <span class="ck-mk-url">caliber · Tools › decide_refund › Sandbox</span></div>
       <div class="ck-mk-screen">
         <div class="ck-mk-bar"><span class="ck-mk-page">Tools</span><span class="ck-mk-title">Sandbox</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Input JSON</span><span class="ck-mk-input">{&quot;order_id&quot;: &quot;ord_1120&quot;}</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Test Run</span></div></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Input JSON (decide_refund)</span><span class="ck-mk-input">{&quot;order_id&quot;: &quot;ord_1007&quot;, &quot;account_id&quot;: &quot;acct_2013&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amo…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Input JSON (initiate_refund)</span><span class="ck-mk-input">{&quot;order_id&quot;: &quot;ord_1007&quot;, &quot;amount&quot;: 49.0}</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Test Run</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Tools › initiate_refund › Sandbox</code></div><div class="ck-step-do">Run the write tool in the Sandbox to confirm it is safely <strong>mocked</strong>. Write/external-action tools never execute for real in preview, so you can test the contract without issuing an actual refund.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Input JSON</td><td><code>{"order_id": "ord_1120", "amount": 49.0}</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Test Run</span></div><div class="ck-see"><strong>You'll see:</strong> A response carrying <code>mocked: true</code>, confirming the refund did not really fire in the sandbox.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Tools › decide_refund › Fixtures</code> <span class="ck-made">creates · tool fixtures: refund-fixtures</span> <a class="ck-assetref" href="#asset-assets-dataset-refund-fixtures-jsonl">refund-fixtures.jsonl ↓</a></div><div class="ck-step-do">Add the 49 cases from the dataset. The editor takes one case at a time: <strong>Add case</strong>, then a name (<code>R01 small delivered order</code>), the case's <code>inputs</code> as the input JSON, assertion <code>equals</code>, and the exact output as the value (<code>{"decision": "approve", "reason_code": "ELIGIBLE_AUTO_APPROVE", "requires_approval": false}</code>, keys sorted). To load all 49 in one call use the API path (<code>PUT /tools/{id}/test-cases</code>).</div><div class="ck-click">Click <span class="ck-btn">Save cases</span></div><div class="ck-see"><strong>You'll see:</strong> <strong>Saved</strong>, and 49 case rows in the editor.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Tools › initiate_refund › Sandbox</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Tools</span><span class="ck-mk-title">Sandbox</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Input JSON</span><span class="ck-mk-input">{&quot;order_id&quot;: &quot;ord_1120&quot;, &quot;amount&quot;: 49.0}</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Test Run</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Tools › lookup_order › Fixtures</code> <span class="ck-made">creates · tool fixtures: lookup_order suite</span> <a class="ck-assetref" href="#asset-assets-dataset-refund-fixtures-jsonl">refund-fixtures.jsonl ↓</a></div><div class="ck-step-do">Save deterministic <strong>fixtures</strong> (named cases with assertions) so you can score the tool repeatably. Use <strong>Add case</strong> once per fixture; each case pairs an input JSON with an assertion. <code>lookup_order</code> takes only <code>order_id</code>, so each case's input JSON must be scoped to just that key — passing the full multi-key fixture row would raise a TypeError and fail the case. The available assertion types are <code>no_error</code>, <code>output_contains</code>, and <code>equals</code> — use <code>output_contains</code> with a value like <code>status</code> to assert the lookup output.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Cases</td><td>for each row in <a href="#asset-assets-dataset-refund-fixtures-jsonl">refund-fixtures.jsonl</a>, add a case whose input JSON is scoped to just the order id (e.g. <code>{"order_id": "ord_1120"}</code>) paired with the assertion <code>output_contains</code> = <code>status</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Save cases</span></div><div class="ck-see"><strong>You'll see:</strong> The saved fixture cases appear in the panel, ready to run as a suite.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Tools › lookup_order › Fixtures</span></div>
+        <span class="ck-mk-url">caliber · Tools › decide_refund › Fixtures</span></div>
       <div class="ck-mk-screen">
         <div class="ck-mk-bar"><span class="ck-mk-page">Tools</span><span class="ck-mk-title">Fixtures</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Cases</span><span class="ck-mk-input">for each row in refund-fixtures.jsonl, add a case whose input JSON is scoped to just…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Save cases</span></div></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Save cases</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Tools › lookup_order › Hardening</code> <span class="ck-made">creates · hardening run: lookup_order pass rate</span></div><div class="ck-step-do">Run the saved fixture suite. The deterministic Hardening lane scores the assertions <strong>inline</strong> and reports a pass rate you can gate on (target &ge; 0.97). Save the cases first if you edited them, then run.</div><div class="ck-click">Click <span class="ck-btn">Run calibration</span></div><div class="ck-see"><strong>You'll see:</strong> An immediate result line: <strong>Pass rate NN%</strong> — passed/total — recorded as a run with per-case pass/fail. No waiting for a background job.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Tools › decide_refund › Hardening</code></div><div class="ck-step-do">Run the saved suite. It scores inline, one subprocess per case, so 49 cases take about half a minute. A run is recorded under <strong>Test Runs</strong> automatically.</div><div class="ck-click">Click <span class="ck-btn">Run calibration</span></div><div class="ck-see"><strong>You'll see:</strong> <strong>Pass rate 100% — 49/49 passed</strong> and a green <strong>pass</strong> on every case.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Tools › lookup_order › Hardening</span></div>
+        <span class="ck-mk-url">caliber · Tools › decide_refund › Hardening</span></div>
       <div class="ck-mk-screen">
         <div class="ck-mk-bar"><span class="ck-mk-page">Tools</span><span class="ck-mk-title">Hardening</span></div>
         <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Run calibration</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Tools › lookup_order › Test Runs</code> <span class="ck-made">creates · pinned baseline: lookup_order hardening</span></div><div class="ck-step-do">Pin the passing hardening run as the tool's <strong>baseline</strong> so future fixture/schema edits are measured against this known-good result. Open the run in the Test Runs history and pin it.</div><div class="ck-click">Click <span class="ck-btn">Set as baseline</span></div><div class="ck-see"><strong>You'll see:</strong> The run gets a <strong>Baseline</strong> marker; the Test Runs tab now shows deltas against it. (Optional: edit a fixture or schema and re-run to watch a regression delta appear.)</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Tools › decide_refund › Test Runs</code></div><div class="ck-step-do">Open <strong>Test Runs</strong> and pin the latest run. Then go back to <strong>Hardening</strong>, change the expected value of case R09 (<code>approve</code>) to <code>manual_review</code> / <code>AMOUNT_OVER_THRESHOLD</code> / <code>true</code>, and run the suite again. Put the value back afterwards and run once more.</div><div class="ck-click">Click <span class="ck-btn">Set as baseline</span> then <span class="ck-btn">Run calibration</span></div><div class="ck-see"><strong>You'll see:</strong> The pinned run carries a <strong>Baseline</strong> marker. The second run reads <strong>Pass rate 98% — 48/49 passed</strong>; under Test Runs the comparison shows <strong>1 regression</strong> on R09 and <strong>Net score -2%</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Tools › lookup_order › Test Runs</span></div>
+        <span class="ck-mk-url">caliber · Tools › decide_refund › Test Runs</span></div>
       <div class="ck-mk-screen">
         <div class="ck-mk-bar"><span class="ck-mk-page">Tools</span><span class="ck-mk-title">Test Runs</span></div>
-        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Set as baseline</span></div></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Set as baseline</span><span class="ck-mk-btn ghost">Run calibration</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Workflows › New Workflow</code> <span class="ck-made">creates · workflow: refund-decision-flow (hitl_review)</span></div><div class="ck-step-do">Create the workflow from the <strong>Human Review</strong> template (the <code>hitl_review</code> kind) — it ships the <strong>human_approval</strong> node you need for the approval gate. Name it, then click the template tile to create it. Starting from this template means the gate is already wired for you.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Name</td><td><code>refund-decision-flow</code></td></tr><tr><td>Template</td><td>the <strong>Human Review</strong> tile (Agent → PII redact → human approval → output)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Human Review</span></div><div class="ck-see"><strong>You'll see:</strong> The workflow opens in the editor with a starting graph that already contains a <code>human_approval</code> node.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Workflows › Import</code> <span class="ck-made">creates · workflow: refund-decision</span> <a class="ck-assetref" href="#asset-assets-workflow-refund-decision-workflow-yaml">refund-decision.workflow.yaml ↓</a></div><div class="ck-step-do">Import the workflow asset. If you registered the tools under other names, replace <code>decide_refund</code> and <code>initiate_refund</code> in the file first. <strong>Validate dependencies</strong> checks that both tools resolve.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>New workflow name</td><td><code>refund-decision</code></td></tr><tr><td>YAML/JSON manifest</td><td><strong>Choose file</strong>: <code>refund-decision.workflow.yaml</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Validate dependencies</span> then <span class="ck-btn">Import as new</span></div><div class="ck-see"><strong>You'll see:</strong> <strong>Preflight passed</strong>, both tools <strong>resolved</strong>; then the editor opens on the new draft.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Workflows › New Workflow</span></div>
+        <span class="ck-mk-url">caliber · Workflows › Import</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">New Workflow</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Name</span><span class="ck-mk-input">refund-decision-flow</span></label><label class="ck-mk-field"><span class="ck-mk-label">Template</span><span class="ck-mk-input">the Human Review tile (Agent → PII redact → human approval → output)</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Human Review</span></div></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Import</span></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">New workflow name</span><span class="ck-mk-input">refund-decision</span></label><label class="ck-mk-field"><span class="ck-mk-label">YAML/JSON manifest</span><span class="ck-mk-input">Choose file: refund-decision.workflow.yaml</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Validate dependencies</span><span class="ck-mk-btn ghost">Import as new</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Workflows › refund-decision-flow › Editor</code> <span class="ck-made">creates · python_code node: decide_refund</span> <a class="ck-assetref" href="#asset-assets-tools-decide-refund-py">decide_refund.py ↓</a></div><div class="ck-step-do">Add the deterministic decision as a <strong>Python Code</strong> node (drag it from the palette, or use the quick-add + menu, then paste the body in the node inspector). Custom decision logic lives in a python_code node (not a registered tool), so it versions with the workflow and needs no registration. This node sits first after START and reads the run input directly: a python_code node receives the run input as an unparsed string, so the pasted <code>run_python_node(...)</code> entrypoint parses it as JSON and reads <code>order_state</code>, <code>risk_flags</code>, <code>amount</code>, and <code>days_since_order</code> from it. (The README recipe and the installable draft use a <strong>Data Transform → Decision table</strong> node instead, which emits only <code>{decision, matched, matched_rule}</code>; this python_code variant also emits <code>reason_code</code> and <code>requires_approval</code>.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Python Code node body</td><td>paste the body of <a href="#asset-assets-tools-decide-refund-py">decide_refund.py</a> (it defines <code>decide_refund(...)</code> and the <code>run_python_node(...)</code> entrypoint that parses the JSON run input and returns <code>{decision, reason_code, requires_approval}</code>)</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">💾 Save</span></div><div class="ck-see"><strong>You'll see:</strong> A <strong>Python Code</strong> node for the refund decision is on the canvas with the pasted body saved to the draft.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Workflows › refund-decision › Run Monitor</code></div><div class="ck-step-do">Run a case, then try to approve it yourself. In a second browser session sign in as <code>approver1</code>, pick the same workspace, open the workflow, <strong>Run Monitor</strong>, select the run in <strong>Recent runs</strong> and approve. Back in the first session, <strong>Resume</strong>. The gate is the refund tool's own approval flag.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Run input</td><td>the R01 inputs, as in the Sandbox step</td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span> then <span class="ck-btn">Approve</span> then <span class="ck-btn">Approve</span> then <span class="ck-btn">Resume</span></div><div class="ck-see"><strong>You'll see:</strong> The run stops at <strong>Awaiting approval</strong> on node <code>refund</code>. Your own <strong>Approve</strong> is refused (<em>a second person must decide</em>). After approver1 approves, <strong>Resume</strong> enables; after it the run is <strong>completed</strong> and the output shows <code>refund_status: initiated</code>, <code>amount_usd: 49.0</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Workflows › refund-decision-flow › Editor</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Editor</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Python Code node body</span><span class="ck-mk-input">paste the body of decide_refund.py (it defines decide_refund(...) and the run_python…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">💾 Save</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Workflows › refund-decision-flow › Editor</code> <span class="ck-made">creates · workflow graph: decide → approve → refund</span></div><div class="ck-step-do">Wire the safety chain by adding the nodes and connecting them in order: <code>START</code> &rarr; <code>decide_refund</code> (python_code, which parses the JSON run input) &rarr; <code>human_approval</code> &rarr; <code>initiate_refund</code>. Add the <code>initiate_refund</code> Tool node from the palette, drag port-to-port to connect, and route through the existing human_approval gate so the write only fires after approval. The human_approval node has no condition field: when runtime approvals are enabled on the run, it pauses <em>every</em> run that reaches it (it does not read <code>requires_approval</code>). The <code>requires_approval</code> flag from decide_refund is informational only — surfaced for the reviewer, not consumed by the gate. (Keep <code>lookup_order</code> as the Tools-sandbox demo from the earlier steps; it is not part of this decision chain — decide_refund reads the decision fields straight from the run input.)</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Nodes to add</td><td>a Tool node for <code>initiate_refund</code> (decide_refund and human_approval are already on the canvas)</td></tr><tr><td>Edges</td><td><code>START → decide_refund → human_approval → initiate_refund</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">💾 Save</span></div><div class="ck-see"><strong>You'll see:</strong> The saved draft graph shows START → decide_refund → human_approval → initiate_refund in sequence, with the approval gate sitting before the refund write.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Workflows › refund-decision-flow › Editor</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Editor</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Nodes to add</span><span class="ck-mk-input">a Tool node for initiate_refund (decide_refund and human_approval are already on the…</span></label><label class="ck-mk-field"><span class="ck-mk-label">Edges</span><span class="ck-mk-input">START → decide_refund → human_approval → initiate_refund</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">💾 Save</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Workflows › refund-decision-flow › Run Monitor</code> <span class="ck-made">creates · run evidence: high-risk blocked at approval</span> <a class="ck-assetref" href="#asset-assets-dataset-refund-fixtures-jsonl">refund-fixtures.jsonl ↓</a></div><div class="ck-step-do">Prove the gate <strong>holds</strong>. Runtime approvals are a <strong>deployment-level</strong> setting, not a per-run checkbox: an admin enables them in the environment by setting <code>CALIBER_WORKFLOW_RUN_RUNTIME_APPROVALS_ENABLED=true</code> <em>together with</em> checkpointing (<code>CALIBER_WORKFLOW_RUN_CHECKPOINTING_ENABLED=true</code>) and the run queue (<code>CALIBER_WORKFLOW_RUN_QUEUE_ENABLED=true</code>) in <code>.env</code>, then restarting — the approve/resume routes reject requests unless all three are on. (Their current values are shown read-only under <strong>Settings › Workflow runs</strong>; only LLM credentials are live-editable in the UI, so these flags come from the deployment env, not a Settings toggle.) With those enabled, open the <strong>Run Monitor</strong> panel in the editor, paste a case as the run input, and execute. The human_approval node then pauses the run at the gate instead of letting the write fire — it pauses every run that reaches it, regardless of the decision's <code>requires_approval</code> value. Use a high-risk case so the paused run is also one a reviewer would actually hold.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Run input</td><td>a case from <a href="#asset-assets-dataset-refund-fixtures-jsonl">refund-fixtures.jsonl</a>, e.g. the high-risk F08 <code>{"order_id":"ord_1166","order_state":"delivered","risk_flags":["fraud_suspected"],"amount":49.0,"days_since_order":4}</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The run advances to the gate and stops at status <strong>waiting_approval</strong> (shown as "Awaiting approval") — the refund has NOT fired, and Approve / Reject buttons appear.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Workflows › refund-decision-flow › Run Monitor</span></div>
+        <span class="ck-mk-url">caliber · Workflows › refund-decision › Run Monitor</span></div>
       <div class="ck-mk-screen">
         <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Run input</span><span class="ck-mk-input">a case from refund-fixtures.jsonl, e.g. the high-risk F08 {&quot;order_id&quot;:&quot;ord_1166&quot;,&quot;or…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Run input</span><span class="ck-mk-input">the R01 inputs, as in the Sandbox step</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span><span class="ck-mk-btn ghost">Approve</span><span class="ck-mk-btn ghost">Approve</span><span class="ck-mk-btn ghost">Resume</span></div></div>
       </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Workflows › refund-decision-flow › Run Monitor</code> <span class="ck-made">creates · run evidence: approve marks approved, resume fires refund</span></div><div class="ck-step-do">Clear the paused run in <strong>two steps</strong>. First click <strong>Approve</strong> (as an account holding the <code>caliber.approver</code> scope that is <em>not</em> the one that started the run — the initiator gets a 403 unless the server sets <code>CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true</code>): this only records the approval decision (the approval row flips to <code>approved</code>) — the run <em>stays</em> at <code>waiting_approval</code> and the write does NOT fire yet. Then click <strong>Resume</strong>, a separate action, which advances the paused run from the checkpoint; only now does <code>initiate_refund</code> execute. (Resume refuses to advance until an approved decision exists, so the order matters.)</div><div class="ck-click">Click <span class="ck-btn">Approve, then Resume</span></div><div class="ck-see"><strong>You'll see:</strong> After Approve the status is still <strong>waiting_approval</strong> with the approval marked approved; after Resume the run advances and completes, and the timeline shows <code>initiate_refund</code> running only AFTER the resume — the write never fires while the run is paused at the gate.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Workflows › refund-decision › Run Monitor, then Audit Log</code></div><div class="ck-step-do">Start two more runs: one with the R01 inputs that approver1 rejects, one with the R23 inputs (a cancelled order). Then open <strong>Audit Log</strong>.</div><div class="ck-click">Click <span class="ck-btn">Run</span> then <span class="ck-btn">Reject</span></div><div class="ck-see"><strong>You'll see:</strong> The rejected run is <strong>failed</strong> and its output holds no refund. The R23 run <strong>completed</strong> with <code>decision: deny</code> and never asked for approval. Audit Log lists <code>approve_workflow_run_runtime_approval</code> and <code>reject_workflow_run_runtime_approval</code> by <code>approver1</code>, and <code>resume_workflow_run</code> by the initiator.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
       <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Workflows › refund-decision-flow › Run Monitor</span></div>
+        <span class="ck-mk-url">caliber · Workflows › refund-decision › Run Monitor, then Audit Log</span></div>
       <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
-        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Approve, then Resume</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Workflows › refund-decision-flow › Run Monitor</code> <span class="ck-made">creates · run evidence: rejected → write never fires</span></div><div class="ck-step-do">Now prove the gate also <strong>stops the write entirely when you reject</strong>. Start another run (runtime approvals are still on at the deployment level) so it pauses at the gate, then click <strong>Reject</strong> instead of Approve. Rejection ends the run as failed — there is no Resume after a rejection — and the refund never fires.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Run input</td><td>any case from <a href="#asset-assets-dataset-refund-fixtures-jsonl">refund-fixtures.jsonl</a>, e.g. F08 <code>{"order_id":"ord_1166","order_state":"delivered","risk_flags":["fraud_suspected"],"amount":49.0,"days_since_order":4}</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Reject</span></div><div class="ck-see"><strong>You'll see:</strong> The run ends at status <strong>failed</strong> (error <code>approval_rejected</code>) — <code>initiate_refund</code> never ran and the run cannot be resumed, confirming the write is hard-gated behind the approval decision.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Workflows › refund-decision-flow › Run Monitor</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Run input</span><span class="ck-mk-input">any case from refund-fixtures.jsonl, e.g. F08 {&quot;order_id&quot;:&quot;ord_1166&quot;,&quot;order_state&quot;:&quot;…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Reject</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Prompts › New prompt</code> <span class="ck-made">creates · prompt: refund-explanation</span> <a class="ck-assetref" href="#asset-assets-prompts-refund-explanation-md">refund-explanation.md ↓</a> <a class="ck-assetref" href="#asset-assets-skills-policy-reason-normalizer-md">policy-reason-normalizer.md ↓</a> <a class="ck-assetref" href="#asset-assets-skills-customer-safe-refund-language-md">customer-safe-refund-language.md ↓</a></div><div class="ck-step-do">Add the optional <strong>explanation</strong> layer that phrases the decision for the customer <em>without changing it</em>. Use the <strong>Write / paste</strong> on-ramp, name it, and paste the body (the lines below the YAML frontmatter).</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Prompt name</td><td><code>refund-explanation</code></td></tr><tr><td>Prompt text</td><td>paste the body of <a href="#asset-assets-prompts-refund-explanation-md">refund-explanation.md</a> (below the frontmatter; variables <code>decision</code>, <code>reason_code</code>, <code>order_state</code>, <code>customer_name</code>)</td></tr><tr><td>Commit message</td><td><code>v1 explanation layer — explains, never overrides, the deterministic decision</code></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Create</span></div><div class="ck-see"><strong>You'll see:</strong> The prompt <code>refund-explanation</code> is created at v1 and opens in its workspace, ready to test. (Optionally also create the two support skills below to govern its wording.)</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Prompts › New prompt</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Prompts</span><span class="ck-mk-title">New prompt</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Prompt name</span><span class="ck-mk-input">refund-explanation</span></label><label class="ck-mk-field"><span class="ck-mk-label">Prompt text</span><span class="ck-mk-input">paste the body of refund-explanation.md (below the frontmatter; variables decision, …</span></label><label class="ck-mk-field"><span class="ck-mk-label">Commit message</span><span class="ck-mk-input">v1 explanation layer — explains, never overrides, the deterministic decision</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Create</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Prompts › refund-explanation › Test Sets</code> <span class="ck-made">creates · generated cases for refund-explanation</span> <a class="ck-assetref" href="#asset-assets-dataset-refund-fixtures-jsonl">refund-fixtures.jsonl ↓</a></div><div class="ck-step-do">Build a test set for the explanation prompt from the fixtures' decision contexts. Generate cases for the open prompt (each input carries a <code>decision</code>, <code>reason_code</code>, and <code>order_state</code>), review them against the fixtures, then save them as the prompt's pinned test set.</div><div class="ck-fill"><div class="ck-fill-t">Fill in</div><table><tbody><tr><td>Number of Test Cases</td><td>pick a count covering approve / deny / manual_review reason codes, mirroring the decision contexts in <a href="#asset-assets-dataset-refund-fixtures-jsonl">refund-fixtures.jsonl</a></td></tr></tbody></table></div><div class="ck-click">Click <span class="ck-btn">Generate Test Cases</span></div><div class="ck-see"><strong>You'll see:</strong> Generated cases appear, each pairing a decision context with the expected behavior that the explanation must restate the decision faithfully.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Prompts › refund-explanation › Test Sets</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Prompts</span><span class="ck-mk-title">Test Sets</span></div>
-        <div class="ck-mk-panel"><label class="ck-mk-field"><span class="ck-mk-label">Number of Test Cases</span><span class="ck-mk-input">pick a count covering approve / deny / manual_review reason codes, mirroring the dec…</span></label><div class="ck-mk-actions"><span class="ck-mk-btn">Generate Test Cases</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Prompts › refund-explanation › Test Sets</code> <span class="ck-made">creates · test set: refund-explanation faithfulness cases (pinned)</span></div><div class="ck-step-do">Save the cases so the Runs stage can score the explanation against them. The expected behavior encodes faithfulness: the explanation must never upgrade, downgrade, or invent commitments beyond the fixed decision.</div><div class="ck-click">Click <span class="ck-btn">Save to Test Sets</span></div><div class="ck-see"><strong>You'll see:</strong> A "Saved to Test Sets" confirmation; the set is pinned to the refund-explanation prompt.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Prompts › refund-explanation › Test Sets</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Prompts</span><span class="ck-mk-title">Test Sets</span></div>
-        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Save to Test Sets</span></div></div>
-      </div>
-    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Prompts › refund-explanation › Runs</code> <span class="ck-made">creates · run: explanation faithfulness</span></div><div class="ck-step-do">Run the explanation prompt against its pinned test set. The Runs stage executes the prompt and grades each case with the built-in pass/partial/fail judge, scoring whether the explanation stays faithful to the decision (the gate is &ge; 0.92). Run only after the deterministic refund lane above is green.</div><div class="ck-click">Click <span class="ck-btn">Run tests</span></div><div class="ck-see"><strong>You'll see:</strong> A scorecard with a high overall pass rate (target &ge; 0.92), confirming the explanation never contradicts the deterministic decision — completing the deterministic-first, explanation-last gate.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
-      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
-        <span class="ck-mk-url">caliber · Prompts › refund-explanation › Runs</span></div>
-      <div class="ck-mk-screen">
-        <div class="ck-mk-bar"><span class="ck-mk-page">Prompts</span><span class="ck-mk-title">Runs</span></div>
-        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Run tests</span></div></div>
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Run Monitor, then Audit Log</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span><span class="ck-mk-btn ghost">Reject</span></div></div>
       </div>
     </figure></div></div></li></ol>
-      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/03-tool-hardening-contract-lab/assets/</code>.</p><div class="ck-asset" id="asset-assets-tools-lookup-order-tool-json">
-      <div class="ck-asset-bar"><span class="ck-asset-name">assets/tools/lookup-order.tool.json</span>
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/03-tool-hardening-contract-lab/assets/</code>.</p><div class="ck-asset" id="asset-assets-tools-decide-refund-tool-json">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/tools/decide-refund.tool.json</span>
         <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
       <pre data-lang="json"><code>{
-  &quot;name&quot;: &quot;lookup_order&quot;,
-  &quot;version&quot;: &quot;1&quot;,
+  &quot;name&quot;: &quot;decide_refund&quot;,
+  &quot;version&quot;: &quot;1.0&quot;,
+  &quot;description&quot;: &quot;Deterministic refund policy: approve, deny or send to manual review, with a stable reason code.&quot;,
   &quot;module_path&quot;: &quot;caliber.workflows.demo_tools&quot;,
-  &quot;callable_name&quot;: &quot;lookup_order&quot;,
+  &quot;callable_name&quot;: &quot;decide_refund&quot;,
   &quot;side_effect_level&quot;: &quot;read&quot;,
   &quot;allow_in_preview&quot;: true,
   &quot;input_schema&quot;: {
     &quot;type&quot;: &quot;object&quot;,
-    &quot;required&quot;: [&quot;order_id&quot;],
+    &quot;required&quot;: [&quot;order_state&quot;, &quot;amount&quot;, &quot;days_since_order&quot;],
     &quot;properties&quot;: {
-      &quot;order_id&quot;: {
-        &quot;type&quot;: &quot;string&quot;,
-        &quot;description&quot;: &quot;Order identifier to look up, e.g. \&quot;ord_1120\&quot;.&quot;
-      }
+      &quot;order_id&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;Carried for traceability; the policy does not read it.&quot;},
+      &quot;account_id&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;Carried for traceability; the policy does not read it.&quot;},
+      &quot;order_state&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;delivered, shipped or returned can be refunded; anything else is denied; empty fails closed.&quot;},
+      &quot;amount&quot;: {&quot;type&quot;: &quot;number&quot;, &quot;description&quot;: &quot;Refund amount in USD.&quot;},
+      &quot;days_since_order&quot;: {&quot;type&quot;: &quot;integer&quot;, &quot;minimum&quot;: 0, &quot;description&quot;: &quot;Whole days since the order.&quot;},
+      &quot;customer_tier&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;enum&quot;: [&quot;standard&quot;, &quot;plus&quot;, &quot;premium&quot;], &quot;default&quot;: &quot;standard&quot;},
+      &quot;refunds_last_90d&quot;: {&quot;type&quot;: &quot;integer&quot;, &quot;minimum&quot;: 0, &quot;default&quot;: 0, &quot;description&quot;: &quot;Refunds already issued to this account in the last 90 days.&quot;},
+      &quot;risk_flags&quot;: {&quot;type&quot;: &quot;array&quot;, &quot;items&quot;: {&quot;type&quot;: &quot;string&quot;}, &quot;description&quot;: &quot;Fraud or risk signals. Omit or null when the risk lookup failed: the policy fails closed.&quot;}
     }
   },
   &quot;output_schema&quot;: {
     &quot;type&quot;: &quot;object&quot;,
+    &quot;required&quot;: [&quot;decision&quot;, &quot;reason_code&quot;, &quot;requires_approval&quot;],
     &quot;properties&quot;: {
-      &quot;order_id&quot;: {&quot;type&quot;: &quot;string&quot;},
-      &quot;items&quot;: {&quot;type&quot;: &quot;array&quot;, &quot;items&quot;: {&quot;type&quot;: &quot;string&quot;}},
-      &quot;status&quot;: {&quot;type&quot;: &quot;string&quot;}
+      &quot;decision&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;enum&quot;: [&quot;approve&quot;, &quot;deny&quot;, &quot;manual_review&quot;]},
+      &quot;reason_code&quot;: {&quot;type&quot;: &quot;string&quot;},
+      &quot;requires_approval&quot;: {&quot;type&quot;: &quot;boolean&quot;, &quot;description&quot;: &quot;True exactly when the decision is manual_review.&quot;}
     }
-  },
-  &quot;notes&quot;: &quot;Read-only lookup; runs live in the sandbox (allow_in_preview). The shipped callable returns {order_id, items, status} and takes ONLY order_id (scope fixture inputs to {\&quot;order_id\&quot;: ...} or it raises a TypeError). Used here purely as the Tools-sandbox demo; it is NOT the source of decide_refund&#x27;s inputs — the decide_refund python_code node parses order_state/risk_flags/amount/days_since_order from the JSON run input.&quot;
+  }
 }
 </code></pre>
     </div><div class="ck-asset" id="asset-assets-tools-initiate-refund-tool-json">
@@ -240,7 +195,8 @@
         <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
       <pre data-lang="json"><code>{
   &quot;name&quot;: &quot;initiate_refund&quot;,
-  &quot;version&quot;: &quot;1&quot;,
+  &quot;version&quot;: &quot;1.0&quot;,
+  &quot;description&quot;: &quot;Issue the refund. A write: the registry requires approval for it, and the sandbox mocks it.&quot;,
   &quot;module_path&quot;: &quot;caliber.workflows.demo_tools&quot;,
   &quot;callable_name&quot;: &quot;initiate_refund&quot;,
   &quot;side_effect_level&quot;: &quot;write&quot;,
@@ -249,14 +205,8 @@
     &quot;type&quot;: &quot;object&quot;,
     &quot;required&quot;: [&quot;order_id&quot;],
     &quot;properties&quot;: {
-      &quot;order_id&quot;: {
-        &quot;type&quot;: &quot;string&quot;,
-        &quot;description&quot;: &quot;Order to refund.&quot;
-      },
-      &quot;amount&quot;: {
-        &quot;type&quot;: &quot;number&quot;,
-        &quot;description&quot;: &quot;Refund amount in USD. Optional; the shipped callable ignores extras and returns its own amount_usd. Declared here so the workflow can pass the decided amount through the contract.&quot;
-      }
+      &quot;order_id&quot;: {&quot;type&quot;: &quot;string&quot;, &quot;description&quot;: &quot;Order to refund.&quot;},
+      &quot;amount&quot;: {&quot;type&quot;: &quot;number&quot;, &quot;description&quot;: &quot;Refund amount in USD.&quot;}
     }
   },
   &quot;output_schema&quot;: {
@@ -266,285 +216,194 @@
       &quot;refund_status&quot;: {&quot;type&quot;: &quot;string&quot;},
       &quot;amount_usd&quot;: {&quot;type&quot;: &quot;number&quot;}
     }
-  },
-  &quot;notes&quot;: &quot;side_effect_level=write requires requires_approval=true (POST /tools rejects a write tool without it with a 400). side_effect_level=write -&gt; in the Tools SANDBOX the response is mocked and the envelope carries a top-level mocked:true (it never really fires). In a normal WORKFLOW run there is no top-level mocked flag: the tool runs the real callable, but only AFTER the human_approval gate clears. Wire it AFTER the human_approval node so the refund only fires once the run is approved.&quot;
+  }
 }
 </code></pre>
     </div><div class="ck-asset" id="asset-assets-dataset-refund-fixtures-jsonl">
       <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/refund-fixtures.jsonl</span>
         <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
-      <pre data-lang="json"><code>{&quot;id&quot;: &quot;F01&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1120&quot;, &quot;account_id&quot;: &quot;acct_2101&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;risk_flags&quot;: [], &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 5}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
-{&quot;id&quot;: &quot;F02&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1133&quot;, &quot;account_id&quot;: &quot;acct_2101&quot;, &quot;order_state&quot;: &quot;shipped&quot;, &quot;risk_flags&quot;: [], &quot;amount&quot;: 25.0, &quot;days_since_order&quot;: 12}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
-{&quot;id&quot;: &quot;F03&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;deny&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1002&quot;, &quot;account_id&quot;: &quot;acct_1432&quot;, &quot;order_state&quot;: &quot;cancelled&quot;, &quot;risk_flags&quot;: [], &quot;amount&quot;: 80.0, &quot;days_since_order&quot;: 3}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;deny&quot;, &quot;reason_code&quot;: &quot;NOT_REFUNDABLE_STATE&quot;, &quot;requires_approval&quot;: false}}
-{&quot;id&quot;: &quot;F04&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;deny&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_0915&quot;, &quot;account_id&quot;: &quot;acct_1432&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;risk_flags&quot;: [], &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 95}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;deny&quot;, &quot;reason_code&quot;: &quot;OUTSIDE_WINDOW&quot;, &quot;requires_approval&quot;: false}}
-{&quot;id&quot;: &quot;F05&quot;, &quot;tags&quot;: [&quot;edge&quot;, &quot;boundary&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1140&quot;, &quot;account_id&quot;: &quot;acct_3300&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;risk_flags&quot;: [], &quot;amount&quot;: 200.0, &quot;days_since_order&quot;: 30}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
-{&quot;id&quot;: &quot;F06&quot;, &quot;tags&quot;: [&quot;edge&quot;, &quot;boundary&quot;, &quot;manual_review&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1141&quot;, &quot;account_id&quot;: &quot;acct_3300&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;risk_flags&quot;: [], &quot;amount&quot;: 250.0, &quot;days_since_order&quot;: 10}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;AMOUNT_OVER_THRESHOLD&quot;, &quot;requires_approval&quot;: true}}
-{&quot;id&quot;: &quot;F07&quot;, &quot;tags&quot;: [&quot;edge&quot;, &quot;boundary&quot;, &quot;deny&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1150&quot;, &quot;account_id&quot;: &quot;acct_3300&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;risk_flags&quot;: [], &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 31}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;deny&quot;, &quot;reason_code&quot;: &quot;OUTSIDE_WINDOW&quot;, &quot;requires_approval&quot;: false}}
-{&quot;id&quot;: &quot;F08&quot;, &quot;tags&quot;: [&quot;negative&quot;, &quot;fraud&quot;, &quot;manual_review&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1166&quot;, &quot;account_id&quot;: &quot;acct_9001&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;risk_flags&quot;: [&quot;fraud_suspected&quot;], &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 4}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;RISK_FLAG_PRESENT&quot;, &quot;requires_approval&quot;: true}}
-{&quot;id&quot;: &quot;F09&quot;, &quot;tags&quot;: [&quot;negative&quot;, &quot;missing_data&quot;, &quot;fail_closed&quot;, &quot;manual_review&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1177&quot;, &quot;account_id&quot;: &quot;acct_9001&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;risk_flags&quot;: null, &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 4}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;MISSING_RISK_DATA&quot;, &quot;requires_approval&quot;: true}}
-</code></pre>
-    </div><div class="ck-asset" id="asset-assets-tools-decide-refund-py">
-      <div class="ck-asset-bar"><span class="ck-asset-name">assets/tools/decide_refund.py</span>
+      <pre data-lang="json"><code>{&quot;id&quot;: &quot;R01&quot;, &quot;name&quot;: &quot;small delivered order&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1007&quot;, &quot;account_id&quot;: &quot;acct_2013&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 5, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R02&quot;, &quot;name&quot;: &quot;shipped order inside the window&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1014&quot;, &quot;account_id&quot;: &quot;acct_2026&quot;, &quot;order_state&quot;: &quot;shipped&quot;, &quot;amount&quot;: 25.0, &quot;days_since_order&quot;: 12, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R03&quot;, &quot;name&quot;: &quot;returned order, mid-size amount&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1021&quot;, &quot;account_id&quot;: &quot;acct_2039&quot;, &quot;order_state&quot;: &quot;returned&quot;, &quot;amount&quot;: 120.0, &quot;days_since_order&quot;: 20, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 1, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R04&quot;, &quot;name&quot;: &quot;one day inside the window, just under the limit&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1028&quot;, &quot;account_id&quot;: &quot;acct_2052&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 199.99, &quot;days_since_order&quot;: 29, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R05&quot;, &quot;name&quot;: &quot;window boundary: day 30 is still eligible&quot;, &quot;tags&quot;: [&quot;boundary&quot;, &quot;window&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1035&quot;, &quot;account_id&quot;: &quot;acct_2065&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 30, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R06&quot;, &quot;name&quot;: &quot;window boundary: day 31 is outside&quot;, &quot;tags&quot;: [&quot;boundary&quot;, &quot;window&quot;, &quot;deny&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1042&quot;, &quot;account_id&quot;: &quot;acct_2078&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 31, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;deny&quot;, &quot;reason_code&quot;: &quot;OUTSIDE_WINDOW&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R07&quot;, &quot;name&quot;: &quot;same-day refund&quot;, &quot;tags&quot;: [&quot;boundary&quot;, &quot;window&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1049&quot;, &quot;account_id&quot;: &quot;acct_2091&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 0, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R08&quot;, &quot;name&quot;: &quot;long past the window&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;deny&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1056&quot;, &quot;account_id&quot;: &quot;acct_2104&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 95, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;deny&quot;, &quot;reason_code&quot;: &quot;OUTSIDE_WINDOW&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R09&quot;, &quot;name&quot;: &quot;amount boundary: exactly 200.00&quot;, &quot;tags&quot;: [&quot;boundary&quot;, &quot;amount&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1063&quot;, &quot;account_id&quot;: &quot;acct_2117&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 200.0, &quot;days_since_order&quot;: 10, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R10&quot;, &quot;name&quot;: &quot;amount boundary: 200.01 needs review&quot;, &quot;tags&quot;: [&quot;boundary&quot;, &quot;amount&quot;, &quot;manual_review&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1070&quot;, &quot;account_id&quot;: &quot;acct_2130&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 200.01, &quot;days_since_order&quot;: 10, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;AMOUNT_OVER_THRESHOLD&quot;, &quot;requires_approval&quot;: true}}
+{&quot;id&quot;: &quot;R11&quot;, &quot;name&quot;: &quot;large refund needs review&quot;, &quot;tags&quot;: [&quot;amount&quot;, &quot;manual_review&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1077&quot;, &quot;account_id&quot;: &quot;acct_2143&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 250.0, &quot;days_since_order&quot;: 10, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;AMOUNT_OVER_THRESHOLD&quot;, &quot;requires_approval&quot;: true}}
+{&quot;id&quot;: &quot;R12&quot;, &quot;name&quot;: &quot;laptop-sized refund needs review&quot;, &quot;tags&quot;: [&quot;amount&quot;, &quot;manual_review&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1084&quot;, &quot;account_id&quot;: &quot;acct_2156&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 1299.0, &quot;days_since_order&quot;: 3, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;AMOUNT_OVER_THRESHOLD&quot;, &quot;requires_approval&quot;: true}}
+{&quot;id&quot;: &quot;R13&quot;, &quot;name&quot;: &quot;plus tier: day 45 is eligible&quot;, &quot;tags&quot;: [&quot;tier&quot;, &quot;plus&quot;, &quot;boundary&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1091&quot;, &quot;account_id&quot;: &quot;acct_2169&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 100.0, &quot;days_since_order&quot;: 45, &quot;customer_tier&quot;: &quot;plus&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R14&quot;, &quot;name&quot;: &quot;plus tier: day 46 is outside&quot;, &quot;tags&quot;: [&quot;tier&quot;, &quot;plus&quot;, &quot;boundary&quot;, &quot;deny&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1098&quot;, &quot;account_id&quot;: &quot;acct_2182&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 100.0, &quot;days_since_order&quot;: 46, &quot;customer_tier&quot;: &quot;plus&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;deny&quot;, &quot;reason_code&quot;: &quot;OUTSIDE_WINDOW&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R15&quot;, &quot;name&quot;: &quot;plus tier: exactly 350.00&quot;, &quot;tags&quot;: [&quot;tier&quot;, &quot;plus&quot;, &quot;boundary&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1105&quot;, &quot;account_id&quot;: &quot;acct_2195&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 350.0, &quot;days_since_order&quot;: 10, &quot;customer_tier&quot;: &quot;plus&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R16&quot;, &quot;name&quot;: &quot;plus tier: 350.01 needs review&quot;, &quot;tags&quot;: [&quot;tier&quot;, &quot;plus&quot;, &quot;boundary&quot;, &quot;manual_review&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1112&quot;, &quot;account_id&quot;: &quot;acct_2208&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 350.01, &quot;days_since_order&quot;: 10, &quot;customer_tier&quot;: &quot;plus&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;AMOUNT_OVER_THRESHOLD&quot;, &quot;requires_approval&quot;: true}}
+{&quot;id&quot;: &quot;R17&quot;, &quot;name&quot;: &quot;premium tier: day 60 is eligible&quot;, &quot;tags&quot;: [&quot;tier&quot;, &quot;premium&quot;, &quot;boundary&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1119&quot;, &quot;account_id&quot;: &quot;acct_2221&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 400.0, &quot;days_since_order&quot;: 60, &quot;customer_tier&quot;: &quot;premium&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R18&quot;, &quot;name&quot;: &quot;premium tier: day 61 is outside&quot;, &quot;tags&quot;: [&quot;tier&quot;, &quot;premium&quot;, &quot;boundary&quot;, &quot;deny&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1126&quot;, &quot;account_id&quot;: &quot;acct_2234&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 400.0, &quot;days_since_order&quot;: 61, &quot;customer_tier&quot;: &quot;premium&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;deny&quot;, &quot;reason_code&quot;: &quot;OUTSIDE_WINDOW&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R19&quot;, &quot;name&quot;: &quot;premium tier: exactly 500.00&quot;, &quot;tags&quot;: [&quot;tier&quot;, &quot;premium&quot;, &quot;boundary&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1133&quot;, &quot;account_id&quot;: &quot;acct_2247&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 500.0, &quot;days_since_order&quot;: 10, &quot;customer_tier&quot;: &quot;premium&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R20&quot;, &quot;name&quot;: &quot;premium tier: 500.01 needs review&quot;, &quot;tags&quot;: [&quot;tier&quot;, &quot;premium&quot;, &quot;boundary&quot;, &quot;manual_review&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1140&quot;, &quot;account_id&quot;: &quot;acct_2260&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 500.01, &quot;days_since_order&quot;: 10, &quot;customer_tier&quot;: &quot;premium&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;AMOUNT_OVER_THRESHOLD&quot;, &quot;requires_approval&quot;: true}}
+{&quot;id&quot;: &quot;R21&quot;, &quot;name&quot;: &quot;day 40 is outside for a standard customer&quot;, &quot;tags&quot;: [&quot;tier&quot;, &quot;standard&quot;, &quot;deny&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1147&quot;, &quot;account_id&quot;: &quot;acct_2273&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 80.0, &quot;days_since_order&quot;: 40, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;deny&quot;, &quot;reason_code&quot;: &quot;OUTSIDE_WINDOW&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R22&quot;, &quot;name&quot;: &quot;250.00 is inside the plus limit&quot;, &quot;tags&quot;: [&quot;tier&quot;, &quot;plus&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1154&quot;, &quot;account_id&quot;: &quot;acct_2286&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 250.0, &quot;days_since_order&quot;: 10, &quot;customer_tier&quot;: &quot;plus&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R23&quot;, &quot;name&quot;: &quot;cancelled order&quot;, &quot;tags&quot;: [&quot;golden&quot;, &quot;state&quot;, &quot;deny&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1161&quot;, &quot;account_id&quot;: &quot;acct_2299&quot;, &quot;order_state&quot;: &quot;cancelled&quot;, &quot;amount&quot;: 80.0, &quot;days_since_order&quot;: 3, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;deny&quot;, &quot;reason_code&quot;: &quot;NOT_REFUNDABLE_STATE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R24&quot;, &quot;name&quot;: &quot;order not shipped yet&quot;, &quot;tags&quot;: [&quot;state&quot;, &quot;deny&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1168&quot;, &quot;account_id&quot;: &quot;acct_2312&quot;, &quot;order_state&quot;: &quot;pending&quot;, &quot;amount&quot;: 80.0, &quot;days_since_order&quot;: 1, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;deny&quot;, &quot;reason_code&quot;: &quot;NOT_REFUNDABLE_STATE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R25&quot;, &quot;name&quot;: &quot;order already refunded&quot;, &quot;tags&quot;: [&quot;state&quot;, &quot;abuse&quot;, &quot;deny&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1175&quot;, &quot;account_id&quot;: &quot;acct_2325&quot;, &quot;order_state&quot;: &quot;refunded&quot;, &quot;amount&quot;: 80.0, &quot;days_since_order&quot;: 8, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 1, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;deny&quot;, &quot;reason_code&quot;: &quot;NOT_REFUNDABLE_STATE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R26&quot;, &quot;name&quot;: &quot;state is trimmed and case-folded&quot;, &quot;tags&quot;: [&quot;edge&quot;, &quot;state&quot;, &quot;approve&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1182&quot;, &quot;account_id&quot;: &quot;acct_2338&quot;, &quot;order_state&quot;: &quot;  Delivered &quot;, &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 5, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;approve&quot;, &quot;reason_code&quot;: &quot;ELIGIBLE_AUTO_APPROVE&quot;, &quot;requires_approval&quot;: false}}
+{&quot;id&quot;: &quot;R27&quot;, &quot;name&quot;: &quot;order state unknown&quot;, &quot;tags&quot;: [&quot;fail_closed&quot;, &quot;state&quot;, &quot;manual_review&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1189&quot;, &quot;account_id&quot;: &quot;acct_2351&quot;, &quot;order_state&quot;: &quot;&quot;, &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 5, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: []}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;UNKNOWN_ORDER_STATE&quot;, &quot;requires_approval&quot;: true}}
+{&quot;id&quot;: &quot;R28&quot;, &quot;name&quot;: &quot;fraud flag on the account&quot;, &quot;tags&quot;: [&quot;abuse&quot;, &quot;risk&quot;, &quot;manual_review&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1196&quot;, &quot;account_id&quot;: &quot;acct_2364&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 4, &quot;customer_tier&quot;: &quot;standard&quot;, &quot;refunds_last_90d&quot;: 0, &quot;risk_flags&quot;: [&quot;fraud_suspected&quot;]}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;RISK_FLAG_PRESENT&quot;, &quot;requires_approval&quot;: true}}
+{&quot;id&quot;: &quot;R29&quot;, &quot;name&quot;: &quot;chargeback history&quot;, &quot;tags&quot;: [&quot;abuse&quot;, &quot;risk&quot;, &quot;manual_review&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1203&quot;, &quot;account_id&quot;: &quot;acct_2377&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 30.0, &quot;days_since_order&quot;: 9, &quot;customer_tier&quot;: &quot;plus&quot;, &quot;refunds_last_90d&quot;: 1, &quot;risk_flags&quot;: [&quot;chargeback_history&quot;]}, &quot;expectations&quot;: {&quot;decision&quot;: &quot;manual_review&quot;, &quot;reason_code&quot;: &quot;RISK_FLAG_PRESENT&quot;, &quot;requires_approval&quot;: true}}
+{&quot;id&quot;: &quot;R30&quot;, &quot;name&quot;: &quot;risk lookup failed (flags missing)&quot;, &quot;tags&quot;: [&quot;fail_closed&quot;, &quot;risk&quot;, &quot;manual_review&quot;], &quot;inputs&quot;: {&quot;order_id&quot;: &quot;ord_1210&quot;, &quot;account_id&quot;: &quot;acct_2390&quot;, &quot;order_state&quot;: &quot;delivered&quot;, &quot;amount&quot;: 49.0, &quot;days_since_order&quot;: 4, &quot;customer_ti</code></pre><div class="ck-asset-trunc">… truncated — open the file in the repo for the full content.</div>
+    </div><div class="ck-asset" id="asset-assets-workflow-refund-decision-workflow-yaml">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/workflow/refund-decision.workflow.yaml</span>
         <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
-      <pre data-lang="python"><code>&quot;&quot;&quot;Deterministic refund-eligibility decision for a workflow ``python_code`` node.
-
-This is NOT a registered tool. Paste the body of this module into a CALIBER
-**Python Code** node (``Workflows`` → drag a *Python Code* node). It
-needs no registration, versions with the workflow, and uses **stdlib only**.
-Wire it as the FIRST node after START: ``START -&gt; decide_refund``. A python_code
-node receives the run input as an UNPARSED string in ``run_input``, so this
-entrypoint parses it as JSON (when it looks like a JSON object) and reads the
-decision fields from that dict. (``json`` is pre-injected into the node sandbox
--- do NOT add a module-level ``import json``.)
-
-Run-input fields (parsed from the run input JSON object):
-    order_state       str   -- order lifecycle, e.g. &quot;delivered&quot; | &quot;shipped&quot; |
-                               &quot;cancelled&quot; | &quot;returned&quot; | &quot;&quot; (unknown).
-    risk_flags        list  -- fraud/risk signals, e.g. [&quot;fraud_suspected&quot;],
-                               [&quot;chargeback_history&quot;], or [] (none). May be
-                               ``None`` when the risk lookup failed -&gt; we
-                               FAIL CLOSED to manual_review (see RULES below).
-    amount            float -- refund amount in USD (&gt;= 0).
-    days_since_order  int   -- whole days between the order date and now.
-
-Node outputs:
-    decision          str   -- one of: &quot;approve&quot; | &quot;deny&quot; | &quot;manual_review&quot;.
-    reason_code       str   -- stable machine code (see REASON_CODES); pairs
-                               with the policy-reason-normalizer skill.
-    requires_approval bool  -- True when a human_approval gate must clear before
-                               initiate_refund runs. Always True for
-                               manual_review; never True for a clean approve.
-
-Deterministic rules (evaluated top-to-bottom; first match wins):
-    1. FAIL CLOSED: risk data missing (risk_flags is None) OR order_state is
-       empty/unknown -&gt; manual_review / requires_approval=True.
-    2. Any fraud/risk flag present -&gt; manual_review / requires_approval=True.
-    3. Order not in a refundable state (only &quot;delivered&quot;/&quot;shipped&quot;/&quot;returned&quot;
-       are refundable) -&gt; deny.
-    4. Outside the refund window (days_since_order &gt; REFUND_WINDOW_DAYS) -&gt; deny.
-    5. Negative/zero amount -&gt; deny (nothing to refund).
-    6. Amount over the auto-approve threshold (amount &gt; AUTO_APPROVE_MAX_USD)
-       -&gt; manual_review / requires_approval=True.
-    7. Otherwise (in window, no risk, small amount) -&gt; approve /
-       requires_approval=False.
-
-The rule_checks in verification.yaml
-(``deterministic_decision_preserved`` / ``approval_required_for_high_risk``)
-are enforced HERE plus by the downstream human_approval gate -- not by a judge.
-&quot;&quot;&quot;
-
-# --- Policy constants (the only knobs; keep them visible at the top) ---------
-REFUND_WINDOW_DAYS = 30          # matches demo_tools.lookup_policy
-AUTO_APPROVE_MAX_USD = 200.0     # over this -&gt; human approval required
-REFUNDABLE_STATES = {&quot;delivered&quot;, &quot;shipped&quot;, &quot;returned&quot;}
-
-# Stable reason codes (machine-facing; the normalizer skill maps these to copy)
-REASON_CODES = {
-    &quot;MISSING_RISK_DATA&quot;: &quot;Risk signals unavailable; failing closed to review.&quot;,
-    &quot;UNKNOWN_ORDER_STATE&quot;: &quot;Order state unknown; failing closed to review.&quot;,
-    &quot;RISK_FLAG_PRESENT&quot;: &quot;Risk/fraud flag on the account; routing to review.&quot;,
-    &quot;NOT_REFUNDABLE_STATE&quot;: &quot;Order is not in a refundable state.&quot;,
-    &quot;OUTSIDE_WINDOW&quot;: &quot;Past the refund window.&quot;,
-    &quot;INVALID_AMOUNT&quot;: &quot;Refund amount is zero or negative.&quot;,
-    &quot;AMOUNT_OVER_THRESHOLD&quot;: &quot;Amount exceeds the auto-approve limit; needs review.&quot;,
-    &quot;ELIGIBLE_AUTO_APPROVE&quot;: &quot;In window, no risk, within auto-approve limit.&quot;,
-}
-
-
-def decide_refund(
-    order_state: str,
-    risk_flags,
-    amount,
-    days_since_order,
-) -&gt; dict:
-    &quot;&quot;&quot;Pure, deterministic refund decision. Returns the node-output dict.&quot;&quot;&quot;
-
-    def out(decision: str, reason_code: str, requires_approval: bool) -&gt; dict:
-        return {
-            &quot;decision&quot;: decision,
-            &quot;reason_code&quot;: reason_code,
-            &quot;requires_approval&quot;: bool(requires_approval),
-        }
-
-    # Rule 1 -- fail closed when inputs are missing/unusable.
-    if risk_flags is None:
-        return out(&quot;manual_review&quot;, &quot;MISSING_RISK_DATA&quot;, True)
-    state = (order_state or &quot;&quot;).strip().lower()
-    if not state:
-        return out(&quot;manual_review&quot;, &quot;UNKNOWN_ORDER_STATE&quot;, True)
-
-    # Coerce numerics defensively (still fail closed on garbage).
-    try:
-        amount_val = float(amount)
-        days = int(days_since_order)
-    except (TypeError, ValueError):
-        return out(&quot;manual_review&quot;, &quot;MISSING_RISK_DATA&quot;, True)
-
-    # Rule 2 -- any risk flag -&gt; review + approval.
-    if any(str(flag).strip() for flag in risk_flags):
-        return out(&quot;manual_review&quot;, &quot;RISK_FLAG_PRESENT&quot;, True)
-
-    # Rule 3 -- non-refundable lifecycle state.
-    if state not in REFUNDABLE_STATES:
-        return out(&quot;deny&quot;, &quot;NOT_REFUNDABLE_STATE&quot;, False)
-
-    # Rule 4 -- outside the refund window.
-    if days &gt; REFUND_WINDOW_DAYS:
-        return out(&quot;deny&quot;, &quot;OUTSIDE_WINDOW&quot;, False)
-
-    # Rule 5 -- nothing to refund.
-    if amount_val &lt;= 0:
-        return out(&quot;deny&quot;, &quot;INVALID_AMOUNT&quot;, False)
-
-    # Rule 6 -- large refund needs a human.
-    if amount_val &gt; AUTO_APPROVE_MAX_USD:
-        return out(&quot;manual_review&quot;, &quot;AMOUNT_OVER_THRESHOLD&quot;, True)
-
-    # Rule 7 -- clean auto-approve.
-    return out(&quot;approve&quot;, &quot;ELIGIBLE_AUTO_APPROVE&quot;, False)
-
-
-# --- python_code node entrypoint --------------------------------------------
-# A CALIBER Python Code node calls ``run_python_node(...)`` and uses its RETURN
-# value as the node output. A module-level ``result = ...`` is DISCARDED (the
-# runtime wraps a body lacking this def in a function with no return), so define
-# the entrypoint explicitly and return both output ports.
-#
-# ``json`` is PRE-INJECTED into the node sandbox; do NOT ``import json`` here.
-# Because decide_refund is the first node after START, its inputs arrive as the
-# run input -- an UNPARSED string in ``run_input``. Parse it as JSON when it
-# looks like a JSON object, then read the decision fields from that dict.
-
-
-def run_python_node(input=None, context=None, inputs=None, run_input=&quot;&quot;):
-    if isinstance(run_input, str) and run_input.strip().startswith(&quot;{&quot;):
-        data = json.loads(run_input)
-    else:
-        data = run_input or {}
-    if not isinstance(data, dict):
-        data = {}
-    result = decide_refund(
-        order_state=data.get(&quot;order_state&quot;, &quot;&quot;),
-        risk_flags=data.get(&quot;risk_flags&quot;),  # absent -&gt; None -&gt; fail closed
-        amount=data.get(&quot;amount&quot;, 0),
-        days_since_order=data.get(&quot;days_since_order&quot;, 0),
-    )
-    return {&quot;text&quot;: json.dumps(result), &quot;result&quot;: result}
-</code></pre>
-    </div><div class="ck-asset" id="asset-assets-prompts-refund-explanation-md">
-      <div class="ck-asset-bar"><span class="ck-asset-name">assets/prompts/refund-explanation.md</span>
-        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
-      <pre data-lang="markdown"><code>---
-name: refund-explanation
-model_hint: a small/cheap instruct model is fine (explanation only, no decision)
-variables: [decision, reason_code, order_state, customer_name]
-commit_message: &quot;v1 explanation layer — explains, never overrides, the deterministic decision&quot;
----
-
-You write a short, customer-facing explanation of a refund decision that has
-ALREADY been made by a deterministic policy engine. You do NOT make or change
-the decision. Your only job is to put the given decision into plain, respectful
-language.
-
-The decision is fixed and authoritative:
-- decision: {{ decision }}            (one of: approve, deny, manual_review)
-- reason_code: {{ reason_code }}      (the machine reason for that decision)
-- order_state: {{ order_state }}
-- customer_name: {{ customer_name }}
-
-Hard rules:
-- NEVER contradict, soften, or upgrade/downgrade {{ decision }}. If it is
-  &quot;deny&quot;, do not imply the refund might still happen. If it is &quot;manual_review&quot;,
-  say it is under review and a person will follow up — do NOT promise an outcome.
-  If it is &quot;approve&quot;, confirm the refund is being processed.
-- Make NO new commitments: no amounts, no dates, no timelines, no exceptions,
-  no policy promises that are not implied by {{ decision }} and {{ reason_code }}.
-- Do not invent facts about the order beyond {{ order_state }} and the reason.
-- Address {{ customer_name }} once, warmly and briefly. 2–4 sentences. Plain
-  text, no JSON, no markdown.
-
-Write the explanation now.
-</code></pre>
-    </div><div class="ck-asset" id="asset-assets-skills-policy-reason-normalizer-md">
-      <div class="ck-asset-bar"><span class="ck-asset-name">assets/skills/policy-reason-normalizer.md</span>
-        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
-      <pre data-lang="markdown"><code>---
-name: policy-reason-normalizer
-summary: Map a machine refund reason_code to one stable, human-readable reason phrase — without changing the decision.
----
-
-# Policy Reason Normalizer
-
-Use this skill whenever a refund decision carries a machine `reason_code` that
-needs to be stated to a person (customer message, review note, audit log). It
-normalizes the code to ONE canonical sentence. It never alters the `decision`
-and never adds commitments.
-
-## Canonical mapping
-
-| reason_code | Canonical reason phrase |
-| --- | --- |
-| `ELIGIBLE_AUTO_APPROVE` | The order is within the refund window with no risk flags, so the refund was approved automatically. |
-| `AMOUNT_OVER_THRESHOLD` | The refund amount is above the automatic-approval limit, so it was sent for human review. |
-| `RISK_FLAG_PRESENT` | A risk or fraud signal is associated with the account, so the refund was sent for human review. |
-| `MISSING_RISK_DATA` | Required risk information was unavailable, so the refund was sent for human review to stay safe. |
-| `UNKNOWN_ORDER_STATE` | The order&#x27;s status could not be confirmed, so the refund was sent for human review. |
-| `NOT_REFUNDABLE_STATE` | The order is not in a state that can be refunded, so the refund was declined. |
-| `OUTSIDE_WINDOW` | The order is past the refund window, so the refund was declined. |
-| `INVALID_AMOUNT` | There is no positive amount to refund, so the refund was declined. |
-
-## Rules
-
-- Output exactly one phrase from the table for the given `reason_code`.
-- If the `reason_code` is unrecognized, output: &quot;This decision was made by
-  policy; please consult the review queue for details.&quot; — do not guess.
-- Do not state or imply an outcome that conflicts with the `decision`
-  (`approve` / `deny` / `manual_review`).
-- Add no amounts, dates, or timelines. The phrase is a reason, not a promise.
-</code></pre>
-    </div><div class="ck-asset" id="asset-assets-skills-customer-safe-refund-language-md">
-      <div class="ck-asset-bar"><span class="ck-asset-name">assets/skills/customer-safe-refund-language.md</span>
-        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
-      <pre data-lang="markdown"><code>---
-name: customer-safe-refund-language
-summary: Guardrails for phrasing a refund decision to a customer safely — respectful tone, no new promises, never override the decision.
----
-
-# Customer-Safe Refund Language
-
-Apply this skill when turning a refund `decision` into customer-facing wording.
-It governs TONE and SAFETY only; the `decision` and `reason_code` are inputs
-you must preserve exactly.
-
-## Allowed phrasing by decision
-
-- **approve** — Confirm warmly that the refund is being processed. You may say
-  it has been approved. Do not invent the exact arrival date or amount unless
-  it was explicitly provided.
-- **deny** — State plainly and kindly that the refund cannot be processed, and
-  give the canonical reason. Do not imply it might still happen, and do not
-  invite an appeal that policy does not offer.
-- **manual_review** — Say the request is being reviewed and a team member will
-  follow up. Do NOT predict the outcome (no &quot;you&#x27;ll likely get it&quot;), no ETA.
-
-## Never do
-
-- Never change, hedge, or reverse the `decision`.
-- Never promise amounts, dates, timelines, credits, or exceptions that are not
-  already implied by `decision` + `reason_code`.
-- Never blame the customer or disclose internal risk/fraud signals; for
-  risk-driven reviews say only that &quot;additional review&quot; is required.
-- Never output JSON or internal codes to the customer — use plain language.
-
-## Style
-
-Address the customer by name once, keep it to 2–4 sentences, be courteous and
-concrete. When in doubt, say less rather than promise more.
+      <pre data-lang="yaml"><code>schema_version: 1
+workflow_id: refund-decision
+name: refund-decision
+description: Decide a refund with the deterministic policy tool, then issue it only after a person approves.
+runtime:
+  sdk: openai-agents-python
+  sdk_version_policy: runtime-pinned
+  compiler_version: caliber-workflow-compiler-v1
+  default_model_ref: CALIBER_WORKFLOW_DEFAULT_MODEL
+  session:
+    type: none
+nodes:
+  start:
+    id: start
+    type: start
+    outputs:
+      user_message:
+        type: string
+  policy:
+    id: policy
+    type: tool
+    tool_name: decide_refund
+    inputs:
+      input:
+        type: string
+      arguments:
+        type: structured
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+      metadata:
+        type: structured
+  route:
+    id: route
+    type: router
+    inputs:
+      input:
+        type: string
+    outputs:
+      route:
+        type: string
+    branches:
+      - condition:
+          field: input
+          op: contains
+          value: &#x27;&quot;decision&quot;: &quot;deny&quot;&#x27;
+        to: denied
+      - condition: null
+        to: refund
+  denied:
+    id: denied
+    type: output
+    inputs:
+      response:
+        type: string
+  refund_request:
+    id: refund_request
+    type: data_transform
+    operation: mapping
+    config:
+      fields:
+        order_id: order_id
+        amount: amount
+    inputs:
+      value:
+        type: structured
+      text:
+        type: string
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+      valid:
+        type: boolean
+      metadata:
+        type: structured
+  refund:
+    id: refund
+    type: tool
+    tool_name: initiate_refund
+    inputs:
+      input:
+        type: string
+      arguments:
+        type: structured
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+      metadata:
+        type: structured
+  issued:
+    id: issued
+    type: output
+    inputs:
+      response:
+        type: string
+edges:
+  - id: e_start_policy
+    from: start
+    to: policy
+    map:
+      user_message: input
+  - id: e_start_request
+    from: start
+    to: refund_request
+    map:
+      user_message: text
+  - id: e_policy_route
+    from: policy
+    to: route
+    map:
+      text: input
+  - id: e_route_denied
+    from: route
+    to: denied
+    map:
+      route: response
+  - id: e_route_refund
+    from: route
+    to: refund
+    map:
+      route: input
+  - id: e_request_refund
+    from: refund_request
+    to: refund
+    map:
+      result: arguments
+  - id: e_refund_issued
+    from: refund
+    to: issued
+    map:
+      text: response
+tools:
+  decide_refund:
+    registry_ref: tool.decide_refund.v1
+    version_constraint: &quot;&gt;=1,&lt;2&quot;
+  initiate_refund:
+    registry_ref: tool.initiate_refund.v1
+    version_constraint: &quot;&gt;=1,&lt;2&quot;
 </code></pre>
     </div>
       <h2 id="gates">Evaluation &amp; quality gates</h2>
-      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Deterministic fixture pass rate</td><td>≥ 0.97; decision mismatch = 0</td></tr><tr><td>Approval enforced on high-risk</td><td>visible in the run timeline</td></tr><tr><td>Explanation faithfulness</td><td>≥ 0.92</td></tr></tbody></table></div>
-      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li><strong>Feature flags.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> opens the gallery (off by default); no other flag is needed.</li><li>A registered tool needs an importable <code>module_path</code>+<code>callable_name</code>; the shipped <code>demo_tools</code> callables let you do this from the UI with no code.</li><li>Field is <code>side_effect_level</code> (read/write/external_action); read tools need <code>allow_in_preview: true</code> to run live in the sandbox.</li><li>The decision table is structured workflow source: versioned, inspectable, and executable without custom Python.</li></ul></div>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Fixture pass rate</td><td>1.0 over 49 cases (tool_fixture_pass_rate_min 1.0); recorded as a suite run and pinned as the baseline</td></tr><tr><td>Regression is visible</td><td>one wrong fixture (R09) scores 48/49 with exactly 1 regression against the baseline</td></tr><tr><td>Approval enforced</td><td>run waits at waiting_approval on refund; initiator 403; approver1 approves; refund fires only after Resume</td></tr><tr><td>Reject and deny paths</td><td>rejected run fails with approval_rejected and issues no refund; a denied decision finishes with no approval</td></tr><tr><td>Audit trail and roles</td><td>approver1 and the initiator named in the audit log; a viewer cannot run, calibrate or approve (403)</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li><strong>Feature flag.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> only opens the Cookbooks gallery starter (the last step); the rest of the lab needs no flag. No Aria, integrations or release-candidate flag.</li><li><strong>Nothing is simulated.</strong> No model and no judge are involved, so the fake LLM provider is irrelevant here.</li><li><strong>Runtime settings.</strong> Needs runtime approvals, the workflow run queue, checkpointing and a worker (<code>scripts/cookbook-env.sh</code> turns them on). Without <code>CALIBER_WORKFLOW_RUN_RUNTIME_APPROVALS_ENABLED=true</code> a run does not pause. <code>CALIBER_APPROVER_USERS</code> must list <code>approver1</code>; leave <code>CALIBER_APPROVAL_ALLOW_SELF_APPROVAL</code> unset or the second-person rule does not bite.</li><li><strong>Split of duties.</strong> Run, calibrate and Resume need <code>caliber.operator</code>; deciding needs <code>caliber.approver</code>; only an admin registers a tool. <code>approver1</code> deliberately cannot Resume.</li><li><strong>Tools are importable Python.</strong> A registered tool needs a <code>module_path</code> and <code>callable_name</code> in the server's environment (the shipped <code>caliber.workflows.demo_tools</code> provides both); there is no inline tool editor. Set <code>CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST</code> beyond a trial.</li><li><strong>Limits.</strong> The sandbox is a process boundary, not isolation (the child keeps network and filesystem access), and the memory limit is not enforced on macOS. The effect ledger covers webhook and API-request nodes, not registered tools, so make a payments tool idempotent itself.</li><li><strong>Calibration is slow.</strong> 49 cases take about 35 s synchronously, longer than the SDK default 30 s timeout. Run it with <code>sdk/caliber-sdk/examples/cookbooks/cookbook_03_policy_safe_decision_tool.py</code> (<code>python -m examples.cookbooks.cookbook_03_policy_safe_decision_tool</code>) or the Playwright spec <code>e2e/cookbooks/labs/03-tool-hardening.spec.ts</code>.</li></ul></div>
       <nav class="ck-pager"><a href="m-cookbook-02-precision-skills.html">← Precision Skills</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><a href="m-cookbook-05-governed-mcp.html">Governed Tool Connectivity (MCP) →</a></nav>
         <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
         Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>

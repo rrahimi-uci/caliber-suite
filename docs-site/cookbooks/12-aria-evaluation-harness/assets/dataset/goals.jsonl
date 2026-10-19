@@ -1,0 +1,28 @@
+{"id": "G01", "goal": "Create a judge for answer faithfulness and an eval dataset to run it on.", "expected_steps": ["judge.create", "eval_dataset.create"], "outcome": "as_asked", "note": "canonical"}
+{"id": "G02", "goal": "Set up a judge that checks whether our support answers stay faithful to the knowledge base article, plus a test set of 30 real tickets to run it against.", "expected_steps": ["judge.create", "eval_dataset.create"], "outcome": "as_asked", "note": "natural"}
+{"id": "G03", "goal": "We need a faithfulness judge for the billing assistant. Create the judge, then an eval dataset for it.", "expected_steps": ["judge.create", "eval_dataset.create"], "outcome": "as_asked", "note": "natural"}
+{"id": "G04", "goal": "Create a judge for hallucination detection in refund replies.", "expected_steps": ["judge.create"], "outcome": "as_asked", "note": "judge only"}
+{"id": "G05", "goal": "Make me an LLM judge that returns pass or fail on whether the reply cites the policy it relies on.", "expected_steps": ["judge.create"], "outcome": "as_asked", "note": "judge only"}
+{"id": "G06", "goal": "Build a new eval dataset for the password-reset flow.", "expected_steps": ["eval_dataset.create"], "outcome": "as_asked", "note": "dataset only"}
+{"id": "G07", "goal": "Create a test set of escalation tickets we can re-run after every prompt change.", "expected_steps": ["eval_dataset.create"], "outcome": "as_asked", "note": "dataset only (synonym)"}
+{"id": "G08", "goal": "I need a test-set and a judge for the shipping-delay assistant, please.", "expected_steps": ["judge.create", "eval_dataset.create"], "outcome": "as_asked", "note": "hyphenated synonym"}
+{"id": "G09", "goal": "Spin up a testset for the returns assistant.", "expected_steps": ["eval_dataset.create"], "outcome": "as_asked", "note": "one-word synonym"}
+{"id": "G10", "goal": "Create an eval_dataset called returns-regression.", "expected_steps": ["eval_dataset.create"], "outcome": "as_asked", "note": "key spelled out"}
+{"id": "G11", "goal": "CREATE A JUDGE AND A TEST SET FOR OUR REFUND POLICY ANSWERS", "expected_steps": ["judge.create", "eval_dataset.create"], "outcome": "as_asked", "note": "upper case"}
+{"id": "G12", "goal": "Set up faithfulness scoring for our support answers, with a test set to run it on.", "expected_steps": ["eval_dataset.create"], "outcome": "missed", "note": "only the test set is recognised"}
+{"id": "G13", "goal": "Score our answers for faithfulness against the evidence we retrieve.", "expected_steps": [], "outcome": "nothing", "note": "no domain word"}
+{"id": "G14", "goal": "Add an evaluation dataset for the onboarding assistant.", "expected_steps": [], "outcome": "nothing", "note": "\"evaluation dataset\" is not \"eval dataset\""}
+{"id": "G15", "goal": "Help me measure whether our assistant makes things up.", "expected_steps": [], "outcome": "nothing", "note": "no domain word"}
+{"id": "G16", "goal": "Write me a poem about customer support.", "expected_steps": [], "outcome": "nothing", "note": "unrelated"}
+{"id": "G17", "goal": "What is a judge in CALIBER?", "expected_steps": ["judge.create"], "outcome": "unasked", "note": "a question, still matches the word"}
+{"id": "G18", "goal": "Do not create a judge, I only want a test set for the claims assistant.", "expected_steps": ["judge.create", "eval_dataset.create"], "outcome": "unasked", "note": "negation is not understood"}
+{"id": "G19", "goal": "The reviewers disagree, so I will have to use my judgement before we ship.", "expected_steps": ["judge.create"], "outcome": "unasked", "note": "substring of another word"}
+{"id": "G20", "goal": "Create a judge and an eval dataset, and also a review queue for the cases the judge fails.", "expected_steps": ["judge.create", "review_queue.create", "eval_dataset.create", "review_queue.add_items"], "outcome": "unasked", "note": "three domains"}
+{"id": "G21", "goal": "Create a judge for tone, and a review queue so people can double check it.", "expected_steps": ["judge.create", "review_queue.create", "review_queue.add_items"], "outcome": "unasked", "note": "judge plus queue"}
+{"id": "G22", "goal": "Stand up a faithfulness judge and a test set, and calibrate the support workflow afterwards.", "expected_steps": ["judge.create", "eval_dataset.create", "workflow.calibrate"], "outcome": "as_asked", "note": "mentions workflow"}
+{"id": "G23", "goal": "Create a judge named AnswerFaithfulness.", "expected_steps": ["judge.create"], "outcome": "as_asked", "note": "name in the sentence is not used"}
+{"id": "G24", "goal": "Create two judges, one for faithfulness and one for tone, and a test set.", "expected_steps": ["judge.create", "eval_dataset.create"], "outcome": "as_asked", "note": "two judges is still one step"}
+{"id": "G25", "goal": "Please create the judge, the eval dataset, and nothing else.", "expected_steps": ["judge.create", "eval_dataset.create"], "outcome": "as_asked", "note": "polite"}
+{"id": "G26", "goal": "Create a test set for faithfulness checks. It should have thirty examples.", "expected_steps": ["eval_dataset.create"], "outcome": "as_asked", "note": "count in the sentence is not used"}
+{"id": "G27", "goal": "judge.create", "expected_steps": ["judge.create"], "outcome": "as_asked", "note": "capability key"}
+{"id": "G28", "goal": "Create a Judge and an Eval Dataset for the Q3 support audit.", "expected_steps": ["judge.create", "eval_dataset.create"], "outcome": "as_asked", "note": "mixed case"}

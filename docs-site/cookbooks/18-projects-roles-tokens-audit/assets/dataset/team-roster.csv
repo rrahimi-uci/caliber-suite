@@ -1,0 +1,10 @@
+user_id,display_name,job_title,project_role,platform_scopes,why_they_are_in_the_roster
+maya,Maya Chen,Support engineering lead,owner,operator+approver,Creates the project so she is its primary owner (cannot be removed or demoted)
+omar,Omar Haddad,Support operations manager,owner,operator+approver,A second owner: a secondary admin who manages members but is not the primary owner
+priya,Priya Nair,Prompt engineer,editor,operator,Writes and releases prompts; the identity that gets the project-bound token
+sam,Sam Okafor,Prompt engineer,editor,operator,A second editor: proves the editor column is about the role and not one person
+quinn,Quinn Larsen,QA lead,reviewer,operator+approver,Runs evaluations and records evidence but cannot change or release anything
+rosa,Rosa Alvarez,QA analyst,reviewer,operator,A second reviewer without the approver scope
+victor,Victor Petrov,Product manager,viewer,operator,A viewer who also holds the operator scope: the 403 names the missing project role
+wen,Wen Zhao,Compliance auditor,viewer,none,A viewer with no operator scope: the 403 comes from the platform scope instead
+nora,Nora Whitfield,Billing platform engineer,none,operator,Not a member of the project: every project request is a 404
