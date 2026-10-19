@@ -321,11 +321,18 @@ test.describe("Lab 08: incident response through the UI", () => {
           timeout: 30_000,
         });
         await lena.page.getByTestId("run-resume").dispatchEvent("click");
+        // The resumed run completes (Recovery Diagnostics names the terminal state), and the
+        // Execution Debugger, which follows the newest step until you pick one, shows the output that
+        // carries the release. (The text also sits, collapsed, in the event timeline, so assert on
+        // the visible step detail rather than on the first text match anywhere in the page.)
         await expect(
-          lena.page.getByText("ROLLBACK_APPROVED").first(),
+          lena.page.getByText("This run ended in completed."),
         ).toBeVisible({
           timeout: 90_000,
         });
+        await expect(
+          lena.page.getByTestId("workflow-run-step-detail"),
+        ).toContainText("ROLLBACK_APPROVED", { timeout: 30_000 });
       });
     } finally {
       for (const entry of contexts) await entry.close();

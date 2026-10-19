@@ -86,13 +86,27 @@ async function waitForBuild(page: Page, runIndex: number): Promise<void> {
     .filter({ hasText: /^KBR-/ })
     .nth(runIndex);
   await expect(row).toBeVisible({ timeout: 120_000 });
+  // A failed build never becomes `completed`: stop at once and say why (the run's own error text),
+  // instead of polling for the whole timeout. The usual cause on a fresh machine is a cold
+  // embedding-model cache under HF_HUB_OFFLINE=1 (README, Prerequisites step 3).
   await expect
     .poll(
       async () => {
         const text = ((await row.textContent()) ?? "").toLowerCase();
-        if (text.includes("failed")) return "failed";
-        if (text.includes("completed")) return "completed";
-        return "pending";
+        if (text.includes("failed")) {
+          await row.click();
+          // The run's error text is the longest red message on the page (status chips are short).
+          const messages = await page
+            .locator(".border-red-200.bg-red-50")
+            .allTextContents();
+          const reason = messages
+            .map((message) => message.trim())
+            .sort((left, right) => right.length - left.length)[0];
+          throw new Error(
+            `the knowledge-base build failed: ${reason || "(no error text shown)"}`,
+          );
+        }
+        return text.includes("completed") ? "completed" : "pending";
       },
       { timeout: 300_000, intervals: [1_000, 2_000, 5_000] },
     )

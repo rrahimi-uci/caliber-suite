@@ -77,6 +77,11 @@ jobs:
         with:
           path: ~/.cache/huggingface
           key: hf-all-minilm-l6-v2
+      - name: Warm the embedding-model cache (online, once)
+        # Lab 06 runs with HF_HUB_OFFLINE=1, which is only right once the model is cached: a cold
+        # runner otherwise fails the knowledge-base build with "couldn't connect to huggingface.co".
+        # This is the one-line command lab 06's README gives; it is a no-op on a cache hit.
+        run: caliber/.venv/bin/python -c "from sentence_transformers import SentenceTransformer as S; S('sentence-transformers/all-MiniLM-L6-v2')"
       - name: Run the labs
         env:
           LABS: ${{ github.event.inputs.labs }}

@@ -373,7 +373,8 @@ def run(caliber: CaliberClient, *, suffix: str | None = None, poll: float = 1.0)
     check(
         "version 1 completed",
         v1["status"] == "completed",
-        f"{v1['status']} in {summary['duration_seconds']}s",
+        f"{v1['status']} in {summary['duration_seconds']}s"
+        + (f": {v1['error_summary']}" if v1.get("error_summary") else ""),
     )
     check(
         "every document was read and chunked",

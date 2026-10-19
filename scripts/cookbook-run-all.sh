@@ -31,7 +31,9 @@
 #
 # Prerequisites: caliber/.venv (make install), Node with `npm ci` done in caliber/caliber-ui and the
 # Playwright chromium installed (cd caliber/caliber-ui && npx playwright install chromium), curl,
-# perl. Lab 06 needs the all-MiniLM-L6-v2 embedding model in the Hugging Face cache.
+# perl. Lab 06 needs the all-MiniLM-L6-v2 embedding model in the Hugging Face cache; the runner
+# warms the cache itself (online, once, only when the model is not already cached), so a cold
+# machine works. After that the lab runs with HF_HUB_OFFLINE=1, as its README documents.
 #
 # Safety: it only ever starts stacks named ra-* (never touches any other stack, the Docker stack on
 # port 5001, or ports 5000/5001/9000), runs one stack at a time (a lock refuses a second runner),
@@ -337,6 +339,26 @@ mint_into_TOKEN() { # mints in a subshell so the token only ever lives in this s
   [[ "$TOKEN" == calpat_* ]]
 }
 
+# ---- the embedding model lab 06 builds with ------------------------------------------------------
+EMBED_MODEL="sentence-transformers/all-MiniLM-L6-v2"
+EMBED_WARM_PY='import sys; from sentence_transformers import SentenceTransformer as S; S(sys.argv[1])'
+EMBED_MODEL_OK=1
+# Lab 06 runs offline (HF_HUB_OFFLINE=1) so a server start never asks huggingface.co whether the model is current.
+# That is only right once the model is cached, so: if an offline load works, the cache is warm; if not, load it
+# once online (this downloads about 90 MB). A host that is offline AND cold cannot run lab 06: say so, plainly.
+warm_embedding_model() {
+  if HF_HUB_OFFLINE=1 "$PY" -c "$EMBED_WARM_PY" "$EMBED_MODEL" >"$RUN_DIR/embedding-model.log" 2>&1; then
+    log "embedding model $EMBED_MODEL: already cached"; return 0
+  fi
+  log "embedding model $EMBED_MODEL: not cached, downloading it once (about 90 MB)"
+  if "$PY" -c "$EMBED_WARM_PY" "$EMBED_MODEL" >>"$RUN_DIR/embedding-model.log" 2>&1; then
+    log "embedding model $EMBED_MODEL: cached"; return 0
+  fi
+  log "embedding model $EMBED_MODEL: could not be downloaded (lab 06 needs it; see ${RUN_DIR#$REPO_ROOT/}/embedding-model.log)"
+  tail_log "$RUN_DIR/embedding-model.log" 8
+  return 1
+}
+
 # ---- results -----------------------------------------------------------------------------------
 ROWS=(); FAILED=0
 add_row() { # add_row LAB NAME API UI SECONDS NOTES
@@ -374,6 +396,9 @@ run_lab_steps() { # run_lab_steps NUM STACK
 run_lab() { # run_lab NUM IS_LAST
   local n="$1" last="$2" t0=$SECONDS rc
   lab_config "$n"
+  if [[ "$n" == 06 && $EMBED_MODEL_OK != 1 ]]; then
+    add_row "$n" "$LAB_TITLE" FAIL FAIL 0 "setup: embedding model not cached"; return 0
+  fi
   log "=== lab $n ($LAB_TITLE)  stack $LAB_STACK  flags $LAB_FLAGS$([[ $LAB_S3 == 1 ]] && echo ' +s3')$([[ $TIER == standin ]] && echo '  tier standin')"
   if ! start_lab_helpers "$LAB_HELPERS"; then
     stop_helpers; add_row "$n" "$LAB_TITLE" FAIL FAIL "$((SECONDS - t0))" "helper"; return 0
@@ -464,6 +489,7 @@ T_START=$SECONDS
 log "cookbook-run-all: labs [$SELECTED] tier $TIER $([[ $WANT_API == 0 ]] && echo '(ui only) ')$([[ $WANT_UI == 0 ]] && echo '(api only) ')$([[ $JOURNEY == 1 ]] && echo '(journey) ')-> ${RUN_DIR#$REPO_ROOT/}"
 log "building the web bundle if its sources changed"
 "$ENVSH" build-ui >"$RUN_DIR/build-ui.log" 2>&1 || { tail_log "$RUN_DIR/build-ui.log"; die "web bundle build failed"; }
+if [[ " $SELECTED " == *" 06 "* ]]; then warm_embedding_model || EMBED_MODEL_OK=0; fi
 if [[ $JOURNEY == 1 ]]; then
   journey
 else

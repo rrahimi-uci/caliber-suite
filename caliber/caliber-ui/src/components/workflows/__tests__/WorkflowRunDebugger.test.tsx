@@ -692,6 +692,36 @@ describe("selection persistence and focus effects", () => {
     expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent("start");
   });
 
+  it("follows the newest step while the operator has not picked one, then stays where the operator clicked", async () => {
+    const twoStepRun: WorkflowRun = {
+      ...threeStepRun({ status: "running" }),
+      summary: {
+        node_path: ["start", "middle"],
+        steps: [baseStep({ node_id: "start" }), baseStep({ node_id: "middle", node_type: "agent" })],
+      },
+    };
+    const { rerender } = render(
+      <WorkflowRunDebugger manifest={manifest} run={twoStepRun} events={[]} />,
+    );
+    expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent("middle");
+
+    // The run finishes: the view moves on to the newest step (a resumed run that ended past its
+    // approval gate must not stay parked on the gate).
+    rerender(<WorkflowRunDebugger manifest={manifest} run={threeStepRun()} events={[]} />);
+    expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent("final");
+
+    // After the operator picks a step, later updates keep that step.
+    await userEvent.click(screen.getByTestId("workflow-run-step-button-0"));
+    rerender(
+      <WorkflowRunDebugger
+        manifest={manifest}
+        run={{ ...threeStepRun(), trace_id: "trace-changed" }}
+        events={[]}
+      />,
+    );
+    expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent("start");
+  });
+
   it("resets the selection to the latest step once the selected key disappears", async () => {
     const { rerender } = render(
       <WorkflowRunDebugger manifest={manifest} run={threeStepRun()} events={[]} />,

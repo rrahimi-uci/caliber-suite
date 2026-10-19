@@ -51,7 +51,15 @@ that is not ready), then wire the answer **workflow**, run it, and send its low-
    object store with credentials, `pip install "caliber-suite[knowledge,knowledge-local]"`, and the embedding model on the host
    (about 90 MB for `all-MiniLM-L6-v2`; it is downloaded from Hugging Face on first use). PostgreSQL/pgvector and Apache AGE are optional and
    off by default; this lab uses neither.
-3. From a checkout, one command starts a disposable stack with all of that (this is what the lab was verified on):
+3. **Warm the embedding-model cache once, while online.** The first time on a machine (a fresh laptop or a CI runner) the model is not cached yet:
+
+   ```bash
+   caliber/.venv/bin/python -c "from sentence_transformers import SentenceTransformer as S; S('sentence-transformers/all-MiniLM-L6-v2')"
+   ```
+
+   It downloads about 90 MB into `~/.cache/huggingface` and prints nothing else on success. Every later run reuses it. (`scripts/cookbook-run-all.sh --labs 06`
+   does this for you, only when the model is not already cached.)
+4. From a checkout, one command starts a disposable stack with all of that (this is what the lab was verified on):
 
    ```bash
    HF_HUB_OFFLINE=1 scripts/cookbook-env.sh up lab06 --flags cookbooks --s3   # ports are picked for you; never touches 5001
@@ -61,10 +69,11 @@ that is not ready), then wire the answer **workflow**, run it, and send its low-
 
    Expected: `{"ready":true,"simulated":["eval","llm"]}`. `--s3` starts a private in-memory S3 endpoint (`moto_server`, admin credentials
    `minioadmin` / `minioadmin`) and points the Object Store at it; its objects do not survive `restart`.
-   **`HF_HUB_OFFLINE=1`** makes the build use the cached model instead of asking huggingface.co whether it is current. Without it, every server
-   start contacts the hub, and on a slow or blocked network the **first build sits in `queued`/`running` for minutes** (we hit this). Cache the
-   model once while online (`python -c "from sentence_transformers import SentenceTransformer as S; S('sentence-transformers/all-MiniLM-L6-v2')"`), then run offline.
-4. Sign in as `admin` / `admin`, or create an access token (Settings > API tokens) and `export CALIBER_TOKEN=calpat_...`. The script needs the
+   **`HF_HUB_OFFLINE=1` is only for a warm cache** (step 3). It makes the build use the cached model instead of asking huggingface.co whether it is
+   current. Without it, every server start contacts the hub, and on a slow or blocked network the **first build sits in `queued`/`running` for minutes**
+   (we hit this). With it on a **cold** cache the build fails at once with `OSError: We couldn't connect to 'https://huggingface.co' to load the files,
+   and couldn't find them in the cached files` (the CI runner hit this): warm the cache first, or drop `HF_HUB_OFFLINE=1` for the first run while you are online.
+5. Sign in as `admin` / `admin`, or create an access token (Settings > API tokens) and `export CALIBER_TOKEN=calpat_...`. The script needs the
    `caliber.admin` scope (the object store console is admin-only).
 
 ## Dataset and sample data
@@ -95,7 +104,7 @@ Prompts page's **Upload Dataset**. (The previous version of this lab used `input
 | `CALIBER_OBJECT_STORE_FORCE_PATH_STYLE` | `true` | Path-style addressing, needed by `moto` and MinIO. |
 | `CALIBER_BACKGROUND_TASKS_ENABLED` | `true` | Runs the knowledge build worker. With it off, a create builds inline instead of queueing. |
 | `CALIBER_LLM_PROVIDER`, `CALIBER_EVAL_PROVIDER`, `CALIBER_ASSISTANT_ENGINE` | `fake` | The simulated model, evaluator and answer engine. |
-| `HF_HUB_OFFLINE` | `1` | Use the cached embedding model; never contact huggingface.co. |
+| `HF_HUB_OFFLINE` | `1` | Use the cached embedding model; never contact huggingface.co. Only once the cache is warm (setup step 3). |
 | `CALIBER_KNOWLEDGE_PGVECTOR_ENABLED`, Apache AGE | unset | Optional ANN search and the `age_graph` mode; not used. |
 | `CALIBER_BASE_URL`, `CALIBER_TOKEN` | `http://127.0.0.1:<port>`, a `calpat_...` token | What the script reads (`CALIBER_BASE_URL` is the server root; the SDK adds the API prefix). `env.sh` exports the first. |
 | `COOKBOOK_06_ASSETS` | the lab's `assets/` | Optional: point the script and the spec at another copy of the assets. |
@@ -222,6 +231,7 @@ Each of these was provoked on a real stack.
 | Create answers `503`: `The object store is not configured or unreachable: no object-store credentials are configured. Set CALIBER_OBJECT_STORE_ACCESS_KEY_SOURCE and CALIBER_OBJECT_STORE_SECRET_KEY_SOURCE. Knowledge bases read their sources from an S3-compatible bucket, so nothing was created.` (and `GET /object-store/status` says `connected: false`, `Unable to locate credentials`) | No object store configured. Nothing is persisted: the request fails fast. Start with `--s3`, or set the variables above. |
 | Same `503`, ending `the object-store endpoint cannot be reached. Check CALIBER_OBJECT_STORE_ENDPOINT_URL.` | Credentials are set, the endpoint is down or wrong. The message never includes the URL (it can carry credentials). |
 | Every embedding model shows `available: false`, and create answers `503`: `Local embedding models need the optional packages 'sentence-transformers' and 'langchain-huggingface', which are not installed. Install caliber-suite[knowledge,knowledge-local], pre-cache the model if the host is offline, and restart CALIBER.` | The `knowledge-local` extra is missing. To reproduce without uninstalling torch, we started a stack whose Python hid those two packages from the product's own `find_spec` probe (a `sitecustomize.py` on `PYTHONPATH`); the options and the refusal above are the product's, the hidden packages are our simulation. |
+| The build ends `failed` with `OSError: We couldn't connect to 'https://huggingface.co' to load the files, and couldn't find them in the cached files` | `HF_HUB_OFFLINE=1` with a cold cache (reproduced on a clean CI runner). Warm the cache once while online (setup step 3), then restart the stack, or start it without `HF_HUB_OFFLINE=1`. |
 | The first build sits in `queued` or `running` for minutes | The embedding model is being resolved against huggingface.co. Cache it once, then set `HF_HUB_OFFLINE=1`. An offline host that never cached it fails its first build. |
 | A build is `completed` but a document is missing from answers | An unreadable file is **skipped, not fatal**: the version has `summary.failed_sources > 0`, the source row says why, the run log has a `source_failed` event, and **the version is live anyway**. Fix the file, build again, and activate the good version (`POST .../versions/{id}/activate`). |
 | `status: failed`, `The selected files did not produce any chunks. Check the source types or extraction settings.` | Nothing readable in the selection. The live version is untouched; the failed one cannot be activated (`409 only completed versions can be activated`) and querying it returns no chunks and `answer_error: Version is not ready for retrieval.` |

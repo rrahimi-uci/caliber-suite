@@ -6,7 +6,7 @@
  * explain how a step executed.
  */
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 
 import type {
   WorkflowManifest,
@@ -1674,15 +1674,29 @@ export function WorkflowRunDebugger({
       ? eventSteps.map((entry) => entry.step)
       : summarySteps;
   const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  // True once the operator has chosen a step. Until then the debugger follows the newest step, so a
+  // run that is still executing (or resumes after an approval) never leaves the view parked on an
+  // earlier step, such as the approval gate, while its later steps and output are recorded.
+  const pickedStepRef = useRef(false);
+  const runId = run.workflow_run_id;
+
+  useEffect(() => {
+    pickedStepRef.current = false;
+  }, [runId]);
 
   useEffect(() => {
     if (steps.length === 0) {
+      pickedStepRef.current = false;
       setSelectedKey(null);
       return;
     }
     const nextKey = steps[steps.length - 1]?.selectionKey ?? null;
     setSelectedKey((current) => {
-      if (current && steps.some((step) => step.selectionKey === current))
+      if (
+        pickedStepRef.current &&
+        current &&
+        steps.some((step) => step.selectionKey === current)
+      )
         return current;
       return nextKey;
     });
@@ -1694,6 +1708,7 @@ export function WorkflowRunDebugger({
       [...steps].reverse().find((step) => step.node_id === focusedNodeId) ??
       null;
     if (!matchingStep) return;
+    pickedStepRef.current = true;
     setSelectedKey((current) =>
       current === matchingStep.selectionKey
         ? current
@@ -1982,6 +1997,7 @@ export function WorkflowRunDebugger({
                 type="button"
                 data-testid={`workflow-run-step-button-${step.stepIndex}`}
                 onClick={() => {
+                  pickedStepRef.current = true;
                   setSelectedKey(step.selectionKey);
                   onSelectNodeId?.(step.node_id);
                 }}

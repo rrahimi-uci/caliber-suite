@@ -171,7 +171,7 @@ The Playwright spec `caliber/caliber-ui/e2e/cookbooks/labs/08-incident-response.
 5. **Validate and Preview.** `Validate` says `Valid.`; `Preview` with the `IN01` input and `Run Preview`. Expected: `completed`; the step `summarize` shows `sev1 rollback`.
 6. **Publish.** `Publish`, `Run Validation`, `Next`, `Next`, `Publish`. Expected: `Published.`
 7. **Run incidents.** `Run Monitor`: `IN06` (healthy staging) completes, its output contains `RECOMMENDATION` and `sev4 monitor`. `IN01` (the gateway regression) stops at `waiting_approval`; pressing `Approve` as `admin` shows `a second person must decide`.
-8. **A second person approves.** As `lena` choose the workspace, `Workflows`, the workflow, `Runs`, select the run that shows `Awaiting approval`, `Approve`, `Resume`. Expected: the run shows `ROLLBACK_APPROVED` in its output.
+8. **A second person approves.** As `lena` choose the workspace, `Workflows`, the workflow, `Runs`, select the run that shows `Awaiting approval`, `Approve`, `Resume`. Expected: **Recovery Diagnostics** says *This run ended in completed.* and the **Execution Debugger** (which follows the newest step until you click one) shows `ROLLBACK_APPROVED` in the output of the last step. If you clicked an earlier step, click `rollback_request` or `final` to see it.
 
 ## Verify it worked
 
