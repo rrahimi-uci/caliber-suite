@@ -1,4 +1,0 @@
-INFO     caliber.events.webhooks:webhooks.py:477 webhook dispatcher started (urls=1, events=*, pending_capacity=2048)
-WARNING  caliber.events.webhooks:webhooks.py:1090 webhook POST failed, retrying: url=https://broken.example/hook event='run.completed' attempt=1/2 err=receiver returned HTTP 500
-ERROR    caliber.events.webhooks:webhooks.py:1103 webhook delivery exhausted, dead-lettering: url=https://broken.example/hook event='run.completed' err=receiver returned HTTP 500
-INFO     caliber.events.webhooks:webhooks.py:532 webhook dispatcher stopped

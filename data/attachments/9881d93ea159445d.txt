@@ -1,1 +1,0 @@
-{"t":"2026-10-20T14:43:11.895Z","severity":"WARNING","logger":"caliber.events.nats_bus","message":"dropping malformed NATS event payload"}

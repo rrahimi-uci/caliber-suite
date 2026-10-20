@@ -1,1 +1,0 @@
-error: no usable credential; set CALIBER_TOKEN or pass --token
