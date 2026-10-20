@@ -87,7 +87,7 @@ test.describe("Cookbook 12: an evaluation harness from one sentence", () => {
 
     // ---- 1. Plans > Goal ---------------------------------------------------------------
     const nav = page.getByLabel("CALIBER navigation");
-    await nav.getByRole("button", { name: /^Integrations/ }).click();
+    await nav.getByRole("button", { name: /^Operate/ }).click();
     await nav.getByRole("link", { name: "Plans" }).click();
     await expect(page).toHaveURL(/\/caliber\/aria\/plans$/);
     await expect(

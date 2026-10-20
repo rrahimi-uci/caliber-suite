@@ -152,7 +152,7 @@ Scenario 16 (`16-observability-triage`) is README-only: it has a `README.md`
    `scripts/cookbook-env.sh up lab01 --flags cookbooks` then `source .tmp/cookbook-env/lab01/env.sh`
    (the lab README has the exact line, including any extra variables), or use your own server built per
    [`docs/start/alpha-install.md`](../../docs/start/alpha-install.md). With `CALIBER_FEATURE_COOKBOOKS=true`
-   set, **Cookbooks** (sidebar group **Integrations**) lists the lab's readiness checks.
+   set, **Cookbooks** (sidebar group **Get started**) lists the lab's readiness checks.
 3. Run the whole lab in one command with its SDK example
    (`PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_NN_*.py`),
    or follow the README's steps by hand (`curl`) or through the UI.

@@ -181,7 +181,7 @@ reached live**. A first real attempt exposed a product defect, fixed: on the def
 tool-using workflow agent could not run at all (chat completions refuse function tools with a
 reasoning effort), so every replay errored.
 
-UI: sidebar **Integrations › Plans** → `/aria/plans`
+UI: sidebar **Operate › Plans** → `/aria/plans`
 (`AriaPlans.tsx`). Buttons: **Decompose goal**, **Approve plan**,
 **Execute** / **Resume**, **Continue plan** / **Skip step** (input form),
 **Approve** / **Deny** (permission), **Accept** / **Reject** (confirm).

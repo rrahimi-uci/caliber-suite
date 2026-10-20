@@ -77,8 +77,8 @@ describe("Sidebar plans badge", () => {
       ),
     );
     renderSidebar();
-    // Plans lives in the preview group, which starts closed on the dashboard.
-    await userEvent.click(await screen.findByTestId("nav-group-toggle-preview"));
+    // Plans lives in Operate, which starts closed on the dashboard.
+    await userEvent.click(await screen.findByTestId("nav-group-toggle-operate"));
     expect(await screen.findByText("Plans")).toBeInTheDocument();
     expect(screen.queryByLabelText(/awaiting your input/i)).toBeNull();
   });

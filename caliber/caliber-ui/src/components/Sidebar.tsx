@@ -97,8 +97,8 @@ const DOT_CLASS: Record<Badge["tone"], string> = {
 const NAV_ICON_CLASS = "h-[18px] w-[18px]";
 
 /** localStorage key holding the ids of the groups the user left open. */
-// Versioned because the group ids changed (alpha gap P1-10); an old list would open nothing.
-const OPEN_GROUPS_KEY = "caliber.nav.open-groups.v2";
+// Versioned because the group ids changed (alpha gap P1-10; "start" added later); an old list would open nothing new.
+const OPEN_GROUPS_KEY = "caliber.nav.open-groups.v3";
 
 // Whether the sidebar is collapsed to an icon rail. Read by NavItem/Section so
 // the collapsed styling doesn't have to be threaded through every call site.
@@ -198,6 +198,9 @@ interface NavGroup {
 /**
  * The navigation information architecture.
  *
+ * ``Get started`` leads with the Cookbooks, and Aria's Plans sit in ``Operate`` with the other
+ * things that wait for a person; neither belongs beside MCP servers.
+ *
  * ``Integrations`` is the substantive regrouping: MCP Servers used to sit in
  * *Library* beside authored assets (prompts, tools, skills) while the LLM
  * Gateway sat in *Platform* beside Settings and Docs. Both are connections to
@@ -205,6 +208,16 @@ interface NavGroup {
  * read as an integration.
  */
 const NAV_GROUPS: NavGroup[] = [
+  {
+    // Cookbooks are guided, worked examples: the first thing a new person looks for, so they
+    // lead the navigation instead of hiding in Integrations beside MCP servers (they were put
+    // there only because both are behind a feature flag). The group disappears with the flag.
+    id: "start",
+    title: "Get started",
+    items: [
+      { to: "/cookbooks", icon: <BookOpen className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Cookbooks", feature: "cookbooks" },
+    ],
+  },
   {
     id: "core",
     title: "Prompt lifecycle",
@@ -239,6 +252,8 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/observability", icon: <Activity className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Observability" },
       { to: "/review-queues", icon: <ClipboardCheck className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Review Queues" },
       { to: "/audit-log", icon: <ScrollText className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Audit Log" },
+      // Aria's plans wait here for a person to approve and run them, like a review queue.
+      { to: "/aria/plans", icon: <ListChecks className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Plans", badgeKey: "plans", feature: "aria" },
     ],
   },
   {
@@ -248,8 +263,6 @@ const NAV_GROUPS: NavGroup[] = [
       { to: "/gateway", icon: <Network className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "LLM Gateway" },
       { to: "/mcp-servers", icon: <PlugZap className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "MCP Servers", feature: "integrations" },
       { to: "/openapi-integrations", icon: <Globe className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "OpenAPI Integrations", feature: "integrations" },
-      { to: "/cookbooks", icon: <BookOpen className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Cookbooks", feature: "cookbooks" },
-      { to: "/aria/plans", icon: <ListChecks className={NAV_ICON_CLASS} strokeWidth={1.85} />, label: "Plans", badgeKey: "plans", feature: "aria" },
     ],
   },
   {
@@ -374,8 +387,16 @@ export function Sidebar({
   // an empty default would open the app on six collapsed headers and zero
   // destinations — denser than asked for, and a worse first run than the
   // problem being solved. The core journey is where the primary work starts.
+  //
+  // "Get started" is open too: it holds one destination (Cookbooks, when that area is on), and
+  // a closed header over a single item is how a first-time person misses it.
   const [openGroups, setOpenGroups] = useState<string[]>(
-    () => readOpenGroups() ?? [activeGroup ?? "core"],
+    () =>
+      readOpenGroups() ?? [
+        // Cookbooks is somewhere you start from, not somewhere you work: landing on it still
+        // leaves the core journey open beside it.
+        ...new Set([activeGroup && activeGroup !== "start" ? activeGroup : "core", "start"]),
+      ],
   );
 
   // Auto-open the group for the route the user lands on (a direct link to
