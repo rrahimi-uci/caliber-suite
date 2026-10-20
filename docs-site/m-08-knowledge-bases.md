@@ -397,12 +397,13 @@ background worker, graph extraction, AGE, and local embeddings:
 Each is the `CALIBER_`-prefixed upper-case environment variable (for example
 `CALIBER_KNOWLEDGE_BUILD_QUEUE_ENABLED`).
 
-The UI is organized around this same operational lifecycle, presenting one stage
-per task:
+The UI is organized around this same operational lifecycle. The Library is the
+landing list; opening a knowledge base shows four stage tabs, one per task:
 
 - Library presents the KB inventory and visibility.
 - Build covers source selection, chunking, embeddings, and the graph profile.
-- Explore offers query, chunk inspection, and graph inspection.
+- Explore offers query, chunk inspection, and graph inspection (Query, Chunks,
+  and Graph views).
 - Calibrate runs eval-dataset scoring and manages baselines.
 - Use surfaces the runtime-facing KB identity and version selection.
 

@@ -970,7 +970,7 @@ window.DOCS_DATA = {
         "Access to a CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-20",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "operations",
@@ -2088,7 +2088,7 @@ window.DOCS_DATA = {
         "Decision-maker overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-20",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "strategy",
@@ -2117,7 +2117,7 @@ window.DOCS_DATA = {
         "Review the current GitHub Project #2 issue hierarchy and dated delivery evidence before approving a release"
       ],
       "stability": "internal",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-20",
       "version_applicability": "current main branch, GitHub Project #2, and the proposed v1.0.0 release",
       "tags": [
         "prd",
@@ -2145,7 +2145,7 @@ window.DOCS_DATA = {
         "A named single-tenant deployment owner and supported MLflow provider profile"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-20",
       "version_applicability": "current main branch and GitHub Project #2",
       "tags": [
         "roadmap",

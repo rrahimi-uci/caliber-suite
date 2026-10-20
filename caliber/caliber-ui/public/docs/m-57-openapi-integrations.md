@@ -92,7 +92,7 @@ It deliberately does **not**:
 | `caliber/integrations/openapi/normalize.py` | Parses OpenAPI 3.x YAML/JSON into a stable, diffable operation list; computes a content hash for duplicate-import detection. |
 | `caliber/integrations/openapi/classify.py` | Deterministic per-operation classification: side-effect level (mapped onto CALIBER's `read`/`write`/`external_action` tool vocabulary), CRUD kind, resource type, pagination style, async-job shape. Pure function of the normalized operation — same input, same output, every time. |
 | `caliber/integrations/openapi/dependencies.py` | Deterministic dependency detection across an operation list: explicit `links`, path-hierarchy preconditions, identifier-field flow, async create→poll pairs, and same-tag grouping. No LLM call in this module. |
-| `caliber/integrations/openapi/diff.py` | Structural diff between two normalized-operation lists — added/removed/changed/breaking, keyed on the tracked fields (side-effect level, auth, deprecation, body requirement) rather than free text. |
+| `caliber/integrations/openapi/diff.py` | Structural diff between two normalized-operation lists — added/removed/changed/breaking, keyed on the tracked fields (summary, side-effect level, deprecation, auth schemes, body requirement and content types, response statuses, tags) rather than free text. |
 | `caliber/integrations/openapi/graph.py` | Projects operations + dependency rows + tool drafts into a node/edge graph, including fingerprinted request/response schema nodes. Pure derivation — never a second source of dependency truth. |
 | `caliber/integrations/openapi/tool_drafts.py` | Builds a draft's name, description, input/output schema, and execution config from one operation or a multi-operation pack. |
 | `caliber/integrations/openapi/executor.py` | The one place an OpenAPI-derived tool touches the network: schema validation, auth injection, guarded HTTP request (with a bounded, idempotency-aware retry), OAuth client-credentials / refresh-token exchange through the same egress policy, and response-header redaction. |
@@ -128,8 +128,9 @@ flowchart LR
 ## 4. API surface
 
 All routes are under `/ajax-api/2.0/mlflow/caliber/openapi-integrations` and
-tagged `beta` in the served management OpenAPI document. The UI marks the page as
-a preview (alpha scope lists OpenAPI integrations as preview, not core journey).
+tagged `beta` in the served management OpenAPI document, and `GET /capabilities`
+reports `openapi_integrations.stability` as `beta`. Alpha scope lists OpenAPI
+integrations as a preview area, not core journey.
 Reads need a signed-in user; mutations need the `operator` (or `admin`) scope.
 
 | Group | Routes |
@@ -171,8 +172,9 @@ snapshot — all before the response returns, so "imported" always means
 URL, imports it as a **new** version (past versions are never mutated), and
 returns a structural diff against the previous version so an operator can see
 exactly what moved before re-curating. A newly-deprecated operation, a changed
-auth requirement, and a changed side-effect classification are flagged as
-breaking; everything else is informational.
+auth requirement, a changed required-body flag, and a changed side-effect
+classification are flagged as breaking; everything else, including an added or
+removed operation, is informational.
 
 ## 6. Agent and workflow projection
 

@@ -173,7 +173,7 @@ kind of file lands in a predictable, collision-free prefix:
 - Project files use
   `tenant/{tenant}/project/{project}/files/{segment}/.objects/{sha256}/{path}`, a
   content-addressed object key, and resolve as
-  `caliber://projects/{project}/{kind}/{path}`. Re-uploading identical bytes returns
+  `caliber://projects/{project}/{segment}/{path}`. Re-uploading identical bytes returns
   the existing record; different bytes at an existing ref get a
   `.sha256-{12 hex}` sibling path instead of overwriting, so a ref already pinned
   into a workflow manifest never changes. The row carries `project_id` with no run
@@ -323,8 +323,8 @@ held to a higher bar than scoped file writes. The access rules are:
 - Object-store mutations require `SCOPE_ADMIN`.
 - Workflow and project file reads require an authenticated user *and* visibility
   of the resource the files hang off.
-- Project file writes (staging upload, project upload and folder creation, and
-  object import) require `SCOPE_OPERATOR` plus project `resource.write.runtime`
+- Project file writes (staging upload, project upload, folder creation and delete,
+  and object import) require `SCOPE_OPERATOR` plus project `resource.write.runtime`
   access (`owner` or `editor`) for the selected project. Staging upload and
   import also require an active project (`X-CALIBER-Project`): staging answers `400`
   and import `409` without one, and an archived project answers `409`.
