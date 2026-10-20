@@ -508,8 +508,12 @@ The QA plan enforces the following authorization rules:
   404, and a member without the needed role gets 403 (`release.apply` for Apply,
   `release.evaluate` for request-changes) before any claim, promoter call, or
   audit write.
-- Runtime approval decision routes also require `SCOPE_OPERATOR`, and the queue,
-  runtime-approval, and checkpointing feature flags must allow the action.
+- Runtime approval decisions (`approval/approve`, `approval/reject`) require only an
+  authenticated user at the route. The authorization rule is the approval node's own
+  `required_role` scope (default `caliber.approver`, which does not imply
+  `caliber.operator`) plus the project's `resource.approve` role for a project-scoped
+  run. `resume` and `resume-by-event` do require `SCOPE_OPERATOR`. The queue,
+  runtime-approval, and checkpointing runtime flags must allow the action.
 - Observability feedback requires an authenticated user and records that actor
   as the reviewer.
 
@@ -522,8 +526,11 @@ unsafe state and unsafe execution from leaking across the plane:
   and policy shape before a live workflow run may continue.
 - Vitest defaults to an MSW-backed local trust boundary rather than a live
   backend dependency.
-- Playwright only reuses an existing server when explicitly configured to do so;
-  otherwise it boots an isolated local instance with per-port state. The alpha
+- The full Playwright suite (`playwright.config.ts`) skips server startup when
+  `CALIBER_E2E_USE_EXISTING_SERVER=1`; otherwise it boots a local instance with per-port
+  state, with all four `CALIBER_FEATURE_*` flags on, and reuses one that already answers
+  `/health` on that port (`reuseExistingServer: true`). The cookbook and alpha configs
+  never reuse a server. The alpha
   journey config (`playwright.alpha.config.ts`, `npm run test:e2e:alpha`, the CI
   `alpha-journey` job) uses its own port (`CALIBER_ALPHA_E2E_PORT`, default 5170)
   and state directory with the shipped defaults (fake LLM and evaluator, real
@@ -626,6 +633,10 @@ plainly so that future work can weigh them deliberately:
   flagged traces, and `POST /observability/traces/{trace_id}/feedback` only
   records the assessment and an audit row (the alpha scope page lists the
   flagged-trace to refinement loop as not in the alpha).
+- A default install runs a simulated LLM and evaluator (`CALIBER_LLM_PROVIDER=fake`,
+  `CALIBER_EVAL_PROVIDER=fake`), so the candidate and eval evidence a refinement job
+  produces is canned until real providers are configured; `/readiness` lists what is
+  simulated.
 - `CaliberApprovalRequest` now represents apply-time provenance rather than the
   older multi-review governance workflow, so older approval-queue mental models
   are stale for the current codebase.

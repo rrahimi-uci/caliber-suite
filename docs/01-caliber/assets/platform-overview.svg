@@ -222,7 +222,7 @@
   <rect class="card ext" x="760" y="384" width="336" height="82" rx="22" />
   <text class="copy card-title" x="784" y="418">MLflow APIs and traces</text>
   <text class="copy card-copy muted" x="784" y="438">Prompt registry versions, runs, traces,</text>
-  <text class="copy card-copy muted" x="784" y="455">reached in-process or through HTTP.</text>
+  <text class="copy card-copy muted" x="784" y="455">reached over HTTP.</text>
 
   <rect class="card ext" x="760" y="488" width="336" height="96" rx="22" />
   <text class="copy card-title" x="784" y="522">Provider adapters</text>
