@@ -17,6 +17,7 @@ import {
   ReactFlow,
   useReactFlow,
   useStoreApi,
+  useUpdateNodeInternals,
   ReactFlowProvider,
   type Edge,
   type Node,
@@ -124,6 +125,7 @@ function CanvasInner({
   const viewMovedByUser = useRef(false);
   const { screenToFlowPosition, fitView } = useReactFlow();
   const flowStore = useStoreApi();
+  const updateNodeInternals = useUpdateNodeInternals();
 
   // ``fitView`` on the component fits the graph once, at mount. The canvas then changes size as
   // the palette, the inspector and the toolbar settle, which leaves a wide graph half outside
@@ -221,6 +223,20 @@ function CanvasInner({
       selected: selectedSet.has(n.id),
       style: outlineColor ? { boxShadow: `0 0 0 3px ${outlineColor}` } : undefined,
     };
+  });
+
+  // React Flow measures a node once, when its element is first observed. On a slow machine that
+  // observation can land before the store has adopted the node (a restored draft, a published
+  // version's editor), the element's size never changes again, and the node stays
+  // ``visibility: hidden`` for good although it is sized and on screen. After every render, ask
+  // React Flow to measure any node it holds no size for. (Reading the store here does not subscribe
+  // to it, so this cannot loop: it runs when the canvas renders, not when React Flow updates.)
+  useEffect(() => {
+    const lookup = flowStore.getState().nodeLookup;
+    const unmeasured = nodes
+      .filter((n) => !lookup.get(n.id)?.measured?.width)
+      .map((n) => n.id);
+    if (unmeasured.length > 0) updateNodeInternals(unmeasured);
   });
 
   const decoratedEdges: Edge[] = edges.map((e) => ({
