@@ -125,15 +125,15 @@ describe("Canvas", () => {
   });
 
   describe("refitting when the canvas changes size", () => {
-    let resize: (() => void) | undefined;
+    let report: ((width: number, height: number) => void) | undefined;
     beforeEach(() => {
       vi.useFakeTimers();
-      resize = undefined;
+      report = undefined;
       vi.stubGlobal(
         "ResizeObserver",
         class {
-          constructor(callback: () => void) {
-            resize = callback;
+          constructor(callback: (entries: unknown[]) => void) {
+            report = (width, height) => callback([{ contentRect: { width, height } }]);
           }
           observe(): void {}
           disconnect(): void {}
@@ -145,16 +145,39 @@ describe("Canvas", () => {
       vi.unstubAllGlobals();
     });
 
-    it("refits the graph once after the palette and inspector have settled", () => {
+    it("refits once, after a real size change has settled", () => {
       render(<Canvas manifest={testManifest()} />);
+      report?.(900, 600); // React Flow's own first fit used this size
       expect(fitView).not.toHaveBeenCalled();
-      // A burst of resizes (panels opening, toolbar wrapping) is one refit, after it settles.
-      resize?.();
-      resize?.();
-      resize?.();
+      // A burst of changes (panels opening, toolbar wrapping) is one refit, after it settles.
+      report?.(700, 600);
+      report?.(450, 600);
+      report?.(450, 560);
       vi.advanceTimersByTime(200);
       expect(fitView).toHaveBeenCalledTimes(1);
       expect(fitView).toHaveBeenCalledWith({ padding: 0.12, minZoom: 0.15 });
+    });
+
+    it("ignores a scrollbar-sized change, so a refit can never cause the next refit", () => {
+      render(<Canvas manifest={testManifest()} />);
+      report?.(450, 600);
+      // The lab 16 defect: on a platform where scrollbars take space, every refit moved the
+      // graph, a scrollbar appeared or vanished, the canvas changed by ~15px, and it refitted again.
+      for (let i = 0; i < 20; i += 1) {
+        report?.(i % 2 ? 450 : 435, 600);
+        vi.advanceTimersByTime(200);
+      }
+      expect(fitView).not.toHaveBeenCalled();
+    });
+
+    it("stops refitting by itself after a few real changes", () => {
+      render(<Canvas manifest={testManifest()} />);
+      report?.(100, 600);
+      for (let i = 1; i <= 12; i += 1) {
+        report?.(100 + i * 100, 600);
+        vi.advanceTimersByTime(200);
+      }
+      expect(fitView).toHaveBeenCalledTimes(4);
     });
 
     it("lets a wide graph zoom out far enough to fit a laptop-width canvas", () => {
@@ -169,18 +192,20 @@ describe("Canvas", () => {
 
     it("never refits a view the person has panned or zoomed", () => {
       render(<Canvas manifest={testManifest()} />);
+      report?.(900, 600);
       const props = mockState.reactFlowProps as { onMoveStart: (event: unknown) => void };
       props.onMoveStart({ type: "mousedown" });
-      resize?.();
+      report?.(450, 600);
       vi.advanceTimersByTime(200);
       expect(fitView).not.toHaveBeenCalled();
     });
 
     it("still refits after fitView's own programmatic move (no DOM event)", () => {
       render(<Canvas manifest={testManifest()} />);
+      report?.(900, 600);
       const props = mockState.reactFlowProps as { onMoveStart: (event: unknown) => void };
       props.onMoveStart(null);
-      resize?.();
+      report?.(450, 600);
       vi.advanceTimersByTime(200);
       expect(fitView).toHaveBeenCalledTimes(1);
     });
