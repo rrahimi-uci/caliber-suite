@@ -129,7 +129,9 @@ nothing yet checks that the declared mechanism is the one the handler performs
 The base is the swappable substrate: a Starlette ASGI process host; PostgreSQL~17
 with pgvector for approximate nearest-neighbour search~\cite{pgvector,malkov2020hnsw}
 and Apache~AGE for property-graph queries~\cite{apacheage}, with SQLite supported
-for lightweight development; object storage over local or S3-compatible backends;
+for evaluation and development (alongside a separate \mlflow{} store); pgvector
+search, AGE graph sync, and cross-encoder reranking are each opt-in features of the
+knowledge-base path and off by default; object storage over local or S3-compatible backends;
 \mlflow{} 3.15 or later; and an event transport that may be in-process, NATS,
 Redis, or the database. Every element is selected by configuration, and the layer's
 sole architectural obligation is that nothing above it names a concrete backend.
@@ -152,7 +154,8 @@ load-bearing and untestable.
 \subsection{\Lnum{3}: the governance substrate}
 
 Five groups of shared primitives: identity and authority (sessions, the
-\statScopesW{} scopes, CSRF, rate limiting); execution policy (governed HTTP and MCP
+\statScopesW{} scopes, and the opt-in CSRF and rate-limit middleware, both off by
+default); execution policy (governed HTTP and MCP
 egress, MCP containment, environment classification); evidence and verdicts (gate
 verdicts, regression detection, impact analysis); release control (apply, promote,
 rollback checkpoints); and ledgers (the audit log, the effect ledger, redaction).
@@ -181,10 +184,17 @@ declarations across \statRouteModules{} modules, with a machine-generated OpenAP
 document; a lightweight remote Python client SDK
 (\code{caliber-sdk}) plus a thin operator CLI (\code{caliberctl}) over that
 contract; the \aria{} copilot's permissioned agentic tool loop; and headless
-access by service token with server-sent events and webhooks. The architectural
+access by service token with server-sent events and webhooks. In the shipped alpha
+four of these areas are server-side feature flags that default to off and answer
+\code{404} with \code{reason\_code: feature\_disabled} until enabled: the \aria{}
+assistant and plans, MCP-server and OpenAPI integrations, the Cookbook catalog,
+and release-candidate signoff with workspace releases
+(\code{caliber.features}). The architectural
 property of this layer is that both deployment topologies expose an identical
 surface (\figref{fig:topologies}), so the topology choice is an operations
-decision rather than a feature one.
+decision rather than a feature one. The alpha supports only the standalone
+topology against a separate \mlflow{} server; the embedded mount remains in the code
+but is not a supported setup.
 
 \subsection{Control flow, data flow, and the execution lifecycle}
 \label{sec:exec}
@@ -229,11 +239,12 @@ duplicate fires impossible rather than merely unlikely; the janitor is an
 idempotent sweep over jobs past their heartbeat timeout; the release reconciler is
 an idempotent sweep that settles a release operation only when the observed alias
 matches a version the intent already recorded; and \aria{}'s plan worker polls
-without a claim lease.
+without a claim lease (it is constructed only when the \aria{} flag is on).
 
 The honest converse is that two mechanisms are genuinely per-process. The
 failed-login throttle is an in-memory sliding-window counter and the API rate
-limiter an in-memory token bucket, each behind a thread lock. Because every
+limiter (opt-in, off by default) an in-memory token bucket, each behind a thread
+lock. Because every
 process runs its own full set of loops, a four-worker deployment has four
 independent budgets and the effective ceiling scales with the worker count.
 Operators must size these limits accordingly or pin a single worker.
@@ -297,20 +308,25 @@ and reconciliation use a recorded value rather than inferring one
 
 The layering pays off as a small number of places to add capability without
 touching the substrate: provider protocols for LLM, evaluation, and promotion, each
-one operation per pipeline stage, with a deterministic fake default so the server
-boots with no API key; a storage-backend protocol; four event transports; a
+one operation per pipeline stage, with deterministic fakes so the server boots with
+no API key (the LLM and evaluation providers default to the fake; the fake promoter
+and artifact store simulate a release and are refused at startup unless
+\code{CALIBER\_ALLOW\_SIMULATED\_PROVIDERS} is set, so the default promoter is the
+real \mlflow{} one); a storage-backend protocol; four event transports; a
 tool-sandbox protocol; \statNodeTypes{} workflow node types behind a typed IR
 shared by the in-server interpreter and the generated Agents SDK export;
 deterministic scorers and authored judges referenced by token wherever a scorer is
-accepted; a peer-distributed plugin contract
-(\code{caliber-plugin-sdk}) that freezes extension-facing optimizer and provider
-shapes without pulling the server runtime into third-party packages; and two
+accepted; a peer-distributed, zero-dependency plugin contract
+(\code{caliber-plugin-sdk}) through which third-party optimizers register under the
+\code{caliber.optimizers} entry-point group --- explicitly experimental in this
+release, and every plugin optimizer is marked so --- without pulling the server
+runtime into third-party packages; and two
 graph-extraction backends.
 
 The deterministic fake default deserves a note, because it is a small decision with
 large consequences for the evaluation protocol in \appref{app:protocol}: because
 every provider seam has a fake, the entire control plane is exercisable without a
-model provider, which is what makes the platform's own tests hermetic and its
+model provider (the simulated release providers by explicit opt-in), which is what makes the platform's own tests hermetic and its
 performance measurements separable from provider latency.
 
 The \aria{} capability registry is the newest seam and the one we describe most

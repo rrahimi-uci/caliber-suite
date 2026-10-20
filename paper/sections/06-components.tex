@@ -101,7 +101,9 @@ is uninterpretable.
 conflating them would invalidate several claims in this paper.
 
 \para{The \advgate{} is enforced.} It decides whether a refinement job may advance
-to a candidate-ready state. A failing gate stops the job. Nothing downstream sees
+to a candidate-ready state. A failing gate stops the job: after any configured
+self-correction retries (disabled by default) the job ends \code{rejected} and an
+owned rework task is opened in the same transaction. Nothing downstream sees
 the candidate; in particular, no operator is asked to review it. Within the
 refinement state machine this gate cannot be bypassed --- but that scope is the
 whole claim. A direct operator release uses the durable release service but may
@@ -151,7 +153,10 @@ prior snapshot as a \emph{new} current version, which is a different guarantee a
 is listed as such.
 
 Adjacent to those family-specific live-target operations, the release-signoff
-domain records a candidate package rather than moving a target.  A candidate
+domain records a candidate package rather than moving a target; in the alpha it is
+a record-only area behind \code{CALIBER\_FEATURE\_RELEASE\_CANDIDATES}, off by
+default: a signoff records a decision and deploys or rolls back nothing, and the
+workspace releases that share the flag have no evaluation executor in this build.  A candidate
 contains weighted criteria, evidence references, blocking thresholds, a planned
 action, and a rollback target.  The server recomputes its aggregate and blockers;
 an administrator may attach an attributable criterion-specific waiver, and the
@@ -210,7 +215,7 @@ Second, local stdio MCP controls are \emph{containment}, not a sandbox. Command 
 host allowlists, a sanitized environment, a private working directory, and process
 timeouts reduce ambient authority. Only an attested managed sidecar or a
 non-loopback HTTPS endpoint counts as an execution boundary for production
-preflight; the shipped bubblewrap profile is containment~\cite{bubblewrap}.
+preflight (MCP servers are part of the integrations preview area, off by default); the shipped bubblewrap profile is containment~\cite{bubblewrap}.
 Similarly, fail-closed egress applies to governed HTTP and MCP transports and not
 to arbitrary user code: the shipped local tool runner has a separate interpreter,
 an empty environment, a private working directory, and resource limits, but retains
@@ -229,8 +234,9 @@ This is a per-request application bound and explicitly not
 connection-level flood protection --- a distinction worth preserving, because
 conflating the two is how a body cap gets mistaken for a denial-of-service defence.
 
-\aria{}, the embedded copilot, is a permissioned agentic tool loop with durable
-goal-plans and asynchronous resume: plans parked on long-running jobs are picked up
+\aria{}, the embedded copilot (a preview area, off unless
+\code{CALIBER\_FEATURE\_ARIA} is set), is a permissioned agentic tool loop with
+durable goal-plans and asynchronous resume: plans parked on long-running jobs are picked up
 by the plan worker when those jobs settle. It is a client of the same capability
 and authority model as every other surface, which is the property that keeps it
 from becoming a privilege-escalation path.

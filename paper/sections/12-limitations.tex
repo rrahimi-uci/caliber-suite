@@ -51,8 +51,9 @@ release-operations endpoint. Reconciliation observes the provider and settles
 divergence but does not remove the need to operate the reconciler.
 
 \para{\mode{Apply} is an operator confirmation, not an independent approval.} The
-route requires the \operator{} scope and mints an approval record that is already
-in the approved state, with the acting operator recorded as the approver. There is
+route requires the \operator{} scope (and, for a project-owned prompt, the
+\code{owner} or \code{editor} project role) and mints an approval record that is
+already in the approved state, with the acting operator recorded as the approver. There is
 a sibling \approver{} scope, but nothing requires that the person who authored or
 requested a change differ from the person who applies it. This is a deliberate
 human decision point placed after an automated gate, and it is real; it is not
@@ -75,6 +76,25 @@ report job currently completes in the application process; it is neither a
 distributed renderer nor evidence that an external trace, evaluation, or review
 reference is reachable in the target deployment.  Operators must verify the exact
 release package and its referenced evidence before treating a ready status as a go.
+
+\para{The shipped alpha does not close the loop at its front.} The governance chain
+begins with a flagged production trace, but nothing in the release watches traces,
+there is no ``flag this trace'' action, and verifying a verification-queue item does
+not start a job; every job-creation path writes its own already-verified item and a
+run starts from a prompt and a test set an operator supplies. The stages from
+\mode{Diagnose} onward run as this paper describes. The trace-to-example capture that
+turns a trace into test data is a manual action.
+
+\para{Simulated by default, and four areas are off by default.} A fresh install runs
+the fake language model and the fake evaluator, so calibration returns a candidate
+whose scores are canned and are marked as simulated wherever they are shown or
+stored; a scorecard evaluation run is refused until a real provider is configured,
+and the readiness report lists what is simulated. The \aria{} assistant, MCP-server
+and OpenAPI integrations, the Cookbook catalog, and release-candidate signoff with
+workspace releases are feature-flagged off, so several capabilities discussed in
+\secref{sec:components} and \secref{sec:capabilities} are absent from a default
+deployment until an operator enables them. The paper's guarantee claims concern the
+code paths; they are not claims about the evidence a simulated default produces.
 
 \subsection{Limitations of the architecture}
 

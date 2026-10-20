@@ -11,7 +11,9 @@ replicator is visible as a deviation rather than absorbed as noise.
 
 \para{Provider configuration.} All measurements run with the deterministic fake
 \code{LLMProvider}, \code{EvalProvider}, and \code{Promoter} unless a row explicitly
-requires a real provider. This is the protocol's most important decision: it makes
+requires a real provider; the fake \code{Promoter} is refused at startup unless
+\code{CALIBER\_ALLOW\_SIMULATED\_PROVIDERS} is set, and rows that measure a release
+against \mlflow{} (E4) need the default \mlflow{} promoter instead. This is the protocol's most important decision: it makes
 E1 and E2 measure \sys rather than an inference service, and it makes results
 reproducible across time, since a hosted model's latency is not a stable quantity.
 Rows that need real providers (E3) say so.

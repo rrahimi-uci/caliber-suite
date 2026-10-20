@@ -32,7 +32,8 @@ vague claim about agility:
       That is what makes the two properties above hold for every in-repository
       call site rather than only for the path this paper describes.
 \item \textbf{Authority is scope-checked.} Rotating an alias requires the
-      \operator{} or \admin{} scope. We are careful not to call this separation of
+      \operator{} or \admin{} scope and, for a prompt owned by a project, the
+      \code{release.apply} project role (\code{owner} or \code{editor}). We are careful not to call this separation of
       duties: the sibling \approver{} scope exists, but nothing currently requires
       that the principal who applies a change differ from the one who authored it,
       and the approval record is minted already-approved naming the acting
@@ -79,10 +80,13 @@ needs to exist.
 
 Within the refinement path, \sys automates diagnosis, candidate generation, evaluation, gating, evidence
 assembly, and the mechanics of release. It does not automate the decision. The
-reach is therefore: from a flagged trace to a scored, gated, reviewable candidate
+reach is therefore: from a verified signal to a scored, gated, reviewable candidate
 without human involvement, and from a reviewed candidate to an audited release
 without human involvement. The human sits at exactly one point in between, and at
-one point before (verification).
+one point before (verification). In the shipped alpha the front of that span is not
+automated: no component watches production traces or turns a flagged one into a job,
+so a run starts from a prompt and test set that an operator supplies
+(\secref{sec:overview}, \secref{sec:limitations}).
 
 Assistant drafts are outside that measured refinement chain. Their optional
 \code{agent\_review} and \code{full\_autonomy} policies replace the draft-review
@@ -112,7 +116,8 @@ The same IR backs the in-server interpreter and an Agents SDK export, which is w
 lets a workflow be governed here and executed elsewhere.  The visual path includes
 closed-vocabulary deterministic transforms and direct review-queue enqueueing, so
 policy tables, schemas, confidence rules, fixtures, and review handoff do not require
-custom Python.  A runtime-owned catalog exposes seventeen Cookbook examples; installing
+custom Python.  A runtime-owned catalog exposes seventeen Cookbook examples (a preview area, off
+unless \code{CALIBER\_FEATURE\_COOKBOOKS} is set); installing
 one creates a paused workflow and one editable draft in a single audited transaction,
 with prerequisites acknowledged before activation can be considered.
 
@@ -121,7 +126,8 @@ fenced to a revision, so a suite result is attributable to a specific tool versi
 MCP servers are managed definitions with discovered tool inventories, audited edit
 history, fail-closed connection and policy controls, and a production preflight
 that distinguishes containment from an attested boundary
-(\secref{sec:components}).
+(\secref{sec:components}); in the alpha they sit in the integrations preview area,
+off unless \code{CALIBER\_FEATURE\_INTEGRATIONS} is set.
 
 \para{Gateway, signoff, and operator automation.} The LLM Gateway is governed as a
 first-class integration surface rather than a side panel: endpoint discovery,
