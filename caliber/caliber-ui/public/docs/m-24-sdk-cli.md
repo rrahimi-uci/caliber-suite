@@ -14,6 +14,7 @@ asynchronous client for the case where being synchronous costs you a thread.
 pip install --find-links ./wheels caliber-cli
 export CALIBER_BASE_URL=https://caliber.example.com
 export CALIBER_TOKEN=calpat_...
+export CALIBER_PROJECT=PRJ-1   # commands that write into a project need one
 
 caliberctl whoami
 caliberctl workflow run --workflow-id WF-123 --input '{"claim_id": "C-1"}'
@@ -96,7 +97,9 @@ caliberctl token revoke PAT-9 --yes   # revokes
 Global options go before the command: `--base-url` (default `$CALIBER_BASE_URL`),
 `--token` (default `$CALIBER_TOKEN`; prefer the variable, because an argument is
 visible in the process list), `--project` (default `$CALIBER_PROJECT`), `--json`,
-`--quiet` and `--version`.
+`--quiet` and `--version`. A command that writes into a project's scope (`workflow run`, `gate-verdict record`,
+`cookbook install`, `service publish`, and every `workspace` command) needs one, from `--project` or
+`$CALIBER_PROJECT`, and exits 2 without it rather than writing into an unscoped library.
 
 | Command | What it does |
 | --- | --- |

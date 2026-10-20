@@ -20,8 +20,8 @@ it is safe to run in CI and deterministic across machines.
 
 The committed `baseline-ff6d18c414.*` is the point-in-time record §15.1
 documents. Diffing current `main` against it now reports movement (total page lines
-56,624 → 57,515 at `80eddfdbe4e`, 2026-10-14, from the merged Wave-1 fixes and the
-later alpha work) — that is the tool working, not drift to correct. Regenerate a new baseline when a wave completes rather than after each
+56,624 → 58,154 at `5f21bc7710e`, 2026-10-20; it was 57,515 at `80eddfdbe4e` on 2026-10-14, the
+rest coming from the merged Wave-1 fixes and the alpha work) — that is the tool working, not drift to correct. Regenerate a new baseline when a wave completes rather than after each
 PR, or the diffs stop meaning anything.
 
 ### What it does and does not establish

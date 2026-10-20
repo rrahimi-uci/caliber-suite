@@ -37,16 +37,20 @@ BRAND_SHORT = "CALIBER"
 BRAND_FULL = "CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement"
 DOCS_HOME_LABEL = f"{BRAND_FULL} docs home"
 
+# The sidebar destinations (caliber-ui/src/components/Sidebar.tsx, NAV_GROUPS), used as the
+# page chip in each step's UI snapshot. Keep the labels identical to the sidebar's.
 NAV_ITEMS = [
-    "Dashboard", "Workflows", "Plans", "Prompts", "Tools", "Skills",
-    "MCP Servers", "Knowledge Base", "Object Store", "Test Sets", "Judges",
-    "Evaluations", "Observability", "Review Queues", "Settings",
+    "Dashboard", "Cookbooks", "Prompts", "Test Sets", "Evaluations", "Releases",
+    "Skills", "Tools", "Workflows", "Knowledge Bases", "Object Store", "Judges",
+    "Agents", "Observability", "Review Queues", "Audit Log", "Plans",
+    "LLM Gateway", "MCP Servers", "OpenAPI Integrations", "Administration", "Settings",
 ]
 # breadcrumb token (lower) -> sidebar nav item
 NAV_ALIASES = {
     "prompts": "Prompts", "tools": "Tools", "skills": "Skills",
     "mcp servers": "MCP Servers", "mcp": "MCP Servers",
-    "knowledge base": "Knowledge Base", "knowledge": "Knowledge Base",
+    "knowledge bases": "Knowledge Bases", "knowledge base": "Knowledge Bases",
+    "knowledge": "Knowledge Bases",
     "object store": "Object Store", "test sets": "Test Sets", "test set": "Test Sets",
     "judges": "Judges", "evaluations": "Evaluations", "observability": "Observability",
     "review queues": "Review Queues", "review queue": "Review Queues",

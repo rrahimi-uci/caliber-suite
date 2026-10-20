@@ -38,7 +38,7 @@ flowchart LR
     TRI -->|effects owed?| E["/caliber/system/effects\n/caliber/system/webhook-dead-letters"]:::ctrl
 
     H --> DB[(Metadata DB)]:::store
-    Q --> LOOPS[Ten in-process loops]:::async
+    Q --> LOOPS[Up to ten in-process loops]:::async
     R --> MLF[MLflow Prompt Registry]:::ext
     E --> EXT[Outbound webhooks\nand external effects]:::ext
 
@@ -239,6 +239,12 @@ between attempts. Creating an unlinked job loses that, so link it.
 > (`CALIBER_JANITOR_STALE_THRESHOLD_SECONDS`). That threshold must stay comfortably
 > longer than the longest expected single stage — set it too low and healthy long
 > stages get reaped, which looks exactly like this playbook's symptom.
+>
+> The janitor has a second, fixed sweep for Apply: a job that has sat in `applying` for
+> 30 minutes with no release operation on any of its approvals (the process died
+> between the claim and the first durable intent) goes back to `candidate_ready`, with
+> an audit row, so the candidate can be applied again. A job that has an operation is
+> never touched there; that is [P1](#p1-a-prompt-release-is-stuck).
 
 ## P5 — outbound webhooks are dead-lettering
 
@@ -322,7 +328,7 @@ one number for "the queue".
 | WebhookDispatcher | claim | Redelivery with settlement and a dead-letter path | At-least-once, by design |
 | WorkflowScheduler | — | Idempotent via a minute-bucketed key behind a unique partial index | Exactly-once **firing**; the work then follows WorkflowRun |
 | Janitor | — | An idempotent sweep | Idempotent |
-| AriaPlan | — | Polls plans parked on settled jobs; takes no claim | At-least-once resume |
+| AriaPlan | — | Polls plans parked on settled jobs; takes no claim. Not started unless `CALIBER_FEATURE_ARIA=true` | At-least-once resume |
 | ReleaseReconciler | — | Periodic; observes aliases for `applying` / `reconcile_required` rows | Idempotent; never guesses about `prepared` |
 | WorkspaceImport | claim + heartbeat | Lease expiry moves the job to `reconcile_required`; an operator must call `retry_failed_import_job` — not auto-requeued | At-most-once per attempt; a retry is safe via digest-checked replay |
 

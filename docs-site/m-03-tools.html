@@ -137,7 +137,7 @@
 <ul><li><code>POST /tools/{tool_id}/test-run</code></li><li><code>PUT /tools/{tool_id}/test-cases</code></li><li><code>POST /tools/{tool_id}/calibrate</code></li><li><code>POST /tools/test-runs</code></li><li><code>GET /tools/test-runs</code></li><li><code>GET /tools/test-runs/{test_run_id}</code></li></ul>
 <p>The third area exposes workspace metadata:</p>
 <ul><li><code>GET /tools/{tool_id}/workspace</code></li><li><code>POST /tools/{tool_id}/baseline</code></li></ul>
-<p>The frontend reaches these endpoints through three entry points:</p>
+<p>The frontend reaches these endpoints through these entry points:</p>
 <ul><li><code>caliber/caliber-ui/src/pages/ToolRegistry.tsx</code></li><li><code>caliber/caliber-ui/src/pages/ToolWizard.tsx</code></li><li><code>caliber/caliber-ui/src/components/tools/ToolManagePanel.tsx</code></li><li><code>caliber/caliber-ui/src/pages/ToolDetail.tsx</code> (a redirect to the workspace)</li></ul></div></details><details class="ref-section" open><summary class="ref-section-summary"><h2 id="6-execution-lifecycle">6. Execution lifecycle<a class="anchor" href="#6-execution-lifecycle" aria-hidden="true" tabindex="-1">#</a></h2></summary><div class="ref-section-body"><p>The endpoints above support three recurring flows: registering a tool, testing it in the sandbox, and calibrating it against fixtures. A fourth path, in which the workflow compiler and runtime consume the registry without an API call, runs alongside them. The sequence diagram traces all four.</p>
 <div class="diagram"><pre class="mermaid">sequenceDiagram
     participant U as Operator

@@ -215,7 +215,7 @@ The third area exposes workspace metadata:
 - `GET /tools/{tool_id}/workspace`
 - `POST /tools/{tool_id}/baseline`
 
-The frontend reaches these endpoints through three entry points:
+The frontend reaches these endpoints through these entry points:
 
 - `caliber/caliber-ui/src/pages/ToolRegistry.tsx`
 - `caliber/caliber-ui/src/pages/ToolWizard.tsx`

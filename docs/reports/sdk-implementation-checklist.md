@@ -36,8 +36,8 @@ This file is the execution checklist for the SDK plan. It is organized as milest
 - [x] Searchable HTML SDK docs are generated in `docs-site/` and synced into the served docs copies.
 - [x] SDK API pages include method details, model details, stability labels, and working examples.
 - [x] Examples shown in the SDK docs are CI-tested.
-- [ ] SDK cookbook exemplar pages are published in the docs site.
-- [ ] GitHub Pages serves the SDK docs through the existing Pages workflow.
+- [x] SDK cookbook exemplar pages are published in the docs site (`docs-site/m-25-sdk-cookbooks.html`, from `docs/sdk/cookbooks.md`).
+- [x] GitHub Pages serves the SDK docs through the existing Pages workflow (`.github/workflows/pages.yml` publishes `docs-site/`).
 - [ ] Current operator-assisted agentic workflows are SDK-executable without browser-only flows.
 - [ ] Plugin SDK remains experimental until registry dispatch survives at least one CALIBER release.
 
@@ -544,8 +544,8 @@ Milestone completion:
 
 ## Explicit blockers to track separately
 
-- [!] Aria still lacks full autonomous step-input materialization for arbitrary create/update actions.
-- [!] Document extraction still depends on a non-portable host-local path contract for the Cookbook 04 path.
+- [x] Aria step inputs: resolved (checked 2026-10-20). The interaction answer body has an `inputs` field, the executor raises an `input` interaction for missing required fields and validates the answer, and the Plans page renders the form; the planner is still rules-based and autonomous materialization of arbitrary create/update inputs is not claimed (`docs-site/cookbooks/CRITIQUE-REPORT.md` finding 1).
+- [!] Document extraction still depends on a host-local path contract (`extract_document` requires `Path(ref).is_file()` in `workflows/ingestion_tools.py`); lab 04 works around it with text invoices read from a bucket node.
 
 These are backend/platform blockers. Do not mark the SDK “fully complete” unless these are closed or explicitly excluded from the completion claim.
 
@@ -562,8 +562,8 @@ These are backend/platform blockers. Do not mark the SDK “fully complete” un
 
 - [ ] Report and checklist still agree on milestone order and scope.
 - [ ] GA/Beta/Internal stability labeling is reflected in docs and API metadata.
-- [ ] Searchable HTML SDK docs are published to GitHub Pages.
-- [ ] SDK cookbook exemplar pages are present in the published docs site.
+- [x] Searchable HTML SDK docs are published to GitHub Pages (`pages.yml`).
+- [x] SDK cookbook exemplar pages are present in the published docs site (`m-25-sdk-cookbooks.html`).
 - [ ] Every example presented in SDK docs is backed by tested source.
 - [ ] All completion claims distinguish:
   - typed SDK coverage

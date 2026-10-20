@@ -1,5 +1,20 @@
 # CALIBER UX Remediation Execution Plan
 
+> **Point-in-time audit, status as of 2026-10-20.** This report is a static audit of the UI at
+> `70c4e82345` (re-verified through `80eddfdbe4ee`, and for the census again at `5f21bc7710e`
+> in §15.1). Its findings, counts, `file:line` citations and diagrams describe the code as
+> audited; they are not a description of today's interface, and §15.2 is the only place that
+> states what has merged. Interface changes since the last full pass that the body does not
+> reflect: the sidebar was regrouped (**Get started**, **Prompt lifecycle**, **Agent resources**,
+> **Operate**, **Integrations**, **Admin**; see §3.1); the "alpha", "beta" and "preview" labels
+> were removed from the interface; Aria, MCP and OpenAPI integrations, Cookbooks and release
+> candidates sit behind feature flags that are off by default, and a disabled area is hidden from
+> the navigation; the empty Dashboard shows a "New here? Start with the core loop" panel; a tool
+> has one page, its workspace at `/tools?tool=TL-…`, and `/tools/:toolId` redirects there; and the
+> prompt workspace always lists the **Playground** stage (with Aria off it says it needs
+> `CALIBER_FEATURE_ARIA=true`). The current product boundary is
+> [Alpha scope and limitations](start/alpha-scope.md).
+
 **Scope:** Source-grounded UX review and implementation plan for the CALIBER web
 UI and its supporting APIs, conducted per-persona and per-journey against the
 code on `main` at commit `70c4e82345`.
@@ -311,7 +326,18 @@ point that assembles them. Developed in §7.2.
 
 ## 3. Current Information Architecture
 
-### 3.1 Navigation as implemented
+### 3.1 Navigation as audited
+
+> **Superseded (2026-10-20).** The groups below are the sidebar at `70c4e82345`. Today's sidebar
+> has the same six groups and 21 destinations, regrouped by what the user is doing:
+> **Get started** (Cookbooks, only with `CALIBER_FEATURE_COOKBOOKS`), **Prompt lifecycle** (Prompts,
+> Test Sets, Evaluations, Releases), **Agent resources** (Skills, Tools, Workflows, Knowledge Bases,
+> Object Store, Judges, Agents), **Operate** (Observability, Review Queues, Audit Log, Plans with
+> Aria), **Integrations** (LLM Gateway, MCP Servers, OpenAPI Integrations) and **Admin**
+> (Administration, Settings), plus the Docs link
+> (`caliber-ui/src/components/Sidebar.tsx`, `NAV_GROUPS`). A destination whose feature flag is off is
+> removed, and a group left empty disappears. The Plans badge is unchanged in kind (one badge,
+> polled every 30 seconds) but is only polled while Aria is on.
 
 The IA is declared as data in
 [Sidebar.tsx:199-261](caliber/caliber-ui/src/components/Sidebar.tsx#L199-L261) —
@@ -2937,6 +2963,19 @@ heaviest pages are `KnowledgeBases.tsx` 9,067 · `Prompts.tsx` 8,459 ·
 3,536. `MutationGuard` still has no call site outside its own file and tests.
 The `auth.py` scope constants (command 1) now sit at lines 94-97 rather than
 85-88; the names are unchanged. Wave 2-4's ledger rows remain Open.
+
+Re-run against `5f21bc7710e` on 2026-10-20, the census script and the nine commands below again
+find the same structural figures as `80eddfdbe4ee`: 33 addressable routes (32 distinct, 9 detail),
+`PageHeader` adoption 18 of 34, breadcrumb adoption 1 of 34 (`ObjectStore.tsx`), three unrouted
+pages, 22 duplicated workflow helpers, no command palette, and no `approvals_pending` render site
+(only the contract in `types.ts`). Two figures moved. Total page lines are now 58,154
+(`ux:census -- --diff` against the `ff6d18c414` baseline: 56,624 to 58,154), and mutating
+`caliberApi` call sites are 133, not 132. The five heaviest pages are `KnowledgeBases.tsx` 9,085 ·
+`Prompts.tsx` 8,512 · `WorkflowEditor.tsx` 5,393 · `WorkflowDetail.tsx` 4,850 · `McpServers.tsx`
+3,532. `MutationGuard` still has no call site outside its own file and tests, and the `auth.py` scope
+constants still sit at lines 94-97. None of the movement is an audit work package: it comes from the
+alpha work (feature flags, navigation, the cookbook labs' defect fixes), so the ledger below is
+unchanged.
 
 Run all nine from the repository root. They are in a fenced block rather than
 a table column because a Markdown table needs `|` escaped, and a command you

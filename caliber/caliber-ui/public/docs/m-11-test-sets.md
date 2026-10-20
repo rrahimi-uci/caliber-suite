@@ -381,8 +381,10 @@ Its current constraints follow from the same choices:
 - Evaluation runs are synchronous and bounded, so very large governance corpora
   would require additional orchestration if the platform grows beyond small
   curated sets.
-- There is no bulk CSV/JSON import-export surface in the inspected module today,
-  so operators curate through API calls, trace capture, or future tooling.
+- There is no server-side bulk import or export endpoint. The detail page's *Import
+  from file* reads a JSON Lines file or a JSON array in the browser and appends the
+  rows one at a time through `POST /examples`, so each row bumps `dataset.version`
+  once; there is no export.
 
 ## 10. MLflow GenAI dataset sync
 
@@ -406,9 +408,9 @@ example set, performs the push, and persists the linkage back onto the row.
 Five nullable columns on `caliber_eval_datasets` record that linkage —
 `mlflow_dataset_id`, `mlflow_synced_at`, `mlflow_synced_version`,
 `mlflow_record_count`, and `mlflow_digest` (migration `0052`). The Test Sets page
-renders this as a per-row status pill: *Not synced*, *Synced · vN*, or amber
-*Stale · vN* when the example set has changed since the last push
-(`mlflow_synced_version < version`). MLflow failures degrade to a clean `502`
+renders this as a per-row status pill: *Not synced*, *MLflow: up to date · vN*, or
+amber *MLflow: behind · vN* when the example set has changed since the last push
+(`mlflow_synced_version < version`). The detail page has a *Sync to MLflow* button. MLflow failures degrade to a clean `502`
 rather than corrupting CALIBER state, and the existing trace-derived example
 capture remains the path for turning observed traces into regression cases.
 
@@ -428,8 +430,13 @@ authored." It lists the version's examples and lets an operator:
   historical runs pinned to an older version stay reproducible.
 - **Capture from a trace** (`POST /examples/from-trace`) — the same observed-trace
   path, available inline.
-- **Filter by version** and reveal retired rows, mirroring the
-  `?version=` / `?include_superseded=` query knobs.
+- **Import from file** — a JSON Lines file or JSON array whose rows each have an
+  `input` object and optionally `expected`, `tags` and `weight`; the page appends them
+  one by one with `POST /examples` and stops at the first failure.
+- **Filter by version** — *Version view* switches between *Added in* (with *Show
+  retired*), mirroring `?version=` / `?include_superseded=`, and *Active as of*,
+  mirroring `?as_of_version=`. In *Active as of* with an older version selected, a
+  button restores that snapshot as a new version (`POST /restore`).
 
 This unblocks hand-built golden sets, which the judge surfaces depend on: you
 can't align a judge against human judgment, or score a prompt against a curated

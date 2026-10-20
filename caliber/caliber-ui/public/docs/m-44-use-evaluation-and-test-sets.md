@@ -20,6 +20,8 @@ review before live change.
 
 CALIBER separates evidence from rollout. Evaluation tells you how something
 performed against a known set of cases. It does not release or apply a change.
+A test set is built by hand on the Test Sets page, or loaded with **Import from file**: a JSON Lines file or a
+JSON array in which each row has an `input` object and may have `expected`, `tags` and `weight`.
 
 Inside a project, creating or changing a test set, its examples or a judge needs `reviewer`, `editor` or
 `owner`, and running an evaluation needs the same roles. A `viewer` can read but gets 403 on these, and a person

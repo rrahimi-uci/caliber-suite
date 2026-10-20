@@ -160,9 +160,9 @@ lists, diffs, and rolls back against. Both the `content` and the level-1
 is recoverable (a summary-only edit is versioned, not silently dropped from
 history), while a tags/owner/description tweak — not part of the snapshot — does
 not bump. `GET /skills/{skill_id}/versions` lists the history and
-`POST /skills/{skill_id}/rollback` restores an earlier snapshot as a new version
-(the version counter is forward-only; 409 when there is no prior version to
-restore). Two edits that race the same version number resolve to a retryable
+`POST /skills/{skill_id}/rollback` restores the immediately previous snapshot as a
+new version (the version counter is forward-only; 409 when there is no prior version
+to restore). Two edits that race the same version number resolve to a retryable
 `409` rather than a `500`, so the version table never grows a duplicate.
 The Skills API and `SkillPromoter` both use `skill_versions.py` in the caller's
 database transaction, so updating the live row, recording its immutable history,
@@ -280,12 +280,12 @@ how aggressively skills are applied.
 ## 7. Security and trust boundaries
 
 Skills are instruction material, not code, and the module's controls are designed
-to keep them that way. The enforced controls are the following. Reserved
-skill-name prefixes such as `claude`, `anthropic`, and other schema-level reserved
-values are rejected. XML-like angle brackets are rejected in a skill's
-`description` and `summary` fields for instruction-safety hardening; the long-form
-`content` body is deliberately not bracket-filtered, since legitimate instructions
-may contain such characters. There is no hard delete in the normal operator
+to keep them that way. The enforced controls are the following. Skill names that
+start with the reserved prefixes `claude` or `anthropic` are rejected on create and
+on package import. XML-like angle brackets (`<` followed by a letter or `/`) are
+rejected in a skill's `description` and `summary` fields on create for
+instruction-safety hardening; the long-form `content` body is deliberately not
+bracket-filtered, since legitimate instructions may contain such characters. There is no hard delete in the normal operator
 surface. Mutating actions are guarded by scopes: `PATCH /skills/{skill_id}` and
 `POST /skills/{skill_id}/rollback` need `admin`, while creating, importing,
 recording test runs and baselines, binding, and calibrating need `operator`.
@@ -310,7 +310,7 @@ the following. Durable test-run kinds distinguish `render`, `selection`, and
 `scenario` behavior. Workspace state exposes the baseline, the latest run, the
 bind target, and the lifecycle. Assistant skill selection stores selected-skill
 metadata in session metadata for later inspection. And built-in skill seeding is off
-by default (`CALIBER_BUILTIN_SKILLS_AUTO_SEED`), so the Skills list seeds CALIBER's built-in catalog only when it is enabled.
+by default in the application (`CALIBER_BUILTIN_SKILLS_AUTO_SEED`), so the Skills list seeds CALIBER's built-in catalog only when it is enabled; the Docker Compose stack in `deploy/caliber/compose.yaml` turns it on.
 
 The assistant skill runtime is intentionally deterministic in the current design,
 applying a fixed priority order:

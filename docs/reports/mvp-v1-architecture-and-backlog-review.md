@@ -22,6 +22,11 @@ tags:
 
 # v1.0.0 architecture and backlog review
 
+> **Point-in-time review (2026-08-14).** Counts, CI runs and the "Evidence snapshot" below describe the repository on that
+> date. Rows such as "CI and documentation: Currently blocked" are no longer true (the docs gate is green on `main`), and the
+> alpha work since then is recorded in [Alpha scope and limitations](../start/alpha-scope.md), the
+> [alpha gap analysis](../caliber-alpha-gaps.md) and the [roadmap](../roadmap.md), which owns the current plan.
+
 ## Decision
 
 The existing roadmap is a useful alpha-to-pilot outline, but it is **not yet an

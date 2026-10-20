@@ -2,6 +2,11 @@
 
 **Status:** deferred, with a concrete plan. Last assessed 2026-08-10.
 
+> **Still deferred (checked 2026-10-20).** No TypeScript SDK exists (`sdk/` holds `caliber-sdk`, `caliber-cli` and
+> `caliber-plugin-sdk`). The figures below are as of 2026-08-10: the Python SDK is now `0.1.0a1` (an alpha, not on PyPI,
+> and the first gate condition below, a non-dev release, is therefore still unmet), the served OpenAPI document is larger
+> than the counts quoted, and `caliberctl` has ten exit codes (0 to 9), not six.
+
 M5's third item is a TypeScript SDK. The plan gates it explicitly:
 
 > Only after the Python SDK is stable:
