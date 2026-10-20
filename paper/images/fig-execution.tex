@@ -42,33 +42,39 @@
     at ([yshift=-1.4mm, xshift=-1pt]l1.south west)
     {\textbf{Refinement}\hfill\textsc{atomic claim}\\
      triage, evidence, diagnosis, candidate, evaluation};
-  \node[async, erow, text width=\W cm-8pt] (w2) at ([yshift=-1.1mm]w1.south west)
+  \node[async, erow, text width=\W cm-8pt] (w2) at ([yshift=-0.6mm]w1.south west)
     {\textbf{CalibrationDrain}\hfill\textsc{atomic claim}\\
      queued calibration jobs};
-  \node[async, erow, text width=\W cm-8pt] (w3) at ([yshift=-1.1mm]w2.south west)
+  \node[async, erow, text width=\W cm-8pt] (w3) at ([yshift=-0.6mm]w2.south west)
     {\textbf{WorkflowRun}\hfill\textsc{atomic claim}\\
      queued runs, checkpoints, runtime approvals};
-  \node[async, erow, text width=\W cm-8pt] (w4) at ([yshift=-1.1mm]w3.south west)
+  \node[async, erow, text width=\W cm-8pt] (w4) at ([yshift=-0.6mm]w3.south west)
     {\textbf{KnowledgeBase}\hfill\textsc{atomic claim}\\
      ingest, chunk, embed, graph extraction};
-  \node[async, erow, text width=\W cm-8pt] (w5) at ([yshift=-1.1mm]w4.south west)
+  \node[async, erow, text width=\W cm-8pt] (w5) at ([yshift=-0.6mm]w4.south west)
     {\textbf{WebhookDispatcher}\hfill\textsc{atomic claim}\\
      delivery, settlement, dead letters};
+  \node[async, erow, text width=\W cm-8pt] (w6) at ([yshift=-0.6mm]w5.south west)
+    {\textbf{WorkspaceImport}\hfill\textsc{claim + heartbeat}\\
+     Workspace import jobs, lease-fenced};
 
   \node[bandlab, anchor=north west] (l2)
-    at ([yshift=-3.8mm, xshift=1pt]w5.south west)
+    at ([yshift=-3.8mm, xshift=1pt]w6.south west)
     {IDEMPOTENT OR UNLEASED \normalfont\itshape --- correct by another argument};
 
   \node[muted, erow, text width=\W cm-8pt] (u1)
     at ([yshift=-1.4mm, xshift=-1pt]l2.south west)
     {\textbf{WorkflowScheduler}\hfill\textsc{unique partial index}\\
      cron triggers per deployment alias};
-  \node[muted, erow, text width=\W cm-8pt] (u2) at ([yshift=-1.1mm]u1.south west)
+  \node[muted, erow, text width=\W cm-8pt] (u2) at ([yshift=-0.6mm]u1.south west)
     {\textbf{Janitor}\hfill\textsc{idempotent sweep}\\
      reaps jobs past their heartbeat timeout};
-  \node[muted, erow, text width=\W cm-8pt] (u3) at ([yshift=-1.1mm]u2.south west)
+  \node[muted, erow, text width=\W cm-8pt] (u3) at ([yshift=-0.6mm]u2.south west)
     {\textbf{AriaPlan}\hfill\textsc{no claim lease}\\
      resumes plans parked on async jobs};
+  \node[muted, erow, text width=\W cm-8pt] (u4) at ([yshift=-0.6mm]u3.south west)
+    {\textbf{ReleaseReconciler}\hfill\textsc{idempotent sweep}\\
+     settles release intents from the observed alias};
 
   % the queue feeds the loop groups; status transitions flow back
   \draw[flow, draw=cbAsync] ([xshift=-3pt]q.south west)
@@ -77,13 +83,12 @@
     -- ([xshift=3pt]q.south east) -- ([xshift=-2pt]q.south east);
 
   % ---- the per-process caveat ---------------------------------------------
-  \node[govern, erow, text width=\W cm-8pt] at ([yshift=-4.8mm]u3.south west)
+  \node[govern, erow, text width=\W cm-8pt] at ([yshift=-4.8mm]u4.south west)
     {\textbf{Per-process, \emph{not} durable}\\[0.2ex]
-     The failed-login throttle and the API rate limiter are in-memory token
-     buckets behind a thread lock. Every process runs its own full set of loops,
-     so with \code{mlflow server}'s four default workers these budgets exist four
-     times over and the effective ceiling scales with the worker count. Size them
-     accordingly, or pin the process to a single worker.};
+     The failed-login throttle (sliding window) and the opt-in API rate limiter
+     (token bucket) live in process memory. Every process runs its own loops and
+     limiters, so with \code{mlflow server}'s four default workers the effective
+     ceiling scales with the worker count: size them accordingly, or pin one worker.};
 
 \end{tikzpicture}
 \end{cbscaled}

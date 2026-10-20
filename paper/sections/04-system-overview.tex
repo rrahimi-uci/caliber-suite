@@ -128,6 +128,17 @@ Six weeks later, the question ``why is the prompt like this, and what did we kno
 when we changed it'' is answerable from records rather than from recollection.
 That property --- not any individual mechanism --- is what \sys exists to provide.
 
+One boundary of the shipped alpha belongs next to the figure. The chain is a
+reference shape, and the implementation does not yet close it at the front: nothing
+watches production traces, there is no ``flag this trace'' action, and verifying a
+verification-queue item does not start a refinement job. Each job-creation path
+(prompt, skill, workflow, and assistant promotion proposals) writes its own
+already-verified item in the same transaction that creates the job, so a run starts
+at \mode{Diagnose} from a prompt and a test set an operator supplies. The
+\mode{Verify} stage exists as a separate human action only for a manually flagged
+concern, and the stages after it run as described. \secref{sec:limitations} records
+this with the other limits of the release path.
+
 \subsection{Reading the two architectural diagrams}
 
 \figref{fig:layers} reads bottom-up. \Linfra{} is the substrate \sys runs on, all

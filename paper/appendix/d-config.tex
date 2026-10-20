@@ -22,15 +22,18 @@ support on the other is a configuration error waiting to happen
 
 \para{Background work is gated at two levels.} A master switch enables the loop
 lifecycle; four loops --- the workflow-run, knowledge-build, and workspace-import
-workers and the scheduler --- additionally have independent enable flags; the other
-six do not.
+workers and the scheduler --- additionally have independent enable flags, and the
+\aria{} plan worker is constructed only when the \aria{} feature flag is on; the
+other five do not.
 Disabling the master switch leaves a deployment that serves requests and accumulates
 queued work indefinitely --- which is the correct behaviour for a read-only replica
 and a silent failure for anything else.
 
 \para{Rate limits are per process.} The failed-login throttle and the API rate limiter
 are in-memory, per-process limiters --- a sliding-window counter and a token bucket
-respectively (\secref{sec:exec}). With \mlflow{}'s default of four
+respectively (\secref{sec:exec}); the API limiter is opt-in
+(\code{CALIBER\_RATE\_LIMIT\_ENABLED}, off by default), as is CSRF protection
+(\code{CALIBER\_CSRF\_ENABLED}). With \mlflow{}'s default of four
 gunicorn workers, a configured limit of $L$ yields an effective ceiling near $4L$.
 Size the configured value as $L/W$ for $W$ workers, or pin a single worker.
 
@@ -40,12 +43,16 @@ pass large content should place it in managed storage and pass a reference. Rais
 the cap raises a per-request bound and provides no flood protection
 (\appref{app:api}).
 
-\para{Provider selection defaults to fakes.} The LLM, evaluation, and promoter
-provider selections each default to a deterministic fake, so a fresh deployment
-boots and is fully navigable with no API key. The corollary matters for anyone
+\para{Provider selection defaults to fakes for the model and the evaluator.} The LLM
+and evaluation provider selections each default to a deterministic fake, so a fresh
+deployment boots and is navigable with no API key; the promoter and artifact store
+default to the real \mlflow{} ones, and their fakes are refused at startup unless
+\code{CALIBER\_ALLOW\_SIMULATED\_PROVIDERS} is set. The corollary matters for anyone
 interpreting a running instance: a deployment that appears to be evaluating
-candidates may be running the fake evaluator, and the provider selection should be
-checked before any score is believed.
+candidates may be running the fake evaluator --- a scorecard evaluation run is
+refused until a real provider is configured, and simulated evidence is marked as
+such --- so the provider
+selection and the readiness report should be checked before any score is believed.
 
 \para{The credential bootstrap is loopback-only.} A convenience default credential is
 created only while the account table is empty, only under the loopback launcher, and

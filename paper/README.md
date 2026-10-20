@@ -175,7 +175,7 @@ Drawing them in the browser would have cost four things the paper relies on.
 Generating the scenes keeps all four, and the `.excalidraw` files it emits are still
 real, editable Excalidraw documents:
 
-1. **Numbers stay single-sourced.** `568 route declarations`, `112 ORM models` and the rest come from
+1. **Numbers stay single-sourced.** The route-declaration count, the ORM-model count and the rest come from
    `generated/stats.tex` via `diagrams/stats.py`, not retyped into a JSON blob.
 2. **One palette, asserted.** Not matched by eye.
 3. **Reviewable diffs.** A `.excalidraw` file is JSON with random element IDs; a
@@ -266,7 +266,7 @@ report. If a venue-specific submission is needed later, it should be created as 
 separate edition with its own page policy rather than by reintroducing parallel
 layouts into this pipeline.
 
-**Length.** The authoritative `scrreprt` build is 77 pages after adding the
+**Length.** The authoritative `scrreprt` build is 80 pages after adding the
 four-page contents section, new-page section boundaries, and the review-driven
 additions (`tab-platforms`, `tab-threat`, `tab-loops`, and the E6/E7 protocol
 groups). It is a technical

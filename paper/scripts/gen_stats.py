@@ -19,8 +19,8 @@ The script only reads; it writes nothing outside ``paper/generated/``.
 from __future__ import annotations
 
 import ast
+import hashlib
 import re
-import subprocess
 import sys
 from dataclasses import dataclass
 from pathlib import Path
@@ -163,26 +163,23 @@ def _loop_table_rows(table: Path) -> int:
     return len(re.findall(r"^\\textbf\{", body, re.M))
 
 
-def _git_rev() -> str:
-    try:
-        revision = subprocess.run(
-            ["git", "-C", str(REPO), "rev-parse", "--short", "HEAD"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        rev = revision.stdout.strip() or "unknown"
-        status = subprocess.run(
-            ["git", "-C", str(REPO), "status", "--porcelain"],
-            capture_output=True,
-            text=True,
-            timeout=10,
-            check=False,
-        )
-        return f"{rev}-dirty" if status.stdout.strip() else rev
-    except (OSError, subprocess.SubprocessError):
-        return "unknown"
+def _source_fingerprint(
+    pkg: Path = PKG, tests: Path = TESTS, ui: Path = UI,
+) -> str:
+    """Identify the authored source counted here, independent of paper-only commits.
+
+    A Git HEAD annotation changes when the generated tables are committed, so a
+    clean checkout can never pass ``make repro``. Hash the actual input bytes and
+    relative paths instead. This also detects uncommitted source changes.
+    """
+    digest = hashlib.sha256()
+    for root, suffixes in ((pkg, (".py",)), (tests, (".py",)), (ui, (".ts", ".tsx"))):
+        for path in _walk(root, suffixes):
+            digest.update(path.relative_to(root).as_posix().encode("utf-8"))
+            digest.update(b"\0")
+            digest.update(path.read_bytes())
+            digest.update(b"\0")
+    return digest.hexdigest()[:16]
 
 
 @dataclass(frozen=True)
@@ -551,7 +548,7 @@ def check_derived(macros: Path, stats: list[Stat]) -> list[str]:
 
 
 TEX_HEADER = """%% GENERATED FILE -- do not edit.
-%% Produced by paper/scripts/gen_stats.py from the CALIBER tree at {rev}.
+%% Produced by paper/scripts/gen_stats.py from CALIBER source fingerprint {rev}.
 %% Re-run that script after any change to the implementation.
 """
 
@@ -563,7 +560,7 @@ def main() -> int:
     derived_problems = check_derived(macros, stats)
     missing = [s.macro for s in stats if s.value in ("0", "0k")]
     OUT.mkdir(parents=True, exist_ok=True)
-    rev = _git_rev()
+    rev = _source_fingerprint()
 
     lines = [TEX_HEADER.format(rev=rev)]
     for s in stats:
@@ -578,8 +575,8 @@ def main() -> int:
                     f"\\renewcommand{{\\statLoopsC}}{{{word.capitalize()}}}"
                     f"  % sentence-initial form"
                 )
-    lines.append(f"\\providecommand{{\\statGitRev}}{{{rev}}}")
-    lines.append(f"\\renewcommand{{\\statGitRev}}{{{rev}}}")
+    lines.append(f"\\providecommand{{\\statSourceHash}}{{{rev}}}")
+    lines.append(f"\\renewcommand{{\\statSourceHash}}{{{rev}}}")
     (OUT / "stats.tex").write_text("\n".join(lines) + "\n", encoding="utf-8")
 
     # A formatted table body the Implementation section \inputs directly.
@@ -611,7 +608,7 @@ def main() -> int:
     )
 
     width = max(len(s.macro) for s in stats)
-    print(f"CALIBER tree at {rev}")
+    print(f"CALIBER source fingerprint {rev}")
     for s in stats:
         print(f"  {s.macro:<{width}}  {s.value:>6}   {s.note}")
     print(f"\nwrote {OUT / 'stats.tex'}")

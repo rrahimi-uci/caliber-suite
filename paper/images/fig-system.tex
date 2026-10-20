@@ -49,8 +49,8 @@
   % ---- admission -----------------------------------------------------------
   \node[govern, anchor=north west, text width=\MW cm-0.60cm, minimum height=0.56cm]
     (adm) at (\MX+0.24,-0.10)
-    {\textbf{Admission}\ \ {\figB session or token \dt scopes \dt CSRF \dt rate
-     limit}};
+    {\textbf{Admission}\ \ {\figB session or token \dt scopes \dt CSRF and rate
+     limit (opt-in)}};
 
   % ---- surfaces ------------------------------------------------------------
   \foreach [count=\i from 0] \t in {%
@@ -101,9 +101,9 @@
   \node[async, anchor=north west, text width=\MW cm-3.60cm, minimum height=1.86cm]
     (loops) at (\MX+0.24+2.86,-5.10)
     {\textbf{Up to \statLoops{} in-process loops}\\{\figB no separate worker tier}\\[0.4ex]
-     {\figB Refinement \dt CalibrationDrain \dt WorkflowRun\\
-      AriaPlan \dt KnowledgeBase \dt Scheduler\\
-      Janitor \dt WebhookDispatcher}};
+     {\figB Refinement \dt CalibrationDrain \dt WorkflowRun \dt AriaPlan\\
+      KnowledgeBase \dt WorkspaceImport \dt Scheduler\\
+      Janitor \dt ReleaseReconciler \dt WebhookDispatcher}};
   \draw[flow, draw=cbAsync] ($(q.east)+(0,0.24)$) -- ($(loops.west)+(0,0.24)$);
   \draw[flow, draw=cbAsync] ($(loops.west)-(0,0.24)$) -- ($(q.east)-(0,0.24)$);
 

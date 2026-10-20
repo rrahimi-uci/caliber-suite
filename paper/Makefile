@@ -65,9 +65,9 @@ stats:
 
 # The four architecture figures are generated Excalidraw scenes. This is a separate
 # target rather than a prerequisite of the PDF on purpose: it needs Node, and the
-# paper must stay buildable with nothing but pdflatex. The committed artifacts in
-# generated/diagrams/ are what an ordinary `make` consumes; set \cbexcalidrawfalse
-# in tex/macros.tex to fall back to the TikZ originals instead.
+# paper must stay buildable with nothing but pdflatex. An ordinary `make` typesets
+# the TikZ originals (\cbexcalidrawfalse in tex/macros.tex); set \cbexcalidrawtrue
+# there to use the committed artifacts in generated/diagrams/ instead.
 diagrams: stats
 	@$(PYTHON) diagrams/build.py
 

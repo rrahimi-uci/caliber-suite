@@ -28,9 +28,9 @@ Three properties are worth the generator, and all three are the same ones
 `paper/README.md` claims for the Excalidraw figures:
 
 1. **Numbers stay single-sourced.** `stats()` parses `\newcommand{\stat...}` out of
-   `tex/macros.tex` and `generated/stats.tex` — so `nine families`, `490 route
-   declarations` and `129k lines of Python` come from the same place the
-   manuscript's prose does. Re-run `scripts/gen_stats.py` and the deck moves with
+   `tex/macros.tex` and `generated/stats.tex` — so the family count, the route-declaration
+   count and the line counts come from the same place the manuscript's prose
+   does. Re-run `scripts/gen_stats.py` and the deck moves with
    the paper. A count the generator cannot find is a build failure, not a slide
    someone has to notice.
 

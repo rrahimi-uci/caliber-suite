@@ -8,7 +8,7 @@ precise about what it does and does not establish.
 ## What `make repro` proves
 
 Every quantitative fact in the paper — line counts, family counts, layer counts,
-node-type counts, the tree revision — is emitted by `scripts/gen_stats.py`, which
+node-type counts, the source fingerprint — is emitted by `scripts/gen_stats.py`, which
 walks the CALIBER source tree and writes `generated/stats.tex`. Nothing is typed
 into the prose by hand. `make repro` regenerates those files, **fails if the
 regenerated output differs from the committed output**, and then rebuilds the PDF
@@ -16,7 +16,7 @@ under `make check`.
 
 A pass therefore means: the numbers in the text describe the tree you have, and no
 figure was transcribed. A failure means the committed `generated/` files describe a
-different revision than your checkout — which is exactly the drift the check exists
+different source state than your checkout — which is exactly the drift the check exists
 to catch.
 
 `make check` additionally fails on undefined references, undefined citations,
@@ -56,5 +56,6 @@ repository's `caliber/.venv` must contain the development test dependencies. Fou
 pdflatex passes plus one bibtex pass settle floats, citations, and cross-references.
 
 `make diagrams` is separate and *is* optional: it rebuilds the Excalidraw figures
-and needs Node. The committed PDFs in `generated/diagrams/` are what an ordinary
-build consumes, so the paper stays buildable with nothing but pdflatex.
+and needs Node. An ordinary build typesets the TikZ originals; the committed PDFs in
+`generated/diagrams/` are used only when `\cbexcalidrawtrue` is set in
+`tex/macros.tex`, so the paper stays buildable with nothing but pdflatex.

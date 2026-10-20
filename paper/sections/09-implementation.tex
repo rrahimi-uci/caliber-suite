@@ -35,9 +35,16 @@ site is a latent event-loop stall --- and we record it as a cost rather than
 presenting the choice as free.
 
 \para{A deterministic fake behind every provider seam.} \code{LLMProvider},
-\code{EvalProvider}, and \code{Promoter} each have a deterministic fake as the
-default, so the server boots and the full control plane is exercisable with no API
-key configured. Two consequences follow that are larger than the decision looks.
+\code{EvalProvider}, and \code{Promoter} each have a deterministic fake. The
+language-model and evaluation providers default to it, so the server boots and the
+control plane is exercisable with no API key configured; a scorecard evaluation run is refused with a
+\code{400} until a real provider is set, and the evidence a fake produces is marked
+simulated. The fake \code{Promoter} and artifact store simulate a release rather than
+perform one, so they are not defaults: the default promoter is the real \mlflow{}
+one, and a simulated one is refused at startup unless
+\code{CALIBER\_ALLOW\_SIMULATED\_PROVIDERS} is set, which the tests and the
+browser harness do explicitly. Two consequences follow that are larger than the
+decision looks.
 The test suite is hermetic: no test requires a model provider, so
 \statTestFiles{} test modules run without network access or spend. And performance
 measurement is separable: control-plane latency can be measured independently of
@@ -63,10 +70,14 @@ The browser layer includes a separate Cookbook configuration that starts a migra
 isolated database and rejects adapters containing direct request, endpoint, database,
 or manifest-seeding shortcuts.  Its executable journeys cover skill authoring and
 trigger tests, all-seventeen catalog visibility plus installation of every example as
-a separate paused draft, review-queue creation, and, added this session, the seeded
-two-week-alpha journey (\code{two-week-alpha-journey.spec.ts}, trace through
-diagnosis, candidate, evaluation, apply, and release/rollback) and the Workspace
-import-to-promotion journey (\code{workspace-journey.spec.ts}).  The local CI mirror terminates the detached
+a separate paused draft, and review-queue creation; a further lab configuration
+drives the Cookbook labs through the UI.  A separate alpha-gate configuration runs
+the shipped defaults (simulated model and evaluator, real \mlflow{} promoter, every
+feature flag unset) through a fixture-seeded flagged item, its already-evaluated
+candidate, Apply, and rollback (\code{two-week-alpha-journey.spec.ts}), a prompt
+created, calibrated, applied, and rolled back in the browser, and the skill, tool,
+and workflow journeys.  A separate spec exercises only workspace selection and
+request scoping (\code{workspace-journey.spec.ts}).  The local CI mirror terminates the detached
 MLflow/uvicorn process group before deleting its state so a passing browser run does
 not leave a listener or database behind.
 
@@ -81,7 +92,8 @@ provider, which is a checkable structural property rather than a quality score.
 
 \figref{fig:topologies} gives both topologies. A bundled loopback-only container
 stack provides PostgreSQL~17 with pgvector and Apache~AGE, S3-compatible object
-storage, \mlflow{}, an AI gateway, and NATS, for development. It is explicitly not
+storage, \mlflow{}, an AI gateway, and NATS, for development; its \sys{} service
+runs the standalone topology, the only one the alpha supports. It is explicitly not
 a production deployment template: it is loopback-bound, and it enables a
 convenience credential bootstrap that a network-reachable deployment must leave
 disabled. Saying so in the paper is not throat-clearing --- a development stack

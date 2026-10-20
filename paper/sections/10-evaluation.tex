@@ -92,7 +92,7 @@ outcome makes the capability-interface design a requirement rather than future w
 construction or inspection rather than by measurement, and are reported as answered
 because their evidence is the implementation. The control plane is exercisable with
 no model provider configured, because every provider seam has a deterministic fake
-(\secref{sec:impl}). A database-resident mutation that calls the audit helper on the
+(\secref{sec:impl}; the simulated release providers need an explicit opt-in). A database-resident mutation that calls the audit helper on the
 caller's session shares that transaction, which is a property of the call site and
 is verifiable by inspection. And the per-family guarantee surface is stated in
 \tabref{tab:families}. We separate these from E1--E4 deliberately: they are
