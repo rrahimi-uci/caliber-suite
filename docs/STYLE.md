@@ -41,9 +41,11 @@ Each numbered implementation/feature architecture module follows this shape, top
 to bottom; the repository-root executive overview follows the exception above:
 
 1. `# H1` — the page title.
-2. **"What this is"** — one short paragraph in plain language. No code-path names,
-   no table names; just what the thing is and why it exists.
-3. **`## At a glance`** — a 5–7 row, two-column orientation table ("where it
+2. **"What this is"** — optional. If the page opens with a lead paragraph, keep it
+   short and in plain language: no code-path names, no table names, just what the
+   thing is and why it exists. Most pages carry this in the `What it is` row of the
+   table below instead.
+3. **`## At a glance`** — a 6–8 row, two-column orientation table ("where it
    stands"). Mandatory. Every fact must be supported elsewhere in the doc.
 4. A **signature diagram** — themed, with semantic node colors and a legend.
 5. **`## Reference`** — the explicit tier boundary. The generator renders this as
