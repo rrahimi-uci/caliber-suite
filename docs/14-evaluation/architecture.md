@@ -379,8 +379,10 @@ natural-language rubric — instructions that reference the evaluation variables
 and a feedback value type (`bool` / `int` / `float` / `str`). They are managed on
 the **Judges** page and stored in `caliber_judges` (migration `0053`), scoped and
 archived like the other CALIBER assets. A schema validator enforces that the
-instructions reference at least one evaluation variable so a judge always has
-something to score. Updating a judge records the full from/to value diff in the
+instructions reference at least one evaluation variable (`{{ inputs }}`,
+`{{ outputs }}`, `{{ expectations }}`, `{{ conversation }}` or `{{ trace }}`) so a
+judge always has something to score, and rejects any other `{{ ... }}` token when
+the judge is saved rather than when it is first used. Updating a judge records the full from/to value diff in the
 audit row (not just the changed field names), so a judge's prior instructions and
 model stay recoverable after an edit — historical eval runs cite a judge by token
 only, so this is what keeps their verdicts interpretable.

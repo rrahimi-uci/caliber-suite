@@ -7,7 +7,7 @@ product_area: strategy
 stability: ga
 prerequisites:
   - Decision-maker overview
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-20
 version_applicability: current main branch docs contract
 tags:
   - strategy
@@ -22,7 +22,7 @@ tags:
 
 > **Scope.** A deep competitive review of CALIBER against the open-source and cloud tools it is most often compared to: visual LLM/agent builders (Langflow, Flowise, Dify), workflow-automation and BPM engines (n8n, Flowable, and the Windmill/Activepieces/Node-RED tier), LLMOps / evaluation / observability platforms (Langfuse, Arize Phoenix, LangSmith + LangGraph, W&B Weave, Promptfoo), the foundations CALIBER builds on (MLflow GenAI, DSPy, Haystack), and the hyperscaler stacks (AWS Bedrock, Google Vertex AI, Microsoft Azure AI Foundry).
 >
-> **Alpha status (2026-10-14).** This is a positioning document, not a statement of what `0.1.0a1` ships; `0.1.0a1` is prepared on `main` and its tag and release assets are not published. Where it describes the loop as starting from production feedback, read it as the design intent: in the alpha, nothing watches traces or flags one, verifying a queue item does not start a job, and calibration starts from a prompt and a test set. The default LLM and evaluator are simulated, so scores are canned until a real model and evaluator are configured; MCP servers, OpenAPI integrations, cookbooks and Aria are preview, and Apply has no two-person rule. See [Alpha scope and limitations](start/alpha-scope.md).
+> **Alpha status (2026-10-20).** This is a positioning document, not a statement of what `0.1.0a1` ships; `0.1.0a1` is prepared on `main` and its tag and release assets are not published. Where it describes the loop as starting from production feedback, read it as the design intent: in the alpha, nothing watches traces or flags one, verifying a queue item does not start a job, and calibration starts from a prompt and a test set. The default LLM and evaluator are simulated, so scores are canned until a real model and evaluator are configured; MCP servers, OpenAPI integrations, cookbooks and Aria are preview areas that are off by default behind `CALIBER_FEATURE_*` flags, and Apply has no two-person rule. See [Alpha scope and limitations](start/alpha-scope.md).
 >
 > **As of.** Mid-2026. LLM tooling moves weekly — product names, licenses, star counts, and feature GA dates are point-in-time and were spot-verified against primary sources (official docs, GitHub repos/licenses, vendor announcements); treat exact figures as directional. Confidence notes are called out inline.
 >
@@ -63,7 +63,7 @@ MLflow databases. On top of those primitives it adds:
 - **Evaluation** — scorecards, custom LLM judges (`mlflow.genai.make_judge`), deterministic scorers, human review queues, prompt advisory verdicts, and separate workflow deploy-gate evidence.
 - **Knowledge bases** — RAG with chunking, embeddings, **Apache AGE knowledge-graph** extraction, hybrid retrieval + cross-encoder rerank.
 - **Governance** — RBAC (`viewer`/`operator`/`approver`/`admin`), a full audit trail, and an LLM-Gateway governance surface (endpoint discovery, guardrails, pricing, usage).
-- **Aria** — an embedded, permissioned agentic copilot (OpenAI + Claude) that drives goals through a durable, supervised plan.
+- **Aria** — an embedded, permissioned agentic copilot (OpenAI + Claude) that drives goals through a durable, supervised plan. A preview area, off by default (`CALIBER_FEATURE_ARIA`).
 
 **Category.** CALIBER is best described as an **"LLM/agent lifecycle control plane"** — the governance-and-improvement layer that sits *above* builders and *beside* observability tools. It competes on the axis of *"who owns the path from a flagged response to a safely-deployed, measurably-better artifact."*
 

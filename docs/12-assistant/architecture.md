@@ -23,7 +23,7 @@ tags:
 > enable with `CALIBER_FEATURE_ARIA=true` and restart CALIBER. While it is off, the `/assistant/*` and `/aria/*`
 > routes answer 404 (`reason_code: feature_disabled`) and the Aria panel and the Plans page are hidden. The
 > routes stay registered, so the OpenAPI document and the SDK describe them in every deployment.
-> `CALIBER_ASSISTANT_ENABLED` is a separate setting that decides whether an enabled assistant accepts requests.
+> `CALIBER_ASSISTANT_ENABLED` is a separate setting that decides whether an enabled assistant accepts requests (`503`).
 > See [Feature flags](../start/alpha-scope.md#feature-flags).
 
 ## At a glance
@@ -32,7 +32,7 @@ tags:
 | --- | --- |
 | **What it is** | An in-product agent that turns a chat conversation into governed CALIBER actions — drafting tools, skills, prompts, workflows, and MCP servers. |
 | **Session model** | Per-user authoring sessions with turn-by-turn message history, persisted in the `CaliberAssistant*` tables. |
-| **Engine** | A pluggable provider behind one `AssistantEngine` protocol (`fake` / `openai` / `anthropic` / `ollama`), selected once at boot in `server.py`. |
+| **Engine** | A pluggable provider behind one `AssistantEngine` protocol (`fake` / `openai` / `anthropic` / `ollama`), selected at boot in `server.py` and swapped at runtime by `PATCH /config` (`_rebuild_engine`). |
 | **Interaction modes** | `chat`, `build`, and `plan` — only `build` materializes `draft_deltas`; `plan` creates durable goal-plans via `POST /aria/plans`. |
 | **Tool loop** | The OpenAI and Anthropic engines run an agentic tool-calling loop over a per-turn, tier-filtered surface: 29 hand-written tools plus nine capability-registry entries in the current source. It is not read-only or full registry parity: read tools are always eligible, safe/mutate tools depend on build/approval mode, and `gated` capabilities are omitted from synchronous projection. |
 | **Approval / governance** | Drafts use validate → test → review/approved-status → publish. The author turn never receives gated approve/publish tools. `agent_review` invokes an isolated approver-scoped reviewer agent; `full_autonomy` adds a distinct operator-scoped release principal. Both fail closed and bind the decision to an immutable candidate hash. Gated goal-plan capabilities still pause for a human. |
@@ -68,7 +68,7 @@ Concretely, Aria owns the following responsibilities:
   behind a single `AssistantEngine` protocol, so the rest of the system never
   has to know which provider is active.
 - It assembles grounded context for each turn — the selected skills, the current
-  drafts, and any user-attached **context attachments** ("+ add files").
+  drafts, and any user-attached **context attachments** (the **Add context** menu).
 - It supports interaction **modes** (chat, build, and plan) that shape its
   behavior the way a code assistant's mode toggle does.
 - It manages **drafts** through a validate → test → approved-status → publish
@@ -104,6 +104,7 @@ The behavior described above lives across a small set of backend code paths:
 - `caliber/src/caliber/assistant/{openai_engine,anthropic_engine,ollama_engine,fake}.py`
 - `caliber/src/caliber/assistant/prompt_builder.py`
 - `caliber/src/caliber/assistant/tools.py`
+- `caliber/src/caliber/assistant/agent_tools.py`
 - `caliber/src/caliber/assistant/skill_runtime.py`
 - `caliber/src/caliber/assistant/{publisher,validators,tracing}.py`
 - `caliber/src/caliber/assistant/reviewer.py` (strict reviewer-agent contract)
@@ -115,7 +116,7 @@ The behavior described above lives across a small set of backend code paths:
 The user-facing surface is implemented in a parallel set of frontend code paths:
 
 - `caliber/caliber-ui/src/components/assistant/CaliberAssistantPanel.tsx`
-- `caliber/caliber-ui/src/components/assistant/{AttachmentBar,ModeSelector,AssistantSettings,ChatHistory,AccessBadge}.tsx`
+- `caliber/caliber-ui/src/components/assistant/{AttachmentBar,ModeSelector,ApprovalModeSelector,AssistantSettings,ChatHistory,AccessBadge}.tsx`
 - `caliber/caliber-ui/src/components/assistant/{QuestionList,DraftStatusBadge,ArtifactTypeSelector,ValidationPanel,TestPanel,AriaLogo,AssistantPanelContext}.tsx`
 - `caliber/caliber-ui/src/components/assistant/AriaPlanCard.tsx` (inline goal-plan card) plus `caliber/caliber-ui/src/{pages/AriaPlans.tsx,components/aria/planView.tsx}` (the standalone Plans page and shared plan-rendering atoms — the orchestrator surface of §9)
 - `caliber/caliber-ui/src/api/{caliberApi.ts,assistantTypes.ts}`
@@ -135,7 +136,7 @@ and what that ownership entails.
 | --- | --- | --- |
 | Orchestration | `AssistantService` (`service.py`) | Persists turns/runs, assembles context, calls the engine, applies draft deltas, drives intent plans, and advances draft state according to interaction and approval mode. |
 | Provider engine | `AssistantEngine` protocol (`engine.py`) | One `run_turn(AssistantTurnRequest) -> AssistantTurnResult` contract; concrete engines in `openai_engine.py`, `anthropic_engine.py`, `ollama_engine.py`, `fake.py`. |
-| Engine selection | `server.py` | Picks the engine at boot from `assistant_engine` (default `auto` → a real provider by available API key: OpenAI if `OPENAI_API_KEY`, else Anthropic/Claude if `ANTHROPIC_API_KEY`, else OpenAI). `FakeAssistantEngine` is a deterministic test double, never selected automatically. |
+| Engine selection | `server.py` (boot), `routes/assistant.py::_rebuild_engine` (`PATCH /config`) | Picks the engine at boot from `assistant_engine` (default `auto` → a real provider by available API key: OpenAI if `OPENAI_API_KEY`, else Anthropic/Claude if `ANTHROPIC_API_KEY`, else OpenAI). `FakeAssistantEngine` is a deterministic test double, never selected automatically. |
 | System prompt assembly | `prompt_builder.py` | Builds one shared system prompt from policy, mode guidance, selected skills, and attached context. |
 | Skill selection | `skill_runtime.py` | Deterministic `resolve_assistant_skills` (auto / manual / off) over `CaliberSkill` rows. |
 | Fallback registry access | `RegistryToolDispatcher` (`tools.py`) | A three-tool, read-only fallback (`list_skills` / `get_skill` / `list_tools`). Normal service turns pass the richer per-turn toolset below, which overrides this engine fallback. |
@@ -194,8 +195,9 @@ Several structural properties of this path are worth calling out, because they
 explain why the architecture stays simple as providers and features grow:
 
 - The engine is **pluggable behind one protocol**. The service never branches on
-  provider; only `server.py` does, and only once, at boot — so provider-specific
-  code stays contained at the edge.
+  provider; only the engine factories do — `server.py` at boot and `_rebuild_engine`
+  in `routes/assistant.py` when `PATCH /config` changes the model — so
+  provider-specific code stays contained at the edge.
 - The engine returns data (`reply`, `questions`, `draft_deltas`), not
   user-facing prose. The service owns persistence, draft application, and run
   bookkeeping, which keeps reasoning and side effects cleanly separated.
@@ -249,7 +251,7 @@ session `metadata` JSON bag:
 - `intent_workbench` holds the latest resolved intent and plan.
 - `assistant_correlation_id` groups a session's traces.
 
-Context attachments are the mechanism behind the "+ add files" affordance, and
+Context attachments are the mechanism behind the **Add context** affordance, and
 they come in four kinds (`AttachmentKind`, `models.py`), each resolved to text
 at attach time:
 
@@ -315,7 +317,7 @@ stateless draft shortcut:
 - `POST /prompt-draft`
 - `GET`/`POST /sessions/{session_id}/queue` and `DELETE /queue/{queue_id}`  (queued follow-up messages)
 
-Context attachments back the "+ add files" affordance, with one route per source
+Context attachments back the **Add context** affordance, with one route per source
 plus a deletion route:
 
 - `GET /sessions/{session_id}/attachments`
@@ -365,9 +367,11 @@ mid-run interaction protocol:
 On the frontend, a focused set of components binds these routes to the user:
 
 - `CaliberAssistantPanel.tsx` is the right-side "Ask Aria" drawer host.
-- `ModeSelector.tsx` is the Chat / Build / Plan toggle.
-- `AttachmentBar.tsx` is the "+ add context" menu (upload, object store,
-  library, and pasted text) together with the attachment chips.
+- `ModeSelector.tsx` is the Chat / Build / Plan toggle, and `ApprovalModeSelector.tsx`
+  picks the approval policy (`manual`, `auto_safe`, `auto_all`, `agent_review`,
+  `full_autonomy`).
+- `AttachmentBar.tsx` is the "Add context" menu (Upload file, Object store,
+  Library resource, and Paste text) together with the attachment chips.
 - `AssistantSettings.tsx` edits model, reasoning, and disabled-intents settings
   over `/config`.
 - `ChatHistory.tsx` lets the user browse, switch, rename, and archive past
@@ -410,7 +414,7 @@ sequenceDiagram
     alt mode == build
         SVC->>DB: Apply draft deltas
     end
-    SVC-->>UI: TurnResponse (message, questions, draft_updates, run)
+    SVC-->>UI: TurnResponse (assistant_message, questions, draft_updates, run, tool_calls)
 ```
 
 A few rules govern how that lifecycle behaves in practice:
@@ -432,8 +436,9 @@ A few rules govern how that lifecycle behaves in practice:
   engine call runs under a `run_timeout_seconds` watchdog.
 - **Intent execution** is the structured-mutation path. `execute_intent_plan`
   dispatches to per-intent `_execute_*` adapters (create_tool/skill/workflow/
-  mcp_server, prompt write, optimization, eval-dataset save, workflow
-  calibration, and propose_promotion).
+  mcp_server, prompt write, test-case generation, eval-dataset save, prompt
+  optimization and its result review, workflow calibration and its result review,
+  and propose_promotion).
 
 Each turn therefore produces a complete, auditable result — a persisted message,
 an optional set of draft updates, and a run record — before control returns to
@@ -447,8 +452,8 @@ same authorization and asset-specific lifecycle controls as the corresponding
 human-driven route. The following controls enforce that assumption.
 
 - Every route requires an authenticated user (`require_user`), and the mutating
-  intent-workbench routes — sessions, messages, attachments, drafts, intent-plan
-  execution (`POST /sessions/{id}/plans/execute`), and config — require
+  intent-workbench routes — sessions, messages, the message queue, attachments, drafts,
+  intent-plan execution (`POST /sessions/{id}/plans/execute`), and config — require
   `operator` scope. (The agentic `/aria/plans/*` routes are **owner-scoped**, not
   operator-scoped — see the next bullet.)
 - Listing another owner's sessions requires `admin` scope; otherwise sessions
@@ -528,9 +533,9 @@ configuration is both inspectable and changeable at runtime.
 - `GET /config` reports the active engine, model, provider, reasoning, and
   disabled intents/domains plus `agent_review` / `full_autonomy` readiness,
   while `PATCH /config` rebuilds both the author and reviewer engine at runtime
-  (operator-scoped). The mode selector disables an autonomous policy until its
+  (operator-scoped). The approval-mode selector (`ApprovalModeSelector.tsx`) disables an autonomous policy until its
   service identities and real provider are ready.
-- Both also report `configured` and a `reason`, so Aria says when it cannot answer.
+- `GET` and `PATCH /config` also report `configured` and a `reason`, so Aria says when it cannot answer.
   `assistant_engine=auto` resolves to OpenAI when neither key is set, so a default
   install reports `configured: false` with a reason naming `OPENAI_API_KEY` (set it and
   restart, or save a key under Settings, Providers); `assistant_enabled=false` reports
@@ -584,11 +589,11 @@ testable modules.
 | Planner | `plans.py` (`Planner` protocol, `HeuristicPlanner`) | Decomposes a goal into ordered `PlannedStep`s, each bound to a capability and carrying an optional quality `gate`. The default planner is registry-driven: it matches the capability domain named in the goal against safe- and mutate-tier capabilities (the product's name "test set" also matches `eval_dataset`), links a step's required inputs to earlier steps that produce them, and persists the richer task contract on the plan for a future state-aware planner. A goal that matches nothing yields a zero-step plan, which is flagged with a warning at creation and refused with `409` at approve and execute. |
 | Plan service | `plans.py` (`PlanService`) | Persists plans and steps — including the per-plan task contract (`constraints`, `done_when`, `context_refs`) — with create / get / list / `set_status`. |
 | Plan executor | `executor.py` (`PlanExecutor`) | Walks an approved plan, dispatches each step's capability, applies the autonomy gate, raises interactions, parks async steps, and runs the quality-gate / self-correction logic. |
-| Plan worker | `plan_worker.py` (`AriaPlanWorker`) | A background asyncio task that periodically polls plans parked on async jobs and resumes them. Wired into the `server.py` lifespan, gated by `background_tasks_enabled` (interval `aria_plan_worker_interval_seconds`, default 10s). |
+| Plan worker | `plan_worker.py` (`AriaPlanWorker`) | A background asyncio task that periodically polls plans parked on async jobs and resumes them. Wired into the `server.py` lifespan, started only when `CALIBER_FEATURE_ARIA` is on and gated by `background_tasks_enabled` (interval `aria_plan_worker_interval_seconds`, default 10s). |
 
 ### 9.2 Lifecycle
 
-A plan moves through `draft → approved → (running) → paused ↔ resumed →
+A plan moves through `draft → approved → (running) → paused ↔ running →
 completed` (or `cancelled`, or `failed` when a step fails or the plan owner lacks a
 capability's required scope). The executor advances steps in order; between steps
 it consults the **autonomy dial** to decide whether to run a step or pause for a

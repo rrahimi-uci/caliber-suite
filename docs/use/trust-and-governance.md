@@ -69,8 +69,9 @@ Use the deep references when you need the exact execution model:
 
 ## Simulated evidence is labelled
 
-The shipped defaults use a fake language model, evaluator and promoter, so a fresh install runs the whole loop
-on canned numbers. CALIBER records what produced each score and says so where you decide:
+The shipped defaults use a fake language model and evaluator, so a fresh install runs the loop on canned numbers.
+The promoter and artifact store default to the real MLflow ones (a `fake` promoter is refused at startup unless
+`CALIBER_ALLOW_SIMULATED_PROVIDERS=true`), so Apply changes the registry. CALIBER records what produced each score and says so where you decide:
 
 - Every evaluation result stores `provider` and `simulated`, and a skill or prompt review shows "Simulated
   evaluation — not evidence".
@@ -79,8 +80,8 @@ on canned numbers. CALIBER records what produced each score and says so where yo
 - A banner at the top of the app names any simulated provider. It cannot be dismissed while the evaluator or the
   promoter is simulated, because then the scores are canned or Apply changes nothing in the registry. It also
   names a blocking dependency when readiness reports one.
-- Apply's response and audit rows carry `simulated`, so a release made through the fake promoter cannot be
-  mistaken for a real one.
+- Apply's response and audit rows carry `simulated`, so a release made through a fake promoter (an explicit opt-in)
+  cannot be mistaken for a real one.
 
 ## 4. Human authority stays explicit
 

@@ -77,6 +77,37 @@ const INITIAL_FORM: WizardFormData = {
   secret_refs: [],
 };
 
+/** The next version string after ``version``: ``1.0`` -> ``1.1``, ``2`` -> ``3``, ``v1.4.2`` -> ``v1.4.3``, ``2026-06`` -> ``2026-07``. */
+export function nextVersion(version: string): string {
+  const match = /^(.*?)(\d+)(\D*)$/.exec(version.trim());
+  if (!match) return "";
+  // Keep the digits' width: 2026-06 -> 2026-07, not 2026-7.
+  const bumped = String(Number(match[2]) + 1).padStart(match[2]!.length, "0");
+  return `${match[1]}${bumped}${match[3]}`;
+}
+
+/** A new version starts as the tool it follows (same name, module, schemas, safety), one version on. */
+function formFromBase(base: ToolDefinition): WizardFormData {
+  return {
+    ...INITIAL_FORM,
+    name: base.name,
+    version: nextVersion(base.version),
+    description: base.description ?? "",
+    owner: base.owner ?? "",
+    module_path: base.module_path,
+    callable_name: base.callable_name,
+    // Raw JSON keeps nested schemas exactly as they are; the visual editor flattens them.
+    inputSchemaRaw: JSON.stringify(base.input_schema ?? {}, null, 2),
+    outputSchemaRaw: JSON.stringify(base.output_schema ?? {}, null, 2),
+    useRawInput: true,
+    useRawOutput: true,
+    side_effect_level: base.side_effect_level,
+    requires_approval: base.requires_approval,
+    allow_in_preview: base.allow_in_preview,
+    secret_refs: [...(base.secret_refs ?? [])],
+  };
+}
+
 const STEPS = [
   { label: "Identity", icon: "1" },
   { label: "Implementation", icon: "2" },
@@ -177,9 +208,12 @@ function StepIndicator({ current, onGoTo }: { current: number; onGoTo: (i: numbe
 function IdentityStep({
   form,
   onChange,
+  nameLocked = false,
 }: {
   form: WizardFormData;
   onChange: (patch: Partial<WizardFormData>) => void;
+  /** A new version keeps the name of the tool it follows: the name is what makes it a version. */
+  nameLocked?: boolean;
 }): JSX.Element {
   return (
     <div data-testid="step-identity" className="space-y-5">
@@ -195,6 +229,7 @@ function IdentityStep({
             data-testid="wiz-name"
             placeholder="e.g. lookup_order"
             value={form.name}
+            disabled={nameLocked}
             onChange={(e) =>
               onChange({
                 name: e.target.value,
@@ -204,7 +239,11 @@ function IdentityStep({
               })
             }
           />
-          <p className="text-xs text-gray-400">Unique identifier. Will be used as the function reference.</p>
+          <p className="text-xs text-gray-400">
+            {nameLocked
+              ? "Fixed: a new version keeps the name of the tool it follows."
+              : "Unique identifier. Will be used as the function reference."}
+          </p>
         </div>
         <div className="space-y-1.5">
           <Label htmlFor="wiz-version">Version</Label>
@@ -882,9 +921,18 @@ export function buildOutputSchema(form: WizardFormData): Record<string, unknown>
 /*  Main Wizard                                                        */
 /* ------------------------------------------------------------------ */
 
-export function ToolWizard({ onClose }: { onClose: () => void }): JSX.Element {
+export function ToolWizard({
+  onClose,
+  base = null,
+}: {
+  onClose: () => void;
+  /** Register the next version of this tool: its name is fixed and the rest starts as it is. */
+  base?: ToolDefinition | null;
+}): JSX.Element {
   const [step, setStep] = useState(0);
-  const [form, setForm] = useState<WizardFormData>(INITIAL_FORM);
+  const [form, setForm] = useState<WizardFormData>(() =>
+    base ? formFromBase(base) : INITIAL_FORM,
+  );
   const [registeredTool, setRegisteredTool] = useState<ToolDefinition | null>(null);
   const navigate = useNavigate();
   const invalidate = useInvalidate();
@@ -939,7 +987,8 @@ export function ToolWizard({ onClose }: { onClose: () => void }): JSX.Element {
       onSuccess: (tool) => {
         setRegisteredTool(tool);
         invalidate(["tools", "all"]);
-        navigate(`/tools/${tool.tool_id}`);
+        // Into the new tool's workspace: Sandbox, Fixtures, Hardening and Test Runs are next.
+        navigate(`/tools?tool=${encodeURIComponent(tool.tool_id)}`);
       },
     },
   );
@@ -955,7 +1004,9 @@ export function ToolWizard({ onClose }: { onClose: () => void }): JSX.Element {
     <div data-testid="tool-wizard" className="mx-auto max-w-2xl">
       {/* Header */}
       <div className="mb-6 flex items-center justify-between">
-        <h1 className="text-xl font-semibold text-gray-900">Register New Tool</h1>
+        <h1 className="text-xl font-semibold text-gray-900">
+          {base ? `New version of ${base.name}` : "Register New Tool"}
+        </h1>
         <button
           type="button"
           data-testid="wizard-close"
@@ -973,7 +1024,7 @@ export function ToolWizard({ onClose }: { onClose: () => void }): JSX.Element {
 
       {/* Step content */}
       <div className="min-h-[340px]">
-        {step === 0 && <IdentityStep form={form} onChange={onChange} />}
+        {step === 0 && <IdentityStep form={form} onChange={onChange} nameLocked={base !== null} />}
         {step === 1 && <ImplementationStep form={form} onChange={onChange} />}
         {step === 2 && <SchemaStep form={form} onChange={onChange} />}
         {step === 3 && <PlaygroundStep form={form} registeredToolId={registeredTool?.tool_id ?? null} />}

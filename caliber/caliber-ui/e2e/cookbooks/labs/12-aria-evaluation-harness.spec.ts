@@ -87,7 +87,7 @@ test.describe("Cookbook 12: an evaluation harness from one sentence", () => {
 
     // ---- 1. Plans > Goal ---------------------------------------------------------------
     const nav = page.getByLabel("CALIBER navigation");
-    await nav.getByRole("button", { name: /^Integrations/ }).click();
+    await nav.getByRole("button", { name: /^Operate/ }).click();
     await nav.getByRole("link", { name: "Plans" }).click();
     await expect(page).toHaveURL(/\/caliber\/aria\/plans$/);
     await expect(
@@ -281,10 +281,13 @@ test.describe("Cookbook 12: an evaluation harness from one sentence", () => {
 
     // ---- 9. Compare the new version with the baseline --------------------------------------
     const judgeShare = async (): Promise<number> => {
+      // The card is the deepest block that holds both the judge's name and its percentage (the
+      // label alone is deeper, and the whole row of cards is shallower).
       const card = page
         .getByTestId("eval-aggregate")
         .locator("div")
         .filter({ hasText: judgeName })
+        .filter({ hasText: /%/ })
         .last();
       const text = (await card.textContent()) ?? "";
       const match = /(\d+(?:\.\d+)?)%/.exec(text);

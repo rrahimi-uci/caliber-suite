@@ -59,4 +59,3 @@ while IFS= read -r chunk_pattern; do
 done <<< "${chunk_patterns}"
 
 run_slice "WorkflowVersionDetail page" "WorkflowVersionDetail page"
-run_slice "ToolDetail page" "ToolDetail page"

@@ -4,6 +4,7 @@ import { goToSidebarRoute, signIn } from "./helpers";
 
 const EXPECTED_NAV_ORDER = [
   "Dashboard",
+  "Cookbooks",
   "Prompts",
   "Test Sets",
   "Evaluations",
@@ -18,11 +19,10 @@ const EXPECTED_NAV_ORDER = [
   "Observability",
   "Review Queues",
   "Audit Log",
+  "Plans",
   "LLM Gateway",
   "MCP Servers",
   "OpenAPI Integrations",
-  "Cookbooks",
-  "Plans",
   "Administration",
   "Settings",
   "Docs",
@@ -57,6 +57,7 @@ const SIDEBAR_ROUTES = [
 
 async function openAllGroups(page: Page): Promise<void> {
   for (const group of [
+    "Get started",
     "Prompt lifecycle",
     "Agent resources",
     "Operate",

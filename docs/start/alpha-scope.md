@@ -65,7 +65,7 @@ journey is proven in CI on every change, offline, on the simulated defaults.
 | --- | --- |
 | Core journey | Prompts, test sets, evaluations, calibration, review and Apply, projects and roles, access tokens, audit log, release timeline, readiness |
 | Also in the alpha | Skills, tools (trusted authors), workflows, knowledge bases and the object-store console |
-| Preview (off by default) | MCP servers and OpenAPI integrations (off by default; enable with `CALIBER_FEATURE_INTEGRATIONS`), cookbooks (off by default; enable with `CALIBER_FEATURE_COOKBOOKS`), the Aria assistant and plans (off by default; enable with `CALIBER_FEATURE_ARIA`). Marked "Preview" in the app once enabled |
+| Preview (off by default) | MCP servers and OpenAPI integrations (off by default; enable with `CALIBER_FEATURE_INTEGRATIONS`), cookbooks (off by default; enable with `CALIBER_FEATURE_COOKBOOKS`), the Aria assistant and plans (off by default; enable with `CALIBER_FEATURE_ARIA`). The app carries no maturity labels, so the flag state is the only signal |
 | Record-only (off by default) | Release-candidate signoff on the Releases page: it records a decision and deploys nothing (off by default; enable with `CALIBER_FEATURE_RELEASE_CANDIDATES`) |
 | Experimental (off by default) | Workspace releases: release evaluation has no executor in this build (off by default; enable with `CALIBER_FEATURE_RELEASE_CANDIDATES`) |
 | Not in the alpha | Memory, and the flagged-trace to refinement loop |
@@ -106,15 +106,15 @@ Things to know before you turn one on:
   README names the flags it needs.
 - **Aria also backs a few helpers inside supported pages.** The **Ask Aria** button, **Describe it** prompt
   drafting, the prompt Playground, test-case generation and test runs inside the prompt workspace, and the tool
-  unit-test generator call the assistant, so with `CALIBER_FEATURE_ARIA` off they are hidden or show a "disabled in
-  this deployment" notice. The core journey does not need them: build the test set by hand on the Test Sets page.
+  unit-test generator call the assistant, so with `CALIBER_FEATURE_ARIA` off they are hidden or show a notice that
+  names the variable (the Playground stage stays listed and says so). The core journey does not need them: build the test set by hand on the Test Sets page, or load it with **Import from file** (JSON Lines or a JSON array).
 - **A disabled area answers 404.** Every route of a disabled area returns HTTP 404 with the machine-readable
   `reason_code` `feature_disabled`, so a client can tell "this deployment has it off" from "no such record"
   (the body is shown below).
 - **Feature detection.** `GET /capabilities` returns a `features` object keyed by the four ids, each with
   `enabled`, `env_var`, `label` and `stability`, so a client reads the flags without provoking a 404. The web
-  app does the same: it hides the navigation entries of a disabled area and shows a "disabled in this
-  deployment" panel if you open one of its URLs directly.
+  app does the same: it hides the navigation entries of a disabled area and shows a "This isn't available on this
+  deployment" panel naming the variable if you open one of its URLs directly.
 - **The Docker stack passes the variables through.** The four variables default to false there too; set them
   in the suite-root `.env` (see `.env.example`). See [Alpha install](alpha-install.md#enabling-preview-areas).
 
@@ -145,8 +145,11 @@ These are real and deliberate for the alpha. Read them before you rely on the pr
 - **CSRF protection is off by default.** `CALIBER_CSRF_ENABLED` defaults to false, on the assumption of a
   loopback or trusted-network deployment. Turn it on, and set a signing secret, before exposing CALIBER
   beyond that.
-- **Simulated by default.** The LLM and evaluator default to `fake`. The provider banner and the
-  Settings page say so, and it cannot be dismissed while the evaluator or promoter is simulated.
+- **Simulated by default.** The LLM and evaluator default to `fake`, so a prompt or a judge cannot be scored
+  (the Evaluations route answers 400 `evaluation requires a real LLM provider`) until a real provider is configured. The
+  Docker stack sets the evaluator to `mlflow`, so only its model is simulated, and scoring is refused there for the same
+  reason. The provider banner and the Settings page say what is simulated, and the banner cannot be dismissed while the
+  evaluator or promoter is simulated.
 - **SQLite needs a separate MLflow store.** CALIBER and MLflow can share one SQLite file in development,
   and startup warns when they do, but only one writer wins at a time. Use PostgreSQL for anything shared.
 - **The tool sandbox is a process boundary, not isolation.** Tool code runs in a short-lived,

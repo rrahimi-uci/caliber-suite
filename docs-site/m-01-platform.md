@@ -180,9 +180,12 @@ set of tables:
 | Tools and skills | tool registry, tool test runs, skill rows, skill test runs | Reusable runtime capabilities and authoring/test surfaces. |
 | Workflows | workflows, workflow versions, deployments, runs, events, checkpoints, session memory, benchmark reports, patches, promotions | Workflow Studio source-of-truth and runtime lineage. |
 | MCP | MCP servers | External tool endpoints, discovered tools, policies, and calibrations. |
+| OpenAPI integrations | integrations, versions, operations, tool drafts, operation dependencies | Imported OpenAPI documents, their per-operation inventory, and the declarative HTTP tools drafted from them. |
 | Knowledge bases | knowledge bases, versions, sources, chunks, entities, relationships, build runs, calibration test runs | Versioned RAG corpora with chunking/embeddings, graph (Apache AGE) extraction, and retrieval-quality calibration. |
 | Evaluations / test sets | eval datasets, eval dataset examples, eval dataset files, eval runs, judges, review queues/items, gate verdicts | Versioned test sets, scorecard evaluation runs, operator-authored LLM judges, human review queues, and advisory per-version gate verdicts. |
 | Files and projects | projects, workflow files, file events | Workspace and run-scoped file metadata independent of backing store. |
+| Workspace | revisions and revision resources, import jobs, sources and source connections, change requests, releases, release evidence and operations | Project-level workspace history, change review and (behind `CALIBER_FEATURE_RELEASE_CANDIDATES`) release records. |
+| Accounts and secrets | user accounts, sessions, personal access tokens, project members, secrets and secret versions | Session login, API tokens, project roles, and the encrypted secret store. |
 
 The division of authority across these domains is governed by a small set of
 ownership rules, and they hold consistently across the platform:
@@ -252,6 +255,17 @@ than exhaustive:
 - `/releases/timeline`, `/releases/live` (cross-artifact releases & rollback)
 - `/releases/operations`, `/releases/operations/reconcile` (operator-visible prompt release recovery)
 
+Four preview areas are gated by feature flags that default to off
+(`caliber/src/caliber/features.py`): `CALIBER_FEATURE_ARIA` (`/assistant`, `/aria`),
+`CALIBER_FEATURE_INTEGRATIONS` (`/mcp-servers`, `/openapi-integrations`),
+`CALIBER_FEATURE_COOKBOOKS` (`/cookbooks`) and `CALIBER_FEATURE_RELEASE_CANDIDATES`
+(`/releases/candidates`, `/releases/report-jobs`, per-project `/projects/{id}/releases`).
+One ASGI middleware refuses the path prefixes of a disabled area with `404` and
+`reason_code: feature_disabled`; the routes stay registered, so the OpenAPI document and the
+route inventories describe the same surface in every deployment. The default install also
+runs a simulated language model and evaluator (`CALIBER_LLM_PROVIDER` and
+`CALIBER_EVAL_PROVIDER` default to `fake`), and `/readiness` lists what is simulated.
+
 On the client side, the corresponding entry points are organized as page
 modules, each of which owns a single feature surface:
 
@@ -286,8 +300,9 @@ sequence below shows both branches and the point at which they diverge.
 
 All configured loops share `background_tasks_enabled` as their lifecycle gate.
 `WorkflowRunWorker`, `KnowledgeBaseWorker`, `WorkflowScheduler`, and
-`WorkspaceImportWorker` additionally have independent enable flags; the other
-six loops, including `AriaPlanWorker`, do not.
+`WorkspaceImportWorker` additionally have independent enable flags. The other
+six loops do not; of those, `AriaPlanWorker` is constructed only when
+`CALIBER_FEATURE_ARIA` is on, which it is not by default.
 
 The loops are in-process, so **each server worker process runs its own full set**.
 `uvicorn` runs one process unless you pass `--workers`; the unsupported embedded `mlflow server`
@@ -383,14 +398,17 @@ provide the identity:
   mutation.
 
 The shipped local launchers assign `admin` every scope. Before exposing a deployment,
-set `CALIBER_BOOTSTRAP_PASSWORD` to a strong value before first boot or reset the
+set the variable named by `CALIBER_AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV` (the Compose stack and
+`.env.example` use `CALIBER_BOOTSTRAP_PASSWORD`) to a strong value before first boot or reset the
 password in Administration; password changes revoke the account's existing sessions.
 
 Layered over this identity model is a set of controls that protect both the
 request path and the data it touches:
 
-- CSRF protection guards browser-driven state changes.
-- Optional rate-limiting middleware bounds request volume.
+- CSRF protection for browser-driven state changes is opt-in
+  (`CALIBER_CSRF_ENABLED`, off by default).
+- Optional rate-limiting middleware (`CALIBER_RATE_LIMIT_ENABLED`, off by default)
+  bounds request volume.
 - Project and visibility filters are applied on the feature paths that wire the
   shared scoping helpers. Project roles (`owner`, `editor`, `reviewer`, `viewer`) are checked by
   `resource_access.py` on the release path and on skills, tools, workflows, workflow runs and knowledge

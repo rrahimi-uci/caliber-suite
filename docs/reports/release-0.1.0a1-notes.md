@@ -9,7 +9,7 @@ stability: beta
 summary: Draft release notes for CALIBER 0.1.0a1, pending the alpha tag, release assets, and tag-commit verification.
 prerequisites:
   - Read the Alpha scope and limitations page, which is the authority on what the alpha claims
-reviewed_on: 2026-10-15
+reviewed_on: 2026-10-20
 tags:
   - release-notes
   - alpha
@@ -17,7 +17,7 @@ tags:
 
 # CALIBER 0.1.0a1 (alpha)
 
-> **Draft for the release cut (2026-10-15).** The tag and GitHub prerelease do not exist yet.
+> **Draft for the release cut (2026-10-20).** The tag and GitHub prerelease do not exist yet.
 > The checks below describe current `main` and must be rerun or confirmed on the tag commit
 > before these notes are published. The asset list below is the planned release contents.
 
@@ -96,10 +96,16 @@ required before publication:
   knowledge bases is exercised as an outsider, a viewer, a reviewer, an editor and a non-member admin.
 - **Knowledge bases** create, build, version, query and roll back against a real MinIO and PostgreSQL, with
   simulated embeddings (`scripts/verify-knowledge-stack.sh`).
+- **The cookbook labs.** All seventeen were run on a fresh stack through the web app and through the SDK, with the
+  preview flags each lab needs; the browser specs run on `main` as the `Cookbook UI-only browser journeys` check, and
+  the findings and fixes are in
+  [First-user verification](../../docs-site/cookbooks/FIRST-USER-VERIFICATION.md).
 
 ## What was not verified
 
-- Any real LLM or real evaluator. No CI job calls a live model.
+- Any real LLM or real evaluator in CI. No CI job calls a live model. The scored paths of the cookbook labs were run by
+  hand on a stand-in model (labs 01 and 10) and on a hosted model (labs 01 and 17), and the Aria labs' judges were
+  scored on a hosted model when that tier was added; those runs need a provider key and are not a gate.
 - A knowledge base built with a real embedding model. The default docker image cannot build one: it installs
   the `knowledge` extra but not `knowledge-local`.
 - Backups and restores, high availability, performance, SSO or MFA.

@@ -242,8 +242,10 @@ sees `404` and a member with too weak a role sees `403`.
 The prompt and skill runs return the created verification item and refinement job;
 the workflow run does the same. The inline tool route returns pass rate and per-case
 results synchronously, while durable submission returns a job id for polling. The
-current Tool workspace still calls the inline route; the queued API is available to
-operators and is not yet surfaced as a cancel/retry/history workflow in that UI.
+Tool workspace's Hardening stage runs the inline route. Its Publish stage also lists the
+tool's durable calibration jobs (status, pass rate, error), with a *Queue calibration*
+button for operators and, on a job left `running`, *retry* and *abandon* actions that call
+`/resolve` and ask for a reason. There is no cancel.
 
 ## 6. Per-asset calibration algorithms
 
@@ -438,8 +440,8 @@ overclaim. The prompt calibration form advertises only `MetaPrompt` and `GEPA`; 
 BootstrapFewShot is reachable through agent overrides and policy selection, while DSPy
 MIPRO is implemented but not auto-selected. `SkillMetaPrompt` is not yet a true
 specialization and currently runs the MetaPrompt path. Tool calibration offers both
-inline and durable execution, but the UI still uses inline execution and has no job
-cancellation/retry controls. Calibration jobs are separate from subprocess-isolated
+inline and durable execution: the Hardening stage runs inline, the Publish stage queues
+and lists durable jobs and can retry or abandon a `running` one, and there is no cancel. Calibration jobs are separate from subprocess-isolated
 `CaliberToolTestRun` history. Without a configured real provider, prompt/skill
 generation uses the deterministic fake and workflow scoring uses a fake executor
 with structural dimensions, so those runs are functional demonstrations rather

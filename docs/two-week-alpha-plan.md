@@ -9,8 +9,8 @@ stability: draft
 summary: A proposed, lighter, earlier checkpoint than v0.1.0 -- one seeded journey, tagged and installable, in two weeks.
 prerequisites:
   - Read docs/roadmap.md and docs/prd.md for the approved v1.0.0 plan this proposes a lighter run-up to
-reviewed_on: 2026-10-14
-version_applicability: proposal; Days 1-9 executed against current main (see docs/reports/two-week-alpha-day*-decision.md), Day 10 tag left to the repo owner and still unpublished as of 2026-10-14 (0.1.0a1 is prepared on main); no roadmap or PRD change
+reviewed_on: 2026-10-20
+version_applicability: proposal; Days 1-9 executed against current main (see docs/reports/two-week-alpha-day*-decision.md), Day 10 tag left to the repo owner and still unpublished as of 2026-10-20 (0.1.0a1 is prepared on main); no roadmap or PRD change
 tags:
   - roadmap
   - alpha
@@ -52,6 +52,16 @@ GitHub prerelease are **not published**, so Day 10's acceptance ("a second
 person reproduces the journey from the tagged wheel") has not been performed.
 The release procedure is [Releasing](operate/releasing.md). The scope note
 below remains the historical draft.
+
+**Since then (2026-10-20).** Still no tag: `caliber-v0.0.1` remains the only one.
+What has landed on `main` since is the four preview areas behind feature flags that
+are off by default (`CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`,
+`CALIBER_FEATURE_COOKBOOKS`, `CALIBER_FEATURE_RELEASE_CANDIDATES`), a neutral
+interface with no alpha, beta or preview labels, the seventeen cookbook labs run for
+real through the UI and the SDK on a fresh stack (with a stand-in and a hosted model
+tier for the scored paths), and the Apache-2.0 licence settled across the repository.
+The note below ("one journey", "sync only") describes the plan, not today's product;
+the product's boundary is [Alpha scope and limitations](start/alpha-scope.md).
 
 ## Why this exists
 

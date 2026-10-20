@@ -147,7 +147,9 @@ curl -s -b jar -X POST $B/prompts -H 'content-type: application/json' \
 ```
 
 With a wheel built using the bundled UI procedure, open `http://127.0.0.1:5001/caliber/`
-and sign in as `admin` / `admin`.
+and sign in as `admin` / `admin`. On an empty install the Dashboard shows a **New here? Start with the core loop**
+panel with four steps (**Write a prompt**, **Add a test set**, **Run an evaluation**, **Release it**), each a link to the
+page that does it.
 
 For the Python SDK or `caliberctl`, create a token under **Settings → API tokens** in the UI and use it
 as `CALIBER_TOKEN`. The command line cannot issue the first one.

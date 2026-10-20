@@ -86,9 +86,9 @@ function field(page: Page, label: RegExp) {
 async function openPlans(page: Page): Promise<void> {
   await page.goto("/caliber");
   const nav = page.getByLabel("CALIBER navigation");
-  // Integrations only appears once the server's feature flags have loaded, and the sidebar
-  // remembers which groups are open: open the group only if it is closed.
-  const group = nav.getByRole("button", { name: /^Integrations/ });
+  // Plans sits in Operate. The sidebar remembers which groups are open: open the group only
+  // if it is closed (the Plans link itself appears once the server's feature flags have loaded).
+  const group = nav.getByRole("button", { name: /^Operate/ });
   await expect(group).toBeVisible();
   if ((await group.getAttribute("aria-expanded")) !== "true") {
     await group.click();
@@ -331,10 +331,13 @@ test.describe("Cookbook 14: a governance starter kit from one sentence", () => {
 
     // ---- 11. Compare the candidate with the baseline ------------------------------------------
     const judgeShare = async (): Promise<number> => {
+      // The card is the deepest block that holds both the judge's name and its percentage (the
+      // label alone is deeper, and the whole row of cards is shallower).
       const card = page
         .getByTestId("eval-aggregate")
         .locator("div")
         .filter({ hasText: judgeName })
+        .filter({ hasText: /%/ })
         .last();
       const text = (await card.textContent()) ?? "";
       const match = /(\d+(?:\.\d+)?)%/.exec(text);

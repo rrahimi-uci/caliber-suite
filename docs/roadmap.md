@@ -10,7 +10,7 @@ summary: Monthly release train and one- or two-day implementation backlog for th
 prerequisites:
   - Current-main capability matrix and first-mile evidence
   - A named single-tenant deployment owner and supported MLflow provider profile
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-20
 version_applicability: current main branch and GitHub Project #2
 tags:
   - roadmap
@@ -49,7 +49,7 @@ require reproducible evidence.
   created only at M4 (`caliber-v0.1.0`) and M6 (`caliber-v1.0.0`) after their
   gates pass. The one earlier tag is the alpha prerelease `caliber-v0.1.0a1`
   (see [Releasing](operate/releasing.md)): it is not a formal product tag and
-  makes no pilot or production claim. As of 2026-10-14 version `0.1.0a1` is
+  makes no pilot or production claim. As of 2026-10-20 version `0.1.0a1` is
   prepared on `main`, but the tag and prerelease are not published.
 - The first-mile pilot tests current `main`; it is not a production-readiness
   or stability claim.
@@ -85,7 +85,7 @@ are still unpublished. Per that plan's own
 "Relationship to the existing roadmap" section, this is evidence feeding M1's
 discovery exit criterion below — it does not replace or shorten M1–M6.
 
-## Status against current main (2026-10-14)
+## Status against current main (2026-10-20)
 
 - **Tickets.** The GitHub issues and Project #2 cited in this roadmap no longer
   resolve (the issue API answers "This issue was deleted", HTTP 410, for every
@@ -101,9 +101,15 @@ discovery exit criterion below — it does not replace or shorten M1–M6.
   [Implementation status against current main](./prd.md#implementation-status-against-current-main).
   In short: the durable prompt release state machine, the project-role
   boundary on mutating routes, a CI-proven offline prompt journey and a wheel
-  that installs and boots without a checkout are built. The flagged-trace start
+  that installs and boots without a checkout are built, and the unsupported
+  areas (Aria, MCP and OpenAPI integrations, cookbooks, release-candidate
+  signoff) are off by default behind `CALIBER_FEATURE_*` flags. The flagged-trace start
   of the journey, a second approver, one-active-process enforcement, a measured
   workload envelope and rehearsed recovery are not.
+- **Alpha work since 2026-10-14.** The seventeen cookbook labs were run through
+  the UI and the SDK on fresh stacks, and the defects that surfaced were fixed
+  (see [First-user verification](../docs-site/cookbooks/FIRST-USER-VERIFICATION.md)).
+  The repository is Apache-2.0 throughout. None of this is an M1-M6 exit.
 - **Not claimed.** Nothing above changes the milestone dates or moves an
   M2–M6 exit criterion to done.
 

@@ -8,6 +8,11 @@
 > closes the oldest remaining drift in this report's current-state wording, namely older
 > statements that still said CALIBER had no management API, SDK, or CLI.
 >
+> **Newer than this report (2026-10-20).** The latest section below is §14 (2026-08-10). The alpha work since then
+> (the `0.1.0a1` scope, feature flags, simulated-by-default providers, project roles on every mutating route) is
+> recorded in [Alpha scope and limitations](../start/alpha-scope.md) and the [alpha gap analysis](../caliber-alpha-gaps.md);
+> neither this report's test totals nor its "remaining gaps" are the current list.
+>
 > **Reviewed document:** `product-completness-review-report.md` (audit baseline `f69d945a0`).
 > That file was deleted from the tree in `6ff4b7927`; this report is the surviving record of
 > its findings.

@@ -100,27 +100,38 @@ test.describe("Build Section Journeys", () => {
     await page.getByTestId("wiz-allow-preview").check();
     await page.getByTestId("wizard-submit").click();
 
-    await expect(page).toHaveURL(/\/caliber\/tools\/[^/]+$/);
-    await expect(page.getByTestId("tool-detail")).toContainText(toolName);
-    await expect(page.getByTestId("tool-module")).toHaveText("caliber.workflows.demo_tools");
-    await expect(page.getByTestId("tool-callable")).toHaveText("lookup_order");
+    await expect(page).toHaveURL(/\/caliber\/tools\?tool=TL-[^&]+$/);
+    await expect(page.getByTestId("tool-workspace-header")).toContainText(toolName);
+    // Spec: what was registered.
+    await expect(page.getByTestId("tool-spec-callable")).toHaveText(
+      "caliber.workflows.demo_tools.lookup_order",
+    );
 
-    await page.getByTestId("tool-run-input").fill("[]");
-    await page.getByTestId("tool-run").click();
-    await expect(page.getByTestId("tool-run-input-error")).toContainText("Tool input must be a JSON object.");
+    // Sandbox: input that is not a JSON object is refused, and nothing runs.
+    await page.getByRole("button", { name: "Sandbox", exact: true }).click();
+    const sandboxInput = page.getByPlaceholder('{"key": "value"}');
+    await sandboxInput.fill("[]");
+    await page.getByRole("button", { name: "Test Run", exact: true }).click();
+    await expect(page.getByTestId("tool-playground-input-error")).toContainText(
+      "Tool input must be a JSON object.",
+    );
 
+    // Publish: edit what was registered, then archive it.
+    await page.getByRole("button", { name: "Publish", exact: true }).click();
     await page.getByTestId("tool-edit-description").fill("Updated during Playwright validation.");
     await page.getByTestId("tool-save").click();
     await expect(page.getByTestId("tool-save-status")).toContainText("Saved");
 
-    await page.getByTestId("tool-run-input").fill('{"order_id":"A-100"}');
-    await page.getByTestId("tool-run").click();
-    await expect(page.getByTestId("tool-run-result")).toContainText('"order_id": "A-100"');
-    await expect(page.getByTestId("tool-run-result")).toContainText('"status": "delivered"');
+    await page.getByRole("button", { name: "Sandbox", exact: true }).click();
+    await page.getByPlaceholder('{"key": "value"}').fill('{"order_id":"A-100"}');
+    await page.getByRole("button", { name: "Test Run", exact: true }).click();
+    await expect(page.locator("pre").filter({ hasText: '"order_id": "A-100"' })).toBeVisible();
+    await expect(page.locator("pre").filter({ hasText: '"status": "delivered"' })).toBeVisible();
 
-    await page.getByTestId("tool-archive").click();
+    await page.getByRole("button", { name: "Publish", exact: true }).click();
+    await page.getByTestId("tool-publish-archive").click();
     await expect(page.getByTestId("tool-edit-status")).toHaveValue("archived");
-    await expect(page.getByRole("heading", { level: 1 })).toContainText("archived");
+    await expect(page.getByTestId("tool-publish-status")).toContainText(/archived/i);
   });
 
   test("object store supports upload, preview, bulk delete, and bucket cleanup", async ({

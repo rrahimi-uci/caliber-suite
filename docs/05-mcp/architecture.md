@@ -180,8 +180,9 @@ server records:
 - `GET /mcp-servers/{server_id}/history`
 - `PATCH /mcp-servers/{server_id}`
 - `DELETE /mcp-servers/{server_id}` — guarded: returns 409 when the server is
-  still referenced by an active deployment, and snapshots the full server
-  definition into the delete audit row so it can be recreated.
+  still referenced by an active deployment, and snapshots the server's structural
+  definition (connection credentials are write-only and never recorded) into the
+  delete audit row so it can be recreated.
 
 Transport validation and discovery exercise the real connection: testing it,
 refreshing the cached tool inventory, and reading that inventory back:
@@ -322,8 +323,9 @@ boundary. The following controls apply:
   required. Local wrappers, including the recognized bubblewrap containment
   profile, never count as a production boundary.
 - Deletion is not an unguarded hard delete: it is refused with 409 while an
-  active deployment still references the server, and the full server definition
-  is snapshotted into the delete audit row so the record is recoverable.
+  active deployment still references the server, and the server's structural
+  definition (without credentials) is snapshotted into the delete audit row so
+  the record can be recreated.
 - Tool invocation runs under bounded timeouts.
 - Connection configuration is validated against transport-specific minimums
   before use.
@@ -383,7 +385,11 @@ The shipped database credential is deliberately a development default, not a
 production-safe data boundary. Unless `CALIBER_MCP_POSTGRES_URL` is overridden,
 the sidecars connect to the same `caliber` database with the same privileged
 role used by the CALIBER metadata store. A write or DDL tool can therefore
-damage control-plane state even though its process is container-isolated. Before
+damage control-plane state even though its process is container-isolated. Only
+the read-classified tools (`run_query`, `list_tables`, `describe_table`,
+`similarity_search`) are narrower: they always run in a database-enforced READ
+ONLY transaction, and by default through the `caliber_ro` role
+(`CALIBER_MCP_POSTGRES_READ_ONLY_URL`) that the development stack provisions. Before
 production use, provision a separate database/schema and least-privilege role,
 set `CALIBER_MCP_POSTGRES_URL` to it, and review the seeded write/external-action
 policies. Process isolation and data authorization are independent controls.

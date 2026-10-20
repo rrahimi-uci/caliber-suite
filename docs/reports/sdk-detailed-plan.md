@@ -2,6 +2,13 @@
 
 Status: Draft (design document; no code changes implied by this doc)
 
+> **Delivered (checked 2026-10-20).** This is the design written before the SDK existed (2026-08). Milestones M0 to M5 shipped
+> (see [sdk-implementation-checklist.md](sdk-implementation-checklist.md); the TypeScript SDK was deferred,
+> [sdk-typescript-decision.md](sdk-typescript-decision.md)). The packages live at `sdk/caliber-sdk`, `sdk/caliber-plugin-sdk` and
+> `sdk/caliber-cli`, not under `caliber/sdk/` as the tracker below says, and all are version `0.1.0a1`. Sentences such as
+> "CALIBER today is primarily operated through the UI" and the gap analysis describe the 2026-08 baseline. For current behaviour
+> read [the SDK guide](../sdk/guide.md) and [reference](../sdk/reference.md).
+
 Repository baseline: `c65b76790` (caliber-suite `main`)
 
 > The original baseline recorded here, `2ef4a6124`, was the pre-squash tip of the

@@ -77,7 +77,7 @@
       "asset": "preview of a stored document"
     },
     {
-      "where": "Integrations › Cookbooks",
+      "where": "Get started › Cookbooks",
       "do": "Install the pipeline. On <strong>Document-to-JSON Pipeline</strong> click Install, give the workflow a name, tick the prerequisites acknowledgement and click <strong>Install paused draft</strong>. The Studio opens on the draft with every node on the canvas.",
       "fill": [
         [
