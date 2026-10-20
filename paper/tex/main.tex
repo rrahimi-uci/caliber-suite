@@ -41,7 +41,7 @@
 % `python3 paper/scripts/gen_stats.py`; the \providecommand defaults in
 % macros.tex keep the document buildable without it.
 \IfFileExists{../generated/stats.tex}{\input{../generated/stats}}{%
-  \providecommand{\statGitRev}{unknown}}
+  \providecommand{\statSourceHash}{unknown}}
 
 % Search path so section files can \input siblings by bare name.
 \makeatletter
@@ -95,15 +95,16 @@
 \label{sec:availability}
 \addcontentsline{toc}{section}{Availability}
 \sys is released under the Apache~2.0 license. The implementation identifier
-\code{\statGitRev} records the base revision used for every count in
-\secref{sec:impl}; the \code{-dirty} suffix explicitly means those counts include
-working-tree changes. The manuscript source, generated counts, and build
+\code{\statSourceHash} fingerprints the authored Python and TypeScript inputs
+used for every count in \secref{sec:impl}, including working-tree changes.
+It stays stable across paper-only commits while \code{make repro} detects any
+source drift. The manuscript source, generated counts, and build
 instructions are under \code{paper/} in the working tree supplied for review.
 
 The manuscript source is versioned in the same repository as the implementation it
-describes, so a reader can check the paper against one disclosed source state. In a
-dirty checkout, the base revision alone does not identify the uncommitted patch;
-the \code{-dirty} marker is a disclosure, not a reproducibility claim.
+describes, so a reader can check the paper against one disclosed source state. The
+fingerprint covers the counted source files, including uncommitted edits; a Git
+commit and any patch remain necessary to identify the complete checkout.
 What can be reproduced is the document and its source-derived counts: running
 \code{make repro} in \code{paper/} regenerates \code{generated/stats.tex}, fails if
 the result differs from the committed files, forces a four-pass build, and runs the

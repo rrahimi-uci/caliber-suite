@@ -8,7 +8,7 @@ precise about what it does and does not establish.
 ## What `make repro` proves
 
 Every quantitative fact in the paper — line counts, family counts, layer counts,
-node-type counts, the tree revision — is emitted by `scripts/gen_stats.py`, which
+node-type counts, the source fingerprint — is emitted by `scripts/gen_stats.py`, which
 walks the CALIBER source tree and writes `generated/stats.tex`. Nothing is typed
 into the prose by hand. `make repro` regenerates those files, **fails if the
 regenerated output differs from the committed output**, and then rebuilds the PDF
@@ -16,7 +16,7 @@ under `make check`.
 
 A pass therefore means: the numbers in the text describe the tree you have, and no
 figure was transcribed. A failure means the committed `generated/` files describe a
-different revision than your checkout — which is exactly the drift the check exists
+different source state than your checkout — which is exactly the drift the check exists
 to catch.
 
 `make check` additionally fails on undefined references, undefined citations,
