@@ -336,10 +336,11 @@ test.describe("Cookbook 11: release signoff factory (UI)", () => {
     await expect(page.getByTestId(`releases-live-${promptName}`)).toContainText(
       "v1",
     );
-    const eventsBefore = await page
+    const promptEvents = page
       .locator('[data-testid^="releases-event-"]')
-      .filter({ hasText: promptName })
-      .count();
+      .filter({ hasText: promptName });
+    await expect(promptEvents.first()).toContainText("v1");
+    const eventsBefore = await promptEvents.count();
     const goName = `${goRow.name} signed${suffix}`;
     await createCandidate(page, goRow, goName);
     const goCard = card(page, goName);
@@ -357,11 +358,7 @@ test.describe("Cookbook 11: release signoff factory (UI)", () => {
     await expect(
       page.getByTestId(`releases-live-${promptName}`),
     ).not.toContainText("v2");
-    await expect(
-      page
-        .locator('[data-testid^="releases-event-"]')
-        .filter({ hasText: promptName }),
-    ).toHaveCount(eventsBefore);
+    await expect(promptEvents).toHaveCount(eventsBefore);
     // the release is a separate act: Make live on version 2 moves it, and the timeline records it
     await page.goto("/caliber/prompts");
     await page.getByLabel("Search prompts").fill(promptName);
