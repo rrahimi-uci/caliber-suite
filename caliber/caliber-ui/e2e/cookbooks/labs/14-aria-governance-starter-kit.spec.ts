@@ -331,10 +331,13 @@ test.describe("Cookbook 14: a governance starter kit from one sentence", () => {
 
     // ---- 11. Compare the candidate with the baseline ------------------------------------------
     const judgeShare = async (): Promise<number> => {
+      // The card is the deepest block that holds both the judge's name and its percentage (the
+      // label alone is deeper, and the whole row of cards is shallower).
       const card = page
         .getByTestId("eval-aggregate")
         .locator("div")
         .filter({ hasText: judgeName })
+        .filter({ hasText: /%/ })
         .last();
       const text = (await card.textContent()) ?? "";
       const match = /(\d+(?:\.\d+)?)%/.exec(text);
