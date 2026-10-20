@@ -4,7 +4,11 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ValidationReport, WorkflowManifest } from "@/api/workflowTypes";
 
-const mockState: { reactFlowProps?: Record<string, unknown> } = {};
+const mockState: {
+  reactFlowProps?: Record<string, unknown>;
+  /** What React Flow's store has measured: node id -> size. */
+  measured: Map<string, { measured?: { width?: number; height?: number } }>;
+} = { measured: new Map() };
 const fitView = vi.fn();
 
 vi.mock("@xyflow/react", async () => {
@@ -18,6 +22,7 @@ vi.mock("@xyflow/react", async () => {
     Controls: () => <div data-testid="mock-controls" />,
     MiniMap: () => <div data-testid="mock-minimap" />,
     ReactFlowProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
+    useStoreApi: () => ({ getState: () => ({ nodeLookup: mockState.measured }) }),
     useReactFlow: () => ({
       screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 1, y: y + 2 }),
       fitView,
@@ -121,7 +126,48 @@ function testManifest(): WorkflowManifest {
 describe("Canvas", () => {
   beforeEach(() => {
     mockState.reactFlowProps = undefined;
+    mockState.measured = new Map();
     fitView.mockClear();
+  });
+
+  describe("node sizes survive a re-render", () => {
+    type Props = { nodes: Array<{ id: string; measured?: { width?: number; height?: number } }> };
+
+    it("hands React Flow back the size it measured for each node", () => {
+      // Without it every render yields nodes React Flow has never measured, and it hides them
+      // (visibility:hidden) until it measures again: a graph that flickers during a run, and on a
+      // slow machine cannot be clicked.
+      mockState.measured = new Map([
+        ["start", { measured: { width: 120, height: 48 } }],
+        ["agent", { measured: { width: 260, height: 180 } }],
+      ]);
+      const { rerender } = render(<Canvas manifest={testManifest()} />);
+      let props = mockState.reactFlowProps as Props;
+      expect(props.nodes.find((node) => node.id === "start")?.measured).toEqual({
+        width: 120,
+        height: 48,
+      });
+      expect(props.nodes.find((node) => node.id === "agent")?.measured).toEqual({
+        width: 260,
+        height: 180,
+      });
+
+      // A re-render with a new selection (new node objects) still carries them.
+      rerender(<Canvas manifest={testManifest()} selectedNodeId="agent" />);
+      props = mockState.reactFlowProps as Props;
+      expect(props.nodes.find((node) => node.id === "agent")?.measured).toEqual({
+        width: 260,
+        height: 180,
+      });
+    });
+
+    it("adds nothing for a node React Flow has not measured yet, or measured as empty", () => {
+      mockState.measured = new Map([["agent", { measured: { width: 0, height: 0 } }]]);
+      render(<Canvas manifest={testManifest()} />);
+      const props = mockState.reactFlowProps as Props;
+      expect(props.nodes.find((node) => node.id === "start")?.measured).toBeUndefined();
+      expect(props.nodes.find((node) => node.id === "agent")?.measured).toBeUndefined();
+    });
   });
 
   describe("refitting when the canvas changes size", () => {
