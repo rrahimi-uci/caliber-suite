@@ -66,8 +66,10 @@ rollback semantics for workflows, tools, MCP configurations, skills, and retriev
 corpora (\tabref{tab:platforms}).
 
 \para{``Use an optimizer.''} DSPy, GEPA, MIPRO, OPRO, and TextGrad are real
-advances and \sys uses them~\cite{khattab2024dspy,agrawal2025gepa,
-opsahlong2024mipro,yang2024opro,yuksekgonul2024textgrad}. But an optimizer
+advances~\cite{khattab2024dspy,agrawal2025gepa,
+opsahlong2024mipro,yang2024opro,yuksekgonul2024textgrad}, and \sys implements
+the first three as selectable candidate generators (OPRO and TextGrad are
+related work here, not implemented paths; \secref{sec:background}). But an optimizer
 produces a candidate; it does not produce a release. It has no notion of who may
 promote, what the outgoing live target was, or how to restore it. Treating an
 optimizer as a lifecycle solution is a category error: it is the compiler, not the

@@ -67,8 +67,13 @@ demonstrations jointly; GEPA~\cite{agrawal2025gepa} showed reflective prompt
 evolution competitive with reinforcement learning; and
 TextGrad~\cite{yuksekgonul2024textgrad} backpropagates textual feedback.
 
-\sys treats these as pluggable strategies behind one seam, and exposes
-\statOptimizersW{} implemented paths (\figref{fig:pipeline}). The architectural
+\sys treats these as pluggable strategies behind one seam, and ships
+\statOptimizersW{} built-in paths: single-pass \textsc{MetaPrompt} and
+\textsc{SkillMetaPrompt} rewrites, GEPA, and the DSPy \textsc{BootstrapFewShot}
+and \textsc{MIPRO} teleprompters (\figref{fig:pipeline}). OPRO, APE, and TextGrad
+are discussed here as related work and are not implemented; third-party
+optimizers can register through an experimental plugin entry point
+(\secref{sec:arch}). The architectural
 observation we would emphasize is that this literature has an implicit
 precondition it does not supply: an optimizer needs a metric, a corpus, and a
 baseline. Where those come from, whether they are versioned, and whether the
@@ -88,9 +93,10 @@ runtime validators rather than offline scorers --- a complementary position, sin
 runtime validator constrains one call while an offline suite characterizes a
 version. The known hazards are equally well established --- judges are biased
 toward verbosity and toward outputs from related models, and agreement with human
-labels must be measured rather than assumed, which is why \sys records
-inter-rater agreement statistics for authored
-judges~\cite{cohen1960kappa,fleiss1971kappa}.
+labels must be measured rather than assumed, which is why \sys records the observed agreement
+rate and Cohen's $\kappa$ against human labels for authored
+judges~\cite{cohen1960kappa}; Fleiss's multi-rater
+statistic~\cite{fleiss1971kappa} appears only in the unrun measurement protocol.
 
 The gap \sys addresses is not scoring quality but \emph{binding}. In the harness
 model, a score is a number in a report. In \sys, a score is a durable record
