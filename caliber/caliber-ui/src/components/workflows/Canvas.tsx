@@ -16,6 +16,7 @@ import {
   MiniMap,
   ReactFlow,
   useReactFlow,
+  useStoreApi,
   ReactFlowProvider,
   type Edge,
   type Node,
@@ -122,6 +123,7 @@ function CanvasInner({
   // Set once the person pans or zooms: from then on the view is theirs and is never refitted.
   const viewMovedByUser = useRef(false);
   const { screenToFlowPosition, fitView } = useReactFlow();
+  const flowStore = useStoreApi();
 
   // ``fitView`` on the component fits the graph once, at mount. The canvas then changes size as
   // the palette, the inspector and the toolbar settle, which leaves a wide graph half outside
@@ -183,7 +185,16 @@ function CanvasInner({
     [selectedNodeIds, selectedNodeId],
   );
 
+  // The nodes are derived from the manifest on every render (selection, run status and
+  // validation are layered on), so React Flow receives new node objects each time. Without a
+  // size on them it treats each as a node it has never measured and hides it (``visibility:
+  // hidden``) until its observer reports again, and re-fits when it does. While a run is
+  // polling that is every few hundred milliseconds: the graph flickers and, on a slower
+  // machine, is mostly invisible and cannot be clicked. React Flow keeps the sizes it measured;
+  // hand them back with each node.
+  const measuredByNode = flowStore.getState().nodeLookup;
   const decoratedNodes: Node<FlowNodeData>[] = nodes.map((n) => {
+    const measured = measuredByNode.get(n.id)?.measured;
     const executionBadge = nodeExecutionByNode?.[n.id];
     const outlineColor = executionBadge
       ? nodeExecutionColor(executionBadge.status)
@@ -193,6 +204,7 @@ function CanvasInner({
 
     return {
       ...n,
+      ...(measured?.width && measured.height ? { measured } : {}),
       data: {
         ...n.data,
         onQuickAdd,
