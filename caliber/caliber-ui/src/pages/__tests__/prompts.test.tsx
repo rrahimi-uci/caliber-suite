@@ -4888,7 +4888,7 @@ describe("Prompts — with the Aria feature off (the alpha default)", () => {
     );
   });
 
-  it("drops the Playground stage and explains the Test Sets stage, with a way to build a set by hand", async () => {
+  it("lists the Playground stage and says why it cannot chat; explains the Test Sets stage too", async () => {
     const user = userEvent.setup();
     renderPrompts();
     await screen.findByRole("heading", { name: "Prompts" });
@@ -4905,11 +4905,21 @@ describe("Prompts — with the Aria feature off (the alpha default)", () => {
       screen.queryByRole("button", { name: /Generate Test Cases/i }),
     ).not.toBeInTheDocument();
 
-    // The other stages remain; the chat does not.
-    for (const stage of ["Author", "Test Sets", "Runs", "Calibration", "Bind"]) {
+    // Every stage is listed, the Playground included (a vanished tab hides that a chat exists).
+    for (const stage of ["Author", "Test Sets", "Runs", "Calibration", "Bind", "Playground"]) {
       expect(screen.getByRole("button", { name: stage })).toBeInTheDocument();
     }
-    expect(screen.queryByRole("button", { name: "Playground" })).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Playground" }));
+    const playgroundNotice = await screen.findByTestId("feature-disabled-notice");
+    expect(playgroundNotice).toHaveTextContent("Chatting with this prompt in the Playground needs");
+    expect(playgroundNotice).toHaveTextContent("CALIBER_FEATURE_ARIA=true");
+    // The way to run the prompt on real examples without Aria.
+    expect(within(playgroundNotice).getByRole("link", { name: "Evaluations" })).toHaveAttribute(
+      "href",
+      "/evaluations",
+    );
+    // No chat starts, and nothing talks to the assistant.
+    expect(screen.queryByRole("button", { name: "Start Chat Session" })).not.toBeInTheDocument();
     expect(assistantCalls).toEqual([]);
   });
 
@@ -4936,7 +4946,7 @@ describe("Prompts — with the Aria feature off (the alpha default)", () => {
     expect(await screen.findByText("Run Configuration")).toBeInTheDocument();
     // Settle past the capabilities answer before asserting an absence.
     await waitFor(() =>
-      expect(screen.queryByRole("button", { name: "Playground" })).not.toBeInTheDocument(),
+      expect(screen.queryByText("Assistant-Guided Calibration")).not.toBeInTheDocument(),
     );
     expect(screen.queryByText("Assistant-Guided Calibration")).not.toBeInTheDocument();
     expect(screen.queryByLabelText("Assistant intent request")).not.toBeInTheDocument();
