@@ -574,8 +574,9 @@ class FakeMcpServer:
         )
 
     def cookbooks(self, body: Any, token: str) -> httpx.Response:
+        # Lab 05 lists 11 steps (the versioning step was added in #502); the example asserts it.
         steps = [
-            {"id": f"05.{n}", "title": f"step {n}", "route": "/mcp-servers"} for n in range(1, 11)
+            {"id": f"05.{n}", "title": f"step {n}", "route": "/mcp-servers"} for n in range(1, 12)
         ]
         return _envelope(
             {
