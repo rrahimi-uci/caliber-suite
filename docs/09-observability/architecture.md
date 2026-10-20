@@ -30,7 +30,7 @@ tags:
 | **Key surfaces** | In-app trace viewer and monitoring dashboard (`Observability.tsx`), structured review queues that write back to MLflow, and operator queue/alert/incident/dead-letter APIs. |
 | **Retention** | Server-owned MLflow trace archival (Postgres → MinIO) via `MLFLOW_TRACE_ARCHIVAL_CONFIG`, opt-in and read transparently. |
 | **Alerting** | Operator-declared SLO objectives evaluated on read, with incidents opened/resolved in `caliber_incidents` and routed over the event bus to the webhook dispatcher. Silencing and acknowledgement are recorded, not inferred. |
-| **Trust / safety** | Authenticated trace surfaces, redaction and byte-caps before MLflow, and safe degradation to empty responses when MLflow is unavailable. |
+| **Trust / safety** | Authenticated trace surfaces, redaction and byte-caps before MLflow, and an explicit `503` (not an empty list) when the trace store is unreachable; the monitoring and experiment reads degrade to empty. |
 
 The sections below start from this picture and drill down into each concern in detail, from scope and module boundaries through to retention and review queues.
 
@@ -219,8 +219,11 @@ and they are worth stating explicitly.
   are attached to spans.
 - `trace_client.py` reconstructs tree-shaped trace detail directly from MLflow
   rather than reading a CALIBER shadow table.
-- `routes/observability.py` treats missing MLflow support as a degraded mode and
-  returns empty results instead of surfacing internal exceptions.
+- `routes/observability.py` separates an outage from an empty result. An
+  unreachable MLflow makes the trace list and trace detail answer `503` with the
+  reason (an unknown trace id is a `404`), so the UI never shows "no traces" for a
+  dead store; the monitoring (`/observability/metrics`) and experiment reads
+  degrade to empty results instead of surfacing internal exceptions.
 - `app.state.event_bus` is the single fanout abstraction consumed by the SSE
   route, which is what keeps the transport swappable.
 - `observability/worker_registry.py` inverts the direction of worker evidence.
@@ -309,8 +312,10 @@ admin-only because `skip` can assert that an externally ambiguous mutation happe
 - Submitting human review uses `/observability/traces/{trace_id}/feedback`,
   which writes an MLflow assessment and then returns the refreshed assessment
   list.
-- The SPA opens `EventSource("/events/stream")` to keep progress indicators,
-  queue counters, and approval surfaces fresh without polling.
+- The SPA opens `EventSource("/events/stream")` through the `useEventStream` hook
+  and re-fetches when a matching event arrives: the Dashboard summary and the
+  Workflows list, workflow detail, and editor run state. The Observability page
+  itself reads traces on request, not from the stream.
 
 ## 6. Execution lifecycle
 
@@ -386,8 +391,9 @@ browser:
   MLflow storage or UI rendering.
 - The Allure file-serving path rejects traversal via `..` path segments.
 - SSE strips private `_caliber_*` fields before sending payloads to browsers.
-- Route handlers degrade to safe empty responses when MLflow is unavailable
-  instead of dumping raw stack traces into the UI.
+- Route handlers return a short `503` message, or an empty series for the
+  monitoring reads, when MLflow is unavailable instead of dumping raw stack traces
+  into the UI.
 
 These protections rest on a small number of explicit trust boundaries:
 
@@ -533,10 +539,11 @@ escalates over time.
 Knowing how the module degrades is just as important as knowing how it behaves
 when healthy. The common degraded modes are:
 
-- With tracing disabled, the trace list and detail surfaces return empty
-  datasets.
-- With a fake or missing MLflow provider, observability remains reachable but
-  mostly shows no trace content.
+- With tracing disabled, CALIBER emits no new spans, so the viewer shows only
+  traces already in MLflow.
+- With MLflow unreachable, the trace list and detail answer `503` naming the
+  trace store, while `/observability/metrics` and `/observability/experiments`
+  return empty results and the page stays reachable.
 - With missing Allure assets, the report route serves explanatory placeholder
   HTML.
 - With broker or cross-process event issues, SSE still works for in-process
