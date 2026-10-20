@@ -3,9 +3,10 @@ import userEvent from "@testing-library/user-event";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { http, HttpResponse } from "msw";
 import { afterAll, afterEach, beforeAll, describe, expect, it, vi } from "vitest";
-import { MemoryRouter } from "react-router-dom";
+import { MemoryRouter, useLocation } from "react-router-dom";
 
-import { ToolWizard } from "@/pages/ToolWizard";
+import type { ToolDefinition } from "@/api/workflowTypes";
+import { ToolWizard, nextVersion } from "@/pages/ToolWizard";
 import { server } from "@/test/server";
 
 const API_BASE = "/ajax-api/2.0/mlflow/caliber";
@@ -241,5 +242,140 @@ describe("ToolWizard", () => {
     // Cancel (Back at step 0) calls onClose instead of navigating a step.
     await user.click(screen.getByTestId("wizard-back"));
     expect(onClose).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("nextVersion", () => {
+  it.each([
+    ["1.0", "1.1"],
+    ["2", "3"],
+    ["v1.4.2", "v1.4.3"],
+    ["1.9", "1.10"],
+    ["2026-06", "2026-07"],
+    ["1.0-rc1", "1.0-rc2"],
+    ["beta", ""],
+    ["", ""],
+  ])("%s -> %s", (from, to) => {
+    expect(nextVersion(from)).toBe(to);
+  });
+});
+
+describe("ToolWizard, a new version of a tool", () => {
+  const base: ToolDefinition = {
+    tool_id: "TL-1",
+    name: "lookup_order",
+    version: "1.0",
+    description: "Lookup an order by id",
+    module_path: "caliber.workflows.demo_tools",
+    callable_name: "lookup_order",
+    input_schema: {
+      type: "object",
+      properties: { order: { type: "object", properties: { id: { type: "string" } } } },
+      required: ["order"],
+    },
+    output_schema: { type: "object", properties: { status: { type: "string" } } },
+    side_effect_level: "write",
+    requires_approval: true,
+    allow_in_preview: false,
+    secret_refs: ["ORDERS_KEY"],
+    test_cases: [],
+    last_calibration: null,
+    owner: "@team",
+    status: "active",
+    deprecated_at: null,
+    successor_tool_id: null,
+    created_at: NOW,
+    updated_at: NOW,
+  };
+
+  function Probe(): JSX.Element {
+    const location = useLocation();
+    return <div data-testid="at">{`${location.pathname}${location.search}`}</div>;
+  }
+
+  it("starts as the tool it follows, with the name fixed and the version one on, and registers it", async () => {
+    const registerCalls: Array<Record<string, unknown>> = [];
+    server.use(
+      http.post(`${API_BASE}/tools`, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        registerCalls.push(body);
+        return HttpResponse.json(
+          envelope({ ...base, ...body, tool_id: "TL-2", status: "active" }),
+          { status: 201 },
+        );
+      }),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <ToolWizard base={base} onClose={() => {}} />
+          <Probe />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const user = userEvent.setup();
+
+    expect(screen.getByRole("heading", { name: "New version of lookup_order" })).toBeInTheDocument();
+    // The name is what makes it a version of this tool: it cannot be changed.
+    expect(screen.getByTestId("wiz-name")).toHaveValue("lookup_order");
+    expect(screen.getByTestId("wiz-name")).toBeDisabled();
+    expect(screen.getByTestId("wiz-version")).toHaveValue("1.1");
+    expect(screen.getByTestId("wiz-description")).toHaveValue("Lookup an order by id");
+    await user.click(screen.getByTestId("wizard-next"));
+    expect(screen.getByTestId("wiz-module")).toHaveValue("caliber.workflows.demo_tools");
+    expect(screen.getByTestId("wiz-callable")).toHaveValue("lookup_order");
+    await user.click(screen.getByTestId("wizard-next"));
+    // A nested schema survives untouched (the visual editor would flatten it).
+    expect(screen.getByTestId("input-schema-raw")).toHaveValue(
+      JSON.stringify(base.input_schema, null, 2),
+    );
+    await user.click(screen.getByTestId("wizard-next"));
+    await user.click(screen.getByTestId("wizard-next"));
+    expect(screen.getByTestId("wiz-requires-approval")).toBeChecked();
+
+    await user.click(screen.getByTestId("wizard-submit"));
+    await waitFor(() => expect(registerCalls).toHaveLength(1));
+    expect(registerCalls[0]).toMatchObject({
+      name: "lookup_order",
+      version: "1.1",
+      module_path: "caliber.workflows.demo_tools",
+      callable_name: "lookup_order",
+      side_effect_level: "write",
+      requires_approval: true,
+      allow_in_preview: false,
+      secret_refs: ["ORDERS_KEY"],
+      input_schema: base.input_schema,
+      output_schema: base.output_schema,
+    });
+    // Into the new version's workspace.
+    await waitFor(() => expect(screen.getByTestId("at")).toHaveTextContent("/tools?tool=TL-2"));
+  });
+
+  it("says plainly when that version already exists", async () => {
+    server.use(
+      http.post(`${API_BASE}/tools`, () =>
+        HttpResponse.json(
+          { detail: "tool 'lookup_order' version '1.1' already registered" },
+          { status: 409 },
+        ),
+      ),
+    );
+    const queryClient = new QueryClient({
+      defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
+    });
+    render(
+      <QueryClientProvider client={queryClient}>
+        <MemoryRouter future={{ v7_startTransition: true, v7_relativeSplatPath: true }}>
+          <ToolWizard base={base} onClose={() => {}} />
+        </MemoryRouter>
+      </QueryClientProvider>,
+    );
+    const user = userEvent.setup();
+    for (let i = 0; i < 4; i += 1) await user.click(screen.getByTestId("wizard-next"));
+    await user.click(screen.getByTestId("wizard-submit"));
+    expect(await screen.findByTestId("wizard-error")).toHaveTextContent("already registered");
   });
 });

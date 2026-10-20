@@ -196,9 +196,8 @@ Then, with `refund-ops` selected:
    module `caliber.workflows.demo_tools`, callable `decide_refund`; on the Schema step switch each schema to **Raw JSON** and paste
    `input_schema` and `output_schema` from the asset; on **Safety & Review** leave **Read** and tick **Allow in Preview**. Register again
    for `initiate_refund` and click **Write**: **Requires Approval** switches on and is locked. On the Tools list neither row carries a
-   **Built-in** or **Unavailable** label (those mark CALIBER's own tools). Registering opens the tool's detail page; its
-   **Open the workspace** link leads to the workspace (Sandbox, Fixtures, Hardening, Test Runs) the next steps use. The address
-   becomes `/tools?tool=TL-…`, so a reload or a bookmark returns to the same tool.
+   **Built-in** or **Unavailable** label (those mark CALIBER's own tools). Registering opens the tool's workspace (Sandbox, Fixtures, Hardening, Test Runs: the next steps). The address
+   is `/tools?tool=TL-…`, so a reload or a bookmark returns to the same tool.
 2. **Sandbox.** Open `decide_refund`, tab **Sandbox**, paste the R01 inputs, **Test Run**: **Success** with `"decision": "approve"`.
    Open `initiate_refund`, **Sandbox**, input `{"order_id": "ord_1007", "amount": 49.0}`: **Success (mocked)**.
 3. **Fixtures.** Open `decide_refund`, tab **Fixtures**, click **Load cases from file** and choose
@@ -227,6 +226,13 @@ Then, with `refund-ops` selected:
    has no refund. Start the R23 inputs (a cancelled order): the run **completes** with `"decision": "deny"` and shows no approval buttons.
    Open **Audit Log** (group **Operate**): `approve_workflow_run_runtime_approval` and `reject_workflow_run_runtime_approval` by `approver1`,
    `resume_workflow_run` by `admin`.
+9. **Make a new version of the tool.** **Tools**, open `decide_refund`, tab **Publish**, **Version history**, **New version**
+   (admins). The wizard opens on the tool: the name is fixed, the version reads `1.1`, and everything else starts as version 1.0.
+   Change the description (for example "Version 1.1 of the refund policy, same rules, new version.") and step through to
+   **Register**: the new version's own workspace opens, headed `1.1`. It starts with no fixtures: on **Fixtures** choose
+   **Load cases from file** (`assets/dataset/refund-fixtures.jsonl` again), **Save cases**, then **Hardening**, **Run calibration**:
+   **Pass rate 100% — 49/49 passed**. On **Publish** the **Version history** lists `1.0` and `1.1`, and the Tools list shows
+   both under the one name.
 
 As `viewer1`, open `decide_refund` → **Sandbox** → **Test Run**: the page shows `missing required scope; expected one of ['caliber.operator']`.
 Last, **Get started → Cookbooks**, card 03 **Install**, acknowledge the prerequisite, **Install**: the gallery's starter draft (a decision
