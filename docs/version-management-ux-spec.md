@@ -38,6 +38,9 @@ The proposal's principal Phase-0/Phase-1 gaps have landed:
   current row. Their panel has no alias or promotion action; rollback restores the
   prior snapshot as a new version. Tools expose their `(name, version)` family as
   read-only history, with no alias or rollback.
+  Addendum (2026-10-20): a tool has one page, its workspace at `/tools?tool=TL-…`; its
+  Publish stage holds the version history and a **New version** action (a new row in the
+  same `(name, version)` family). There is still no alias and no rollback for a tool.
 - The read-only Releases hub and Versioning settings surface exist. The live board
   is database-backed and therefore enumerates workflow deployments and active
   knowledge-base versions; prompt `@prod` liveness remains in MLflow and appears on
