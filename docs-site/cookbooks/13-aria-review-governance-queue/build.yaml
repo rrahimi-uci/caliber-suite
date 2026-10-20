@@ -9,7 +9,7 @@ feasibility:
   - Reviewers: a queue created outside a workspace is visible to its owner only; the reviewers list is a label. Several reviewers need a workspace (lab 18).
 manual_flow:
   - step: state_intent
-    action: Open Integrations > Plans, state the one-line intent and pick the autonomy.
+    action: Open Operate > Plans, state the one-line intent and pick the autonomy.
   - step: review_plan
     action: Aria drafts a plan (review_queue.create then review_queue.add_items); read the steps.
   - step: approve

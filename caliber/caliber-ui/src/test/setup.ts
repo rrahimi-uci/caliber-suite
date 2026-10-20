@@ -60,6 +60,27 @@ Object.defineProperty(globalThis, "ResizeObserver", {
   configurable: true,
 });
 
+// jsdom does not implement DOMMatrixReadOnly. React Flow reads m22 when
+// useUpdateNodeInternals remeasures a node; keep that browser calculation
+// available to component tests instead of leaving an uncaught animation-frame error.
+class DOMMatrixReadOnlyMock {
+  readonly m22: number;
+
+  constructor(transform = "") {
+    const matrix = /^matrix\(([^)]+)\)$/.exec(transform);
+    const matrix3d = /^matrix3d\(([^)]+)\)$/.exec(transform);
+    const values = (matrix3d ?? matrix)?.[1].split(",").map(Number);
+    const scale = values?.[matrix3d ? 5 : 3];
+    this.m22 = scale !== undefined && Number.isFinite(scale) ? scale : 1;
+  }
+}
+
+Object.defineProperty(globalThis, "DOMMatrixReadOnly", {
+  value: DOMMatrixReadOnlyMock,
+  writable: true,
+  configurable: true,
+});
+
 afterEach(() => {
   cleanup();
   // Isolate tests from persisted UI state (assistant open/session, panel width,

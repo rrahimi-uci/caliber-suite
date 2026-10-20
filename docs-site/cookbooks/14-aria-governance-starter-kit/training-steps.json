@@ -1,8 +1,8 @@
 {
   "steps": [
     {
-      "where": "Integrations › Plans",
-      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default). In the sidebar open <strong>Integrations</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>. The planner is rules, not a model: it looks for the words <code>judge</code>, <code>eval dataset</code> / <code>test set</code> and <code>review queue</code>.",
+      "where": "Operate › Plans",
+      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default). In the sidebar open <strong>Operate</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>. The planner is rules, not a model: it looks for the words <code>judge</code>, <code>eval dataset</code> / <code>test set</code> and <code>review queue</code>.",
       "fill": [
         [
           "Goal",
@@ -24,7 +24,7 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (draft plan)",
+      "where": "Operate › Plans › (draft plan)",
       "do": "Read <strong>Plan steps</strong>. Aria drew four steps, in registry order and not in the order of your sentence: <code>judge.create</code>, <code>review_queue.create</code>, <code>eval_dataset.create</code> and <code>review_queue.add_items</code> (a review queue always brings its enqueue step; it reads <em>depends on 1 prior step(s)</em>). Nothing has run. Compare with <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/expected-plan.json\">expected-plan.json</a>.",
       "see": "Four pending steps; only the enqueue step depends on another.",
       "asset": "Reviewed plan (4 steps)",
@@ -36,14 +36,14 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (draft plan)",
+      "where": "Operate › Plans › (draft plan)",
       "do": "Press <strong>Approve plan</strong>.",
       "click": "Approve plan",
       "see": "The status becomes <code>approved</code> and an <strong>Execute</strong> button appears.",
       "asset": "Approved plan"
     },
     {
-      "where": "Integrations › Plans › (approved plan)",
+      "where": "Operate › Plans › (approved plan)",
       "do": "Press <strong>Execute</strong>. Aria stops on <strong>Aria needs information</strong> (<em>Provide the required inputs for step 1: Create judge.</em>). Fill it from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/judges/answer-faithfulness.judge.json\">answer-faithfulness.judge.json</a> and press <strong>Continue plan</strong>; then <strong>Approve</strong> the prompt <em>Approve step 1: Create judge (judge.create)?</em>.",
       "fill": [
         [
@@ -74,7 +74,7 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (running plan)",
+      "where": "Operate › Plans › (running plan)",
       "do": "<em>Provide the required inputs for step 2: Create review queue.</em> Fill <strong>name</strong>, <strong>description</strong> and <strong>questions</strong> (a JSON array) from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/review-queues/governance-review.queue.json\">governance-review.queue.json</a>, press <strong>Continue plan</strong>, then <strong>Approve</strong> <em>Approve step 2: Create review queue (review_queue.create)?</em>.",
       "fill": [
         [
@@ -97,7 +97,7 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (running plan)",
+      "where": "Operate › Plans › (running plan)",
       "do": "<em>Provide the required inputs for step 3: Create test set.</em> Fill <strong>name</strong>, <strong>description</strong> and <strong>tags</strong> (a JSON array) from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/datasets/release-candidates.dataset.json\">release-candidates.dataset.json</a>, press <strong>Continue plan</strong>, then <strong>Approve</strong> <em>Approve step 3: Create test set (eval_dataset.create)?</em>.",
       "fill": [
         [
@@ -120,7 +120,7 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (running plan)",
+      "where": "Operate › Plans › (running plan)",
       "do": "The last form is <em>Provide the required inputs for step 4: Enqueue traces for review.</em> It has no queue id field (it is wired from the queue step). There are no traces yet: press <strong>Skip step</strong>.",
       "click": "Skip step",
       "see": "The plan reads <code>completed</code>; steps 1 to 3 <em>done</em>, step 4 <em>skipped</em>.",
@@ -146,14 +146,14 @@
       ]
     },
     {
-      "where": "Integrations › Plans",
+      "where": "Operate › Plans",
       "do": "State the sentence again with the default <strong>Autonomy</strong> and press <strong>Decompose goal</strong>. On the draft, change <strong>Autonomy</strong> to <strong>Run everything it safely can</strong>, then <strong>Approve plan</strong> and <strong>Execute</strong>.",
       "click": "Execute",
       "see": "The judge's form, then (after <strong>Continue plan</strong>) the queue's form straight away: no <strong>Approve</strong> prompt anywhere. Then the test set's form and the enqueue form (<strong>Skip step</strong>). The plan reads <code>completed</code>: the same kit, with fewer questions.",
       "asset": "Same kit, no approvals"
     },
     {
-      "where": "Integrations › Plans",
+      "where": "Operate › Plans",
       "do": "State the sentence again under <strong>Stop before each change</strong>, approve and execute, answer the judge's form and approve it, answer the queue's form and, at <em>Approve step 2: Create review queue (review_queue.create)?</em>, press <strong>Deny</strong>.",
       "click": "Deny",
       "see": "The next question is the test set's form: the enqueue step is never asked. Answer and approve it. The plan reads <code>completed</code>; steps 2 and 4 <em>skipped</em>, step 4 saying <code>skipped because step 2 (review_queue.create) was skipped</code>; Review Queues has no row for that queue.",

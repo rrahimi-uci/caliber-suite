@@ -260,7 +260,7 @@ The spec waits up to 25 minutes per Calibrate and one hour overall.
 
 ## Recipe: run it through the UI
 
-Sign in at `$CALIBER_URL/caliber/` as `admin` / `admin`. Sidebar groups: **Prompt lifecycle**, **Agent resources**, **Operate**, **Integrations**, **Admin**. The browser spec
+Sign in at `$CALIBER_URL/caliber/` as `admin` / `admin`. Sidebar groups: **Get started** (Cookbooks), **Prompt lifecycle**, **Agent resources**, **Operate**, **Integrations**, **Admin**. The browser spec
 [`caliber/caliber-ui/e2e/cookbooks/labs/06-knowledge-retrieval.spec.ts`](../../../caliber/caliber-ui/e2e/cookbooks/labs/06-knowledge-retrieval.spec.ts) performs exactly these steps with real clicks and no API calls (it
 appends a timestamp to every name so it can be repeated); it passed twice in a row, in 22 seconds each on a warm stack.
 
@@ -282,7 +282,7 @@ appends a timestamp to every name so it can be repeated); it passed twice in a r
 7. **Build the tuned version 2.** **Build > New version**, tick the `policies` folder again, **Advanced configuration**: Markdown Aware, MiniLM, Chunk size `500`, Overlap `60`, **Create version of policy-qa-kb**.
    - Expected: a second run completes; the switcher shows `v2 (active)`: a finished build activates itself.
 8. **Set the active version.** In the header switcher choose `v1`, click **Set active**: `v1 (active)`. Choose `v2`, **Set active** again. (The rollback route has no button; **Set active** on the earlier version is the UI's rollback, and `POST /knowledge-bases/{id}/rollback` the API's.)
-9. **Install the answer workflow.** **Integrations > Cookbooks**, **Install** on *Grounded Knowledge Assistant*, name it, acknowledge the prerequisite, confirm.
+9. **Install the answer workflow.** **Get started > Cookbooks**, **Install** on *Grounded Knowledge Assistant*, name it, acknowledge the prerequisite, confirm.
    - Expected: the Workflow Studio opens on a paused draft with a **Knowledge Query** node, a **Confidence** node and an **Output**.
 10. **Bind it to the knowledge base and run it.** Click the **knowledge** node in the outline, set **Knowledge base** to `policy-qa-kb` and Top-K to `3`, **Save**, **Validate** (`Valid.`). The workflow is paused, so **Run** is disabled (`Resume this workflow before running it`): open the workflow from **Agent resources > Workflows**, click **Resume**, **Open editor**, **Run Monitor**, type `How long are security audit logs retained?`, **Run**.
     - Expected: status `completed`; the **Output** holds `Question: ...`, then `[1] data-retention-policy.md: ...` and the text `365 days`. With a real provider it is the model's sentence instead (`Security audit logs are retained for **365 days** from when the event is recorded ... [1]`), with no digest and no file name.
