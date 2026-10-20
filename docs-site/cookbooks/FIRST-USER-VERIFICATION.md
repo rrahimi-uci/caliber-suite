@@ -27,9 +27,9 @@ scored paths were run on the **stand-in** model tier (labs 01 and 10) and on a *
 | 09 Workflow debugger | Workflows → Run Monitor → editor | workflow v1, patched nodes | real failures | n/a | v1 published, patch, v2, compare, promote | run status, node outputs | `09` | 1 | 1 | **PASS** |
 | 10 Judge certification | Test Sets → Prompts → Judges → Evaluations → Review Queues | test set, prompts, judge, review queue | stand-in model | judge scored on stand-in; refused on simulated | prompt v2, re-run, compare | alignment, certify or reject | `10` | 0 new | n/a | **PASS** |
 | 11 Release readiness | Releases → release candidates | candidate, waiver, signoff | no model | criteria, blockers, waivers | modify, new candidate, re-run | signoff log, viewer view | `11` | 0 new | n/a | **PASS** |
-| 12 Aria evaluation harness | Plans → Judges → Test Sets → Evaluations | judge, 30-row test set (file import) via Aria | rules planner | judge listed; scoring refused on simulated | test-set row edit makes a new version | plan states, judge, test set | `12` | 1 | 1 | **PASS** (simulated; see note 2) |
+| 12 Aria evaluation harness | Plans → Judges → Test Sets → Evaluations | judge, 30-row test set (file import) via Aria | rules planner | judge listed; scoring refused on simulated | test-set row edit makes a new version | plan states, judge, test set | `12` | 1 | 1 | **PASS** (simulated, and on a hosted model; see note 2) |
 | 13 Aria review queue | Plans → Review Queues | queue, 30 flagged items | rules planner | n/a | n/a (a queue is not versioned) | reviews, a review that does not fit | `13` | 0 new | n/a | **PASS** |
-| 14 Aria starter kit | Plans → Judges, Review Queues, Test Sets | judge, queue, test set, rows | rules planner | judge listed; scoring refused on simulated | test-set rows add a version | plan states | `14` | 0 new | n/a | **PASS** (simulated; see note 2) |
+| 14 Aria starter kit | Plans → Judges, Review Queues, Test Sets | judge, queue, test set, rows | rules planner | judge listed; scoring refused on simulated | test-set rows add a version | plan states | `14` | 0 new | n/a | **PASS** (simulated, and on a hosted model; see note 2) |
 | 15 Aria triage loop | Plans → Tools → Test Sets → Workflows → Agents | tools, test set, workflow, agent, queue, calibration job | rules planner, background worker | calibration job settles | workflow published | plan parks and settles | `15` | 1 | 1 | **PASS** |
 | 16 Observability triage | Workflows → Observability → Test Sets → Review Queues | workflow v1 and v2, 40 traces, test set, queue | real traces | n/a (Evaluations not used) | v1, fix, v2, re-run 16 tickets, compare | 12 ERROR and 28 OK, then 44 OK | `16` | 3 | 3 | **PASS** |
 | 17 Financial analysis | SDK only by design; the UI half inspects what the script made | project, bucket, objects, prompt (all by script) | **hosted model**, 31 s | the model's JSON is validated by the script | prompt v1 at `prod` | objects, prompt, Playground answer read in the UI | `17` | 2 | 2 | **PASS** (SDK by design) |
@@ -41,9 +41,14 @@ Notes:
    of test sets and calibration cases, the trace in a review, release waiver expiry, the prompt Playground running the
    prompt, a publish refreshing the header) are listed under "Cross-cutting" and also have regression tests.
 2. Labs 12 and 14 end in a judge that Aria created and that the UI lists; *scoring* that judge needs a real model and
-   is refused on the simulated stack by design. Its real-model run was verified when the hosted tier was added (#499)
-   and was **not** re-run in this pass. The scored path itself was re-run here on the stand-in model (labs 01, 10) and
-   on a hosted model (lab 01 through the browser, lab 17 through the SDK and the browser).
+   is refused on the simulated stack by design. Both were re-run on a **hosted model** (`gpt-5.6-luna`, fresh stack,
+   `scripts/cookbook-env.sh up NAME --flags cookbooks,aria --real-llm`): every test of lab 12 (5 of 5) and lab 14 (4 of 4)
+   passes, including the real scored evaluation of the judge and the baseline comparison. That run found two problems in
+   the specs, not the product: the judge's score card was located by its label instead of the block holding the
+   percentage, and the Ask Aria helper could lose its text to the panel's own reset between filling it and sending.
+   Both are fixed. Long real-model runs are also sensitive to the machine sleeping (a multi-minute request is
+   dropped with "Failed to fetch"): run them under `caffeinate -i` on a laptop. The stand-in tier (labs 01, 10) and
+   labs 01 and 17 on a hosted model were verified as above.
 3. Nothing is BLOCKED or FAIL. The cookbook-labs workflow on a clean GitHub runner is an independent run: its first pass found the lab 16 canvas defect above, which no local run could (macOS scrollbars take no space).
 
 ## Defects found by running the labs, and their fixes

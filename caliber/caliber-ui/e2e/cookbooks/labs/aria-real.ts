@@ -44,14 +44,15 @@ export async function askAria(
   }
   const input = panel.getByPlaceholder("Ask Aria for follow-up changes...");
   const send = panel.getByRole("button", { name: "Send message" });
-  // The panel resets itself while a new chat starts; retry until the text has stuck and the
-  // send button has noticed it.
+  // The panel resets itself while a new chat starts, and it can do so again between the check
+  // and the click (the text is cleared and Send goes disabled): fill, check and send are one
+  // retried unit, so a reset costs one more try, not the whole turn.
   await expect(async () => {
     await input.fill(message);
     await expect(input).toHaveValue(message, { timeout: 2_000 });
     await expect(send).toBeEnabled({ timeout: 2_000 });
+    await send.click({ timeout: 2_000 });
   }).toPass({ timeout: 30_000 });
-  await send.click();
   // While the turn runs the input invites a queued follow-up; it is over when the usual prompt
   // is back. (A quick turn may skip the first state, so a miss there is fine.)
   await expect(input)
