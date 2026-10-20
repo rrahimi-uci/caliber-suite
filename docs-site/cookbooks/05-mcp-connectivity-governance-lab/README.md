@@ -235,7 +235,7 @@ about half a second each). Real output, trimmed (ids and timings vary):
   ok  the trace is one TOOL span with the server, transport, input, output and latency
   ok  a tool's own error is traced as ERROR
 == 15. the gallery starter
-  ok  the gallery lists 10 steps for this lab
+  ok  the gallery lists 11 steps for this lab
   ok  the starter is a generic single-agent draft with no tools: it does not use the MCP server
 == done
 ```

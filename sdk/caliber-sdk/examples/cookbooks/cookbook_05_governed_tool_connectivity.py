@@ -696,7 +696,7 @@ def run(
 
         say("== 15. the gallery starter")
         recipe = {item.id: item for item in admin.cookbooks.list()}["05"]
-        check(len(recipe.steps) == 10, "the gallery lists 10 steps for this lab")
+        check(len(recipe.steps) == 11, "the gallery lists 11 steps for this lab")
         installed = admin.cookbooks.install(
             "05",
             name=f"Cookbook 05 starter{suffix}",

@@ -27,6 +27,9 @@ the product does not represent an unavailable dependency as ready. The generated
 > each change (bounded by Aria's real capability registry). The planner is rules,
 > not a model, so these four labs are deterministic.
 >
+> **Verification:** [`FIRST-USER-VERIFICATION.md`](FIRST-USER-VERIFICATION.md) is the first-user run of every lab (fresh stack,
+> real clicks, API and browser paths): what passed, on which model tier, the defects it found and how they were fixed.
+>
 > **Review:** [`CRITIQUE-REPORT.md`](CRITIQUE-REPORT.md) is the implementability
 > critique — every scenario checked against the shipped code, the defects found
 > + fixed, and a per-scenario verdict.
