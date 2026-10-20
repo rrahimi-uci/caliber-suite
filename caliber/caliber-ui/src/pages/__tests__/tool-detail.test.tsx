@@ -89,6 +89,12 @@ describe("ToolDetail", () => {
     expect(screen.getByTestId("tool-id")).toHaveTextContent("TL-1");
     expect(screen.getByTestId("tool-module")).toHaveTextContent("caliber.workflows.demo_tools");
     expect(screen.getByTestId("tool-callable")).toHaveTextContent("lookup_order");
+    // Registering a tool lands here, and the lab's next steps (Sandbox, Fixtures, Hardening) are
+    // in the workspace: this page has to point there, for every role.
+    expect(screen.getByTestId("tool-detail-open-workspace")).toHaveAttribute(
+      "href",
+      "/tools?tool=TL-1",
+    );
 
     // Non-admin: no edit form, no deprecate/archive controls.
     expect(screen.queryByTestId("tool-edit-description")).not.toBeInTheDocument();

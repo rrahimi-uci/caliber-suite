@@ -6,7 +6,7 @@
  */
 
 import { useCallback, useEffect, useMemo, useState, type ReactNode } from "react";
-import { Link } from "react-router-dom";
+import { Link, useSearchParams } from "react-router-dom";
 
 import { caliberApi } from "@/api/caliberApi";
 import type { AssistantConfig, AssistantModelOption } from "@/api/assistantTypes";
@@ -159,8 +159,26 @@ const TOOL_WORKSPACE_STAGES: PageTab[] = [
 
 export function ToolRegistry(): JSX.Element {
   const [activeTab, setActiveTab] = useState<ToolView>("registry");
-  // The tool currently opened into the Workspace (null = landing list).
-  const [openToolId, setOpenToolId] = useState<string | null>(null);
+  // The tool currently opened into the Workspace (null = landing list). It lives in the URL
+  // (``?tool=TL-...``), so a reload, a bookmark, a shared link and the browser's Back button all
+  // land where the person was, and registering a tool can take them straight into its workspace.
+  const [searchParams, setSearchParams] = useSearchParams();
+  const openToolId = searchParams.get("tool");
+  const setOpenToolId = useCallback(
+    (toolId: string | null): void => {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        if (toolId) next.set("tool", toolId);
+        else next.delete("tool");
+        return next;
+      });
+    },
+    [setSearchParams],
+  );
+  useEffect(() => {
+    // Landing in a workspace (for example right after registering) leaves the register tab.
+    if (openToolId) setActiveTab("registry");
+  }, [openToolId]);
   const [toolSearch, setToolSearch] = useState("");
   // Both filters default to the empty "All" sentinel; a row must match the text
   // query AND every active filter (additive).

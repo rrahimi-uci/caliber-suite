@@ -107,6 +107,16 @@ class FakeAssistantEngine:
             names = ", ".join(str(a.get("name") or "?") for a in request.attachments)
             attachment_note = f" I can see {len(request.attachments)} attachment(s): {names}."
 
+        # A prompt playground turn asks the registered prompt itself to answer. No model is running,
+        # so say so rather than answering as Aria would (which is an authoring draft).
+        if request.prompt_playground:
+            return AssistantTurnResult(
+                reply=(
+                    "(simulated) No model provider is configured, so this is not the prompt's "
+                    "answer. Start CALIBER with a real provider to run the prompt."
+                ),
+            )
+
         # Steer / chat / plan never produce drafts and never advance authoring.
         if request.steer:
             return AssistantTurnResult(

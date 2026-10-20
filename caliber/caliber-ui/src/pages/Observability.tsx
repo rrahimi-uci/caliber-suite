@@ -45,6 +45,16 @@ const STATUS_OPTIONS = [
   { value: "IN_PROGRESS", label: "In progress" },
 ];
 
+/**
+ * How often the trace list refreshes itself (only while the tab is visible).
+ *
+ * MLflow closes a trace asynchronously, so a run that just ended reads IN_PROGRESS for a moment.
+ * Under a status filter such as Error that trace is simply not in the list yet, so "refresh while
+ * a listed trace is in progress" never fires there and the list stays one failure short until
+ * someone reloads. A steady refresh makes every view converge by itself.
+ */
+const TRACE_LIST_REFRESH_MS = 5000;
+
 const TIME_RANGES: Array<{ value: string; label: string; ms: number | null }> = [
   { value: "all", label: "All time", ms: null },
   { value: "1h", label: "Last hour", ms: 60 * 60 * 1000 },
@@ -138,6 +148,7 @@ export function Observability(): JSX.Element {
         signal,
       );
     },
+    { refetchInterval: TRACE_LIST_REFRESH_MS },
   );
   const allTraces = tracesQuery.data ?? [];
   const q = search.trim().toLowerCase();

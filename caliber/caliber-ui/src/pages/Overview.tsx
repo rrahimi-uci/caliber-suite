@@ -9,7 +9,7 @@ import { useCallback, useMemo, type ReactNode } from "react";
 import { Link } from "react-router-dom";
 
 import { caliberApi } from "@/api/caliberApi";
-import type { RefinementJob } from "@/api/types";
+import type { DashboardSummary, RefinementJob } from "@/api/types";
 import { useDashboardSummaryContext } from "@/components/DashboardSummaryContext";
 import { useApi } from "@/hooks/useApi";
 import { useFeature } from "@/hooks/useFeature";
@@ -105,6 +105,7 @@ type WorkflowCalibrationData = NonNullable<ReturnType<typeof workflowCalibration
 export function Dashboard(): JSX.Element {
   const { data, error, loading, refresh } = useDashboardSummaryContext();
   const ariaEnabled = useFeature("aria").enabled;
+  const cookbooksEnabled = useFeature("cookbooks").enabled;
 
   const jobsState = useApi(
     useCallback((signal: AbortSignal) => caliberApi.listJobs({}, signal), []),
@@ -227,6 +228,10 @@ export function Dashboard(): JSX.Element {
       </section>
 
       {error && <ErrorBanner message={error.message} onRetry={refreshAll} />}
+
+      {data && isEmptyWorkspace(data) && (
+        <GettingStarted cookbooksEnabled={cookbooksEnabled} />
+      )}
 
       <section className="grid gap-5 xl:grid-cols-[minmax(0,1.05fr)_minmax(360px,0.95fr)]">
         <Panel
@@ -604,6 +609,60 @@ function SummaryCard({
       <div className={`mt-1 text-2xl font-semibold tracking-tight ${styles.text}`}>{value}</div>
       <div className="mt-1 text-xs text-slate-500">{detail}</div>
     </div>
+  );
+}
+
+/** Nothing has happened here yet: no agent, no job, no verification, no assistant run. */
+function isEmptyWorkspace(data: DashboardSummary): boolean {
+  return (
+    data.agents_total === 0 &&
+    data.verification_pending === 0 &&
+    data.jobs_queued + data.jobs_running + data.jobs_completed + data.jobs_failed + data.jobs_rejected === 0 &&
+    (data.assistant_slo?.plans_total ?? 0) === 0
+  );
+}
+
+/**
+ * What a first-time person sees instead of a wall of zeros: the order the product is meant to be
+ * used in, each step one click away.
+ */
+function GettingStarted({ cookbooksEnabled }: { cookbooksEnabled: boolean }): JSX.Element {
+  const steps: Array<{ to: string; title: string; detail: string }> = [
+    { to: "/prompts", title: "Write a prompt", detail: "Create it, save a draft, make a version live." },
+    { to: "/eval-datasets", title: "Add a test set", detail: "Import labelled examples from a file." },
+    { to: "/evaluations", title: "Run an evaluation", detail: "Score a prompt version against the test set." },
+    { to: "/releases", title: "Release it", detail: "See what is live, who changed it, and roll back." },
+  ];
+  return (
+    <section data-testid="dashboard-getting-started" className="rounded-lg border border-caliber-200 bg-violet-50/50 px-5 py-4">
+      <h2 className="text-sm font-semibold text-slate-900">New here? Start with the core loop</h2>
+      <p className="mt-1 text-xs leading-5 text-slate-600">
+        Nothing has run yet, which is why everything below reads zero. This is the order most work goes in.
+      </p>
+      <ol className="mt-3 grid gap-3 md:grid-cols-2 xl:grid-cols-4">
+        {steps.map((step, index) => (
+          <li key={step.to}>
+            <Link
+              to={step.to}
+              className="block h-full rounded-md border border-slate-200 bg-white px-3 py-2.5 transition hover:border-caliber-200"
+            >
+              <span className="text-[11px] font-semibold text-caliber-purple">Step {index + 1}</span>
+              <span className="mt-0.5 block text-sm font-semibold text-slate-900">{step.title}</span>
+              <span className="mt-0.5 block text-xs text-slate-500">{step.detail}</span>
+            </Link>
+          </li>
+        ))}
+      </ol>
+      {cookbooksEnabled && (
+        <p className="mt-3 text-xs text-slate-600">
+          Prefer to follow an example end to end?{" "}
+          <Link to="/cookbooks" data-testid="dashboard-open-cookbooks" className="font-semibold text-caliber-purple hover:underline">
+            Open the Cookbooks
+          </Link>
+          .
+        </p>
+      )}
+    </section>
   );
 }
 

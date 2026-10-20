@@ -864,3 +864,145 @@ describe("Releases with the release_candidates feature off (the alpha default)",
     expect(candidateCalls).toEqual([]);
   });
 });
+
+describe("Releases: why a candidate is blocked, and what was waived", () => {
+  const base = {
+    project_id: null,
+    visibility: "user",
+    artifact_type: "workflow",
+    artifact_ref: "WF-x",
+    version_ref: "5",
+    criteria: [],
+    evidence: [],
+    planned_action: {},
+    rollback_target: { version_ref: "4" },
+    owner: "@test",
+    created_at: "2026-08-04T00:00:00Z",
+    updated_at: "2026-08-04T00:00:00Z",
+  };
+
+  function serve(candidates: Record<string, unknown>[], waiverBodies: Record<string, unknown>[] = []) {
+    server.use(
+      http.get(`${API_BASE}/capabilities`, () =>
+        HttpResponse.json(capabilitiesBody({ release_candidates: true })),
+      ),
+      http.get(`${API_BASE}/releases/live`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/releases/timeline`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/releases/candidates`, () => HttpResponse.json(envelope(candidates))),
+      http.post(`${API_BASE}/releases/candidates/:id/waivers`, async ({ request }) => {
+        waiverBodies.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(envelope(candidates[0]), { status: 201 });
+      }),
+    );
+  }
+
+  it("names the unmet blocking criterion on a blocked candidate", async () => {
+    serve([
+      {
+        ...base,
+        candidate_id: "RC-1",
+        name: "blocked one",
+        required_score: 0.7,
+        weighted_score: 0.721,
+        status: "blocked",
+        waivers: [],
+        blockers: [
+          { criterion_key: "rollback_rehearsed", title: "Rollback rehearsed", score: 0.5, threshold: 1 },
+        ],
+      },
+    ]);
+    renderPage();
+    const card = await screen.findByTestId("release-candidate-RC-1");
+    expect(within(card).getByTestId("release-candidate-blockers")).toHaveTextContent(
+      "Blocked by rollback_rehearsed: scored 0.5, needs 1",
+    );
+    expect(within(card).queryByTestId("release-candidate-under-bar")).not.toBeInTheDocument();
+  });
+
+  it("says when a candidate is blocked by its score alone, and that a waiver cannot fix that", async () => {
+    serve([
+      {
+        ...base,
+        candidate_id: "RC-2",
+        name: "under the bar",
+        required_score: 0.85,
+        weighted_score: 0.6575,
+        status: "blocked",
+        waivers: [{ criterion_key: "human_review", approved_by: "admin", reason: "booked" }],
+        blockers: [],
+      },
+    ]);
+    renderPage();
+    const card = await screen.findByTestId("release-candidate-RC-2");
+    expect(within(card).getByTestId("release-candidate-under-bar")).toHaveTextContent(
+      "66% is under the required 85%",
+    );
+    expect(within(card).queryByTestId("release-candidate-blockers")).not.toBeInTheDocument();
+  });
+
+  it("lists a waiver with who granted it and its expiry", async () => {
+    serve([
+      {
+        ...base,
+        candidate_id: "RC-3",
+        name: "waived",
+        required_score: 0.7,
+        weighted_score: 0.721,
+        status: "ready",
+        blockers: [],
+        waivers: [
+          {
+            criterion_key: "rollback_rehearsed",
+            approved_by: "admin",
+            expires_at: "2099-01-01T23:59:59+00:00",
+            reason: "Rehearsal booked for the 25th",
+          },
+        ],
+      },
+    ]);
+    renderPage();
+    const card = await screen.findByTestId("release-candidate-RC-3");
+    const waivers = within(card).getByTestId("release-candidate-waivers");
+    expect(waivers).toHaveTextContent("Waived rollback_rehearsed by admin, until 2099-01-01");
+    expect(waivers).toHaveTextContent("Rehearsal booked for the 25th");
+  });
+
+  it("sends the waiver's optional expiry as end of that day, and nothing when left empty", async () => {
+    const bodies: Record<string, unknown>[] = [];
+    serve(
+      [
+        {
+          ...base,
+          candidate_id: "RC-4",
+          name: "needs waiver",
+          required_score: 0.7,
+          weighted_score: 0.721,
+          status: "blocked",
+          waivers: [],
+          blockers: [{ criterion_key: "rollback_rehearsed", title: "t", score: 0, threshold: 1 }],
+        },
+      ],
+      bodies,
+    );
+    renderPage();
+    const card = await screen.findByTestId("release-candidate-RC-4");
+    fireEvent.change(within(card).getByLabelText("Waiver criterion key"), {
+      target: { value: "rollback_rehearsed" },
+    });
+    fireEvent.change(within(card).getByLabelText("Waiver reason"), {
+      target: { value: "Rehearsal booked for the 25th" },
+    });
+    fireEvent.click(within(card).getByRole("button", { name: "Record waiver" }));
+    await waitFor(() => expect(bodies).toHaveLength(1));
+    expect(bodies[0]).toEqual({
+      criterion_key: "rollback_rehearsed",
+      reason: "Rehearsal booked for the 25th",
+    });
+    fireEvent.change(within(card).getByLabelText("Waiver expiry (optional)"), {
+      target: { value: "2099-01-31" },
+    });
+    fireEvent.click(within(card).getByRole("button", { name: "Record waiver" }));
+    await waitFor(() => expect(bodies).toHaveLength(2));
+    expect(bodies[1]).toMatchObject({ expires_at: "2099-01-31T23:59:59Z" });
+  });
+});

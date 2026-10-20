@@ -582,6 +582,8 @@ function ReviewForm({
         <ItemStatus status={item.status} />
       </div>
 
+      <TraceContent traceId={item.trace_id} />
+
       <div className="space-y-4">
         {questions.map((q) => (
           <div key={q.key}>
@@ -622,6 +624,73 @@ function ReviewForm({
           assessment(s) back to the trace.
         </div>
       )}
+    </div>
+  );
+}
+
+/** What a trace holds as text: a string as is, a one-field object as that field, else JSON. */
+function traceText(value: unknown): string {
+  if (value === null || value === undefined || value === "") return "";
+  if (typeof value === "string") {
+    // MLflow stores a request or response as JSON text: unwrap it.
+    try {
+      const parsed: unknown = JSON.parse(value);
+      if (typeof parsed === "string" || (typeof parsed === "object" && parsed !== null)) {
+        return traceText(parsed);
+      }
+    } catch {
+      /* plain text */
+    }
+    return value;
+  }
+  if (typeof value === "object" && !Array.isArray(value)) {
+    const values = Object.values(value as Record<string, unknown>);
+    if (values.length === 1 && typeof values[0] === "string") return values[0];
+  }
+  return JSON.stringify(value, null, 2);
+}
+
+/**
+ * The request and the response of the trace under review. A reviewer answers questions about
+ * what the agent said; without the text in front of them all they would have is an id.
+ */
+function TraceContent({ traceId }: { traceId: string }): JSX.Element {
+  const fetcher = useCallback(
+    (signal: AbortSignal) => caliberApi.getObservabilityTrace(traceId, signal),
+    [traceId],
+  );
+  const { data, error, loading } = useApi(fetcher, [traceId]);
+  if (loading && !data) {
+    return <div className="mb-5 text-sm text-gray-400">Loading the trace…</div>;
+  }
+  if (error || !data) {
+    return (
+      <div
+        data-testid="review-trace-error"
+        className="mb-5 rounded-md border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-900"
+      >
+        The trace&rsquo;s content could not be loaded
+        {error ? ` (${error.message})` : ""}. Open it under Operate &gt; Observability to read it
+        before you answer.
+      </div>
+    );
+  }
+  const request = traceText(data.request);
+  const response = traceText(data.response);
+  return (
+    <div data-testid="review-trace-content" className="mb-5 space-y-3">
+      <div>
+        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Request</div>
+        <div className="mt-1 whitespace-pre-wrap break-words rounded-md border border-surface-200 bg-surface-50 px-3 py-2 text-sm text-gray-800">
+          {request || "—"}
+        </div>
+      </div>
+      <div>
+        <div className="text-xs font-medium uppercase tracking-wide text-gray-500">Response</div>
+        <div className="mt-1 whitespace-pre-wrap break-words rounded-md border border-surface-200 bg-surface-50 px-3 py-2 text-sm text-gray-800">
+          {response || "—"}
+        </div>
+      </div>
     </div>
   );
 }

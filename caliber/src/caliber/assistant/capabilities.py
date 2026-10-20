@@ -339,11 +339,22 @@ def _register_builtins() -> None:
             required_scopes=("operator",),
             properties={
                 "name": {"type": "string", "minLength": 1},
-                "instructions": {"type": "string", "minLength": 1},
+                "instructions": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "(must contain {{ inputs }}, {{ outputs }} or {{ expectations }})",
+                },
                 "description": {"type": "string"},
-                "model": {"type": "string"},
+                "model": {
+                    "type": "string",
+                    "description": "(optional; empty uses the deployment's default judge model)",
+                },
                 "feedback_value_type": {"type": "string", "enum": ["bool", "int", "float", "str"]},
-                "tags": {"type": "array", "items": {"type": "string"}},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": '(optional list, e.g. ["faithfulness"])',
+                },
             },
             required=("name", "instructions"),
             result_properties=("judge_id", "name", "status"),
@@ -374,8 +385,20 @@ def _register_builtins() -> None:
             properties={
                 "name": {"type": "string", "minLength": 1},
                 "description": {"type": "string"},
-                "questions": {"type": "array", "minItems": 1, "items": _QUESTION_ITEM_SCHEMA},
-                "reviewers": {"type": "array", "items": {"type": "string"}},
+                "questions": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": _QUESTION_ITEM_SCHEMA,
+                    "description": (
+                        "(a list of objects with key and title; type is pass_fail, categorical "
+                        "(then options is required), numeric or text)"
+                    ),
+                },
+                "reviewers": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": '(optional list of user ids, e.g. ["olga"])',
+                },
             },
             required=("name", "questions"),
             result_properties=("queue_id", "name", "questions"),
@@ -392,7 +415,11 @@ def _register_builtins() -> None:
             properties={
                 "name": {"type": "string", "minLength": 1},
                 "description": {"type": "string"},
-                "tags": {"type": "array", "items": {"type": "string"}},
+                "tags": {
+                    "type": "array",
+                    "items": {"type": "string"},
+                    "description": '(optional list, e.g. ["support"])',
+                },
             },
             required=("name",),
             result_properties=("dataset_id", "name"),
@@ -408,9 +435,17 @@ def _register_builtins() -> None:
             required_scopes=("operator",),
             properties={
                 "queue_id": {"type": "string"},
-                "trace_ids": {"type": "array", "minItems": 1, "items": {"type": "string"}},
+                "trace_ids": {
+                    "type": "array",
+                    "minItems": 1,
+                    "items": {"type": "string"},
+                    "description": '(a list of trace ids, e.g. ["tr-..."]; see Operate > Observability)',
+                },
                 "experiment_id": {"type": "string"},
-                "assigned_to": {"type": "string"},
+                "assigned_to": {
+                    "type": "string",
+                    "description": "(optional user id the items are assigned to)",
+                },
             },
             required=("queue_id", "trace_ids"),
             result_properties=("queue_id", "added"),
@@ -428,8 +463,16 @@ def _register_builtins() -> None:
             handler=_workflow_calibrate,
             required_scopes=("operator",),
             properties={
-                "workflow_id": {"type": "string", "minLength": 1},
-                "agent_id": {"type": "string", "minLength": 1},
+                "workflow_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "(a workflow id with a published version and a test set; see Agent resources > Workflows)",
+                },
+                "agent_id": {
+                    "type": "string",
+                    "minLength": 1,
+                    "description": "(a registered agent id; see Agent resources > Agents)",
+                },
             },
             required=("workflow_id", "agent_id"),
             result_properties=("job_id",),

@@ -244,6 +244,7 @@ function ReleaseCandidateCard({
   const [rationale, setRationale] = useState("");
   const [waiverKey, setWaiverKey] = useState("");
   const [waiverReason, setWaiverReason] = useState("");
+  const [waiverExpiry, setWaiverExpiry] = useState("");
   const [actionMessage, setActionMessage] = useState<string | null>(null);
   const rowRef = useRef<HTMLDivElement>(null);
 
@@ -269,6 +270,8 @@ function ReleaseCandidateCard({
       caliberApi.waiveReleaseCriterion(target.candidate_id, {
         criterion_key: waiverKey,
         reason: waiverReason,
+        // optional: the waiver lapses at the end of that day (UTC) and the blocker returns
+        ...(waiverExpiry ? { expires_at: `${waiverExpiry}T23:59:59Z` } : {}),
       }),
     {
       onSuccess: async () => {
@@ -305,6 +308,36 @@ function ReleaseCandidateCard({
       <p className="mt-1 text-xs text-gray-500">
         {candidate.criteria.length} criteria · {candidate.evidence.length} evidence · {candidate.blockers.length} blockers · rollback {String(candidate.rollback_target.version_ref ?? "not set")}
       </p>
+      {candidate.blockers.length > 0 && (
+        <ul data-testid="release-candidate-blockers" className="mt-1 space-y-0.5 text-xs text-red-700">
+          {candidate.blockers.map((blocker) => (
+            <li key={String(blocker.criterion_key)}>
+              Blocked by <span className="font-mono">{String(blocker.criterion_key)}</span>
+              {blocker.score != null && blocker.threshold != null
+                ? `: scored ${String(blocker.score)}, needs ${String(blocker.threshold)}`
+                : ""}
+            </li>
+          ))}
+        </ul>
+      )}
+      {candidate.status === "blocked" &&
+        candidate.blockers.length === 0 &&
+        (candidate.weighted_score ?? 0) < candidate.required_score && (
+          <p data-testid="release-candidate-under-bar" className="mt-1 text-xs text-red-700">
+            No blocking criterion is unmet, but the weighted score {Math.round((candidate.weighted_score ?? 0) * 100)}% is under the
+            required {Math.round(candidate.required_score * 100)}%. A waiver cannot raise a score.
+          </p>
+        )}
+      {candidate.waivers.length > 0 && (
+        <ul data-testid="release-candidate-waivers" className="mt-1 space-y-0.5 text-xs text-amber-700">
+          {candidate.waivers.map((waiver, index) => (
+            <li key={`${String(waiver.criterion_key)}-${index}`}>
+              Waived <span className="font-mono">{String(waiver.criterion_key)}</span> by {String(waiver.approved_by ?? "an admin")}
+              {waiver.expires_at ? `, until ${String(waiver.expires_at)}` : ""}: {String(waiver.reason ?? "")}
+            </li>
+          ))}
+        </ul>
+      )}
       {actionMessage && <p className="mt-1 text-xs text-emerald-700">{actionMessage}</p>}
       {actionError && <p role="alert" className="mt-1 text-sm text-red-700">{queryErrorMessage(actionError)}</p>}
       {canOperate && (
@@ -324,6 +357,7 @@ function ReleaseCandidateCard({
         <div className="mt-2 flex flex-wrap gap-2">
           <input aria-label="Waiver criterion key" className="rounded border px-2 py-1 text-xs" placeholder="criterion key" value={waiverKey} onChange={(event) => setWaiverKey(event.target.value)} />
           <input aria-label="Waiver reason" className="min-w-72 rounded border px-2 py-1 text-xs" placeholder="Exception reason and compensating control" value={waiverReason} onChange={(event) => setWaiverReason(event.target.value)} />
+          <input aria-label="Waiver expiry (optional)" type="date" className="rounded border px-2 py-1 text-xs" value={waiverExpiry} onChange={(event) => setWaiverExpiry(event.target.value)} />
           <Button size="sm" variant="outline" disabled={!waiverKey || waiverReason.length < 8} onClick={() => waive.mutate(candidate)}>Record waiver</Button>
         </div>
       )}

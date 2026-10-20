@@ -1,10 +1,11 @@
 import { fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { ValidationReport, WorkflowManifest } from "@/api/workflowTypes";
 
 const mockState: { reactFlowProps?: Record<string, unknown> } = {};
+const fitView = vi.fn();
 
 vi.mock("@xyflow/react", async () => {
   const React = await import("react");
@@ -19,6 +20,7 @@ vi.mock("@xyflow/react", async () => {
     ReactFlowProvider: ({ children }: { children: React.ReactNode }) => <>{children}</>,
     useReactFlow: () => ({
       screenToFlowPosition: ({ x, y }: { x: number; y: number }) => ({ x: x + 1, y: y + 2 }),
+      fitView,
     }),
     ReactFlow: (props: Record<string, unknown>) => {
       mockState.reactFlowProps = props;
@@ -119,6 +121,69 @@ function testManifest(): WorkflowManifest {
 describe("Canvas", () => {
   beforeEach(() => {
     mockState.reactFlowProps = undefined;
+    fitView.mockClear();
+  });
+
+  describe("refitting when the canvas changes size", () => {
+    let resize: (() => void) | undefined;
+    beforeEach(() => {
+      vi.useFakeTimers();
+      resize = undefined;
+      vi.stubGlobal(
+        "ResizeObserver",
+        class {
+          constructor(callback: () => void) {
+            resize = callback;
+          }
+          observe(): void {}
+          disconnect(): void {}
+        },
+      );
+    });
+    afterEach(() => {
+      vi.useRealTimers();
+      vi.unstubAllGlobals();
+    });
+
+    it("refits the graph once after the palette and inspector have settled", () => {
+      render(<Canvas manifest={testManifest()} />);
+      expect(fitView).not.toHaveBeenCalled();
+      // A burst of resizes (panels opening, toolbar wrapping) is one refit, after it settles.
+      resize?.();
+      resize?.();
+      resize?.();
+      vi.advanceTimersByTime(200);
+      expect(fitView).toHaveBeenCalledTimes(1);
+      expect(fitView).toHaveBeenCalledWith({ padding: 0.12, minZoom: 0.15 });
+    });
+
+    it("lets a wide graph zoom out far enough to fit a laptop-width canvas", () => {
+      render(<Canvas manifest={testManifest()} />);
+      const props = mockState.reactFlowProps as {
+        minZoom: number;
+        fitViewOptions: { minZoom: number };
+      };
+      expect(props.minZoom).toBeLessThanOrEqual(0.2);
+      expect(props.fitViewOptions.minZoom).toBe(props.minZoom);
+    });
+
+    it("never refits a view the person has panned or zoomed", () => {
+      render(<Canvas manifest={testManifest()} />);
+      const props = mockState.reactFlowProps as { onMoveStart: (event: unknown) => void };
+      props.onMoveStart({ type: "mousedown" });
+      resize?.();
+      vi.advanceTimersByTime(200);
+      expect(fitView).not.toHaveBeenCalled();
+    });
+
+    it("still refits after fitView's own programmatic move (no DOM event)", () => {
+      render(<Canvas manifest={testManifest()} />);
+      const props = mockState.reactFlowProps as { onMoveStart: (event: unknown) => void };
+      props.onMoveStart(null);
+      resize?.();
+      vi.advanceTimersByTime(200);
+      expect(fitView).toHaveBeenCalledTimes(1);
+    });
   });
 
   it("decorates nodes/edges and forwards selection + connection handlers", async () => {

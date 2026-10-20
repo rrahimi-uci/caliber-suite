@@ -155,18 +155,24 @@ export function Agents(): JSX.Element {
                 required
               />
             </label>
-            <label className="text-xs font-semibold text-slate-700">
-              MLflow experiment ID
-              <input
-                className="form-input mt-1.5 w-full"
-                value={draft.experiment_id}
-                onChange={(event) =>
-                  updateDraft("experiment_id", event.target.value)
-                }
-                placeholder="1234567890"
-                required
-              />
-            </label>
+            <div>
+              <label className="text-xs font-semibold text-slate-700">
+                MLflow experiment ID
+                <input
+                  className="form-input mt-1.5 w-full"
+                  value={draft.experiment_id}
+                  onChange={(event) =>
+                    updateDraft("experiment_id", event.target.value)
+                  }
+                  placeholder="1234567890"
+                  required
+                />
+              </label>
+              <p className="mt-1 text-[11px] text-slate-500">
+                The experiment this agent logs its traces to. One agent per
+                experiment.
+              </p>
+            </div>
             <label className="text-xs font-semibold text-slate-700">
               Display name
               <input

@@ -3346,6 +3346,8 @@ export function PromptChatPlayground({
         goal: promptContext,
         metadata_: {
           source: "prompts-playground",
+          // Run the prompt as the system prompt, not Aria's artifact-authoring flow.
+          prompt_playground: true,
           model: selectedModel,
           prompt_context: {
             ...snapshot,
@@ -3800,6 +3802,8 @@ export function PromptChatPlayground({
               {messages.map((msg, i) => (
                 <div
                   key={i}
+                  data-testid="playground-message"
+                  data-role={msg.role}
                   className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
                 >
                   <div

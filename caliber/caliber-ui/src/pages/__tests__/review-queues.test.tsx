@@ -1,7 +1,7 @@
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
-import { afterAll, afterEach, beforeAll, describe, expect, it } from "vitest";
+import { afterAll, afterEach, beforeAll, beforeEach, describe, expect, it } from "vitest";
 import { MemoryRouter, Route, Routes } from "react-router-dom";
 
 import { ReviewQueues } from "@/pages/ReviewQueues";
@@ -72,7 +72,38 @@ function renderPage(): void {
   );
 }
 
+function makeTraceDetail(overrides: Record<string, unknown> = {}) {
+  return {
+    trace_id: "tr-abc",
+    name: "agent-reply",
+    status: "OK",
+    experiment_id: "1",
+    session_id: null,
+    user: null,
+    spans: [],
+    request: JSON.stringify({ user_message: "Can I return a laptop I bought 20 days ago?" }),
+    response: JSON.stringify("Yes, within 30 days."),
+    request_time_ms: null,
+    execution_time_ms: null,
+    total_tokens: null,
+    prompt_tokens: null,
+    completion_tokens: null,
+    cost_usd: null,
+    tags: {},
+    assessments: [],
+    ...overrides,
+  };
+}
+
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
+// Every review form shows the trace it is about, so each test has a trace to read by default.
+beforeEach(() =>
+  server.use(
+    http.get(`${API_BASE}/observability/traces/:traceId`, () =>
+      HttpResponse.json(envelope(makeTraceDetail())),
+    ),
+  ),
+);
 afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
@@ -137,6 +168,42 @@ describe("ReviewQueues", () => {
     await waitFor(() =>
       expect(screen.getByText("All items reviewed. 🎉")).toBeInTheDocument(),
     );
+  });
+
+  it("shows the request and the response of the trace being reviewed", async () => {
+    server.use(
+      http.get(`${API_BASE}/review-queues`, () => HttpResponse.json(envelope([makeQueue()]))),
+      http.get(`${API_BASE}/review-queues/RVQ-1`, () =>
+        HttpResponse.json(envelope({ queue: makeQueue(), items: [makeItem()] })),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Open" }));
+    const content = await screen.findByTestId("review-trace-content");
+    // A one-field request shows its text, and a JSON-quoted response is unwrapped.
+    expect(content).toHaveTextContent("Can I return a laptop I bought 20 days ago?");
+    expect(content).toHaveTextContent("Yes, within 30 days.");
+    expect(content).not.toHaveTextContent("user_message");
+    expect(content).not.toHaveTextContent('"Yes');
+  });
+
+  it("falls back to pointing at Observability when the trace cannot be loaded", async () => {
+    server.use(
+      http.get(`${API_BASE}/review-queues`, () => HttpResponse.json(envelope([makeQueue()]))),
+      http.get(`${API_BASE}/review-queues/RVQ-1`, () =>
+        HttpResponse.json(envelope({ queue: makeQueue(), items: [makeItem()] })),
+      ),
+      http.get(`${API_BASE}/observability/traces/:traceId`, () =>
+        HttpResponse.json({ detail: "trace not found" }, { status: 404 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByRole("button", { name: "Open" }));
+    expect(await screen.findByTestId("review-trace-error")).toHaveTextContent("Observability");
+    // The reviewer can still answer: the form is not blocked by the missing content.
+    expect(screen.getByRole("button", { name: "Submit review" })).toBeEnabled();
   });
 
   it("builds a queue with a custom question and creates it", async () => {

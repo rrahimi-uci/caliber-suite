@@ -836,6 +836,7 @@ def test_version_constraint_unsatisfied() -> None:
 
 def test_write_tool_without_approval_warns() -> None:
     data = make_support_manifest()
+    data["tools"]["escalate"]["requires_approval"] = False
     report = validate_manifest(parse_manifest(data), resolver=registry_resolver())
     # escalate is external_action and there's no human approval node
     assert any(w.code == "write_tool_without_approval" for w in report.warnings)
@@ -882,6 +883,31 @@ def test_mcp_write_tool_without_approval_warns_without_registry_resolver() -> No
     }
     report = validate_manifest(parse_manifest(data))
     assert any(w.code == "write_tool_without_approval" for w in report.warnings)
+
+
+def test_mcp_write_tool_with_a_gated_binding_does_not_warn() -> None:
+    """A binding with requires_approval pauses the run for a second person, so it is a gate."""
+    data = make_manifest()
+    data["nodes"]["agent"]["tools"] = ["write_docs"]
+    data["tools"] = {
+        "write_docs": {
+            "type": "mcp_tool",
+            "server_id": "MCP-DOCS",
+            "tool_name": "write_file",
+            "side_effect_level": "write",
+            "requires_approval": True,
+        }
+    }
+    report = validate_manifest(parse_manifest(data))
+    assert "write_tool_without_approval" not in _codes(report)
+
+
+def test_registered_write_tool_with_a_gated_binding_does_not_warn() -> None:
+    data = make_support_manifest()
+    for binding in data["tools"].values():
+        binding["requires_approval"] = True
+    report = validate_manifest(parse_manifest(data), resolver=registry_resolver())
+    assert "write_tool_without_approval" not in _codes(report)
 
 
 def test_missing_prompt_ref() -> None:

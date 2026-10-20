@@ -1,7 +1,7 @@
 import { render, screen, waitFor, within } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
-import { MemoryRouter, Route, Routes } from "react-router-dom";
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom";
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 
 import type { ToolDefinition } from "@/api/workflowTypes";
@@ -121,7 +121,12 @@ function detail(overrides: Partial<ToolTestRunDetail> = {}): ToolTestRunDetail {
   };
 }
 
-function renderRegistry(): void {
+function LocationProbe(): JSX.Element {
+  const location = useLocation();
+  return <div data-testid="location">{`${location.pathname}${location.search}`}</div>;
+}
+
+function renderRegistry(entry = "/tools"): void {
   const qc = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 } },
   });
@@ -129,8 +134,9 @@ function renderRegistry(): void {
     <QueryClientProvider client={qc}>
       <MemoryRouter
         future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
-        initialEntries={["/tools"]}
+        initialEntries={[entry]}
       >
+        <LocationProbe />
         <Routes>
           <Route path="/tools" element={<ToolRegistry />} />
         </Routes>
@@ -192,6 +198,23 @@ afterEach(() => {
 });
 
 describe("ToolWorkspace", () => {
+  it("keeps the open tool in the URL, so a reload, a link or Back lands in the same workspace", async () => {
+    renderRegistry();
+    await userEvent.click(await screen.findByTestId("tool-open-lookup_order"));
+    await screen.findByTestId("tool-workspace-header");
+    expect(screen.getByTestId("location")).toHaveTextContent("/tools?tool=TL-1");
+
+    await userEvent.click(screen.getByRole("button", { name: "Back to tools" }));
+    await screen.findByTestId("tool-row-lookup_order");
+    expect(screen.getByTestId("location")).toHaveTextContent(/^\/tools$/);
+  });
+
+  it("opens straight into a workspace from a ?tool= link (a reload, a bookmark, a fresh registration)", async () => {
+    renderRegistry("/tools?tool=TL-1");
+    expect(await screen.findByTestId("tool-workspace-header")).toHaveTextContent("lookup_order");
+    expect(screen.queryByTestId("tool-row-lookup_order")).not.toBeInTheDocument();
+  });
+
   it("opens a tool into the Workspace with a header + six stage tabs, and back returns", async () => {
     renderRegistry();
     await openWorkspace();

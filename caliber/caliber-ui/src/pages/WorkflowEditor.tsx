@@ -2129,6 +2129,9 @@ export function WorkflowEditor(): JSX.Element {
     {
       onSuccess: (created) => {
         showToast.success(`Restored as draft v${created.version_number}.`);
+        // The "Published." / run chips belonged to the version we are leaving.
+        setMessage(null);
+        setRunMessage(null);
         navigate(`/workflows/${workflowId}/editor/${created.version_id}`);
       },
       onError: (err) => showToast.error(`Restore failed: ${err.message}`),
@@ -2153,7 +2156,13 @@ export function WorkflowEditor(): JSX.Element {
     },
   );
   const publishMut = useApiMutation(() => caliberApi.publishWorkflowVersion(versionId!), {
-    onSuccess: () => setMessage("Published."),
+    onSuccess: () => {
+      setMessage("Published.");
+      // The version is now immutable: refetch it (and the lists that show it) so the header badge,
+      // the Publish button and the read-only banner reflect the published state without a reload.
+      void invalidate(["workflow-version", versionId]);
+      void invalidate(["workflow-versions", workflowId]);
+    },
     onError: (err) => setMessage(`Publish failed: ${err.message}`),
   });
 
@@ -4121,9 +4130,14 @@ export function WorkflowEditor(): JSX.Element {
   return (
     <div className="flex h-[calc(100vh-7rem)] flex-col" data-testid="workflow-editor">
       {/* Toolbar — n8n-inspired clean bar */}
-      <div className="flex items-center justify-between border-b border-zinc-200 bg-white px-4 py-2">
-        <div className="flex items-center gap-3">
-          <div className="text-sm font-semibold text-zinc-900">
+      {/* The bar wraps instead of overflowing: a long name plus the status chips must never push
+          Run Monitor or Publish off a laptop-width screen. */}
+      <div
+        data-testid="editor-toolbar"
+        className="flex flex-wrap items-center justify-between gap-x-3 gap-y-2 border-b border-zinc-200 bg-white px-4 py-2"
+      >
+        <div className="flex min-w-0 items-center gap-3">
+          <div className="min-w-0 truncate text-sm font-semibold text-zinc-900" title={editorManifest.name}>
             {editorManifest.name}
           </div>
           <span className="rounded-full bg-zinc-100 px-2 py-0.5 text-[10px] font-medium text-zinc-500">
@@ -4152,14 +4166,14 @@ export function WorkflowEditor(): JSX.Element {
             </span>
           )}
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex flex-wrap items-center gap-2">
           {message && (
-            <span data-testid="editor-message" className="mr-2 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-500">
+            <span data-testid="editor-message" title={message} className="mr-2 max-w-[16rem] truncate rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-500">
               {message}
             </span>
           )}
           {runMessage && (
-            <span data-testid="editor-run-message" className="mr-2 rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-500">
+            <span data-testid="editor-run-message" title={runMessage} className="mr-2 max-w-[16rem] truncate rounded-lg border border-zinc-200 bg-zinc-50 px-2.5 py-1 text-xs text-zinc-500">
               {runMessage}
             </span>
           )}
@@ -4536,15 +4550,19 @@ export function WorkflowEditor(): JSX.Element {
           {showRunMonitor && (
             <div
               data-testid="run-monitor-panel"
-              className="absolute bottom-2 right-2 z-[5] flex max-h-[78vh] w-[42rem] max-w-[calc(100vw-1rem)] flex-col rounded-xl border border-zinc-200 bg-white p-4 shadow-lg"
+              className="absolute bottom-2 right-2 z-[5] flex max-h-[min(78vh,calc(100%-1rem))] w-[42rem] max-w-[calc(100vw-1rem)] flex-col overflow-y-auto overscroll-contain rounded-xl border border-zinc-200 bg-white p-4 shadow-lg [&>*]:shrink-0"
             >
+              {/* The panel scrolls as a whole and its rows keep their height: with a long run (output,
+                  checkpoints, diagnostics) the controls and the input must stay usable, not be
+                  squashed or clipped by the canvas around the panel. */}
               <div className="mb-3 flex items-center justify-between">
                 <div className="flex items-center gap-2 text-sm font-semibold text-zinc-900">
                   <span>⏯</span>
                   <span>Run Monitor</span>
                 </div>
+                <div className="flex items-center gap-2">
                 {activeRun && (
-                  <div className="flex items-center gap-2">
+                  <>
                     <span
                       data-testid="run-status-badge"
                       data-status={activeRun.status}
@@ -4575,8 +4593,19 @@ export function WorkflowEditor(): JSX.Element {
                     >
                       Copy link
                     </button>
-                  </div>
+                  </>
                 )}
+                  <button
+                    type="button"
+                    data-testid="run-monitor-close"
+                    aria-label="Close run monitor"
+                    title="Close run monitor"
+                    onClick={() => setShowRunMonitor(false)}
+                    className="rounded-full border border-zinc-200 bg-white px-2 py-0.5 text-[11px] font-medium text-zinc-600 transition-colors hover:bg-zinc-50"
+                  >
+                    ✕
+                  </button>
+                </div>
               </div>
 
               <textarea

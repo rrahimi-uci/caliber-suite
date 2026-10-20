@@ -91,6 +91,28 @@ def test_registry_has_builtin_capabilities() -> None:
     assert capability_by_tool_name("judge_create").key == "judge.create"
 
 
+def test_plan_form_fields_a_person_cannot_guess_carry_a_hint() -> None:
+    """The Plans form shows each property's `description` beside its label.
+
+    A first-time user filling the judge form otherwise learns only after two approvals, from a
+    failed step, that the instructions need an evaluation variable; or has to guess the list shape
+    of trace ids and where the ids come from.
+    """
+    hints = {
+        "judge.create": ("instructions", "{{ outputs }}"),
+        "review_queue.create": ("questions", "options"),
+        "review_queue.add_items": ("trace_ids", "Observability"),
+        "workflow.calibrate": ("workflow_id", "Workflows"),
+        "eval_dataset.create": ("tags", "list"),
+    }
+    for key, (field_name, fragment) in hints.items():
+        prop = get_capability(key).input_schema["properties"][field_name]
+        assert fragment in prop["description"], (key, field_name)
+    # The hint rides along in the tool spec the model sees, which stays a valid JSON Schema.
+    spec = get_capability("judge.create").to_spec()
+    assert "{{ inputs }}" in json.dumps(spec)
+
+
 # --- projection / tier gate --------------------------------------------------
 
 

@@ -5696,6 +5696,17 @@ export function Inspector({
                       without an agent step.
                     </div>
                   )}
+                  {selectedToolBindingName && (
+                    <p
+                      data-testid="inspector-tool-binding-hint"
+                      className="mt-2 text-[11px] leading-relaxed text-zinc-500"
+                    >
+                      Approval, retries and timeout for this binding are set
+                      under <span className="font-medium">Tool bindings</span>{" "}
+                      in the workflow settings: click an empty spot on the
+                      canvas to open them.
+                    </p>
+                  )}
                 </Section>
               )}
 

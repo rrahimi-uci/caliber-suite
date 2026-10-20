@@ -6,7 +6,7 @@
  * palette and connection-drop-on-empty for quick node creation.
  */
 
-import { useCallback, useMemo, useRef } from "react";
+import { useCallback, useEffect, useMemo, useRef } from "react";
 import {
   Background,
   BackgroundVariant,
@@ -45,6 +45,9 @@ import {
 const NODE_TYPES = { caliber: CaliberNode };
 
 /** n8n-style edge: zinc stroke, rounded bends. */
+const MIN_ZOOM = 0.15;
+const FIT_VIEW_OPTIONS = { padding: 0.12, minZoom: MIN_ZOOM };
+
 const DEFAULT_EDGE_OPTIONS = {
   type: "smoothstep" as const,
   style: { stroke: "#A1A1AA", strokeWidth: 1.5 },
@@ -111,7 +114,32 @@ function CanvasInner({
   componentSpecs,
 }: CanvasProps): JSX.Element {
   const connectSourceRef = useRef<string | null>(null);
-  const { screenToFlowPosition } = useReactFlow();
+  const containerRef = useRef<HTMLDivElement>(null);
+  // Set once the person pans or zooms: from then on the view is theirs and is never refitted.
+  const viewMovedByUser = useRef(false);
+  const { screenToFlowPosition, fitView } = useReactFlow();
+
+  // ``fitView`` on the component fits the graph once, at mount. The canvas then changes size as
+  // the palette, the inspector and the toolbar settle, which leaves a wide graph half outside
+  // the window (and its first node under the palette handle). Refit when the canvas resizes,
+  // until the person has taken the view over.
+  useEffect(() => {
+    const element = containerRef.current;
+    if (!element || typeof ResizeObserver === "undefined") return undefined;
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const observer = new ResizeObserver(() => {
+      if (viewMovedByUser.current) return;
+      clearTimeout(timer);
+      timer = setTimeout(() => {
+        void fitView(FIT_VIEW_OPTIONS);
+      }, 120);
+    });
+    observer.observe(element);
+    return () => {
+      clearTimeout(timer);
+      observer.disconnect();
+    };
+  }, [fitView]);
   const { nodes, edges } = useMemo(
     () => manifestToFlow(manifest, nodePositions, componentSpecs ?? null),
     [componentSpecs, manifest, nodePositions],
@@ -217,6 +245,7 @@ function CanvasInner({
 
   return (
     <div
+      ref={containerRef}
       className={className ?? "h-full w-full"}
       data-testid="wf-canvas"
       onDragOver={handleDragOver}
@@ -250,11 +279,19 @@ function CanvasInner({
           onNodePositionChange?.(node.id, { x: node.position.x, y: node.position.y })
         }
         onPaneClick={() => onSelectNode?.(null)}
+        // A move with a DOM event is the person dragging or scrolling; fitView's own is not.
+        onMoveStart={(event) => {
+          if (event) viewMovedByUser.current = true;
+        }}
         onConnectStart={handleConnectStart}
         onConnect={handleConnect}
         onConnectEnd={handleConnectEnd}
         connectionMode={ConnectionMode.Loose}
         fitView
+        fitViewOptions={FIT_VIEW_OPTIONS}
+        // React Flow's default floor of 0.5 stops a wide graph fitting a laptop-width canvas
+        // (palette and inspector take two thirds of it), which crops its first node.
+        minZoom={MIN_ZOOM}
         proOptions={{ hideAttribution: true }}
         snapToGrid
         snapGrid={[20, 20]}

@@ -3731,6 +3731,7 @@ describe("Prompts — Workspace Playground stage", () => {
 
     const metadata = (sessionPayload["metadata_"] ?? {}) as {
       model?: string;
+      prompt_playground?: boolean;
       prompt_context?: {
         prompt_name?: string;
         alias?: string;
@@ -3742,6 +3743,8 @@ describe("Prompts — Workspace Playground stage", () => {
       "FULL PROD TEMPLATE for support-agent",
     );
     expect(metadata.model).toBeTruthy();
+    // The chat runs the prompt itself; without this flag Aria treats the turn as authoring.
+    expect(metadata.prompt_playground).toBe(true);
     expect(metadata.prompt_context?.prompt_name).toBe("support-agent");
     expect(metadata.prompt_context?.alias).toBe("prod");
     expect(metadata.prompt_context?.version).toBe(3);

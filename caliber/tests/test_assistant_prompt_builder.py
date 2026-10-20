@@ -120,6 +120,54 @@ def test_explicit_skill_playground_mode_still_works() -> None:
     assert "Always answer in short bullets." in prompt
 
 
+def test_prompt_playground_runs_the_prompt_instead_of_authoring() -> None:
+    prompt = build_assistant_system_prompt(
+        AssistantTurnRequest(
+            session_id="ASST-test",
+            user_message="Analyze this CSV",
+            artifact_type="prompt",
+            goal="You are a financial analyst. Return one JSON object.",
+            prompt_playground=True,
+        )
+    )
+
+    assert "CALIBER PLATFORM POLICY" in prompt
+    assert "PROMPT PLAYGROUND" in prompt
+    assert "You are a financial analyst. Return one JSON object." in prompt
+    # None of the authoring machinery: that is what made the model "create a prompt" instead of
+    # answering with it.
+    assert "CALIBER ASSISTANT CORE" not in prompt
+    assert "draft_deltas" not in prompt
+
+
+def test_prompt_authoring_does_not_enter_playground_mode() -> None:
+    for kwargs in ({}, {"prompt_playground": True, "goal": ""}):
+        prompt = build_assistant_system_prompt(
+            AssistantTurnRequest(
+                session_id="ASST-test",
+                user_message="create a prompt",
+                artifact_type="prompt",
+                **({"goal": "Draft a support prompt."} | kwargs),
+            )
+        )
+        assert "PROMPT PLAYGROUND" not in prompt
+        assert "CALIBER ASSISTANT CORE" in prompt
+
+
+def test_prompt_playground_is_only_for_prompts() -> None:
+    prompt = build_assistant_system_prompt(
+        AssistantTurnRequest(
+            session_id="ASST-test",
+            user_message="try this",
+            artifact_type="skill",
+            goal="Answer in bullets.",
+            prompt_playground=True,
+        )
+    )
+
+    assert "PROMPT PLAYGROUND" not in prompt
+
+
 def test_prompt_includes_task_context_block() -> None:
     prompt = build_assistant_system_prompt(
         AssistantTurnRequest(

@@ -5091,6 +5091,7 @@ class AssistantService:
                 else None
             )
             skill_playground = metadata.get("skill_playground") is True
+            prompt_playground = metadata.get("prompt_playground") is True
             runtime_metadata = runtime_metadata_from_session(metadata)
             user_turns = (
                 db.query(CaliberAssistantMessage)
@@ -5219,6 +5220,7 @@ class AssistantService:
                     selected_skills=selected_skill_payloads,
                     skill_runtime_mode=skill_mode,  # type: ignore[arg-type]
                     skill_playground=skill_playground,
+                    prompt_playground=prompt_playground,
                     mode=mode,
                     attachments=attachments_ctx,
                     steer=body.steer,

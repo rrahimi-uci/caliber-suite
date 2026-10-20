@@ -1075,7 +1075,7 @@ export const caliberApi = {
 
   waiveReleaseCriterion(
     candidateId: string,
-    payload: { criterion_key: string; reason: string },
+    payload: { criterion_key: string; reason: string; expires_at?: string },
   ): Promise<ReleaseCandidate> {
     return request<ReleaseCandidate>(
       `/releases/candidates/${encodeURIComponent(candidateId)}/waivers`,

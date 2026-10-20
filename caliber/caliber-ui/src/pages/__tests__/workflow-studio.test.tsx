@@ -1647,6 +1647,56 @@ describe("WorkflowEditor page", () => {
     );
   });
 
+  it("shows the version as published (read-only) right after Publish, without a reload", async () => {
+    let published = false;
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(
+          envelope(
+            published
+              ? makeVersion({
+                  status: "published",
+                  published_by: "@release",
+                  published_at: NOW,
+                })
+              : makeVersion(),
+          ),
+        ),
+      ),
+      http.post(`${API_BASE}/workflow-versions/WFV-1/validate`, () =>
+        HttpResponse.json(envelope({ valid: true, errors: [], warnings: [] })),
+      ),
+      http.post(`${API_BASE}/workflow-versions/WFV-1/publish`, () => {
+        published = true;
+        return HttpResponse.json(
+          envelope(
+            makeVersion({
+              status: "published",
+              published_by: "@release",
+              published_at: NOW,
+            }),
+          ),
+        );
+      }),
+      ...editorHandlers(),
+    );
+    renderAt(
+      <WorkflowEditor />,
+      "/workflows/WF-1/editor/WFV-1",
+      "/workflows/:workflowId/editor/:versionId",
+    );
+    await userEvent.click(await screen.findByTestId("editor-publish"));
+    await userEvent.click(screen.getByTestId("publish-run-validate"));
+    await userEvent.click(await screen.findByTestId("publish-next-1"));
+    await userEvent.click(screen.getByTestId("publish-next-2"));
+    await userEvent.click(screen.getByTestId("publish-confirm"));
+    expect(
+      await screen.findByTestId("editor-published-readonly-banner"),
+    ).toBeInTheDocument();
+    expect(screen.getByTestId("editor-publish")).toBeDisabled();
+    expect(screen.getByText(/v1 · published/)).toBeInTheDocument();
+  });
+
   it("turns an empty editor run history into draft-first guidance", async () => {
     server.use(
       ...editorHandlers({

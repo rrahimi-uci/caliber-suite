@@ -527,8 +527,10 @@ function ProjectAccessSection({
 
   const changeRole = async (member: ProjectMember, role: ProjectRole): Promise<void> => {
     setError(null);
+    setNotice(null);
     try {
       await caliberApi.updateProjectMember(projectId, member.user_id, { role });
+      setNotice(`Changed ${member.user_id} to ${role}.`);
       await members.refetch();
     } catch (value) {
       setError(value instanceof Error ? value.message : "Could not update project member.");

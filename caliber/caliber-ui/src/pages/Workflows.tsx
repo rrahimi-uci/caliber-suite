@@ -800,7 +800,7 @@ export function Workflows(): JSX.Element {
           </div>
           <div className="mt-1.5 text-xs text-slate-400 max-w-sm mx-auto">
             {allWorkflows.length === 0
-              ? "Create one from a template above to get started."
+              ? "Click New Workflow to start from a template, or Import a workflow file."
               : "Try a different status filter or search term."}
           </div>
         </div>

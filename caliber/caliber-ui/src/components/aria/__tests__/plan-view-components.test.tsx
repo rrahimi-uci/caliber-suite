@@ -355,6 +355,47 @@ describe("PlanInteractionPrompt — input kind", () => {
     );
   });
 
+  it("gives free-text inputs a multi-line box, shows the field's hint, and submits what was typed", async () => {
+    const user = userEvent.setup();
+    const onAnswer = vi.fn();
+    render(
+      <PlanInteractionPrompt
+        interaction={makeInteraction({
+          kind: "input",
+          evidence: {
+            input_schema: {
+              properties: {
+                name: { type: "string" },
+                instructions: {
+                  type: "string",
+                  description: "(must contain {{ inputs }}, {{ outputs }} or {{ expectations }})",
+                },
+              },
+              required: ["name", "instructions"],
+            },
+            current_inputs: {},
+          },
+        })}
+        pending={false}
+        onAnswer={onAnswer}
+      />,
+    );
+    expect(screen.getByText(/must contain/)).toBeInTheDocument();
+    const instructions = screen.getByLabelText(/instructions/);
+    expect(instructions.tagName).toBe("TEXTAREA");
+    // A short identifier stays a single-line box.
+    expect(screen.getByLabelText(/^name/).tagName).toBe("INPUT");
+    await user.type(screen.getByLabelText(/^name/), "faithful");
+    await user.click(instructions);
+    await user.paste("Is the answer faithful to {{ inputs }}?\nAnswer true or false.");
+    await user.click(screen.getByRole("button", { name: "Continue plan" }));
+    expect(onAnswer).toHaveBeenCalledTimes(1);
+    expect(onAnswer.mock.calls[0]![0].inputs).toEqual({
+      name: "faithful",
+      instructions: "Is the answer faithful to {{ inputs }}?\nAnswer true or false.",
+    });
+  });
+
   it("renders an enum as a select and submits the chosen string value", async () => {
     const user = userEvent.setup();
     const onAnswer = vi.fn();
