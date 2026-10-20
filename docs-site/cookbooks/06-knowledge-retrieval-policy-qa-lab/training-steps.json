@@ -128,7 +128,7 @@
       "asset": "activate / rollback"
     },
     {
-      "where": "Integrations › Cookbooks",
+      "where": "Get started › Cookbooks",
       "do": "Install <em>Grounded Knowledge Assistant</em>: <strong>Install</strong>, name it, acknowledge the prerequisite, confirm.",
       "fill": [
         [

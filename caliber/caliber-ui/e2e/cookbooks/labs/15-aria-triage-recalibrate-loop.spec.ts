@@ -237,9 +237,9 @@ function field(page: Page, label: RegExp) {
 async function openPlans(page: Page): Promise<void> {
   await page.goto("/caliber");
   const nav = page.getByLabel("CALIBER navigation");
-  // Integrations only appears once the server's feature flags have loaded, and the sidebar
-  // remembers which groups are open: open the group only if it is closed.
-  const group = nav.getByRole("button", { name: /^Integrations/ });
+  // Plans sits in Operate. The sidebar remembers which groups are open: open the group only
+  // if it is closed (the Plans link itself appears once the server's feature flags have loaded).
+  const group = nav.getByRole("button", { name: /^Operate/ });
   await expect(group).toBeVisible();
   if ((await group.getAttribute("aria-expanded")) !== "true") {
     await group.click();

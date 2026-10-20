@@ -1,8 +1,8 @@
 {
   "steps": [
     {
-      "where": "Integrations › Plans",
-      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default) and the 30 traces from <code>seed_traces.py</code> must exist in MLflow. In the sidebar open <strong>Integrations</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/13-aria-review-governance-queue/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>. The planner is rules, not a model: it looks for the words <code>review queue</code>.",
+      "where": "Operate › Plans",
+      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default) and the 30 traces from <code>seed_traces.py</code> must exist in MLflow. In the sidebar open <strong>Operate</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/13-aria-review-governance-queue/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>. The planner is rules, not a model: it looks for the words <code>review queue</code>.",
       "fill": [
         [
           "Goal",
@@ -24,7 +24,7 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (draft plan)",
+      "where": "Operate › Plans › (draft plan)",
       "do": "Read <strong>Plan steps</strong>. Aria drew <code>Create review queue</code> (<code>review_queue.create</code>) and <code>Enqueue traces for review</code> (<code>review_queue.add_items</code>): a review queue always brings both. The second reads <em>depends on 1 prior step(s)</em>. Nothing has run. Compare with <a href=\"../cookbooks/13-aria-review-governance-queue/assets/expected-plan.json\">expected-plan.json</a>.",
       "see": "Two pending steps; the enqueue step depends on the queue step.",
       "asset": "Reviewed plan (2 steps)",
@@ -36,14 +36,14 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (draft plan)",
+      "where": "Operate › Plans › (draft plan)",
       "do": "Press <strong>Approve plan</strong>.",
       "click": "Approve plan",
       "see": "The status becomes <code>approved</code> and an <strong>Execute</strong> button appears.",
       "asset": "Approved plan"
     },
     {
-      "where": "Integrations › Plans › (approved plan)",
+      "where": "Operate › Plans › (approved plan)",
       "do": "Press <strong>Execute</strong>. Aria stops on <strong>Aria needs information</strong> (<em>Provide the required inputs for step 1: Create review queue.</em>). Fill it from <a href=\"../cookbooks/13-aria-review-governance-queue/assets/review-queues/agent-reply-review.queue.json\">agent-reply-review.queue.json</a>: <strong>questions</strong> and <strong>reviewers</strong> are JSON arrays. Press <strong>Continue plan</strong>; then <strong>Approve</strong> the prompt <em>Approve step 1: Create review queue (review_queue.create)?</em>.",
       "fill": [
         [
@@ -74,7 +74,7 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (running plan)",
+      "where": "Operate › Plans › (running plan)",
       "do": "The next form is <em>Provide the required inputs for step 2: Enqueue traces for review.</em> It has no queue id field: that is wired from the first step. Fill <strong>trace ids</strong> with a JSON array of ids (the output of <code>seed_traces.py</code>, or copied from <strong>Operate › Observability</strong>) and <strong>assigned to</strong>, press <strong>Continue plan</strong>, then <strong>Approve</strong>.",
       "fill": [
         [
@@ -127,14 +127,14 @@
       "asset": "A review that does not fit is refused"
     },
     {
-      "where": "Integrations › Plans",
+      "where": "Operate › Plans",
       "do": "State the sentence again, press <strong>Decompose goal</strong>, <strong>Approve plan</strong>, <strong>Execute</strong>, and press <strong>Skip step</strong> on the queue's form.",
       "click": "Skip step",
       "see": "The plan reads <code>completed</code> and both steps <em>skipped</em>; the second says <code>skipped because step 1 (review_queue.create) was skipped</code>. Nothing was created.",
       "asset": "Skipping a step skips what depends on it"
     },
     {
-      "where": "Integrations › Plans",
+      "where": "Operate › Plans",
       "do": "State the sentence again, approve and execute, fill <strong>name</strong> with a new name and <strong>questions</strong> with <code>[{\"key\": \"tone\", \"title\": \"Tone?\", \"type\": \"categorical\"}]</code>, and press <strong>Continue plan</strong>. The form accepts it; the queue does not.",
       "click": "Continue plan",
       "see": "The plan reads <code>failed</code> and the step shows <code>invalid input: questions.0: categorical questions require a non-empty 'options' list</code>. A failed plan cannot be run again: state the goal again.",

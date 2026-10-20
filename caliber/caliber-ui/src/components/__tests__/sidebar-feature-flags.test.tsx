@@ -64,12 +64,19 @@ function serve(enabled: Parameters<typeof capabilitiesBody>[0]): {
   return { planPolls: () => polls };
 }
 
+/**
+ * Open every group and return the whole navigation. The flagged destinations are spread over
+ * three groups now (Cookbooks under Get started, Plans under Operate, the rest under
+ * Integrations), so a test looks at the navigation, not at one panel.
+ */
 async function openPreviewGroup(): Promise<HTMLElement> {
-  const toggle = await screen.findByTestId("nav-group-toggle-preview");
-  if (toggle.getAttribute("aria-expanded") === "false") {
-    await userEvent.click(toggle);
+  await screen.findByTestId("nav-group-toggle-preview");
+  for (const toggle of document.querySelectorAll<HTMLElement>('[data-testid^="nav-group-toggle-"]')) {
+    if (toggle.getAttribute("aria-expanded") === "false") {
+      await userEvent.click(toggle);
+    }
   }
-  return document.getElementById("nav-group-preview") as HTMLElement;
+  return screen.getByLabelText("CALIBER navigation");
 }
 
 beforeAll(() => server.listen({ onUnhandledRequest: "error" }));
@@ -190,14 +197,28 @@ describe("Sidebar feature flags", () => {
     expect(polls.count).toBe(0);
   });
 
-  it("still opens the group a deep link to a hidden area belongs to", async () => {
+  it("opens the core journey for a deep link to a hidden area, and shows nothing for it", async () => {
     serve({});
     renderSidebar("/cookbooks");
-    // The Cookbooks route renders a "disabled" panel; the sidebar around it should still open
-    // the group it would live in, not fall back to the core journey.
-    expect(
-      await screen.findByTestId("nav-group-toggle-preview"),
-    ).toHaveAttribute("aria-expanded", "true");
+    // The Cookbooks route renders a "disabled" panel. Its group is not in the navigation while
+    // the flag is off, so the sidebar around it must fall back to the core journey rather than
+    // greet the person with every group closed.
+    expect(await screen.findByTestId("nav-group-toggle-core")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.queryByTestId("nav-group-toggle-start")).not.toBeInTheDocument();
     expect(screen.queryByText("Cookbooks")).not.toBeInTheDocument();
+  });
+
+  it("shows the Get started group only while Cookbooks is on", async () => {
+    serve({ cookbooks: true });
+    renderSidebar();
+    expect(await screen.findByTestId("nav-group-toggle-start")).toHaveTextContent("Get started");
+    cleanup();
+    serve({});
+    renderSidebar();
+    await screen.findByTestId("nav-group-toggle-preview");
+    expect(screen.queryByTestId("nav-group-toggle-start")).not.toBeInTheDocument();
   });
 });

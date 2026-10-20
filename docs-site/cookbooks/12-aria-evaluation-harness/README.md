@@ -194,7 +194,7 @@ cd caliber/caliber-ui
 CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/12-aria-evaluation-harness.spec.ts --output=/tmp/lab12-pw
 ```
 
-1. **State the intent.** In the sidebar open **Integrations** and click **Plans**. Paste the sentence from [`assets/intent.md`](assets/intent.md) into **Goal**, set **Autonomy** to **Stop before each change**, and press **Decompose goal**. Expected: the plan opens with the status `draft`, "2 steps".
+1. **State the intent.** In the sidebar open **Operate** and click **Plans**. Paste the sentence from [`assets/intent.md`](assets/intent.md) into **Goal**, set **Autonomy** to **Stop before each change**, and press **Decompose goal**. Expected: the plan opens with the status `draft`, "2 steps".
 2. **Review the plan.** Under **Plan steps**: `Create judge` (`judge.create`) and `Create test set` (`eval_dataset.create`), both `pending`, each listing its required `inputs` (`name, instructions` and `name`). Nothing has run.
 3. **Approve the plan.** Press **Approve plan**. Expected: the status becomes `approved` and an **Execute** button appears.
 4. **Execute and answer the judge's questions.** Press **Execute**. Expected: **Aria needs information**, "Provide the required inputs for step 1: Create judge.", and the step reads `waiting input`. Fill **name** (`AnswerFaithfulness`), **instructions** (the paragraph from `assets/judges/answer-faithfulness.judge.json`) and **feedback value type** (`bool`), leave the rest, press **Continue plan**. Expected: **Aria needs your approval**, "Approve step 1: Create judge (judge.create)?". Press **Approve**.

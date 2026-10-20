@@ -1,8 +1,8 @@
 {
   "steps": [
     {
-      "where": "Integrations › Plans",
-      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default) and its background workers. This loop remediates things that already exist, so first run <code>assets/setup_subject.py</code> (it prints a <code>workflow_id</code> and an <code>agent_id</code>) and <code>assets/seed_traces.py</code> (it prints the 12 flagged trace ids). In the sidebar open <strong>Integrations</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>.",
+      "where": "Operate › Plans",
+      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default) and its background workers. This loop remediates things that already exist, so first run <code>assets/setup_subject.py</code> (it prints a <code>workflow_id</code> and an <code>agent_id</code>) and <code>assets/seed_traces.py</code> (it prints the 12 flagged trace ids). In the sidebar open <strong>Operate</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>.",
       "fill": [
         [
           "Goal",
@@ -32,7 +32,7 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (draft plan)",
+      "where": "Operate › Plans › (draft plan)",
       "do": "Read <strong>Plan steps</strong>. Aria drew three steps: <code>review_queue.create</code>, <code>review_queue.add_items</code> (<em>depends on 1 prior step(s)</em>) and <code>workflow.calibrate</code> (it depends on nothing). Nothing has run. Compare with <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/expected-plan.json\">expected-plan.json</a>.",
       "see": "Three pending steps.",
       "asset": "Reviewed plan (3 steps)",
@@ -44,14 +44,14 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (draft plan)",
+      "where": "Operate › Plans › (draft plan)",
       "do": "Press <strong>Approve plan</strong>.",
       "click": "Approve plan",
       "see": "The status becomes <code>approved</code> and an <strong>Execute</strong> button appears.",
       "asset": "Approved plan"
     },
     {
-      "where": "Integrations › Plans › (approved plan)",
+      "where": "Operate › Plans › (approved plan)",
       "do": "Press <strong>Execute</strong>. Aria stops on <strong>Aria needs information</strong> (<em>Provide the required inputs for step 1: Create review queue.</em>). Fill <strong>name</strong>, <strong>description</strong>, <strong>questions</strong> and <strong>reviewers</strong> (JSON arrays) from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/review-queues/triage-review.queue.json\">triage-review.queue.json</a>, press <strong>Continue plan</strong>, then <strong>Approve</strong> <em>Approve step 1: Create review queue (review_queue.create)?</em>.",
       "fill": [
         [
@@ -78,7 +78,7 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (running plan)",
+      "where": "Operate › Plans › (running plan)",
       "do": "<em>Provide the required inputs for step 2: Enqueue traces for review.</em> There is no queue id field: it is wired from the first step. Fill <strong>trace ids</strong> with a JSON array of the 12 ids <code>seed_traces.py</code> printed and <strong>assigned to</strong>, press <strong>Continue plan</strong>, then <strong>Approve</strong>.",
       "fill": [
         [
@@ -101,7 +101,7 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (running plan)",
+      "where": "Operate › Plans › (running plan)",
       "do": "<em>Provide the required inputs for step 3: Calibrate workflow.</em> Fill <strong>workflow id</strong> and <strong>agent id</strong> with the ids <code>setup_subject.py</code> printed (<a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/calibrate.json\">calibrate.json</a>), press <strong>Continue plan</strong>, then <strong>Approve</strong> <em>Approve step 3: Calibrate workflow (workflow.calibrate)?</em>. Approving enqueues a real calibration job.",
       "fill": [
         [
@@ -124,7 +124,7 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (running plan)",
+      "where": "Operate › Plans › (running plan)",
       "do": "Do not click anything. The page re-reads a running plan every five seconds, and the plan worker resumes it when the job finishes (about half a minute).",
       "see": "On the simulated stack the status becomes <code>failed</code>: steps 1 and 2 <em>done</em>, step 3 <em>failed</em> with <code>rejected: workflow calibration rejected: no candidate met calibration gates; quality delta +0.000 &lt; epsilon 0.02</code> (a fake executor cannot make a candidate beat the baseline). With a real model the job can reach <code>candidate_ready</code> and the plan reads <code>completed</code>.",
       "asset": "Plan settled by itself, ending where the job ended"
@@ -149,14 +149,14 @@
       ]
     },
     {
-      "where": "Integrations › Plans",
+      "where": "Operate › Plans",
       "do": "State <code>Calibrate the support workflow.</code>, press <strong>Decompose goal</strong>, <strong>Approve plan</strong>, <strong>Execute</strong>, fill <strong>workflow id</strong> with <code>WF-does-not-exist</code> and any agent id, and press <strong>Continue plan</strong>.",
       "click": "Continue plan",
       "see": "The plan reads <code>failed</code> at once; the step shows <code>workflow 'WF-does-not-exist' not found (HTTP 404)</code> and does not read <em>waiting job</em>: no job was queued.",
       "asset": "Calibration step fails at once"
     },
     {
-      "where": "Integrations › Plans",
+      "where": "Operate › Plans",
       "do": "State the same sentence under <strong>Stop before each change</strong>, approve and execute, fill the two real ids, press <strong>Continue plan</strong>, and at <em>Approve step 1: Calibrate workflow (workflow.calibrate)?</em> press <strong>Deny</strong>.",
       "click": "Deny",
       "see": "The plan reads <code>completed</code> and the step <em>skipped</em>; no job was queued.",

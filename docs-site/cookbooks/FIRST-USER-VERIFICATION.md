@@ -18,7 +18,7 @@ scored paths were run on the **stand-in** model tier (labs 01 and 10) and on a *
 | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
 | 01 Intake classifier | Prompts → Test Sets → Evaluations → Calibration → Releases → Audit Log | prompt, 44-case test set (file import), eval runs, calibration candidate | simulated, stand-in and **hosted** | scored on stand-in and hosted; refused on simulated, as documented | v1, v2 draft, applied v3, rollback to v1; registry alias checked | live board, timeline, audit log, registry | `01`, `01b`, `01c` | 0 new | n/a | **PASS** |
 | 02 Precision skills | Skills → scenario sets → Calibrate → package | workspace, skill, scenario sets, package | simulated | calibration simulated (a skill has no test set) | baseline pin, apply, rollback | trigger results, export, archive | `02` | 0 new | n/a | **PASS** |
-| 03 Policy-safe tool | Tools → workspace (Sandbox, Fixtures, Hardening, Test Runs) → Workflows → Approvals | 2 tools, 49 fixtures (file load), workflow, second person | no model: real | 49-case suite, baseline and a regression drill | baseline pin and compare (no tool version bump exists in the UI) | pass rates, approvals, audit log | `03` | 3 | 3 | **PASS** |
+| 03 Policy-safe tool | Tools → workspace (Sandbox, Fixtures, Hardening, Test Runs, Publish) → Workflows → Approvals | 2 tool names, one with v1.0 and v1.1; 49 fixtures (file load), workflow, second person | no model: real | 49-case suite, baseline and a regression drill; suite repeated on v1.1 | baseline pin, compare, New version | pass rates, version history, approvals, audit log | `03` | 3 | 3 | **PASS** |
 | 04 Document extraction | Administration → Object Store → Cookbooks → Workflows | reviewer, workspace, 2 buckets, 30 invoices, workflow | no model: real | JSON Schema check node | v1 published, v2 saved, re-run on v2, compare | output bucket, approvals | `04` | 0 new | n/a | **PASS** |
 | 05 MCP governance | MCP Servers → Playground → Workflows | server, 6 tool policies, calibration cases, workflow | no model: real MCP server | calibration suite (pass and a failing case) | workflow v1 published, v2 restored, loosened, refused by the policy gate | server ledger, audit log, traces | `05` | 5 | 5 | **PASS** |
 | 06 Knowledge Q&A | Object Store → Knowledge Bases → Workflows → Review Queues | documents, KB v1 and v2, answer prompt, workflow | simulated answers, real retrieval | model-judged scores simulated | KB v1, tuned v2, active version | chunks, rankings, trace in queue | `06` | 0 new | n/a | **PASS** |
@@ -79,11 +79,10 @@ direct HTTP use is lab 04's cleanup of its own buckets after the journey, which 
 
 ## Product gaps found and not fixed
 
-- **Cookbooks and Plans live under Integrations** in the sidebar. The READMEs say so; a new user looking for "Cookbooks"
-  finds it only after expanding that group.
+- ~~Cookbooks and Plans live under Integrations~~ **Fixed:** Cookbooks leads the sidebar under **Get started** (open by
+  default), and Plans sits under **Operate** with the other things that wait for a person.
 - ~~Two tool pages overlap~~ **Fixed:** a tool has one page, its workspace. Edit, version history and calibration jobs moved into its Publish stage, `/tools/:id` redirects there, and a **New version** action makes the next version of a tool (name fixed, version one on).
 - **The Playground needs the Aria flag**, so the prompt chat is invisible on a default install.
-- ~~A tool has no "new version" action in the UI~~ **Fixed:** Publish, Version history, **New version**.
 - **Scoring a judge or a prompt needs a real model.** Simulated results are labelled as such everywhere, by design.
 
 ## How the verification was kept resource-safe

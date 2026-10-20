@@ -200,7 +200,7 @@ cd caliber/caliber-ui
 CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/15-aria-triage-recalibrate-loop.spec.ts --output=/tmp/lab15-pw
 ```
 
-1. **State the intent.** In the sidebar open **Integrations** and click **Plans**. Paste the sentence from [`assets/intent.md`](assets/intent.md) into **Goal**, set **Autonomy** to **Stop before each change**, and press **Decompose goal**. Expected: the plan opens with the status `draft`.
+1. **State the intent.** In the sidebar open **Operate** and click **Plans**. Paste the sentence from [`assets/intent.md`](assets/intent.md) into **Goal**, set **Autonomy** to **Stop before each change**, and press **Decompose goal**. Expected: the plan opens with the status `draft`.
 2. **Review the plan.** Under **Plan steps**: `Create review queue` (`review_queue.create`), `Enqueue traces for review` (`review_queue.add_items`, reading `depends on 1 prior step(s)`) and `Calibrate workflow` (`workflow.calibrate`, depending on nothing). Nothing has run.
 3. **Approve the plan.** Press **Approve plan**. Expected: the status becomes `approved` and an **Execute** button appears.
 4. **Execute and answer the queue's questions.** Press **Execute**. Expected: **Aria needs information**, "Provide the required inputs for step 1: Create review queue.". Fill **name** (`weak-runs-triage`), **description**, **questions** and **reviewers** (the JSON arrays from `assets/review-queues/triage-review.queue.json`), press **Continue plan**, then **Approve** "Approve step 1: Create review queue (review_queue.create)?".

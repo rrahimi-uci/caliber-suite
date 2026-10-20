@@ -235,7 +235,7 @@ Then, with `refund-ops` selected:
    both under the one name.
 
 As `viewer1`, open `decide_refund` → **Sandbox** → **Test Run**: the page shows `missing required scope; expected one of ['caliber.operator']`.
-Last, **Integrations → Cookbooks**, card 03 **Install**, acknowledge the prerequisite, **Install**: the gallery's starter draft (a decision
+Last, **Get started → Cookbooks**, card 03 **Install**, acknowledge the prerequisite, **Install**: the gallery's starter draft (a decision
 table and a Human Approval node) opens in the editor.
 
 The whole path is `caliber/caliber-ui/e2e/cookbooks/labs/03-tool-hardening.spec.ts`; run it against a running stack:
