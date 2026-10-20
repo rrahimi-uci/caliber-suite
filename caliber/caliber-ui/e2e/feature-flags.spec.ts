@@ -195,7 +195,8 @@ test.describe("Feature flags (alpha defaults)", () => {
       0,
     );
 
-    // A prompt's workspace: no Playground stage, and Test Sets points at the manual route.
+    // A prompt's workspace: the Playground stage is listed and says why it cannot chat, and
+    // Test Sets points at the manual route.
     await page.goto("/caliber/prompts");
     await page.getByLabel("Search prompts").fill(promptName);
     await page
@@ -206,6 +207,7 @@ test.describe("Feature flags (alpha defaults)", () => {
       .click();
     for (const stage of [
       "Author",
+      "Playground",
       "Test Sets",
       "Runs",
       "Calibration",
@@ -215,8 +217,12 @@ test.describe("Feature flags (alpha defaults)", () => {
         page.getByRole("button", { name: stage, exact: true }),
       ).toBeVisible();
     }
+    await page.getByRole("button", { name: "Playground", exact: true }).click();
+    await expect(page.getByTestId("feature-disabled-notice")).toContainText(
+      "CALIBER_FEATURE_ARIA=true",
+    );
     await expect(
-      page.getByRole("button", { name: "Playground", exact: true }),
+      page.getByRole("button", { name: "Start Chat Session" }),
     ).toHaveCount(0);
     await page.getByRole("button", { name: "Test Sets", exact: true }).click();
     await expect(page.getByTestId("feature-disabled-notice")).toContainText(
