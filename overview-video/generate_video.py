@@ -35,8 +35,8 @@ import webbrowser
 from pathlib import Path
 
 # Scene definitions — each must match the SCENE_TIMINGS array in
-# ../docs-site/presentation.html, in order. Durations are the floor; the
-# pipeline recomputes them from measured TTS length + a 3 s tail buffer.
+# ../docs-site/presentation.html, in order. Headings are planning estimates;
+# the pipeline recomputes durations from measured TTS length + a 3 s tail buffer.
 
 # SCENES are now loaded from the narration source file so the markdown
 # in `narration_script.md` becomes the single source of truth. This avoids

@@ -1,9 +1,9 @@
 # CALIBER — Video Narration Script
 
-**Total runtime:** ~9 min (≈532 s narration floor plus inter-scene buffers; final length is recomputed at render time from measured TTS lengths)
+**Total runtime:** ~9 min 23 s for the current render (the 532 s scene headings are planning estimates; the pipeline recomputes durations from measured TTS lengths)
 **Voice:** en-US-AndrewMultilingualNeural
 **Rate:** +5 % (slightly faster, professional pace)
-**Pauses:** 250 ms silence inserted before each scene; ~3 s buffer after each narration
+**Pauses:** 250 ms silence before scenes 2–16; ~3 s buffer after each narration
 
 The deck is 16 conceptual scenes — a CSS/diagram-driven product overview with no demo seed and no removed-page screenshots. It tracks the current platform: the problem and market context, the patchwork-stack gap, the standalone MLflow-integrated control plane, the asset registries, workflow Studio, the data plane, evaluation and calibration, observability, Aria the agentic copilot (a preview, off by default), governance, the two "why different" pillars, and the vision.
 
@@ -31,9 +31,9 @@ This script is the source of truth for the narration in [`generate_video.py`](ge
 
 ## Scene 3 — The Market Gap · 48 s
 
-> This is not a niche worry. Two independent firms put the AI-agents market near fifty billion dollars by 2030, and Gartner expects agentic AI in a third of enterprise software by 2028. But the trust gap is just as large. On the same forecast, more than forty percent of agentic-AI projects will be canceled by 2027. Deloitte finds only one organization in five has mature governance for agentic AI, and the Cloud Security Alliance puts the share that can trace an agent's actions back to a human at twenty-eight percent. The opportunity is enormous. So is the gap underneath it.
+> This is not a niche worry. MarketsandMarkets forecasts an AI-agents market above fifty billion dollars by 2030, and Gartner expects agentic AI in a third of enterprise software by 2028. Gartner also forecasts that more than forty percent of agentic-AI projects will be canceled by 2027. Deloitte finds only one surveyed organization in five has mature governance for agentic AI, and the Cloud Security Alliance puts the share that can reliably trace an agent's actions to a human or system across all environments at twenty-eight percent. The opportunity is enormous. So is the gap underneath it.
 
-**Visual:** "The market" tag; title "The trust gap is real — and it's the size of the market." Five stat cards: ~$50B market by 2030 (~46%/yr), 33% of enterprise software by 2028, 40%+ of agentic-AI projects canceled by 2027, 21% have mature governance (~79% do not), 28% can trace to a human. Closing line: "A large, fast-growing market — held back by a governance and trust gap." followed by an as-of note: "Figures as published on the dates cited; each horizon is its source's own."
+**Visual:** "The market" tag; title "The trust gap is real — and it's the size of the market." Five stat cards: ~$50B market by 2030 (~46%/yr, MarketsandMarkets forecast), 33% of enterprise software by 2028, 40%+ of agentic-AI projects canceled by 2027, 21% of Deloitte respondents have mature governance, 28% can trace to a human or system across all environments. Closing line: "A large, fast-growing market — held back by a governance and trust gap." followed by an as-of note: "Figures as published on the dates cited; each horizon is its source's own."
 
 ---
 
@@ -127,9 +127,9 @@ This script is the source of truth for the narration in [`generate_video.py`](ge
 
 ## Scene 15 — Why Different: Open & Governed · 27 s
 
-> Whether a person or Aria initiates a change, the audit trail records the same actor, action, and entity. That matters: only twenty-eight percent of organizations can trace an agent's actions back to a human, and sixty-one percent of executives surveyed in 2025 required a human in the loop. EU AI Act high-risk obligations phase in from August 2026, and CALIBER is open source under Apache 2.0 — your data and lineage stay in infrastructure you control.
+> Whether a person or Aria initiates a change, the audit trail records the same actor, action, and entity. That matters: only twenty-eight percent of organizations surveyed by the Cloud Security Alliance can reliably trace agent actions to a human or system across all environments, and sixty-one percent of US executives surveyed by KPMG in 2025 required a human in the loop. EU AI Act enforcement has begun; high-risk rules now apply from December 2027 or August 2028, depending on the system. CALIBER is open source under Apache 2.0 — your data and lineage stay in infrastructure you control.
 
-**Visual:** "Why different" tag; title "Open, and governed." Four vision cards — Same authorization boundary (humans and Aria resolve the same server-validated identity — password accounts, revocable sessions, four scopes; each asset follows the lifecycle it actually implements; the audit trail records actor, action, and entity); Traceable to a human (28% can trace, ~72% cannot, CSA 2025); Human in the loop (61% of executives when surveyed, KPMG Q3 2025; runtime approvals honour the node's required role and a quorum of distinct approvers, and by default whoever triggered the run cannot approve it); Open, and audit-ready (EU AI Act high-risk obligations phase in from 2 August 2026; penalties reach €35M or 7% of global annual turnover, Article 99; Apache 2.0, self-hostable). Closing line: "Governance binds humans and the copilot equally. Open source, no lock-in."
+**Visual:** "Why different" tag; title "Open, and governed." Four vision cards — Same authorization boundary (humans and Aria resolve the same server-validated identity — password accounts, revocable sessions, four scopes; each asset follows the lifecycle it actually implements; the audit trail records actor, action, and entity); Traceable to a human or system (28% of CSA survey respondents can trace across all environments, 2026 publication); Human in the loop (61% of US executives when surveyed, KPMG Q3 2025; runtime approvals honour the node's required role and a quorum of distinct approvers, and by default whoever triggered the run cannot approve it); Open, and audit-ready (EU AI Act high-risk rules apply from 2 December 2027 for Annex III systems and 2 August 2028 for regulated products in Annex I, per the European Commission's current implementation timeline; Apache 2.0, self-hostable). Closing line: "Governance binds humans and the copilot equally. Open source, no lock-in."
 
 ---
 
@@ -144,8 +144,18 @@ This script is the source of truth for the narration in [`generate_video.py`](ge
 ## Production Notes
 
 - **Voice:** `en-US-AndrewMultilingualNeural` at `+5%` rate via `edge-tts`
-- **Pauses:** 250 ms silence before each scene (`adelay`); ~3 s buffer after each narration (`apad`)
+- **Pauses:** 250 ms silence before scenes 2–16 (`adelay`); ~3 s buffer after each narration (`apad`)
 - **Buffer:** scene durations recomputed at runtime from measured TTS length + 3 s, then `SCENE_TIMINGS` in `presentation.html` is patched to match
 - **Pronunciation hints** (applied automatically by `apply_pronunciations` in `generate_video.py` — keep the narration above in real terms): "MLflow" → "em-el-flow"; "RBAC" → "ar-back"; "DSPy" → "dee-es-pie"; "BM25" → "B M twenty-five"; "MCP" → "M C P"; "API" → "A P I"; "S3" → "S 3".
 - **Product facts the narration depends on** (re-check these when the product changes): the only supported alpha deployment is standalone CALIBER beside vanilla MLflow over HTTP (embedded mounting is unsupported); Aria, MCP servers and OpenAPI integrations, cookbooks and release-candidate signoff are previews behind `CALIBER_FEATURE_*` flags that are off by default; the default install uses a simulated model and evaluator, and scoring a prompt or judge is refused until a real provider is configured; the queue, runtime approvals, and checkpointing default on in the Compose stack and off elsewhere; the encrypted secret store needs `CALIBER_SECRET_ENCRYPTION_KEY_SOURCE`; the tool sandbox is a bounded subprocess for trusted authors, not a container. Sidebar groups are named in `caliber/caliber-ui/src/components/Sidebar.tsx`; the Aria panel labels `build` as Design and `manual` / `auto_safe` as Ask first / Approve for me (`caliber-ui/src/api/assistantTypes.ts`).
 - **Resolution:** 1920 × 1080, recorded by Playwright at its fixed 25 fps
+
+## External references checked 2026-10-20
+
+- [MarketsandMarkets AI agents market forecast](https://www.marketsandmarkets.com/Market-Reports/ai-agents-market-15761548.html): $52.62 billion by 2030, 46.3% CAGR. This is one forecast, not agreement between two firms.
+- [Gartner 2025 agentic AI forecasts](https://www.gartner.com/en/newsroom/press-releases/2025-06-25-gartner-predicts-over-40-percent-of-agentic-ai-projects-will-be-canceled-by-end-of-2027): 33% of enterprise software applications by 2028 and over 40% of agentic AI projects canceled by the end of 2027.
+- [Deloitte 2026 State of AI survey](https://www.deloitte.com/us/en/about/press-room/state-of-ai-report-2026.html): 21% of surveyed companies report mature agent governance.
+- [Cloud Security Alliance and Strata survey release](https://cloudsecurityalliance.org/press-releases/2026/02/05/cloud-security-alliance-strata-survey-finds-that-enterprises-are-in-time-to-trust-phase-as-they-build-ai-autonomy-foundations): 28% can reliably trace agent actions to a human **or system** across all environments; published in 2026.
+- [Menlo Ventures 2025 enterprise AI report](https://menlovc.com/perspective/2025-the-state-of-generative-ai-in-the-enterprise/): 76% of surveyed enterprise AI use cases were purchased rather than built.
+- [KPMG Q3 2025 AI Pulse survey](https://kpmg.com/kpmg-us/content/dam/kpmg/pdf/2025/ai-quarterly-pulse-survey-q3-2025.pdf): 61% of surveyed US executives said they were not yet comfortable with autonomous agents and would require human-in-the-loop oversight.
+- [European Commission AI Act implementation timeline](https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai): Annex III high-risk rules apply from 2 December 2027; Annex I regulated-product rules from 2 August 2028.

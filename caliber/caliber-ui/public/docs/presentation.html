@@ -75,6 +75,7 @@
   .stat-value { font-size:54px; font-weight:800; line-height:1; margin-bottom:8px; }
   .stat-label { font-size:14px; font-weight:600; color:var(--text2); text-transform:uppercase; letter-spacing:.14em; }
   .stat-desc { font-size:13px; color:var(--text3); margin-top:10px; line-height:1.6; }
+  .stat-desc a, .diagram-box a, .vision-card a { color:inherit; text-decoration:underline; text-decoration-color:var(--accent-light); text-underline-offset:2px; }
 
   /* Pipeline flow (scene 4) */
   .pipeline-flow { display:flex; align-items:center; justify-content:center; gap:0; max-width:1620px; margin:32px auto 12px; flex-wrap:nowrap; }
@@ -284,27 +285,27 @@
       <div style="flex:1 1 440px; max-width:540px;" class="stat-card cyan">
         <div class="stat-value" style="color:var(--cyan)">~$50B</div>
         <div class="stat-label">Market by 2030</div>
-        <div class="stat-desc">AI-agents market, growing ~46%/yr — two firms agree (MarketsandMarkets &amp; Grand View, 2025)</div>
+        <div class="stat-desc">AI-agents market forecast, growing ~46%/yr (<a href="https://www.marketsandmarkets.com/Market-Reports/ai-agents-market-15761548.html" target="_blank" rel="noopener noreferrer">MarketsandMarkets, 2025</a>)</div>
       </div>
       <div style="flex:1 1 440px; max-width:540px;" class="stat-card purple">
         <div class="stat-value" style="color:var(--accent-light)">33%</div>
         <div class="stat-label">Of enterprise software</div>
-        <div class="stat-desc">will include agentic AI by 2028, up from &lt;1% in 2024 (Gartner, 2025)</div>
+        <div class="stat-desc">will include agentic AI by 2028, up from &lt;1% in 2024 (<a href="https://www.gartner.com/en/newsroom/press-releases/2025-06-25-gartner-predicts-over-40-percent-of-agentic-ai-projects-will-be-canceled-by-end-of-2027" target="_blank" rel="noopener noreferrer">Gartner, 2025</a>)</div>
       </div>
       <div style="flex:1 1 440px; max-width:540px;" class="stat-card red">
         <div class="stat-value" style="color:var(--red)">40%+</div>
         <div class="stat-label">Projects canceled</div>
-        <div class="stat-desc">of agentic-AI projects by end of 2027 — cost, unclear value, weak controls (Gartner, 2025)</div>
+        <div class="stat-desc">of agentic-AI projects by end of 2027 — cost, unclear value, weak controls (<a href="https://www.gartner.com/en/newsroom/press-releases/2025-06-25-gartner-predicts-over-40-percent-of-agentic-ai-projects-will-be-canceled-by-end-of-2027" target="_blank" rel="noopener noreferrer">Gartner, 2025</a>)</div>
       </div>
       <div style="flex:1 1 440px; max-width:540px;" class="stat-card amber">
         <div class="stat-value" style="color:var(--amber)">21%</div>
         <div class="stat-label">Have mature governance</div>
-        <div class="stat-desc">for agentic AI — the other ~79% do not (Deloitte, 2026)</div>
+        <div class="stat-desc">of surveyed organizations have mature agent governance (<a href="https://www.deloitte.com/us/en/about/press-room/state-of-ai-report-2026.html" target="_blank" rel="noopener noreferrer">Deloitte, 2026</a>)</div>
       </div>
       <div style="flex:1 1 440px; max-width:540px;" class="stat-card red">
         <div class="stat-value" style="color:var(--red)">28%</div>
-        <div class="stat-label">Can trace to a human</div>
-        <div class="stat-desc">of orgs across all environments; ~72% cannot (Cloud Security Alliance, 2025)</div>
+        <div class="stat-label">Can trace to a human or system</div>
+        <div class="stat-desc">of surveyed orgs, reliably across all environments (<a href="https://cloudsecurityalliance.org/press-releases/2026/02/05/cloud-security-alliance-strata-survey-finds-that-enterprises-are-in-time-to-trust-phase-as-they-build-ai-autonomy-foundations" target="_blank" rel="noopener noreferrer">Cloud Security Alliance, 2026</a>)</div>
       </div>
     </div>
     <div class="reveal" style="--d:2.2s"><div style="color:var(--text3); font-size:14px; margin-top:14px; letter-spacing:.04em;">A large, fast-growing market — held back by a governance and trust gap.</div><div style="color:var(--text3); font-size:12px; margin-top:8px; letter-spacing:.03em;">Figures as published on the dates cited; each horizon is its source's own.</div></div>
@@ -330,7 +331,7 @@
       <div class="diagram-box">
         <h4>The cost</h4>
         <ul>
-          <li>76% of enterprise AI use cases are bought, not built — more vendors to integrate (Menlo Ventures, 2025)</li>
+          <li>76% of enterprise AI use cases are bought, not built — more vendors to integrate (<a href="https://menlovc.com/perspective/2025-the-state-of-generative-ai-in-the-enterprise/" target="_blank" rel="noopener noreferrer">Menlo Ventures, 2025</a>)</li>
           <li>They <strong>measure</strong> — surface scores and dashboards, then stop</li>
           <li>Optimizers are widespread; a gated optimize → re-evaluate → authorize → promote path packaged as one product is not</li>
         </ul>
@@ -692,9 +693,9 @@
     <div class="reveal" style="--d:.9s"><div class="section-subtitle">Asset-specific controls govern each change, while humans and the Aria copilot share the same authorization boundary.</div></div>
     <div class="vision-grid reveal" style="--d:1.4s; grid-template-columns:repeat(2,1fr); max-width:1280px;">
       <div class="vision-card"><h4>Same authorization boundary</h4><p>Humans and the Aria copilot resolve the same server-validated identity — password accounts, revocable sessions, and four scopes. Each asset follows the lifecycle it actually implements, and the audit trail records actor, action, and entity.</p></div>
-      <div class="vision-card"><h4>Traceable to a human</h4><p>Only 28% of organizations can trace an agent's actions back to a human across all environments — ~72% cannot (Cloud Security Alliance, 2025). CALIBER ties every change to an actor in one audit trail.</p></div>
-      <div class="vision-card"><h4>Human in the loop</h4><p>61% of executives required a human in the loop when surveyed (KPMG, Q3 2025). Runtime approvals honour the node's required role and a quorum of distinct approvers, and by default whoever triggered the run cannot approve it.</p></div>
-      <div class="vision-card"><h4>Open, and audit-ready</h4><p>EU AI Act high-risk obligations phase in from 2 August 2026; penalties reach €35M or 7% of global annual turnover (Article 99). Apache 2.0 and self-hostable — no lock-in, data and lineage stay in your own environment.</p></div>
+      <div class="vision-card"><h4>Traceable to an actor</h4><p>Only 28% of organizations surveyed by the Cloud Security Alliance could reliably trace an agent's actions to a human or system across all environments (<a href="https://cloudsecurityalliance.org/press-releases/2026/02/05/cloud-security-alliance-strata-survey-finds-that-enterprises-are-in-time-to-trust-phase-as-they-build-ai-autonomy-foundations" target="_blank" rel="noopener noreferrer">CSA, 2026</a>). CALIBER ties every change to an actor in one audit trail.</p></div>
+      <div class="vision-card"><h4>Human in the loop</h4><p>61% of US executives surveyed required human-in-the-loop oversight (<a href="https://kpmg.com/kpmg-us/content/dam/kpmg/pdf/2025/ai-quarterly-pulse-survey-q3-2025.pdf" target="_blank" rel="noopener noreferrer">KPMG, Q3 2025</a>). Runtime approvals honour the node's required role and a quorum of distinct approvers, and by default whoever triggered the run cannot approve it.</p></div>
+      <div class="vision-card"><h4>Open, and audit-ready</h4><p>EU AI Act high-risk rules apply from 2 December 2027 for Annex III systems and 2 August 2028 for regulated products in Annex I (<a href="https://digital-strategy.ec.europa.eu/en/policies/regulatory-framework-ai" target="_blank" rel="noopener noreferrer">European Commission timeline</a>). Apache 2.0 and self-hostable — data and lineage stay in your own environment.</p></div>
     </div>
     <div class="reveal" style="--d:2.4s"><div style="color:var(--text3); font-size:14px; margin-top:18px; letter-spacing:.04em;">Governance binds humans and the copilot equally. Open source, no lock-in.</div></div>
   </div>
@@ -817,9 +818,9 @@
   }
 
   /* Scene manager */
-  // 16 scenes. The pipeline patches this array at render time from
-  // measured TTS lengths, so these are upper-bound placeholders only.
-  var SCENE_TIMINGS = [22, 28, 30, 30, 28, 28, 28, 26, 30, 26, 30, 26, 28, 30, 30, 24];
+  // 16 scenes. These defaults match the current measured narration plus buffers.
+  // generate_video.py replaces them with fresh measurements for each MP4 render.
+  var SCENE_TIMINGS = [25, 25, 43, 43, 27, 28, 32, 31, 45, 33, 35, 26, 42, 38, 45, 45];
   var scenes = Array.from(document.querySelectorAll('.scene'));
   var progressFill = document.getElementById('progress');
   var counterEl = document.getElementById('counter');
