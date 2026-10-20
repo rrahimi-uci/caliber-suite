@@ -1,11 +1,11 @@
 # CALIBER — Video Narration Script
 
-**Total runtime:** ~9 min (≈517 s narration floor plus inter-scene buffers; final length is recomputed at render time from measured TTS lengths)
+**Total runtime:** ~9 min (≈532 s narration floor plus inter-scene buffers; final length is recomputed at render time from measured TTS lengths)
 **Voice:** en-US-AndrewMultilingualNeural
 **Rate:** +5 % (slightly faster, professional pace)
 **Pauses:** 250 ms silence inserted before each scene; ~3 s buffer after each narration
 
-The deck is 16 conceptual scenes — a CSS/diagram-driven product overview with no demo seed and no removed-page screenshots. It tracks the current platform: the problem and market context, the patchwork-stack gap, the standalone MLflow-integrated control plane, the asset registries, workflow Studio, the data plane, evaluation and calibration, observability, Aria the agentic copilot, governance, the two "why different" pillars, and the vision.
+The deck is 16 conceptual scenes — a CSS/diagram-driven product overview with no demo seed and no removed-page screenshots. It tracks the current platform: the problem and market context, the patchwork-stack gap, the standalone MLflow-integrated control plane, the asset registries, workflow Studio, the data plane, evaluation and calibration, observability, Aria the agentic copilot (a preview, off by default), governance, the two "why different" pillars, and the vision.
 
 Narration below is kept readable with the real product terms. The pipeline respells mispronounced terms automatically before synthesis (see Production Notes) — e.g. "MLflow" is spoken as "em-el-flow" — so you don't write the phonetic spelling here.
 
@@ -45,41 +45,41 @@ This script is the source of truth for the narration in [`generate_video.py`](ge
 
 ---
 
-## Scene 5 — Introducing CALIBER · 29 s
+## Scene 5 — Introducing CALIBER · 26 s
 
-> CALIBER is one ASGI control-plane codebase for agentic workflows. Mount it inside MLflow as a single process, or run it beside vanilla MLflow over HTTP. The API and the interface are identical — you choose how the two fail and are operated, not what you get. Either way, one interface unifies authoring, evidence, and governance. Compose, measure, govern.
+> CALIBER is one ASGI control-plane codebase for agentic workflows. It runs as its own service beside vanilla MLflow and talks to it over HTTP, so CALIBER metadata and MLflow evidence keep separate owners and separate failure domains. One interface unifies authoring, evidence, and governance. Compose, measure, govern.
 
-**Visual:** "Introducing" tag; title "One MLflow-integrated control plane for agentic workflows." Subtitle: one **ASGI control-plane codebase** — mount it inside MLflow as one process, or run it beside vanilla MLflow over HTTP; the API and the interface are identical in both, the choice is a failure-domain and operations decision rather than a feature decision, and CALIBER metadata and MLflow evidence retain explicit owners. Three diagram boxes, three bullets each — Compose (prompts, tools, skills, MCP servers; workflows built in a visual Studio; knowledge bases with hybrid retrieval), Measure (evaluation scorecards on test sets; per-asset calibration algorithms; MLflow tracing & per-tool-call spans), Govern (asset-specific validation, testing, apply, and publish; runtime approvals: role, quorum, checkpoints; server-validated identity, RBAC, audit).
-
----
-
-## Scene 6 — One Platform, Many Assets · 23 s
-
-> Build composes; the Library supplies. Prompts, tools, skills, MCP servers, knowledge bases, and workflows are first-class registered assets. Their workspaces expose the controls and evidence each family actually implements, so you can verify an asset without pretending every family has one uniform lifecycle.
-
-**Visual:** "The platform" tag; title "Build composes. The Library supplies." Six-card grid — Prompts, Tools ("definitions run in a bounded subprocess: separate interpreter, empty environment, private working directory, and hard time, memory, and output limits"), Skills, MCP Servers ("registered Model Context Protocol servers — including a first-party database server — exposed as tools under command and host allowlists"), Knowledge Bases, Workflows.
+**Visual:** "Introducing" tag; title "One MLflow-integrated control plane for agentic workflows." Subtitle: one **ASGI control-plane codebase** — it runs as its own service beside vanilla MLflow and talks to it over HTTP (the only supported alpha deployment; embedded mounting inside MLflow is unsupported), and CALIBER metadata and MLflow evidence retain explicit owners. Three diagram boxes, three bullets each — Compose (prompts, tools, skills, MCP servers (preview); workflows built in a visual Studio; knowledge bases with hybrid retrieval), Measure (evaluation scorecards on test sets; per-asset calibration algorithms; MLflow tracing & per-tool-call spans), Govern (asset-specific validation, testing, apply, and publish; runtime approvals: role, quorum, checkpoints; server-validated identity, RBAC, audit).
 
 ---
 
-## Scene 7 — Build · Workflows · 30 s
+## Scene 6 — One Platform, Many Assets · 26 s
 
-> Workflows are composed in a visual Studio. Wire prompts, tools, skills, and knowledge bases into a graph, preview-run a draft without publishing, then enqueue real runs governed by runtime approvals and checkpointing. Runs arrive from the Studio, an API call, a published service, or a cron trigger — all into one queue, and every run carries an MLflow trace.
+> Workflows compose; agent resources supply. Prompts, tools, skills, MCP servers, knowledge bases, and workflows are first-class registered assets, each with the controls and evidence its family actually implements rather than one uniform lifecycle. Tools run in a bounded subprocess meant for trusted authors, and MCP servers are a preview, off by default.
+
+**Visual:** "The platform" tag; title "Workflows compose. Agent resources supply." Six-card grid — Prompts, Tools ("definitions run in a bounded subprocess: separate interpreter, empty environment, private working directory, and hard time, memory, and output limits — a process boundary for trusted authors, not a container"), Skills, MCP Servers ("registered Model Context Protocol servers — including a first-party database server — exposed as tools under command and host allowlists; a preview, off by default"), Knowledge Bases, Workflows.
+
+---
+
+## Scene 7 — Workflows · 32 s
+
+> Workflows are composed in a visual Studio. Wire prompts, tools, skills, and knowledge bases into a graph, preview-run a draft without publishing, then enqueue real runs. The Compose stack turns on the queue, runtime approvals, and checkpointing; elsewhere they are opt-in. Runs arrive from the Studio, an API call, a published service, or a cron trigger — all into one queue, and every run carries an MLflow trace.
 
 **Visual:** "Build" tag; title "Compose agentic workflows in Studio." Four-step flow — Compose (wire nodes in the graph editor) → Preview-run (execute without publishing) → Enqueue (one queue — Studio, API, service, cron) → Trace (per-tool-call spans in MLflow), first and last glowing. Closing line: "Runs land in one queue with atomic claims for multi-replica workers; every run carries an MLflow trace, and checkpointing makes long runs resumable. Webhook and API nodes are checked against the resolved address, with internal ranges — metadata, loopback, RFC1918 — blocked by default, and they claim an effect-ledger row so an outbound call is made at most once across a restart."
 
 ---
 
-## Scene 8 — Data & Knowledge · 27 s
+## Scene 8 — Data & Knowledge · 28 s
 
-> Behind every workflow is the data plane. Knowledge bases provide hybrid retrieval — BM25 and dense vectors fused with reciprocal rank fusion, optionally tri-hybrid with a knowledge graph — and report their own calibration metrics. The object store is CALIBER's own file interface over local or S3-compatible storage, and test sets are the versioned datasets every scored run draws from.
+> Behind every workflow is the data plane. Knowledge bases provide hybrid retrieval — BM25 and dense vectors fused with reciprocal rank fusion, optionally tri-hybrid with a knowledge graph — and report their own calibration metrics. The object store, which knowledge bases need, is CALIBER's own file interface over local or S3-compatible storage, and test sets are the versioned datasets every scored run draws from.
 
 **Visual:** "Data & knowledge" tag; title "The data plane behind every workflow." Three diagram boxes, three bullets each — Knowledge Base (BM25 + dense RRF hybrid search; tri-hybrid with a knowledge graph; Recall@k · nDCG@k · faithfulness), Object Store (local or S3-compatible storage; the file UI for the whole platform; CALIBER's own file store — separate from MLflow's artifact root), Test Sets (versioned {input, expected} examples; grown from real run traces; the substrate for every scorecard).
 
 ---
 
-## Scene 9 — Evaluate & Calibrate · 34 s
+## Scene 9 — Evaluate & Calibrate · 38 s
 
-> Measurement comes in two layers. Evaluation runs a test set through scorers and compares runs. The prompt refinement path can search for a better candidate using provider paths such as Meta-Prompt, GEPA, or DSPy, then apply per-dimension regression checks before candidate-ready. Moving that candidate live still requires an explicit operator action; registry gate verdicts outside the job are advisory. Tools use deterministic, revision-fenced fixture calibration instead. This is CALIBER's evidence loop: measured proposals with explicit human authority.
+> Measurement comes in two layers. Evaluation runs a test set through scorers and compares runs; the default install is simulated, so scoring is refused until a real model is configured. The prompt refinement path can search for a better candidate using provider paths such as Meta-Prompt, GEPA, or DSPy, then apply per-dimension regression checks before candidate-ready. Moving that candidate live still requires an explicit operator action; registry gate verdicts outside the job are advisory. Tools use deterministic, revision-fenced fixture calibration instead. This is CALIBER's evidence loop: measured proposals with explicit human authority.
 
 **Visual:** "Measure" tag; title "Evaluate, then calibrate — with receipts." Five-step flow — Dataset → Score → Calibrate (MetaPrompt · GEPA · DSPy) → Check → Apply (first and last glowing). Closing line: prompt candidates that pass the job's regression checks land at `candidate_ready` and move live only through an explicit operator `apply` — never auto-promoted; registry gate verdicts outside the job are advisory.
 
@@ -87,31 +87,31 @@ This script is the source of truth for the narration in [`generate_video.py`](ge
 
 ## Scene 10 — Observe · 34 s
 
-> Every run is a trace you can open. Each run records per-tool-call spans, and the Evaluations surface turns those traces into scorecards, per-example results, and run comparisons — with readiness reporting which providers are real versus simulated, so no score is ever fabricated. Operating it is the other half: the queue reports depth, oldest wait, and worker heartbeats, and each evaluation turns a breached objective into a durable incident.
+> Every run is a trace you can open. Each run records per-tool-call spans, and any trace can be added to a test set from the trace view; the Evaluations page then gives scorecards, per-example results, and run comparisons. Readiness reports which providers are real and which are simulated, so a canned score is never passed off as real. Operating it is the other half: the queue reports depth, oldest wait, and worker heartbeats, and a breached objective opens a durable incident.
 
-**Visual:** "Observe & operate" tag; title "Every run is a trace you can open." Three diagram boxes — Tracing (root run trace per workflow run; per-tool-call spans with timing; integrated with MLflow's trace backend), Evaluations, now four bullets (run a dataset through scorers; per-example results & run compare; add a trace to a dataset in one click; real vs simulated providers — no fabricated scores), Runtime health (readiness probes dependencies: ready · not ready · skipped; queue depth, oldest wait, worker heartbeats; declared objectives open durable incidents).
+**Visual:** "Observe & operate" tag; title "Every run is a trace you can open." Three diagram boxes — Tracing (root run trace per workflow run; per-tool-call spans with timing; integrated with MLflow's trace backend), Evaluations, now four bullets (run a dataset through scorers; per-example results & run compare; add a trace to a dataset in one click; real vs simulated providers — canned scores are always labelled), Runtime health (readiness probes dependencies: ready · not ready · skipped; queue depth, oldest wait, worker heartbeats; declared objectives open durable incidents).
 
 ---
 
-## Scene 11 — Aria · The Agentic Copilot · 30 s
+## Scene 11 — Aria · The Agentic Copilot · 34 s
 
-> Aria is the embedded copilot. On OpenAI and Claude it runs a real tool-calling loop inside one turn: it reads live CALIBER state, executes capabilities, observes the result — including a workflow run's trace and scored evaluations — and iterates, bounded to eight tool steps. Chat, plan, and build modes pair with manual, auto-safe, and auto-all approvals to bound exactly what it's allowed to do.
+> Aria is the embedded copilot, a preview that is off by default. With an OpenAI or Claude key it runs a real tool-calling loop inside one turn: it reads live CALIBER state, executes capabilities, observes the result, including a workflow run's trace and scored evaluations, and iterates, bounded to eight tool steps. Chat, plan, and design modes pair with approval levels from ask-first to full autonomy, and the loop itself can never approve or publish.
 
-**Visual:** "Aria" tag; title "An embedded copilot that runs, observes, and fixes." Three diagram boxes — Modes (`chat` talks · `plan` outlines; `build` materializes drafts; attachments, queue, and steering), Permissioned tools, now four bullets (read in every mode; `manual` is the default — the operator runs each gate; sandboxed/reversible in `auto_safe`; runs & publish only in `auto_all`), Governed (same RBAC and permission checks; tool calls recorded per turn; autonomy bounded & auditable).
+**Visual:** "Aria · preview" tag; title "An embedded copilot that runs, observes, and fixes." Three diagram boxes — Modes (`chat` talks · `plan` outlines; `build`, shown as Design in the panel, materializes drafts; attachments, queue, and steering), Permissioned tools, now four bullets (read in every mode; `manual` ("Ask first") is the default — the operator runs each gate; sandboxed/reversible in `auto_safe` ("Approve for me"); mutations only in `auto_all`, and approve/publish are never model-callable), Governed (same RBAC and permission checks; tool calls recorded per turn; autonomy bounded & auditable).
 
 ---
 
 ## Scene 12 — Aria · A Single Turn · 34 s
 
-> Here's a single turn. In build mode with auto-safe approvals, ask Aria to build a tool and test it. It checks for a name clash, drafts the tool, validates the schema, and runs it in a sandbox — a separate interpreter with hard time, memory, and output limits — then reports what it observed and leaves the draft at the tested gate. Every action is recorded in the turn.
+> Here's a single turn. In design mode with approve-for-me approvals, ask Aria to build a tool and test it. It checks for a name clash, drafts the tool, validates the schema, and runs it in a sandbox — a separate interpreter with hard time, memory, and output limits — then reports what it observed and leaves the draft at the tested gate. Every action is recorded in the turn.
 
 **Visual:** "Aria · run, observe, fix" tag; title "Build and test an artifact in one turn." Terminal block, line by line: the muted header `# Aria panel · mode = build · approval = auto_safe`; the `you ›` request — "Build a tool that returns the weekday for an ISO date, then test it."; three tool calls — `list_tools` (checked for a name clash) → `validate_draft` (schema + signature OK) → `run_tool_sandbox` ("2026-06-20" → "Saturday"); and the `aria ›` reply naming the drafted `iso_weekday` at the `tested` gate and offering to approve & publish on the word rather than doing it.
 
 ---
 
-## Scene 13 — Governance · 38 s
+## Scene 13 — Governance · 41 s
 
-> Governance follows each asset's real lifecycle rather than one universal gate. Identity is server-validated — password accounts, revocable sessions, four scopes — and Aria reuses those same scopes, permission checks, and audit path as human-driven routes. Tool code runs behind a swappable execution boundary; the shipped one is a bounded subprocess. Validation, tests, an explicit apply or publish, and alias rollback exist where the asset implements them, and credentials stay encrypted behind a reference no route reads back.
+> Governance follows each asset's real lifecycle rather than one universal gate. Identity is server-validated — password accounts, revocable sessions, four scopes — and Aria reuses those same scopes, permission checks, and audit path as human-driven routes. Tool code runs behind a swappable execution boundary; the shipped one is a bounded subprocess, not a container. Validation, tests, an explicit apply or publish, and alias rollback exist where the asset implements them, and once an encryption key is configured, credentials stay encrypted behind a reference no route reads back.
 
 **Visual:** "Govern" tag; title "Asset-specific controls, one authorization boundary." Five-control flow — Authorize (accounts, revocable sessions, four scopes) → Contain (bounded tool subprocess · internal-range egress blocks · MCP allowlists) → Verify (asset-specific validation & tests) → Act (explicit apply or publish) → Record (audit actor, action & entity), first and last glowing. Closing line: "Validation, tests, explicit apply or publish actions, and alias rollback exist where the asset implements them. Runtime approvals honour the node's own required role and a quorum of distinct approvers, and by default whoever triggered the run cannot approve it. Credentials live in an encrypted store with versions, rotation, and revocation; an asset holds a `secret://` reference and no route reads a value back."
 
@@ -121,7 +121,7 @@ This script is the source of truth for the narration in [`generate_video.py`](ge
 
 > CALIBER collapses the patchwork into one control-plane interface, deployed as its own service beside vanilla MLflow. CALIBER metadata and MLflow evidence keep explicit owners, while every asset family keeps the lifecycle controls it actually implements. Then the signature difference: an integrated prompt-refinement path that evaluates, searches with provider paths such as Meta-Prompt, GEPA, and DSPy, records per-dimension regression evidence, and requires an explicit human apply before anything goes live.
 
-**Visual:** "Why different" tag; title "Unified, and evidence-to-action." Five-step flow, each step with its description — Evaluate ("held-out test set through scorers — real scores, no fabricated numbers") → Search ("provider paths (Meta-Prompt, GEPA, DSPy) search for a better prompt candidate") → Check ("record per-dimension regression evidence") → Candidate-ready ("clears the gate but stays offline — never auto-promoted") → Apply ("goes live only via an explicit operator step"), first and last glowing. Closing line: "Standalone and evidence connected to action. Self-hostable — your data stays home."
+**Visual:** "Why different" tag; title "Unified, and evidence-to-action." Five-step flow, each step with its description — Evaluate ("held-out test set through scorers — scored by a real provider; simulated scores are labelled") → Search ("provider paths (Meta-Prompt, GEPA, DSPy) search for a better prompt candidate") → Check ("record per-dimension regression evidence") → Candidate-ready ("clears the gate but stays offline — never auto-promoted") → Apply ("goes live only via an explicit operator step"), first and last glowing. Closing line: "Standalone and evidence connected to action. Self-hostable — your data stays home."
 
 ---
 
@@ -133,9 +133,9 @@ This script is the source of truth for the narration in [`generate_video.py`](ge
 
 ---
 
-## Scene 16 — Vision · 33 s
+## Scene 16 — Vision · 34 s
 
-> CALIBER is open source and MLflow-integrated, deployed as a standalone service beside MLflow. Agentic with Aria's permissioned tool loop. Measured by evaluation and calibration. Refined through asset-specific lifecycles that preserve evidence and human authority. Governed by server-validated identity, a bounded execution boundary, and recorded actions. Observable through tracing and durable incidents. Apache 2 licensed, with no vendor lock-in. A contextual, adaptive lifecycle for intelligent build, evaluation, and refinement — agentic workflows you can measure, refine, govern, and trust.
+> CALIBER is open source and MLflow-integrated, deployed as a standalone service beside MLflow. Agentic, with Aria's permissioned tool loop in preview. Measured by evaluation and calibration. Refined through asset-specific lifecycles that preserve evidence and human authority. Governed by server-validated identity, a bounded execution boundary, and recorded actions. Observable through tracing and durable incidents. Apache 2 licensed, with no vendor lock-in. A contextual, adaptive lifecycle for intelligent build, evaluation, and refinement — agentic workflows you can measure, refine, govern, and trust.
 
 **Visual:** "The vision" tag; title "Agentic workflows you can measure, refine, govern, and trust." Six-card vision grid — Integrated, Agentic, Measured & refined, Governed, Observable, Open. Footer: "caliber-suite · Apache 2.0 · open source."
 
@@ -147,4 +147,5 @@ This script is the source of truth for the narration in [`generate_video.py`](ge
 - **Pauses:** 250 ms silence before each scene (`adelay`); ~3 s buffer after each narration (`apad`)
 - **Buffer:** scene durations recomputed at runtime from measured TTS length + 3 s, then `SCENE_TIMINGS` in `presentation.html` is patched to match
 - **Pronunciation hints** (applied automatically by `apply_pronunciations` in `generate_video.py` — keep the narration above in real terms): "MLflow" → "em-el-flow"; "RBAC" → "ar-back"; "DSPy" → "dee-es-pie"; "BM25" → "B M twenty-five"; "MCP" → "M C P"; "API" → "A P I"; "S3" → "S 3".
-- **Resolution:** 1920 × 1080 @ 30 fps
+- **Product facts the narration depends on** (re-check these when the product changes): the only supported alpha deployment is standalone CALIBER beside vanilla MLflow over HTTP (embedded mounting is unsupported); Aria, MCP servers and OpenAPI integrations, cookbooks and release-candidate signoff are previews behind `CALIBER_FEATURE_*` flags that are off by default; the default install uses a simulated model and evaluator, and scoring a prompt or judge is refused until a real provider is configured; the queue, runtime approvals, and checkpointing default on in the Compose stack and off elsewhere; the encrypted secret store needs `CALIBER_SECRET_ENCRYPTION_KEY_SOURCE`; the tool sandbox is a bounded subprocess for trusted authors, not a container. Sidebar groups are named in `caliber/caliber-ui/src/components/Sidebar.tsx`; the Aria panel labels `build` as Design and `manual` / `auto_safe` as Ask first / Approve for me (`caliber-ui/src/api/assistantTypes.ts`).
+- **Resolution:** 1920 × 1080, recorded by Playwright at its fixed 25 fps

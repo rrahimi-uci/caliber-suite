@@ -346,7 +346,7 @@
     <div class="reveal" style="--d:.2s"><span class="section-tag">Introducing</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">One <span class="glow-text">MLflow-integrated</span> control plane for agentic workflows.</div></div>
     <div class="reveal" style="--d:1.0s">
-      <div class="section-subtitle">CALIBER is one <strong>ASGI control-plane codebase</strong>: mount it inside MLflow as one process, or run it beside vanilla MLflow over HTTP. The API and the interface are identical in both — the choice is a failure-domain and operations decision, not a feature decision — while CALIBER metadata and MLflow evidence retain explicit owners.</div>
+      <div class="section-subtitle">CALIBER is one <strong>ASGI control-plane codebase</strong>: it runs as its own service beside vanilla MLflow over HTTP, with CALIBER metadata and MLflow evidence each keeping an explicit owner.</div>
     </div>
     <div class="diagram-row reveal" style="--d:1.6s">
       <div class="diagram-box">
@@ -381,22 +381,22 @@
 <section class="scene" data-scene="6">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">The platform</span></div>
-    <div class="reveal" style="--d:.5s"><div class="section-title">Build composes. The Library supplies.</div></div>
+    <div class="reveal" style="--d:.5s"><div class="section-title">Workflows compose. Agent resources supply.</div></div>
     <div class="reveal" style="--d:.9s">
       <div class="section-subtitle">Agent resources are first-class registered assets. Each workspace exposes the controls that family actually implements — immutable versions and aliases where they exist, tests and evidence where they are recorded — so you can verify an asset without pretending every family has one uniform lifecycle.</div>
     </div>
     <div class="vision-grid reveal" style="--d:1.4s">
       <div class="vision-card"><h4>Prompts</h4><p>Versioned against MLflow's Prompt Registry, with aliases and a per-prompt test workspace.</p></div>
-      <div class="vision-card"><h4>Tools</h4><p>Definitions run in a bounded subprocess: separate interpreter, empty environment, private working directory, and hard time, memory, and output limits.</p></div>
+      <div class="vision-card"><h4>Tools</h4><p>Definitions run in a bounded subprocess: separate interpreter, empty environment, private working directory, and hard time, memory, and output limits. This is a process boundary for tool authors you trust, not a container.</p></div>
       <div class="vision-card"><h4>Skills</h4><p>Named capabilities with selection logic; preview which skills resolve for an input.</p></div>
-      <div class="vision-card"><h4>MCP Servers</h4><p>Registered Model Context Protocol servers — including a first-party database server — exposed as tools under command and host allowlists.</p></div>
+      <div class="vision-card"><h4>MCP Servers <span class="mono">· preview, off by default</span></h4><p>Registered Model Context Protocol servers — including a first-party database server — exposed as tools under command and host allowlists.</p></div>
       <div class="vision-card"><h4>Knowledge Bases</h4><p>Hybrid retrieval (BM25 + dense RRF, tri-hybrid with graph) plus retrieval calibration.</p></div>
       <div class="vision-card"><h4>Workflows</h4><p>Agentic graphs composed in Studio, preview-run, published, and traced end to end.</p></div>
     </div>
   </div>
 </section>
 
-<!-- SCENE 7 — BUILD · WORKFLOWS / STUDIO -->
+<!-- SCENE 7 — WORKFLOWS / STUDIO -->
 <section class="scene" data-scene="7">
   <div class="scene-inner">
     <div class="reveal" style="--d:.2s"><span class="section-tag">Build</span></div>
@@ -544,7 +544,7 @@
           <li>Run a dataset through scorers</li>
           <li>Per-example results &amp; run compare</li>
           <li>Add a trace to a dataset in one click</li>
-          <li>Real vs simulated providers — no fabricated scores</li>
+          <li>Simulated scores are always labelled as such</li>
         </ul>
       </div>
       <div class="diagram-box">
@@ -562,7 +562,7 @@
 <!-- SCENE 11 — ARIA · THE AGENTIC COPILOT -->
 <section class="scene" data-scene="11">
   <div class="scene-inner">
-    <div class="reveal" style="--d:.2s"><span class="section-tag">Aria</span></div>
+    <div class="reveal" style="--d:.2s"><span class="section-tag">Aria · preview</span></div>
     <div class="reveal" style="--d:.5s"><div class="section-title">An embedded copilot that <span class="glow-text">runs, observes, and fixes</span></div></div>
     <div class="reveal" style="--d:.9s">
       <div class="section-subtitle">On OpenAI and Claude, Aria runs a real tool-calling loop inside one turn: it reads live CALIBER state, executes capabilities, observes the result — including a workflow run's trace and scored evaluations — and iterates, bounded to eight tool steps.</div>
@@ -582,7 +582,7 @@
           <li>Read in every mode</li>
           <li><span class="mono" style="color:var(--accent-light)">manual</span> is the default — the operator runs each gate</li>
           <li>Sandboxed/reversible in auto_safe</li>
-          <li>Runs &amp; publish only in auto_all</li>
+          <li>Mutations only in auto_all; approve and publish are never model-callable</li>
         </ul>
       </div>
       <div class="diagram-box">
@@ -670,7 +670,7 @@
     <div class="reveal" style="--d:.5s"><div class="section-title">Unified, and <span class="glow-text">evidence-to-action</span>.</div></div>
     <div class="reveal" style="--d:.9s"><div class="section-subtitle">CALIBER collapses the patchwork into one interface, deployed as its own service beside vanilla MLflow. CALIBER metadata and MLflow evidence keep explicit owners, while an integrated prompt-refinement path connects measured proposals to explicit human apply.</div></div>
     <div class="pipeline-flow reveal" style="--d:1.4s">
-      <div class="pipe-step glow"><div class="pn">step 1</div><div class="pt">Evaluate</div><div class="pd">Held-out test set through scorers — real scores, no fabricated numbers</div></div>
+      <div class="pipe-step glow"><div class="pn">step 1</div><div class="pt">Evaluate</div><div class="pd">Held-out test set through scorers — scored by a real provider; simulated scores are labelled</div></div>
       <div class="pipe-arrow">›</div>
       <div class="pipe-step"><div class="pn">step 2</div><div class="pt">Search</div><div class="pd">Provider paths (Meta-Prompt, GEPA, DSPy) search for a better prompt candidate</div></div>
       <div class="pipe-arrow">›</div>
