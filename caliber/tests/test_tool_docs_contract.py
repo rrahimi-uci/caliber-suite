@@ -85,6 +85,7 @@ def test_the_journey_table_has_every_step() -> None:
         "Calibrate",
         "Pin a baseline",
         "Use it in a workflow",
+        "Make a new version",
     ]
 
 
@@ -92,7 +93,9 @@ def test_every_control_the_journey_names_exists_in_the_page() -> None:
     """Each **bold** control name in the "In the page" column is a string the UI renders."""
     files = [
         UI / "pages" / "ToolRegistry.tsx",
-        UI / "pages" / "ToolDetail.tsx",
+        # ``ToolDetail.tsx`` only redirects to the workspace now; edit, version history and
+        # New version live in the manage panel the workspace's Publish stage renders.
+        UI / "components" / "tools" / "ToolManagePanel.tsx",
         UI / "pages" / "ToolWizard.tsx",
         UI / "components" / "CalibrationPanel.tsx",
     ]
