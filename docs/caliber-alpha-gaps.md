@@ -9,8 +9,8 @@ stability: draft
 summary: Evidence-based gap analysis and execution plan for tagging CALIBER Suite as a Minimal Viable Alpha (MVA) — scope, journeys, P0/P1/P2 gaps with acceptance criteria, and exit criteria.
 prerequisites:
   - Read docs/two-week-alpha-plan.md and docs/reports/two-week-alpha-release-notes.md for the narrower journey this plan generalizes
-reviewed_on: 2026-10-15
-version_applicability: gap baseline at dfe48481471; completion checklist updated through 97c2815f2d1, plus P1-25
+reviewed_on: 2026-10-20
+version_applicability: gap baseline at dfe48481471; completion checklist updated through 5f21bc7710e (P1-25 and the licence included)
 tags:
   - alpha
   - release-readiness
@@ -20,14 +20,18 @@ tags:
 
 # CALIBER Suite — Minimal Viable Alpha gap analysis
 
-> **Status at current `main` (2026-10-14):** This is the gap baseline, not a current
+> **Status at current `main` (2026-10-20):** This is the gap baseline, not a current
 > defect list. The findings and measurements below describe the checkout at
 > `dfe48481471`/`68fb0a7bbfe`. Section 8 records the later fixes: P0-1 through
-> P0-5 and P1-01 through P1-24 are closed, while P0-6 still needs a green run on
-> the tag commit and P0-7 still needs the tag, assets, and release verification.
-> P1-25 (feature flags for the unsupported areas) is implemented, and its
-> test-evidence criteria are still to be confirmed (§8).
-> `caliber-v0.1.0a1` has not been published. See
+> P0-5, P1-01 through P1-24 and P1-25 (feature flags for the unsupported areas) are
+> closed, while P0-6 still needs a green run on the tag commit and P0-7 still needs the
+> tag, assets, and release verification. `caliber-v0.1.0a1` has not been published; the
+> only tag is `caliber-v0.0.1`. The licence question inside P0-7 is settled
+> (Apache-2.0, #486). After the baseline the work moved on to the cookbook labs: all
+> seventeen were run on a fresh stack through the UI and the SDK, with scored paths also
+> run on a stand-in and a hosted model (see
+> [First-user verification](../docs-site/cookbooks/FIRST-USER-VERIFICATION.md)). That work
+> is not tracked as gap items here. See
 > [Alpha scope and limitations](start/alpha-scope.md) for the current capability
 > boundary and [Releasing](operate/releasing.md) for the remaining release steps.
 
@@ -803,7 +807,7 @@ deferral.
   - Optional: `evaluate` returns 409 unless `CALIBER_WORKSPACE_RELEASES_ENABLED`.
 - **Files:** `components/Sidebar.tsx`, `components/PageHeader.tsx`, `pages/Releases.tsx`, `sdk/caliber-cli/src/caliber_cli/cli.py`, `docs/sdk/cli.md`, `docs/sdk/beta.md`, the doc front matter above, `README.md`.
 - **Deps:** §2.2 scope decision.
-- **Status: implemented.** UI: `lib/maturity.ts` (the one list of preview destinations), `components/PreviewBadge.tsx` (`PreviewBadge`, `PreviewBanner`), `PageHeader` (`preview` prop, the pill sits beside the heading so its accessible name is unchanged), `Sidebar.tsx` (groups now lead with the core journey: Prompts, Test Sets, Evaluations, Releases; then Skills, Tools, Workflows, Knowledge Bases, Object Store, Judges, Agents; then Operate; then LLM Gateway, MCP Servers, OpenAPI Integrations, Cookbooks and Plans, the last four with a Preview pill, and a dot in the icon rail), labelled pages (Cookbooks, MCP Servers, OpenAPI Integrations, Aria Plans), and `Releases.tsx` (the signoff factory moved below the live board and timeline, with a "Preview, record-only" note). CLI: `caliberctl release --help` and `workspace --help`. Docs: `stability` front matter lowered to `beta` on the MCP, object-store, knowledge-base, observability, gateway and assistant pages and `use/knowledge-bases.md`; a Workspace experimental note in `docs/sdk/beta.md` and the command table in `docs/sdk/cli.md`; a maturity table in the README. The optional "evaluate returns 409 unless enabled" was not done.
+- **Status: implemented, then superseded in the UI (2026-10-15, #495).** The Preview pills, banner, `lib/maturity.ts` and `components/PreviewBadge.tsx` described next were removed once [P1-25](#p1-25) put the same areas behind feature flags that are off by default: the interface now carries no maturity labels, and an area is either hidden (flag off) or available (flag on). The docs chips, CLI help and README labels stay. What was built: UI: `lib/maturity.ts` (the one list of preview destinations), `components/PreviewBadge.tsx` (`PreviewBadge`, `PreviewBanner`), `PageHeader` (`preview` prop, the pill sits beside the heading so its accessible name is unchanged), `Sidebar.tsx` (groups now lead with the core journey: Prompts, Test Sets, Evaluations, Releases; then Skills, Tools, Workflows, Knowledge Bases, Object Store, Judges, Agents; then Operate; then LLM Gateway, MCP Servers, OpenAPI Integrations, Cookbooks and Plans, the last four with a Preview pill, and a dot in the icon rail), labelled pages (Cookbooks, MCP Servers, OpenAPI Integrations, Aria Plans), and `Releases.tsx` (the signoff factory moved below the live board and timeline, with a "Preview, record-only" note). CLI: `caliberctl release --help` and `workspace --help`. Docs: `stability` front matter lowered to `beta` on the MCP, object-store, knowledge-base, observability, gateway and assistant pages and `use/knowledge-bases.md`; a Workspace experimental note in `docs/sdk/beta.md` and the command table in `docs/sdk/cli.md`; a maturity table in the README. The optional "evaluate returns 409 unless enabled" was not done.
 - **Acceptance criteria:**
   - [x] A sidebar test asserts the preview set equals the scope decision's list (the nav's pills are exactly `PREVIEW_DESTINATIONS`, core destinations carry none, and the §2.2 "LABEL preview" row names the same areas).
   - [x] The Releases page shows the signoff factory with the banner, after the live board and timeline (Vitest).
@@ -1312,7 +1316,7 @@ ticked with linked evidence.
 ### Honest product surface
 
 - [x] **P1-05, P1-06, P1-07, P1-08** closed. The health light is truthful, storing a secret works, PATs can be issued from the UI, and the login form shows truthful errors.
-- [x] **P1-10** closed. The preview, record-only and experimental labels match §2.2 in the UI, CLI help, docs chips and README.
+- [x] **P1-10** closed. The preview, record-only and experimental labels match §2.2 in CLI help, docs chips and README. (The UI pills it first added were removed in #495, because [P1-25](#p1-25) hides those areas unless a flag is on.)
 - [x] **P1-11, P1-12** closed. Aria is hidden or explained without an engine, 0-step plans cannot complete, and KB create fails fast without an object store.
 - [x] **P1-13, P1-14** closed. Releases shows the live prompt, and a released version links to its job, evidence, dataset version and applier.
 - [x] **P1-15** closed. The README journey, scope note, known limitations and backup page match actual behaviour.
