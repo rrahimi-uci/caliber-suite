@@ -4,6 +4,14 @@
 **Audit date:** 2026-08-04
 **Scope:** all 16 numbered Cookbooks, the React UI, backend contracts, durable data, documentation, and browser-only automation
 
+> **Point-in-time report (2026-08-04); superseded in places, 2026-10-20.** The catalog now holds 17 recipes
+> (01 to 16 and 18; lab 17 is an SDK-only script with no catalog entry), so the "exactly 16" and "all 16" counts
+> below are as of this audit. The Cookbooks area is off by default and needs `CALIBER_FEATURE_COOKBOOKS=true`
+> on the server; the test counts and CI figures below are not current. The labs have since been run through the UI
+> and the SDK on fresh stacks: see
+> [First-user verification](../../docs-site/cookbooks/FIRST-USER-VERIFICATION.md) and
+> [Alpha scope and limitations](../start/alpha-scope.md).
+
 ## Outcome
 
 All 16 Cookbooks now exist in CALIBER as versioned, installable system examples.

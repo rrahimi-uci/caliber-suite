@@ -1,6 +1,13 @@
 # CALIBER OpenAPI Integration Proposal
 
-Status: Proposal
+Status: Proposal (implemented; see the banner below)
+
+> **Implemented since (checked 2026-10-20).** This is the design proposal of 2026-08-10, kept as the record of the
+> reasoning. The capability exists: routes in `routes/openapi_integrations.py`, the pipeline under
+> `integrations/openapi/`, the `OpenApiIntegrations.tsx` page and `client.openapi_integrations` in the SDK. It is a
+> preview area and is **off by default**; enable with `CALIBER_FEATURE_INTEGRATIONS=true`. Where this proposal and the
+> [OpenAPI Integrations architecture](../16-openapi-integrations/architecture.md) differ, the architecture page describes
+> what shipped. Phrases below such as "should", "proposed" and "current repository facts" refer to the 2026-08 baseline.
 
 Repository baseline: `eafc1576db`
 

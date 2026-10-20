@@ -9,8 +9,8 @@ stability: draft
 summary: Evidence-based gap analysis and execution plan for tagging CALIBER Suite as a Minimal Viable Alpha (MVA) — scope, journeys, P0/P1/P2 gaps with acceptance criteria, and exit criteria.
 prerequisites:
   - Read docs/two-week-alpha-plan.md and docs/reports/two-week-alpha-release-notes.md for the narrower journey this plan generalizes
-reviewed_on: 2026-10-15
-version_applicability: gap baseline at dfe48481471; completion checklist updated through 97c2815f2d1, plus P1-25
+reviewed_on: 2026-10-20
+version_applicability: gap baseline at dfe48481471; completion checklist updated through 5f21bc7710e (P1-25 and the licence included)
 tags:
   - alpha
   - release-readiness
@@ -20,14 +20,18 @@ tags:
 
 # CALIBER Suite — Minimal Viable Alpha gap analysis
 
-> **Status at current `main` (2026-10-14):** This is the gap baseline, not a current
+> **Status at current `main` (2026-10-20):** This is the gap baseline, not a current
 > defect list. The findings and measurements below describe the checkout at
 > `dfe48481471`/`68fb0a7bbfe`. Section 8 records the later fixes: P0-1 through
-> P0-5 and P1-01 through P1-24 are closed, while P0-6 still needs a green run on
-> the tag commit and P0-7 still needs the tag, assets, and release verification.
-> P1-25 (feature flags for the unsupported areas) is implemented, and its
-> test-evidence criteria are still to be confirmed (§8).
-> `caliber-v0.1.0a1` has not been published. See
+> P0-5, P1-01 through P1-24 and P1-25 (feature flags for the unsupported areas) are
+> closed, while P0-6 still needs a green run on the tag commit and P0-7 still needs the
+> tag, assets, and release verification. `caliber-v0.1.0a1` has not been published; the
+> only tag is `caliber-v0.0.1`. The licence question inside P0-7 is settled
+> (Apache-2.0, #486). After the baseline the work moved on to the cookbook labs: all
+> seventeen were run on a fresh stack through the UI and the SDK, with scored paths also
+> run on a stand-in and a hosted model (see
+> [First-user verification](../docs-site/cookbooks/FIRST-USER-VERIFICATION.md)). That work
+> is not tracked as gap items here. See
 > [Alpha scope and limitations](start/alpha-scope.md) for the current capability
 > boundary and [Releasing](operate/releasing.md) for the remaining release steps.
 

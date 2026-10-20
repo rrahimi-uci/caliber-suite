@@ -1,10 +1,17 @@
 # First-milestone pilot fixture pack
 
-**Status:** ready for pilot execution  
+**Status:** historical (the 2026-08 pilot fixture pack; see the note below)
 **Scope:** GitHub pilot tickets #79–#99  
 **Purpose:** give every pilot participant the exact names, content, inputs, and
 expected checkpoints needed to execute the current CALIBER release without
 inventing test data.
+
+> **Historical, checked 2026-10-20.** The pilot tickets #79 to #99 no longer exist (see the [roadmap](../roadmap.md)).
+> The cookbook labs these fixtures were drawn from were later rewritten after being run for real, so the text and JSON
+> pasted below are a snapshot and differ from the lab assets they link to (for example, the lab's `intake-classifier.md`
+> has more rules and a `variables:` list, and its `initiate-refund.tool.json` has fuller schemas). Where they differ, the
+> files under [`docs-site/cookbooks/`](../../docs-site/cookbooks/) are current, and each lab README says which flags it
+> needs (`CALIBER_FEATURE_*`, off by default).
 
 This is an execution fixture, not a claim that every live result is already
 available. Provider keys, workers, object storage, remote hosts, and approval
