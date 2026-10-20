@@ -56,5 +56,6 @@ repository's `caliber/.venv` must contain the development test dependencies. Fou
 pdflatex passes plus one bibtex pass settle floats, citations, and cross-references.
 
 `make diagrams` is separate and *is* optional: it rebuilds the Excalidraw figures
-and needs Node. The committed PDFs in `generated/diagrams/` are what an ordinary
-build consumes, so the paper stays buildable with nothing but pdflatex.
+and needs Node. An ordinary build typesets the TikZ originals; the committed PDFs in
+`generated/diagrams/` are used only when `\cbexcalidrawtrue` is set in
+`tex/macros.tex`, so the paper stays buildable with nothing but pdflatex.
