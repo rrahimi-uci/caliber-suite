@@ -1,8 +1,8 @@
 {
   "steps": [
     {
-      "where": "Integrations › Plans",
-      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default). In the sidebar open <strong>Integrations</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/12-aria-evaluation-harness/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>. The planner is rules, not a model: it looks for the words <code>judge</code> and <code>eval dataset</code> / <code>test set</code>.",
+      "where": "Operate › Plans",
+      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default). In the sidebar open <strong>Operate</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/12-aria-evaluation-harness/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>. The planner is rules, not a model: it looks for the words <code>judge</code> and <code>eval dataset</code> / <code>test set</code>.",
       "fill": [
         [
           "Goal",
@@ -24,7 +24,7 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (draft plan)",
+      "where": "Operate › Plans › (draft plan)",
       "do": "Read <strong>Plan steps</strong>. Aria drew <code>Create judge</code> (<code>judge.create</code>) and <code>Create test set</code> (<code>eval_dataset.create</code>), in that order, both <em>pending</em>, each listing the inputs it needs (<code>name, instructions</code> and <code>name</code>). Nothing has run. Compare with <a href=\"../cookbooks/12-aria-evaluation-harness/assets/expected-plan.json\">expected-plan.json</a>.",
       "see": "Two pending steps, no wired inputs between them: each step asks for its own name.",
       "asset": "Reviewed plan (2 steps)",
@@ -36,14 +36,14 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (draft plan)",
+      "where": "Operate › Plans › (draft plan)",
       "do": "Press <strong>Approve plan</strong>. This records that you accept the plan's shape before any step runs.",
       "click": "Approve plan",
       "see": "The status becomes <code>approved</code> and an <strong>Execute</strong> button appears.",
       "asset": "Approved plan"
     },
     {
-      "where": "Integrations › Plans › (approved plan)",
+      "where": "Operate › Plans › (approved plan)",
       "do": "Press <strong>Execute</strong>. Aria reaches <code>judge.create</code> and stops on an <strong>Aria needs information</strong> form (<em>Provide the required inputs for step 1: Create judge.</em>) because the planner cannot know the judge's name or instructions. Fill it from <a href=\"../cookbooks/12-aria-evaluation-harness/assets/judges/answer-faithfulness.judge.json\">answer-faithfulness.judge.json</a> and press <strong>Continue plan</strong>. Because you chose <em>Stop before each change</em>, an <strong>Aria needs your approval</strong> prompt follows (<em>Approve step 1: Create judge (judge.create)?</em>). Press <strong>Approve</strong>.",
       "fill": [
         [
@@ -70,7 +70,7 @@
       ]
     },
     {
-      "where": "Integrations › Plans › (running plan)",
+      "where": "Operate › Plans › (running plan)",
       "do": "The next form is <em>Provide the required inputs for step 2: Create test set.</em> Fill <strong>name</strong>, <strong>description</strong> and <strong>tags</strong> from <a href=\"../cookbooks/12-aria-evaluation-harness/assets/datasets/support-faithfulness.dataset.json\">support-faithfulness.dataset.json</a> (the tags are a JSON array), press <strong>Continue plan</strong>, then <strong>Approve</strong> the prompt <em>Approve step 2: Create test set (eval_dataset.create)?</em>.",
       "fill": [
         [
@@ -125,21 +125,21 @@
       "see": "On the simulated stack the red message <em>evaluation requires a real LLM provider</em> (nothing is stored). On a stack with a real provider the run scores the 30 rows with the judge; the README's real-provider section versions a prompt (careless v1, grounded v2), runs both and compares them."
     },
     {
-      "where": "Integrations › Plans",
+      "where": "Operate › Plans",
       "do": "State a sentence with none of the domain words: <code>Write me a poem about customer support.</code> and press <strong>Decompose goal</strong>.",
       "click": "Decompose goal",
       "see": "An amber note, <em>No platform steps matched this goal, so there is nothing to approve.</em>; the sentence stays in the box and no plan opens, so there is nothing to approve (over the API the plan is created with a warning and <strong>approve</strong> answers 409).",
       "asset": "Warning for a sentence with no steps"
     },
     {
-      "where": "Integrations › Plans",
+      "where": "Operate › Plans",
       "do": "State <code>Create a judge for tone.</code>, press <strong>Decompose goal</strong>, <strong>Approve plan</strong>, <strong>Execute</strong>, and press <strong>Skip step</strong> on the form.",
       "click": "Skip step",
       "see": "The plan reads <code>completed</code> and its step <em>skipped</em>: Skip step ends the step without creating anything.",
       "asset": "Skipped step"
     },
     {
-      "where": "Integrations › Plans",
+      "where": "Operate › Plans",
       "do": "State <code>Create a judge for tone.</code> again, approve and execute, fill <strong>name</strong> with a new name and <strong>instructions</strong> with <code>Is {{ evidence }} polite?</code>, and press <strong>Continue plan</strong>. The form accepts it; the step does not.",
       "click": "Continue plan",
       "see": "The plan reads <code>failed</code> and the step shows <code>invalid input: instructions: instructions must reference at least one evaluation variable...</code>. <strong>Judges</strong> has no row for that name. A failed plan cannot be run again: state the goal again.",

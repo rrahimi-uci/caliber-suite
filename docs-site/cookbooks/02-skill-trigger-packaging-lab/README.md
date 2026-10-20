@@ -353,10 +353,10 @@ cd caliber/caliber-ui
 CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/02-skill-trigger-packaging.spec.ts
 ```
 
-Open `$CALIBER_URL/caliber/` and sign in as `admin` / `admin` first. The sidebar groups are **Prompt lifecycle**, **Agent resources** (Skills is here), **Operate**, **Integrations**
-(Cookbooks is here, with the flag on) and **Admin** (Administration is here).
+Open `$CALIBER_URL/caliber/` and sign in as `admin` / `admin` first. The sidebar groups are **Get started** (Cookbooks is here, with the flag on), **Prompt lifecycle**, **Agent resources**
+(Skills is here), **Operate**, **Integrations** and **Admin** (Administration is here).
 
-1. **Open the gallery, then create a workspace.** Integrations › **Cookbooks**: the **Cookbook 02 / Precision Skills** card says **Ready** and lists `skills`, `trigger tests`, `packages`, `calibration`
+1. **Open the gallery, then create a workspace.** Get started › **Cookbooks**: the **Cookbook 02 / Precision Skills** card says **Ready** and lists `skills`, `trigger tests`, `packages`, `calibration`
    (you do not install it; the lab runs on Skills). Then, in the top bar, click **+** (Create workspace), type a name, **Create and select**. The lab runs inside a workspace so that a viewer can
    be added in step 11.
 2. **Build the skill.** Agent resources › **Skills** › **Build Skill**. *Identity:* Name `support-tone-and-citation-<suffix>` (the box turns spaces and underscores into hyphens), Owner `admin`,

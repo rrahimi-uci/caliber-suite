@@ -354,7 +354,7 @@ python docs-site/cookbooks/10-judge-certification-human-review-lab/assets/seed_t
 1. **Load the test set.** Under **Prompt lifecycle > Test Sets** click **+ New Test Set**, name it `judge-certification-set`, owner `admin`, **Create**, open it and click **Import from file**; choose `aggregated-outputs.jsonl` and click **Import 50 rows**
    (`aggregated-outputs.jsonl: 50 rows ready to import.` first; a bad line is named and nothing is imported). The header ends on `v51` (one version per appended example) and `50 active examples`; each row shows the
    input and the expected evidence (the recorded `outputs` and the reviewer's `human_label` stay in the file: they are what the lab's traces and review use). The same file can also be loaded from a prompt's **Calibration** tab
-   (**Upload JSON/JSONL**), and under **Integrations > Cookbooks** the *Trustworthy Evaluation* card lists the recipe (optional: installing it only creates a paused workflow draft, which this lab does not use).
+   (**Upload JSON/JSONL**), and under **Get started > Cookbooks** the *Trustworthy Evaluation* card lists the recipe (optional: installing it only creates a paused workflow draft, which this lab does not use).
 2. **Create the candidate prompt.** Under **Prompt lifecycle > Prompts** click **New prompt**, **Write / paste**, paste
    `You answer support tickets and incident alerts using ONLY the evidence you are given. State what the evidence says and nothing more; if it does not cover the question, say so and escalate to a person.`
    into **Prompt text**, name it `grounded-reply` and click **Create and Open**: version 1, live. This is the candidate the Evaluations will score.

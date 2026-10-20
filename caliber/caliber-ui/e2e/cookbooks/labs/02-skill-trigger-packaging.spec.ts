@@ -321,7 +321,7 @@ test.describe("Cookbook 02: precision skills", () => {
     await new CaliberUi(page).signIn();
     const real = !(await stackIsSimulated(page));
 
-    // ---- 1. Integrations > Cookbooks lists Precision Skills ------------------------------
+    // ---- 1. Get started > Cookbooks lists Precision Skills ------------------------------
     await page.goto("/caliber/cookbooks");
     const card = page.getByTestId("cookbook-card-02");
     await expect(card).toContainText("Precision Skills");

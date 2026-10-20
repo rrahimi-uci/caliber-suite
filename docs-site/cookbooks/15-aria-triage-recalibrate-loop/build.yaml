@@ -10,7 +10,7 @@ feasibility:
   - A parked plan cannot be cancelled or edited; it ends when its job does. With the workers off it never ends.
 manual_flow:
   - step: state_intent
-    action: Open Integrations > Plans, state the one-line intent and pick the autonomy.
+    action: Open Operate > Plans, state the one-line intent and pick the autonomy.
   - step: review_plan
     action: Aria drafts a plan (review_queue.create, review_queue.add_items, workflow.calibrate); read the steps.
   - step: approve

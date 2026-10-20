@@ -412,7 +412,7 @@ itself is also a protected write, so the script sends the anonymous token `GET /
 
 Sign in at `$CALIBER_URL/caliber/login`. Each person signs in separately (use a private window per
 person, or **Log out** between them); the password for every roster account is `lab18-demo-passphrase`.
-The UI calls a project a **workspace**. The sidebar groups are **Prompt lifecycle**, **Agent
+The UI calls a project a **workspace**. The sidebar groups are **Get started** (with the Cookbooks flag), **Prompt lifecycle**, **Agent
 resources**, **Operate**, **Integrations** and **Admin**.
 
 1. **Create the team's accounts.** As `admin` / `admin`: **Admin › Administration › Accounts**. For each of the nine people in `team-roster.csv`, type the **User ID** and the **Password** and click **Create account**. A green note says `Created maya.` and the account appears in the table as **Active**. (An account left **Disabled** by an earlier cleanup shows an **Enable** button.)
