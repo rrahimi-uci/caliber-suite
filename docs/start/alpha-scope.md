@@ -107,7 +107,7 @@ Things to know before you turn one on:
 - **Aria also backs a few helpers inside supported pages.** The **Ask Aria** button, **Describe it** prompt
   drafting, the prompt Playground, test-case generation and test runs inside the prompt workspace, and the tool
   unit-test generator call the assistant, so with `CALIBER_FEATURE_ARIA` off they are hidden or show a notice that
-  names the variable (the Playground stage stays listed and says so). The core journey does not need them: build the test set by hand on the Test Sets page.
+  names the variable (the Playground stage stays listed and says so). The core journey does not need them: build the test set by hand on the Test Sets page, or load it with **Import from file** (JSON Lines or a JSON array).
 - **A disabled area answers 404.** Every route of a disabled area returns HTTP 404 with the machine-readable
   `reason_code` `feature_disabled`, so a client can tell "this deployment has it off" from "no such record"
   (the body is shown below).
