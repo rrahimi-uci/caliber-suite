@@ -50,7 +50,7 @@ def build() -> Scene:
         y = b["y"] + b["height"] + 7
         return b
 
-    adm = row("Admission", "session or token, scopes, CSRF, rate limit", "govern")
+    adm = row("Admission", "session or token, scopes, CSRF and rate limit (opt-in)", "govern")
 
     # ---- surfaces -----------------------------------------------------------
     surf = [("Route handlers", f"{stat('statRouteDecls')} declarations"),
@@ -97,8 +97,9 @@ def build() -> Scene:
         f"Up to {stat('statLoops')} in-process loops",
         "no separate worker tier\n"
         "Refinement, CalibrationDrain, WorkflowRun,\n"
-        "AriaPlan, KnowledgeBase, Scheduler,\n"
-        "Janitor, WebhookDispatcher",
+        "AriaPlan, KnowledgeBase, WorkspaceImport,\n"
+        "Scheduler, Janitor, ReleaseReconciler,\n"
+        "WebhookDispatcher",
         role_name="async", title_size=SIZE_BODY, detail_size=SIZE_BODY,
         min_height=q["height"],
     )

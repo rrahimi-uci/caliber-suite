@@ -48,6 +48,12 @@ at-least-once, idempotent \\
 redelivery with settlement and a dead-letter path &
 at-least-once, by design \\
 
+\zebra
+\textbf{Workspace\-Import} & claim + heartbeat &
+lease expiry marks the job for reconciliation, not requeued automatically &
+at-most-once per attempt; a retry safely replays the already-committed
+revision \\
+
 \midrule
 \textbf{Workflow\-Scheduler} & \chipnone{} &
 idempotent by a minute-bucketed key behind a unique partial index &
@@ -67,11 +73,6 @@ at-least-once resume \\
 none needed: the next tick re-observes the alias, and a row it cannot settle
 from the recorded before/after versions is left for a human &
 idempotent convergence; \code{prepared} rows are never touched \\
-
-\textbf{Workspace\-Import} & claim + heartbeat &
-lease expiry marks the job for reconciliation, not requeued automatically &
-at-most-once per attempt; a retry safely replays the already-committed
-revision \\
 
 \bottomrule
 \end{tabular}

@@ -1034,6 +1034,9 @@ def s_loops(deck: Deck) -> None:
         ["WebhookDispatcher", "claim",
          "redelivery with settlement and a dead-letter path",
          "at-least-once, by design"],
+        ["WorkspaceImport", "claim + heartbeat",
+         "lease expiry marks the job for reconciliation, not requeued automatically",
+         "at-most-once per attempt; a retry safely replays the committed revision"],
         ["WorkflowScheduler", [("none", WARM, True)],
          "idempotent by a minute-bucketed key behind a unique partial index",
          "exactly-once firing; the work it enqueues then follows WorkflowRun"],
@@ -1042,10 +1045,13 @@ def s_loops(deck: Deck) -> None:
         ["AriaPlan", [("none", WARM, True)],
          "polls for plans parked on settled jobs; no claim is taken",
          "at-least-once resume"],
+        ["ReleaseReconciler", [("none", WARM, True)],
+         "none needed: the next tick re-observes the alias; prepared rows are never touched",
+         "idempotent convergence"],
     ]
     y = s.table(ML, y, [140, 100, 330, 289],
                 ["Loop", "Lease", "Recovery after owner death",
-                 "Delivery semantics"], rows, size=8.5, bottom=386)
+                 "Delivery semantics"], rows, size=7.5, bottom=386)
     note(s, y + 14,
          "External effects are a separate question from job delivery",
          "The workflow effect ledger records an in_progress external call whose outcome "
