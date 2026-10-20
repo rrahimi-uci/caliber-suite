@@ -2,7 +2,7 @@
  * CalibrationPanel — manage a component's saved calibration test cases, persist
  * them, run a scored calibration, and render the per-case pass/fail + pass-rate.
  *
- * Reused by both the tool registry (ToolDetail) and MCP tools (McpServers
+ * Reused by both the tool workspace and MCP tools (McpServers
  * playground). The page supplies `save`/`calibrate` callbacks that hit the
  * matching endpoint; this component owns only the editable case state + result.
  */

@@ -43,6 +43,7 @@ import { useFeature } from "@/hooks/useFeature";
 import { useViewMode } from "@/hooks/useViewMode";
 import { getActiveProjectId } from "@/workspace/activeWorkspace";
 import { ToolWizard } from "./ToolWizard";
+import { ToolManagePanel } from "@/components/tools/ToolManagePanel";
 import { apiErrorText } from "@/lib/apiErrors";
 
 /** Lifecycle pill tones, keyed by the workspace ``lifecycle`` string. */
@@ -179,6 +180,35 @@ export function ToolRegistry(): JSX.Element {
     // Landing in a workspace (for example right after registering) leaves the register tab.
     if (openToolId) setActiveTab("registry");
   }, [openToolId]);
+
+  // ``?new_version_of=TL-...`` opens the wizard on the next version of that tool.
+  const newVersionOf = searchParams.get("new_version_of");
+  const startNewVersion = useCallback(
+    (tool: ToolDefinition): void => {
+      setSearchParams((current) => {
+        const next = new URLSearchParams(current);
+        next.delete("tool");
+        next.set("new_version_of", tool.tool_id);
+        return next;
+      });
+    },
+    [setSearchParams],
+  );
+  const stopNewVersion = useCallback((): void => {
+    setSearchParams((current) => {
+      const next = new URLSearchParams(current);
+      const back = next.get("new_version_of");
+      next.delete("new_version_of");
+      // Back to the tool it was started from.
+      if (back) next.set("tool", back);
+      return next;
+    });
+  }, [setSearchParams]);
+  const baseQuery = useApiQuery(
+    ["tool", newVersionOf],
+    (s) => caliberApi.getTool(newVersionOf as string, s),
+    { enabled: Boolean(newVersionOf) },
+  );
   const [toolSearch, setToolSearch] = useState("");
   // Both filters default to the empty "All" sentinel; a row must match the text
   // query AND every active filter (additive).
@@ -242,12 +272,44 @@ export function ToolRegistry(): JSX.Element {
   const openTool = openToolId
     ? tools.find((t) => t.tool_id === openToolId) ?? null
     : null;
+  if (newVersionOf) {
+    return (
+      <div className="space-y-6 animate-fade-in">
+        <PageHeader
+          title="Tools"
+          subtitle="Register the next version of a tool: its name is fixed and everything else starts as the tool it follows."
+          actions={
+            <button
+              type="button"
+              data-testid="tool-new-version-back"
+              onClick={stopNewVersion}
+              className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-700"
+            >
+              Back to the tool
+            </button>
+          }
+        />
+        <div className="rounded-2xl border border-caliber-200/60 bg-caliber-50/30 p-5 shadow-card">
+          {baseQuery.data ? (
+            <ToolWizard base={baseQuery.data} onClose={stopNewVersion} />
+          ) : baseQuery.error ? (
+            <div role="alert" className="text-sm text-red-700">
+              Could not load the tool to version: {baseQuery.error.message}
+            </div>
+          ) : (
+            <div className="text-sm text-slate-400">Loading the tool…</div>
+          )}
+        </div>
+      </div>
+    );
+  }
   if (openToolId) {
     return (
       <ToolWorkspace
         toolId={openToolId}
         tool={openTool}
         onBack={() => setOpenToolId(null)}
+        onNewVersion={startNewVersion}
       />
     );
   }
@@ -585,10 +647,12 @@ function ToolWorkspace({
   toolId,
   tool,
   onBack,
+  onNewVersion,
 }: {
   toolId: string;
   tool: ToolDefinition | null;
   onBack: () => void;
+  onNewVersion: (tool: ToolDefinition) => void;
 }): JSX.Element {
   const [stage, setStage] = useState<ToolStage>("spec");
   const [workspace, setWorkspace] = useState<ToolWorkspaceResponse | null>(null);
@@ -634,9 +698,41 @@ function ToolWorkspace({
     workspace?.side_effect_level ?? resolvedTool?.side_effect_level ?? "read";
   const headerLifecycle = workspace?.lifecycle ?? "Draft";
 
+  // The workspace is a URL now (``?tool=``), so an id can be stale or mistyped: say so, with a way
+  // out, rather than leave "Loading tool…" on screen forever.
+  if (!resolvedTool && detailQuery.error) {
+    return (
+      <div className="space-y-4 animate-fade-in">
+        <button
+          type="button"
+          onClick={onBack}
+          className="inline-flex items-center gap-1.5 text-sm font-medium text-slate-500 hover:text-slate-700"
+        >
+          Back to tools
+        </button>
+        <div
+          role="alert"
+          data-testid="tool-workspace-error"
+          className="rounded-2xl border border-red-200/60 bg-red-50 px-5 py-4 text-sm text-red-700 shadow-card"
+        >
+          Could not load this tool: {detailQuery.error.message}
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="space-y-6 animate-fade-in">
       <div>
+        {detailQuery.error && detailQuery.data && (
+          <div
+            role="status"
+            data-testid="tool-workspace-refresh-warning"
+            className="mb-3 rounded border border-amber-300 bg-amber-50 p-3 text-sm text-amber-900"
+          >
+            Showing the last loaded tool because refresh failed: {detailQuery.error.message}
+          </div>
+        )}
         <button
           type="button"
           onClick={onBack}
@@ -773,6 +869,12 @@ function ToolWorkspace({
         />
       )}
 
+      {stage === "publish" && resolvedTool && !resolvedTool.builtin && (
+        <div className="mt-4">
+          <ToolManagePanel tool={resolvedTool} onNewVersion={onNewVersion} />
+        </div>
+      )}
+
       {(stage === "sandbox" ||
         stage === "fixtures" ||
         stage === "hardening") &&
@@ -808,6 +910,9 @@ export function ToolPlayground({
   const [selectedId, setSelectedId] = useState("");
   const selected = tools.find((t) => t.tool_id === selectedId) ?? null;
   const [toolInput, setToolInput] = useState("{}");
+  // Invalid input is said out loud and not run: running a tool with ``{}`` instead of what the
+  // person typed would show a result for input they never gave.
+  const [inputError, setInputError] = useState<string | null>(null);
   const [running, setRunning] = useState(false);
   const [result, setResult] = useState<ToolTestRunResult | null>(null);
   const [history, setHistory] = useState<
@@ -821,15 +926,21 @@ export function ToolPlayground({
 
   const handleRun = async () => {
     if (!selected) return;
-    setRunning(true);
-    setResult(null);
     let parsed: Record<string, unknown> = {};
     try {
-      try {
-        parsed = JSON.parse(toolInput);
-      } catch {
-        /* leave empty */
+      const value: unknown = JSON.parse(toolInput);
+      if (!value || typeof value !== "object" || Array.isArray(value)) {
+        throw new Error("not an object");
       }
+      parsed = value as Record<string, unknown>;
+    } catch {
+      setInputError("Tool input must be a JSON object.");
+      return;
+    }
+    setInputError(null);
+    setRunning(true);
+    setResult(null);
+    try {
       const res = await caliberApi.testRunTool(selected.tool_id, parsed);
       setResult(res);
       setHistory((h) => [
@@ -957,11 +1068,20 @@ export function ToolPlayground({
             <label className="block text-xs font-medium text-zinc-700 mb-1">Input JSON</label>
             <textarea
               value={toolInput}
-              onChange={(e) => setToolInput(e.target.value)}
+              onChange={(e) => {
+                setToolInput(e.target.value);
+                setInputError(null);
+              }}
               rows={5}
               placeholder='{"key": "value"}'
+              aria-invalid={inputError !== null}
               className="w-full rounded-md border border-zinc-300 bg-white px-3 py-2 text-sm font-mono focus:border-blue-400 focus:ring-1 focus:ring-blue-400 outline-none resize-y"
             />
+            {inputError && (
+              <p role="alert" data-testid="tool-playground-input-error" className="mt-1 text-xs text-red-600">
+                {inputError}
+              </p>
+            )}
           </div>
 
           <button
