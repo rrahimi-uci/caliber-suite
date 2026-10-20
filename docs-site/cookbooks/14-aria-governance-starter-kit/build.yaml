@@ -9,7 +9,7 @@ feasibility:
   - eval_dataset.create makes the EMPTY test set; example rows are added separately (not an Aria capability).
 manual_flow:
   - step: state_intent
-    action: Open Integrations > Plans, state the one-line intent and pick the autonomy.
+    action: Open Operate > Plans, state the one-line intent and pick the autonomy.
   - step: review_plan
     action: Aria drafts a plan (judge, review queue, test set, enqueue); read the steps.
   - step: approve

@@ -1,7 +1,7 @@
 {
   "steps": [
     {
-      "where": "Integrations › Cookbooks, then the top bar workspace selector",
+      "where": "Get started › Cookbooks, then the top bar workspace selector",
       "do": "Confirm the <strong>Precision Skills</strong> card is <strong>Ready</strong> (you do not install it; the lab runs on Skills). Then create a <strong>workspace</strong> for the lab with the <strong>+</strong> in the top bar, so a viewer can be added later.",
       "fill": [
         [

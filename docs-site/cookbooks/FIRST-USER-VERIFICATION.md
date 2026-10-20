@@ -78,8 +78,8 @@ direct HTTP use is lab 04's cleanup of its own buckets after the journey, which 
 
 ## Product gaps found and not fixed
 
-- **Cookbooks and Plans live under Integrations** in the sidebar. The READMEs say so; a new user looking for "Cookbooks"
-  finds it only after expanding that group.
+- ~~Cookbooks and Plans live under Integrations~~ **Fixed:** Cookbooks leads the sidebar under **Get started** (open by
+  default), and Plans sits under **Operate** with the other things that wait for a person.
 - **Two tool pages** (the detail page where registering lands and the registry workspace) overlap; they now link to each other.
 - **The Playground needs the Aria flag**, so the prompt chat is invisible on a default install.
 - **A tool has no "new version" action in the UI**, so lab 03's version-and-compare step is a baseline-and-regression compare.
