@@ -16,6 +16,8 @@ evaluation:
     - judge_template_variables_valid
     - review_items_link_to_trace
     - alignment_scored_every_labelled_row
+    - ui_test_set_import_matches_file          # UI only: Test Sets > Import from file holds 50 rows at v51
+    - ui_prompt_v2_rerun_and_compare           # UI only (model needed): prompt v2 saved, scored on the same test set and graders, and compared with the v1 run (both subjects named)
 quality_gates:
   # The lab certifies the JUDGE, not the candidate: the candidate-versus-baseline scorecard is
   # recorded as evidence, but a judge is certified on its agreement with people.

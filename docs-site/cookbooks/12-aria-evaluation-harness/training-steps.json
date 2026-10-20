@@ -100,16 +100,29 @@
     },
     {
       "where": "Prompt lifecycle › Test Sets",
-      "do": "Open <strong>Test Sets</strong>, search for the name and open the set. It is at <code>v1</code> with no rows: Aria creates the test set empty. Press <strong>+ Add example</strong>, fill <strong>Input (JSON object)</strong> with a case's <code>input</code> and <strong>Expected (JSON object)</strong> with its <code>expected</code> from <a href=\"../cookbooks/12-aria-evaluation-harness/assets/dataset/faithfulness-cases.jsonl\">faithfulness-cases.jsonl</a>, and press <strong>Save</strong>. Repeat for two more cases.",
-      "click": "Save",
-      "see": "Each question appears in the list and the version reads <code>v4</code>. The other 27 rows are loaded by the script (<code>POST /eval-datasets/{id}/examples</code>). On a stack with a real provider, <strong>Evaluations</strong> can then score these rows with the judge (README, <em>Run it with a real provider</em>).",
-      "asset": "Test set with rows",
+      "do": "Open <strong>Test Sets</strong>, search for the name and open the set. It is at <code>v1</code> with no rows: Aria creates the test set empty. Press <strong>Import from file</strong> and choose <a href=\"../cookbooks/12-aria-evaluation-harness/assets/dataset/faithfulness-cases.jsonl\">faithfulness-cases.jsonl</a> under <strong>Test set file</strong>. The page reads <em>30 rows ready to import.</em>; press <strong>Import 30 rows</strong>.",
+      "click": "Import 30 rows",
+      "see": "30 rows in the list and the version reads <code>v31</code> (one version per row).",
+      "asset": "Test set with 30 rows",
       "assetlink": [
         {
           "href": "../cookbooks/12-aria-evaluation-harness/assets/dataset/faithfulness-cases.jsonl",
           "label": "faithfulness-cases.jsonl"
         }
       ]
+    },
+    {
+      "where": "Prompt lifecycle › Test Sets › (test set)",
+      "do": "Modify the test set, which makes a new version. On the first row press <strong>Edit</strong>, add a sentence to <strong>Expected (JSON object)</strong> and press <strong>Save</strong>. Then set <strong>Version view</strong> to <em>Active as of version</em> and pick <code>31</code>.",
+      "click": "Save",
+      "see": "The version reads <code>v32</code> and the row shows the new text; the <em>Active as of version 31</em> view lists the 30 rows as they were, read-only, without it.",
+      "asset": "Test set version 32"
+    },
+    {
+      "where": "Prompt lifecycle › Evaluations",
+      "do": "Press <strong>Run evaluation</strong>, pick the test set at <code>v32</code>, give it a <strong>Label</strong>, untick <strong>Exact match</strong>, <strong>Token F1</strong> and <strong>Contains expected</strong>, tick <strong>Non-empty</strong> and, under <em>Custom LLM judges</em>, the judge Aria created. Press <strong>Run</strong>.",
+      "click": "Run",
+      "see": "On the simulated stack the red message <em>evaluation requires a real LLM provider</em> (nothing is stored). On a stack with a real provider the run scores the 30 rows with the judge; the README's real-provider section versions a prompt (careless v1, grounded v2), runs both and compares them."
     },
     {
       "where": "Integrations › Plans",

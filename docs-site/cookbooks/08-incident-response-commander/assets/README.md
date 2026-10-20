@@ -6,7 +6,7 @@ Files for [the lab](../README.md). The first group is what the lab runs and veri
 
 | File | What it is | How it is loaded |
 | --- | --- | --- |
-| [`dataset/incident-cases.jsonl`](dataset/incident-cases.jsonl) | 41 incidents: `{id, tags, input: {incident: {...}}, expected: {answer, severity, action, requires_approval}}` | API: `POST /eval-datasets`, then `POST /eval-datasets/{id}/examples` per line. UI: `Test Sets > + Add example` (one row at a time) |
+| [`dataset/incident-cases.jsonl`](dataset/incident-cases.jsonl) | 41 incidents: `{id, tags, input: {incident: {...}}, expected: {answer, severity, action, requires_approval}}` | API: `POST /eval-datasets`, then `POST /eval-datasets/{id}/examples` per line. UI: `Test Sets > + New Test Set`, open it, `Import from file` (or `+ Add example` for one row at a time) |
 | [`workflows/incident-commander.workflow.json`](workflows/incident-commander.workflow.json) | The 14-node workflow and its `prod` deploy gate (`artifacts.eval_datasets.incident-cases`, `deploy_gates.verdict-matches-dataset`) | `Workflows > Import > Choose file`, or `POST /workflows/import`. Set the test set name in `artifacts.eval_datasets.incident-cases.dataset_name` first; the test set must exist |
 | [`workflows/evidence-lookup-drill.workflow.json`](workflows/evidence-lookup-drill.workflow.json) | Error Boundary around the deployment lookup | API import; run through the queue |
 | [`workflows/missing-tool-drill.workflow.json`](workflows/missing-tool-drill.workflow.json) | Names an unregistered tool: the import is refused | API import (expect 400) |

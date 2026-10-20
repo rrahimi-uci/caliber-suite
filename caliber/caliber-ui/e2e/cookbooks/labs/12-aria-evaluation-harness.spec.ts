@@ -51,6 +51,10 @@ const DATASET = JSON.parse(
     "utf8",
   ),
 ) as { name: string; description: string; tags: string[] };
+const CARELESS_PROMPT = fs
+  .readFileSync(path.join(ASSETS, "prompts/careless-answer.prompt.txt"), "utf8")
+  .trim();
+const CASES_FILE = path.join(ASSETS, "dataset/faithfulness-cases.jsonl");
 const GROUNDED_PROMPT = fs
   .readFileSync(path.join(ASSETS, "prompts/grounded-answer.prompt.txt"), "utf8")
   .trim();
@@ -161,67 +165,162 @@ test.describe("Cookbook 12: an evaluation harness from one sentence", () => {
     await datasetRow.getByText(datasetName).click();
     await expect(page.getByText("v1").first()).toBeVisible();
 
-    // ---- 6. Follow-up: add rows in the row editor -----------------------------------
-    for (const row of CASES.slice(0, 3)) {
-      await page.getByRole("button", { name: "+ Add example" }).click();
-      await page
-        .getByLabel("Input (JSON object)")
-        .fill(JSON.stringify(row.input));
-      await page
-        .getByLabel("Expected (JSON object)")
-        .fill(JSON.stringify(row.expected));
-      await page.getByLabel("Tags").fill(row.tags.join(", "));
-      await page.getByTestId("example-save").click();
-      await expect(page.getByText(row.input["question"]!)).toBeVisible();
-    }
-    await expect(page.getByText("v4").first()).toBeVisible();
+    // ---- 6. Load the 30 cases from the file (Import from file) -------------------------
+    await page.getByTestId("import-toggle").click();
+    await page.getByLabel("Test set file").setInputFiles(CASES_FILE);
+    await expect(page.getByTestId("import-summary")).toContainText(
+      `faithfulness-cases.jsonl: ${CASES.length} rows ready to import.`,
+    );
+    await page.getByTestId("import-save").click();
+    // One version per row: 1 + 30.
+    await expect(page.getByTestId("eval-dataset-version")).toHaveText(
+      `v${CASES.length + 1}`,
+      { timeout: 120_000 },
+    );
+    await expect(page.getByTestId("example-row")).toHaveCount(CASES.length);
+    await expect(page.getByText(CASES[0]!.input["question"]!)).toBeVisible();
 
-    // ---- 7. Evaluations: refused without a real model, scored by the judge with one -------
+    // ---- 7. Modify -> new version: tighten one reference answer -----------------------
+    const first = page
+      .getByTestId("example-row")
+      .filter({ hasText: CASES[0]!.input["question"]! });
+    await first.getByTestId("example-edit").click();
+    const tightened = {
+      answer: `${CASES[0]!.expected["answer"]} Day 20 of 30 is inside the window.`,
+    };
+    await page
+      .getByLabel("Expected (JSON object)")
+      .fill(JSON.stringify(tightened));
+    await page.getByTestId("example-save").click();
+    const head = CASES.length + 2;
+    await expect(page.getByTestId("eval-dataset-version")).toHaveText(
+      `v${head}`,
+    );
+    await expect(
+      page.getByText("Day 20 of 30 is inside the window.").first(),
+    ).toBeVisible();
+    // The old version is still there to look at: "Active as of version" v31 shows the original.
+    await page.getByTestId("version-view").selectOption("asOf");
+    await page
+      .getByTestId("version-filter")
+      .selectOption(`${CASES.length + 1}`);
+    await expect(page.getByTestId("example-row")).toHaveCount(CASES.length);
+    await expect(
+      page
+        .getByTestId("example-row")
+        .filter({ hasText: CASES[0]!.input["question"]! }),
+    ).not.toContainText("Day 20 of 30 is inside the window.");
+    await page.getByTestId("version-view").selectOption("added");
+    await page.getByTestId("version-filter").selectOption("");
+
+    // ---- 8. Evaluations: refused without a real model, scored by the judge with one -------
     const real = await isRealProvider(page);
-    const promptName = `cookbook-12-grounded-${suffix}`;
+    const promptName = `cookbook-12-answerer-${suffix}`;
     if (real) {
-      // The answerer under test: the question is the user's turn, the row's evidence fills
-      // {{ evidence }} in the prompt (a test set row's other fields never reach the model).
+      // The answerer under test. v1 is the careless control (it never sees the policy); v2, saved
+      // as a new version of the same prompt, is the grounded answerer that fills {{ evidence }}
+      // from each test set row (a test set row's other fields never reach the model).
       await page.goto("/caliber/prompts");
       await page.getByRole("button", { name: "New prompt" }).click();
       await page.getByRole("button", { name: /Write \/ paste/ }).click();
-      await page.getByLabel("Prompt text").fill(GROUNDED_PROMPT);
+      await page.getByLabel("Prompt text").fill(CARELESS_PROMPT);
       await page.getByLabel("Prompt name").fill(promptName);
       await page.getByRole("button", { name: "Create and Open" }).click();
       await expect(page.getByTestId("version-panel")).toBeVisible();
+      await page.getByLabel("Prompt template").fill(GROUNDED_PROMPT);
+      await page.getByRole("button", { name: "Save draft" }).click();
+      await expect(page.getByTestId("version-row-2")).toBeVisible();
     }
-    const label = `faithfulness ${suffix}`;
-    await page.goto("/caliber/evaluations");
-    await page.getByRole("button", { name: "Run evaluation" }).click();
-    await page
-      .getByLabel("Test set", { exact: true })
-      .selectOption({ label: `${datasetName} (v4)` });
-    await page.getByLabel("Label", { exact: true }).fill(label);
-    if (real) {
-      await page.getByLabel("What to score").selectOption("prompt");
-      await page.getByLabel("Subject under test").fill(`${promptName}@1`);
-    }
-    // The judge, with Non-empty; not the three string-match graders that are ticked by default.
-    await page.getByText("Exact match", { exact: true }).click();
-    await page.getByText("Token F1", { exact: true }).click();
-    await page.getByText("Contains expected", { exact: true }).click();
-    await page.getByText("Non-empty", { exact: true }).click();
-    await page.getByTestId("judge-scorer-options").getByText(judgeName).click();
-    await page.getByRole("button", { name: "Run", exact: true }).click();
+    const runEvaluation = async (label: string, version?: number) => {
+      await page.goto("/caliber/evaluations");
+      await page.getByRole("button", { name: "Run evaluation" }).click();
+      await page
+        .getByLabel("Test set", { exact: true })
+        .selectOption({ label: `${datasetName} (v${head})` });
+      await page.getByLabel("Label", { exact: true }).fill(label);
+      if (version) {
+        await page.getByLabel("What to score").selectOption("prompt");
+        await page
+          .getByLabel("Subject under test")
+          .fill(`${promptName}@${version}`);
+      }
+      // The judge, with Non-empty; not the three string-match graders ticked by default.
+      await page.getByText("Exact match", { exact: true }).click();
+      await page.getByText("Token F1", { exact: true }).click();
+      await page.getByText("Contains expected", { exact: true }).click();
+      await page.getByText("Non-empty", { exact: true }).click();
+      await page
+        .getByTestId("judge-scorer-options")
+        .getByText(judgeName)
+        .click();
+      await page.getByRole("button", { name: "Run", exact: true }).click();
+    };
     if (!real) {
+      await runEvaluation(`faithfulness ${suffix}`);
       await expect(
         page.getByText(/evaluation requires a real LLM provider/),
       ).toBeVisible({ timeout: 60_000 });
-    } else {
-      const run = page.getByTestId("eval-run-row").filter({ hasText: label });
-      await expect(run).toBeVisible({ timeout: 300_000 });
-      await expect(run).toContainText("completed");
-      await expect(run).toContainText("3/3");
-      await run.getByRole("link").click();
-      await expect(page.getByText(`prompt: ${promptName}@1`)).toBeVisible();
-      await expect(page.getByTestId("eval-result-row")).toHaveCount(3);
-      await expect(page.getByTestId("eval-aggregate")).toBeVisible();
+      return;
     }
+    const careless = `careless v1 ${suffix}`;
+    const grounded = `grounded v2 ${suffix}`;
+    await runEvaluation(careless, 1);
+    const carelessRow = page
+      .getByTestId("eval-run-row")
+      .filter({ hasText: careless });
+    await expect(carelessRow).toBeVisible({ timeout: 600_000 });
+    await expect(carelessRow).toContainText("completed");
+    await expect(carelessRow).toContainText(`/${CASES.length}`);
+    await runEvaluation(grounded, 2);
+    const groundedRow = page
+      .getByTestId("eval-run-row")
+      .filter({ hasText: grounded });
+    await expect(groundedRow).toBeVisible({ timeout: 600_000 });
+    await expect(groundedRow).toContainText("completed");
+    await expect(groundedRow).toContainText(`/${CASES.length}`);
+
+    // ---- 9. Compare the new version with the baseline --------------------------------------
+    const judgeShare = async (): Promise<number> => {
+      const card = page
+        .getByTestId("eval-aggregate")
+        .locator("div")
+        .filter({ hasText: judgeName })
+        .last();
+      const text = (await card.textContent()) ?? "";
+      const match = /(\d+(?:\.\d+)?)%/.exec(text);
+      expect(
+        match,
+        `a percentage on the ${judgeName} card: ${text}`,
+      ).not.toBeNull();
+      return Number(match![1]) / 100;
+    };
+    await groundedRow.getByRole("link").click();
+    await expect(page.getByText(`prompt: ${promptName}@2`)).toBeVisible();
+    await expect(page.getByTestId("eval-result-row")).toHaveCount(CASES.length);
+    const groundedShare = await judgeShare();
+    const compare = page.getByLabel("Compare to baseline run");
+    const value = await compare
+      .locator("option", { hasText: careless })
+      .getAttribute("value");
+    await compare.selectOption(value!);
+    await expect(page.getByTestId("baseline-comparison-context")).toContainText(
+      `${promptName}@1`,
+    );
+    await expect(
+      page.getByTestId("eval-aggregate").getByTitle("vs. baseline run").first(),
+    ).toBeVisible();
+    // The careless control, opened on its own, scores clearly lower (the judge tells them apart).
+    await page.goto("/caliber/evaluations");
+    await page
+      .getByTestId("eval-run-row")
+      .filter({ hasText: careless })
+      .getByRole("link")
+      .click();
+    const carelessShare = await judgeShare();
+    expect(
+      groundedShare - carelessShare,
+      `grounded ${groundedShare} vs careless ${carelessShare}`,
+    ).toBeGreaterThanOrEqual(0.2);
   });
 
   test("real provider: Ask Aria acts in a Legacy auto chat and only reads in the default one", async ({

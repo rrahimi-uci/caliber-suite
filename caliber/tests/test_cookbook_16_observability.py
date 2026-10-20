@@ -201,3 +201,59 @@ def test_seed_script_is_valid_python_with_a_cli_entry_point() -> None:
     tree = ast.parse((ASSETS / "seed_traces.py").read_text())
     names = {node.name for node in tree.body if isinstance(node, ast.FunctionDef)}
     assert {"seed", "load_rows"} <= names
+
+
+def _fixed_plan() -> Any:
+    """Cookbook 09's version 1 with the three nodes' code replaced by ``assets/fix/*.py``.
+
+    That is exactly what step 12 of the lab's UI path does in the editor.
+    """
+    import yaml
+
+    from caliber.egress import EgressPolicy
+    from caliber.workflows.compiler import build_ir
+    from caliber.workflows.manifest import parse_manifest
+    from caliber.workflows.runtime import RuntimePlan
+    from tests.test_cookbook_09_self_healing import _sender
+    from tests.workflow_helpers import fake_resolver
+
+    manifest = yaml.safe_load(
+        (
+            LAB.parent
+            / "09-workflow-debugger-self-healing-lab/assets/workflow/ticket-intake.v1.workflow.yaml"
+        ).read_text("utf-8")
+    )
+    for node in ("validate", "check_reference", "decide"):
+        manifest["nodes"][node]["code"] = (ASSETS / f"fix/{node}.py").read_text("utf-8")
+    resolver = fake_resolver()
+    return RuntimePlan(
+        ir=build_ir(parse_manifest(manifest), resolver, version="2"),
+        resolver=resolver,
+        webhook_sender=_sender,
+        egress_policy=EgressPolicy(allowed_hosts=frozenset({"127.0.0.1"})),
+    )
+
+
+def test_the_fix_files_give_every_one_of_the_40_tickets_its_gold_outcome() -> None:
+    """The lab's version 2 (step 12) fixes the 12 errors AND the 4 silent failures."""
+    plan = _fixed_plan()
+    for row in ROWS:
+        run = execute(plan, row["input"]["payload"], executor=FakeWorkflowExecutor())
+        assert run.status == "completed", row["id"]
+        out = json.loads(run.output)
+        expected = row["expected"]
+        assert (out["decision"], out["reason_code"]) == (
+            expected["decision"],
+            expected["reason_code"],
+        ), row["id"]
+        if "upstream_status" in expected:
+            assert out["upstream_status"] == expected["upstream_status"], row["id"]
+
+
+def test_the_fix_files_are_lab_09s_patch_plus_the_order_reference_normalisation() -> None:
+    patch = LAB.parent / "09-workflow-debugger-self-healing-lab/assets/workflow/patch"
+    for name in ("validate.py", "decide.py"):
+        assert (ASSETS / "fix" / name).read_text("utf-8") == (patch / name).read_text("utf-8")
+    fixed = (ASSETS / "fix/check_reference.py").read_text("utf-8")
+    assert ".strip().upper()" in fixed
+    assert ".upper()" not in (patch / "check_reference.py").read_text("utf-8")

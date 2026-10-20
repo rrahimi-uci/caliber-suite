@@ -193,17 +193,21 @@ Preview is not available for this workflow: the editor's Preview (and `POST /wor
 
 [`04-document-extraction.spec.ts`](../../../caliber/caliber-ui/e2e/cookbooks/labs/04-document-extraction.spec.ts) performs these steps with real clicks. Sign in at `$CALIBER_URL/caliber/` as `admin` / `admin`.
 
-1. **Create the workspace and add the reviewer.** Click the **+** beside the workspace selector in the top bar, name it `invoice-intake`, click **Create and select**. Open **Administration** (Admin group), choose the workspace under **Project for access management**, enter `reviewer`, pick **Reviewer**, click **Add member**. The **Project members** table lists `reviewer`.
+1. **Create the reviewer account, the workspace and the membership.** Open **Administration** (Admin group): under **Accounts** enter `reviewer` as *User ID* and `reviewer-pass-123` as *Password*, click **Create account**; `reviewer` appears in *Accounts in this deployment* (the platform scopes it needs come from `CALIBER_APPROVER_USERS` / `CALIBER_OPERATOR_USERS`, set when the environment started). Click the **+** beside the workspace selector in the top bar, name the workspace `invoice-intake`, click **Create and select**. Back on **Administration**, choose the workspace under **Project for access management**, enter `reviewer`, pick **Reviewer**, click **Add member**. The **Project members** table lists `reviewer`.
 2. **Create the two buckets.** **Object Store** (Agent resources): type `doc-intake` in *new-bucket-name* and click **+**, then `doc-extracted`. Both appear next to `caliber-workspaces`.
 3. **Upload the sample invoices.** Open `doc-intake`, **New folder** `incoming`, **Create**, open the folder, **Upload** and select all 30 files in `assets/dataset/sources/`. The folder lists 30 objects, from `empty.txt` (0 B) to `inv-2026-0123-oversized.txt` (about 120 KB).
 4. **Preview a stored document.** Click the eye action on `inv-2026-0101-acme.txt`. The dialog shows `Acme Industrial Supply Co.` and `Invoice No: INV-2026-0101`.
 5. **Install the cookbook.** **Cookbooks** (Integrations): on **Document-to-JSON Pipeline** click Install, name it `doc-intake-to-json`, tick the prerequisites acknowledgement, **Install paused draft**. The Studio opens with `read_document`, `extract_fields`, `validate_schema`, `package_result`, `route`, `emit_extracted`, `write_extracted`, `review_gate`, `emit_reviewed`, `write_reviewed` and `final` in the outline; **Validate** answers *Valid.*
 6. **Resume the installed workflow.** Open **Workflows**, the workflow's page, click **Resume** (it reads **Pause** afterwards), open the editor again and click **Run monitor**.
-7. **Run a valid invoice.** Run input `incoming/inv-2026-0101-acme.txt`, **Run**. The badge reaches **Completed**; the Execution Debugger lists `write_extracted`.
+7. **Run a valid invoice.** Run input `incoming/inv-2026-0101-acme.txt`, **Run**. The badge reaches **Completed**; the Execution Debugger lists `write_extracted`. Then run `incoming/inv-2026-0107-tokyo.txt`, a yen invoice (JPY 55,500): it is valid under this version, so it also ends **Completed** and its JSON is written (you will run it again on version 2).
 8. **Run the same invoice again.** Run input `incoming/inv-2026-0101-acme-resend.txt`. The run ends **Failed** with `output_bucket write failed for 'invoices/INV-2026-0101.json': object already exists`.
 9. **Run an invoice that fails validation.** Run input `incoming/inv-2026-0115-no-total.txt`: the badge reads **Awaiting approval** at `review_gate`. Click **Approve**: *the account that triggered this run cannot approve it; a second person must decide* appears and the run stays put. Start a second invalid one, `incoming/inv-2026-0117-no-vendor.txt`.
 10. **Approve and reject as the reviewer.** Log out, sign in as `reviewer` / `reviewer-pass-123`, select the workspace, open the workflow editor and **Run monitor**, select the first held run, **Approve**, **Resume**: it ends **Completed** (`write_reviewed` in the step map). Select the second held run and **Reject**: it ends **Failed**.
 11. **Check the output bucket.** **Object Store** > `doc-extracted` > `invoices`: preview `INV-2026-0101.json` (`"invoice_number": "INV-2026-0101"`, `"total": 646.92`). `reviewed` holds `inv-2026-0115-no-total.json` and nothing for the rejected document.
+12. **Publish version 1.** Sign out of `reviewer`, sign in as `admin`, select the `invoice-intake` workspace and open the workflow's editor (**Workflows** > the workflow > **Open editor**). The header reads `v1 · draft`. Click **Publish**, **Run validation**, tick the acknowledgement if it is shown, **Next**, **Next**, **Publish**. The message reads *Published.*, the header changes to `v1 · published` and a banner says the version is read-only.
+13. **Change the rule, save a second version.** Finance now wants yen invoices checked by a person. Click **Restore as draft** in the banner: the editor opens `v2 · draft`. Select the `validate_schema` node, find the schema's `currency` list in the node's config and delete `"JPY"` from it, click **Save** (*Saved*), then **Publish** as in step 12: `v2 · published`.
+14. **Re-run the same document on version 2.** Open **Run monitor**, run `incoming/inv-2026-0107-tokyo.txt` again. This time the badge reads **Awaiting approval** at `review_gate` (the same invoice completed under version 1), and nothing new is written to `doc-extracted`.
+15. **Compare the versions.** Open the workflow's page, the **Versions** tab, pick `v1 · published` as the base and `v2 · published` to compare: the diff lists `validate_schema` as the modified node. The **Runs** tab lists the two yen runs, one **Completed** (version 1) and one **Awaiting approval** (version 2).
 
 Run the spec against the running environment:
 
@@ -212,13 +216,14 @@ cd caliber/caliber-ui
 CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/04-document-extraction.spec.ts
 ```
 
-The spec's only direct API calls are its documented cleanup (it empties and removes the two buckets first, so it can be repeated).
+The spec makes no API calls except its documented cleanup (it empties and removes the two buckets first, so it can be repeated); the `reviewer` account is created on the Administration page, and is reused when it already exists.
 
 ## Verify it worked
 
 - **Output bucket.** `GET $CALIBER_API/object-store/buckets/doc-extracted/objects?recursive=true` lists 16 `invoices/*.json` objects plus `reviewed/inv-2026-0115-no-total.json` after the script (the web run leaves one `invoices/INV-2026-0101.json` and one `reviewed/` object).
 - **Run states.** 16 runs `completed`; 11 runs `waiting_approval` at `review_gate`; the duplicate and the missing-object runs `failed` with the messages above; the approved run `completed`; the rejected run `failed` with `error_code` `approval_rejected`.
 - **Each JSON.** The script compares every written record with `expectations.record`; the schema errors of every held run with `expectations.errors`.
+- **Versions.** The workflow has two published versions; the yen invoice's run on v1 is `completed`, its run on v2 is `waiting_approval` at `review_gate`; the Versions-tab diff names `validate_schema`.
 - **UI.** Run monitor badge, Execution Debugger step map (`read_document` > `extract_fields` > `validate_schema` > `package_result` > `route` > `emit_extracted` > `write_extracted`, or `... route` > `review_gate`), and the Object Store listing.
 
 Offline checks (no server): `caliber/.venv/bin/python -m pytest caliber/tests/test_cookbook_document_pipeline.py` runs all 30 documents through the real sandbox and schema and the installed manifest through the real runtime over an in-process S3; `cd sdk/caliber-sdk && ../../caliber/.venv/bin/python -m pytest tests/test_cookbook_04_example.py` replays the script against a stateful stand-in that runs the same extractor and schema.

@@ -132,4 +132,4 @@ def test_lab_18_catalog_steps_are_the_readmes_ui_path_and_the_training_steps() -
     readme = _readme_for(recipe)
     assert "18" in RECIPES_WITHOUT_NUMBERED_RECIPE_SECTION
     training = json.loads((readme.parent / "training-steps.json").read_text(encoding="utf-8"))
-    assert len(recipe["steps"]) == len(_ui_path_steps(readme)) == len(training["steps"]) == 10
+    assert len(recipe["steps"]) == len(_ui_path_steps(readme)) == len(training["steps"]) == 11

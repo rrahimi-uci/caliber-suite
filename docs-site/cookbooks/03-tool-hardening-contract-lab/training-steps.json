@@ -30,7 +30,7 @@
     ]
    ],
    "click": "Register Tool",
-   "see": "The tool opens on its detail page. Back in the Tools list its row has no <strong>Built-in</strong> or <strong>Unavailable</strong> label: those mark CALIBER's own tools.",
+   "see": "The tool opens on its detail page. Back in the Tools list its row has no <strong>Built-in</strong> or <strong>Unavailable</strong> label: those mark CALIBER's own tools. Registering opens the tool's detail page: its <strong>Open the workspace</strong> link leads to Sandbox, Fixtures, Hardening and Test Runs (the address becomes <code>/tools?tool=TL-…</code>, so a reload keeps you there).",
    "asset": "tool: decide_refund (read)",
    "assetlink": [
     {
@@ -92,9 +92,9 @@
   },
   {
    "where": "Tools › decide_refund › Fixtures",
-   "do": "Add the 49 cases from the dataset. The editor takes one case at a time: <strong>Add case</strong>, then a name (<code>R01 small delivered order</code>), the case's <code>inputs</code> as the input JSON, assertion <code>equals</code>, and the exact output as the value (<code>{\"decision\": \"approve\", \"reason_code\": \"ELIGIBLE_AUTO_APPROVE\", \"requires_approval\": false}</code>, keys sorted). To load all 49 in one call use the API path (<code>PUT /tools/{id}/test-cases</code>).",
+   "do": "Load the 49 cases from the dataset file: <strong>Load cases from file</strong>, choose <code>refund-fixtures.jsonl</code>. Each line becomes a case named <code>R01 small delivered order</code>, with the line's <code>inputs</code> as the input JSON and an <code>equals</code> assertion on its <code>expectations</code> (key order and spacing do not matter). Loading only fills the editor; nothing is stored until you save. You can also add or edit single cases by hand with <strong>Add case</strong>.",
    "click": "Save cases",
-   "see": "<strong>Saved</strong>, and 49 case rows in the editor.",
+   "see": "<code>Loaded 49 cases from refund-fixtures.jsonl. Save cases to keep them.</code>, then <strong>Saved</strong> after you save, and 49 case rows in the editor (still 49 after a reload).",
    "asset": "tool fixtures: refund-fixtures",
    "assetlink": [
     {

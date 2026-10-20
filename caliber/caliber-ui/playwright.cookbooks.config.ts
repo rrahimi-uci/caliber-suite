@@ -18,6 +18,10 @@ export default defineConfig({
   expect: { timeout: 15_000 },
   reporter: [["list"]],
   use: {
+    // Playwright's default is no limit: a click on a control that never appears would idle until
+    // the whole test timeout (up to 20 minutes) with a browser and a stack held open. Fail fast.
+    actionTimeout: 30_000,
+    navigationTimeout: 60_000,
     baseURL: `http://127.0.0.1:${PORT}/caliber`,
     trace: "retain-on-failure",
     screenshot: "only-on-failure",

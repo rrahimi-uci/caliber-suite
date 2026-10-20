@@ -47,6 +47,10 @@ const ticket = (id: string): string => ROWS.get(id)!.input.payload;
 async function publishFromEditor(page: Page): Promise<void> {
   await page.getByTestId("editor-publish").click();
   await page.getByTestId("publish-run-validate").click();
+  // The report (problems, warnings or "No problems.") must be on screen before the box is looked for.
+  await expect(
+    page.getByTestId("publish-validate").locator("li").first(),
+  ).toBeVisible();
   const ack = page.getByTestId("publish-ack");
   if (await ack.isVisible()) await ack.check();
   await page.getByTestId("publish-next-1").click();
@@ -72,7 +76,7 @@ async function runTicket(
     : "";
   await page.getByTestId("run-input").fill(ticket(id));
   // The run monitor's sticky header overlaps the run controls; dispatch the click to the button.
-  await page.getByTestId("run-execute").dispatchEvent("click");
+  await page.getByTestId("run-execute").click();
   await expect
     .poll(
       async () =>
@@ -163,7 +167,7 @@ test("Cookbook 09: debug a failing workflow, patch it, and prove the patch in th
   await expect(page.getByTestId("run-debugger-section")).toContainText("503");
 
   // ---- 6. Retry: the same code fails the same way ----------------------------------------
-  await page.getByTestId("run-retry").dispatchEvent("click");
+  await page.getByTestId("run-retry").click();
   await expect(page.getByTestId("run-lineage-section")).toContainText(
     "Attempt 2 of 2",
     {
@@ -187,7 +191,7 @@ test("Cookbook 09: debug a failing workflow, patch it, and prove the patch in th
   await page.getByRole("button", { name: "Restore as draft" }).first().click();
   await expect(page).toHaveURL(/\/editor\/WFV-/);
   for (const node of ["validate", "check_reference", "decide"]) {
-    await page.getByTestId(`rf__node-${node}`).dispatchEvent("click");
+    await page.getByTestId(`rf__node-${node}`).click();
     await page
       .getByTestId("inspector-python-code")
       .fill(

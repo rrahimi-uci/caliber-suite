@@ -1,8 +1,35 @@
 {
   "steps": [
     {
+      "where": "Prompt lifecycle › Test Sets",
+      "do": "Load the 50-row test set. Click <strong>Test Sets</strong>, <strong>+ New Test Set</strong>, type a name and an owner, <strong>Create</strong>, open it, click <strong>Import from file</strong>, choose <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/dataset/aggregated-outputs.jsonl\">aggregated-outputs.jsonl</a> and click <strong>Import 50 rows</strong>. Each line becomes one example: <code>input</code> is the ticket or alert, <code>expected</code> is the evidence the answer must stay within, <code>tags</code> say what the row is for. (The same file also loads from a prompt's <strong>Calibration</strong> tab, <strong>Upload JSON/JSONL</strong>.)",
+      "fill": [
+        [
+          "Name",
+          "judge-certification-set"
+        ],
+        [
+          "Owner",
+          "admin"
+        ],
+        [
+          "File",
+          "aggregated-outputs.jsonl"
+        ]
+      ],
+      "click": "Import 50 rows",
+      "see": "<em>aggregated-outputs.jsonl: 50 rows ready to import.</em> then the header reads <code>v51</code> (one version per appended example) and <code>50 active examples</code>.",
+      "asset": "Test set judge-certification-set (50 examples)",
+      "assetlink": [
+        {
+          "href": "../cookbooks/10-judge-certification-human-review-lab/assets/dataset/aggregated-outputs.jsonl",
+          "label": "aggregated-outputs.jsonl"
+        }
+      ]
+    },
+    {
       "where": "Prompt lifecycle › Prompts",
-      "do": "Create the candidate prompt the Evaluations will score. Click <strong>Prompts</strong> (under <strong>Prompt lifecycle</strong>), click <strong>New prompt</strong>, choose <strong>Write / paste</strong>, paste the text below into <strong>Prompt text</strong>, give it a <strong>Prompt name</strong> and click <strong>Create and Open</strong>.",
+      "do": "Create the candidate prompt the Evaluations will score (the test set from the previous step is already in place). Click <strong>Prompts</strong> (under <strong>Prompt lifecycle</strong>), click <strong>New prompt</strong>, choose <strong>Write / paste</strong>, paste the text below into <strong>Prompt text</strong>, give it a <strong>Prompt name</strong> and click <strong>Create and Open</strong>.",
       "fill": [
         [
           "Prompt name",
@@ -14,31 +41,8 @@
         ]
       ],
       "click": "Create and Open",
-      "see": "The prompt opens on its workspace with a <strong>Versions</strong> panel showing version 1.",
+      "see": "The prompt opens on its workspace with a <strong>Versions</strong> panel showing version 1, live.",
       "asset": "Prompt grounded-reply (version 1)"
-    },
-    {
-      "where": "Prompt lifecycle › Prompts › Calibration",
-      "do": "Load the 50-row test set. With the prompt open, click the <strong>Calibration</strong> tab. Under <strong>Eval Dataset</strong>, use <strong>Upload JSON/JSONL</strong> to choose <a href=\"../cookbooks/10-judge-certification-human-review-lab/assets/dataset/aggregated-outputs.jsonl\">aggregated-outputs.jsonl</a>, type a <strong>Dataset name</strong> and click <strong>Upload Dataset</strong>. Each line becomes one example: <code>input</code> is the ticket or alert, <code>expected</code> is the evidence the answer must stay within, <code>tags</code> say what the row is for.",
-      "fill": [
-        [
-          "Upload JSON/JSONL",
-          "aggregated-outputs.jsonl"
-        ],
-        [
-          "Dataset name",
-          "judge-certification-set"
-        ]
-      ],
-      "click": "Upload Dataset",
-      "see": "A green line reads <em>Uploaded 50 examples to judge-certification-set.</em> Under <strong>Test Sets</strong> the set is listed at version 51 (one version per appended example).",
-      "asset": "Test set judge-certification-set (50 examples)",
-      "assetlink": [
-        {
-          "href": "../cookbooks/10-judge-certification-human-review-lab/assets/dataset/aggregated-outputs.jsonl",
-          "label": "aggregated-outputs.jsonl"
-        }
-      ]
     },
     {
       "where": "Agent resources › Judges › + New Judge",
@@ -149,6 +153,22 @@
       ],
       "see": "With the lab's stand-in model (a real provider differs: the table reads <code>&lt;passed&gt;/50</code> and nothing is pinned): overall 74% for the candidate, Contains expected 66%, FaithfulnessJudge 56%, against the baseline's 67% overall (Contains expected 0%, FaithfulnessJudge 100%). A real model gives different numbers.",
       "asset": "Per-example scorecard with baseline comparison"
+    },
+    {
+      "where": "Prompt lifecycle › Prompts, then Evaluations",
+      "do": "Needs a model (skip on the simulated default). On <strong>Prompts</strong> click <strong>Edit</strong> on the <code>grounded-reply</code> card, change the template so it also says <em>Quote every figure, date and identifier exactly as the evidence gives it</em>, and click <strong>Save new version</strong> (v2; nothing becomes live). Then <strong>Run evaluation</strong> again: same test set and graders, label <code>candidate v2</code>, <strong>What to score</strong> <em>Prompt version</em>, <strong>Prompt (name@version)</strong> <code>grounded-reply@2</code>. Open that run and choose the <code>candidate</code> run in <strong>Compare to</strong>.",
+      "fill": [
+        [
+          "Label",
+          "candidate v2"
+        ],
+        [
+          "Prompt (name@version)",
+          "grounded-reply@2"
+        ]
+      ],
+      "click": "Run",
+      "see": "<code>Saved v2. Nothing is live yet</code>; the new run is <code>completed</code> and its comparison line names <code>grounded-reply@2</code> against <code>grounded-reply@1</code> with the same dataset version and graders; the cards show the change per grader."
     },
     {
       "where": "Operate › Review Queues › New queue",

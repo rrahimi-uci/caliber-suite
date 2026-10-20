@@ -8,7 +8,7 @@
     },
     {
       "where": "Agent resources › Workflows › Import",
-      "do": "The manifest's deploy gate names a test set. Import it before that test set exists: <strong>Import</strong>, type a name, <strong>Choose file</strong> <code>incident-commander.workflow.json</code> (with <code>artifacts.eval_datasets.incident-cases.dataset_name</code> set to the name you will use), <strong>Validate dependencies</strong>.",
+      "do": "The manifest's deploy gate names a test set (<code>incident-cases</code>). Import it before that test set exists: <strong>Import</strong>, type a name, <strong>Choose file</strong> <code>incident-commander.workflow.json</code>, <strong>Validate dependencies</strong>.",
       "click": "Validate dependencies",
       "see": "<code>Preflight needs attention</code> and <code>is not visible in this workspace</code>: the import is refused until the test set exists.",
       "assetlink": [
@@ -20,9 +20,23 @@
     },
     {
       "where": "Prompt lifecycle › Test Sets",
-      "do": "Press <strong>+ New Test Set</strong>, type the name from the manifest, owner <code>@lab08</code>, <strong>Create</strong>, open it and press <strong>+ Add example</strong> three times, pasting the <code>input</code> and <code>expected</code> of <code>IN01</code>, <code>IN03</code> and <code>IN06</code> and their tags. (The API path loads all 41 rows; the form adds one at a time.)",
-      "click": "Save",
-      "see": "The test set lists three example rows.",
+      "do": "Press <strong>+ New Test Set</strong>, type the name from the manifest (<code>incident-cases</code>), owner <code>@lab08</code>, <strong>Create</strong>, open it and press <strong>Import from file</strong>; choose <code>incident-cases.jsonl</code> and press <strong>Import 41 rows</strong>.",
+      "fill": [
+        [
+          "Name",
+          "<code>incident-cases</code>"
+        ],
+        [
+          "Owner",
+          "<code>@lab08</code>"
+        ],
+        [
+          "File",
+          "<a href=\"../cookbooks/08-incident-response-commander/assets/dataset/incident-cases.jsonl\">incident-cases.jsonl</a>"
+        ]
+      ],
+      "click": "Import 41 rows",
+      "see": "<code>incident-cases.jsonl: 41 rows ready to import.</code> then <code>41 active examples</code>; the gateway incident's row shows <code>\"answer\": \"sev1 rollback\"</code>.",
       "assetlink": [
         {
           "href": "../cookbooks/08-incident-response-commander/assets/dataset/incident-cases.jsonl",
@@ -59,6 +73,30 @@
       "do": "Sign in as <code>lena</code>, choose the workspace, open <strong>Workflows</strong>, the workflow and its <strong>Runs</strong> tab, select the run that shows <strong>Awaiting approval</strong>, press <strong>Approve</strong>, then <strong>Resume</strong>.",
       "click": "Resume",
       "see": "The run's output contains <code>ROLLBACK_APPROVED</code> and the <code>sev1 rollback</code> verdict. (<strong>Evaluations</strong> can also score a <strong>Workflow version</strong> as the subject, at most 20 examples per run; with the simulated provider it answers <code>400 evaluation requires a real LLM provider</code>.)"
+    },
+    {
+      "where": "Workflows › (workflow) › Versions, then the editor",
+      "do": "On <strong>Versions</strong> press <strong>Restore as draft</strong> on v1 (a new draft, v2). Double-click <code>action_table</code> in the outline; in <strong>Configuration (JSON)</strong> change the <code>value</code> of the <code>error_rate</code> condition of the rule <code>rollback-recent-high-risk-deploy-errors</code> from <code>0.05</code> to <code>0.5</code> and click outside the box. <strong>Save</strong>, <strong>Validate</strong>, <strong>Preview</strong> the <code>IN23</code> incident and open <code>summarize</code>; then <strong>Publish</strong> (v2) and, on <strong>Versions</strong>, compare v1 (<strong>Base</strong>) with v2 (<strong>Compare</strong>).",
+      "click": "Publish",
+      "see": "<code>IN23</code> now reads <code>sev2 escalate_human</code> (v1: <code>sev2 rollback</code>); the comparison shows one modified node, <code>action_table</code>. The API script's <code>prod</code> gate refuses this version (pass rate <code>0.9512</code>); the alpha UI has no gate."
+    },
+    {
+      "where": "Workflows › (workflow) › Versions",
+      "do": "Press <strong>Restore as draft</strong> on v1 again (v3), <strong>Preview</strong> <code>IN23</code>, then <strong>Publish</strong>.",
+      "click": "Publish",
+      "see": "<code>IN23</code> reads <code>sev2 rollback</code> again; <strong>Versions</strong> lists v1, v2 and v3."
+    },
+    {
+      "where": "Prompt lifecycle › Evaluations › Run evaluation",
+      "do": "Pick the test set, <strong>What to score</strong> <code>Workflow version</code>, paste the v1 version id (<code>WFV-…</code> from its editor URL), untick <strong>Exact match</strong> and <strong>Token F1</strong>, press <strong>Run</strong>. A workflow run scores at most 20 examples.",
+      "click": "Run",
+      "see": "Simulated: <code>evaluation requires a real LLM provider</code>. Real: a <code>completed</code> row <code>20/20</code>; its detail says <code>graded 20 of 41 active examples</code>."
+    },
+    {
+      "where": "Agent resources › Agents, then Workflows › (workflow) › Calibrate",
+      "do": "<strong>New agent</strong> (any id, an experiment id, a name) and <strong>Register agent</strong>; then on the workflow press <strong>Calibrate</strong>, pick the agent and <strong>Start Calibration</strong>.",
+      "click": "Start Calibration",
+      "see": "The dataset badge reads <code>41 examples</code>; the run ends <code>rejected</code> with a <strong>Structural score</strong> badge (and <strong>Simulated evaluation</strong> on a simulated stack)."
     }
   ]
 }

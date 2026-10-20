@@ -152,13 +152,45 @@ def test_the_rows_loaded_into_test_sets_are_well_formed() -> None:
             )
     runs = _jsonl(_assets("15") / "dataset" / "support-runs.jsonl")
     assert len(runs) == 30 and len({r["question"] for r in runs}) == 30
+    # The calibration's quality scorer reads `expected.contains`: a row without it scores nothing.
+    assert all(r["contains"].strip() for r in runs)
     for run in runs:
         EvalExampleCreateRequest.model_validate(
             {
                 "input": {"input": run["question"]},
-                "expected": {"expected": run["reference"], "required_tools": run["required_tools"]},
+                "expected": {
+                    "expected": run["reference"],
+                    "contains": run["contains"],
+                    "required_tools": run["required_tools"],
+                },
                 "tags": ["weak" if run["weak"] else "ok"],
             }
+        )
+
+
+def test_lab_15_gate_file_for_the_ui_import_is_the_same_data_as_the_runs_file() -> None:
+    """The UI path imports `support-gate-cases.jsonl`; `setup_subject.py` builds the same rows
+    from `support-runs.jsonl`. They must not drift apart."""
+    from caliber.schemas import EvalExampleCreateRequest
+
+    runs = _jsonl(_assets("15") / "dataset" / "support-runs.jsonl")
+    gate = _jsonl(_assets("15") / "dataset" / "support-gate-cases.jsonl")
+    assert [
+        {
+            "input": {"input": run["question"]},
+            "expected": {
+                "expected": run["reference"],
+                "contains": run["contains"],
+                "required_tools": run["required_tools"],
+            },
+            "tags": ["weak" if run["weak"] else "ok"],
+        }
+        for run in runs
+    ] == [{k: row[k] for k in ("input", "expected", "tags")} for row in gate]
+    assert [row["id"] for row in gate] == [run["id"] for run in runs]
+    for row in gate:
+        EvalExampleCreateRequest.model_validate(
+            {"input": row["input"], "expected": row["expected"], "tags": row["tags"]}
         )
 
 

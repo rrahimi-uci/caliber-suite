@@ -90,6 +90,22 @@ async function signedIn(
   return page;
 }
 
+/** Editor > Publish: validate, review, publish (the drawer's three steps). */
+async function publishFromEditor(page: Page): Promise<void> {
+  await page.getByTestId("editor-publish").click();
+  await page.getByTestId("publish-run-validate").click();
+  // The report (problems, warnings or "No problems.") must be on screen before the box is looked for.
+  await expect(
+    page.getByTestId("publish-validate").locator("li").first(),
+  ).toBeVisible();
+  const ack = page.getByTestId("publish-ack");
+  if (await ack.isVisible()) await ack.check();
+  await page.getByTestId("publish-next-1").click();
+  await page.getByTestId("publish-next-2").click();
+  await page.getByTestId("publish-confirm").click();
+  await expect(page.getByTestId("editor-message")).toContainText("Published.");
+}
+
 async function openPlayground(page: Page, serverName: string): Promise<void> {
   await page.goto("/caliber/mcp-servers");
   await page.getByRole("button", { name: "Playground" }).click();
@@ -358,27 +374,26 @@ test.describe("Cookbook 05: governed MCP connectivity (UI)", () => {
         .getAttribute("data-testid")) ?? ""
     ).replace("mcp-row-", "");
     expect(serverId).toMatch(/^MCP-/);
-    const manifest = fs
-      .readFileSync(
-        path.join(LAB, "assets/workflow/file-issue.workflow.yaml"),
-        "utf-8",
-      )
-      .replaceAll("__SERVER_ID__", serverId)
-      .replaceAll("__TOOL__", "issue_write")
-      .replaceAll("__LEVEL__", "write")
-      .replaceAll("__APPROVAL__", "true");
     const workflowName = `mcp-file-issue${suffix}`;
     await page.goto("/caliber/workflows");
     await page.getByTestId("import-workflow").click();
     await page.getByTestId("workflow-import-name").fill(workflowName);
-    await page.locator('input[type="file"]').setInputFiles({
-      name: "file-issue.workflow.yaml",
-      mimeType: "text/yaml",
-      buffer: Buffer.from(manifest),
-    });
-    await expect(page.getByTestId("workflow-import-manifest")).toHaveValue(
-      /mcp_tool/,
+    // The asset is uploaded unchanged; the four placeholders are filled in the dialog's manifest box.
+    await page
+      .locator('input[type="file"]')
+      .setInputFiles(
+        path.join(LAB, "assets/workflow/file-issue.workflow.yaml"),
+      );
+    const manifestBox = page.getByTestId("workflow-import-manifest");
+    await expect(manifestBox).toHaveValue(/__SERVER_ID__/);
+    await manifestBox.fill(
+      (await manifestBox.inputValue())
+        .replaceAll("__SERVER_ID__", serverId)
+        .replaceAll("__TOOL__", "issue_write")
+        .replaceAll("__LEVEL__", "write")
+        .replaceAll("__APPROVAL__", "true"),
     );
+    await expect(manifestBox).toHaveValue(/mcp_tool/);
     await page.getByTestId("workflow-import-validate").click();
     const preview = page.getByTestId("workflow-import-preview");
     await expect(preview).toContainText("Preflight passed");
@@ -399,14 +414,14 @@ test.describe("Cookbook 05: governed MCP connectivity (UI)", () => {
         labels: ["bug"],
       }),
     );
-    await page.getByTestId("run-execute").dispatchEvent("click");
+    await page.getByTestId("run-execute").click();
     const link = page.getByTestId("run-active-open-link");
     await expect(link).toBeVisible({ timeout: 60_000 });
     const href = (await link.getAttribute("href")) ?? "";
     await expectRunStatus(page, "waiting_approval", { timeout: 120_000 });
     expect(executed("issue_write")).toBe(1);
 
-    await page.getByTestId("run-approve").dispatchEvent("click");
+    await page.getByTestId("run-approve").click();
     await expect(page.getByText(/a second person must decide/)).toBeVisible();
 
     const runId = href.split("/").pop() as string;
@@ -414,16 +429,55 @@ test.describe("Cookbook 05: governed MCP connectivity (UI)", () => {
     await approverPage.goto(editorUrl);
     await approverPage.getByTestId("editor-run-monitor").click();
     await approverPage.getByTestId(`run-history-select-${runId}`).click();
-    await approverPage.getByTestId("run-approve").dispatchEvent("click");
+    await approverPage.getByTestId("run-approve").click();
     await expect(approverPage.getByTestId("run-resume")).toBeDisabled();
     expect(executed("issue_write")).toBe(1);
 
     await expect(page.getByTestId("run-resume")).toBeEnabled({
       timeout: 60_000,
     });
-    await page.getByTestId("run-resume").dispatchEvent("click");
+    await page.getByTestId("run-resume").click();
     await expectRunStatus(page, "completed", { timeout: 120_000 });
     await expect(page.getByTestId("run-output")).toContainText("created");
+    expect(executed("issue_write")).toBe(2);
+
+    // ---- 8b. Version the workflow: publish v1, loosen the binding in v2, meet the policy gate ---
+    await publishFromEditor(page);
+    await expect(page.getByText("v1 · published")).toBeVisible();
+    await page.getByTestId("editor-restore-as-draft").click();
+    await expect(page.getByText("v2 · draft")).toBeVisible();
+    // The status chips of the version we left are gone, and no toolbar button was ever pushed
+    // out of the 1280px window by them (the bar wraps).
+    await expect(page.getByTestId("editor-message")).toHaveCount(0);
+    await expect(page.getByTestId("editor-run-monitor")).toBeInViewport();
+    await expect(page.getByTestId("editor-publish")).toBeInViewport();
+    // The run monitor covers the canvas while it is open: close it from its own header.
+    await page.getByTestId("run-monitor-close").click();
+    await expect(page.getByTestId("run-monitor-panel")).toHaveCount(0);
+    await page.getByTestId("outline-call_tool").click();
+    // The node points at where the binding's approval switch is; follow it: an empty spot on the
+    // canvas opens the workflow settings, and Tool bindings is in them.
+    await expect(page.getByTestId("inspector-tool-binding-hint")).toBeVisible();
+    await page.locator(".react-flow__pane").click({ position: { x: 30, y: 30 } });
+    const bindingApproval = page.getByTestId(
+      "workflow-tool-binding-approval-issue-write",
+    );
+    await expect(bindingApproval).toBeChecked();
+    await bindingApproval.uncheck();
+    await page.getByTestId("editor-save").click();
+    await expect(page.getByTestId("editor-save-status")).toContainText("Saved");
+    await page.getByTestId("editor-run-monitor").click();
+    await page.getByTestId("run-input").fill(
+      JSON.stringify({
+        repo: "acme/release-notes-bot",
+        title: "This must never be filed",
+      }),
+    );
+    await page.getByTestId("run-execute").click();
+    await expect(page.getByTestId("editor-run-message")).toContainText(
+      "tool policy requires approval but the workflow binding does not",
+      { timeout: 60_000 },
+    );
     expect(executed("issue_write")).toBe(2);
 
     // ---- 9. Servers CALIBER will not run ------------------------------------

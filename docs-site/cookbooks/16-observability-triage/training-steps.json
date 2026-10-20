@@ -1,30 +1,55 @@
 {
   "steps": [
     {
+      "where": "Agent resources › Workflows › Import",
+      "do": "Click <strong>Import</strong>, name it <code>prod-refund-intake</code>, <strong>Choose file</strong> <code>ticket-intake.v1.workflow.yaml</code> (lab 09's version 1), <strong>Validate dependencies</strong>, <strong>Import as new</strong>. In the editor click <strong>Publish</strong>: <strong>Validate</strong>, <strong>Next</strong>, <strong>Next</strong>, <strong>Publish</strong>.",
+      "fill": [
+        [
+          "Name",
+          "<code>prod-refund-intake</code>"
+        ]
+      ],
+      "click": "Import as new",
+      "see": "<strong>Preflight passed</strong>, then the editor, then <strong>Published.</strong> This is the workflow \"already running in production\".",
+      "asset": "published workflow (version 1)",
+      "assetlink": [
+        {
+          "href": "../cookbooks/09-workflow-debugger-self-healing-lab/assets/workflow/ticket-intake.v1.workflow.yaml",
+          "label": "ticket-intake.v1.workflow.yaml"
+        }
+      ]
+    },
+    {
+      "where": "Agent resources › Workflows › editor › Run Monitor",
+      "do": "Open <strong>Run Monitor</strong>, paste a ticket (a row's <code>input.payload</code>), click <strong>Run</strong>, wait for the badge, and repeat for <code>P01</code> to <code>P40</code>.",
+      "see": "12 runs end <strong>failed</strong>, 28 <strong>completed</strong>; each records a trace (<strong>Open in Observability</strong> in the run's Execution Trace panel).",
+      "asset": "40 real traces",
+      "assetlink": [
+        {
+          "href": "../cookbooks/16-observability-triage/assets/dataset/prod-regression.sample.jsonl",
+          "label": "prod-regression.sample.jsonl"
+        },
+        {
+          "href": "../cookbooks/16-observability-triage/assets/seed_traces.py",
+          "label": "seed_traces.py (API alternative)"
+        }
+      ]
+    },
+    {
       "where": "Operate › Observability",
-      "do": "Seed the traffic first (<code>assets/seed_traces.py</code>: it runs 40 tickets through a real workflow). Then open <strong>Observability</strong> and set <strong>Filter by status</strong> to <strong>Error</strong>, then <strong>OK</strong>, then <strong>All statuses</strong>.",
+      "do": "Open <strong>Observability</strong>. Set <strong>Filter by status</strong> to <strong>Error</strong>, then <strong>OK</strong>, then <strong>All statuses</strong>.",
       "fill": [
         [
           "Filter by status",
           "<code>Error</code>, then <code>OK</code>"
         ]
       ],
-      "see": "Error shows only <code>ERROR</code> rows (12 per seeding), OK shows 28 per seeding. Each row's request is the ticket.",
-      "asset": "filtered traces",
-      "assetlink": [
-        {
-          "href": "../cookbooks/16-observability-triage/assets/seed_traces.py",
-          "label": "seed_traces.py"
-        },
-        {
-          "href": "../cookbooks/16-observability-triage/assets/dataset/prod-regression.sample.jsonl",
-          "label": "prod-regression.sample.jsonl"
-        }
-      ]
+      "see": "Error shows only <code>ERROR</code> rows (12 per time the 40 tickets were sent), OK shows 28 per time. Each row's request is the ticket. A trace that has just ended can read <code>IN_PROGRESS</code> for a moment; the list refreshes itself every five seconds, under any filter, so a failure that had not closed when you opened the page appears without a reload.",
+      "asset": "filtered traces"
     },
     {
       "where": "Operate › Observability › trace detail",
-      "do": "Open a failing trace (the id lands in the URL as <code>?trace=</code>). Read the <strong>Spans</strong> tree.",
+      "do": "Search <code>T-5035</code> in <strong>Search traces</strong> and open the row (the id lands in the URL as <code>?trace=</code>). Read the <strong>Spans</strong> tree.",
       "see": "For the poison ticket <code>T-5035</code>: <code>workflow.run</code> ERROR, <code>node.validate</code> OK, <code>node.check_reference</code> ERROR (2.04 s). For the upstream ticket <code>T-5038</code>: <code>node.lookup</code> OK and <code>node.decide</code> ERROR.",
       "asset": "root cause read from the node tree"
     },
@@ -128,6 +153,38 @@
       "do": "Open the <code>T-5038</code> trace again and read <strong>Assessments</strong>.",
       "see": "<code>failure_mode</code> tool and <code>severity</code> high are listed with the other three answers: the review was written back onto the trace.",
       "asset": "assessments on the trace"
+    },
+    {
+      "where": "Agent resources › Workflows › Versions",
+      "do": "Open <code>prod-refund-intake</code>, tab <strong>Versions</strong>, <strong>Restore as draft</strong> on v1. In the editor click the <code>validate</code> node and replace its <strong>Code</strong> with <code>assets/fix/validate.py</code>; do the same for <code>check_reference</code> and <code>decide</code>. <strong>Save</strong>, then <strong>Publish</strong>.",
+      "see": "<strong>Saved</strong>, then <strong>Published.</strong>: version 2.",
+      "asset": "workflow version 2",
+      "assetlink": [
+        {
+          "href": "../cookbooks/16-observability-triage/assets/fix/check_reference.py",
+          "label": "fix/check_reference.py"
+        },
+        {
+          "href": "../cookbooks/16-observability-triage/assets/fix/validate.py",
+          "label": "fix/validate.py"
+        },
+        {
+          "href": "../cookbooks/16-observability-triage/assets/fix/decide.py",
+          "label": "fix/decide.py"
+        }
+      ]
+    },
+    {
+      "where": "Operate › Observability › Compare",
+      "do": "In <strong>Run Monitor</strong> run <code>P25</code> to <code>P40</code> again. In <strong>Observability</strong> search <code>T-5038</code>, click <strong>Compare</strong> and select both rows.",
+      "see": "All 16 runs complete with the gold outcome. <code>T-5038</code> has two traces, <code>OK</code> (version 2) above <code>ERROR</code> (version 1); the comparison shows them side by side.",
+      "asset": "old and new trace compared"
+    },
+    {
+      "where": "Agent resources › Workflows › Versions › Compare versions",
+      "do": "Open <code>prod-refund-intake</code>, tab <strong>Versions</strong>, <strong>Compare versions</strong>: base v1, newer v2.",
+      "see": "The panel lists the changed nodes, <code>check_reference</code> among them.",
+      "asset": "version diff"
     }
   ]
 }

@@ -123,7 +123,7 @@ J22, J30) are correct answers a literal check fails (`$40` as the sum of two `$2
 `$20`, "5 days" for Nov 9 to Nov 14, "91%" for 910 of 1000 GB). Three more (J07, J25, J26) are hedged
 statements both sides agree on.
 
-Load it the documented way. Through the UI it is **Prompts > Calibration > Upload JSON/JSONL**; through the API
+Load it the documented way. Through the UI it is **Test Sets > + New Test Set > Import from file** (or **Prompts > Calibration > Upload JSON/JSONL**); through the API
 it is one `POST /eval-datasets/{id}/examples` per row (`input`, `expected`, `tags`). Both were run from this
 file. Each appended example is a new dataset version, so 50 rows is version 51.
 
@@ -328,7 +328,7 @@ Read it like this:
 - **Grounding works as expected:** the candidate states the expected fact 0.82 to 0.88 of the time against 0.08, and the judge, which reads the evidence, passes it 0.46 to 0.52 against 0.06 to 0.12.
 - **Five rows still meet both bars by luck** (0.8, kappa 0.5455 here, 0.6154 in the stand-in's run): the minimum of 30 scored rows is what protects you.
 
-In the UI, with `CALIBER_LAB10_MODEL=real`, steps 1 to 6 run unchanged. The Evaluations table reads `<passed>/50` (not `50/50`) and the scorecard shows percentages, not the stand-in's 74/66/56. On the ten reviewed rows the strict judge's **Agreement** is above the lenient judge's.
+In the UI, with `CALIBER_LAB10_MODEL=real`, steps 1 to 8 run unchanged. The Evaluations table reads `<passed>/50` (not `50/50`) and the scorecard shows percentages, not the stand-in's 74/66/56. On the ten reviewed rows the strict judge's **Agreement** is above the lenient judge's.
 
 **Cost and time.** About 350 model calls per run; 6 to 18 minutes depending on the provider's latency at the time (the SDK script sets a 30-minute request timeout; the UI spec waits up to 15 minutes per Evaluation).
 
@@ -341,7 +341,8 @@ performs exactly these steps with real clicks; run it against a stack that is al
 ```bash
 cd caliber/caliber-ui
 CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/10-judge-certification.spec.ts
-# against the simulated default: prefix CALIBER_LAB10_MODEL=simulated
+# CALIBER_LAB10_MODEL says what is behind the server: stand-in (default), real, or simulated (the fake default).
+# The spec reads the app's own "Simulated providers" banner and stops at once if you named the wrong kind.
 ```
 
 First write the traces the review will use (the UI cannot create them; your application would):
@@ -350,35 +351,40 @@ First write the traces the review will use (the UI cannot create them; your appl
 python docs-site/cookbooks/10-judge-certification-human-review-lab/assets/seed_traces.py > traces.json   # needs MLFLOW_TRACKING_URI
 ```
 
-1. **Prepare the dataset.** Under **Integrations > Cookbooks** the *Trustworthy Evaluation* card lists the recipe
-   (optional: installing it only creates a paused workflow draft, which this lab does not use). Under
-   **Prompt lifecycle > Prompts** click **New prompt**, **Write / paste**, paste
+1. **Load the test set.** Under **Prompt lifecycle > Test Sets** click **+ New Test Set**, name it `judge-certification-set`, owner `admin`, **Create**, open it and click **Import from file**; choose `aggregated-outputs.jsonl` and click **Import 50 rows**
+   (`aggregated-outputs.jsonl: 50 rows ready to import.` first; a bad line is named and nothing is imported). The header ends on `v51` (one version per appended example) and `50 active examples`; each row shows the
+   input and the expected evidence (the recorded `outputs` and the reviewer's `human_label` stay in the file: they are what the lab's traces and review use). The same file can also be loaded from a prompt's **Calibration** tab
+   (**Upload JSON/JSONL**), and under **Integrations > Cookbooks** the *Trustworthy Evaluation* card lists the recipe (optional: installing it only creates a paused workflow draft, which this lab does not use).
+2. **Create the candidate prompt.** Under **Prompt lifecycle > Prompts** click **New prompt**, **Write / paste**, paste
    `You answer support tickets and incident alerts using ONLY the evidence you are given. State what the evidence says and nothing more; if it does not cover the question, say so and escalate to a person.`
-   into **Prompt text**, name it `grounded-reply` and click **Create and Open** (version 1; this is the candidate).
-   Open its **Calibration** tab, choose `aggregated-outputs.jsonl` under **Upload JSON/JSONL**, type a **Dataset
-   name** (`judge-certification-set`) and click **Upload Dataset**. You see `Uploaded 50 examples to judge-certification-set.`,
-   and **Test Sets** lists it at version 51.
-2. **Define the judge.** Under **Agent resources > Judges** click **+ New Judge**. Enter a **Name**
+   into **Prompt text**, name it `grounded-reply` and click **Create and Open**: version 1, live. This is the candidate the Evaluations will score.
+3. **Define the judge.** Under **Agent resources > Judges** click **+ New Judge**. Enter a **Name**
    (`FaithfulnessJudge`), keep **Returns** `bool`, and as **Instructions** type
    `Is {{ outputs }} faithful to {{ evidence }}?`; click **Create judge**. It is refused, in red:
    `request body validation failed: instructions use unsupported template variable(s) {{ evidence }}; only {{ inputs }}, {{ outputs }}, {{ expectations }}, {{ conversation }}, {{ trace }} are allowed`.
    Replace the instructions with the text of [`faithfulness-judge.judge.json`](assets/judges/faithfulness-judge.judge.json)
    and click **Create judge**: an active `FaithfulnessJudge` appears. Add `LenientJudge` the same way, with
    `Return true when {{ outputs }} is a complete, well-formed answer to {{ inputs }}. Return false only if it is empty or cut off.`
-3. **Run baseline and candidate.** Under **Prompt lifecycle > Evaluations** click **Run evaluation**. Pick **Test set** `judge-certification-set (v51)`,
+4. **Run baseline and candidate.** Under **Prompt lifecycle > Evaluations** click **Run evaluation**. Pick **Test set** `judge-certification-set (v51)`,
    **Label** `baseline`, leave **What to score** on *Model completion (generic)*. Under **Graders** untick **Exact match** and
    **Token F1**, keep **Contains expected**, tick **Non-empty**, and under **Custom LLM judges** tick **FaithfulnessJudge**; click **Run**.
    A `baseline` row appears, `completed`, 50/50. Repeat with **Label** `candidate`, **What to score** *Prompt version*, **Prompt (name@version)**
    `grounded-reply@1`. On the simulated default, **Run** instead shows `evaluation requires a real LLM provider` in the panel and nothing is saved.
-4. **Inspect examples.** Open the `candidate` row: one result row per example with the input, expected evidence, prediction and a score per grader.
+5. **Inspect examples.** Open the `candidate` row: one result row per example with the input, expected evidence, prediction and a score per grader.
    Pick the baseline in **Compare to**; the context line reads `target llm` for the baseline and the cards show the change. With the stand-in model the
    candidate's cards read 74% overall, 66% for Contains expected and 56% for the judge.
-5. **Human review.** Under **Operate > Review Queues** click **New queue**, name it `faithfulness-certification`; Question 1: key `faithful`, type `pass_fail`;
+6. **Modify the prompt, new version, re-run, compare** (needs a model: skipped on the simulated default). On **Prompts**, search `grounded-reply`, click **Edit** on its card and replace the template with
+   `You answer support tickets and incident alerts using ONLY the evidence you are given. Quote every figure, date and identifier exactly as the evidence gives it; if the evidence does not cover the question, say so and escalate to a person.`
+   then **Save new version**: `Saved v2. Nothing is live yet` (saving never changes what is live; the card's **Versions** lists v1 live and v2, and **Compare templates** shows the text diff). Run **Prompt lifecycle > Evaluations > Run evaluation** again
+   with the same test set and graders, **Label** `candidate v2`, **What to score** *Prompt version*, **Prompt (name@version)** `grounded-reply@2`. Open the `candidate v2` row and pick the `candidate` run (v1) in **Compare to**: the context line reads
+   `Dataset/scorer-compatible comparison: dataset v51 and grader suite match; ... Current: target prompt, subject grounded-reply@2 ... Baseline: target prompt, subject grounded-reply@1 ...` and the cards show the change per grader.
+   What the comparison proves is that v1 and v2 were scored on the same rows with the same graders; whether v2 is better is the model's answer (with the stand-in, which replays recorded answers, the two are identical).
+7. **Human review.** Under **Operate > Review Queues** click **New queue**, name it `faithfulness-certification`; Question 1: key `faithful`, type `pass_fail`;
    click **+ Add question**: key `evidence`, type `text`; **Create queue**, then open it. Paste the trace ids of J01, J02, J03, J04, J05, J08, J09, J11, J14 and J26
    (from `traces.json`) into **Add traces to review** and click **Enqueue**: `Items (10)`. For each item click **Pass** or **Fail** as that row's `human_label` says, paste
    that row's `expected` JSON into the **evidence** box and click **Submit review**. Keep that box to the evidence: whatever is in it reaches the judge as
    `{{ expectations }}`. The page ends on `All items reviewed.`
-6. **Compute alignment, certify or reject, close the loop.** Under **Agent resources > Judges** click **Try it** on `FaithfulnessJudge`, switch to **Human alignment**,
+8. **Compute alignment, certify or reject, close the loop.** Under **Agent resources > Judges** click **Try it** on `FaithfulnessJudge`, switch to **Human alignment**,
    choose `faithfulness-certification` under **Import from Review Queue…** and the pass/fail question, click **Import labels** (`Imported 10 completed label(s); skipped 0.`)
    and **Check alignment**. With the stand-in model it reads **Agreement 80%**, **Cohen's κ 0.60**, `over 10/10 examples`, **FP 1 · FN 1**. Ten rows meet both numbers but
    not the 30-row minimum: a readout, not a certification (the API run over 50 certifies at 0.82 and 0.6365). Do the same for `LenientJudge`: **Agreement 60%**, **Cohen's κ 0.20**,

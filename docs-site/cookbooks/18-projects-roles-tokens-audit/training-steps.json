@@ -69,7 +69,7 @@
     },
     {
       "where": "Prompt lifecycle › Prompts › New prompt",
-      "do": "Sign in as <code>victor</code> (viewer), choose the workspace in the top bar, open <strong>Prompts</strong>, click <strong>New prompt</strong> then <strong>Write / paste</strong>, enter a <strong>Prompt name</strong> and some <strong>Prompt text</strong>, and click <strong>Create and Open</strong>. Then open <strong>Administration › Project access</strong> as <code>victor</code>. Finally sign in as <code>priya</code> (editor), choose the workspace, and create the prompt the same way.",
+      "do": "Sign in as <code>victor</code> (viewer), choose the workspace in the top bar, open <strong>Prompts</strong>, click <strong>New prompt</strong> then <strong>Write / paste</strong>, enter a <strong>Prompt name</strong> and some <strong>Prompt text</strong>, and click <strong>Create and Open</strong>. Then open <strong>Administration › Project access</strong> as <code>victor</code>. Sign in as <code>priya</code> (editor), choose the workspace, and create the prompt the same way. Still as <code>priya</code>, back on <strong>Prompts</strong> search for it, click <strong>Edit</strong>, change the <strong>Template</strong>, click <strong>Save new version</strong> and then <strong>Promote v2 to @prod</strong>. Finally sign in as <code>quinn</code> (reviewer) and try to create a prompt.",
       "fill": [
         [
           "Prompt name",
@@ -81,14 +81,20 @@
         ]
       ],
       "click": "Create and Open",
-      "see": "For <code>victor</code>: <code>project role 'viewer' cannot perform resource.write.runtime</code>, and on Administration the line <strong>Only a project Admin can manage members.</strong> with no <strong>Add member</strong> form. For <code>priya</code>: the prompt opens with <strong>v1</strong> marked <strong>Live</strong>, because creating a prompt releases its first version to <code>@prod</code>.",
-      "asset": "viewer refused, editor creates and releases a prompt"
+      "see": "For <code>victor</code>: <code>project role 'viewer' cannot perform resource.write.runtime</code>, and on Administration the line <strong>Only a project Admin can manage members.</strong> with no <strong>Add member</strong> form. For <code>priya</code>: the prompt opens with <strong>v1</strong> marked <strong>Live</strong> (creating a prompt releases its first version to <code>@prod</code>); after the edit <strong>v2</strong> is <strong>Live</strong> and v1 is not. For <code>quinn</code>: <code>project role 'reviewer' cannot perform resource.write.runtime</code>.",
+      "asset": "viewer and reviewer refused, editor creates, releases and revises a prompt"
     },
     {
       "where": "Top bar › workspace selector (as a non-member)",
       "do": "Sign in as <code>nora</code>, who is an operator but belongs to no workspace. Open the workspace selector.",
       "see": "It holds only <strong>All workspaces</strong>: the workspace does not appear at all. Through the API every request she makes against it is a 404, not a 403: as far as she can tell it does not exist.",
       "asset": "non-member sees no workspace"
+    },
+    {
+      "where": "Admin › Administration › Project access",
+      "do": "As <code>maya</code>, open <strong>Administration › Project access</strong> and choose the workspace. Set <strong>Role for sam</strong> to <strong>Viewer</strong>, then click <strong>Remove</strong> on <code>victor</code>'s row. Sign in as <code>sam</code> and try to create a prompt; check <code>victor</code>'s workspace selector.",
+      "see": "A note says <code>Changed sam to viewer.</code>, then <code>Removed victor from the project.</code> and his row is gone. <code>sam</code> is now refused (<code>project role 'viewer' cannot perform resource.write.runtime</code>) and <code>victor</code> no longer sees the workspace.",
+      "asset": "role changed, member offboarded"
     },
     {
       "where": "Admin › Settings › API tokens",
@@ -143,13 +149,13 @@
           "<code>create_personal_access_token</code>"
         ]
       ],
-      "see": "With the entity id: one <code>create_project</code> row by <code>maya</code> and seven <code>add_project_member</code> rows whose details name each role. For <code>priya</code>: a <code>create_personal_access_token</code> row whose details carry the workspace id and the scopes, and no secret, and later the <code>revoke_personal_access_token</code> row. Refused requests (a viewer's 403) write no row: the log records what changed.",
+      "see": "With the entity id: one <code>create_project</code> row by <code>maya</code> and seven <code>add_project_member</code> rows whose details name each role, one <code>update_project_member</code> (sam) and one <code>remove_project_member</code> (victor). For <code>priya</code> and <code>promote_prompt</code>: two rows, the prompt's two releases. Then for <code>priya</code>: a <code>create_personal_access_token</code> row whose details carry the workspace id and the scopes, and no secret, and later the <code>revoke_personal_access_token</code> row. Refused requests (a viewer's 403) write no row: the log records what changed.",
       "asset": "audit rows by entity, actor and action"
     },
     {
       "where": "Prompt lifecycle › Releases",
       "do": "Open <strong>Releases</strong>. <strong>What's live now</strong> is the live board; <strong>Timeline</strong> is the history of promotions and rollbacks. The release timeline is not workspace-scoped in the alpha, so other prompts may appear too.",
-      "see": "<strong>What's live now</strong> has a row for your prompt at <code>v1</code> on <code>@prod</code>, <code>priya</code> as the actor; <strong>Timeline</strong> has one <strong>Promote</strong> event for it, also by <code>priya</code>.",
+      "see": "<strong>What's live now</strong> has a row for your prompt at <code>v2</code> on <code>@prod</code>, <code>priya</code> as the actor; <strong>Timeline</strong> has two <strong>Promote</strong> events for it (v2, then v1), both by <code>priya</code>.",
       "asset": "prompt release on the timeline and live board"
     },
     {

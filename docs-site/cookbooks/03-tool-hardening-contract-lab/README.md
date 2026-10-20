@@ -196,12 +196,18 @@ Then, with `refund-ops` selected:
    module `caliber.workflows.demo_tools`, callable `decide_refund`; on the Schema step switch each schema to **Raw JSON** and paste
    `input_schema` and `output_schema` from the asset; on **Safety & Review** leave **Read** and tick **Allow in Preview**. Register again
    for `initiate_refund` and click **Write**: **Requires Approval** switches on and is locked. On the Tools list neither row carries a
-   **Built-in** or **Unavailable** label (those mark CALIBER's own tools).
+   **Built-in** or **Unavailable** label (those mark CALIBER's own tools). Registering opens the tool's detail page; its
+   **Open the workspace** link leads to the workspace (Sandbox, Fixtures, Hardening, Test Runs) the next steps use. The address
+   becomes `/tools?tool=TL-…`, so a reload or a bookmark returns to the same tool.
 2. **Sandbox.** Open `decide_refund`, tab **Sandbox**, paste the R01 inputs, **Test Run**: **Success** with `"decision": "approve"`.
    Open `initiate_refund`, **Sandbox**, input `{"order_id": "ord_1007", "amount": 49.0}`: **Success (mocked)**.
-3. **Fixtures.** Open `decide_refund`, tab **Fixtures**. The editor takes one case at a time: **Add case**, then name, the case's `inputs`
-   as input JSON, assertion `equals`, and the exact output as the value, keys sorted. After 49 cases, **Save cases**: **Saved**, 49 rows.
-   (The browser spec types all 49; to load them in one call use `PUT /tools/{id}/test-cases` from the API path.)
+3. **Fixtures.** Open `decide_refund`, tab **Fixtures**, click **Load cases from file** and choose
+   `assets/dataset/refund-fixtures.jsonl`. See: `Loaded 49 cases from refund-fixtures.jsonl. Save cases to keep them.` and 49 case
+   blocks, named `R01 small delivered order` and so on, each with the line's `inputs` as the input JSON, assertion `equals`, and the line's
+   `expectations` as the value (loading only fills the editor). Click **Save cases**: **Saved**. Reload the page and open **Fixtures**
+   again: still 49. (A case can also be added by hand with **Add case**; the value is the JSON the tool must return, in any key order.
+   The file may be JSON Lines or one JSON array; a row is `{name, inputs, expectations}`, or the stored shape
+   `{name, input, assertion: {type, value}}`; an `id` is put in front of the name.)
 4. **Hardening.** Tab **Hardening**, **Run calibration**. After about half a minute: **Pass rate 100% — 49/49 passed**, and every case
    shows a green **pass**. A `suite` run is recorded for you.
 5. **Baseline and a regression.** Tab **Test Runs**, **Set as baseline**: the run shows a **Baseline** marker. Back on **Hardening**,

@@ -1,9 +1,13 @@
 {
   "steps": [
     {
-      "where": "Top bar › Create workspace, then Admin › Administration › Project access",
-      "do": "Create a workspace for the lab and put the second person in it. Click the <strong>+</strong> next to the workspace selector in the top bar, name it, and click <strong>Create and select</strong>. Then open <strong>Administration</strong>, choose the workspace under <strong>Project for access management</strong>, enter the reviewer's user id, pick the <strong>Reviewer</strong> role and click <strong>Add member</strong>. (The <code>reviewer</code> account and its platform scopes come from the README's setup section.)",
+      "where": "Admin › Administration (Accounts), top bar › Create workspace, then Project access",
+      "do": "Create the second person, a workspace for the lab, and put them in it. On <strong>Administration</strong> enter <code>reviewer</code> as User ID and <code>reviewer-pass-123</code> as Password and click <strong>Create account</strong>. Click the <strong>+</strong> next to the workspace selector in the top bar, name the workspace, and click <strong>Create and select</strong>. Back on <strong>Administration</strong>, choose the workspace under <strong>Project for access management</strong>, enter the reviewer's user id, pick the <strong>Reviewer</strong> role and click <strong>Add member</strong>. (The reviewer's platform scopes come from the environment variables in the README's setup section.)",
       "fill": [
+        [
+          "Account User ID / Password",
+          "<code>reviewer</code> / <code>reviewer-pass-123</code>"
+        ],
         [
           "Workspace name",
           "<code>invoice-intake</code>"
@@ -17,9 +21,9 @@
           "<code>Reviewer</code>"
         ]
       ],
-      "click": "Create and select, then Add member",
+      "click": "Create account, Create and select, then Add member",
       "see": "The top bar shows the new workspace as active, and the <strong>Project members</strong> table lists <code>reviewer</code> with the role <code>reviewer</code>.",
-      "asset": "workspace: invoice-intake, member: reviewer"
+      "asset": "account: reviewer, workspace: invoice-intake, member: reviewer"
     },
     {
       "where": "Agent resources › Object Store › Bucket browser",
@@ -94,16 +98,20 @@
     },
     {
       "where": "Agent resources › Workflows › doc-intake-to-json › Run monitor",
-      "do": "Run a valid invoice. Type the object key into the run input and click <strong>Run</strong>.",
+      "do": "Run a valid invoice. Type the object key into the run input and click <strong>Run</strong>. Then run the yen invoice; it is valid under this version too.",
       "fill": [
         [
           "Run input",
           "<code>incoming/inv-2026-0101-acme.txt</code>"
+        ],
+        [
+          "Run input (second run)",
+          "<code>incoming/inv-2026-0107-tokyo.txt</code>"
         ]
       ],
       "click": "Run",
-      "see": "The status badge reaches <strong>Completed</strong> within a few seconds and the Execution Debugger's step map lists <code>write_extracted</code>.",
-      "asset": "run: completed, doc-extracted/invoices/INV-2026-0101.json"
+      "see": "The status badge reaches <strong>Completed</strong> within a few seconds and the Execution Debugger's step map lists <code>write_extracted</code>. The yen invoice also completes and its JSON is written.",
+      "asset": "runs: completed, doc-extracted/invoices/INV-2026-0101.json and TP-20260317-02.json"
     },
     {
       "where": "Agent resources › Workflows › doc-intake-to-json › Run monitor",
@@ -148,6 +156,40 @@
       "click": "View preview",
       "see": "The preview contains <code>\"invoice_number\": \"INV-2026-0101\"</code> and <code>\"total\": 646.92</code>. The <code>reviewed</code> folder holds <code>inv-2026-0115-no-total.json</code> and nothing for the rejected document.",
       "asset": "doc-extracted/invoices/INV-2026-0101.json, doc-extracted/reviewed/inv-2026-0115-no-total.json"
+    },
+    {
+      "where": "Agent resources › Workflows › doc-intake-to-json › editor",
+      "do": "Version 1 is final. Sign in as <code>admin</code> again, select the workspace, open the workflow's editor and click <strong>Publish</strong>: run validation, tick the acknowledgement if shown, Next, Next, Publish.",
+      "click": "Publish",
+      "see": "The message reads <em>Published.</em>, the header changes from <code>v1 · draft</code> to <code>v1 · published</code> and a banner says the version is read-only.",
+      "asset": "workflow version v1 published"
+    },
+    {
+      "where": "Agent resources › Workflows › doc-intake-to-json › editor",
+      "do": "Finance wants yen invoices checked by a person. Click <strong>Restore as draft</strong> in the banner, select the <code>validate_schema</code> node, delete <code>\"JPY\"</code> from the <code>currency</code> list in its config, click <strong>Save</strong>, then publish as before.",
+      "click": "Restore as draft, Save, Publish",
+      "see": "The editor opens <code>v2 · draft</code>, shows <em>Saved</em>, and after publishing reads <code>v2 · published</code>.",
+      "asset": "workflow version v2 published (JPY removed from the schema's currency list)"
+    },
+    {
+      "where": "Agent resources › Workflows › doc-intake-to-json › Run monitor",
+      "do": "Re-run the yen invoice on version 2.",
+      "fill": [
+        [
+          "Run input",
+          "<code>incoming/inv-2026-0107-tokyo.txt</code>"
+        ]
+      ],
+      "click": "Run",
+      "see": "The badge reads <strong>Awaiting approval</strong> at <code>review_gate</code>: the same document that completed under version 1 is now held, and nothing new is written.",
+      "asset": "run: awaiting approval (v2)"
+    },
+    {
+      "where": "Agent resources › Workflows › doc-intake-to-json › Versions",
+      "do": "Compare the versions. Open the workflow's page, the <strong>Versions</strong> tab, and pick <code>v1 · published</code> as the base and <code>v2 · published</code> to compare. Then open the <strong>Runs</strong> tab.",
+      "click": "Versions tab, Compare",
+      "see": "The diff lists <code>validate_schema</code> as the modified node. The Runs tab shows the two yen runs: one <strong>Completed</strong> (v1), one <strong>Awaiting approval</strong> (v2).",
+      "asset": "version diff v1 to v2"
     }
   ]
 }

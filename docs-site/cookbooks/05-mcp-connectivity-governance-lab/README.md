@@ -235,7 +235,7 @@ about half a second each). Real output, trimmed (ids and timings vary):
   ok  the trace is one TOOL span with the server, transport, input, output and latency
   ok  a tool's own error is traced as ERROR
 == 15. the gallery starter
-  ok  the gallery lists 10 steps for this lab
+  ok  the gallery lists 11 steps for this lab
   ok  the starter is a generic single-agent draft with no tools: it does not use the MCP server
 == done
 ```
@@ -328,9 +328,17 @@ Then, with `mcp-ops` selected:
    run cannot approve it; a second person must decide*. In a second browser session sign in as `lab05-approver`, pick `mcp-ops`, open
    the workflow, **Run Monitor**, choose the run under **Recent runs**, **Approve**. In your own session **Resume** becomes enabled
    (Approve recorded the decision; it did not advance the run). **Resume**: **completed**, and the issue is on the server.
-9. **Servers CALIBER will not run.** **Add Server** again with command `/bin/sh` and arguments `-c echo pwned`: it registers, the row
+9. **Version the workflow and meet the policy gate.** In the editor press **Publish**, then **Publish** in the drawer: the header reads
+   `v1 · published` and the editor is read-only. Press **Restore as draft**: `v2 · draft`, and the *Published.* and *Run ... completed.*
+   chips of v1 are gone. Close the Run Monitor with its **✕** (it covers the canvas), click the `call_tool` node in the **Outline**: the
+   node says that a binding's approval, retries and timeout are set under **Tool bindings** in the workflow settings. Click an empty spot
+   on the canvas to open the settings, find **Tool bindings** and untick **Approval** on `issue_write`, then **Save**. Open **Run Monitor**,
+   paste `{"repo": "acme/release-notes-bot", "title": "This must never be filed"}` and **Run**. Expected: the run is refused with
+   *tool policy requires approval but the workflow binding does not*, and the server's ledger still shows two `issue_write` calls: loosening
+   a binding in a new version does not get around the tool's policy.
+10. **Servers CALIBER will not run.** **Add Server** again with command `/bin/sh` and arguments `-c echo pwned`: it registers, the row
    shows **Runtime blocked**, and **Test** answers *stdio command '/bin/sh' is not in CALIBER_MCP_STDIO_COMMAND_ALLOWLIST*.
-10. **Read the audit log and the traces.** **Operate → Audit Log**: filter the action to `update_mcp_tool_policy`, then
+11. **Read the audit log and the traces.** **Operate → Audit Log**: filter the action to `update_mcp_tool_policy`, then
     `calibrate_mcp_tool`. **Operate → Observability**: the `mcp.repo-tracker.search_repositories` and `...issue_write` traces; there is
     none for `create_release`.
 

@@ -1,6 +1,6 @@
 # The 49 cases live in assets/dataset/refund-fixtures.jsonl (one case per line:
 # id, name, tags, inputs, expectations). Each is also a tool fixture: the script and the UI
-# compare the tool's exact JSON output to `expectations` (assertion type `equals`).
+# compare the tool's JSON output to `expectations` (assertion type `equals`; key order does not matter).
 dataset: assets/dataset/refund-fixtures.jsonl
 case_count: 49
 policy:

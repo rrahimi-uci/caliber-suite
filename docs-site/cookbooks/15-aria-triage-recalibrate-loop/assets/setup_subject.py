@@ -67,7 +67,11 @@ def setup(caliber: Any, suffix: str, assets: Path = ASSETS) -> dict[str, Any]:
         caliber.eval_datasets.add_example(
             gate.dataset_id,
             input={"input": row["question"]},
-            expected={"expected": row["reference"], "required_tools": row["required_tools"]},
+            expected={
+                "expected": row["reference"],
+                "contains": row["contains"],
+                "required_tools": row["required_tools"],
+            },
             tags=["weak" if row["weak"] else "ok"],
         )
     manifest = json.loads(

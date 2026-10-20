@@ -483,7 +483,7 @@ If the gate says no instead (`regression gate failed: ...`), `--accept-rejection
 Apply is a `409`, exit `0`, and it prints that nothing was applied. (That branch is covered by the SDK stand-in tests; the live rejections below were observed through the API and the browser spec, not through
 the script.) To exercise Apply, the release screens and rollback regardless of the judge, loosen only the regression allowance for that run: `COOKBOOK_01_MAX_REGRESSION=0.25`.
 
-The browser path is the same spec as every other tier; it reads `/readiness` and follows the real branch (4.0 minutes with the loosened allowance; 4.1 minutes when the gate rejected the candidate, in which
+The browser path is the same spec as every other tier; it reads the amber provider banner (no banner means a real model) and follows the real branch (4.0 minutes with the loosened allowance; 4.1 minutes when the gate rejected the candidate, in which
 case it verifies the rejection and stops):
 
 ```bash
@@ -600,7 +600,7 @@ ok   the audit log records the rollback by you
 30/30 checks passed
 ```
 
-The browser path is the same spec as the simulated tier; it reads `/readiness` and follows the real branch (it passed in 6.8 minutes). The two environment variables are read by the spec too:
+The browser path is the same spec as the simulated tier; it reads the provider banner and follows the real branch (it passed in 6.8 minutes). The two environment variables are read by the spec too:
 
 ```bash
 cd caliber/caliber-ui
@@ -661,7 +661,7 @@ Failure scenarios, each provoked on a throwaway stack (the failed evaluation is 
 ## Recipe: run it through the UI
 
 The same journey in the browser, with the labels the app shows (sidebar groups: **Prompt lifecycle** holds Prompts, Test Sets, Evaluations, Releases; **Operate** holds Audit Log).
-It is automated by `caliber/caliber-ui/e2e/cookbooks/labs/01-prompt-release-loop.spec.ts`, which reads `GET /readiness` and follows the simulated branch or the real-model branch
+It is automated by `caliber/caliber-ui/e2e/cookbooks/labs/01-prompt-release-loop.spec.ts`, which reads the provider banner the app shows ("Simulated providers: eval, llm ...", absent on a real stack) and follows the simulated branch or the real-model branch
 (the places where they differ are marked below), and by `01b-evaluation-regression.spec.ts` (the stand-in stack).
 
 1. **Create the prompt.** Prompt lifecycle › **Prompts** › **New prompt** › **Write / paste**. *Prompt name*: `cookbook-01-intake-classifier`; *Prompt text*: the body of `assets/prompts/intake-classifier.md` (below the front matter); **Create and Open**. See: the workspace opens on **Author**; the version history lists **v1** with a **live** badge.

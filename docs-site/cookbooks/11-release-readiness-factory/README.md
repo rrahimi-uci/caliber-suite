@@ -251,30 +251,38 @@ Things the script taught while it was written, and one thing it found and fixed:
 ## Recipe: run it through the UI
 
 Sign in at `$CALIBER_URL/caliber/` as `admin` / `admin` (who holds the operator and admin scopes the buttons need). Under **Administration**
-(group **Admin**) create `lab11-viewer` for the last check. Then:
+(group **Admin**) create `lab11-viewer` for the last check. The release-candidate form has no file upload: for each candidate you paste the
+row's `criteria` array and its `evidence` array from `release-candidates.jsonl` into the two JSON boxes (the spec does exactly this for all 20 rows and checks
+every card against the dataset's expected score, status and blockers). Then:
 
 1. **Open the section.** **Prompt lifecycle → Releases**, scroll to **Release signoff factory**. A violet note says *Signing off a
    release candidate records a decision. It does not deploy or roll back anything*.
 2. **Create a candidate with one blocker.** **New candidate**. Name it, choose **Workflow**, enter the **Artifact ID or registry name**
    `WF-claims-intake`, **Candidate version** `5`, **Rollback version** `4`, required score `0.70`, and paste RC16's `criteria` array
    (from `release-candidates.jsonl`) into the criteria box and its `evidence` array into the evidence box. **Create and evaluate
-   candidate**. The card reads **blocked**, `72%`, and *4 criteria · 1 evidence · 1 blockers · rollback 4*; **Sign off GO** is disabled.
-   (The form records the planned action for you, `promote_workflow` to `prod`; it is not a field.)
-3. **Record a waiver.** Under the card type the criterion key `rollback_rehearsed` and a reason. **Record waiver** stays disabled until the
-   reason has 8 characters. Enter *Rollback rehearsal booked for the 25th; on-call holds the previous image. Owner: release-eng.* and click
-   it: the card reads **ready**, *0 blockers*, still `72%`. (The form has no expiry field, so write the expiry into the reason; the API
-   takes `expires_at`.)
+   candidate**. The card reads **blocked**, `72%`, *4 criteria · 1 evidence · 1 blockers · rollback 4*, and in red **Blocked by `rollback_rehearsed`: scored 0.5, needs 1**;
+   **Sign off GO** is disabled. (The form records the planned action for you, `promote_workflow` to `prod`; it is not a field.) The other 19 rows go in the same way; of the 20, 14 read **ready** and 6 **blocked**.
+3. **Record a waiver.** Under the card the criterion key is the one the card named: type `rollback_rehearsed` and a reason. **Record waiver** stays disabled until the
+   reason has 8 characters. Enter *Rollback rehearsal booked for the 25th; on-call holds the previous image. Owner: release-eng.*, pick a date in **Waiver expiry (optional)** (the waiver lapses at the end of that day and the blocker returns) and click
+   it: the card reads **ready**, *0 blockers*, still `72%`, and an amber line says **Waived `rollback_rehearsed` by admin, until <date>: <reason>**.
 4. **Re-evaluate.** **Re-evaluate**: still **ready**, still `72%`.
 5. **Generate Allure.** **Generate Allure**: the card says *Allure report RRJ-… generated and retained.* Note the id.
 6. **Sign off GO.** Type a **Signoff rationale** (two characters leave **Sign off GO** disabled; at least 8 enable it) and **Sign off GO**:
    the badge reads **signed_go**, and the rationale box and both sign-off buttons are gone: a signed candidate is final.
 7. **Sign off NO-GO on a blocked candidate.** Create RC05 the same way (type **Prompt**, `pricing-quote`, version `9`, rollback `8`,
-   required score `0.85`): **blocked**, `95%`, because human review is below its blocking threshold. **Sign off GO** is disabled;
+   required score `0.85`): **blocked**, `95%`, **Blocked by `human_review`**, because human review is below its blocking threshold. **Sign off GO** is disabled;
    with a rationale, **Sign off NO-GO** records the decision: **signed_no_go**.
-8. **Reload.** Both candidates still read **signed_go** and **signed_no_go**: the decision is persisted, not page state.
-
-As `lab11-viewer` (no scopes), open **Releases**: the section is there, but there is no **New candidate** button and no **Generate Allure**,
-and the admin's candidates are not listed.
+8. **A waiver cannot raise a score.** Create RC17 (workflow, required score `0.85`) and waive both of its blockers, `regression_vs_baseline` and `human_review`, one after the other: the card reads
+   *0 blockers* and still **blocked**, with *No blocking criterion is unmet, but the weighted score 66% is under the required 85%. A waiver cannot raise a score.* **Sign off GO** stays disabled.
+9. **Modify, new version, re-run, compare.** A candidate can never be edited. When RC16's rehearsal is actually done, the new package version gets a **new candidate**: create it again with **Candidate version** `6`, **Rollback version** `5`
+   and `rollback_rehearsed` scored `1` in the criteria box. The new card reads **ready**, *0 blockers* and no waiver, with a higher percentage than v5's `72%`; the two cards side by side are the comparison.
+10. **A signed GO deploys nothing.** Under **Prompts** create the prompt `payments-assistant` (**New prompt**, **Write / paste**; version 1 is live) and save a version 2 with the card's **Edit** (`Saved v2. Nothing is live yet`). On **Releases** the live board shows the prompt at `v1`.
+    Create a candidate for it from RC01's row (type **Prompt**, artifact `payments-assistant`, version `2`, rollback `1`; **ready**), type a rationale and **Sign off GO**: **signed_go**, and after a reload the live board still reads `v1` and the timeline has no event for the prompt.
+    The release is a separate act: on **Prompts**, the card's **Versions**, **Make live** on v2. Now **Releases** shows `v2` and the timeline records the promotion.
+11. **Who did what.** **Admin → Audit Log**: type each of `create_release_candidate`, `waive_release_blocker`, `generate_release_allure_report` and `signoff_release_candidate` in **Action**: the newest row is by `admin`.
+12. **Reload and the viewer.** Reload the page: both signed candidates still read **signed_go** and **signed_no_go**: the decision is persisted, not page state.
+    As `lab11-viewer` (no scopes), open **Releases**: the section is there, but there is no **New candidate** button and no **Generate Allure**,
+    and the admin's candidates are not listed.
 
 The whole path is `caliber/caliber-ui/e2e/cookbooks/labs/11-release-signoff.spec.ts`; run it against a running stack:
 
@@ -283,8 +291,8 @@ cd caliber/caliber-ui
 CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/11-release-signoff.spec.ts
 ```
 
-The card shows the status, the score, the counts and the report message. It does not list the blockers' names, the waivers, the signoff
-id or the report's contents: read those from `GET /releases/candidates/{id}` and `GET /releases/report-jobs/{id}` (the script does).
+The card shows the status, the score, the counts, the unmet blocking criteria (key, score, threshold), the waivers (who, expiry, reason) and the report message. It does not show the signoff id,
+the rationale or the report's contents: the **Audit Log** names who signed, and `GET /releases/candidates/{id}` and `GET /releases/report-jobs/{id}` (the script reads them) have the rest.
 
 ## Verify it worked
 

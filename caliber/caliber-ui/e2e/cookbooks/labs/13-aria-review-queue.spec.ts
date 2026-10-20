@@ -34,8 +34,25 @@ const ASSETS = path.resolve(
 
 interface Reply {
   id: string;
+  user_message: string;
+  reply: string;
   review: Record<string, string | boolean>;
 }
+/** The twelve replies a person reviews (the same twelve as the SDK script). */
+const REVIEWED_IDS = [
+  "R01",
+  "R03",
+  "R05",
+  "R09",
+  "R11",
+  "R12",
+  "R13",
+  "R15",
+  "R18",
+  "R22",
+  "R23",
+  "R27",
+];
 const REPLIES: Reply[] = fs
   .readFileSync(path.join(ASSETS, "dataset/agent-replies.jsonl"), "utf8")
   .split("\n")
@@ -50,8 +67,11 @@ const QUEUE = JSON.parse(
   name: string;
   description: string;
   reviewers: string[];
-  questions: { key: string; title: string }[];
+  questions: { key: string; title: string; type: string }[];
 };
+const SAFETY_JUDGE = JSON.parse(
+  fs.readFileSync(path.join(ASSETS, "judges/reply-safety.judge.json"), "utf8"),
+) as { name: string; instructions: string };
 const INTENT = fs
   .readFileSync(path.join(ASSETS, "intent.md"), "utf8")
   .split("\n")
@@ -94,15 +114,16 @@ async function openPlans(page: Page): Promise<void> {
 }
 
 test.describe("Cookbook 13: a human-review queue from one sentence", () => {
-  test("states the intent, answers the questions and reviews a queued trace", async ({
+  test("states the intent, answers the questions, reviews twelve replies and checks a judge against them", async ({
     page,
   }) => {
-    test.setTimeout(300_000);
+    test.setTimeout(900_000);
     const suffix = uiOnlySlug("c13");
     const queueName = `${QUEUE.name}-${suffix}`;
+    const judgeName = `${SAFETY_JUDGE.name}-${suffix}`;
     const traces = seedTraces();
     expect(Object.keys(traces)).toHaveLength(30);
-    const queued = REPLIES.slice(0, 5).map((row) => traces[row.id]!);
+    const queued = REPLIES.map((row) => traces[row.id]!);
     const ui = new CaliberUi(page);
     await ui.signIn();
 
@@ -166,37 +187,114 @@ test.describe("Cookbook 13: a human-review queue from one sentence", () => {
     await expect(steps.nth(0)).toContainText("done");
     await expect(steps.nth(1)).toContainText("done");
 
-    // ---- 6. Review Queues: the queue and its five traces -----------------------------------
+    // ---- 6. Review Queues: the queue and its thirty traces ---------------------------------
     await page.goto("/caliber/review-queues");
     const row = page.getByRole("row").filter({ hasText: queueName });
     await expect(row).toBeVisible();
-    await expect(row).toContainText("0/5 reviewed");
+    await expect(row).toContainText("0/30 reviewed");
     await expect(row).toContainText(QUEUE.reviewers.join(", "));
 
-    // ---- 7. Review one trace ---------------------------------------------------------------
+    // ---- 7. Review twelve of them, reading each reply first ---------------------------------
     await row.getByRole("button", { name: queueName }).click();
-    await expect(page.getByText("Items (5)")).toBeVisible();
-    await page.getByRole("button", { name: queued[0]! }).click();
-    const first = REPLIES[0]!.review;
+    await expect(page.getByText("Items (30)")).toBeVisible();
     const ask = (title: string) =>
       page.locator("label", { hasText: title }).locator("xpath=..");
-    for (const question of QUEUE.questions) {
-      const answer = first[question.key];
-      if (typeof answer === "boolean") {
-        await ask(question.title)
-          .getByRole("button", { name: answer ? "Pass" : "Fail", exact: true })
-          .click();
+    for (const id of REVIEWED_IDS) {
+      const reply = REPLIES.find((r) => r.id === id)!;
+      await page.getByRole("button", { name: traces[id]! }).click();
+      // The reviewer is shown what the agent was asked and what it said.
+      const content = page.getByTestId("review-trace-content");
+      await expect(content).toContainText(reply.user_message);
+      await expect(content).toContainText(reply.reply.slice(0, 25));
+      for (const question of QUEUE.questions) {
+        const answer = reply.review[question.key];
+        if (answer === undefined) continue;
+        if (question.type === "pass_fail") {
+          await ask(question.title)
+            .getByRole("button", {
+              name: answer ? "Pass" : "Fail",
+              exact: true,
+            })
+            .click();
+        } else if (question.type === "categorical") {
+          await page
+            .getByLabel(question.title, { exact: true })
+            .selectOption(String(answer));
+        } else {
+          await page
+            .getByLabel(question.title, { exact: true })
+            .fill(String(answer));
+        }
       }
+      await page.getByRole("button", { name: "Submit review" }).click();
+      await expect(
+        page.getByRole("button", { name: traces[id]! }),
+      ).toContainText("completed");
     }
-    await page.getByRole("button", { name: "Submit review" }).click();
-    // The reviewed trace now reads "completed" in the item list, and the form moves to the next.
-    await expect(page.getByRole("button", { name: queued[0]! })).toContainText(
-      "completed",
-    );
     await page.goto("/caliber/review-queues");
     await expect(
       page.getByRole("row").filter({ hasText: queueName }),
-    ).toContainText("1/5 reviewed");
+    ).toContainText(`${REVIEWED_IDS.length}/30 reviewed`);
+
+    // ---- 8. A reviewed trace is read-only and says who reviewed it ---------------------------
+    await page
+      .getByRole("row")
+      .filter({ hasText: queueName })
+      .getByRole("button", { name: queueName })
+      .click();
+    await page.getByRole("button", { name: traces["R11"]! }).click();
+    await expect(page.getByText("Reviewed by admin")).toBeVisible();
+    await expect(
+      page.getByText(/wrote \d+ assessment\(s\) back/),
+    ).toBeVisible();
+    await expect(
+      page.getByRole("button", { name: "Submit review" }),
+    ).toHaveCount(0);
+
+    // Told apart by the provider banner (it navigates, so ask before opening the judge).
+    const real = await isRealProvider(page);
+
+    // ---- 9. Check a safety judge against the reviewers' labels --------------------------------
+    await page.goto("/caliber/judges");
+    await page.getByRole("button", { name: "+ New Judge" }).click();
+    await page.getByPlaceholder("answer-faithfulness").fill(judgeName);
+    await page
+      .getByPlaceholder("Does {{ outputs }} faithfully answer")
+      .fill(SAFETY_JUDGE.instructions);
+    await page.getByRole("button", { name: "Create judge" }).click();
+    const judgeRow = page.getByRole("row").filter({ hasText: judgeName });
+    await expect(judgeRow).toBeVisible();
+    await judgeRow.getByRole("button", { name: "Try it" }).click();
+    await page.getByTestId("judge-mode-align").click();
+    await page
+      .getByTestId("align-review-queue")
+      .selectOption({ label: queueName });
+    await page.getByTestId("align-review-question").selectOption({ index: 1 });
+    await page.getByTestId("align-import-review-labels").click();
+    await expect(
+      page.getByText(
+        `Imported ${REVIEWED_IDS.length} completed label(s); skipped 0.`,
+      ),
+    ).toBeVisible();
+    await page.getByTestId("align-run").click();
+    const result = page.getByTestId("align-result");
+    await expect(result).toBeVisible({ timeout: 600_000 });
+    if (!real) {
+      // The judge cannot run on a simulated stack: every row errors and is left out.
+      await expect(result).toContainText(`over 0/${REVIEWED_IDS.length}`);
+      await expect(page.getByTestId("align-errors")).toContainText(
+        `${REVIEWED_IDS.length} example(s) could not be judged`,
+      );
+    } else {
+      await expect(result).toContainText(
+        `over ${REVIEWED_IDS.length}/${REVIEWED_IDS.length} examples`,
+      );
+      const text = (await result.textContent()) ?? "";
+      const agreement = Number(/Agreement (\d+)%/.exec(text)![1]);
+      const kappa = Number(/κ (-?\d+\.\d+)/.exec(text)![1]);
+      expect(agreement, text).toBeGreaterThanOrEqual(75);
+      expect(kappa, text).toBeGreaterThanOrEqual(0.4);
+    }
   });
 
   test("a review that does not fit the questions is refused and stays open", async ({
