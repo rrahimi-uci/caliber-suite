@@ -19,8 +19,8 @@ tags:
 # SDK recipes
 
 > **Disabled by default.** The cookbooks are a preview area and are off by default; enable with
-> `CALIBER_FEATURE_COOKBOOKS=true` on the server and restart it. Recipes 03 to 08, 10 and 18 install their catalog
-> entry with `caliber.cookbooks.install` (recipe 01 lists it), so against a default server they fail with a 404 whose
+> `CALIBER_FEATURE_COOKBOOKS=true` on the server and restart it. Recipes 03 to 08 and 18 install their catalog
+> entry with `caliber.cookbooks.install`, and recipes 01 and 10 list it, so against a default server they fail with a 404 whose
 > `reason_code` is `feature_disabled`. Some recipes use other preview areas as well: recipe 05 needs
 > `CALIBER_FEATURE_INTEGRATIONS` (MCP servers), recipe 11 needs `CALIBER_FEATURE_RELEASE_CANDIDATES`, and
 > recipes 12 to 15 and 17 need `CALIBER_FEATURE_ARIA`. Read `features` from the capabilities response first

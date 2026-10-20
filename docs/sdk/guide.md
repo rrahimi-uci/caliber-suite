@@ -260,8 +260,8 @@ sdk/caliber-sdk/examples/workflow_deployment.py#record_gate_verdict
 ```
 
 Advisory means what it says — CALIBER does not block a promotion on a verdict
-by itself. It is release evidence for the Version panel and for tooling that
-chooses to check it, like `caliberctl gate-verdict record`, which maps a
+by itself. It is release evidence for tooling that chooses to check it (the
+web app does not read it), like `caliberctl gate-verdict record`, which maps a
 `fail` state to its own non-zero exit code precisely because *that* tooling
 does choose to act on it.
 

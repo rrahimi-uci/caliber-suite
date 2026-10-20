@@ -31,8 +31,9 @@ waited, or required review.
 
 With Aria off, a few helpers inside otherwise supported pages go away too, because they call the assistant
 (`/assistant/*`): the **Ask Aria** button, the Aria tab in Settings, **Describe it** prompt drafting, the prompt
-Playground, generating and running test cases inside the prompt workspace, the tool unit-test generator, and
-Assistant-Guided Calibration. Each is hidden or shows a "disabled in this deployment" notice. The core journey does
+Playground (its stage stays listed and says it needs `CALIBER_FEATURE_ARIA=true`, and points to **Evaluations**),
+generating and running test cases inside the prompt workspace, the tool unit-test generator, and
+Assistant-Guided Calibration. Each is hidden or shows a notice that says it needs Aria and names `CALIBER_FEATURE_ARIA`. The core journey does
 not need them: build a test set by hand on the Test Sets page, calibrate, review and Apply.
 
 ## At a glance
