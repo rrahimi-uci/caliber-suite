@@ -1662,16 +1662,11 @@ function PromptWorkspace({
   onPromptCreated: (created: PromptCreateResult) => void;
 }): JSX.Element {
   const [stage, setStage] = useState<WorkspaceStage>("author");
-  // The Playground chats with the prompt through the Aria assistant, so it exists only when the
-  // ``aria`` feature flag is on.
+  // The Playground chats with the prompt through the Aria assistant, so it needs the ``aria``
+  // feature flag. The tab is always listed: a stage that vanishes leaves a default install with no
+  // hint that a prompt chat exists. With the flag off the stage says what it needs and what to use.
   const ariaEnabled = useFeature("aria").enabled;
-  const stages = useMemo(
-    () =>
-      ariaEnabled
-        ? WORKSPACE_STAGES
-        : WORKSPACE_STAGES.filter((tab) => tab.key !== "playground"),
-    [ariaEnabled],
-  );
+  const stages = WORKSPACE_STAGES;
   const [workspace, setWorkspace] = useState<PromptWorkspaceResponse | null>(
     null,
   );
@@ -1803,6 +1798,16 @@ function PromptWorkspace({
           loading={loading}
           lockedPrompt={prompt}
         />
+      )}
+
+      {stage === "playground" && prompt && !ariaEnabled && (
+        <FeatureDisabledNotice feature="aria" what="Chatting with this prompt in the Playground">
+          To run it on real examples without Aria, use{" "}
+          <Link to="/evaluations" className="font-medium text-caliber-600 hover:underline">
+            Evaluations
+          </Link>
+          .
+        </FeatureDisabledNotice>
       )}
 
       {stage === "test-sets" && prompt && (

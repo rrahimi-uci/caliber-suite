@@ -81,7 +81,7 @@ direct HTTP use is lab 04's cleanup of its own buckets after the journey, which 
 - **Cookbooks and Plans live under Integrations** in the sidebar. The READMEs say so; a new user looking for "Cookbooks"
   finds it only after expanding that group.
 - **Two tool pages** (the detail page where registering lands and the registry workspace) overlap; they now link to each other.
-- **The Playground needs the Aria flag**, so the prompt chat is invisible on a default install.
+- **The Playground needs the Aria flag, by design, and now says so.** It chats through the Aria assistant, so a default install cannot use it. Its tab used to vanish without a word; it is now always listed and, with Aria off, says what it needs (`CALIBER_FEATURE_ARIA=true`) and points to **Evaluations** to run the prompt on real examples. Taking the chat out from under the Aria flag would put a model-calling endpoint outside it, which is a product decision, not a fix.
 - **A tool has no "new version" action in the UI**, so lab 03's version-and-compare step is a baseline-and-regression compare.
 - **Scoring a judge or a prompt needs a real model.** Simulated results are labelled as such everywhere, by design.
 
