@@ -24,12 +24,13 @@ the workflow through the API, the endpoints the page's editors save to).
 
 | # | Step | In the page (Tools) | What you should see |
 | --- | --- | --- | --- |
-| 1 | Register | **Register Tool**, then the wizard: name, module, callable, input schema | the tool's detail page |
-| 2 | Run it | **Run Tool** on the detail page, with a JSON object as input | the tool's output, produced by the sandbox |
+| 1 | Register | **Register Tool**, then the wizard: name, module, callable, input schema | the tool's workspace (`/tools?tool=TL-…`, an address a reload keeps) |
+| 2 | Run it | **Sandbox**, then **Test Run**, with a JSON object as input (anything else is refused with a message, not run) | the tool's output, produced by the sandbox |
 | 3 | Save fixtures | open the tool, **Fixtures**: add cases with an input and an assertion | the cases are saved against the tool |
 | 4 | Calibrate | **Fixtures**: **Run calibration** | "Pass rate 100% — 2/2 passed", or which cases failed |
 | 5 | Pin a baseline | **Test Runs**: **Set as baseline** on a run (a run is saved when you invoke the tool on **Sandbox** or run the suite on **Hardening**) | the run carries a **Baseline** marker, and later runs are compared to it |
 | 6 | Use it in a workflow | reference the tool from an agent node in a workflow version | the workflow appears under **Publish**, **Where used** |
+| 7 | Make a new version | **Publish**, **Version history**, **New version** (admins): the wizard opens on the tool with its name fixed and the version one on; change what differs and register | the new version's own workspace; the history lists both versions, and you can promote or roll back between them |
 
 Two things about the Tools list. A fresh install lists sixteen tools that CALIBER seeded itself, and each
 is labelled **Built-in**, so you can tell them from the ones an admin registered. Four of them are the

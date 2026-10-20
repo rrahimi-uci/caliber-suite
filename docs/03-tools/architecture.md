@@ -25,7 +25,7 @@ tags:
 | --- | --- |
 | **What it is** | CALIBER's registry and validation surface for versioned, callable runtime tools, referenced by family and version rather than inline code. |
 | **Where state lives** | `CaliberToolRegistry` (tool rows) and `CaliberToolTestRun` (durable test-run history). |
-| **Key surfaces** | HTTP routes in `routes/tools.py` under `/ajax-api/2.0/mlflow/caliber`; UI via `ToolRegistry.tsx`, `ToolWizard.tsx`, and `ToolDetail.tsx`. |
+| **Key surfaces** | HTTP routes in `routes/tools.py` under `/ajax-api/2.0/mlflow/caliber`; UI via `ToolRegistry.tsx` (the list and the tool workspace), `ToolWizard.tsx` (register, and register a new version), and `components/tools/ToolManagePanel.tsx` (edit, version history, calibration jobs). `ToolDetail.tsx` only redirects `/tools/:id` to the workspace. |
 | **Runtime model** | Metadata-driven resolution first, import-driven binding second; the compiler reasons about tools without loading their code. |
 | **Trust / safety** | Operator-supplied source runs only through the sandbox or controlled workflow binding; `admin` scope for registration/update/archive, `operator` for test runs, fixtures, baselines and calibration, plus a project role check on top for project-scoped tools. |
 | **Isolation** | `LocalSubprocessToolSandbox` runs code under `python -I` in a temporary directory with an empty environment, clipped output, and a hard timeout. |
@@ -59,7 +59,8 @@ These responsibilities are realized across a small set of primary code paths:
 - `caliber/src/caliber/workflows/sandbox.py`
 - `caliber/caliber-ui/src/pages/ToolRegistry.tsx`
 - `caliber/caliber-ui/src/pages/ToolWizard.tsx`
-- `caliber/caliber-ui/src/pages/ToolDetail.tsx`
+- `caliber/caliber-ui/src/components/tools/ToolManagePanel.tsx`
+- `caliber/caliber-ui/src/pages/ToolDetail.tsx` (a redirect to the workspace)
 
 ## 2. Module boundaries
 
@@ -208,7 +209,7 @@ failure is the wrong default. Bounded shutdown fences the active generation imme
 waits at most the configured grace for the tracked drain; it performs no stop-time database
 settlement. An interrupted claim therefore remains visibly `running`/ambiguous, while the
 retained generation fence prevents a late scorer from persisting a terminal result or failure.
-The Tool detail page shows this durable history. An operator can explicitly abandon
+The tool workspace's Publish stage shows this durable history. An operator can explicitly abandon
 the original row or create a new queued retry with the exact snapshotted definition
 and cases. The original becomes terminal and records the actor, reason, timestamp,
 resolution, and retry job ID; status-conditional settlement discards a late result
@@ -234,7 +235,8 @@ The frontend reaches these endpoints through three entry points:
 
 - `caliber/caliber-ui/src/pages/ToolRegistry.tsx`
 - `caliber/caliber-ui/src/pages/ToolWizard.tsx`
-- `caliber/caliber-ui/src/pages/ToolDetail.tsx`
+- `caliber/caliber-ui/src/components/tools/ToolManagePanel.tsx`
+- `caliber/caliber-ui/src/pages/ToolDetail.tsx` (a redirect to the workspace)
 
 ## 6. Execution lifecycle
 

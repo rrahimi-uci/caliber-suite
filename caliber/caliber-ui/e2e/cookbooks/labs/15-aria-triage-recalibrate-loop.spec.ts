@@ -151,7 +151,7 @@ async function buildSubject(page: Page, suffix: string): Promise<Subject> {
       page
         .getByTestId("wizard-error")
         .filter({ hasText: "already registered" })
-        .or(page.getByTestId("tool-detail")),
+        .or(page.getByTestId("tool-workspace-header")),
     ).toBeVisible();
   }
 

@@ -61,7 +61,7 @@ Each has a regression test; the ones marked ✗→✓ were shown to fail without
 | Lab 09: first node cropped behind the palette | graph wider than the canvas; React Flow's minimum zoom 0.5 stops the fit | minimum zoom 0.15; refit on resize until the person pans | `canvas` |
 | Lab 16 on the clean GitHub runner (the local run passed): every canvas node stayed hidden | the refit added for lab 09 ran on every resize; on Linux, where scrollbars take layout width, each refit moved the graph, a scrollbar appeared or vanished, the canvas changed by ~15 px and requested the next refit (the Playwright trace showed ~100 flips between two transforms) | a change under 24 px is ignored and the view refits at most four times by itself | `canvas` ✗→✓ (scrollbar-sized jitter, cap) |
 | Lab 12: catalog had 10 steps, README 12 | README edited, catalog not | catalog brought in step | step-count contract |
-| Labs 03, 15: registering a tool lands on a read-only page; the next steps are in the workspace | two tool surfaces, no link between them | detail page links to the workspace; the workspace is a URL (`?tool=`), so a reload and Back work | `tool-detail`, `tool-workspace` |
+| Labs 03, 15: registering a tool lands on a read-only page; the next steps are in the workspace | two tool surfaces, no link between them | the detail page is gone: `/tools/:id` redirects to the workspace, registering lands in it, and the workspace is a URL (`?tool=`), so a reload and Back work | `tool-detail`, `tool-workspace` |
 | Lab 16: Error filter showed 11 failures of 12 | the last run reads `IN_PROGRESS` for a moment; the old rule refreshed only while a *listed* trace was in progress, never true under a filter | the list refreshes every 5 s | `observability` ✗→✓ |
 | Lab 16 spec: counted rows before the list settled | race in the spec | wait for the filtered list, then poll the count | the run |
 | Lab 17: Playground reply not found | the locator matched the prompt's own text in a hidden panel | chat messages carry `data-testid` and `data-role`; the spec reads the assistant's | `prompts-advanced-flows` |
@@ -80,9 +80,9 @@ direct HTTP use is lab 04's cleanup of its own buckets after the journey, which 
 
 - **Cookbooks and Plans live under Integrations** in the sidebar. The READMEs say so; a new user looking for "Cookbooks"
   finds it only after expanding that group.
-- **Two tool pages** (the detail page where registering lands and the registry workspace) overlap; they now link to each other.
+- ~~Two tool pages overlap~~ **Fixed:** a tool has one page, its workspace. Edit, version history and calibration jobs moved into its Publish stage, `/tools/:id` redirects there, and a **New version** action makes the next version of a tool (name fixed, version one on).
 - **The Playground needs the Aria flag**, so the prompt chat is invisible on a default install.
-- **A tool has no "new version" action in the UI**, so lab 03's version-and-compare step is a baseline-and-regression compare.
+- ~~A tool has no "new version" action in the UI~~ **Fixed:** Publish, Version history, **New version**.
 - **Scoring a judge or a prompt needs a real model.** Simulated results are labelled as such everywhere, by design.
 
 ## How the verification was kept resource-safe

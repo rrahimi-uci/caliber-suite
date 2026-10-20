@@ -155,10 +155,8 @@ test.describe("Cookbook 03: policy-safe decision tool (UI)", () => {
         await page.getByTestId("wiz-allow-preview").check();
       }
       await page.getByTestId("wizard-submit").click();
-      await expect(page).toHaveURL(/\/caliber\/tools\/[^/]+$/);
-      // Registering opens the tool's detail page; its "Open the workspace" link is the way on to
-      // the Sandbox, Fixtures and Hardening tabs, and the workspace is a URL a reload keeps.
-      await page.getByTestId("tool-detail-open-workspace").click();
+      // Registering lands in the tool's workspace (Sandbox, Fixtures, Hardening, Test Runs), and
+      // the workspace is a URL a reload keeps.
       await expect(page).toHaveURL(/\/caliber\/tools\?tool=TL-/);
       await expect(page.getByTestId("tool-workspace-header")).toContainText(name);
       await page.reload();
@@ -408,10 +406,58 @@ test.describe("Cookbook 03: policy-safe decision tool (UI)", () => {
     await expect(page.getByText("resume_workflow_run").first()).toBeVisible();
     await expect(page.getByText("admin").first()).toBeVisible();
 
+    // ---- 11. A new version of the tool: same name, version one on, its own fixtures ----
+    await page.goto("/caliber/tools");
+    await page.getByTestId(`tool-open-${decideName}`).click();
+    await expect(page.getByTestId("tool-workspace-header")).toContainText(
+      decideName,
+    );
+    await page.getByRole("button", { name: "Publish", exact: true }).click();
+    await page.getByRole("button", { name: "New version" }).click();
+    await expect(
+      page.getByRole("heading", { name: `New version of ${decideName}` }),
+    ).toBeVisible();
+    await expect(page.getByTestId("wiz-name")).toBeDisabled();
+    await expect(page.getByTestId("wiz-version")).toHaveValue("1.1");
+    await page
+      .getByTestId("wiz-description")
+      .fill("Version 1.1 of the refund policy, same rules, new version.");
+    for (let i = 0; i < 4; i += 1) {
+      await page.getByTestId("wizard-next").click();
+    }
+    await page.getByTestId("wizard-submit").click();
+    await expect(page).toHaveURL(/\/caliber\/tools\?tool=TL-/);
+    await expect(page.getByTestId("tool-workspace-header")).toContainText("1.1");
+
+    // The new version starts without fixtures: load the same file, save, run the suite.
+    await page.getByRole("button", { name: "Fixtures", exact: true }).click();
+    await page
+      .getByTestId("tool-fixtures-calibration-file")
+      .setInputFiles(path.join(LAB, "assets/dataset/refund-fixtures.jsonl"));
+    await expect(
+      page.getByTestId("tool-fixtures-calibration-loaded"),
+    ).toContainText(`Loaded ${rows.length} cases`);
+    await page.getByTestId("tool-fixtures-calibration-save").click();
+    await expect(
+      page.getByTestId("tool-fixtures-calibration-saved"),
+    ).toBeVisible();
+    await page.getByRole("button", { name: "Hardening", exact: true }).click();
+    await page.getByTestId("tool-hardening-calibrate-btn").click();
+    await expect(
+      page.getByTestId("tool-hardening-calibration-result"),
+    ).toContainText(`Pass rate 100% — ${rows.length}/${rows.length} passed`, {
+      timeout: 360_000,
+    });
+    // The history on Publish lists both versions.
+    await page.getByRole("button", { name: "Publish", exact: true }).click();
+    await expect(page.getByTestId("tool-versions")).toContainText("1.0");
+    await expect(page.getByTestId("tool-versions")).toContainText("1.1");
+
     // ---- Failure: a viewer cannot run a tool --------------------------------------
     const viewerPage = await signedIn(browser, VIEWER, workspace);
     await viewerPage.goto("/caliber/tools");
-    await viewerPage.getByTestId(`tool-open-${decideName}`).click();
+    // Both versions are listed under the name: the viewer opens the first.
+    await viewerPage.getByTestId(`tool-open-${decideName}`).first().click();
     await viewerPage
       .getByRole("button", { name: "Sandbox", exact: true })
       .click();

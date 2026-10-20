@@ -281,6 +281,48 @@ describe("Tool Workspace — Sandbox stage", () => {
     expect(savedRuns[0]).toMatchObject({ tool_id: "TL-1", kind: "sandbox" });
   });
 
+  it("refuses input that is not a JSON object, says so, and runs nothing", async () => {
+    // It used to run with {} instead, showing a result for input nobody typed.
+    let runs = 0;
+    server.use(
+      http.get(`${API_BASE}/tools`, () => HttpResponse.json(envelope([makeTool()]))),
+      http.post(`${API_BASE}/tools/:toolId/test-run`, () => {
+        runs += 1;
+        return HttpResponse.json(
+          envelope({ tool_id: "TL-1", output: {}, mocked: false, duration_ms: 1, error: null }),
+        );
+      }),
+      http.post(`${API_BASE}/tools/test-runs`, () =>
+        HttpResponse.json(envelope({ test_run_id: "TTR-1" }), { status: 201 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderRegistry();
+    await user.click(await screen.findByTestId("tool-open-lookup_order"));
+    await user.click(await screen.findByRole("button", { name: "Sandbox" }));
+    const input = screen.getByPlaceholderText('{"key": "value"}');
+
+    for (const bad of ["{bad", "[]", "42", "null"]) {
+      await user.clear(input);
+      await user.click(input);
+      await user.paste(bad);
+      await user.click(screen.getByRole("button", { name: "Test Run" }));
+      expect(await screen.findByTestId("tool-playground-input-error")).toHaveTextContent(
+        "Tool input must be a JSON object.",
+      );
+    }
+    expect(runs).toBe(0);
+
+    // Typing again clears the message; a valid object runs.
+    await user.clear(input);
+    await user.click(input);
+    await user.paste('{"order_id":"A-1"}');
+    expect(screen.queryByTestId("tool-playground-input-error")).not.toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Test Run" }));
+    await waitFor(() => expect(runs).toBe(1));
+  });
+
   it("says why a run was refused instead of only 'Request failed'", async () => {
     const detail =
       "missing required scope; expected one of ['caliber.operator'], have ['caliber.viewer']";
@@ -595,7 +637,11 @@ describe("Tool Workspace — Publish stage", () => {
 
     await user.click(screen.getByTestId("tool-publish-deprecate"));
     await waitFor(() => expect(screen.getByTestId("tool-publish-deprecate")).toBeDisabled());
-    expect(await screen.findByText("deprecated")).toBeInTheDocument();
+    // "deprecated" is also an option of the Edit form's status select: look for the status itself.
+    await waitFor(() => expect(screen.getAllByText("deprecated").length).toBeGreaterThan(0));
+    expect(
+      screen.getAllByText("deprecated").some((element) => element.tagName !== "OPTION"),
+    ).toBe(true);
 
     await user.click(screen.getByTestId("tool-publish-archive"));
     await waitFor(() => expect(screen.getByTestId("tool-publish-archive")).toBeDisabled());
