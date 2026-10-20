@@ -31,7 +31,7 @@ scored paths were run on the **stand-in** model tier (labs 01 and 10) and on a *
 | 13 Aria review queue | Plans → Review Queues | queue, 30 flagged items | rules planner | n/a | n/a (a queue is not versioned) | reviews, a review that does not fit | `13` | 0 new | n/a | **PASS** |
 | 14 Aria starter kit | Plans → Judges, Review Queues, Test Sets | judge, queue, test set, rows | rules planner | judge listed; scoring refused on simulated | test-set rows add a version | plan states | `14` | 0 new | n/a | **PASS** (simulated; see note 2) |
 | 15 Aria triage loop | Plans → Tools → Test Sets → Workflows → Agents | tools, test set, workflow, agent, queue, calibration job | rules planner, background worker | calibration job settles | workflow published | plan parks and settles | `15` | 1 | 1 | **PASS** |
-| 16 Observability triage | Workflows → Observability → Test Sets → Review Queues | workflow v1 and v2, 40 traces, test set, queue | real traces | n/a (Evaluations not used) | v1, fix, v2, re-run 16 tickets, compare | 12 ERROR and 28 OK, then 44 OK | `16` | 2 | 2 | **PASS** |
+| 16 Observability triage | Workflows → Observability → Test Sets → Review Queues | workflow v1 and v2, 40 traces, test set, queue | real traces | n/a (Evaluations not used) | v1, fix, v2, re-run 16 tickets, compare | 12 ERROR and 28 OK, then 44 OK | `16` | 3 | 3 | **PASS** |
 | 17 Financial analysis | SDK only by design; the UI half inspects what the script made | project, bucket, objects, prompt (all by script) | **hosted model**, 31 s | the model's JSON is validated by the script | prompt v1 at `prod` | objects, prompt, Playground answer read in the UI | `17` | 2 | 2 | **PASS** (SDK by design) |
 | 18 Projects, roles, tokens | Administration → Settings → Audit Log | 9 accounts, projects, roles, tokens | no model | n/a | n/a | 72-request role matrix, audit log | `18` | 0 new | n/a | **PASS** |
 
@@ -44,7 +44,7 @@ Notes:
    is refused on the simulated stack by design. Its real-model run was verified when the hosted tier was added (#499)
    and was **not** re-run in this pass. The scored path itself was re-run here on the stand-in model (labs 01, 10) and
    on a hosted model (lab 01 through the browser, lab 17 through the SDK and the browser).
-3. Nothing is BLOCKED or FAIL.
+3. Nothing is BLOCKED or FAIL. The cookbook-labs workflow on a clean GitHub runner is an independent run: its first pass found the lab 16 canvas defect above, which no local run could (macOS scrollbars take no space).
 
 ## Defects found by running the labs, and their fixes
 
@@ -59,6 +59,7 @@ Each has a regression test; the ones marked ✗→✓ were shown to fail without
 | Lab 05: no way to find a binding's Approval switch | it is in workflow settings; the Tool node said nothing | the node says where | `workflow-components` |
 | Lab 05: README, catalog and SDK script lacked the versioning step | the spec had been extended, the docs not | step 9 added to the README, training steps, catalog and the script's count | step-count contract, API run |
 | Lab 09: first node cropped behind the palette | graph wider than the canvas; React Flow's minimum zoom 0.5 stops the fit | minimum zoom 0.15; refit on resize until the person pans | `canvas` |
+| Lab 16 on the clean GitHub runner (the local run passed): every canvas node stayed hidden | the refit added for lab 09 ran on every resize; on Linux, where scrollbars take layout width, each refit moved the graph, a scrollbar appeared or vanished, the canvas changed by ~15 px and requested the next refit (the Playwright trace showed ~100 flips between two transforms) | a change under 24 px is ignored and the view refits at most four times by itself | `canvas` ✗→✓ (scrollbar-sized jitter, cap) |
 | Lab 12: catalog had 10 steps, README 12 | README edited, catalog not | catalog brought in step | step-count contract |
 | Labs 03, 15: registering a tool lands on a read-only page; the next steps are in the workspace | two tool surfaces, no link between them | detail page links to the workspace; the workspace is a URL (`?tool=`), so a reload and Back work | `tool-detail`, `tool-workspace` |
 | Lab 16: Error filter showed 11 failures of 12 | the last run reads `IN_PROGRESS` for a moment; the old rule refreshed only while a *listed* trace was in progress, never true under a filter | the list refreshes every 5 s | `observability` ✗→✓ |
