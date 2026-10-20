@@ -280,6 +280,40 @@ describe("Dashboard", () => {
     expect(publish.querySelector(".text-red-700")).toBeNull();
   });
 
+  it("tells a first-time user where to start instead of leaving a wall of zeros", async () => {
+    renderDashboard({ data: summary(EMPTY_INSTALL) });
+
+    const start = await screen.findByTestId("dashboard-getting-started");
+    const links = Array.from(start.querySelectorAll("a")).map((a) => a.getAttribute("href"));
+    // The core loop, in the order it is used.
+    expect(links).toEqual(["/prompts", "/eval-datasets", "/evaluations", "/releases"]);
+    expect(start).toHaveTextContent("Step 1");
+    expect(start).toHaveTextContent("Write a prompt");
+    // The Cookbooks area is a feature flag, off by default: no link to a page that would 404.
+    expect(screen.queryByTestId("dashboard-open-cookbooks")).not.toBeInTheDocument();
+  });
+
+  it("points the first-time panel at the Cookbooks when that area is switched on", async () => {
+    vi.spyOn(caliberApi, "getCapabilities").mockResolvedValue({
+      features: capabilityFeatures({ cookbooks: true }),
+      workflow_runs: {},
+      sync_workflow_version_run: true,
+    } as never);
+    renderDashboard({ data: summary(EMPTY_INSTALL) });
+
+    expect(await screen.findByTestId("dashboard-open-cookbooks")).toHaveAttribute("href", "/cookbooks");
+  });
+
+  it("does not show the first-time panel once there is any work or any agent", async () => {
+    renderDashboard({ data: summary() });
+    await screen.findByText("CALIBER Operations");
+    expect(screen.queryByTestId("dashboard-getting-started")).not.toBeInTheDocument();
+
+    renderDashboard({ data: summary({ ...EMPTY_INSTALL, agents_total: 1, agents_enabled: 1 }) });
+    await waitFor(() => expect(screen.getAllByText("CALIBER Operations")).toHaveLength(2));
+    expect(screen.queryByTestId("dashboard-getting-started")).not.toBeInTheDocument();
+  });
+
   it("says nothing has run yet rather than showing a zero rate", async () => {
     renderDashboard({ data: summary(EMPTY_INSTALL) });
 

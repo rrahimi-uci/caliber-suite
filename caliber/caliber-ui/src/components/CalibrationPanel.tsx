@@ -7,13 +7,14 @@
  * matching endpoint; this component owns only the editable case state + result.
  */
 
-import { useState } from "react";
+import { useRef, useState } from "react";
 
 import type {
   CalibrationAssertionType,
   CalibrationCase,
   CalibrationResult,
 } from "@/api/workflowTypes";
+import { parseFixtureFile } from "@/lib/fixtureFile";
 
 /** Editable case where `input` is a raw JSON string (parsed on save/run). */
 interface DraftCase {
@@ -112,6 +113,25 @@ export function CalibrationPanel({
     }
   };
 
+  const fileInput = useRef<HTMLInputElement>(null);
+  const [loadedNote, setLoadedNote] = useState<string | null>(null);
+  /** Replace the editor's cases with the rows of a JSON / JSONL file (not saved until Save cases). */
+  const loadFile = async (file: File | undefined): Promise<void> => {
+    if (!file) return;
+    setLoadedNote(null);
+    const parsed = parseFixtureFile(await file.text());
+    if ("error" in parsed) {
+      setError(`${file.name}: ${parsed.error}`);
+    } else {
+      setError(null);
+      setDrafts(parsed.cases.map(draftFromCase));
+      setLoadedNote(
+        `Loaded ${parsed.cases.length} case${parsed.cases.length === 1 ? "" : "s"} from ${file.name}. Save cases to keep them.`,
+      );
+    }
+    if (fileInput.current) fileInput.current.value = "";
+  };
+
   const buildCases = (): CalibrationCase[] => drafts.map(caseFromDraft);
 
   const save = async (): Promise<void> => {
@@ -127,6 +147,7 @@ export function CalibrationPanel({
     try {
       await onSave(cases);
       setSavedAt(Date.now());
+      setLoadedNote(null);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save test cases.");
     } finally {
@@ -148,6 +169,7 @@ export function CalibrationPanel({
       // Persist before scoring so calibration runs the freshest cases.
       await onSave(cases);
       setSavedAt(Date.now());
+      setLoadedNote(null);
       const scored = await onCalibrate();
       setResult(scored);
     } catch (err) {
@@ -293,6 +315,18 @@ export function CalibrationPanel({
             Seed from generated tests
           </button>
         )}
+        <label className="cursor-pointer rounded border border-gray-300 px-2 py-1 text-xs">
+          Load cases from file
+          <input
+            ref={fileInput}
+            type="file"
+            accept=".json,.jsonl,application/json"
+            aria-label="Load test cases file"
+            data-testid={`${idPrefix}-calibration-file`}
+            className="sr-only"
+            onChange={(e) => void loadFile(e.target.files?.[0])}
+          />
+        </label>
         <button
           type="button"
           data-testid={`${idPrefix}-calibration-save`}
@@ -311,6 +345,11 @@ export function CalibrationPanel({
         >
           {running ? "Running…" : "Run calibration"}
         </button>
+        {loadedNote && !error && (
+          <span data-testid={`${idPrefix}-calibration-loaded`} className="text-xs text-gray-500">
+            {loadedNote}
+          </span>
+        )}
         {savedAt !== null && !error && (
           <span data-testid={`${idPrefix}-calibration-saved`} className="text-xs text-gray-500">
             Saved

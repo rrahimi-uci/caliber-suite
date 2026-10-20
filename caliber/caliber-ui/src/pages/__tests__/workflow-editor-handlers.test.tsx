@@ -562,6 +562,83 @@ describe("WorkflowEditor handler branches", () => {
     expect(screen.getByTestId("editor-save")).not.toBeDisabled();
   });
 
+  it("drops the previous version's status chip when it restores a published version as a draft", async () => {
+    server.use(
+      http.post(`${API_BASE}/workflow-versions/WFV-1/validate`, () =>
+        HttpResponse.json(envelope({ valid: true, errors: [], warnings: [] })),
+      ),
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion({ status: "published" }))),
+      ),
+      http.post(`${API_BASE}/workflow-versions/WFV-1/restore`, () =>
+        HttpResponse.json(
+          envelope(makeVersion({ version_id: "WFV-2", version_number: 2, status: "draft" })),
+          { status: 201 },
+        ),
+      ),
+      http.get(`${API_BASE}/workflow-versions/WFV-2`, () =>
+        HttpResponse.json(
+          envelope(makeVersion({ version_id: "WFV-2", version_number: 2, status: "draft" })),
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+    renderEditor();
+    expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
+    await user.click(screen.getByTestId("editor-validate"));
+    expect(await screen.findByTestId("editor-message")).toHaveTextContent("Valid.");
+
+    await user.click(screen.getByTestId("editor-restore-as-draft"));
+
+    // "Valid." / "Published." described the version we left; the new draft starts clean.
+    await waitFor(() => expect(screen.queryByTestId("editor-message")).not.toBeInTheDocument());
+  });
+
+  it("lets the toolbar wrap and bounds its status chips so no button is pushed off a narrow screen", async () => {
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion({ status: "draft" }))),
+      ),
+      http.post(`${API_BASE}/workflow-versions/WFV-1/validate`, () =>
+        HttpResponse.json(envelope({ valid: true, errors: [], warnings: [] })),
+      ),
+    );
+    const user = userEvent.setup();
+    renderEditor();
+    expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
+    await user.click(screen.getByTestId("editor-validate"));
+    const message = await screen.findByTestId("editor-message");
+    // jsdom has no layout, so pin the classes that give the browser the behaviour; the lab 05
+    // browser journey asserts the buttons really are inside a 1280px viewport.
+    expect(screen.getByTestId("editor-toolbar").className).toContain("flex-wrap");
+    expect(message.className).toContain("truncate");
+    expect(message.className).toContain("max-w-");
+    expect(message).toHaveAttribute("title", message.textContent ?? "");
+  });
+
+  it("scrolls the run monitor as a whole, keeps its rows from shrinking, and can be closed from its header", async () => {
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion({ status: "draft" }))),
+      ),
+    );
+    const user = userEvent.setup();
+    renderEditor();
+    expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
+    await user.click(screen.getByTestId("editor-run-monitor"));
+    const panel = await screen.findByTestId("run-monitor-panel");
+    // Long runs (output, checkpoints, diagnostics) overflow the panel's height: it must scroll,
+    // and the run input must not be squashed to a line by its flex siblings.
+    expect(panel.className).toContain("overflow-y-auto");
+    expect(panel.className).toContain("[&>*]:shrink-0");
+
+    await user.click(screen.getByTestId("run-monitor-close"));
+    expect(screen.queryByTestId("run-monitor-panel")).not.toBeInTheDocument();
+    // The toolbar toggle still brings it back.
+    await user.click(screen.getByTestId("editor-run-monitor"));
+    expect(await screen.findByTestId("run-monitor-panel")).toBeInTheDocument();
+  });
+
   it("handles quick-add/connect/map mutations and save/publish errors", async () => {
     let patchCalls = 0;
     let previewBody: Record<string, unknown> | null = null;

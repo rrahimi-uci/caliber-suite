@@ -226,6 +226,17 @@ export function ToolDetail(): JSX.Element {
       <p className="text-sm text-gray-500">
         {tool.description || "No description."}
       </p>
+      <p className="mt-2 text-sm text-gray-600">
+        This page shows what is registered.{" "}
+        <Link
+          to={`/tools?tool=${encodeURIComponent(tool.tool_id)}`}
+          data-testid="tool-detail-open-workspace"
+          className="font-medium text-caliber-purple hover:underline"
+        >
+          Open the workspace
+        </Link>{" "}
+        to sandbox it, keep fixtures, harden it and compare test runs.
+      </p>
 
       {isAdmin && (
         <div className="my-3 flex flex-wrap gap-2">

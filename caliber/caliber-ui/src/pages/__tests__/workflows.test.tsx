@@ -407,6 +407,19 @@ describe("Workflows — summary tiles & status filters", () => {
   });
 });
 
+describe("Workflows — empty state", () => {
+  it("tells a first-time user where the templates are instead of pointing at something that is not there", async () => {
+    useWorkflowHandlers([]);
+    renderPage();
+    expect(await screen.findByText("No workflows yet")).toBeInTheDocument();
+    // The templates only open after New Workflow is pressed; "above" pointed at nothing.
+    expect(screen.queryByText(/template above/i)).not.toBeInTheDocument();
+    expect(
+      screen.getByText(/Click New Workflow to start from a template, or Import a workflow file\./),
+    ).toBeInTheDocument();
+  });
+});
+
 describe("Workflows — search", () => {
   it("filters by name, case-insensitively", async () => {
     useWorkflowHandlers();

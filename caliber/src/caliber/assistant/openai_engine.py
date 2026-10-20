@@ -94,7 +94,7 @@ class OpenAIAssistantEngine:
 
         # A per-turn toolset (context-bound, permissioned) takes precedence over
         # the constructor-time read-only dispatcher.
-        dispatcher = toolset or self._tool_dispatcher
+        dispatcher = None if request.prompt_playground else toolset or self._tool_dispatcher
         if toolset is None and dispatcher is not None:
             # The constructor-time registry dispatcher is shared by all
             # requests. Bind it to this turn's authenticated task context

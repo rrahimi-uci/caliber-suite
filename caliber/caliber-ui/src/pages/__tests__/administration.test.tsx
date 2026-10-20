@@ -890,6 +890,8 @@ describe("Administration", () => {
     await waitFor(() =>
       expect(within(devRow).getByRole("combobox")).toHaveValue("editor"),
     );
+    // A role change says what it did, as adding and removing a member do.
+    expect(screen.getByRole("status")).toHaveTextContent("Changed @dev to editor.");
 
     fireEvent.click(within(devRow).getByRole("button", { name: "Remove" }));
     await waitFor(() =>

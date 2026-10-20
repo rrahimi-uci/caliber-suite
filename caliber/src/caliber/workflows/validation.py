@@ -1022,7 +1022,12 @@ def _check_write_tool_approval(
     manifest: WorkflowManifest,
     resolver: ToolResolver | None,
 ) -> None:
-    """Warn when a write/external tool reaches output without a Human Approval node."""
+    """Warn when a write/external tool reaches output without any approval gate.
+
+    A gate is either a Human Approval node in the workflow or a tool binding with
+    ``requires_approval: true``: the runtime pauses a run at such a binding until a second
+    person approves it, so a gated binding is not reported.
+    """
     has_approval_node = any(isinstance(n, HumanApprovalNode) for n in manifest.nodes.values())
     if has_approval_node:
         return
@@ -1036,7 +1041,7 @@ def _check_write_tool_approval(
             continue
         for local_name, path in references:
             binding = manifest.tools.get(local_name)
-            if binding is None:
+            if binding is None or binding.requires_approval:
                 continue
             side_effect_level = _binding_side_effect_level(binding, resolver)
             if side_effect_level not in ("write", "external_action"):

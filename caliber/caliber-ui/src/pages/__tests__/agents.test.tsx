@@ -176,6 +176,10 @@ describe("Agents lifecycle UI", () => {
 
     expect(await screen.findByText("Support Agent")).toBeInTheDocument();
     await user.click(screen.getByTestId("new-agent"));
+    // A first-time user does not know what an experiment id is for, or that it is unique per agent.
+    expect(
+      screen.getByText(/One agent per experiment/),
+    ).toBeInTheDocument();
     await user.type(screen.getByLabelText("Agent ID"), "research-agent");
     await user.type(
       screen.getByLabelText("MLflow experiment ID"),

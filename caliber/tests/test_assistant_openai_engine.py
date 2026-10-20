@@ -397,3 +397,46 @@ def test_run_turn_tool_loop_caps_iterations(monkeypatch: pytest.MonkeyPatch) -> 
     # 5 capped tool rounds + 1 forced tool-free final call.
     assert state["create"] == OpenAIAssistantEngine._MAX_TOOL_ITERATIONS + 1
     assert result.reply == "forced final reply"
+
+
+def test_prompt_playground_turn_runs_the_prompt_with_no_tools(
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """A playground turn is the registered prompt answering: it is the system prompt, and the
+    authoring toolset is not offered (a model with tools drafts artifacts instead of answering)."""
+    import openai
+
+    seen: dict[str, Any] = {}
+
+    class _FakeOpenAI:
+        def __init__(self, **_: Any) -> None:
+            self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
+
+        def _create(self, **kwargs: Any) -> Any:
+            seen.update(kwargs)
+            msg = SimpleNamespace(content='{"periods": 12}', tool_calls=None)
+            return SimpleNamespace(choices=[SimpleNamespace(message=msg)])
+
+    class _Toolset:
+        def specs(self) -> list[dict[str, Any]]:
+            raise AssertionError("the playground must not offer tools")
+
+        def dispatch(self, name: str, arguments: dict[str, Any]) -> str:  # pragma: no cover
+            raise AssertionError("the playground must not call tools")
+
+    monkeypatch.setattr(openai, "OpenAI", _FakeOpenAI)
+    result = OpenAIAssistantEngine(api_key="sk-x", model="gpt-4o-mini").run_turn(
+        AssistantTurnRequest(
+            session_id="s1",
+            user_message="Analyze the CSV",
+            artifact_type="prompt",
+            goal="You are a financial analyst. Return JSON.",
+            prompt_playground=True,
+        ),
+        toolset=_Toolset(),  # type: ignore[arg-type]
+    )
+
+    assert result.reply == '{"periods": 12}'
+    assert not seen.get("tools")
+    system = seen["messages"][0]["content"]
+    assert "PROMPT PLAYGROUND" in system and "You are a financial analyst." in system

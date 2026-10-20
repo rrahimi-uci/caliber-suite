@@ -36,6 +36,21 @@ def build_assistant_system_prompt(request: AssistantTurnRequest) -> str:
         )
         return "\n".join(parts)
 
+    if request.prompt_playground and request.artifact_type == "prompt" and request.goal:
+        parts.extend(
+            [
+                "",
+                "PROMPT PLAYGROUND",
+                "You are being run as the registered prompt below, exactly as a production call "
+                "would run it. Answer the user's message the way that prompt instructs. Do not "
+                "draft, create or modify artifacts, do not call tools, and do not describe or "
+                "restate the prompt.",
+                "",
+                request.goal,
+            ]
+        )
+        return "\n".join(parts)
+
     parts.extend(
         [
             "",

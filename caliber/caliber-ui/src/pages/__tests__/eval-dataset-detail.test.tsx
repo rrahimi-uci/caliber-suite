@@ -518,3 +518,97 @@ describe("EvalDatasetDetail — sync, retire-error, and version filter", () => {
     await waitFor(() => expect(lastVersion).toBe("1"));
   });
 });
+
+describe("EvalDatasetDetail — import from file", () => {
+  function serveBasics(posted: Record<string, unknown>[], failAt?: number): void {
+    server.use(
+      http.get(`${API_BASE}/eval-datasets/ED-1`, () => HttpResponse.json(envelope(dataset()))),
+      http.get(`${API_BASE}/eval-datasets/ED-1/examples`, () =>
+        HttpResponse.json(envelope([example()])),
+      ),
+      http.post(`${API_BASE}/eval-datasets/ED-1/examples`, async ({ request }) => {
+        if (failAt !== undefined && posted.length === failAt) {
+          return HttpResponse.json({ detail: "example rejected" }, { status: 400 });
+        }
+        posted.push((await request.json()) as Record<string, unknown>);
+        return HttpResponse.json(envelope(example({ example_id: `EX-${posted.length}` })), {
+          status: 201,
+        });
+      }),
+    );
+  }
+
+  it("uploads a JSONL file and posts one example per row", async () => {
+    const posted: Record<string, unknown>[] = [];
+    serveBasics(posted);
+    renderPage();
+    await screen.findAllByTestId("example-row");
+    await userEvent.click(screen.getByTestId("import-toggle"));
+    const file = new File(
+      [
+        '{"id":"TK01","tags":["a"],"input":{"ticket_text":"one"},"expected":{"decision":"reply"}}\n' +
+          '{"id":"TK02","input":{"ticket_text":"two"},"expected":{"decision":"clarify"}}\n',
+      ],
+      "tickets.jsonl",
+      { type: "application/json" },
+    );
+    await userEvent.upload(screen.getByTestId("import-file"), file);
+    expect(await screen.findByTestId("import-summary")).toHaveTextContent(
+      "tickets.jsonl: 2 rows ready to import.",
+    );
+    await userEvent.click(screen.getByTestId("import-save"));
+    await waitFor(() => expect(posted).toHaveLength(2));
+    expect(posted[0]).toEqual({
+      input: { ticket_text: "one" },
+      expected: { decision: "reply" },
+      tags: ["a"],
+      weight: 1,
+    });
+    // the panel closes once everything is in
+    await waitFor(() => expect(screen.queryByTestId("import-editor")).not.toBeInTheDocument());
+  });
+
+  it("names the bad line and posts nothing when the file is not valid", async () => {
+    const posted: Record<string, unknown>[] = [];
+    serveBasics(posted);
+    renderPage();
+    await screen.findAllByTestId("example-row");
+    await userEvent.click(screen.getByTestId("import-toggle"));
+    await userEvent.upload(
+      screen.getByTestId("import-file"),
+      new File(['{"input":{"q":"ok"}}\n{"oops"\n'], "bad.jsonl"),
+    );
+    expect(await screen.findByTestId("import-error")).toHaveTextContent("Line 2 is not valid JSON.");
+    expect(screen.getByTestId("import-save")).toBeDisabled();
+    expect(posted).toHaveLength(0);
+  });
+
+  it("stops at the first rejected row and says how far it got", async () => {
+    const posted: Record<string, unknown>[] = [];
+    serveBasics(posted, 1);
+    renderPage();
+    await screen.findAllByTestId("example-row");
+    await userEvent.click(screen.getByTestId("import-toggle"));
+    await userEvent.upload(
+      screen.getByTestId("import-file"),
+      new File(['{"input":{"q":"a"}}\n{"input":{"q":"b"}}\n{"input":{"q":"c"}}\n'], "rows.jsonl"),
+    );
+    await userEvent.click(await screen.findByTestId("import-save"));
+    expect(await screen.findByTestId("import-error")).toHaveTextContent(
+      "Stopped after 1 of 3 rows: example rejected",
+    );
+    expect(posted).toHaveLength(1);
+    // the panel stays open so the user can fix the file and try again
+    expect(screen.getByTestId("import-editor")).toBeInTheDocument();
+  });
+
+  it("toggling the import panel off hides it", async () => {
+    serveBasics([]);
+    renderPage();
+    await screen.findAllByTestId("example-row");
+    await userEvent.click(screen.getByTestId("import-toggle"));
+    expect(screen.getByTestId("import-editor")).toBeInTheDocument();
+    await userEvent.click(screen.getByTestId("import-toggle"));
+    expect(screen.queryByTestId("import-editor")).not.toBeInTheDocument();
+  });
+});

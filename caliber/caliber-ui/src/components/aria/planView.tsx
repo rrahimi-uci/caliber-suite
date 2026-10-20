@@ -128,6 +128,9 @@ export function PlanStepRow({ step }: { step: AriaPlanStep }): JSX.Element {
   );
 }
 
+/** Free-text inputs a person writes a sentence or a paragraph in (a judge's instructions). */
+const LONG_TEXT_INPUTS = new Set(["instructions", "description"]);
+
 type JsonSchemaProperty = {
   type?: string;
   title?: string;
@@ -336,6 +339,14 @@ export function PlanInteractionPrompt({
                     className="mt-1 block min-h-20 w-full rounded-md border border-violet-200 bg-white px-2.5 py-1.5 font-mono text-xs"
                     value={String(value)}
                     placeholder={schema.type === "array" ? '["item"]' : '{"key":"value"}'}
+                    onChange={(event) =>
+                      setInputValues((current) => ({ ...current, [name]: event.target.value }))
+                    }
+                  />
+                ) : schema.type === "string" && LONG_TEXT_INPUTS.has(name) ? (
+                  <textarea
+                    className="mt-1 block min-h-20 w-full rounded-md border border-violet-200 bg-white px-2.5 py-1.5 text-sm"
+                    value={String(value)}
                     onChange={(event) =>
                       setInputValues((current) => ({ ...current, [name]: event.target.value }))
                     }

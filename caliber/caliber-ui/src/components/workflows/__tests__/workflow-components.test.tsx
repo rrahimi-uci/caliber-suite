@@ -2930,6 +2930,34 @@ describe("Inspector", () => {
     expect(onChangeNode).toHaveBeenCalledWith("tool_lookup", {
       tool_name: "mcp:Docs/search_docs",
     });
+    // Nothing is bound yet (the mocked change handler does not rebind), so no hint.
+    expect(screen.queryByTestId("inspector-tool-binding-hint")).not.toBeInTheDocument();
+  });
+
+  it("tells a tool node's reader where its binding's approval, retries and timeout are set", () => {
+    const m = manifest();
+    m.nodes.tool_lookup = {
+      id: "tool_lookup",
+      type: "tool",
+      tool_name: "lookup_policy",
+      inputs: { input: { type: "string" }, arguments: { type: "structured" } },
+      outputs: { text: { type: "string" }, result: { type: "structured" } },
+    };
+    render(
+      <Inspector
+        manifest={m}
+        selectedNodeId="tool_lookup"
+        tools={[tool("lookup_policy")]}
+        mcpServers={[]}
+        onChangeNode={vi.fn()}
+        onChangeWorkflow={vi.fn()}
+      />,
+    );
+    // The switches live in the workflow settings, not on the node: the node says so, or a
+    // first-time user never finds the approval switch.
+    expect(screen.getByTestId("inspector-tool-binding-hint")).toHaveTextContent(
+      /Approval, retries and timeout.*Tool bindings.*workflow settings/,
+    );
   });
 
   it("shows python-code settings and updates code + timeout", async () => {

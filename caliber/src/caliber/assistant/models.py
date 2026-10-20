@@ -178,6 +178,9 @@ class AssistantTurnRequest(BaseModel):
     selected_skills: list[dict[str, Any]] = Field(default_factory=list)
     skill_runtime_mode: SkillRuntimeMode = "auto"
     skill_playground: bool = False
+    # The session runs a registered prompt as its system prompt (the Prompts page's Playground),
+    # not Aria's artifact-authoring flow: the reply is what that prompt would answer.
+    prompt_playground: bool = False
     mode: AssistantMode = "build"
     attachments: list[dict[str, Any]] = Field(default_factory=list)
     steer: bool = False

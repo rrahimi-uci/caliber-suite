@@ -19,6 +19,7 @@ import type {
   EvalExampleCreatePayload,
 } from "@/api/types";
 import { useApi } from "@/hooks/useApi";
+import { parseExampleFile } from "@/lib/exampleFile";
 import { relativeTime } from "@/lib/time";
 
 /** Parse a JSON object from a textarea, returning the dict or an error message. */
@@ -39,6 +40,15 @@ function parseJsonObject(text: string): { value: Record<string, unknown> } | { e
 
 function prettyJson(value: Record<string, unknown>): string {
   return JSON.stringify(value, null, 2);
+}
+
+function readFileText(file: File): Promise<string> {
+  return new Promise((resolve, reject) => {
+    const reader = new FileReader();
+    reader.onload = () => resolve(String(reader.result ?? ""));
+    reader.onerror = () => reject(reader.error ?? new Error("could not read the file"));
+    reader.readAsText(file);
+  });
 }
 
 type VersionView = "added" | "asOf";
@@ -87,7 +97,7 @@ export function EvalDatasetDetail(): JSX.Element {
     refresh: refreshExamples,
   } = useApi(examplesFetcher, [datasetId, versionFilter, versionView, showRetired]);
 
-  const [mode, setMode] = useState<"none" | "add" | "trace">("none");
+  const [mode, setMode] = useState<"none" | "add" | "trace" | "import">("none");
   const [editing, setEditing] = useState<EvalExample | null>(null);
   const [actionError, setActionError] = useState<string | null>(null);
   const [pending, setPending] = useState<string | null>(null);
@@ -214,6 +224,17 @@ export function EvalDatasetDetail(): JSX.Element {
           >
             {mode === "trace" ? "Cancel" : "Capture from trace"}
           </button>
+          <button
+            type="button"
+            data-testid="import-toggle"
+            onClick={() => {
+              setEditing(null);
+              setMode((m) => (m === "import" ? "none" : "import"));
+            }}
+            className="text-sm font-medium text-gray-600 border border-surface-200 px-3 py-1.5 rounded-md hover:bg-surface-100"
+          >
+            {mode === "import" ? "Cancel" : "Import from file"}
+          </button>
         </div>
         <div className="flex flex-wrap items-center gap-3 text-sm">
           <label
@@ -313,6 +334,18 @@ export function EvalDatasetDetail(): JSX.Element {
         />
       )}
 
+      {mode === "import" && (
+        <ImportEditor
+          onCancel={closeEditors}
+          onImported={() => {
+            closeEditors();
+            refreshAll();
+          }}
+          onAppend={(payload) => caliberApi.appendEvalExample(datasetId, payload)}
+          onPartial={refreshAll}
+        />
+      )}
+
       {mode === "trace" && (
         <FromTraceEditor
           onCancel={closeEditors}
@@ -374,7 +407,7 @@ export function EvalDatasetDetail(): JSX.Element {
                 >
                   {versionView === "asOf"
                     ? "No examples were active in this snapshot."
-                    : "No examples yet. Add one by hand or capture one from a trace."}
+                    : "No examples yet. Add one by hand, import a file, or capture one from a trace."}
                 </td>
               </tr>
             )}
@@ -707,6 +740,122 @@ function FromTraceEditor({
           className="text-sm font-medium text-white bg-caliber-purple px-3 py-1.5 rounded-md hover:bg-caliber-purple-dark disabled:opacity-50"
         >
           {submitting ? "Capturing…" : "Capture"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function ImportEditor({
+  onCancel,
+  onImported,
+  onAppend,
+  onPartial,
+}: {
+  onCancel: () => void;
+  onImported: () => void;
+  onAppend: (payload: EvalExampleCreatePayload) => Promise<unknown>;
+  onPartial: () => void;
+}): JSX.Element {
+  const [fileName, setFileName] = useState("");
+  const [rows, setRows] = useState<EvalExampleCreatePayload[]>([]);
+  const [error, setError] = useState<string | null>(null);
+  const [done, setDone] = useState(0);
+  const [importing, setImporting] = useState(false);
+
+  const choose = async (file: File | undefined): Promise<void> => {
+    setError(null);
+    setRows([]);
+    setDone(0);
+    setFileName(file?.name ?? "");
+    if (!file) return;
+    let text: string;
+    try {
+      text = await readFileText(file);
+    } catch {
+      setError("Could not read that file.");
+      return;
+    }
+    const parsed = parseExampleFile(text);
+    if ("error" in parsed) setError(parsed.error);
+    else setRows(parsed.rows);
+  };
+
+  const run = async (): Promise<void> => {
+    setError(null);
+    setImporting(true);
+    let added = 0;
+    try {
+      for (const row of rows) {
+        await onAppend(row);
+        added += 1;
+        setDone(added);
+      }
+    } catch (err) {
+      setError(
+        `Stopped after ${added} of ${rows.length} rows: ${
+          err instanceof ApiError ? err.message : "save failed"
+        }`,
+      );
+      setImporting(false);
+      if (added > 0) onPartial();
+      return;
+    }
+    setImporting(false);
+    onImported();
+  };
+
+  return (
+    <div data-testid="import-editor" className="mb-6 bg-white rounded-lg border border-surface-200 p-4">
+      <h2 className="text-sm font-semibold text-gray-900 mb-1">Import from file</h2>
+      <p className="text-xs text-gray-500 mb-3">
+        A JSON Lines file (one JSON object per line) or a JSON array. Each row needs an{" "}
+        <code>input</code> object and may have <code>expected</code>, <code>tags</code> and{" "}
+        <code>weight</code>. Rows are added to this test set one by one.
+      </p>
+      <input
+        type="file"
+        data-testid="import-file"
+        aria-label="Test set file"
+        accept=".jsonl,.json,.ndjson,application/json"
+        onChange={(event) => void choose(event.target.files?.[0])}
+        className="text-sm"
+      />
+      {rows.length > 0 && !error && (
+        <div data-testid="import-summary" className="mt-3 text-sm text-gray-700">
+          {fileName}: {rows.length} row{rows.length === 1 ? "" : "s"} ready to import.
+        </div>
+      )}
+      {importing && (
+        <div data-testid="import-progress" className="mt-2 text-sm text-gray-500">
+          Imported {done} of {rows.length}…
+        </div>
+      )}
+      {error && (
+        <div data-testid="import-error" className="mt-3 text-sm text-red-600">
+          {error}
+        </div>
+      )}
+      <div className="mt-4 flex gap-2 justify-end">
+        <button
+          type="button"
+          onClick={onCancel}
+          className="text-sm px-3 py-1.5 rounded-md text-gray-600 hover:bg-surface-100"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          data-testid="import-save"
+          disabled={importing || rows.length === 0}
+          onClick={() => void run()}
+          className="text-sm font-medium text-white bg-caliber-purple px-3 py-1.5 rounded-md hover:bg-caliber-purple-dark disabled:opacity-50"
+        >
+          {importing
+            ? "Importing…"
+            : rows.length > 0
+              ? `Import ${rows.length} row${rows.length === 1 ? "" : "s"}`
+              : "Import"}
         </button>
       </div>
     </div>

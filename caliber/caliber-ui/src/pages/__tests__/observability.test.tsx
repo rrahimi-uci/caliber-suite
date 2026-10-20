@@ -412,6 +412,59 @@ describe("Observability page", () => {
     expect(within(metrics).getByText("3")).toBeInTheDocument();
   });
 
+  it("settles a trace that was still in progress without a reload", async () => {
+    let calls = 0;
+    server.use(
+      http.get(`${OBS}/experiments`, () => HttpResponse.json(envelope({ experiments: [] }))),
+      http.get(`${OBS}/traces`, () => {
+        calls += 1;
+        // MLflow closes a trace asynchronously: the first read still says IN_PROGRESS.
+        const status = calls === 1 ? "IN_PROGRESS" : "OK";
+        return HttpResponse.json(envelope({ traces: [{ ...ALPHA, status }] }));
+      }),
+      http.get(`${OBS}/traces/:traceId`, ({ params }) =>
+        HttpResponse.json(envelope(detail(String(params.traceId)))),
+      ),
+    );
+    renderPage();
+
+    const row = await screen.findByTestId("observability-trace-row");
+    expect(row.textContent).toContain("IN_PROGRESS");
+    await waitFor(
+      () => expect(screen.getByTestId("observability-trace-row").textContent).toContain("OK"),
+      { timeout: 9000 },
+    );
+  }, 20000);
+
+  it("shows a run that fails after the page loaded under the Error filter, without a reload", async () => {
+    // The lab 16 defect: the last failed run is still IN_PROGRESS when the page loads, so the
+    // Error-filtered list is one short, and nothing in that list is in progress to trigger a refresh.
+    let calls = 0;
+    const failed = (id: string) => ({ ...ALPHA, trace_id: id, status: "ERROR" });
+    server.use(
+      http.get(`${OBS}/experiments`, () => HttpResponse.json(envelope({ experiments: [] }))),
+      http.get(`${OBS}/traces`, ({ request }) => {
+        calls += 1;
+        const wantsError = new URL(request.url).searchParams.get("status") === "ERROR";
+        const traces = wantsError ? [failed("tr-first")] : [{ ...ALPHA, trace_id: "tr-first" }];
+        // From the second read of the filtered list on, the trace that was in progress is closed.
+        if (wantsError && calls > 2) traces.push(failed("tr-late"));
+        return HttpResponse.json(envelope({ traces }));
+      }),
+      http.get(`${OBS}/traces/:traceId`, ({ params }) =>
+        HttpResponse.json(envelope(detail(String(params.traceId)))),
+      ),
+    );
+    renderPage();
+    await screen.findAllByTestId("observability-trace-row");
+    await userEvent.selectOptions(screen.getByLabelText("Filter by status"), "ERROR");
+    await waitFor(() => expect(screen.getAllByTestId("observability-trace-row")).toHaveLength(1));
+
+    await waitFor(() => expect(screen.getAllByTestId("observability-trace-row")).toHaveLength(2), {
+      timeout: 12000,
+    });
+  }, 30000);
+
   it("compares two traces side by side", async () => {
     useObservabilityHandlers();
     renderPage();

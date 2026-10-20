@@ -256,3 +256,30 @@ def test_send_message_does_not_overwrite_existing_session_approval_when_request_
     session = svc.get_session(sid, session_factory=session_factory, user=USER)
     assert session is not None
     assert session.metadata_["assistant_approval_mode"] == "auto_safe"
+
+
+def test_prompt_playground_session_metadata_reaches_the_engine(
+    session_factory: sessionmaker[Session],
+) -> None:
+    """The Prompts page's Playground (and the SDK) mark a session ``prompt_playground`` in its
+    metadata; only then does the engine run the prompt instead of authoring."""
+    svc, engine = _create_service()
+    playground = _create_session(
+        svc,
+        session_factory,
+        goal="You are a financial analyst.",
+        artifact_type="prompt",
+        metadata_={"prompt_playground": True},
+    )
+    authoring = _create_session(svc, session_factory, goal="Draft one.", artifact_type="prompt")
+
+    for sid in (playground, authoring):
+        svc.send_message(
+            sid,
+            MessageSendRequest(content="Analyze this", artifact_type="prompt"),
+            session_factory=session_factory,
+            user=USER,
+        )
+
+    assert [request.prompt_playground for request in engine.requests] == [True, False]
+    assert engine.requests[0].goal == "You are a financial analyst."

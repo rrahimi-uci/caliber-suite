@@ -20,6 +20,29 @@ class TestFakeAssistantEngine:
             artifact_type=artifact_type,  # type: ignore[arg-type]
         )
 
+    def test_prompt_playground_turn_says_it_is_simulated_and_never_authors(self):
+        """With no model running, the Prompts Playground must not answer as Aria's authoring flow.
+
+        A first-time user typing into the playground of a prompt on the simulated stack used to
+        get Aria's clarifying question about building something; now it says plainly that no
+        model answered, and starts no authoring (a later turn is still a first turn).
+        """
+        request = AssistantTurnRequest(
+            session_id=self.session_id,
+            user_message="Where is my refund?",
+            artifact_type="prompt",
+            goal="You are a support classifier.",
+            prompt_playground=True,
+        )
+        result = self.engine.run_turn(request)
+        assert "(simulated)" in result.reply
+        assert "not the prompt's answer" in result.reply
+        assert result.questions == []
+        assert result.draft_deltas == []
+        assert not result.done
+        # Authoring did not advance: the next ordinary turn is still the first (it asks questions).
+        assert self.engine.run_turn(self._request()).questions
+
     def test_first_turn_asks_questions(self):
         result = self.engine.run_turn(self._request())
         assert result.reply

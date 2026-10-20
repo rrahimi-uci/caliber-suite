@@ -231,6 +231,15 @@ describe("Prompts advanced playground flows", () => {
     await user.click(screen.getByTitle("Send message"));
 
     expect(await screen.findByText("Assistant reply")).toBeInTheDocument();
+    // Each chat message is addressable by role (the cookbook 17 journey reads the assistant's).
+    expect(
+      screen
+        .getAllByTestId("playground-message")
+        .map((message) => message.getAttribute("data-role")),
+    ).toEqual(["user", "assistant"]);
+    expect(
+      screen.getByText("Assistant reply").closest('[data-testid="playground-message"]'),
+    ).toHaveAttribute("data-role", "assistant");
     expect(messagePayloads[0]?.content).toContain(
       'The user has uploaded a file named "context.md"',
     );
