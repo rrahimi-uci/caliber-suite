@@ -19,6 +19,9 @@ evaluation:
   rule_checks:
     - go_requires_ready_planned_action_and_rollback_target
     - waiver_requires_admin_reason_existing_key_and_future_expiry
+    - ui_card_names_blockers_waivers_and_score_shortfall   # UI only: each card says which criterion blocks it, who waived what until when, and when the score alone blocks
+    - ui_new_candidate_for_the_next_version            # UI only: a candidate is never edited; the fixed package version gets a new ready candidate
+    - ui_signoff_deploys_nothing                       # UI only: after a signed GO the live board and timeline are unchanged; Make live on the prompt moves them
 quality_gates:
   candidates_created: 20
   ready: 14

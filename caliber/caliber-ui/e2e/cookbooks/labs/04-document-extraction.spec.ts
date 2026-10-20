@@ -10,11 +10,13 @@ import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
  * Cookbook 04 (`docs-site/cookbooks/04-document-extraction-structuring-lab/README.md`), "Recipe: run it
  * through the UI".
  *
- * Needs a server started with `CALIBER_APPROVER_USERS=admin,reviewer scripts/cookbook-env.sh up lab04
- * --flags cookbooks --s3` and a `reviewer` account (the README's setup section creates it). Nothing is
- * seeded and no API call is made while the steps run: every step is a click in the web app. The one
- * exception is the documented cleanup at the start, which empties the two buckets so the run can be
- * repeated (the output bucket refuses to overwrite an invoice, by design).
+ * Needs a server started with `CALIBER_APPROVER_USERS=admin,reviewer CALIBER_OPERATOR_USERS=admin,reviewer
+ * scripts/cookbook-env.sh up NAME --flags cookbooks --s3` (the two variables give the second account its
+ * platform scopes). Nothing is seeded and no API call is made while the steps run: the reviewer account,
+ * the workspace, the buckets, the uploads, the install, the runs, the approvals, the version 2 edit and
+ * the comparison are all clicks in the web app. The one exception is the documented cleanup at the
+ * start, which empties the two buckets so the run can be repeated (the output bucket refuses to
+ * overwrite an invoice, by design).
  */
 const here = path.dirname(fileURLToPath(import.meta.url));
 const ASSETS = path.resolve(
@@ -85,11 +87,27 @@ async function runDocument(page: Page, key: string): Promise<string> {
   );
   // The run monitor's sticky header overlaps its own buttons' hit-test point, so the click is
   // dispatched straight to the button (the same pattern the Workflow Studio specs use).
-  await page.getByTestId("run-execute").dispatchEvent("click");
+  await page.getByTestId("run-execute").click();
   const body = (await (await started).json()) as {
     data: { workflow_run_id: string };
   };
   return body.data.workflow_run_id;
+}
+
+/** Editor > Publish: validate, review, publish (the drawer's three steps). */
+async function publishFromEditor(page: Page): Promise<void> {
+  await page.getByTestId("editor-publish").click();
+  await page.getByTestId("publish-run-validate").click();
+  // The report (problems, warnings or "No problems.") must be on screen before the box is looked for.
+  await expect(
+    page.getByTestId("publish-validate").locator("li").first(),
+  ).toBeVisible();
+  const ack = page.getByTestId("publish-ack");
+  if (await ack.isVisible()) await ack.check();
+  await page.getByTestId("publish-next-1").click();
+  await page.getByTestId("publish-next-2").click();
+  await page.getByTestId("publish-confirm").click();
+  await expect(page.getByTestId("editor-message")).toContainText("Published.");
 }
 
 test.use({ actionTimeout: 30_000 });
@@ -112,6 +130,24 @@ test.describe("Cookbook 04: document-to-JSON pipeline", () => {
     await expect(page.getByLabel("Active workspace")).toContainText(workspace);
 
     await page.goto("/caliber/administration");
+    // The second person: an account made on the Administration page (skipped when a previous run of
+    // this spec already created it: accounts are not deleted in the alpha).
+    const accounts = page.getByRole("table", {
+      name: "Accounts in this deployment",
+    });
+    await expect(
+      page.getByRole("button", { name: "Create account" }),
+    ).toBeVisible();
+    if (!(await accounts.getByText(REVIEWER.user, { exact: true }).count())) {
+      await page.getByPlaceholder("@alice").fill(REVIEWER.user);
+      await page
+        .getByLabel("Password", { exact: true })
+        .fill(REVIEWER.password);
+      await page.getByRole("button", { name: "Create account" }).click();
+      await expect(
+        accounts.getByText(REVIEWER.user, { exact: true }),
+      ).toBeVisible();
+    }
     await page
       .getByLabel("Project for access management")
       .selectOption({ label: `${workspace} (owner)` });
@@ -195,6 +231,14 @@ test.describe("Cookbook 04: document-to-JSON pipeline", () => {
       "write_extracted",
     );
 
+    // A yen invoice is valid under version 1 too: it is written, which is what version 2 will change.
+    const yenKey = byFile("inv-2026-0107-tokyo.txt").inputs.key;
+    await runDocument(page, yenKey);
+    await expectRunStatus(page, "completed");
+    const v1YenHref = await page
+      .getByTestId("run-active-open-link")
+      .getAttribute("href");
+
     // 7. The same invoice again is refused by the output bucket (it never overwrites).
     await runDocument(page, byFile("inv-2026-0101-acme-resend.txt").inputs.key);
     await expectRunStatus(page, "failed");
@@ -211,7 +255,7 @@ test.describe("Cookbook 04: document-to-JSON pipeline", () => {
     );
     await expect(page.getByTestId("run-approval-actions")).toBeVisible();
     // The account that started the run is not the one who may approve it.
-    await page.getByTestId("run-approve").dispatchEvent("click");
+    await page.getByTestId("run-approve").click();
     await expect(
       page.getByText(/cannot approve it; a second person must decide/),
     ).toBeVisible();
@@ -234,11 +278,11 @@ test.describe("Cookbook 04: document-to-JSON pipeline", () => {
     await page.getByTestId("editor-run-monitor").click();
     await page.getByTestId(`run-history-select-${heldRun}`).click();
     await expectRunStatus(page, "waiting_approval");
-    await page.getByTestId("run-approve").dispatchEvent("click");
+    await page.getByTestId("run-approve").click();
     await expect(page.getByTestId("run-resume")).toBeEnabled({
       timeout: 30_000,
     });
-    await page.getByTestId("run-resume").dispatchEvent("click");
+    await page.getByTestId("run-resume").click();
     await expectRunStatus(page, "completed");
     await expect(page.getByTestId("run-debugger-section")).toContainText(
       "write_reviewed",
@@ -246,7 +290,7 @@ test.describe("Cookbook 04: document-to-JSON pipeline", () => {
 
     await page.getByTestId(`run-history-select-${rejectRun}`).click();
     await expectRunStatus(page, "waiting_approval");
-    await page.getByTestId("run-reject").dispatchEvent("click");
+    await page.getByTestId("run-reject").click();
     await expectRunStatus(page, "failed");
 
     // 11. What reached the output bucket: the valid invoice and the approved one, nothing else.
@@ -270,6 +314,10 @@ test.describe("Cookbook 04: document-to-JSON pipeline", () => {
       '"total": 646.92',
     );
     await page.getByLabel("Close file preview").click();
+    // The yen invoice (valid under version 1) was written as well.
+    await expect(
+      page.getByTestId("object-invoices/TP-20260317-02.json"),
+    ).toBeVisible();
     await page.goto("/caliber/object-store?bucket=" + OUTPUT_BUCKET);
     await page
       .getByTitle("Open folder")
@@ -281,5 +329,64 @@ test.describe("Cookbook 04: document-to-JSON pipeline", () => {
     await expect(
       page.getByTestId("object-reviewed/inv-2026-0117-no-vendor.json"),
     ).toHaveCount(0);
+
+    // 12. Version 1 is final: sign back in as admin and publish it from the editor.
+    await page.context().clearCookies();
+    await ui.signIn();
+    await page
+      .getByLabel("Active workspace")
+      .selectOption({ label: workspace });
+    await page.goto(editorUrl);
+    await expect(page.getByText("v1 · draft")).toBeVisible();
+    await publishFromEditor(page);
+    await expect(page.getByText("v1 · published")).toBeVisible();
+
+    // 13. Finance now wants yen invoices checked by a person: restore v1 as a draft (version 2),
+    //     remove JPY from the schema's currency list in the validate_schema node, save and publish.
+    await page.getByTestId("editor-restore-as-draft").click();
+    await expect(page.getByText("v2 · draft")).toBeVisible();
+    await page.getByTestId("rf__node-validate_schema").click();
+    const config = page.getByTestId("inspector-transform-config");
+    const cfg = JSON.parse(await config.inputValue()) as {
+      schema: { properties: { currency: { enum: string[] } } };
+    };
+    expect(cfg.schema.properties.currency.enum).toContain("JPY");
+    cfg.schema.properties.currency.enum =
+      cfg.schema.properties.currency.enum.filter((code) => code !== "JPY");
+    await config.fill(JSON.stringify(cfg, null, 2));
+    await page.getByTestId("editor-save").click();
+    await expect(page.getByTestId("editor-save-status")).toContainText("Saved");
+    await publishFromEditor(page);
+    await expect(page.getByText("v2 · published")).toBeVisible();
+
+    // 14. The same yen invoice on version 2 is held for review instead of being written.
+    await page.getByTestId("editor-run-monitor").click();
+    await runDocument(page, yenKey);
+    await expectRunStatus(page, "waiting_approval");
+    await expect(page.getByTestId("run-debugger-section")).toContainText(
+      "review_gate",
+    );
+    const v2YenHref = await page
+      .getByTestId("run-active-open-link")
+      .getAttribute("href");
+    expect(v2YenHref).not.toBe(v1YenHref);
+
+    // 15. Compare: the Versions tab diff names the node that changed, and the Runs tab lists both
+    //     runs of the same document, one per version.
+    await page.goto(`/caliber/workflows/${workflowId}?tab=versions`);
+    await page
+      .getByTestId("version-diff-base")
+      .selectOption({ label: "v1 · published" });
+    await page
+      .getByTestId("version-diff-other")
+      .selectOption({ label: "v2 · published" });
+    await expect(page.getByTestId("diff-modified-node")).toContainText(
+      "validate_schema",
+    );
+    await page.goto(`/caliber/workflows/${workflowId}?tab=runs`);
+    await expect(page.getByTestId("runs-table")).toContainText("Completed");
+    await expect(page.getByTestId("runs-table")).toContainText(
+      "Awaiting approval",
+    );
   });
 });

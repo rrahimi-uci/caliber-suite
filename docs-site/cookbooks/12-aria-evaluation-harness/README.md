@@ -24,7 +24,7 @@ You are done when:
 | Planning the goal into steps | The rules-based planner | **Unchanged.** The assistant engine does not plan: all 28 goals draw the same plans on a real stack (28/28, run live) |
 | `judge.create`, `eval_dataset.create` | Real: a judge and a test set are created in the database | Unchanged |
 | The judge's verdicts | Not produced: **Evaluations** is refused (400), so the judge never runs | **Evaluations** scores each of the 30 rows with the judge (`Judge.<id>`); run live, 30 of 30 rows judged |
-| Test set rows | Real: 30 rows added through the API (3 through the row editor in the UI) | Unchanged |
+| Test set rows | Real: 30 rows loaded by **Import from file** in the UI (or `POST /eval-datasets/{id}/examples` from the script), one edited for a new version | Unchanged |
 | **Ask Aria** (the chat) | Not used here; its engine is `fake` (a deterministic heuristic, `GET /assistant/config`) | A real engine answers and, in a `build` session with `auto_all` approval, calls Aria's tools itself (it created a judge, run live) |
 
 ## Prerequisites and setup
@@ -57,7 +57,7 @@ All under `docs-site/cookbooks/12-aria-evaluation-harness/assets/`.
 | --- | --- | --- |
 | `dataset/goals.jsonl` | 28 goals, one JSON object per line: `{id, goal, expected_steps, outcome, note}` | The planner is checked against it. `outcome` says how the plan relates to what the sentence asked: `as_asked` (18), `unasked` (5, a step you did not ask for), `missed` (1, a step you asked for is missing), `nothing` (4, no steps) |
 | `dataset/faithfulness-cases.jsonl` | 30 support cases: `{id, tags, input: {question, evidence}, expected: {answer}}` | The rows loaded into the test set. Refunds, shipping, account, billing, warranty and safety questions, with the policy text each answer must stay inside, and hard cases: a gift card that is not refundable, a window that has passed (`F02`), a country not served, evidence that does not cover the question (`F13`), a partly covered question (`F07`), medical advice the support team must refuse (`F30`) |
-| `judges/answer-faithfulness.judge.json` | The `judge.create` form values: `name`, `feedback_value_type`, `instructions` (one paragraph, the form's field is a single line) | What you type into the judge form |
+| `judges/answer-faithfulness.judge.json` | The `judge.create` form values: `name`, `feedback_value_type`, `instructions` (one paragraph; the form's field is a multi-line box) | What you type into the judge form |
 | `datasets/support-faithfulness.dataset.json` | The `eval_dataset.create` form values: `name`, `description`, `tags` | What you type into the test set form |
 | `intent.md`, `expected-plan.json` | The canonical sentence, and the plan it must draw | Sanity checks for the draft |
 
@@ -200,10 +200,12 @@ CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwri
 4. **Execute and answer the judge's questions.** Press **Execute**. Expected: **Aria needs information**, "Provide the required inputs for step 1: Create judge.", and the step reads `waiting input`. Fill **name** (`AnswerFaithfulness`), **instructions** (the paragraph from `assets/judges/answer-faithfulness.judge.json`) and **feedback value type** (`bool`), leave the rest, press **Continue plan**. Expected: **Aria needs your approval**, "Approve step 1: Create judge (judge.create)?". Press **Approve**.
 5. **Answer the test set's questions.** Expected: "Provide the required inputs for step 2: Create test set." and step 1 now `done`. Fill **name** (`support-faithfulness-eval`), **description** and **tags** (`["aria-created","faithfulness","support"]`, from `assets/datasets/support-faithfulness.dataset.json`), press **Continue plan**, then **Approve** the prompt "Approve step 2: Create test set (eval_dataset.create)?". Expected: the plan reads `completed` and both steps `done`.
 6. **Verify the judge.** Open **Agent resources > Judges**. Expected: a row `AnswerFaithfulness` showing `bool`.
-7. **Verify the test set and add rows.** Open **Prompt lifecycle > Test Sets**, search for the name and open it. Expected: version `v1` and no rows. Press **+ Add example** and fill **Input (JSON object)** with the first case's `input` (`{"question": ..., "evidence": ...}`), **Expected (JSON object)** with its `expected`, **Tags**, and press **Save**; repeat for two more cases. Expected: each question appears in the list and the version reads `v4`. (The other 27 rows are the script's job: 30 rows by hand is tedious, not different.)
-8. **A sentence with no steps.** On **Plans**, state `Write me a poem about customer support.` and press **Decompose goal**. Expected: an amber note, "No platform steps matched this goal, so there is nothing to approve. ...", the sentence stays in the box so you can reword it, and no plan opens (nothing to approve).
-9. **Skip a step.** State `Create a judge for tone.`, **Decompose goal**, **Approve plan**, **Execute**, and press **Skip step** on the form. Expected: the plan reads `completed` and its step `skipped`.
-10. **A judge that cannot be created.** State `Create a judge for tone.` again, approve, execute, fill **name** with a new name and **instructions** with `Is {{ evidence }} polite?`, press **Continue plan**. Expected: the plan reads `failed` and the step shows `invalid input: instructions: instructions must reference at least one evaluation variable...`; **Judges** has no row for that name.
+7. **Verify the test set and load the 30 cases.** Open **Prompt lifecycle > Test Sets**, search for the name and open it. Expected: version `v1` and no rows (the empty-state line reads "No examples yet. Add one by hand, import a file, or capture one from a trace."). Press **Import from file**, choose [`assets/dataset/faithfulness-cases.jsonl`](assets/dataset/faithfulness-cases.jsonl) under **Test set file**. Expected: `faithfulness-cases.jsonl: 30 rows ready to import.`; press **Import 30 rows**. Expected: a progress line, then 30 rows in the list and the version `v31` (one version per row; the extra `id` key in each line is ignored).
+8. **Modify, which makes a new version.** On the first row (`Can I return a laptop I bought 20 days ago?`) press **Edit**, add a sentence to **Expected (JSON object)** (for example ` Day 20 of 30 is inside the window.`), press **Save**. Expected: the version reads `v32` and the row shows the new text. The old text is not lost: set **Version view** to **Active as of version** and pick `31`; the list shows the 30 rows as they were, the first one without your sentence, read-only.
+9. **Run the judge in Evaluations.** Open **Prompt lifecycle > Evaluations**, **Run evaluation**, pick the test set at `v32`, give it a **Label**, untick **Exact match**, **Token F1** and **Contains expected**, tick **Non-empty** and, under *Custom LLM judges*, your judge, and press **Run**. Expected on the simulated stack: the red message `evaluation requires a real LLM provider` (nothing is stored). On a real stack the same screen scores the 30 rows: see [Through the UI (real stack)](#through-the-ui-real-stack) for the two prompt versions and the comparison.
+10. **A sentence with no steps.** On **Plans**, state `Write me a poem about customer support.` and press **Decompose goal**. Expected: an amber note, "No platform steps matched this goal, so there is nothing to approve. ...", the sentence stays in the box so you can reword it, and no plan opens (nothing to approve).
+11. **Skip a step.** State `Create a judge for tone.`, **Decompose goal**, **Approve plan**, **Execute**, and press **Skip step** on the form. Expected: the plan reads `completed` and its step `skipped`.
+12. **A judge that cannot be created.** State `Create a judge for tone.` again, approve, execute, fill **name** with a new name and **instructions** with `Is {{ evidence }} polite?`, press **Continue plan**. Expected: the plan reads `failed` and the step shows `invalid input: instructions: instructions must reference at least one evaluation variable...`; **Judges** has no row for that name.
 
 ## Verify it worked
 
@@ -215,7 +217,7 @@ API checks (the script does all of them; these are the ones to read by eye):
 - `GET /aria/plans/{failed plan}` has `status: "failed"` and the failed step's `error` is the text in the drills above.
 - On a simulated stack `POST /evaluations` answers `400 evaluation requires a real LLM provider; set CALIBER_LLM_PROVIDER (openai/anthropic) and the matching API key, then retry.` On a real stack it answers 201 and `GET /evaluations/{id}` reads `status: "completed"`, `n_examples: 30`, an `aggregate` with the judge's share of true verdicts (`Judge.<id>`), and `evidence.resolved.llm_provider` set to the real provider (see [Run it with a real provider](#run-it-with-a-real-provider)).
 
-UI checks: steps 1 to 10 above, each with the text or status it names.
+UI checks: steps 1 to 12 above, each with the text or status it names.
 
 ## Run it with a real provider
 
@@ -279,7 +281,15 @@ Verified live, in this order:
 
 ### Through the UI (real stack)
 
-`12-aria-evaluation-harness.spec.ts` checks `GET /readiness` and, on a real stack, adds to the steps above: in **Prompt lifecycle > Prompts** it creates the grounded prompt from `assets/prompts/grounded-answer.prompt.txt`; in **Prompt lifecycle > Evaluations > Run evaluation** it picks the test set (`v4`, three rows), sets *What to score* to `prompt`, *Subject under test* to `<prompt name>@1`, unticks the three default graders, ticks **Non-empty** and the judge under *Custom LLM judges*, and presses **Run**. Expected: the run row reads `completed` and `3/3`, and its scorecard lists three rows. A second test opens **Ask Aria**, sends the judge request in a default chat (no judge is created), then again after choosing **Legacy auto** under the approval selector (a judge row appears in **Agent resources > Judges**). On a simulated stack the same step shows `evaluation requires a real LLM provider` instead. Run it with the command in [Run it through the UI](#recipe-run-it-through-the-ui) against the real stack (10 to 15 minutes, most of it the model).
+The spec reads the amber **Simulated providers** banner at the top of every page (no banner on a real stack) and, on a real stack, continues step 9 above like this:
+
+1. **Write the answerer as a prompt, and version it.** In **Prompt lifecycle > Prompts** press **New prompt**, **Write / paste**, paste [`assets/prompts/careless-answer.prompt.txt`](assets/prompts/careless-answer.prompt.txt) into **Prompt text**, name it, **Create and Open**. This is version 1: a control that never sees the policy. Replace the text in **Prompt template** with [`assets/prompts/grounded-answer.prompt.txt`](assets/prompts/grounded-answer.prompt.txt) and press **Save draft**: version 2, whose `{{ evidence }}` is filled from each test set row.
+2. **Run both versions.** In **Evaluations > Run evaluation** pick the test set at `v32`, set **What to score** to `prompt`, **Subject under test** to `<prompt name>@1`, untick the three default graders, tick **Non-empty** and the judge, label it `careless v1`, **Run**; then the same with `@2` and the label `grounded v2`. Expected: both run rows read `completed` and `30/30`. Each takes about two minutes.
+3. **Compare.** Open the `grounded v2` run, set **Compare to** to the `careless v1` run. Expected: the line `Dataset/scorer-compatible comparison` naming `@1` and `@2`, and a green delta on the judge's card. The scorecard lists 30 rows with each row's prediction and the judge's verdict.
+
+The spec asserts structure and a range, never a score: 30 rows each, the subject names, and the grounded judge share exceeding the careless one by at least 0.2.
+
+A second test opens **Ask Aria**, sends the judge request in a default chat (no judge is created), then again after choosing **Legacy auto** under the approval selector (a judge row appears in **Agent resources > Judges**).
 
 ### Real-provider troubleshooting
 
@@ -313,7 +323,7 @@ Verified live, in this order:
 
 ## Not covered by this lab
 
-The judge's verdicts are checked for structure and against a deliberately careless control, not for being *right*: the lab does not measure the judge against human labels (lab 10 certifies a judge, and lab 13 checks one against 12 reviews). Aria cannot add the 30 rows (it creates the test set empty), and Aria's chat engine does not plan: **Plans** never calls it. The planner does not read negation, synonyms beyond the five listed, or questions: that is a property of the rules-based planner, not of the lab.
+The judge's verdicts are checked for structure and against a deliberately careless control, not for being *right*: the lab does not measure the judge against human labels (lab 10 certifies a judge, and lab 13 checks one against 12 reviews). Aria cannot add the 30 rows (it creates the test set empty; you load them with **Import from file**), a judge has no versions to modify (you archive it and create another), and Aria's chat engine does not plan: **Plans** never calls it. The planner does not read negation, synonyms beyond the five listed, or questions: that is a property of the rules-based planner, not of the lab.
 
 ## Cleanup and reset
 

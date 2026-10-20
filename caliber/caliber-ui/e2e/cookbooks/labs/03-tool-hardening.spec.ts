@@ -4,7 +4,7 @@ import { fileURLToPath } from "node:url";
 
 import { expect, test, type Browser, type Page } from "@playwright/test";
 
-import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
+import { CaliberUi } from "../ui-only-driver";
 import { expectRunStatus } from "../../helpers";
 
 /**
@@ -37,23 +37,6 @@ const rows: Row[] = fs
   .filter((line) => line.trim())
   .map((line) => JSON.parse(line) as Row);
 const byId = new Map(rows.map((row) => [row.id, row]));
-
-function sortedJson(value: unknown): string {
-  // Matches Python's json.dumps(sort_keys=True): ", " and ": " separators.
-  const sort = (v: unknown): unknown =>
-    Array.isArray(v)
-      ? v.map(sort)
-      : v && typeof v === "object"
-        ? Object.fromEntries(
-            Object.entries(v as Record<string, unknown>)
-              .sort(([a], [b]) => (a < b ? -1 : 1))
-              .map(([k, x]) => [k, sort(x)]),
-          )
-        : v;
-  return JSON.stringify(sort(value))
-    .replace(/":/g, '": ')
-    .replace(/,"/g, ', "');
-}
 
 function toolAsset(file: string): Record<string, unknown> {
   return JSON.parse(
@@ -173,6 +156,13 @@ test.describe("Cookbook 03: policy-safe decision tool (UI)", () => {
       }
       await page.getByTestId("wizard-submit").click();
       await expect(page).toHaveURL(/\/caliber\/tools\/[^/]+$/);
+      // Registering opens the tool's detail page; its "Open the workspace" link is the way on to
+      // the Sandbox, Fixtures and Hardening tabs, and the workspace is a URL a reload keeps.
+      await page.getByTestId("tool-detail-open-workspace").click();
+      await expect(page).toHaveURL(/\/caliber\/tools\?tool=TL-/);
+      await expect(page.getByTestId("tool-workspace-header")).toContainText(name);
+      await page.reload();
+      await expect(page.getByTestId("tool-workspace-header")).toContainText(name);
     }
 
     // ---- 2. Sandbox ---------------------------------------------------------
@@ -203,35 +193,33 @@ test.describe("Cookbook 03: policy-safe decision tool (UI)", () => {
     await page.getByRole("button", { name: "Test Run", exact: true }).click();
     await expect(page.getByText("Success (mocked)")).toBeVisible();
 
-    // ---- 3. Fixtures: the editor takes one case at a time --------------------
+    // ---- 3. Fixtures: load the 49 cases from the dataset file ------------------
     await openTool(decideName);
     await page.getByRole("button", { name: "Fixtures", exact: true }).click();
     const fixtures = page.getByTestId("tool-fixtures-calibration");
-    for (const [index, row] of rows.entries()) {
-      if (index > 0)
-        await page.getByTestId("tool-fixtures-calibration-add").click();
-      const block = fixtures
-        .getByTestId("tool-fixtures-calibration-case")
-        .nth(index);
-      await block
-        .getByTestId("tool-fixtures-calibration-case-name")
-        .fill(`${row.id} ${row.name}`);
-      await block
-        .getByTestId("tool-fixtures-calibration-case-input")
-        .fill(JSON.stringify(row.inputs));
-      await block
-        .getByTestId("tool-fixtures-calibration-case-assertion")
-        .selectOption("equals");
-      await block
-        .getByTestId("tool-fixtures-calibration-case-value")
-        .fill(sortedJson(row.expectations));
-    }
+    await page
+      .getByTestId("tool-fixtures-calibration-file")
+      .setInputFiles(path.join(LAB, "assets/dataset/refund-fixtures.jsonl"));
+    await expect(
+      page.getByTestId("tool-fixtures-calibration-loaded"),
+    ).toContainText(`Loaded ${rows.length} cases from refund-fixtures.jsonl`);
+    await expect(
+      fixtures.getByTestId("tool-fixtures-calibration-case"),
+    ).toHaveCount(rows.length);
+    await expect(
+      fixtures.getByTestId("tool-fixtures-calibration-case-name").first(),
+    ).toHaveValue(`${rows[0]!.id} ${rows[0]!.name}`);
     await page.getByTestId("tool-fixtures-calibration-save").click();
     await expect(
       page.getByTestId("tool-fixtures-calibration-saved"),
     ).toBeVisible();
+    // The saved cases come back after a reload, all of them.
+    await openTool(decideName);
+    await page.getByRole("button", { name: "Fixtures", exact: true }).click();
     await expect(
-      fixtures.getByTestId("tool-fixtures-calibration-case"),
+      page
+        .getByTestId("tool-fixtures-calibration")
+        .getByTestId("tool-fixtures-calibration-case"),
     ).toHaveCount(rows.length);
 
     // ---- 4. Hardening: run the suite -----------------------------------------
@@ -255,7 +243,7 @@ test.describe("Cookbook 03: policy-safe decision tool (UI)", () => {
       .getByTestId("tool-hardening-calibration-case")
       .nth(drillIndex);
     await drillCase.getByTestId("tool-hardening-calibration-case-value").fill(
-      sortedJson({
+      JSON.stringify({
         decision: "manual_review",
         reason_code: "AMOUNT_OVER_THRESHOLD",
         requires_approval: true,
@@ -292,7 +280,7 @@ test.describe("Cookbook 03: policy-safe decision tool (UI)", () => {
       .getByTestId("tool-hardening-calibration-case")
       .nth(drillIndex)
       .getByTestId("tool-hardening-calibration-case-value")
-      .fill(sortedJson(byId.get("R09")!.expectations));
+      .fill(JSON.stringify(byId.get("R09")!.expectations));
     await page.getByTestId("tool-hardening-calibrate-btn").click();
     await expect(
       page.getByTestId("tool-hardening-calibration-result"),
@@ -340,8 +328,7 @@ test.describe("Cookbook 03: policy-safe decision tool (UI)", () => {
       }
       await expect(panel).toBeVisible();
       await page.getByTestId("run-input").fill(JSON.stringify(row.inputs));
-      // The run monitor's sticky header overlaps the run controls; dispatch the click to the button.
-      await page.getByTestId("run-execute").dispatchEvent("click");
+      await page.getByTestId("run-execute").click();
       const link = page.getByTestId("run-active-open-link");
       await expect(link).toBeVisible({ timeout: 60_000 });
       await expect
@@ -357,7 +344,7 @@ test.describe("Cookbook 03: policy-safe decision tool (UI)", () => {
     await expect(page.getByTestId("run-approval-actions")).toBeVisible();
 
     // The person who started the run cannot approve it.
-    await page.getByTestId("run-approve").dispatchEvent("click");
+    await page.getByTestId("run-approve").click();
     await expect(page.getByText(/a second person must decide/)).toBeVisible();
     await expectRunStatus(page, "waiting_approval");
 
@@ -370,14 +357,14 @@ test.describe("Cookbook 03: policy-safe decision tool (UI)", () => {
     await expect(
       approverPage.getByTestId("run-approval-actions"),
     ).toBeVisible();
-    await approverPage.getByTestId("run-approve").dispatchEvent("click");
+    await approverPage.getByTestId("run-approve").click();
     await expect(approverPage.getByTestId("run-resume")).toBeDisabled();
 
     // Approve records the decision; Resume (the initiator, who holds operator) advances the run.
     await expect(page.getByTestId("run-resume")).toBeEnabled({
       timeout: 60_000,
     });
-    await page.getByTestId("run-resume").dispatchEvent("click");
+    await page.getByTestId("run-resume").click();
     await expectRunStatus(page, "completed", { timeout: 120_000 });
     await expect(page.getByTestId("run-output")).toContainText(
       '"refund_status": "initiated"',
@@ -393,7 +380,7 @@ test.describe("Cookbook 03: policy-safe decision tool (UI)", () => {
     await approverPage.goto(editorUrl);
     await approverPage.getByTestId("editor-run-monitor").click();
     await approverPage.getByTestId(`run-history-select-${rejectedId}`).click();
-    await approverPage.getByTestId("run-reject").dispatchEvent("click");
+    await approverPage.getByTestId("run-reject").click();
     await expectRunStatus(page, "failed", { timeout: 60_000 });
     await expect(page.getByTestId("run-output")).not.toContainText(
       "refund_status",

@@ -8,7 +8,7 @@ applies, by its browser spec.
 | --- | --- | --- |
 | [`tools/decide-refund.tool.json`](tools/decide-refund.tool.json) | The policy tool: a **read** tool, allowed in preview. The body of `POST /tools`. | API: `POST /tools` with the file as the body. UI: **Tools**, **Register Tool**; paste `input_schema` and `output_schema` through the Schema step's **Raw JSON** toggle. |
 | [`tools/initiate-refund.tool.json`](tools/initiate-refund.tool.json) | The write tool, registered with `requires_approval: true`. | The same two paths. The wizard switches approval on, and locks it, when you pick **Write**. |
-| [`dataset/refund-fixtures.jsonl`](dataset/refund-fixtures.jsonl) | 49 refund cases, one per line: `id`, `name`, `tags`, `inputs`, `expectations`. | API: the script turns each line into a tool fixture and saves them with `PUT /tools/{id}/test-cases`. UI: **Fixtures** takes one case at a time (**Add case**). |
+| [`dataset/refund-fixtures.jsonl`](dataset/refund-fixtures.jsonl) | 49 refund cases, one per line: `id`, `name`, `tags`, `inputs`, `expectations`. | API: the script turns each line into a tool fixture and saves them with `PUT /tools/{id}/test-cases`. UI: **Fixtures** › **Load cases from file** reads the whole file (rows can also be added one by one with **Add case**). |
 | [`workflow/refund-decision.workflow.yaml`](workflow/refund-decision.workflow.yaml) | The workflow: decide, route, and issue the refund only after approval. | API: `POST /workflows/import`. UI: **Workflows**, **Import**, **Choose file**. |
 
 ## The two tools
@@ -65,9 +65,10 @@ write tool's own flag, and it pauses every refund that is not denied.
 | `fail_closed` | risk data missing, order state unknown |
 | `malformed` | text or boolean amount, negative or fractional age, unknown tier, flags that are not a list, a missing field |
 
-Each fixture's assertion is `equals` on the exact JSON the tool returns, written with sorted keys
-and Python's default separators (for example
+Each fixture's assertion is `equals` on the JSON the tool returns (for example
 `{"decision": "approve", "reason_code": "ELIGIBLE_AUTO_APPROVE", "requires_approval": false}`).
+Key order and spacing do not matter, and `49` equals `49.0`; `false` is not `0` and a missing or extra key is a failure.
+The script saves the value as sorted-key JSON text, the UI file loader as compact JSON; both pass.
 A tool that raises fails every assertion, which is why malformed input has to produce a decision.
 
 ## The workflow

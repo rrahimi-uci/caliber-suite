@@ -1226,8 +1226,21 @@ def test_cookbook_17_rejects_incomplete_model_statistics() -> None:
 def test_cookbook_17_rejects_commentary_outside_json() -> None:
     payload = jsonlib.dumps(_financial_analysis_fixture())
 
-    with pytest.raises(jsonlib.JSONDecodeError):
+    with pytest.raises(ValueError, match=r"not a JSON object .*Analysis follows"):
         parse_analysis(f"Analysis follows:\n{payload}")
+
+
+def test_cookbook_17_refuses_to_start_against_a_simulated_model() -> None:
+    """A simulated assistant cannot run the prompt; say so before creating anything."""
+    caliber = stub_server(
+        {
+            "GET /me": {"user_id": "@alice"},
+            # No route for POST /projects: creating anything would fail the stub.
+            "GET /readiness": {"ready": True, "simulated": ["eval", "llm"]},
+        }
+    )
+    with caliber, pytest.raises(RuntimeError, match="language model is simulated"):
+        run_17(caliber, run_key="unit-test")
 
 
 @pytest.mark.parametrize("field", ["percentile_method", "observations"])
@@ -1344,6 +1357,7 @@ def test_cookbook_17_creates_runs_and_persists_everything_through_typed_sdk() ->
         assert body["metadata_"]["blob_key"].endswith("monthly-financials.csv")
         assert body["metadata_"]["managed_file_id"] == "FILE-17-IN"
         assert body["metadata_"]["prompt_ref"] == ("prompts:/sdk-financial-analysis-unit-test@prod")
+        assert body["metadata_"]["prompt_playground"] is True
         assert body["skill_mode"] == "off"
         return {"session_id": "SESSION-17"}
 
@@ -1358,6 +1372,7 @@ def test_cookbook_17_creates_runs_and_persists_everything_through_typed_sdk() ->
     caliber = stub_server(
         {
             "GET /me": {"user_id": "@alice"},
+            "GET /readiness": {"ready": True, "simulated": []},
             "POST /projects": project,
             "GET /object-store/status": {"connected": True},
             "POST /object-store/buckets": create_bucket,

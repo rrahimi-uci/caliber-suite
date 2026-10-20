@@ -53,7 +53,7 @@ const CALIBRATE_TIMEOUT = REAL ? 1_500_000 : 120_000;
 const QUESTION = "How long are security audit logs retained?";
 const OUTSIDE_QUESTION = "What is the dress code for client meetings?";
 
-/** Submit the Ask form through its own button (the sticky header can intercept a positional click). */
+/** Ask a question the way a person does: pick a mode, type, press Ask. */
 async function ask(page: Page, question: string, mode: string): Promise<void> {
   await page.getByTestId(`kb-explore-mode-${mode}`).click();
   const box = page.getByPlaceholder(
@@ -70,22 +70,14 @@ async function ask(page: Page, question: string, mode: string): Promise<void> {
   await page
     .getByTestId("kb-explore-ask")
     .getByRole("button", { name: "Ask" })
-    .evaluate((btn) => {
-      const form = (btn as HTMLButtonElement).closest("form");
-      if (form)
-        (form as HTMLFormElement).requestSubmit(btn as HTMLButtonElement);
-    });
+    .click();
   await answered;
 }
 
 async function submitBuild(page: Page): Promise<void> {
   await page
     .getByRole("button", { name: /Create knowledge base|Create version of/ })
-    .evaluate((btn) => {
-      const form = (btn as HTMLButtonElement).closest("form");
-      if (form)
-        (form as HTMLFormElement).requestSubmit(btn as HTMLButtonElement);
-    });
+    .click();
 }
 
 async function waitForBuild(page: Page, runIndex: number): Promise<void> {

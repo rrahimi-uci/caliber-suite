@@ -11,6 +11,8 @@ evaluation:
     - verdict_matches_dataset          # severity and action for all 41 incidents, in Preview replay and through the queue
     - rollback_requires_approval       # exactly the 5 rollback incidents pause at review
     - rejected_rollback_releases_nothing
+    - ui_test_set_import_matches_file   # UI only: Test Sets > Import from file holds all 41 incidents
+    - ui_rule_edit_is_visible_in_preview_and_compare   # UI only: loosening the rollback rule in v2 turns IN23 from 'sev2 rollback' into 'sev2 escalate_human'; Versions > compare shows one modified node (action_table); restoring v1 as v3 brings the rollback back
     - model_variant_verdicts_equal_the_tables     # real provider only (--model-variant): 10 of 10 incidents, in Preview
     - model_cannot_authorise_a_rollback           # real provider only: ROLLBACK_APPROVED appears exactly when the tables say rollback; through the queue a rollback still pauses at review
 quality_gates:

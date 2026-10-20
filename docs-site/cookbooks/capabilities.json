@@ -249,7 +249,7 @@
       ],
       "id": "16",
       "prerequisites": [
-        "Existing successful and failed traces"
+        "A workflow that is running and recording traces (the lab imports one)"
       ],
       "slug": "production-observability-triage",
       "summary": "Capture production failures, review root cause, and retain regression evidence.",

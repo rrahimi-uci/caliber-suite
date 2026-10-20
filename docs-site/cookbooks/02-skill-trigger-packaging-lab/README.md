@@ -493,7 +493,7 @@ api -X POST "$CALIBER_API/skills/$SKILL/calibrate" -d '{}' | jq -r .data.job.job
 The candidate was generated but there was nothing to score it against. Naming a test set that is wrong is refused up front, before a job exists:
 `404 eval dataset 'ED-nope' not found`, `400 eval dataset '...' has no active examples to calibrate against`, `400 eval_dataset_version must be between 1 and 9 for dataset '...', got 99`, `400 eval dataset '...' is not active`.
 
-**6. The script and the spec run in both modes.** `GET /readiness` decides; nothing else changes in how you call them:
+**6. The script and the spec run in both modes.** The script reads `GET /readiness`; the spec reads the provider banner the app shows ("Simulated providers: ...", absent on a real stack); nothing else changes in how you call them:
 
 ```bash
 PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_02_precision_skills      # about 2 to 2.5 minutes

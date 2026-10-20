@@ -6,7 +6,7 @@ Files for [the lab](../README.md). The first group is what the lab runs and veri
 
 | File | What it is | How it is loaded |
 | --- | --- | --- |
-| [`dataset/ticket-cases.jsonl`](dataset/ticket-cases.jsonl) | 44 tickets: `{id, tags, input: {ticket_text, channel, customer_tier, [account_id], [order_id], [duplicate_of]}, expected: {decision, severity, sla_minutes, requires_approval, flags}}` | API: `POST /eval-datasets`, then `POST /eval-datasets/{id}/examples` per line (`input`, `expected`, `tags`). Read by the lab script and by the Playwright spec |
+| [`dataset/ticket-cases.jsonl`](dataset/ticket-cases.jsonl) | 44 tickets: `{id, tags, input: {ticket_text, channel, customer_tier, [account_id], [order_id], [duplicate_of]}, expected: {decision, severity, sla_minutes, requires_approval, flags}}` | UI: `Prompt lifecycle > Test Sets > + New Test Set`, open it, `Import from file`. API: `POST /eval-datasets`, then `POST /eval-datasets/{id}/examples` per line (`input`, `expected`, `tags`). Read by the lab script and by the Playwright spec |
 | [`workflows/support-triage.workflow.json`](workflows/support-triage.workflow.json) | The workflow manifest: `start -> classify -> triage_router -> {draft_reply, clarify_question, support_note, review -> action_request} -> final` | UI: `Workflows > Import > Choose file`. API: `POST /workflows/import {"manifest": ..., "name": ...}` |
 | [`workflows/classify-ticket.py`](workflows/classify-ticket.py) | The body of the `classify` Python Code node, as a readable file | The script checks that the manifest's code equals this file. The node runs in the tool sandbox: no `import` (`json`, `re`, `math`, `datetime`, `statistics` are in scope), restricted builtins |
 

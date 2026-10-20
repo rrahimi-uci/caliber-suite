@@ -32,7 +32,7 @@
         ]
       ],
       "click": "Create and evaluate candidate",
-      "see": "The card reads <strong>blocked</strong>, <code>72%</code>, <em>4 criteria · 1 evidence · 1 blockers · rollback 4</em>; <strong>Sign off GO</strong> is disabled.",
+      "see": "The card reads <strong>blocked</strong>, <code>72%</code>, <em>4 criteria · 1 evidence · 1 blockers · rollback 4</em> and, in red, <em>Blocked by rollback_rehearsed: scored 0.5, needs 1</em>; <strong>Sign off GO</strong> is disabled. (The other 19 rows go in the same way: 14 read ready, 6 blocked.)",
       "asset": "release candidate (blocked)",
       "assetlink": [
         {
@@ -43,7 +43,7 @@
     },
     {
       "where": "Prompt lifecycle › Releases › candidate",
-      "do": "As an admin, enter the criterion key and a reason of at least 8 characters, including the expiry and the compensating control, and click <strong>Record waiver</strong>. A waiver clears a blocker; it does not change the score.",
+      "do": "As an admin, enter the criterion key the card named and a reason of at least 8 characters, with the compensating control; optionally pick a <strong>Waiver expiry</strong> date (the blocker returns after it), and click <strong>Record waiver</strong>. A waiver clears a blocker; it does not change the score.",
       "fill": [
         [
           "Waiver criterion key",
@@ -55,7 +55,7 @@
         ]
       ],
       "click": "Record waiver",
-      "see": "The card reads <strong>ready</strong>, <em>0 blockers</em>, still <code>72%</code>."
+      "see": "The card reads <strong>ready</strong>, <em>0 blockers</em>, still <code>72%</code>, and an amber line names the waiver: who granted it, its expiry and the reason."
     },
     {
       "where": "Prompt lifecycle › Releases › candidate",
@@ -81,6 +81,46 @@
       "click": "Sign off NO-GO",
       "see": "<code>95%</code>, <strong>blocked</strong>, then <strong>signed_no_go</strong>: a refusal is a decision too.",
       "asset": "release candidate (no-go)"
+    },
+    {
+      "where": "Prompt lifecycle › Releases › New candidate",
+      "do": "Create row <strong>RC17</strong> (workflow, required score <code>0.85</code>) and waive both of its blockers, <code>regression_vs_baseline</code> and <code>human_review</code>, one after the other.",
+      "fill": [
+        [
+          "Waiver criterion key",
+          "<code>regression_vs_baseline</code>, then <code>human_review</code>"
+        ]
+      ],
+      "click": "Record waiver",
+      "see": "<em>0 blockers</em> but still <strong>blocked</strong>: <em>No blocking criterion is unmet, but the weighted score 66% is under the required 85%. A waiver cannot raise a score.</em> <strong>Sign off GO</strong> stays disabled."
+    },
+    {
+      "where": "Prompt lifecycle › Releases › New candidate",
+      "do": "A candidate can never be edited. When RC16's rehearsal is done, create it again for the next package version: <strong>Candidate version</strong> <code>6</code>, <strong>Rollback version</strong> <code>5</code>, and <code>rollback_rehearsed</code> scored <code>1</code> in the criteria box.",
+      "fill": [
+        [
+          "Candidate version",
+          "<code>6</code>"
+        ],
+        [
+          "Rollback version",
+          "<code>5</code>"
+        ]
+      ],
+      "click": "Create and evaluate candidate",
+      "see": "The new card reads <strong>ready</strong>, <em>0 blockers</em>, no waiver and a higher percentage than v5's <code>72%</code>; the two cards side by side are the comparison."
+    },
+    {
+      "where": "Prompt lifecycle › Prompts, then Releases",
+      "do": "Create the prompt <code>payments-assistant</code> (<strong>New prompt</strong>, <strong>Write / paste</strong>; version 1 is live) and save a version 2 with the card's <strong>Edit</strong>. On <strong>Releases</strong> create a candidate for it from RC01's row (type <strong>Prompt</strong>, version <code>2</code>, rollback <code>1</code>), type a rationale and <strong>Sign off GO</strong>. Then, on <strong>Prompts</strong>, the card's <strong>Versions</strong>, press <strong>Make live</strong> on v2.",
+      "click": "Make live",
+      "see": "After the signoff and a reload the live board still reads <code>v1</code> and the timeline has no event for the prompt; after <strong>Make live</strong> it reads <code>v2</code> and the timeline records the promotion."
+    },
+    {
+      "where": "Admin › Audit Log",
+      "do": "Type <code>create_release_candidate</code>, then <code>waive_release_blocker</code>, <code>generate_release_allure_report</code> and <code>signoff_release_candidate</code> in <strong>Action</strong>.",
+      "click": "Action",
+      "see": "The newest row of each is by <code>admin</code>: the audit log names who created, waived, reported and signed."
     },
     {
       "where": "Prompt lifecycle › Releases",

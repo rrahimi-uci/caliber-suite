@@ -61,7 +61,7 @@ export CALIBER_TOKEN=$(curl -s -b /tmp/lab07.jar -X POST "$CALIBER_API/auth/toke
 
 | File | What it is | Why |
 | --- | --- | --- |
-| `assets/dataset/ticket-cases.jsonl` | 44 tickets, one JSON object per line: `{id, tags, input: {ticket_text, channel, customer_tier, [account_id], [order_id], [duplicate_of]}, expected: {decision, severity, sla_minutes, requires_approval, flags}}` | The routing is verified against it. It has how-to questions (including a hard negative that mentions a refund, `TK07`), vague, empty and French tickets, prompt injection that asks for a refund and a bug filing (`TK16`, `TK17`), abusive messages, a pasted card number, SSN, password and API key, GDPR and legal threats, three duplicates of an open ticket, eleven bugs of every severity (data loss, a noisy mail thread, a cosmetic one), and refund or chargeback requests with and without an account id |
+| `assets/dataset/ticket-cases.jsonl` | 44 tickets (the script posts them to a test set; in the UI you choose the file under **Test Sets > Import from file**, step 2), one JSON object per line: `{id, tags, input: {ticket_text, channel, customer_tier, [account_id], [order_id], [duplicate_of]}, expected: {decision, severity, sla_minutes, requires_approval, flags}}` | The routing is verified against it. It has how-to questions (including a hard negative that mentions a refund, `TK07`), vague, empty and French tickets, prompt injection that asks for a refund and a bug filing (`TK16`, `TK17`), abusive messages, a pasted card number, SSN, password and API key, GDPR and legal threats, three duplicates of an open ticket, eleven bugs of every severity (data loss, a noisy mail thread, a cosmetic one), and refund or chargeback requests with and without an account id |
 | `assets/workflows/support-triage.workflow.json` | The workflow manifest (9 nodes) | What the lab imports |
 | `assets/workflows/classify-ticket.py` | The body of the `classify` node, readable on its own | The script refuses to run if the manifest's code and this file drift apart |
 | `assets/prompts`, `assets/skills`, `assets/tools`, `assets/judges` | The model-based layer from the original recipe (reply prompt, tone and escalation skills, evidence tools, a grounding judge) | Reference only. The lab does not run them: there is no model, connector or knowledge base on the lab machine |
@@ -178,16 +178,21 @@ Observed: `POST /workflow-runs` answers `409 {"detail": "workflow run queue is d
 
 ## Recipe: run it through the UI
 
-The Playwright spec `caliber/caliber-ui/e2e/cookbooks/labs/07-support-triage.spec.ts` performs exactly these steps with real clicks (sign in as `admin` / `admin`; it creates `lena` and `sam` when they do not exist). The alpha web app is in single-environment mode: there is no Deployments or Promotions tab, so the staging alias, gated promotion and rollback are API only (above).
+The Playwright spec `caliber/caliber-ui/e2e/cookbooks/labs/07-support-triage.spec.ts` performs exactly these steps with real clicks and uploads, from a stack you have just started (sign in as `admin` / `admin`; it creates `lena` and `sam` when they do not exist). It makes no API call: it even reads whether the stack is simulated from the page's own banner. The alpha web app is in single-environment mode: there is no Deployments or Promotions tab, so the **staging alias, the gated promotion and the alias rollback are API only** (above). Everything else, including versioning (restore, edit, publish, compare), is in the UI.
 
 1. **Administration.** `Admin > Administration > Accounts`: create `lena` and `sam` (password `cookbook07-lab-passphrase`). In the top bar press `+` (Create workspace), name it, `Create and select`. Back in Administration, `Project access`: pick the workspace and add `lena` and `sam` with the role `Reviewer`. Expected: `Created lena.`, `Added lena to <workspace>.`
-2. **Import the workflow.** `Agent resources > Workflows > Import`: type a name, `Choose file` `assets/workflows/support-triage.workflow.json`, `Validate dependencies`. Expected: `Preflight passed`; then `Import as new` opens the editor with the nodes `classify`, `triage_router`, `draft_reply`, `review`, `action_request` in the outline.
-3. **Validate; Preview is refused.** In the editor press `Validate`: the toolbar says `Valid.`. Press `Preview`, type any text, `Run Preview`. Expected: the result shows `error` and the step `classify`; open that step and it says `preview cannot isolate this capability; no workflow node ran`.
-4. **Publish.** `Publish`, `Run Validation`, `Next`, `Next`, `Publish`. Expected: the toolbar says `Published.` (the drawer text says "then deploys it live"; in this build publishing creates the version and does not move an alias).
-5. **Run two tickets.** Open `Run Monitor`, paste a ticket from `ticket-cases.jsonl` (the `input` object) and press `Run`. The how-to ticket `TK01` reaches `completed`; the output text contains `processed`. The bug ticket `TK29` (`The export button throws a 500 ... in production`) stops at `waiting_approval` and shows `Approve` and `Reject`.
-6. **Try to approve your own run.** Press `Approve` as `admin`. Expected: `Approve failed: the account that triggered this run cannot approve it; a second person must decide (set CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true for a single-operator install)`.
-7. **A second person approves.** Sign in as `lena` (own browser profile), pick the workspace in the top bar, open `Workflows`, the workflow, tab `Runs`; select the run that shows `Awaiting approval`. Press `Approve`, then `Resume`. Expected: the run shows `Completed` and its output starts with `APPROVED_ACTION`.
-8. **A rejection releases nothing.** As `admin` run the refund ticket `TK40` (`I was charged twice for October...`); it pauses at the gate. As `lena` open it on the `Runs` tab and press `Reject`. Expected: `Failed`, and the run never reaches `action_request`.
+2. **Load the tickets as a test set.** `Prompt lifecycle > Test Sets > + New Test Set`: name it, owner `admin`, `Create`, open it, `Import from file`, choose `assets/dataset/ticket-cases.jsonl`. Expected: `ticket-cases.jsonl: 44 rows ready to import.`; press `Import 44 rows`; the header reads `44 active examples` and each row shows the ticket, its expected decision, severity, SLA and tags (the `id` and any other key in the file is left behind; a bad line is named, for example `Line 7 is not valid JSON.`, and nothing is imported).
+3. **Import the workflow.** `Agent resources > Workflows > Import`: type a name, `Choose file` `assets/workflows/support-triage.workflow.json`, `Validate dependencies`. Expected: `Preflight passed`; then `Import as new` opens the editor with the nodes `classify`, `triage_router`, `draft_reply`, `review`, `action_request` in the outline.
+4. **Validate; Preview is refused.** In the editor press `Validate`: the toolbar says `Valid.`. Press `Preview`, type any text, `Run Preview`. Expected: the result shows `error` and the step `classify`; open that step and it says `preview cannot isolate this capability; no workflow node ran`.
+5. **Publish.** `Publish`, `Run Validation`, `Next`, `Next`, `Publish`. Expected: the toolbar says `Published.` and the editor turns read-only (version 1 is immutable). In this build publishing creates the version and does not move an alias.
+6. **Run two tickets.** Open `Run Monitor`, paste a ticket from `ticket-cases.jsonl` (the `input` object) and press `Run`. The how-to ticket `TK01` reaches `completed`; the output text contains `processed` (simulated) or real text. The bug ticket `TK29` (`The export button throws a 500 ... in production`) stops at `waiting_approval` and shows `Approve` and `Reject`.
+7. **Try to approve your own run.** Press `Approve` as `admin`. Expected: `Approve failed: the account that triggered this run cannot approve it; a second person must decide (set CALIBER_APPROVAL_ALLOW_SELF_APPROVAL=true for a single-operator install)`.
+8. **A second person approves.** Sign in as `lena` (own browser profile), pick the workspace in the top bar, open `Workflows`, the workflow, tab `Runs`; select the run that shows `Awaiting approval`. Press `Approve`, then `Resume`. Expected: the run shows `Completed` and its output starts with `APPROVED_ACTION`.
+9. **A rejection releases nothing; an operator cannot decide.** As `admin` run the refund ticket `TK40` (`I was charged twice for October...`); it pauses at the gate. As `sam` (an operator without `caliber.approver`) open it on the `Runs` tab and press `Approve`: the page shows the missing `caliber.approver` scope. As `lena` press `Reject`. Expected: `Failed`, and the run never reaches `action_request`.
+10. **Who did what.** `Admin > Audit Log`: type `approve_workflow_run_runtime_approval` in **Action**: the newest row is by `lena`; `enqueue_workflow_run`: rows by `admin`.
+11. **Modify, new version, re-run, compare.** `Workflows` > the workflow > `Versions`: `Restore as draft` on v1 opens a new editable draft (v2). Select `classify` (double-click in the outline), and in the inspector's **Python code** change `urgent_markers = has([` to `urgent_markers = False and has([` (a "tidy-up" that stops flagging production impact). `Save`, `Validate` (`Valid.`), open `Run Monitor`, run `TK29` again: it still waits for approval, but on the workflow's `Runs` tab, with that run selected, the `classify` step's output now says `"severity": "medium"` where v1 said `"high"`. Back in the editor press `Publish` (v2). On `Versions`, pick v1 as **Base (older)** and v2 as **Compare (newer)**: one modified node, `classify`.
+12. **Roll back.** `Versions`: `Restore as draft` on v1 again (v3), run `TK29`: the `classify` step says `"severity": "high"` again; `Publish`. `Versions` lists three versions. (This is how a version is rolled back in this UI; moving an alias back is the API's `.../deployments/staging/rollback`.)
+
 
 ## Run it with a real provider
 
@@ -289,13 +294,13 @@ The baseline was **measured** on a real model (the twelve tickets plus the flagg
 Turning on the LLM judge for calibration (`CALIBER_WORKFLOW_LLM_JUDGE_ENABLED=true` before `up`, then **Use LLM judge** in the Calibrate panel) changes the scorer to `llm_judge`; it was not run here.
 (Before this lab ran it, a calibration that ended without a candidate stored no `provider`, `simulated` or `scorer` at all, so neither badge could show; it now stores them in every outcome.)
 
-**7. Through the UI.** On a real-provider stack the spec `07-support-triage.spec.ts` runs three more steps after the eight in "Run it through the UI" (same command, against `lab07h`; about 40 seconds):
+**7. Through the UI.** On a real-provider stack the spec `07-support-triage.spec.ts` runs three more steps after the twelve in "Recipe: run it through the UI" (same command, against `lab07h`; about 40 seconds):
 
-9. **Test Sets.** `+ New Test Set`, name it, owner `admin`, then `+ Add example` four times (`TK01`, `TK10`, `TK29`, `TK40`): the input is the ticket's `input` object, expected is `{"decision": "...", "answer": "REPLY"}` (and `CLARIFY`, `ESCALATE_BUG`, `ESCALATE_SUPPORT`).
-10. **Workflows > Import** the variant (`support-triage-model.workflow.json`, with its `ticket-eval` dataset name pointed at your test set): `Preflight passed`, the outline shows `classify_model`, `guard`, `review_bug`; **Validate** says `Valid.`; **Preview** `TK01` shows `completed` and a `REPLY.` text, `TK29` shows `ESCALATE_BUG` (Preview passes the approval node as if approved).
-11. **Evaluations.** `Run evaluation`, pick the test set, **What to score** `Workflow version`, paste the version id (`WFV-...` from the editor URL), untick **Exact match** and **Token F1**, `Run`. The rule-based workflow's row reads `failed` and `0/4` (every row errors; open it to read the reason); the variant's reads `completed` and at least `2/4` (observed `4/4`).
+13. **Test Sets.** `+ New Test Set`, name it, owner `admin`, then `+ Add example` four times (`TK01`, `TK10`, `TK29`, `TK40`): the input is the ticket's `input` object, expected is `{"decision": "...", "answer": "REPLY"}` (and `CLARIFY`, `ESCALATE_BUG`, `ESCALATE_SUPPORT`).
+14. **Workflows > Import** the variant (`support-triage-model.workflow.json`, with its `ticket-eval` dataset name pointed at your test set): `Preflight passed`, the outline shows `classify_model`, `guard`, `review_bug`; **Validate** says `Valid.`; **Preview** `TK01` shows `completed` and a `REPLY.` text, `TK29` shows `ESCALATE_BUG` (Preview passes the approval node as if approved).
+15. **Evaluations.** `Run evaluation`, pick the test set, **What to score** `Workflow version`, paste the version id (`WFV-...` from the editor URL), untick **Exact match** and **Token F1**, `Run`. The rule-based workflow's row reads `failed` and `0/4` (every row errors; open it to read the reason); the variant's reads `completed` and at least `2/4` (observed `4/4`).
 
-On the main steps the only difference is step 5: the how-to reply is real text, no longer `processed`.
+On the main steps the only difference is step 6: the how-to reply is real text, no longer `processed`.
 
 **Cost and time.** The script makes a few hundred small calls: the 11 reply tickets of the main run, plus for the variant 12 workflow runs (two agents each) and 12 judge calls for Evaluations, 12 more variant runs through the queue, and the calibration's replays of 13 examples. About 6 to 7 minutes and a few cents (I did not
 measure tokens). The spec adds roughly the same for four tickets. The default model is `gpt-5.6-luna`.
@@ -322,7 +327,7 @@ API checks (the script does all of them; these are the ones to read by eye):
 - `GET /audit-log?entity_id={approved run}` shows `enqueue_workflow_run` by `admin`, `workflow_run_waiting_approval` by the worker, `resume_workflow_run` by `lena`, `complete_workflow_run`; `GET /audit-log?action=approve_workflow_run_runtime_approval` shows the decision by `lena` with the run id in `details`.
 - Counts: `clarify 10`, `escalate_bug 11`, `escalate_support 12`, `reply 11`; 15 runs `waiting_approval`.
 
-UI checks: steps 5 to 8 above, each with the status text it names.
+UI checks: steps 6 to 12 above, each with the status text it names.
 
 ## Common errors and troubleshooting
 
@@ -340,12 +345,15 @@ UI checks: steps 5 to 8 above, each with the status text it names.
 | `409 workflow run queue is disabled` | `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED=false`; turn it on |
 | Preview shows `error` and the node `classify` | Expected: Preview cannot isolate a Python Code node. Run it through the queue |
 | Runs stay `queued` for a long time | The single worker handles one run at a time (about 5 seconds each here: 44 tickets take about 4 minutes) |
+| `Line 7 is not valid JSON.` or `Line 3 needs an "input" object.` under **Import from file** | The file is not the lab's JSON Lines file (or was edited): nothing was imported. Use `assets/dataset/ticket-cases.jsonl` or fix the named line |
+| `Stopped after 12 of 44 rows: ...` under **Import from file** | The server refused row 13 (a network or permission error). The first 12 rows are in the test set; create a new test set and import again rather than importing twice into the same one |
+| `Restore as draft` seems to do nothing | It opens the new draft's editor (v2, v3...) after a moment; a published version is read-only, so edit only the draft |
 | The `draft_reply` text is `[support-reply] processed: ...` | The simulated provider; the lab does not assert agent text. On a real stack it is the model's text |
 
 ## Not covered by this lab
 
 The original recipe's knowledge-base retrieval, evidence tools, GitHub MCP write and `GroundedSupportReply` judge scoring need a knowledge base and connectors that are not available on the lab machine, so they are not exercised and are not claimed. The intake prompt, the reply prompt and the tone skill went into the optional variant's two agents; the tools in `assets/tools` and `assets/judges/grounded-support-reply.judge.json`
-(which grades a reply against retrieved evidence) stay reference-only. Alias deployment, gated promotion and rollback are API only in this alpha UI. A workflow calibration **candidate** is not produced for this workflow (the run measures and rejects: see the real-provider section). Wait-for-event, error boundaries and the deploy gate are exercised in lab 08.
+(which grades a reply against retrieved evidence) stay reference-only. Alias deployment, gated promotion and alias rollback are API only in this alpha UI (single-environment mode); version restore, publish and compare are in the UI (steps 11 and 12). A workflow calibration **candidate** is not produced for this workflow (the run measures and rejects: see the real-provider section). Wait-for-event, error boundaries and the deploy gate are exercised in lab 08.
 
 ## Cleanup and reset
 
@@ -356,4 +364,4 @@ PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbo
 scripts/cookbook-env.sh down lab07 && rm -rf .tmp/cookbook-env/lab07
 ```
 
-`lena` and `sam` stay as accounts; disable or reset them under Administration. The UI spec leaves its `lab07-ui-*` workspaces and workflows in the disposable stack.
+`lena` and `sam` stay as accounts; disable or reset them under Administration. The UI spec leaves its `lab07-ui-*` workspaces, workflows and test sets in the disposable stack (discard the stack to clean up).

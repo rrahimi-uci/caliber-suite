@@ -1,25 +1,22 @@
 import { expect, type Page } from "@playwright/test";
 
+import { stackIsSimulated } from "./lab-mode";
+
 /**
  * Helpers the Aria labs (12 to 15) share for their real-provider tier.
  *
  * The labs run in one of two modes: on the default stack the language model and the evaluator are
  * simulated (Evaluations are refused with a 400); on a stack started with `--real-llm` they are
- * real. The only API call the specs make is the read-only `GET /readiness` that tells them apart
- * (the same one lab 01's spec makes); everything else is clicks.
+ * real. The specs tell them apart by the provider banner on screen, and make no API call at all;
+ * everything is clicks.
  */
 
-/** `GET /readiness`: is the language model and the evaluator real on this stack? */
+/**
+ * Is the language model and the evaluator real on this stack? Read the way a person reads it: the
+ * amber "Simulated providers" banner at the top of every page (see `lab-mode.ts`). Sign in first.
+ */
 export async function isRealProvider(page: Page): Promise<boolean> {
-  // The base URL ends in /caliber; the API lives beside it at the server root.
-  const root = new URL("/", process.env["CALIBER_LAB_BASE_URL"]!).toString();
-  const response = await page.request.get(
-    `${root}ajax-api/2.0/mlflow/caliber/readiness`,
-  );
-  expect(response.ok()).toBeTruthy();
-  const body = (await response.json()) as { data?: { simulated?: string[] } };
-  const simulated = body.data?.simulated ?? [];
-  return !(simulated.includes("llm") || simulated.includes("eval"));
+  return !(await stackIsSimulated(page));
 }
 
 /**

@@ -8,6 +8,33 @@
       "asset": "accounts: lena (approver), sam (operator without the approver scope)"
     },
     {
+      "where": "Prompt lifecycle › Test Sets",
+      "do": "Press <strong>+ New Test Set</strong>, type a name, owner <code>admin</code> and <strong>Create</strong>; open it and press <strong>Import from file</strong>, choose <code>ticket-cases.jsonl</code> and press <strong>Import 44 rows</strong>. Each line's <code>input</code>, <code>expected</code> and <code>tags</code> become one example.",
+      "fill": [
+        [
+          "Name",
+          "<code>lab07-tickets</code>"
+        ],
+        [
+          "Owner",
+          "<code>admin</code>"
+        ],
+        [
+          "File",
+          "<a href=\"../cookbooks/07-support-triage-resolution-loop/assets/dataset/ticket-cases.jsonl\">ticket-cases.jsonl</a>"
+        ]
+      ],
+      "click": "Import 44 rows",
+      "see": "<code>ticket-cases.jsonl: 44 rows ready to import.</code> then the header reads <code>44 active examples</code>. A file with a bad line is refused before anything is added (<code>Line 7 is not valid JSON.</code>).",
+      "asset": "test set: 44 tickets (imported)",
+      "assetlink": [
+        {
+          "href": "../cookbooks/07-support-triage-resolution-loop/assets/dataset/ticket-cases.jsonl",
+          "label": "ticket-cases.jsonl"
+        }
+      ]
+    },
+    {
       "where": "Agent resources › Workflows › Import",
       "do": "Press <strong>Import</strong>, type a name, choose the file <code>support-triage.workflow.json</code> with <strong>Choose file</strong>, then press <strong>Validate dependencies</strong> and <strong>Import as new</strong>.",
       "fill": [
@@ -82,9 +109,33 @@
     },
     {
       "where": "Workflows › Run Monitor, then Runs as lena",
-      "do": "As <code>admin</code> run the refund ticket <code>TK40</code> (<em>I was charged twice for October</em>); it pauses at the gate. As <code>lena</code> open it on the <strong>Runs</strong> tab and press <strong>Reject</strong>.",
+      "do": "As <code>admin</code> run the refund ticket <code>TK40</code> (<em>I was charged twice for October</em>); it pauses at the gate. As <code>sam</code> (an operator without the approver scope) open it on the <strong>Runs</strong> tab and press <strong>Approve</strong>: refused for the missing <code>caliber.approver</code> scope. As <code>lena</code> press <strong>Reject</strong>.",
       "click": "Reject",
-      "see": "The run shows <strong>Failed</strong> and never reaches <code>action_request</code>: nothing is released."
+      "see": "<code>sam</code> is refused; the run shows <strong>Failed</strong> after <code>lena</code> rejects and never reaches <code>action_request</code>: nothing is released."
+    },
+    {
+      "where": "Admin › Audit Log",
+      "do": "Type <code>approve_workflow_run_runtime_approval</code> in <strong>Action</strong>, then <code>enqueue_workflow_run</code>.",
+      "click": "Action",
+      "see": "The newest approval row is by <code>lena</code>; the enqueue rows are by <code>admin</code>."
+    },
+    {
+      "where": "Workflows › (workflow) › Versions, then the editor",
+      "do": "On <strong>Versions</strong> press <strong>Restore as draft</strong> on v1: a new editable draft (v2) opens. Double-click <code>classify</code> in the outline and, in the inspector's <strong>Python code</strong>, change <code>urgent_markers = has([</code> to <code>urgent_markers = False and has([</code>. <strong>Save</strong>, <strong>Validate</strong>, open <strong>Run Monitor</strong> and run <code>TK29</code> again; on the workflow's <strong>Runs</strong> tab select that run and open its <code>classify</code> step. Back in the editor <strong>Publish</strong> (v2); on <strong>Versions</strong> pick v1 as <strong>Base (older)</strong> and v2 as <strong>Compare (newer)</strong>.",
+      "fill": [
+        [
+          "Code change",
+          "<code>urgent_markers = False and has([</code>"
+        ]
+      ],
+      "click": "Publish",
+      "see": "The <code>classify</code> output now says <code>\"severity\": \"medium\"</code> (v1: <code>\"high\"</code>). The comparison shows exactly one modified node, <code>classify</code>."
+    },
+    {
+      "where": "Workflows › (workflow) › Versions",
+      "do": "Press <strong>Restore as draft</strong> on v1 again (v3), run <code>TK29</code>, open the <code>classify</code> step on the <strong>Runs</strong> tab, then <strong>Publish</strong>. Moving a staging alias back is API only in this alpha UI.",
+      "click": "Publish",
+      "see": "<code>\"severity\": \"high\"</code> again; <strong>Versions</strong> lists v1, v2 and v3."
     }
   ]
 }

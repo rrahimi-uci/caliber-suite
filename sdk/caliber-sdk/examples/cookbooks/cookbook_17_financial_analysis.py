@@ -281,7 +281,12 @@ def parse_analysis(content: str) -> dict[str, Any]:
     if candidate.startswith("```"):
         candidate = re.sub(r"^```(?:json)?\s*", "", candidate, count=1, flags=re.I)
         candidate = re.sub(r"\s*```$", "", candidate, count=1)
-    parsed = json.loads(candidate)
+    try:
+        parsed = json.loads(candidate)
+    except json.JSONDecodeError as exc:
+        raise ValueError(
+            f"prompt result is not a JSON object (it starts: {candidate[:120]!r})"
+        ) from exc
     if not isinstance(parsed, dict):
         raise ValueError("prompt result must be a JSON object")
     required_top_level = {
@@ -363,6 +368,14 @@ def run(caliber: CaliberClient, *, run_key: str | None = None) -> dict[str, Any]
     if identity.is_anonymous:
         raise RuntimeError("CALIBER_TOKEN does not resolve to an authenticated user")
 
+    simulated = (caliber.readiness() or {}).get("simulated") or []
+    if "llm" in simulated:
+        raise RuntimeError(
+            "this server's language model is simulated, so the prompt cannot really run. Start "
+            "CALIBER with a real provider (scripts/cookbook-env.sh up NAME --flags aria --s3 "
+            "--real-llm, with OPENAI_API_KEY set) and run this again"
+        )
+
     key = run_key or datetime.now(timezone.utc).strftime("%Y%m%d-%H%M%S")
     if not re.fullmatch(r"[a-z0-9][a-z0-9-]{2,47}", key):
         raise ValueError("run_key must be 3-48 lowercase letters, digits, or hyphens")
@@ -432,6 +445,9 @@ def run(caliber: CaliberClient, *, run_key: str | None = None) -> dict[str, Any]
             goal=(f"Follow this registered system prompt exactly:\n\n{registered_template}"),
             metadata_={
                 "source": "sdk-cookbook-17",
+                # Run the registered prompt as the system prompt (as the Prompts page's Playground
+                # does) rather than letting Aria treat the message as a request to author a prompt.
+                "prompt_playground": True,
                 "project_id": project.project_id,
                 "prompt_ref": f"prompts:/{prompt_name}@{PROMPT_ALIAS}",
                 "blob_bucket": bucket,

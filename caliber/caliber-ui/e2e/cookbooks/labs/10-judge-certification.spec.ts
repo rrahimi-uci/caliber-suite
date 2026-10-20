@@ -125,6 +125,14 @@ test.describe("Cookbook 10: judge certification and human review", () => {
     expect(Object.keys(traces)).toHaveLength(ROWS.length);
     const ui = new CaliberUi(page);
     await ui.signIn();
+    // The app says whether a model is behind it; the spec must be told which kind (README: Setup).
+    const simulatedStack = await ui.isSimulatedStack();
+    expect(
+      simulatedStack,
+      simulatedStack
+        ? "this stack is simulated (fake providers): run with CALIBER_LAB10_MODEL=simulated"
+        : "this stack has a model behind it: CALIBER_LAB10_MODEL must be stand-in or real",
+    ).toBe(MODEL === "simulated");
 
     // The Cookbooks gallery (a preview area, behind its flag) lists this recipe and its checklist.
     await page.goto("/caliber/cookbooks");
@@ -132,7 +140,31 @@ test.describe("Cookbook 10: judge certification and human review", () => {
     await expect(card).toContainText("Trustworthy Evaluation");
     await expect(card).toContainText("human alignment");
 
-    // ---- 1. Prepare the dataset (Prompt lifecycle > Prompts > Calibration > Upload) -------
+    // ---- 1. Prepare the dataset (Prompt lifecycle > Test Sets > Import from file) ---------
+    await page.goto("/caliber/eval-datasets");
+    await page.getByRole("button", { name: "+ New Test Set" }).click();
+    await page.getByPlaceholder("factual-checks").fill(datasetName);
+    await page.getByPlaceholder("@sarah").fill("admin");
+    await page.getByRole("button", { name: "Create", exact: true }).click();
+    await page.getByText(datasetName, { exact: true }).first().click();
+    await expect(page.getByTestId("eval-dataset-detail")).toBeVisible();
+    await page.getByTestId("import-toggle").click();
+    await page.getByTestId("import-file").setInputFiles(DATASET_FILE);
+    await expect(page.getByTestId("import-summary")).toContainText(
+      `${ROWS.length} rows ready to import`,
+    );
+    await page.getByTestId("import-save").click();
+    // one dataset version per appended example: 50 rows is version 51
+    await expect(page.getByTestId("eval-dataset-version")).toHaveText(
+      `v${ROWS.length + 1}`,
+      { timeout: 120_000 },
+    );
+    await expect(page.getByTestId("eval-dataset-detail")).toContainText(
+      `${ROWS.length} active examples`,
+    );
+    await expect(page.getByTestId("example-row")).toHaveCount(ROWS.length);
+
+    // The candidate prompt (Prompt lifecycle > Prompts > New prompt): version 1.
     await page.goto("/caliber/prompts");
     await page.getByRole("button", { name: "New prompt" }).click();
     await page.getByRole("button", { name: /Write \/ paste/ }).click();
@@ -146,21 +178,6 @@ test.describe("Cookbook 10: judge certification and human review", () => {
     await page.getByLabel("Prompt name").fill(promptName);
     await page.getByRole("button", { name: "Create and Open" }).click();
     await expect(page.getByTestId("version-panel")).toBeVisible();
-    await page
-      .getByRole("button", { name: "Calibration", exact: true })
-      .click();
-    await page
-      .getByLabel("Upload calibration dataset")
-      .setInputFiles(DATASET_FILE);
-    await page.getByPlaceholder("Dataset name").fill(datasetName);
-    await page.getByRole("button", { name: "Upload Dataset" }).click();
-    await expect(
-      page.getByText(`Uploaded ${ROWS.length} examples to ${datasetName}.`),
-    ).toBeVisible({ timeout: 120_000 });
-
-    // The Test Sets page lists it at version 51 (one version per appended example).
-    await page.goto("/caliber/eval-datasets");
-    await expect(page.getByText(datasetName).first()).toBeVisible();
 
     // ---- 2. Define the judge (Agent resources > Judges > + New Judge) ---------------------
     await page.goto("/caliber/judges");
@@ -196,7 +213,7 @@ test.describe("Cookbook 10: judge certification and human review", () => {
     // ---- 3. Run baseline and candidate (Prompt lifecycle > Evaluations) -------------------
     async function runEvaluation(
       label: string,
-      prompt: boolean,
+      subject: string | null,
     ): Promise<void> {
       await page.goto("/caliber/evaluations");
       await page.getByRole("button", { name: "Run evaluation" }).click();
@@ -204,9 +221,9 @@ test.describe("Cookbook 10: judge certification and human review", () => {
         .getByLabel("Test set", { exact: true })
         .selectOption({ label: `${datasetName} (v${ROWS.length + 1})` });
       await page.getByLabel("Label", { exact: true }).fill(label);
-      if (prompt) {
+      if (subject) {
         await page.getByLabel("What to score").selectOption("prompt");
-        await page.getByLabel("Subject under test").fill(`${promptName}@1`);
+        await page.getByLabel("Subject under test").fill(subject);
       }
       // Deterministic graders: Contains expected and Non-empty; plus the judge.
       await page.getByText("Exact match", { exact: true }).click();
@@ -219,7 +236,7 @@ test.describe("Cookbook 10: judge certification and human review", () => {
       await page.getByRole("button", { name: "Run", exact: true }).click();
     }
 
-    await runEvaluation(baselineLabel, false);
+    await runEvaluation(baselineLabel, null);
     if (MODEL === "simulated") {
       // No model behind the server: Evaluations fails closed instead of inventing scores.
       await expect(
@@ -238,7 +255,7 @@ test.describe("Cookbook 10: judge certification and human review", () => {
           : `${ROWS.length}/${ROWS.length}`,
       );
 
-      await runEvaluation(candidateLabel, true);
+      await runEvaluation(candidateLabel, `${promptName}@1`);
       const candidateRow = page
         .getByTestId("eval-run-row")
         .filter({ hasText: candidateLabel });
@@ -277,6 +294,54 @@ test.describe("Cookbook 10: judge certification and human review", () => {
           "Thanks for flagging this.",
         );
       }
+    }
+
+    if (MODEL !== "simulated") {
+      // ---- 4b. Modify -> new version -> re-run -> compare ---------------------------------
+      // Edit the candidate prompt (Prompts > the card's Edit > Save new version: v2), score
+      // v2 over the same test set, and read it against the v1 run. Saving moves nothing live.
+      const v2Label = `candidate v2 ${suffix}`;
+      await page.goto("/caliber/prompts");
+      await page.getByLabel("Search prompts").fill(promptName);
+      await page
+        .locator('[data-testid^="prompt-card-"]')
+        .filter({ hasText: promptName })
+        .first()
+        .getByRole("button", { name: "Edit" })
+        .click();
+      await page
+        .locator("form textarea")
+        .first()
+        .fill(
+          "You answer support tickets and incident alerts using ONLY the evidence you are given. " +
+            "Quote every figure, date and identifier exactly as the evidence gives it; if the " +
+            "evidence does not cover the question, say so and escalate to a person.\n",
+        );
+      await page.getByTestId("prompt-edit-save").click();
+      await expect(page.getByText(/Saved v2/)).toBeVisible();
+      await runEvaluation(v2Label, `${promptName}@2`);
+      const v2Row = page
+        .getByTestId("eval-run-row")
+        .filter({ hasText: v2Label });
+      await expect(v2Row).toBeVisible({ timeout: EVAL_TIMEOUT });
+      await expect(v2Row).toContainText("completed");
+      await v2Row.getByRole("link").click();
+      await expect(page.getByText(`prompt: ${promptName}@2`)).toBeVisible();
+      await expect(page.getByTestId("eval-result-row")).toHaveCount(
+        ROWS.length,
+      );
+      const compareV2 = page.getByLabel("Compare to baseline run");
+      const v1Value = await compareV2
+        .locator("option", { hasText: candidateLabel })
+        .getAttribute("value");
+      await compareV2.selectOption(v1Value!);
+      // the comparison names both subjects: this prompt's v2 against its v1
+      const context = page.getByTestId("baseline-comparison-context");
+      await expect(context).toContainText(`${promptName}@2`);
+      await expect(context).toContainText(
+        `Baseline: target prompt, subject ${promptName}@1`,
+      );
+      await expect(page.getByTestId("eval-aggregate")).toBeVisible();
     }
 
     // ---- 5. Human review (Operate > Review Queues) ----------------------------------------

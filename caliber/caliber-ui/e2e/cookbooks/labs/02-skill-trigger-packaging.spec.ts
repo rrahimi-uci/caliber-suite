@@ -4,14 +4,15 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Locator, type Page } from "@playwright/test";
 
 import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
+import { stackIsSimulated } from "./lab-mode";
 
 /**
  * Cookbook 02 (`docs-site/cookbooks/02-skill-trigger-packaging-lab/README.md`), "Run it through the UI".
  *
  * Needs a server started with `scripts/cookbook-env.sh up lab02 --flags cookbooks` (simulated
  * language model and evaluator, the alpha default) or `... up lab02h --flags cookbooks --real-llm`
- * (a real provider). Nothing is seeded and no API call is made from this file but one read-only
- * `GET /readiness` that picks the mode: every step is a click in the web app.
+ * (a real provider). Nothing is seeded and no API call is made from this file: the mode is read
+ * from the provider banner the app shows, and every step is a click in the web app.
  *
  * Mode differences (steps 9, 10 and 12b; everything else is the same on both):
  *   simulated: Calibrate needs no test set; the review says "Simulated evaluation — not evidence"
@@ -221,20 +222,7 @@ async function runScenarios(page: Page, count: number): Promise<void> {
   await expect(page.getByTestId("skill-trigger-result")).toHaveCount(count);
 }
 
-/** `GET /readiness`: are the language model or the evaluator simulated on this stack? */
-async function isSimulated(page: Page): Promise<boolean> {
-  // The base URL ends in /caliber; the API lives beside it at the server root.
-  const root = new URL("/", process.env["CALIBER_LAB_BASE_URL"]!).toString();
-  const response = await page.request.get(
-    `${root}ajax-api/2.0/mlflow/caliber/readiness`,
-  );
-  expect(response.ok()).toBeTruthy();
-  const body = (await response.json()) as { data?: { simulated?: string[] } };
-  const simulated = body.data?.simulated ?? [];
-  return simulated.includes("llm") || simulated.includes("eval");
-}
-
-/** Test Sets: create the skill's test set and add its rows through the example editor. */
+/** Test Sets: create the skill's test set and import its rows from `assets/dataset/skill-eval-cases.jsonl`. */
 async function createTestSet(page: Page, name: string): Promise<void> {
   await page.goto("/caliber/eval-datasets");
   await page.getByRole("button", { name: "+ New Test Set" }).click();
@@ -243,15 +231,14 @@ async function createTestSet(page: Page, name: string): Promise<void> {
   await page.getByRole("button", { name: "Create", exact: true }).click();
   await page.getByText(name, { exact: true }).first().click();
   await expect(page.getByTestId("eval-dataset-detail")).toBeVisible();
-  for (const row of TEST_SET) {
-    await page.getByTestId("example-add-toggle").click();
-    await page.getByTestId("example-input").fill(JSON.stringify(row.input));
-    await page
-      .getByTestId("example-expected")
-      .fill(JSON.stringify(row.expected));
-    await page.getByTestId("example-tags").fill(row.tags.join(", "));
-    await page.getByTestId("example-save").click();
-  }
+  await page.getByTestId("import-toggle").click();
+  await page
+    .getByTestId("import-file")
+    .setInputFiles(path.join(ASSETS, "dataset/skill-eval-cases.jsonl"));
+  await expect(page.getByTestId("import-summary")).toContainText(
+    `${TEST_SET.length} rows ready to import`,
+  );
+  await page.getByTestId("import-save").click();
   await expect(page.getByTestId("example-row")).toHaveCount(TEST_SET.length);
 }
 
@@ -323,7 +310,6 @@ test.describe("Cookbook 02: precision skills", () => {
     page,
   }) => {
     test.setTimeout(1_800_000);
-    const real = !(await isSimulated(page));
     const suffix = uiOnlySlug("c02");
     const testSetName = `lab02-skill-replies-${suffix}`;
     const skillName = `support-tone-and-citation-${suffix}`;
@@ -333,6 +319,7 @@ test.describe("Cookbook 02: precision skills", () => {
     const viewerId = `lab02v-${suffix}`.slice(0, 40);
     const viewerPassword = "lab02-viewer-pw-1";
     await new CaliberUi(page).signIn();
+    const real = !(await stackIsSimulated(page));
 
     // ---- 1. Integrations > Cookbooks lists Precision Skills ------------------------------
     await page.goto("/caliber/cookbooks");

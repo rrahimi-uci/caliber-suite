@@ -30,6 +30,10 @@ const ASSETS = path.resolve(
       "docs-site/cookbooks/14-aria-governance-starter-kit/assets",
     ),
 );
+const CASES_FILE = path.join(ASSETS, "dataset/release-candidate-cases.jsonl");
+const LOOSENED_PROMPT = fs
+  .readFileSync(path.join(ASSETS, "prompts/loosened-answer.prompt.txt"), "utf8")
+  .trim();
 const GROUNDED_PROMPT = fs
   .readFileSync(path.join(ASSETS, "prompts/grounded-answer.prompt.txt"), "utf8")
   .trim();
@@ -128,6 +132,8 @@ async function draw(page: Page, autonomy?: string): Promise<void> {
   if (autonomy)
     await page.getByLabel("Autonomy").selectOption({ label: autonomy });
   await page.getByRole("button", { name: "Decompose goal" }).click();
+  // The plan opens (its steps are listed); the Plans list behind it also shows drafts.
+  await expect(page.getByText("Plan steps")).toBeVisible();
   await expect(page.getByTitle("draft", { exact: true })).toBeVisible();
 }
 
@@ -222,24 +228,53 @@ test.describe("Cookbook 14: a governance starter kit from one sentence", () => {
     await expect(datasetRow).toBeVisible();
     await datasetRow.getByText(datasetName).click();
     await expect(page.getByText("v1").first()).toBeVisible();
-    for (const row of CASES.slice(0, 3)) {
-      await page.getByRole("button", { name: "+ Add example" }).click();
-      await page
-        .getByLabel("Input (JSON object)")
-        .fill(JSON.stringify(row.input));
-      await page
-        .getByLabel("Expected (JSON object)")
-        .fill(JSON.stringify(row.expected));
-      await page.getByLabel("Tags").fill(row.tags.join(", "));
-      await page.getByTestId("example-save").click();
-      await expect(page.getByText(row.input["question"]!)).toBeVisible();
-    }
-    await expect(page.getByText("v4").first()).toBeVisible();
+    // ---- 9b. Load the 30 cases from the file (Import from file) -------------------------
+    await page.getByTestId("import-toggle").click();
+    await page.getByLabel("Test set file").setInputFiles(CASES_FILE);
+    await expect(page.getByTestId("import-summary")).toContainText(
+      `release-candidate-cases.jsonl: ${CASES.length} rows ready to import.`,
+    );
+    await page.getByTestId("import-save").click();
+    // One version per row: 1 + 30.
+    await expect(page.getByTestId("eval-dataset-version")).toHaveText(
+      `v${CASES.length + 1}`,
+      { timeout: 120_000 },
+    );
+    await expect(page.getByTestId("example-row")).toHaveCount(CASES.length);
 
-    // ---- 10. Evaluations: refused without a real model, scored by the judge with one ------
+    // ---- 9c. Modify -> new version: tighten one reference answer ----------------------------
+    const first = page
+      .getByTestId("example-row")
+      .filter({ hasText: CASES[0]!.input["question"]! });
+    await first.getByTestId("example-edit").click();
+    const note = " Probation ends after 90 days.";
+    await page
+      .getByLabel("Expected (JSON object)")
+      .fill(
+        JSON.stringify({ answer: `${CASES[0]!.expected["answer"]}${note}` }),
+      );
+    await page.getByTestId("example-save").click();
+    const head = CASES.length + 2;
+    await expect(page.getByTestId("eval-dataset-version")).toHaveText(
+      `v${head}`,
+    );
+    await page.getByTestId("version-view").selectOption("asOf");
+    await page
+      .getByTestId("version-filter")
+      .selectOption(`${CASES.length + 1}`);
+    await expect(page.getByTestId("example-row")).toHaveCount(CASES.length);
+    await expect(
+      page
+        .getByTestId("example-row")
+        .filter({ hasText: CASES[0]!.input["question"]! }),
+    ).not.toContainText("Probation ends after 90 days.");
+
+    // ---- 10. Evaluations: refused without a real model; with one, v1 against a v2 candidate -
     const real = await isRealProvider(page);
-    const promptName = `cookbook-14-grounded-${suffix}`;
+    const promptName = `cookbook-14-answerer-${suffix}`;
     if (real) {
+      // v1 is the grounded answerer (the release baseline). v2, a new version of the same
+      // prompt, is a loosened candidate that no longer has to stay inside the policy text.
       await page.goto("/caliber/prompts");
       await page.getByRole("button", { name: "New prompt" }).click();
       await page.getByRole("button", { name: /Write \/ paste/ }).click();
@@ -247,38 +282,100 @@ test.describe("Cookbook 14: a governance starter kit from one sentence", () => {
       await page.getByLabel("Prompt name").fill(promptName);
       await page.getByRole("button", { name: "Create and Open" }).click();
       await expect(page.getByTestId("version-panel")).toBeVisible();
+      await page.getByLabel("Prompt template").fill(LOOSENED_PROMPT);
+      await page.getByRole("button", { name: "Save draft" }).click();
+      await expect(page.getByTestId("version-row-2")).toBeVisible();
     }
-    const label = `release candidate ${suffix}`;
-    await page.goto("/caliber/evaluations");
-    await page.getByRole("button", { name: "Run evaluation" }).click();
-    await page
-      .getByLabel("Test set", { exact: true })
-      .selectOption({ label: `${datasetName} (v4)` });
-    await page.getByLabel("Label", { exact: true }).fill(label);
-    if (real) {
-      await page.getByLabel("What to score").selectOption("prompt");
-      await page.getByLabel("Subject under test").fill(`${promptName}@1`);
-    }
-    await page.getByText("Exact match", { exact: true }).click();
-    await page.getByText("Token F1", { exact: true }).click();
-    await page.getByText("Contains expected", { exact: true }).click();
-    await page.getByText("Non-empty", { exact: true }).click();
-    await page.getByTestId("judge-scorer-options").getByText(judgeName).click();
-    await page.getByRole("button", { name: "Run", exact: true }).click();
+    const runEvaluation = async (label: string, version?: number) => {
+      await page.goto("/caliber/evaluations");
+      await page.getByRole("button", { name: "Run evaluation" }).click();
+      await page
+        .getByLabel("Test set", { exact: true })
+        .selectOption({ label: `${datasetName} (v${head})` });
+      await page.getByLabel("Label", { exact: true }).fill(label);
+      if (version) {
+        await page.getByLabel("What to score").selectOption("prompt");
+        await page
+          .getByLabel("Subject under test")
+          .fill(`${promptName}@${version}`);
+      }
+      await page.getByText("Exact match", { exact: true }).click();
+      await page.getByText("Token F1", { exact: true }).click();
+      await page.getByText("Contains expected", { exact: true }).click();
+      await page.getByText("Non-empty", { exact: true }).click();
+      await page
+        .getByTestId("judge-scorer-options")
+        .getByText(judgeName)
+        .click();
+      await page.getByRole("button", { name: "Run", exact: true }).click();
+    };
     if (!real) {
+      await runEvaluation(`release candidate ${suffix}`);
       await expect(
         page.getByText(/evaluation requires a real LLM provider/),
       ).toBeVisible({ timeout: 60_000 });
-    } else {
-      const run = page.getByTestId("eval-run-row").filter({ hasText: label });
-      await expect(run).toBeVisible({ timeout: 300_000 });
-      await expect(run).toContainText("completed");
-      await expect(run).toContainText("3/3");
-      await run.getByRole("link").click();
-      await expect(page.getByText(`prompt: ${promptName}@1`)).toBeVisible();
-      await expect(page.getByTestId("eval-result-row")).toHaveCount(3);
-      await expect(page.getByTestId("eval-aggregate")).toBeVisible();
+      return;
     }
+    const baseline = `baseline v1 ${suffix}`;
+    const candidate = `candidate v2 ${suffix}`;
+    for (const [label, version] of [
+      [baseline, 1],
+      [candidate, 2],
+    ] as const) {
+      await runEvaluation(label, version);
+      const run = page.getByTestId("eval-run-row").filter({ hasText: label });
+      await expect(run).toBeVisible({ timeout: 600_000 });
+      await expect(run).toContainText("completed");
+      await expect(run).toContainText(`/${CASES.length}`);
+    }
+
+    // ---- 11. Compare the candidate with the baseline ------------------------------------------
+    const judgeShare = async (): Promise<number> => {
+      const card = page
+        .getByTestId("eval-aggregate")
+        .locator("div")
+        .filter({ hasText: judgeName })
+        .last();
+      const text = (await card.textContent()) ?? "";
+      const match = /(\d+(?:\.\d+)?)%/.exec(text);
+      expect(
+        match,
+        `a percentage on the ${judgeName} card: ${text}`,
+      ).not.toBeNull();
+      return Number(match![1]) / 100;
+    };
+    await page
+      .getByTestId("eval-run-row")
+      .filter({ hasText: baseline })
+      .getByRole("link")
+      .click();
+    await expect(page.getByText(`prompt: ${promptName}@1`)).toBeVisible();
+    await expect(page.getByTestId("eval-result-row")).toHaveCount(CASES.length);
+    const baselineShare = await judgeShare();
+    await page.goto("/caliber/evaluations");
+    await page
+      .getByTestId("eval-run-row")
+      .filter({ hasText: candidate })
+      .getByRole("link")
+      .click();
+    await expect(page.getByText(`prompt: ${promptName}@2`)).toBeVisible();
+    const candidateShare = await judgeShare();
+    const compare = page.getByLabel("Compare to baseline run");
+    const value = await compare
+      .locator("option", { hasText: baseline })
+      .getAttribute("value");
+    await compare.selectOption(value!);
+    await expect(page.getByTestId("baseline-comparison-context")).toContainText(
+      `${promptName}@1`,
+    );
+    await expect(
+      page.getByTestId("eval-aggregate").getByTitle("vs. baseline run").first(),
+    ).toBeVisible();
+    // The judge tells the grounded baseline from the loosened candidate.
+    expect(
+      baselineShare - candidateShare,
+      `baseline ${baselineShare} vs candidate ${candidateShare}`,
+    ).toBeGreaterThanOrEqual(0.2);
   });
 
   test("real provider: Ask Aria acts in a Legacy auto chat and only reads in the default one", async ({

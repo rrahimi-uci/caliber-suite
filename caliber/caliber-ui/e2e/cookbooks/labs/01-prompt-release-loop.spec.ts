@@ -4,12 +4,14 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
+import { stackIsSimulated } from "./lab-mode";
 
 /**
  * Cookbook 01 (`docs-site/cookbooks/01-prompt-regression-lab/README.md`), "Run it through the UI".
  *
  * Needs a server that is already up with `CALIBER_FEATURE_COOKBOOKS=true`. Nothing is seeded and
- * no API call is made from this file but one read-only `GET /readiness` that picks the mode:
+ * no API call is made from this file: the mode (simulated or real) is read from the provider banner the
+ * app shows, and every step is a click:
  *
  *  - simulated (the alpha default, `scripts/cookbook-env.sh up lab01 --flags cookbooks`): the
  *    language model and the evaluator are canned;
@@ -83,31 +85,18 @@ function liveBadge(page: Page, version: number) {
     .getByTestId("version-live-badge");
 }
 
-/** `GET /readiness`: are the language model or the evaluator simulated on this stack? */
-async function isSimulated(page: Page): Promise<boolean> {
-  // The base URL ends in /caliber; the API lives beside it at the server root.
-  const root = new URL("/", process.env["CALIBER_LAB_BASE_URL"]!).toString();
-  const response = await page.request.get(
-    `${root}ajax-api/2.0/mlflow/caliber/readiness`,
-  );
-  expect(response.ok()).toBeTruthy();
-  const body = (await response.json()) as { data?: { simulated?: string[] } };
-  const simulated = body.data?.simulated ?? [];
-  return simulated.includes("llm") || simulated.includes("eval");
-}
-
 test.describe("Cookbook 01: prompt release loop", () => {
   test("authors, imports, evaluates, calibrates, applies and rolls back", async ({
     page,
   }) => {
     test.setTimeout(2_700_000);
-    const simulated = await isSimulated(page);
     const minScore = process.env["COOKBOOK_01_MIN_SCORE"];
     const maxRegression = process.env["COOKBOOK_01_MAX_REGRESSION"];
     const suffix = uiOnlySlug("c01");
     const promptName = `cookbook-01-intake-${suffix}`;
     const datasetName = `cookbook-01-golden-${suffix}`;
     await new CaliberUi(page).signIn();
+    const simulated = await stackIsSimulated(page);
 
     // ---- 1. Prompts > New prompt: v1 is live ---------------------------------------------
     await page.goto("/caliber/prompts");

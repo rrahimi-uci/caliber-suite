@@ -45,6 +45,7 @@ const ASSETS = resolve(
   "../../../../../docs-site/cookbooks/07-support-triage-resolution-loop/assets",
 );
 const MANIFEST = resolve(ASSETS, "workflows/support-triage.workflow.json");
+const TICKET_FILE = resolve(ASSETS, "dataset/ticket-cases.jsonl");
 const TICKETS = readFileSync(
   resolve(ASSETS, "dataset/ticket-cases.jsonl"),
   "utf8",
@@ -60,22 +61,6 @@ const TICKETS = readFileSync(
         expected: { decision: string } & Record<string, unknown>;
       },
   );
-
-/** `GET /readiness`: are the language model or the evaluator simulated on this stack? */
-async function isSimulated(page: Page): Promise<boolean> {
-  // The base URL ends in /caliber; the API lives beside it at the server root.
-  const root = new URL(
-    "/",
-    String(process.env["CALIBER_LAB_BASE_URL"]),
-  ).toString();
-  const response = await page.request.get(
-    `${root}ajax-api/2.0/mlflow/caliber/readiness`,
-  );
-  expect(response.ok()).toBeTruthy();
-  const body = (await response.json()) as { data?: { simulated?: string[] } };
-  const simulated = body.data?.simulated ?? [];
-  return simulated.includes("llm") || simulated.includes("eval");
-}
 
 /** The tickets the real-provider steps label, and the label the model variant prints for each. */
 const EVAL_TICKETS = ["TK01", "TK10", "TK29", "TK40"];
@@ -143,6 +128,36 @@ async function runTicket(page: Page, input: string): Promise<void> {
   await queued;
 }
 
+/** Open a step of the run shown in the debugger and return its output ports as text. */
+async function stepOutput(page: Page, nodeId: string): Promise<string> {
+  await page
+    .locator('[data-testid^="workflow-run-step-button-"]')
+    .filter({ hasText: nodeId })
+    .first()
+    .click();
+  const ports = page.getByTestId("workflow-run-step-output-ports");
+  await expect(ports).toBeVisible();
+  return ports.innerText();
+}
+
+/** The severity the classify step recorded for the run on screen. */
+async function classifySeverity(page: Page): Promise<string> {
+  const text = await stepOutput(page, "classify");
+  const match = /severity\\?"\s*:\s*\\?"(\w+)/.exec(text);
+  if (!match) throw new Error(`no severity in the classify output: ${text}`);
+  return match[1]!;
+}
+
+/** Open the newest run that awaits approval on the workflow's Runs tab and read its classify severity. */
+async function severityOnRunsTab(
+  page: Page,
+  workflowId: string,
+): Promise<string> {
+  await page.goto(`/caliber/workflows/${workflowId}?tab=runs`);
+  await openWaitingRun(page);
+  return classifySeverity(page);
+}
+
 test.describe("Lab 07: support triage through the UI", () => {
   // a missing control must fail the step in seconds, not wait out the whole-test timeout
   test.use({ actionTimeout: 30_000 });
@@ -151,11 +166,13 @@ test.describe("Lab 07: support triage through the UI", () => {
     browser,
   }, testInfo) => {
     test.setTimeout(1_500_000);
-    const simulated = await isSimulated(adminPage);
+    await new CaliberUi(adminPage).signIn("admin", "admin");
+    const simulated = await new CaliberUi(adminPage).isSimulatedStack();
     const baseURL = String(testInfo.project.use.baseURL);
     const suffix = uiOnlySlug("lab07").replace("lab07-", "");
     const workspace = `lab07-ui-${suffix}`;
     const workflowName = `lab07-ui-${suffix}-triage`;
+    const ticketSetName = `lab07-ui-${suffix}-tickets`;
     const contexts: BrowserContext[] = [];
     let workflowUrl = "";
     let workflowId = "";
@@ -163,7 +180,6 @@ test.describe("Lab 07: support triage through the UI", () => {
     try {
       // ---- 1. Administration: the two accounts, a workspace, the two members ---------------
       await test.step("1. Administration: accounts lena and sam, a workspace, both as Reviewers", async () => {
-        await new CaliberUi(adminPage).signIn("admin", "admin");
         await adminPage.goto("/caliber/administration");
         const accounts = adminPage.locator("#accounts-heading").locator("..");
         // The accounts table loads after the page: wait for the admin row before looking for others.
@@ -216,8 +232,46 @@ test.describe("Lab 07: support triage through the UI", () => {
         }
       });
 
-      // ---- 2. Workflows > Import: upload the manifest, preflight, import --------------------
-      await test.step("2. Workflows > Import: choose support-triage.workflow.json", async () => {
+      // ---- 2. Test Sets: upload the 44 tickets from the file ---------------------------------
+      await test.step("2. Test Sets: create a test set and Import from file ticket-cases.jsonl (44 rows)", async () => {
+        await adminPage.goto("/caliber/eval-datasets");
+        await adminPage.getByRole("button", { name: "+ New Test Set" }).click();
+        await adminPage.getByPlaceholder("factual-checks").fill(ticketSetName);
+        await adminPage.getByPlaceholder("@sarah").fill("admin");
+        await adminPage
+          .getByRole("button", { name: "Create", exact: true })
+          .click();
+        await adminPage
+          .getByText(ticketSetName, { exact: true })
+          .first()
+          .click();
+        await expect(
+          adminPage.getByTestId("eval-dataset-detail"),
+        ).toBeVisible();
+        await adminPage.getByTestId("import-toggle").click();
+        await adminPage.getByTestId("import-file").setInputFiles(TICKET_FILE);
+        await expect(adminPage.getByTestId("import-summary")).toContainText(
+          `${TICKETS.length} rows ready to import`,
+        );
+        await adminPage.getByTestId("import-save").click();
+        await expect(
+          adminPage.getByTestId("eval-dataset-detail"),
+        ).toContainText(`${TICKETS.length} active examples`, {
+          timeout: 120_000,
+        });
+        await expect(adminPage.getByTestId("example-row")).toHaveCount(
+          TICKETS.length,
+        );
+        // a ticket from the file arrived whole, with its expected decision
+        const tk29 = adminPage
+          .getByTestId("example-row")
+          .filter({ hasText: "The export button throws a 500" });
+        await expect(tk29).toHaveCount(1);
+        await expect(tk29).toContainText("escalate_bug");
+      });
+
+      // ---- 3. Workflows > Import: upload the manifest, preflight, import --------------------
+      await test.step("3. Workflows > Import: choose support-triage.workflow.json", async () => {
         await adminPage.goto("/caliber/workflows");
         await adminPage.getByTestId("import-workflow").click();
         await adminPage.getByTestId("workflow-import-name").fill(workflowName);
@@ -244,8 +298,8 @@ test.describe("Lab 07: support triage through the UI", () => {
         }
       });
 
-      // ---- 3. Validate; Preview refuses a Python Code node ----------------------------------
-      await test.step("3. Editor: Validate says Valid; Preview is refused", async () => {
+      // ---- 4. Validate; Preview refuses a Python Code node ----------------------------------
+      await test.step("4. Editor: Validate says Valid; Preview is refused", async () => {
         await adminPage.getByTestId("editor-validate").click();
         await expect(adminPage.getByTestId("editor-message")).toContainText(
           "Valid.",
@@ -269,8 +323,8 @@ test.describe("Lab 07: support triage through the UI", () => {
         await adminPage.getByTestId("preview-close").click();
       });
 
-      // ---- 4. Publish ------------------------------------------------------------------------
-      await test.step("4. Editor > Publish: validate, review, publish", async () => {
+      // ---- 5. Publish ------------------------------------------------------------------------
+      await test.step("5. Editor > Publish: validate, review, publish", async () => {
         await adminPage.getByTestId("editor-publish").click();
         await adminPage.getByTestId("publish-run-validate").click();
         await adminPage.getByTestId("publish-next-1").click();
@@ -281,8 +335,8 @@ test.describe("Lab 07: support triage through the UI", () => {
         );
       });
 
-      // ---- 5. Run a how-to ticket and a bug ticket ------------------------------------------
-      await test.step("5. Run Monitor: TK01 (how-to) completes, TK29 (bug) waits for approval", async () => {
+      // ---- 6. Run a how-to ticket and a bug ticket ------------------------------------------
+      await test.step("6. Run Monitor: TK01 (how-to) completes, TK29 (bug) waits for approval", async () => {
         await adminPage.getByTestId("editor-run-monitor").click();
         await expect(adminPage.getByTestId("run-monitor-panel")).toBeVisible();
         await runTicket(adminPage, ticket("TK01"));
@@ -305,8 +359,8 @@ test.describe("Lab 07: support triage through the UI", () => {
         ).toBeVisible();
       });
 
-      // ---- 6. The person who ran it cannot approve it -----------------------------------------
-      await test.step("6. Approve as the same account: refused", async () => {
+      // ---- 7. The person who ran it cannot approve it -----------------------------------------
+      await test.step("7. Approve as the same account: refused", async () => {
         await adminPage.getByTestId("run-approve").click();
         await expect(
           adminPage.getByText(/a second person must decide/),
@@ -315,10 +369,10 @@ test.describe("Lab 07: support triage through the UI", () => {
         });
       });
 
-      // ---- 7. Lena approves and resumes ---------------------------------------------------------
+      // ---- 8. Lena approves and resumes ---------------------------------------------------------
       const lena = await signedInAs(browser, baseURL, "lena");
       contexts.push(lena.context);
-      await test.step("7. lena: Workflows > triage > Runs: Approve, then Resume", async () => {
+      await test.step("8. lena: Workflows > triage > Runs: Approve, then Resume", async () => {
         await selectWorkspace(lena.page, workspace);
         await lena.page.goto(`/caliber/workflows/${workflowId}?tab=runs`);
         await openWaitingRun(lena.page);
@@ -327,14 +381,14 @@ test.describe("Lab 07: support triage through the UI", () => {
         await expect(lena.page.getByTestId("run-resume")).toBeEnabled({
           timeout: 30_000,
         });
-        await lena.page.getByTestId("run-resume").dispatchEvent("click");
+        await lena.page.getByTestId("run-resume").click();
         await expect(lena.page.getByText("Completed").first()).toBeVisible({
           timeout: 90_000,
         });
       });
 
-      // ---- 8. A rejection ends the run without releasing the action ---------------------------
-      await test.step("8. Run TK40 (billing refund) and reject it as lena: the run ends failed", async () => {
+      // ---- 9. A rejection ends the run without releasing the action ---------------------------
+      await test.step("9. Run TK40 (billing refund) and reject it as lena: the run ends failed", async () => {
         await adminPage.getByTestId("run-input").fill(ticket("TK40"));
         const queued = adminPage.waitForResponse(
           (response) =>
@@ -346,6 +400,18 @@ test.describe("Lab 07: support triage through the UI", () => {
         await adminPage.getByTestId("run-execute").click();
         await queued;
         await expectRunStatus(adminPage, "waiting_approval");
+        // sam is an operator without the approver scope: the gate is closed to him
+        const sam = await signedInAs(browser, baseURL, "sam");
+        contexts.push(sam.context);
+        await selectWorkspace(sam.page, workspace);
+        await sam.page.goto(`/caliber/workflows/${workflowId}?tab=runs`);
+        await openWaitingRun(sam.page);
+        await sam.page.getByTestId("run-approve").click();
+        await expect(
+          sam.page.getByText(/caliber\.approver/).first(),
+        ).toBeVisible({
+          timeout: 30_000,
+        });
         await lena.page.goto(`/caliber/workflows/${workflowId}?tab=runs`);
         await openWaitingRun(lena.page);
         await lena.page.getByTestId("run-reject").click();
@@ -355,11 +421,129 @@ test.describe("Lab 07: support triage through the UI", () => {
         await expectRunStatus(adminPage, "failed", { timeout: 90_000 });
       });
 
+      // ---- Audit: who approved what -------------------------------------------------------------
+      await test.step("10. Admin > Audit Log: lena's approval and the run's start by admin are on record", async () => {
+        await adminPage.goto("/caliber/audit-log");
+        await adminPage
+          .getByTestId("audit-filter-action")
+          .fill("approve_workflow_run_runtime_approval");
+        const approval = adminPage
+          .getByTestId("audit-row")
+          .filter({ hasText: "lena" })
+          .first();
+        await expect(approval).toBeVisible({ timeout: 30_000 });
+        await expect(approval).toContainText(
+          "approve_workflow_run_runtime_approval",
+        );
+        await adminPage
+          .getByTestId("audit-filter-action")
+          .fill("enqueue_workflow_run");
+        await expect(
+          adminPage
+            .getByTestId("audit-row")
+            .filter({ hasText: "admin" })
+            .first(),
+        ).toBeVisible({ timeout: 30_000 });
+      });
+
+      // ---- 11. Modify -> new version -> re-run -> compare ---------------------------------------
+      // The regression the dataset exists to catch: a "tidy-up" that stops flagging production impact.
+      const BAD_RULE = [
+        "urgent_markers = has([",
+        "urgent_markers = False and has([",
+      ];
+      let v1Id = "";
+      let v2Id = "";
+      await test.step("11. Versions: restore v1 as a draft, break the classify rule, save, re-run TK29, publish v2, compare v1 with v2", async () => {
+        await adminPage.goto(`/caliber/workflows/${workflowId}?tab=versions`);
+        const table = adminPage.getByTestId("versions-table");
+        await expect(table.locator("tbody tr")).toHaveCount(1);
+        v1Id = /(WFV-[0-9a-f]+)/.exec(await table.innerText())?.[1] ?? "";
+        expect(v1Id).toMatch(/^WFV-/);
+        await adminPage.getByTestId(`restore-version-btn-${v1Id}`).click();
+        await expect(adminPage).toHaveURL(/\/editor\/WFV-[^/?]+$/, {
+          timeout: 30_000,
+        });
+        v2Id = /editor\/(WFV-[^/?]+)/.exec(adminPage.url())?.[1] ?? "";
+        expect(v2Id).not.toBe(v1Id);
+        await adminPage.getByTestId("outline-classify").dblclick();
+        const code = adminPage.getByTestId("inspector-python-code");
+        await expect(code).toBeVisible();
+        const original = await code.inputValue();
+        expect(original).toContain(BAD_RULE[0]);
+        await code.fill(original.replace(BAD_RULE[0]!, BAD_RULE[1]!));
+        await adminPage.getByTestId("editor-save").click();
+        await expect(adminPage.getByTestId("editor-save-status")).toContainText(
+          /Saved|saved/,
+        );
+        await adminPage.getByTestId("editor-validate").click();
+        await expect(adminPage.getByTestId("editor-message")).toContainText(
+          "Valid.",
+        );
+        // re-run the bug ticket on the draft: it is still escalated, but it dropped from high to medium
+        await adminPage.getByTestId("editor-run-monitor").click();
+        await runTicket(adminPage, ticket("TK29"));
+        await expectRunStatus(adminPage, "waiting_approval", {
+          timeout: 120_000,
+        });
+        expect(await severityOnRunsTab(adminPage, workflowId)).toBe("medium");
+        // back to the draft, publish it as version 2
+        await adminPage.goto(`/caliber/workflows/${workflowId}/editor/${v2Id}`);
+        await adminPage.getByTestId("editor-publish").click();
+        await adminPage.getByTestId("publish-run-validate").click();
+        await adminPage.getByTestId("publish-next-1").click();
+        await adminPage.getByTestId("publish-next-2").click();
+        await adminPage.getByTestId("publish-confirm").click();
+        await expect(adminPage.getByTestId("editor-message")).toContainText(
+          "Published.",
+        );
+        // compare the two versions on the workflow's Versions tab
+        await adminPage.goto(`/caliber/workflows/${workflowId}?tab=versions`);
+        await adminPage.getByTestId("version-diff-base").selectOption(v1Id);
+        await adminPage.getByTestId("version-diff-other").selectOption(v2Id);
+        const diff = adminPage.getByTestId("version-diff-panel");
+        // exactly one node changed: the classify rule
+        await expect(diff.getByTestId("diff-modified-node")).toHaveCount(1);
+        await expect(diff.getByTestId("diff-modified-node")).toContainText(
+          "classify",
+        );
+        await expect(diff.getByTestId("diff-added-node")).toHaveCount(0);
+      });
+
+      // ---- 12. Roll back: restore v1 as a new draft, publish it, re-run -------------------------
+      await test.step("12. Versions: restore v1 again, publish it as v3, re-run TK29: severity high again", async () => {
+        await adminPage.goto(`/caliber/workflows/${workflowId}?tab=versions`);
+        await adminPage.getByTestId(`restore-version-btn-${v1Id}`).click();
+        await expect(adminPage).toHaveURL(/\/editor\/WFV-[^/?]+$/, {
+          timeout: 30_000,
+        });
+        const v3Url = adminPage.url();
+        await adminPage.getByTestId("editor-run-monitor").click();
+        await runTicket(adminPage, ticket("TK29"));
+        await expectRunStatus(adminPage, "waiting_approval", {
+          timeout: 120_000,
+        });
+        expect(await severityOnRunsTab(adminPage, workflowId)).toBe("high");
+        await adminPage.goto(v3Url);
+        await adminPage.getByTestId("editor-publish").click();
+        await adminPage.getByTestId("publish-run-validate").click();
+        await adminPage.getByTestId("publish-next-1").click();
+        await adminPage.getByTestId("publish-next-2").click();
+        await adminPage.getByTestId("publish-confirm").click();
+        await expect(adminPage.getByTestId("editor-message")).toContainText(
+          "Published.",
+        );
+        await adminPage.goto(`/caliber/workflows/${workflowId}?tab=versions`);
+        await expect(
+          adminPage.getByTestId("versions-table").locator("tbody tr"),
+        ).toHaveCount(3);
+      });
+
       if (!simulated) {
         const datasetName = `lab07-ui-${suffix}-ticket-eval`;
         let variantVersionId = "";
         let deterministicVersionId = "";
-        await test.step("9. Test Sets: four labelled tickets (answer = the label the variant prints)", async () => {
+        await test.step("13. Test Sets: four labelled tickets (answer = the label the variant prints)", async () => {
           deterministicVersionId =
             /editor\/(WFV-[^/?]+)/.exec(workflowUrl)?.[1] ?? "";
           expect(deterministicVersionId).toMatch(/^WFV-/);
@@ -401,7 +585,7 @@ test.describe("Lab 07: support triage through the UI", () => {
           );
         });
 
-        await test.step("10. Workflows > Import the model variant; Preview a how-to and a bug ticket", async () => {
+        await test.step("14. Workflows > Import the model variant; Preview a how-to and a bug ticket", async () => {
           // The variant names its gate's test set; point it at the one created above.
           const variant = JSON.parse(
             readFileSync(
@@ -462,7 +646,7 @@ test.describe("Lab 07: support triage through the UI", () => {
           }
         });
 
-        await test.step("11. Evaluations: the deterministic workflow fails (0 of 4), the model variant scores in range", async () => {
+        await test.step("15. Evaluations: the deterministic workflow fails (0 of 4), the model variant scores in range", async () => {
           async function evaluate(
             label: string,
             versionId: string,

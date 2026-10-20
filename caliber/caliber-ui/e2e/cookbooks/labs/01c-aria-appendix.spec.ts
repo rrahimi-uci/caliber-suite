@@ -4,6 +4,7 @@ import { fileURLToPath } from "node:url";
 import { expect, test, type Page } from "@playwright/test";
 
 import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
+import { stackIsSimulated } from "./lab-mode";
 
 /**
  * Cookbook 01, appendix: the steps that need the Aria assistant and a real model
@@ -43,18 +44,6 @@ function promptBody(file: string): string {
   );
 }
 
-/** `GET /readiness`: are the language model or the evaluator simulated on this stack? */
-async function isSimulated(page: Page): Promise<boolean> {
-  const root = new URL("/", process.env["CALIBER_LAB_BASE_URL"]!).toString();
-  const response = await page.request.get(
-    `${root}ajax-api/2.0/mlflow/caliber/readiness`,
-  );
-  expect(response.ok()).toBeTruthy();
-  const body = (await response.json()) as { data?: { simulated?: string[] } };
-  const simulated = body.data?.simulated ?? [];
-  return simulated.includes("llm") || simulated.includes("eval");
-}
-
 function liveBadge(page: Page, version: number) {
   return page
     .getByTestId(`version-row-${version}`)
@@ -70,13 +59,13 @@ test.describe("Cookbook 01 appendix: the Aria steps", () => {
     page,
   }) => {
     test.setTimeout(1_800_000);
-    test.skip(
-      await isSimulated(page),
-      "needs a real model: start the stack with --flags cookbooks,aria --real-llm",
-    );
     const suffix = uiOnlySlug("c01a");
     const promptName = `cookbook-01-aria-${suffix}`;
     await new CaliberUi(page).signIn();
+    test.skip(
+      await stackIsSimulated(page),
+      "needs a real model: start the stack with --flags cookbooks,aria --real-llm",
+    );
 
     // ---- The prompt: v1 live -------------------------------------------------------------
     await page.goto("/caliber/prompts");

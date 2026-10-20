@@ -10,7 +10,7 @@ import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
 
 /**
  * Lab 18, "Run it through the UI": a team lead sets up a workspace, gives people roles, and reads
- * back who did what. The ten numbered steps in the lab README are the ten `test.step`s below.
+ * back who did what. The eleven numbered steps in the lab README are the `test.step`s below (step 4 has four parts).
  *
  * Each person signs in through the real login page in their own browser context, so the app is
  * seen the way that person sees it. Nothing here calls the API directly.
@@ -258,6 +258,57 @@ test.describe("Lab 18: projects, roles, tokens and audit", () => {
         await shot(priya.page, "04b-editor-prompt");
       });
 
+      await test.step("4c. priya (editor): edit the prompt, save version 2 and promote it", async () => {
+        await priya.page.goto("/caliber/prompts");
+        const card = priya.page.getByRole("button", { name: "Edit" }).first();
+        await priya.page.getByLabel("Search prompts").fill(promptName);
+        await expect(card).toBeVisible({ timeout: 30_000 });
+        await card.click();
+        await expect(priya.page.getByLabel("Prompt name")).toHaveValue(
+          promptName,
+        );
+        await priya.page
+          .getByPlaceholder("Prompt template")
+          .fill(
+            "Reply to the customer politely and name the next step.\n\nQuestion: {question}",
+          );
+        await priya.page
+          .getByPlaceholder("Updated prompt")
+          .fill("name the next step");
+        await priya.page.getByTestId("prompt-edit-save").click();
+        await priya.page.getByTestId("prompt-edit-promote").click();
+        await expect(priya.page.getByTestId("prompt-edit-promote")).toHaveCount(
+          0,
+          { timeout: 30_000 },
+        );
+        await priya.page.goto("/caliber/prompts");
+        await priya.page.getByLabel("Search prompts").fill(promptName);
+        await priya.page.getByRole("button", { name: "Open" }).first().click();
+        await expect(
+          priya.page
+            .getByTestId("version-row-2")
+            .getByTestId("version-live-badge"),
+        ).toBeVisible({ timeout: 60_000 });
+        await expect(
+          priya.page
+            .getByTestId("version-row-1")
+            .getByTestId("version-live-badge"),
+        ).toHaveCount(0);
+        await shot(priya.page, "04c-editor-v2");
+      });
+
+      const quinn = await signedInAs(browser, baseURL, "quinn");
+      contexts.push(quinn.context);
+      await test.step("4d. quinn (reviewer): can read the workspace, cannot write a prompt", async () => {
+        await selectWorkspace(quinn.page, workspace);
+        await createPrompt(quinn.page, `${promptName}-denied-reviewer`);
+        await expect(
+          quinn.page.getByText(
+            /project role 'reviewer' cannot perform resource\.write\.runtime/,
+          ),
+        ).toBeVisible({ timeout: 30_000 });
+      });
+
       // ---- 5. A non-member does not see the workspace --------------------------------------
       const nora = await signedInAs(browser, baseURL, "nora");
       contexts.push(nora.context);
@@ -282,9 +333,58 @@ test.describe("Lab 18: projects, roles, tokens and audit", () => {
         await shot(nora.page, "05-non-member");
       });
 
-      // ---- 6. priya issues a token bound to the workspace ----------------------------------
+      // ---- 6. maya changes a role and offboards a member -----------------------------------
+      await test.step("6. Administration > Project access: change sam to viewer, remove victor", async () => {
+        await maya.page.goto("/caliber/administration");
+        const section = maya.page
+          .locator("#project-access-heading")
+          .locator("..");
+        await section
+          .getByLabel("Project for access management")
+          .selectOption(projectId);
+        await section
+          .getByLabel("Role for sam")
+          .selectOption({ label: ROLE_LABEL.viewer });
+        await expect(section.getByText("Changed sam to viewer.")).toBeVisible();
+        await expect(section.getByLabel("Role for sam")).toHaveValue("viewer");
+        await section
+          .getByRole("row")
+          .filter({ has: maya.page.getByText("victor", { exact: true }) })
+          .getByRole("button", { name: "Remove" })
+          .click();
+        await expect(
+          section.getByText("Removed victor from the project."),
+        ).toBeVisible();
+        await expect(section.getByLabel("Role for victor")).toHaveCount(0);
+        await shot(maya.page, "05b-offboarded");
+
+        // sam, now a viewer, is refused; victor no longer sees the workspace.
+        const sam = await signedInAs(browser, baseURL, "sam");
+        contexts.push(sam.context);
+        await selectWorkspace(sam.page, workspace);
+        await createPrompt(sam.page, `${promptName}-denied-demoted`);
+        await expect(
+          sam.page.getByText(
+            /project role 'viewer' cannot perform resource\.write\.runtime/,
+          ),
+        ).toBeVisible({ timeout: 30_000 });
+        const listed = victor.page.waitForResponse(
+          (response) =>
+            response.request().method() === "GET" &&
+            /\/caliber\/projects(\?.*)?$/.test(response.url()),
+        );
+        await victor.page.goto("/caliber/");
+        await listed;
+        await expect(
+          victor.page
+            .getByLabel("Active workspace")
+            .locator("option", { hasText: workspace }),
+        ).toHaveCount(0);
+      });
+
+      // ---- 7. priya issues a token bound to the workspace ----------------------------------
       let secret = "";
-      await test.step("6. Settings > API tokens: a token bound to the workspace", async () => {
+      await test.step("7. Settings > API tokens: a token bound to the workspace", async () => {
         await priya.page.goto("/caliber/settings");
         await priya.page.getByRole("button", { name: "API tokens" }).click();
         await priya.page.getByLabel("Token name").fill(tokenName);
@@ -325,8 +425,8 @@ test.describe("Lab 18: projects, roles, tokens and audit", () => {
         await shot(priya.page, "06-token");
       });
 
-      // ---- 7. priya revokes it --------------------------------------------------------------
-      await test.step("7. Settings > API tokens: revoke the token", async () => {
+      // ---- 8. priya revokes it --------------------------------------------------------------
+      await test.step("8. Settings > API tokens: revoke the token", async () => {
         await priya.page
           .getByRole("button", { name: `Revoke ${tokenName}` })
           .click();
@@ -345,8 +445,8 @@ test.describe("Lab 18: projects, roles, tokens and audit", () => {
         await shot(priya.page, "07-revoked");
       });
 
-      // ---- 8. The admin reads the audit log ------------------------------------------------
-      await test.step("8. Audit Log: filter by entity, actor and action", async () => {
+      // ---- 9. The admin reads the audit log ------------------------------------------------
+      await test.step("9. Audit Log: filter by entity, actor and action", async () => {
         await adminPage.goto("/caliber/audit-log");
         await expect(adminPage.getByTestId("audit-log-page")).toBeVisible();
         const rows = adminPage.getByTestId("audit-row");
@@ -374,6 +474,13 @@ test.describe("Lab 18: projects, roles, tokens and audit", () => {
         ).toHaveCount(7);
         await expect(rows.first()).toContainText("maya");
 
+        await expect(
+          rows.filter({ hasText: "update_project_member" }),
+        ).toHaveCount(1);
+        await expect(
+          rows.filter({ hasText: "remove_project_member" }),
+        ).toHaveCount(1);
+
         // By action: the seven grants name their roles.
         await adminPage
           .getByTestId("audit-filter-action")
@@ -386,8 +493,16 @@ test.describe("Lab 18: projects, roles, tokens and audit", () => {
           2,
         );
 
-        // By actor and action: the token's creation, with its binding and without its secret.
+        // By action and entity name: both releases of the prompt, v1 then v2, both by priya.
         await adminPage.getByTestId("audit-filter-entity-id").fill("");
+        await adminPage.getByTestId("audit-filter-actor").fill("priya");
+        await adminPage
+          .getByTestId("audit-filter-action")
+          .fill("promote_prompt");
+        await expect(rows.filter({ hasText: promptName })).toHaveCount(2);
+        await adminPage.getByTestId("audit-filter-actor").fill("");
+
+        // By actor and action: the token's creation, with its binding and without its secret.
         await adminPage.getByTestId("audit-filter-actor").fill("priya");
         await adminPage
           .getByTestId("audit-filter-action")
@@ -408,26 +523,29 @@ test.describe("Lab 18: projects, roles, tokens and audit", () => {
         );
       });
 
-      // ---- 9. The release timeline and live board ------------------------------------------
-      await test.step("9. Releases: the timeline and the live board show the prompt release", async () => {
+      // ---- 10. The release timeline and live board ------------------------------------------
+      await test.step("10. Releases: the timeline and the live board show the prompt release", async () => {
         await priya.page.goto("/caliber/releases");
         await expect(priya.page.getByTestId("releases-page")).toBeVisible();
         const live = priya.page.getByTestId(`releases-live-${promptName}`);
         await expect(live).toBeVisible({ timeout: 30_000 });
         await expect(live).toContainText("@prod");
-        await expect(live).toContainText("v1");
+        // Version 2 is live; the timeline keeps both releases, newest first, both by priya.
+        await expect(live).toContainText("v2");
         await expect(live).toContainText("priya");
         const event = priya.page
           .getByTestId("releases-timeline")
           .getByRole("listitem")
           .filter({ hasText: promptName });
-        await expect(event).toHaveCount(1);
-        await expect(event).toContainText("priya");
+        await expect(event).toHaveCount(2);
+        await expect(event.first()).toContainText("v2");
+        await expect(event.last()).toContainText("v1");
+        await expect(event.first()).toContainText("priya");
         await shot(priya.page, "09-releases");
       });
 
-      // ---- 10. Readiness: the health dot and the simulated-provider banner -----------------
-      await test.step("10. The top bar and banner say what is up and what is simulated", async () => {
+      // ---- 11. Readiness: the health dot and the simulated-provider banner -----------------
+      await test.step("11. The top bar and banner say what is up and what is simulated", async () => {
         await priya.page.goto("/caliber/");
         await expect(
           priya.page.getByLabel("API and database reachable"),

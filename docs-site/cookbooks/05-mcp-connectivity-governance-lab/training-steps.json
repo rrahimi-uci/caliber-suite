@@ -107,6 +107,12 @@
       ]
     },
     {
+      "where": "Agent resources › Workflows",
+      "do": "In the editor press <strong>Publish</strong> (v1 becomes read-only), then <strong>Restore as draft</strong> for <code>v2 · draft</code>. Close the Run Monitor with its <strong>✕</strong>, click <code>call_tool</code> in the Outline, then an empty spot on the canvas to open the workflow settings, and untick <strong>Approval</strong> under <strong>Tool bindings</strong> for <code>issue_write</code>. <strong>Save</strong>, open <strong>Run Monitor</strong>, paste <code>{\"repo\": \"acme/release-notes-bot\", \"title\": \"This must never be filed\"}</code> and <strong>Run</strong>.",
+      "click": "Run",
+      "see": "The run is refused: <em>tool policy requires approval but the workflow binding does not</em>. The server's ledger still shows two <code>issue_write</code> calls."
+    },
+    {
       "where": "Integrations › MCP Servers",
       "do": "Click <strong>Add Server</strong> with command <code>/bin/sh</code> and arguments <code>-c echo pwned</code>, register it, and click <strong>Test</strong> on its row. Then read <strong>Operate › Audit Log</strong> (filter <code>update_mcp_tool_policy</code>, then <code>calibrate_mcp_tool</code>) and <strong>Operate › Observability</strong>.",
       "click": "Test",

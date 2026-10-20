@@ -8,7 +8,7 @@
 
 ## What it demonstrates and the expected outcome
 
-A workflow that is **already running** in production, and what you do when it goes wrong. You replay 40 production-like refund tickets through a real workflow (the buggy version 1 of [cookbook 09](../09-workflow-debugger-self-healing-lab/README.md)), so CALIBER records 40 real MLflow traces: 12 are `ERROR` (a schema violation, a poison record that times out a node, an upstream error that surfaces two nodes later) and 28 are `OK`. Four of those 28 are wrong anyway: nothing errored, but the ticket went to manual review when the right answer is *approve*. You find the failures with the status filter, read a trace's node tree to see which node failed, capture the traces that matter into a **test set** with the outcome they should have had, and stand up a **review queue** where people classify them (where did it fail, how severe, what should have happened). Their answers are written back onto the traces. You also see what Observability does when there is nothing to show, when a trace does not exist, and when MLflow is down.
+A workflow that is **already running** in production, and what you do when it goes wrong. You replay 40 production-like refund tickets through a real workflow (the buggy version 1 of [cookbook 09](../09-workflow-debugger-self-healing-lab/README.md)), so CALIBER records 40 real MLflow traces: 12 are `ERROR` (a schema violation, a poison record that times out a node, an upstream error that surfaces two nodes later) and 28 are `OK`. Four of those 28 are wrong anyway: nothing errored, but the ticket went to manual review when the right answer is *approve*. You find the failures with the status filter, read a trace's node tree to see which node failed, capture the traces that matter into a **test set** with the outcome they should have had, and stand up a **review queue** where people classify them (where did it fail, how severe, what should have happened). Their answers are written back onto the traces. You also see what Observability does when there is nothing to show, when a trace does not exist, and when MLflow is down. Finally you close the loop: fix the workflow as a new version, re-run the 16 tickets that mattered, and compare an old trace with its new one.
 
 **You are done when:**
 
@@ -17,6 +17,7 @@ A workflow that is **already running** in production, and what you do when it go
 - an unknown trace id is a **404** (*trace 'tr-...' not found*), a filter that matches nothing is an empty list, and with MLflow down the routes answer **503** *the trace store (MLflow) is not reachable*;
 - a test set holds the 16 traces that matter (12 errors + the 4 wrong `OK` ones), each with its gold outcome;
 - the `prod-triage` queue holds the same 16 traces, two are answered, and the answers appear on those traces as assessments (`failure_mode`, `severity`, `root_cause_known`, `expected_output`, `reviewer_notes`);
+- after the fix (workflow version 2) the 16 tickets re-run to their gold outcome and a version 1 trace can be compared with its version 2 trace;
 - `cookbook_16_observability_triage.py` exits 0 and the Playwright spec passes.
 
 ## Prerequisites and setup
@@ -43,7 +44,7 @@ export CALIBER_TOKEN=$(curl -s -b /tmp/lab16.jar -X POST $CALIBER_API/auth/token
 # CALIBER_BASE_URL (the server root, which is what the SDK wants) is already exported by env.sh
 ```
 
-Seed the traffic (the API script does this itself; do it by hand for the UI path). It takes about a minute and a half and prints one line of JSON per ticket, the run and its trace:
+Seed the traffic. The API script does this itself and the UI path sends the tickets through the Run Monitor (step 2 of the UI recipe), so this is only needed to make traces for your own exploration. It takes about a minute and a half and prints one line of JSON per ticket, the run and its trace:
 
 ```bash
 PYTHONPATH=sdk/caliber-sdk python docs-site/cookbooks/16-observability-triage/assets/seed_traces.py > traces.json
@@ -57,6 +58,7 @@ python3 -c 'import json,collections; d=json.load(open("traces.json")); print(col
 | --- | --- | --- |
 | [`assets/dataset/prod-regression.sample.jsonl`](assets/dataset/prod-regression.sample.jsonl) | 40 tickets `P01` to `P40`. Each row has `input.payload` (the ticket as a JSON string, the run input), `expected` (the gold outcome: `decision`, `reason_code`, and `upstream_status` or `v2_errors_contain` where relevant), `tags` and a `note` that says why. | the production traffic, and what it should have produced |
 | [`assets/seed_traces.py`](assets/seed_traces.py) | imports cookbook 09's version 1 workflow, publishes it and submits the 40 tickets as runs | real traces: the runtime records them, the script writes none |
+| [`assets/fix/`](assets/fix/) | `validate.py` and `decide.py` (identical to lab 09's patch) and `check_reference.py` (lab 09's, plus trimming and upper-casing the order reference) | the code of workflow version 2, pasted into the three nodes in step 12; a test runs all 40 tickets through it and checks the gold outcome |
 | [`assets/review-queues/triage-review.review-questions.json`](assets/review-queues/triage-review.review-questions.json) | the five triage questions: `root_cause_known` (pass/fail), `failure_mode` (prompt, tool, retrieval, data, infra), `severity` (low, medium, high), `expected_output` (text, becomes a trace expectation), `reviewer_notes` | the queue's label schema |
 
 The 40 tickets: 24 **correct in production** (approve, over the limit by a cent, a suspended account, a euro and a pound refund, exactly the premium limit and one over it), 4 **`OK` but wrong** (a lowercase order reference `ord-5521`, a lowercase one with a suffix, and two with trailing spaces: the workflow sends them to manual review, a person would approve), and 12 **errors**: 4 schema violations that a careful normalizer would accept (an amount sent as `"75.00"`, `"$120.00"`, `"35"`, a lowercase `usd`), 2 that must be rejected with a reason (a missing account id, truncated JSON), 3 **poison records** (an order reference that sends a regex into catastrophic backtracking: `check_reference` times out after 2 seconds) and 3 **upstream failures** (account service answering 503, 500 and 404, which crash `decide` rather than `lookup`).
@@ -72,10 +74,9 @@ The silent failures are the point of the triage queue: the Error filter finds 12
 | `CALIBER_TRACING_EXPERIMENT` | unset | when set, Observability only searches that experiment |
 | `MLFLOW_TRACKING_URI` | from `env.sh` | the MLflow server CALIBER reads traces from |
 | `CALIBER_BASE_URL` | from `env.sh` (the server root) | what the SDK scripts connect to |
-| `CALIBER_TOKEN` | a personal access token | what the scripts sign in with (the UI spec needs it only for seeding) |
+| `CALIBER_TOKEN` | a personal access token | what the API script signs in with (the UI spec does not need it) |
 | `COOKBOOK_16_ASSETS` | the repo's `assets/` | optional: another copy of the assets |
 | `CALIBER_LAB_BASE_URL` | `$CALIBER_URL/caliber` | the UI spec's server |
-| `CALIBER_LAB_PYTHON` | the repo's dev venv | the interpreter the UI spec seeds with |
 
 ## Run it through the API
 
@@ -128,25 +129,32 @@ Checked on a running stack (lab16), not inferred:
 
 ## Recipe: run it through the UI
 
-These are the steps `e2e/cookbooks/labs/16-observability-triage.spec.ts` performs with real clicks. Seed the traffic first (setup above). Sign in as `admin` / `admin` at `$CALIBER_URL/caliber/`.
+These are the steps `e2e/cookbooks/labs/16-observability-triage.spec.ts` performs with real clicks and file uploads (it calls no API). Sign in as `admin` / `admin` at `$CALIBER_URL/caliber/`. A ticket is a row of `assets/dataset/prod-regression.sample.jsonl`; paste the row's `input.payload` as the run input. Ticket `P38` is `T-5038`, and so on.
 
-1. **Filter by status.** Sidebar group **Operate**, **Observability**. The list shows the newest traces, each with the ticket as its request. Open **Filter by status** and choose **Error**: every row is `ERROR` (12 for each time you seeded). Choose **OK**: 28 per seeding. Choose **All statuses**.
-2. **Open a failing trace.** Click a row (the trace id goes into the URL as `?trace=`). The **Spans** tree for a poison record (ticket `T-5035`) reads `workflow.run` ERROR, `node.start` OK, `node.validate` OK, `node.check_reference` ERROR, 2.04 s: the node that timed out. For an upstream failure (`T-5038`) `node.lookup` is **OK** and `node.decide` is **ERROR**: the cause is one step before the failing node.
-3. **Nothing matches; an unknown trace.** In **Search traces** type `no-such-ticket-zzz`: the empty state appears. Open `/caliber/observability?trace=tr-doesnotexist`: the **Trace** panel says *trace 'tr-doesnotexist' not found*.
-4. **Create the test set.** **Prompt lifecycle**, **Test Sets**, **+ New Test Set**: name `prod-regression`, owner `@admin`, **Create**. (Observability can only add to an existing test set; it has no create option.)
-5. **Capture failures.** Back in **Observability**, open the `T-5038` trace, in **Add to test set** choose `prod-regression`, **Add example**. Then open the test set, **Capture from trace** (the toggle in the page header), paste the `T-5035` trace id and **Capture**. The set has 2 examples; each input is the ticket, tagged `from-trace` and `trace:<id>`.
-6. **Put the gold outcome on it.** A capture stores the trace's **response** as the expected answer, and for a failed run the response is the error text: `"ToolExecutionError: python_code node 'decide' failed: KeyError: 'tier'"`. That is evidence of the failure, not the answer you want. On the first example click **Edit**, replace **Expected (JSON object)** with `{"decision": "manual_review", "reason_code": "ACCOUNT_LOOKUP_FAILED", "upstream_status": 503}` and **Save**: the example becomes version 2 and shows the new value.
-7. **Create the triage queue.** **Operate**, **Review Queues**, **New queue**, name `prod-triage`, then the five questions of `triage-review.review-questions.json` with **+ Add question** (key, title, type, target, and for `failure_mode` and `severity` the comma-separated options), **Create queue**.
-8. **Enqueue and review.** Select the queue, paste two trace ids (the `T-5038` trace and a silent-wrong one, `T-5025`) into **Trace ids**, **Enqueue**: **Items (2)**. For each: **Pass** on the first question, pick **Where did it fail?** and **Operational severity**, fill **What should the run have produced?** and **Triage notes**, **Submit review**. After the second: **All items reviewed.**
-9. **Read the answers on the trace.** **Observability**, open the `T-5038` trace: **Assessments** lists `failure_mode` tool and `severity` high among the five answers. The reviewer's *expected output* is a trace expectation.
+1. **Import and publish the production workflow.** Sidebar group **Agent resources**, **Workflows**, **Import**. Name it `prod-refund-intake`, **Choose file** `docs-site/cookbooks/09-workflow-debugger-self-healing-lab/assets/workflow/ticket-intake.v1.workflow.yaml` (the buggy version 1 of lab 09), **Validate dependencies**: **Preflight passed**. **Import as new** opens the editor; toolbar **Publish**: **Validate**, **Next**, **Next**, **Publish**. The editor shows **Published.** This is the "workflow that is already running in production".
+2. **Send the 40 production tickets through it.** In the editor open **Run Monitor**, paste a ticket, click **Run**, wait for the badge (**completed** or **failed**), and repeat for `P01` to `P40` (about two minutes in all; the poison tickets take two seconds each to time out). Twelve end **failed**, 28 **completed**. Every run records a trace: the run's **Execution Trace** panel has an **Open in Observability** link to it. (If you would rather not paste 40 tickets, the API path's `assets/seed_traces.py` submits the same 40 in about a minute and a half.)
+3. **Filter by status.** Sidebar group **Operate**, **Observability**. The list shows the newest traces, each with the ticket as its request. Open **Filter by status** and choose **Error**: every row is `ERROR` (12 for each time you sent the 40). Choose **OK**: 28 per time. Choose **All statuses**. The newest trace can read **IN_PROGRESS** for a moment after its run ended (MLflow closes traces asynchronously); the list refreshes itself every five seconds, under any filter, so a run that had not closed when you opened the page (the last failure, under **Error**) appears without a reload.
+4. **Open a failing trace.** Search `T-5035` in **Search traces** and click the row (the trace id goes into the URL as `?trace=`). The **Spans** tree for a poison record reads `workflow.run` ERROR, `node.start` OK, `node.validate` OK, `node.check_reference` ERROR, 2.04 s: the node that timed out. For an upstream failure (`T-5038`) `node.lookup` is **OK** and `node.decide` is **ERROR**: the cause is one step before the failing node. For a silent failure (`T-5025`) nothing is `ERROR`: the trace looks healthy, only its response gives it away.
+5. **Nothing matches; an unknown trace.** In **Search traces** type `no-such-ticket-zzz`: the empty state appears. Open `/caliber/observability?trace=tr-doesnotexist`: the **Trace** panel says *trace 'tr-doesnotexist' not found*.
+6. **Create the test set.** **Prompt lifecycle**, **Test Sets**, **+ New Test Set**: name `prod-regression`, owner `@admin`, **Create**. (Observability can only add to an existing test set; it has no create option.)
+7. **Capture failures.** Back in **Observability**, open the `T-5038` trace, in **Add to test set** choose `prod-regression`, **Add example**. Then open the test set, **Capture from trace** (the toggle in the page header), paste the `T-5035` trace id and **Capture**. The set has 2 examples; each input is the ticket, tagged `from-trace` and `trace:<id>`.
+8. **Put the gold outcome on it.** A capture stores the trace's **response** as the expected answer, and for a failed run the response is the error text: `"ToolExecutionError: python_code node 'decide' failed: KeyError: 'tier'"`. That is evidence of the failure, not the answer you want. On the first example click **Edit**, replace **Expected (JSON object)** with `{"decision": "manual_review", "reason_code": "ACCOUNT_LOOKUP_FAILED", "upstream_status": 503}` and **Save**: the example becomes version 2 and shows the new value.
+9. **Create the triage queue.** **Operate**, **Review Queues**, **New queue**, name `prod-triage`, then the five questions of `triage-review.review-questions.json` with **+ Add question** (key, title, type, target, and for `failure_mode` and `severity` the comma-separated options), **Create queue**.
+10. **Enqueue and review.** Select the queue, paste two trace ids (the `T-5038` trace and a silent-wrong one, `T-5025`) into **Trace ids**, **Enqueue**: **Items (2)**. For each: **Pass** on the first question, pick **Where did it fail?** and **Operational severity**, fill **What should the run have produced?** and **Triage notes**, **Submit review**. After the second: **All items reviewed.**
+11. **Read the answers on the trace.** **Observability**, open the `T-5038` trace: **Assessments** lists `failure_mode` tool and `severity` high among the five answers. The reviewer's *expected output* is a trace expectation.
+12. **Fix the workflow: a new version.** **Workflows**, `prod-refund-intake`, tab **Versions**, **Restore as draft** on v1. In the editor click the `validate` node and replace its **Code** with `assets/fix/validate.py`; do the same for `check_reference` (`assets/fix/check_reference.py`: it also upper-cases and trims the order reference, which the four silent failures needed) and `decide` (`assets/fix/decide.py`). **Save** (the status reads **Saved**), then **Publish** as in step 1. This is version 2.
+13. **Re-run the 16 tickets that mattered and compare.** In **Run Monitor** run `P25` to `P40`: all 16 are **completed** and the output is the gold outcome of the dataset row (`P38`: `decision` `manual_review`, `reason_code` `ACCOUNT_LOOKUP_FAILED`, `upstream_status` 503; `P25`: `approve`, `ELIGIBLE_AUTO_APPROVE`). In **Observability** search `T-5038`: two traces, the newest `OK` (version 2) and below it the `ERROR` one (version 1). Click **Compare**, select both rows: the panel shows both statuses side by side with their span trees. The **Error** filter finds no new failures.
+14. **Compare the two versions.** **Workflows**, `prod-refund-intake`, tab **Versions**, **Compare versions**: base v1, newer v2: the panel lists the changed nodes, `check_reference` among them.
 
-Run the spec (the server must be up, the stand-in service running, `CALIBER_TOKEN` exported):
+Run the spec (the server must be up and the stand-in service running):
 
 ```bash
 cd caliber/caliber-ui
 CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" \
   npx playwright test --config=playwright.labs.config.ts e2e/cookbooks/labs/16-observability-triage.spec.ts
 ```
+
+It takes about three minutes and leaves 56 traces, a workflow with two versions, a test set and a queue (all uniquely named) on the stack.
 
 ## Verify it worked
 
@@ -160,6 +168,7 @@ CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" \
 | The test set | `GET $B/eval-datasets/{id}/examples` | 16 examples (API path) or 2 (UI path), tagged `from-trace`, `trace:<id>` |
 | The queue | **Review Queues** | `Items (16)` (API path) or `(2)` (UI path), answered items read **All items reviewed.** |
 | Write-back | trace `assessments` | `failure_mode`, `severity`, `root_cause_known`, `expected_output`, `reviewer_notes` |
+| The fix | step 13 | the 16 re-runs give the dataset's gold `decision` and `reason_code`; `T-5038` shows an `ERROR` trace (v1) and an `OK` one (v2) in **Compare** |
 | The data files | `caliber/tests/test_cookbook_16_observability.py` | 40 rows, tags, gold outcomes consistent with the workflow's real behavior |
 
 ## Common errors and troubleshooting

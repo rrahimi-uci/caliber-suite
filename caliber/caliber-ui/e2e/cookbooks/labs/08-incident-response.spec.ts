@@ -25,13 +25,13 @@ import { CaliberUi, uiOnlySlug } from "../ui-only-driver";
  * Needs a server started as the README shows (CALIBER_FEATURE_COOKBOOKS=true and
  * CALIBER_OPERATOR_USERS=admin,lena,sam  CALIBER_APPROVER_USERS=admin,lena). It runs on a
  * simulated stack (`up lab08 --flags cookbooks`) and on a real-provider one (`up lab08h --flags
- * cookbooks --real-llm`): one read-only `GET /readiness` picks the mode, and steps 9 to 11 differ:
- *   9.  Evaluations: scoring a workflow version is refused without a real model (the page shows
+ * cookbooks --real-llm`): the page's own "Simulated providers" banner picks the mode, and steps 11 to 13 differ:
+ *   11. Evaluations: scoring a workflow version is refused without a real model (the page shows
  *       the server's reason), and runs over the test set with one.
- *   10. Workflow calibration (Calibrate, with an agent created on the Agents page): it ends
+ *   12. Workflow calibration (Calibrate, with an agent created on the Agents page): it ends
  *       `rejected` with no candidate on both; the run is marked "Structural score", and "Simulated
  *       evaluation" as well on a simulated stack.
- *   11. (real only) the optional model-based variant is imported and Preview shows the model's
+ *   13. (real only) the optional model-based variant is imported and Preview shows the model's
  *       proposal beside the table-decided verdict.
  */
 
@@ -41,10 +41,8 @@ const ASSETS = resolve(
   HERE,
   "../../../../../docs-site/cookbooks/08-incident-response-commander/assets",
 );
-const INCIDENTS = readFileSync(
-  resolve(ASSETS, "dataset/incident-cases.jsonl"),
-  "utf8",
-)
+const INCIDENT_FILE = resolve(ASSETS, "dataset/incident-cases.jsonl");
+const INCIDENTS = readFileSync(INCIDENT_FILE, "utf8")
   .split("\n")
   .filter(Boolean)
   .map(
@@ -56,22 +54,6 @@ const INCIDENTS = readFileSync(
         expected: Record<string, unknown>;
       },
   );
-
-/** `GET /readiness`: are the language model or the evaluator simulated on this stack? */
-async function isSimulated(page: Page): Promise<boolean> {
-  // The base URL ends in /caliber; the API lives beside it at the server root.
-  const root = new URL(
-    "/",
-    String(process.env["CALIBER_LAB_BASE_URL"]),
-  ).toString();
-  const response = await page.request.get(
-    `${root}ajax-api/2.0/mlflow/caliber/readiness`,
-  );
-  expect(response.ok()).toBeTruthy();
-  const body = (await response.json()) as { data?: { simulated?: string[] } };
-  const simulated = body.data?.simulated ?? [];
-  return simulated.includes("llm") || simulated.includes("eval");
-}
 
 function incident(id: string) {
   const row = INCIDENTS.find((item) => item.id === id);
@@ -123,7 +105,8 @@ test.describe("Lab 08: incident response through the UI", () => {
     browser,
   }, testInfo) => {
     test.setTimeout(1_800_000);
-    const simulated = await isSimulated(adminPage);
+    await new CaliberUi(adminPage).signIn("admin", "admin");
+    const simulated = await new CaliberUi(adminPage).isSimulatedStack();
     const baseURL = String(testInfo.project.use.baseURL);
     const suffix = uiOnlySlug("lab08").replace("lab08-", "");
     const workspace = `lab08-ui-${suffix}`;
@@ -132,6 +115,7 @@ test.describe("Lab 08: incident response through the UI", () => {
     const contexts: BrowserContext[] = [];
     let workflowId = "";
     let versionId = "";
+    let v2Id = "";
 
     // The manifest names its gate's test set; point it at the one this run creates.
     const manifest = JSON.parse(
@@ -150,7 +134,6 @@ test.describe("Lab 08: incident response through the UI", () => {
 
     try {
       await test.step("1. Administration: accounts lena and sam, a workspace, both as Reviewers", async () => {
-        await new CaliberUi(adminPage).signIn("admin", "admin");
         await adminPage.goto("/caliber/administration");
         const accounts = adminPage.locator("#accounts-heading").locator("..");
         await expect(
@@ -221,7 +204,7 @@ test.describe("Lab 08: incident response through the UI", () => {
         await adminPage.getByRole("button", { name: "Cancel" }).click();
       });
 
-      await test.step("3. Test Sets: create the test set and add three incidents", async () => {
+      await test.step("3. Test Sets: create the test set and Import from file incident-cases.jsonl (41 rows)", async () => {
         await adminPage.goto("/caliber/eval-datasets");
         await adminPage.getByRole("button", { name: "+ New Test Set" }).click();
         await adminPage.getByPlaceholder("factual-checks").fill(datasetName);
@@ -233,19 +216,25 @@ test.describe("Lab 08: incident response through the UI", () => {
         await expect(
           adminPage.getByTestId("eval-dataset-detail"),
         ).toBeVisible();
-        for (const id of ["IN01", "IN03", "IN06"]) {
-          const row = incident(id);
-          await adminPage.getByTestId("example-add-toggle").click();
-          await adminPage
-            .getByTestId("example-input")
-            .fill(JSON.stringify(row.input, null, 2));
-          await adminPage
-            .getByTestId("example-expected")
-            .fill(JSON.stringify(row.expected, null, 2));
-          await adminPage.getByTestId("example-tags").fill(row.tags.join(", "));
-          await adminPage.getByTestId("example-save").click();
-        }
-        await expect(adminPage.getByTestId("example-row")).toHaveCount(3);
+        await adminPage.getByTestId("import-toggle").click();
+        await adminPage.getByTestId("import-file").setInputFiles(INCIDENT_FILE);
+        await expect(adminPage.getByTestId("import-summary")).toContainText(
+          `${INCIDENTS.length} rows ready to import`,
+        );
+        await adminPage.getByTestId("import-save").click();
+        await expect(
+          adminPage.getByTestId("eval-dataset-detail"),
+        ).toContainText(`${INCIDENTS.length} active examples`, {
+          timeout: 120_000,
+        });
+        await expect(adminPage.getByTestId("example-row")).toHaveCount(
+          INCIDENTS.length,
+        );
+        const gateway = adminPage
+          .getByTestId("example-row")
+          .filter({ hasText: "gateway 5xx rate 18% for 10 minutes" });
+        await expect(gateway).toHaveCount(1);
+        await expect(gateway).toContainText("sev1 rollback");
       });
 
       await test.step("4. Workflows > Import again: preflight passes, import", async () => {
@@ -350,7 +339,7 @@ test.describe("Lab 08: incident response through the UI", () => {
         await expect(lena.page.getByTestId("run-resume")).toBeEnabled({
           timeout: 30_000,
         });
-        await lena.page.getByTestId("run-resume").dispatchEvent("click");
+        await lena.page.getByTestId("run-resume").click();
         // The resumed run completes (Recovery Diagnostics names the terminal state), and the
         // Execution Debugger, which follows the newest step until you pick one, shows the output that
         // carries the release. (The text also sits, collapsed, in the event timeline, so assert on
@@ -365,13 +354,114 @@ test.describe("Lab 08: incident response through the UI", () => {
         ).toContainText("ROLLBACK_APPROVED", { timeout: 30_000 });
       });
 
-      await test.step("9. Evaluations: score the workflow version over the test set", async () => {
+      await test.step("9. Versions: restore v1 as a draft, loosen the rollback rule, save, Preview IN23, publish v2, compare v1 with v2", async () => {
+        await adminPage.goto(`/caliber/workflows/${workflowId}?tab=versions`);
+        await expect(
+          adminPage.getByTestId("versions-table").locator("tbody tr"),
+        ).toHaveCount(1);
+        await adminPage.getByTestId(`restore-version-btn-${versionId}`).click();
+        await expect(adminPage).toHaveURL(/\/editor\/WFV-[^/?]+$/, {
+          timeout: 30_000,
+        });
+        v2Id = /editor\/(WFV-[^/?]+)/.exec(adminPage.url())?.[1] ?? "";
+        expect(v2Id).not.toBe(versionId);
+        // the rollback rule fires at a 5% error rate: a "tidy-up" moves it to 50%
+        await adminPage.getByTestId("outline-action_table").dblclick();
+        const config = adminPage.getByTestId("inspector-transform-config");
+        await expect(config).toBeVisible();
+        const rules = JSON.parse(await config.inputValue()) as {
+          rules: { name: string; when: { path: string; value: number }[] }[];
+        };
+        const rule = rules.rules.find(
+          (item) => item.name === "rollback-recent-high-risk-deploy-errors",
+        )!;
+        rule.when.find((c) => c.path.endsWith("error_rate"))!.value = 0.5;
+        await config.fill(JSON.stringify(rules, null, 2));
+        await config.blur();
+        await adminPage.getByTestId("editor-save").click();
+        await expect(adminPage.getByTestId("editor-save-status")).toContainText(
+          /Saved|saved/,
+        );
+        await adminPage.getByTestId("editor-validate").click();
+        await expect(adminPage.getByTestId("editor-message")).toContainText(
+          "Valid.",
+        );
+        // IN23 (a 6% error rate after a high-risk deploy) was a rollback; now it is not
+        await adminPage.getByTestId("editor-preview").click();
+        await adminPage
+          .getByTestId("preview-input")
+          .fill(JSON.stringify(incident("IN23").input));
+        await adminPage.getByTestId("preview-run").click();
+        await expect(adminPage.getByTestId("preview-result")).toContainText(
+          "completed",
+          { timeout: 90_000 },
+        );
+        await adminPage.getByTestId("preview-step-summarize").click();
+        await expect(adminPage.getByTestId("preview-result")).toContainText(
+          "sev2 escalate_human",
+        );
+        await adminPage.getByTestId("preview-close").click();
+        await adminPage.getByTestId("editor-publish").click();
+        await adminPage.getByTestId("publish-run-validate").click();
+        await adminPage.getByTestId("publish-next-1").click();
+        await adminPage.getByTestId("publish-next-2").click();
+        await adminPage.getByTestId("publish-confirm").click();
+        await expect(adminPage.getByTestId("editor-message")).toContainText(
+          "Published.",
+        );
+        await adminPage.goto(`/caliber/workflows/${workflowId}?tab=versions`);
+        await adminPage
+          .getByTestId("version-diff-base")
+          .selectOption(versionId);
+        await adminPage.getByTestId("version-diff-other").selectOption(v2Id);
+        const diff = adminPage.getByTestId("version-diff-panel");
+        await expect(diff.getByTestId("diff-modified-node")).toHaveCount(1);
+        await expect(diff.getByTestId("diff-modified-node")).toContainText(
+          "action_table",
+        );
+      });
+
+      await test.step("10. Versions: restore v1 again, publish it as v3, Preview IN23: rollback again", async () => {
+        await adminPage.goto(`/caliber/workflows/${workflowId}?tab=versions`);
+        await adminPage.getByTestId(`restore-version-btn-${versionId}`).click();
+        await expect(adminPage).toHaveURL(/\/editor\/WFV-[^/?]+$/, {
+          timeout: 30_000,
+        });
+        await adminPage.getByTestId("editor-preview").click();
+        await adminPage
+          .getByTestId("preview-input")
+          .fill(JSON.stringify(incident("IN23").input));
+        await adminPage.getByTestId("preview-run").click();
+        await expect(adminPage.getByTestId("preview-result")).toContainText(
+          "completed",
+          { timeout: 90_000 },
+        );
+        await adminPage.getByTestId("preview-step-summarize").click();
+        await expect(adminPage.getByTestId("preview-result")).toContainText(
+          "sev2 rollback",
+        );
+        await adminPage.getByTestId("preview-close").click();
+        await adminPage.getByTestId("editor-publish").click();
+        await adminPage.getByTestId("publish-run-validate").click();
+        await adminPage.getByTestId("publish-next-1").click();
+        await adminPage.getByTestId("publish-next-2").click();
+        await adminPage.getByTestId("publish-confirm").click();
+        await expect(adminPage.getByTestId("editor-message")).toContainText(
+          "Published.",
+        );
+        await adminPage.goto(`/caliber/workflows/${workflowId}?tab=versions`);
+        await expect(
+          adminPage.getByTestId("versions-table").locator("tbody tr"),
+        ).toHaveCount(3);
+      });
+
+      await test.step("11. Evaluations: score the workflow version over the test set", async () => {
         expect(versionId).toMatch(/^WFV-/);
         await adminPage.goto("/caliber/evaluations");
         await adminPage.getByRole("button", { name: "Run evaluation" }).click();
         await adminPage
           .getByLabel("Test set", { exact: true })
-          .selectOption({ label: `${datasetName} (v4)` });
+          .selectOption({ label: `${datasetName} (v${INCIDENTS.length + 1})` });
         await adminPage
           .getByLabel("Label", { exact: true })
           .fill(`lab08-${suffix}`);
@@ -394,11 +484,12 @@ test.describe("Lab 08: incident response through the UI", () => {
             .filter({ hasText: `lab08-${suffix}` });
           await expect(row).toBeVisible({ timeout: 300_000 });
           await expect(row).toContainText("completed");
-          await expect(row).toContainText("3/3");
+          // a workflow run scores at most 20 examples; the run's detail says how many it left out
+          await expect(row).toContainText("20/20");
         }
       });
 
-      await test.step("10. Agents and Calibrate: the run ends rejected with no candidate, and says what measured it", async () => {
+      await test.step("12. Agents and Calibrate: the run ends rejected with no candidate, and says what measured it", async () => {
         await adminPage.goto("/caliber/agents");
         await adminPage.getByTestId("new-agent").click();
         const form = adminPage.getByTestId("agent-create-form");
@@ -416,7 +507,7 @@ test.describe("Lab 08: incident response through the UI", () => {
         await adminPage.getByTestId("workflow-calibrate").click();
         await expect(
           adminPage.getByTestId("workflow-calibration-dataset"),
-        ).toContainText("3 examples");
+        ).toContainText(`${INCIDENTS.length} examples`);
         await adminPage
           .getByTestId("workflow-calibration-agent")
           .selectOption({ label: `incident commander ${suffix}` });
@@ -438,7 +529,7 @@ test.describe("Lab 08: incident response through the UI", () => {
       });
 
       if (!simulated) {
-        await test.step("11. The model variant: import it, Preview shows the model's proposal beside the verdict", async () => {
+        await test.step("13. The model variant: import it, Preview shows the model's proposal beside the verdict", async () => {
           await adminPage.goto("/caliber/workflows");
           await adminPage.getByTestId("import-workflow").click();
           await adminPage

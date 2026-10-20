@@ -52,6 +52,25 @@ export class CaliberUi {
     await expect(this.page.getByLabel("CALIBER navigation")).toBeVisible();
   }
 
+  /**
+   * Is this a simulated stack? The app says so itself: every page carries a "Simulated providers"
+   * banner while the language model or the evaluator is in fake mode, and none on a real-provider
+   * stack. Read it the way a user does, from the page (call after signing in).
+   */
+  async isSimulatedStack(): Promise<boolean> {
+    await expect(this.page.getByLabel("CALIBER navigation")).toBeVisible();
+    // API + database reachable: the shell finished its first readiness read
+    await expect(this.page.getByText("API + database reachable")).toBeVisible({
+      timeout: 30_000,
+    });
+    return this.page
+      .getByText("running in fake mode")
+      .first()
+      .waitFor({ state: "visible", timeout: 10_000 })
+      .then(() => true)
+      .catch(() => false);
+  }
+
   async createSkill(recipe: SkillRecipe): Promise<void> {
     await this.page.goto("/caliber/skills");
     await expect(
