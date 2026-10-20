@@ -188,7 +188,7 @@ CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwri
 
 For your own run, write the traces first and keep the ids: `MLFLOW_TRACKING_URI=$MLFLOW_TRACKING_URI caliber/.venv/bin/python docs-site/cookbooks/13-aria-review-governance-queue/assets/seed_traces.py > /tmp/traces.json` (they also appear in **Operate > Observability**).
 
-1. **State the intent.** In the sidebar open **Integrations** and click **Plans**. Paste the sentence from [`assets/intent.md`](assets/intent.md) into **Goal**, set **Autonomy** to **Stop before each change**, and press **Decompose goal**. Expected: the plan opens with the status `draft`.
+1. **State the intent.** In the sidebar open **Operate** and click **Plans**. Paste the sentence from [`assets/intent.md`](assets/intent.md) into **Goal**, set **Autonomy** to **Stop before each change**, and press **Decompose goal**. Expected: the plan opens with the status `draft`.
 2. **Review the plan.** Under **Plan steps**: `Create review queue` (`review_queue.create`) then `Enqueue traces for review` (`review_queue.add_items`), the second reading `depends on 1 prior step(s)`. Nothing has run.
 3. **Approve the plan.** Press **Approve plan**. Expected: the status becomes `approved` and an **Execute** button appears.
 4. **Execute and answer the queue's questions.** Press **Execute**. Expected: **Aria needs information**, "Provide the required inputs for step 1: Create review queue.". Fill **name** (`agent-reply-review`), **description**, **questions** (the JSON array from `assets/review-queues/agent-reply-review.queue.json`) and **reviewers** (`["olga"]`), press **Continue plan**. Expected: **Aria needs your approval**, "Approve step 1: Create review queue (review_queue.create)?". Press **Approve**.

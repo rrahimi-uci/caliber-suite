@@ -30,7 +30,7 @@
     ]
    ],
    "click": "Register Tool",
-   "see": "The tool opens on its detail page. Back in the Tools list its row has no <strong>Built-in</strong> or <strong>Unavailable</strong> label: those mark CALIBER's own tools. Registering opens the tool's detail page: its <strong>Open the workspace</strong> link leads to Sandbox, Fixtures, Hardening and Test Runs (the address becomes <code>/tools?tool=TL-…</code>, so a reload keeps you there).",
+   "see": "The tool opens in its workspace. Back in the Tools list its row has no <strong>Built-in</strong> or <strong>Unavailable</strong> label: those mark CALIBER's own tools. The address becomes <code>/tools?tool=TL-…</code>, so a reload keeps you there.",
    "asset": "tool: decide_refund (read)",
    "assetlink": [
     {
@@ -169,6 +169,12 @@
     "Reject"
    ],
    "see": "The rejected run is <strong>failed</strong> and its output holds no refund. The R23 run <strong>completed</strong> with <code>decision: deny</code> and never asked for approval. Audit Log lists <code>approve_workflow_run_runtime_approval</code> and <code>reject_workflow_run_runtime_approval</code> by <code>approver1</code>, and <code>resume_workflow_run</code> by the initiator."
+  },
+  {
+   "where": "Tools › decide_refund › Publish",
+   "do": "Open <code>decide_refund</code>, tab <strong>Publish</strong>, <strong>Version history</strong>, <strong>New version</strong> (admins). The wizard opens with the name fixed and the version <code>1.1</code>; change the description and step through to <strong>Register</strong>. In the new workspace open <strong>Fixtures</strong>, <strong>Load cases from file</strong> (<code>refund-fixtures.jsonl</code> again), <strong>Save cases</strong>, then <strong>Hardening</strong> and <strong>Run calibration</strong>.",
+   "click": "Run calibration",
+   "see": "<strong>Pass rate 100% — 49/49 passed</strong> on version 1.1. <strong>Publish</strong> lists <code>1.0</code> and <code>1.1</code> under <strong>Version history</strong>, and the Tools list shows both under the one name."
   }
  ]
 }

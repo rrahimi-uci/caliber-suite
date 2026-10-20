@@ -2138,6 +2138,10 @@ export const handlers = [
     );
   }),
 
+  // The version family of a tool (the Publish stage's version history). Empty unless a test says
+  // otherwise.
+  http.get(`${API_BASE}/tools/:toolId/versions`, () => HttpResponse.json({ data: [] })),
+
   http.get(`${API_BASE}/tools/:toolId/source`, ({ params }) => {
     return HttpResponse.json(
       envelope({

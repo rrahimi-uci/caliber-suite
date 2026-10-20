@@ -14,10 +14,11 @@ import { signIn } from "./helpers";
  * (`POST /workflows` and a version, as the workflow editor does).
  *
  * What it proves, in order:
- *  1. The registration wizard creates a tool, and the detail page runs it.
+ *  1. The registration wizard creates a tool and lands in its workspace, whose Sandbox runs it.
  *  2. Saved fixtures are scored by Run calibration, and the result says how many passed.
  *  3. A test run can be pinned as the baseline.
  *  4. A workflow that references the tool makes it show under "Where used".
+ *  4b. A new version of the tool is made from its Publish stage, and the history lists both.
  *  5. The Tools list labels CALIBER's own tools "Built-in" and says why a memory tool cannot
  *     be used yet, while the tool registered here carries neither label.
  */
@@ -61,15 +62,19 @@ test.describe("Tool journey (alpha)", () => {
     await page.getByTestId("wiz-allow-preview").check();
     await page.getByTestId("wizard-submit").click();
 
-    await expect(page).toHaveURL(/\/caliber\/tools\/[^/]+$/);
-    const toolId = page.url().split("/").pop() as string;
-    await expect(page.getByTestId("tool-detail")).toContainText(toolName);
-
-    await page.getByTestId("tool-run-input").fill('{"order_id":"A-100"}');
-    await page.getByTestId("tool-run").click();
-    await expect(page.getByTestId("tool-run-result")).toContainText(
-      '"status": "delivered"',
+    // Registering lands in the tool's workspace, an address a reload keeps.
+    await expect(page).toHaveURL(/\/caliber\/tools\?tool=TL-[^&]+$/);
+    const toolId = new URL(page.url()).searchParams.get("tool") as string;
+    await expect(page.getByTestId("tool-workspace-header")).toContainText(
+      toolName,
     );
+
+    await page.getByRole("button", { name: "Sandbox", exact: true }).click();
+    await page.getByPlaceholder('{"key": "value"}').fill('{"order_id":"A-100"}');
+    await page.getByRole("button", { name: "Test Run", exact: true }).click();
+    await expect(
+      page.locator("pre").filter({ hasText: '"status": "delivered"' }),
+    ).toBeVisible();
 
     // ---- 2. Fixtures, then Run calibration in the workspace ------------------
     const saved = await page.request.put(`${API}/tools/${toolId}/test-cases`, {
@@ -86,8 +91,8 @@ test.describe("Tool journey (alpha)", () => {
     });
     expect(saved.ok(), await saved.text()).toBeTruthy();
 
-    await page.goto("/caliber/tools");
-    await page.getByTestId(`tool-open-${toolName}`).click();
+    // The fixtures were saved behind the page's back: a reload shows them.
+    await page.reload();
     await page.getByRole("button", { name: "Fixtures", exact: true }).click();
     await page.getByTestId("tool-fixtures-calibrate-btn").click();
     await expect(
@@ -139,9 +144,35 @@ test.describe("Tool journey (alpha)", () => {
       `${workflowId} v1 (draft)`,
     );
 
+    // ---- 4b. The next version of the tool, from its Publish stage ---------------
+    await page.getByRole("button", { name: "New version" }).click();
+    await expect(page).toHaveURL(/\/caliber\/tools\?new_version_of=TL-/);
+    await expect(
+      page.getByRole("heading", { name: `New version of ${toolName}` }),
+    ).toBeVisible();
+    // The name is what makes it a version of this tool; the version is one on; the rest follows.
+    await expect(page.getByTestId("wiz-name")).toBeDisabled();
+    await expect(page.getByTestId("wiz-version")).toHaveValue("1.1");
+    await expect(page.getByTestId("wiz-description")).toHaveValue(
+      "Looks an order up by id, for the tool journey.",
+    );
+    await page.getByTestId("wiz-description").fill("Version 1.1: the same lookup, for the journey.");
+    for (let i = 0; i < 4; i += 1) await page.getByTestId("wizard-next").click();
+    await page.getByTestId("wizard-submit").click();
+
+    await expect(page).toHaveURL(/\/caliber\/tools\?tool=TL-[^&]+$/);
+    expect(new URL(page.url()).searchParams.get("tool")).not.toBe(toolId);
+    await expect(page.getByTestId("tool-workspace-header")).toContainText("1.1");
+    await page.getByRole("button", { name: "Publish", exact: true }).click();
+    // The history lists both versions of the family.
+    await expect(page.getByTestId("tool-versions")).toContainText("1.0");
+    await expect(page.getByTestId("tool-versions")).toContainText("1.1");
+
     // ---- 5. The list says which tools CALIBER seeded, and which cannot work yet
     await page.getByRole("button", { name: "Back to tools" }).click();
-    const mine = page.getByTestId(`tool-row-${toolName}`);
+    // Both versions of the tool are listed, each under the same name.
+    await expect(page.getByTestId(`tool-row-${toolName}`)).toHaveCount(2);
+    const mine = page.getByTestId(`tool-row-${toolName}`).first();
     await expect(mine).toBeVisible();
     await expect(mine.getByTestId("tool-builtin-badge")).toHaveCount(0);
     const memory = page.getByTestId("tool-row-memory_search");

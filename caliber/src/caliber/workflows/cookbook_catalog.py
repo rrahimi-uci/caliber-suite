@@ -583,6 +583,7 @@ _RECIPE_STEPS: dict[str, tuple[dict[str, str], ...]] = {
         {"title": "Import the workflow", "route": "/workflows"},
         {"title": "Approve as a second person", "route": "/workflows"},
         {"title": "Reject, deny and read the audit log", "route": "/audit-log"},
+        {"title": "Make a new version of the tool", "route": "/tools"},
     ),
     "04": (
         {

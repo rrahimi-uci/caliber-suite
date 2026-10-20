@@ -44,12 +44,13 @@ const ALL_DESTINATIONS = [
   "/settings",
 ];
 
-const GROUP_IDS = ["core", "extended", "operate", "preview", "admin"];
+const GROUP_IDS = ["start", "core", "extended", "operate", "preview", "admin"];
 
-// The prompt lifecycle leads, then the other agent resources, then operations, then
-// integrations. No link carries a maturity label.
+// The worked examples lead, then the prompt lifecycle, the other agent resources, operations
+// (with Aria's plans, which wait for a person), then integrations. No link carries a maturity label.
 const EXPECTED_NAV_LABELS = [
   "Dashboard",
+  "Cookbooks",
   "Prompts",
   "Test Sets",
   "Evaluations",
@@ -64,11 +65,10 @@ const EXPECTED_NAV_LABELS = [
   "Observability",
   "Review Queues",
   "Audit Log",
+  "Plans",
   "LLM Gateway",
   "MCP Servers",
   "OpenAPI Integrations",
-  "Cookbooks",
-  "Plans",
   "Administration",
   "Settings",
   "Docs",
@@ -163,17 +163,42 @@ describe("Sidebar navigation groups", () => {
     ).toEqual(EXPECTED_NAV_LABELS);
   });
 
-  it("puts the integrations and the previews together at the end of the work areas", async () => {
+  it("keeps Integrations to the connections, with Cookbooks first and Plans among the operations", async () => {
     stubPlans();
     const user = userEvent.setup();
     await renderSidebar();
 
     await user.click(await screen.findByTestId("nav-group-toggle-preview"));
-    const panel = document.getElementById("nav-group-preview");
-    expect(panel).not.toBeNull();
-    for (const label of ["LLM Gateway", "MCP Servers", "OpenAPI Integrations", "Cookbooks", "Plans"]) {
-      expect(within(panel as HTMLElement).getByText(label)).toBeInTheDocument();
+    const integrations = document.getElementById("nav-group-preview") as HTMLElement;
+    for (const label of ["LLM Gateway", "MCP Servers", "OpenAPI Integrations"]) {
+      expect(within(integrations).getByText(label)).toBeInTheDocument();
     }
+    // Both used to sit here only because both are behind a feature flag; neither is a connection.
+    for (const label of ["Cookbooks", "Plans"]) {
+      expect(within(integrations).queryByText(label)).not.toBeInTheDocument();
+    }
+
+    // The first-time person's entry point is open on a fresh install, with no click.
+    expect(screen.getByTestId("nav-group-toggle-start")).toHaveTextContent("Get started");
+    expect(screen.getByTestId("nav-group-toggle-start")).toHaveAttribute("aria-expanded", "true");
+    expect(
+      within(document.getElementById("nav-group-start") as HTMLElement).getByText("Cookbooks"),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("nav-group-toggle-operate"));
+    expect(
+      within(document.getElementById("nav-group-operate") as HTMLElement).getByText("Plans"),
+    ).toBeInTheDocument();
+  });
+
+  it("keeps the core journey open when the route is a cookbook", async () => {
+    stubPlans();
+    await renderSidebar("/cookbooks");
+    expect(await screen.findByTestId("nav-group-toggle-start")).toHaveAttribute(
+      "aria-expanded",
+      "true",
+    );
+    expect(screen.getByTestId("nav-group-toggle-core")).toHaveAttribute("aria-expanded", "true");
   });
 
   it("shows no maturity label on any destination", async () => {
@@ -291,16 +316,17 @@ describe("Sidebar navigation groups", () => {
       ),
     );
     const user = userEvent.setup();
-    await renderSidebar("/observability");
+    await renderSidebar("/");
 
-    // Operate owns this route, so the preview group — which holds Plans — starts closed.
+    // The dashboard owns no group, so Operate, which holds Plans, starts closed.
     const badge = await screen.findByLabelText(/awaiting your input/i);
     expect(badge).toHaveTextContent("1");
-    expect(screen.getByTestId("nav-group-toggle-preview")).toContainElement(badge);
+    expect(screen.getByTestId("nav-group-toggle-operate")).toContainElement(badge);
 
-    await user.click(screen.getByTestId("nav-group-toggle-preview"));
+    await user.click(screen.getByTestId("nav-group-toggle-operate"));
     const openBadge = await screen.findByLabelText(/awaiting your input/i);
     expect(openBadge).toHaveTextContent("1");
+    expect(screen.getByTestId("nav-group-toggle-operate")).not.toContainElement(openBadge);
     expect(screen.getByTestId("nav-group-toggle-preview")).not.toContainElement(openBadge);
   });
 });
