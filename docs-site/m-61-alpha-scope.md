@@ -50,7 +50,7 @@ journey is proven in CI on every change, offline, on the simulated defaults.
 | --- | --- |
 | Core journey | Prompts, test sets, evaluations, calibration, review and Apply, projects and roles, access tokens, audit log, release timeline, readiness |
 | Also in the alpha | Skills, tools (trusted authors), workflows, knowledge bases and the object-store console |
-| Preview (off by default) | MCP servers and OpenAPI integrations (off by default; enable with `CALIBER_FEATURE_INTEGRATIONS`), cookbooks (off by default; enable with `CALIBER_FEATURE_COOKBOOKS`), the Aria assistant and plans (off by default; enable with `CALIBER_FEATURE_ARIA`). The app carries no maturity labels, so the flag state is the only signal |
+| Preview | MCP servers and OpenAPI integrations (off by default; enable with `CALIBER_FEATURE_INTEGRATIONS`), cookbooks (off by default; enable with `CALIBER_FEATURE_COOKBOOKS`), the Aria assistant and plans (**on** by default; disable with `CALIBER_FEATURE_ARIA=false`). The app carries no maturity labels, so the flag state is the only signal |
 | Record-only (off by default) | Release-candidate signoff on the Releases page: it records a decision and deploys nothing (off by default; enable with `CALIBER_FEATURE_RELEASE_CANDIDATES`) |
 | Experimental (off by default) | Workspace releases: release evaluation has no executor in this build (off by default; enable with `CALIBER_FEATURE_RELEASE_CANDIDATES`) |
 | Not in the alpha | Memory, and the flagged-trace to refinement loop |
@@ -60,22 +60,21 @@ the release-candidate signoff and workspace releases are behind a flag.
 
 ## Feature flags
 
-The areas above that the alpha does not stand behind are **off by default** and sit behind four server-side
-flags. A flag is read once at startup from the process environment, like the other `CALIBER_*` settings, so
-restart CALIBER after you change one. It is on for `true`, `1`, `yes` or `on` (any case) and off for anything
-else, including unset.
+The areas above sit behind four server-side flags. Three are **off by default**; Aria is the exception and
+ships **on**. A flag is read once at startup from the process environment, like the other `CALIBER_*`
+settings, so restart CALIBER after you change one. A variable you set is on for `true`, `1`, `yes` or `on`
+(any case) and off for anything else, even a typo; leaving it unset keeps its shipped default.
 
-| Flag id | Variable | What it turns on |
-| --- | --- | --- |
-| `aria` | `CALIBER_FEATURE_ARIA` | The Aria assistant and plans (preview): the `/assistant/*` and `/aria/*` routes, the Aria panel and the Plans page |
-| `integrations` | `CALIBER_FEATURE_INTEGRATIONS` | MCP servers and OpenAPI integrations (preview): the `/mcp-servers*` and `/openapi-integrations*` routes and their pages. While it is off, a workflow MCP node is reported as unavailable ("A registered MCP server that CALIBER can reach (needs CALIBER_FEATURE_INTEGRATIONS=true)") |
-| `cookbooks` | `CALIBER_FEATURE_COOKBOOKS` | Cookbooks (preview): the `/cookbooks*` routes and the Cookbooks page |
-| `release_candidates` | `CALIBER_FEATURE_RELEASE_CANDIDATES` | Release-candidate signoff and workspace releases (record-only and experimental): the `/releases/candidates*`, `/releases/report-jobs*` and `/projects/{id}/releases*` routes and the candidate part of the Releases page |
+| Flag id | Variable | Default | What it turns on |
+| --- | --- | --- | --- |
+| `aria` | `CALIBER_FEATURE_ARIA` | **on** | The Aria assistant and plans (preview): the `/assistant/*` and `/aria/*` routes, the Aria panel and the Plans page. Set `CALIBER_FEATURE_ARIA=false` for a deployment that wants it off |
+| `integrations` | `CALIBER_FEATURE_INTEGRATIONS` | off | MCP servers and OpenAPI integrations (preview): the `/mcp-servers*` and `/openapi-integrations*` routes and their pages. While it is off, a workflow MCP node is reported as unavailable ("A registered MCP server that CALIBER can reach (needs CALIBER_FEATURE_INTEGRATIONS=true)") |
+| `cookbooks` | `CALIBER_FEATURE_COOKBOOKS` | off | Cookbooks (preview): the `/cookbooks*` routes and the Cookbooks page |
+| `release_candidates` | `CALIBER_FEATURE_RELEASE_CANDIDATES` | off | Release-candidate signoff and workspace releases (record-only and experimental): the `/releases/candidates*`, `/releases/report-jobs*` and `/projects/{id}/releases*` routes and the candidate part of the Releases page |
 
-For example, to try Aria and the cookbooks:
+For example, Aria is already on; to also try the cookbooks:
 
 ```bash
-export CALIBER_FEATURE_ARIA=true
 export CALIBER_FEATURE_COOKBOOKS=true
 ```
 
@@ -91,8 +90,10 @@ Things to know before you turn one on:
   README names the flags it needs.
 - **Aria also backs a few helpers inside supported pages.** The **Ask Aria** button, **Describe it** prompt
   drafting, the prompt Playground, test-case generation and test runs inside the prompt workspace, and the tool
-  unit-test generator call the assistant, so with `CALIBER_FEATURE_ARIA` off they are hidden or show a notice that
-  names the variable (the Playground stage stays listed and says so). The core journey does not need them: build the test set by hand on the Test Sets page, or load it with **Import from file** (JSON Lines or a JSON array).
+  unit-test generator call the assistant; these are visible out of the box since Aria ships on, but if you set
+  `CALIBER_FEATURE_ARIA=false` they are hidden or show a notice that names the variable (the Playground stage
+  stays listed and says so). The core journey does not need them: build the test set by hand on the Test Sets
+  page, or load it with **Import from file** (JSON Lines or a JSON array).
 - **A disabled area answers 404.** Every route of a disabled area returns HTTP 404 with the machine-readable
   `reason_code` `feature_disabled`, so a client can tell "this deployment has it off" from "no such record"
   (the body is shown below).
@@ -100,8 +101,9 @@ Things to know before you turn one on:
   `enabled`, `env_var`, `label` and `stability`, so a client reads the flags without provoking a 404. The web
   app does the same: it hides the navigation entries of a disabled area and shows a "This isn't available on this
   deployment" panel naming the variable if you open one of its URLs directly.
-- **The Docker stack passes the variables through.** The four variables default to false there too; set them
-  in the suite-root `.env` (see `.env.example`). See [Alpha install](m-60-alpha-install.md#enabling-preview-areas).
+- **The Docker stack passes the variables through.** They carry the same defaults there (Aria on, the other
+  three off); set them in the suite-root `.env` (see `.env.example`). See
+  [Alpha install](m-60-alpha-install.md#enabling-preview-areas).
 
 A call to a route of a disabled area looks like this:
 

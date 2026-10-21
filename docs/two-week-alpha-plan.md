@@ -54,9 +54,9 @@ The release procedure is [Releasing](operate/releasing.md). The scope note
 below remains the historical draft.
 
 **Since then (2026-10-20).** Still no tag: `caliber-v0.0.1` remains the only one.
-What has landed on `main` since is the four preview areas behind feature flags that
-are off by default (`CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`,
-`CALIBER_FEATURE_COOKBOOKS`, `CALIBER_FEATURE_RELEASE_CANDIDATES`), a neutral
+What has landed on `main` since is the four preview areas behind feature flags
+(`CALIBER_FEATURE_ARIA`, on by default; `CALIBER_FEATURE_INTEGRATIONS`,
+`CALIBER_FEATURE_COOKBOOKS` and `CALIBER_FEATURE_RELEASE_CANDIDATES`, off by default), a neutral
 interface with no alpha, beta or preview labels, the seventeen cookbook labs run for
 real through the UI and the SDK on a fresh stack (with a stand-in and a hosted model
 tier for the scored paths), and the Apache-2.0 licence settled across the repository.

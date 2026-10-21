@@ -3,16 +3,17 @@
 ``docs/start/alpha-scope.md`` splits the product into what the alpha supports and what
 it does not: preview areas, a record-only area and an experimental one. Marking them in
 the UI is honest, but it still ships them. A deployment that wants a clean alpha turns
-them **off**, and that is the default: each area below is hidden by the SPA and refused
-by the API until its flag is set.
+one **off**: each area below is hidden by the SPA and refused by the API while its flag
+is off.
 
 Four flags, each covering the routes of one area:
 
-* ``aria`` -- the Aria assistant and plans.
-* ``integrations`` -- MCP servers and OpenAPI integrations.
-* ``cookbooks`` -- the guided cookbook labs.
-* ``release_candidates`` -- release-candidate signoff and workspace releases. The live
-  board, the timeline and release operations are core and stay on.
+* ``aria`` -- the Aria assistant and plans. Unlike the other three, this one ships **on**
+  by default; set ``CALIBER_FEATURE_ARIA=false`` for a deployment that wants it off.
+* ``integrations`` -- MCP servers and OpenAPI integrations. Off by default.
+* ``cookbooks`` -- the guided cookbook labs. Off by default.
+* ``release_candidates`` -- release-candidate signoff and workspace releases. Off by
+  default. The live board, the timeline and release operations are core and stay on.
 
 A flag gates by **path prefix** in one ASGI middleware rather than inside each route:
 the gate cannot be forgotten on a new route in a gated area, a route added there is

@@ -692,8 +692,9 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
         config=resolved,
         event_bus=event_bus,
     )
-    # Aria is off by default in the alpha (``caliber.features``); without it there is no
-    # plan to resume, so the poller is not started either.
+    # Aria ships on by default in the alpha (``caliber.features``); the poller only skips
+    # starting when a deployment explicitly turns Aria off, since then there is no plan to
+    # resume.
     aria_plan_worker = (
         AriaPlanWorker(session_factory=session_factory, config=resolved)
         if resolved.feature_aria_enabled

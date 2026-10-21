@@ -4868,10 +4868,11 @@ describe("Prompts — Workspace", () => {
 /**
  * Everything on the Prompts page that goes through the Aria assistant (the Playground chat,
  * generating and running test cases, "Describe it", assistant-guided calibration) sits behind the
- * ``aria`` feature flag, which is off by default. With it off the page must say so where the
- * control would have been, and must not call ``/assistant/*`` (that route answers 404).
+ * ``aria`` feature flag (on by default, but a deployment can turn it off). With it off the page
+ * must say so where the control would have been, and must not call ``/assistant/*`` (that route
+ * answers 404).
  */
-describe("Prompts — with the Aria feature off (the alpha default)", () => {
+describe("Prompts — with the Aria feature off", () => {
   let assistantCalls: string[];
 
   beforeEach(() => {

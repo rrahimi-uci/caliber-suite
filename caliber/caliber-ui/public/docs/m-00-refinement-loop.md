@@ -61,6 +61,6 @@ The loop runs over the artifacts the following sections document:
 - **Data & knowledge** — what those artifacts run against: the [Object store](m-07-object-store.md) and [Knowledge bases](m-08-knowledge-bases.md).
 - **Quality & trust** — how candidate evidence is produced: [Test sets](m-11-test-sets.md) provide examples, [Evaluation](m-14-evaluation.md) scores supported targets, and [Calibration](m-15-calibration.md) documents prompt/skill optimization plus the separate workflow and tool loops.
 - **Operations** — how it's watched and governed once live: [Observability](m-09-observability.md), [Gateways](m-10-gateways.md), and the [QA plan](m-13-qa-plan.md).
-- **Aria** — the [embedded copilot](m-12-assistant.md) that can drive parts of this loop under permission. It is a preview area, off by default; enable with `CALIBER_FEATURE_ARIA`.
+- **Aria** — the [embedded copilot](m-12-assistant.md) that can drive parts of this loop under permission. It is a preview area, on by default; disable with `CALIBER_FEATURE_ARIA=false`.
 
 > **New here?** Start with the [Platform](m-01-platform.md) overview for the standalone-service topology and runtime, then this page for *what* the canonical refinement path does, then dip into whichever artifact you're working with.

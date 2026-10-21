@@ -9,12 +9,13 @@ and payload keys will not change without a deprecation. This page covers the
 release governance, and the agentic loop — which are complete and tested but
 whose shapes may still move.
 
-> **Disabled by default.** Four of the areas on this page are off by default on the server: Aria
-> (`CALIBER_FEATURE_ARIA`), MCP servers and OpenAPI integrations (`CALIBER_FEATURE_INTEGRATIONS`), cookbooks
-> (`CALIBER_FEATURE_COOKBOOKS`), and release-candidate signoff and Workspace releases
-> (`CALIBER_FEATURE_RELEASE_CANDIDATES`). Against a server that has the flag off, their calls raise
-> `CaliberNotFoundError` with `reason_code == "feature_disabled"`. Read `features` from the capabilities
-> response first; see [Feature flags and disabled areas](m-20-sdk-guide.md#feature-flags-and-disabled-areas) and
+> **Gated by a server-side flag.** Four of the areas on this page sit behind a flag: Aria
+> (`CALIBER_FEATURE_ARIA`, **on** by default), MCP servers and OpenAPI integrations
+> (`CALIBER_FEATURE_INTEGRATIONS`, off), cookbooks (`CALIBER_FEATURE_COOKBOOKS`, off), and
+> release-candidate signoff and Workspace releases (`CALIBER_FEATURE_RELEASE_CANDIDATES`, off). Against a
+> server that has the flag off, their calls raise `CaliberNotFoundError` with
+> `reason_code == "feature_disabled"`. Read `features` from the capabilities response first; see
+> [Feature flags and disabled areas](m-20-sdk-guide.md#feature-flags-and-disabled-areas) and
 > [Feature flags](m-61-alpha-scope.md#feature-flags).
 
 Ask the deployment rather than assuming, because the tier is a property of the
@@ -197,9 +198,9 @@ Workspace-named surface going forward.
 
 ## The agentic loop
 
-> **Disabled by default.** Aria is a preview area and is off by default; enable with
-> `CALIBER_FEATURE_ARIA=true` on the server. While it is off, every `caliber.aria` call raises
-> `CaliberNotFoundError` with `reason_code == "feature_disabled"`.
+> **Preview area, on by default.** Aria ships on; set `CALIBER_FEATURE_ARIA=false` on the server for a
+> deployment that wants it off. While it is off, every `caliber.aria` call raises `CaliberNotFoundError` with
+> `reason_code == "feature_disabled"`.
 
 Aria takes an intent, proposes a plan, and executes it only once someone
 approves. The approval is a distinct call, not a flag on the request, because

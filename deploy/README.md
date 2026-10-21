@@ -56,12 +56,13 @@ That brings up **MinIO** (with buckets pre-created), **Postgres** (pgvector +
 Apache AGE), **MLflow**, the **MLflow AI Gateway**, **CALIBER**, and the shared event bus
 required by the deployed app backend. `./start.sh` selects **NATS**.
 
-The preview areas of the alpha (Aria and plans, MCP servers and OpenAPI integrations, cookbooks, and
-release-candidate signoff with Workspace releases) are **off by default** in this stack. Four variables pass
-through from the environment to the CALIBER container and default to false: `CALIBER_FEATURE_ARIA`,
-`CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` and `CALIBER_FEATURE_RELEASE_CANDIDATES`. To enable one,
-set it to `true` in the suite-root `.env` (the example file documents all four) and re-run `./start.sh`; the
-container reads them at startup. Enabling one means you accept that area's preview behavior; see
+Most preview areas of the alpha (MCP servers and OpenAPI integrations, cookbooks, and release-candidate
+signoff with Workspace releases) are **off by default** in this stack; Aria and plans is the exception and
+ships **on**. Four variables pass through from the environment to the CALIBER container with these same
+defaults: `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` and
+`CALIBER_FEATURE_RELEASE_CANDIDATES`. To change one, set it to `true` or `false` in the suite-root `.env` (the
+example file documents all four) and re-run `./start.sh`; the container reads them at startup. Enabling a
+preview area means you accept that area's preview behavior; see
 [Feature flags](../docs/start/alpha-scope.md#feature-flags).
 
 MLflow is published on host port `5000` by default. If that port is already in

@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Changed
+
+- **Aria now ships on by default.** `CALIBER_FEATURE_ARIA` (`feature_aria_enabled`) defaults to `true` instead
+  of `false`; the other three alpha feature flags (`CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS`,
+  `CALIBER_FEATURE_RELEASE_CANDIDATES`) are unchanged and still default to `false`. The `/assistant/*` and
+  `/aria/*` routes, the Aria panel, the Plans page, and the Aria-backed helpers inside the prompt workspace
+  (Ask Aria, Describe it, the Playground, test-case generation) are now visible out of the box; set
+  `CALIBER_FEATURE_ARIA=false` and restart for a deployment that wants Aria off. `CALIBER_ASSISTANT_ENABLED`
+  and a configured engine still decide whether an enabled assistant actually answers.
+
 ## [0.1.0a1] - 2026-10-14
 
 First alpha. What it does, what it does not and the known limitations are in the

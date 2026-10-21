@@ -24,10 +24,10 @@ make infra-up APP=1
 - Metadata → the **Postgres** container
   (`postgresql+psycopg://caliber:caliber@postgres:5432/caliber`, psycopg v3).
   Override with `CALIBER_DATABASE_URL` (e.g. SQLite for a throwaway run).
-- Preview areas are **off by default**: `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`,
-  `CALIBER_FEATURE_COOKBOOKS` and `CALIBER_FEATURE_RELEASE_CANDIDATES` pass through from the environment and
-  default to false. Set one to `true` in the suite-root `.env` and recreate the container to turn that area on
-  (see [Feature flags](../../docs/start/alpha-scope.md#feature-flags)).
+- Preview areas pass through from the environment: `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`,
+  `CALIBER_FEATURE_COOKBOOKS` and `CALIBER_FEATURE_RELEASE_CANDIDATES`. `CALIBER_FEATURE_ARIA` defaults to
+  `true`; the other three default to `false`. Set one in the suite-root `.env` and recreate the container to
+  change that area's state (see [Feature flags](../../docs/start/alpha-scope.md#feature-flags)).
 
 The image builds the CALIBER SPA (multi-stage), installs the safer default
 extras profile

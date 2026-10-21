@@ -312,7 +312,7 @@ describe("ToolTests panel", () => {
     expect(screen.getByText("No tools registered yet.")).toBeInTheDocument();
   });
 
-  describe("when the Aria feature is off (the alpha default)", () => {
+  describe("when the Aria feature is off", () => {
     async function settle(): Promise<void> {
       await act(async () => {
         await new Promise((resolve) => setTimeout(resolve, 30));

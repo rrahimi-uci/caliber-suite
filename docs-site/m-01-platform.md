@@ -255,9 +255,9 @@ than exhaustive:
 - `/releases/timeline`, `/releases/live` (cross-artifact releases & rollback)
 - `/releases/operations`, `/releases/operations/reconcile` (operator-visible prompt release recovery)
 
-Four preview areas are gated by feature flags that default to off
-(`caliber/src/caliber/features.py`): `CALIBER_FEATURE_ARIA` (`/assistant`, `/aria`),
-`CALIBER_FEATURE_INTEGRATIONS` (`/mcp-servers`, `/openapi-integrations`),
+Four preview areas are gated by feature flags (`caliber/src/caliber/features.py`); three
+default to off and one, Aria, defaults to on: `CALIBER_FEATURE_ARIA` (`/assistant`, `/aria`,
+**on** by default), `CALIBER_FEATURE_INTEGRATIONS` (`/mcp-servers`, `/openapi-integrations`),
 `CALIBER_FEATURE_COOKBOOKS` (`/cookbooks`) and `CALIBER_FEATURE_RELEASE_CANDIDATES`
 (`/releases/candidates`, `/releases/report-jobs`, per-project `/projects/{id}/releases`).
 One ASGI middleware refuses the path prefixes of a disabled area with `404` and
@@ -302,7 +302,7 @@ All configured loops share `background_tasks_enabled` as their lifecycle gate.
 `WorkflowRunWorker`, `KnowledgeBaseWorker`, `WorkflowScheduler`, and
 `WorkspaceImportWorker` additionally have independent enable flags. The other
 six loops do not; of those, `AriaPlanWorker` is constructed only when
-`CALIBER_FEATURE_ARIA` is on, which it is not by default.
+`CALIBER_FEATURE_ARIA` is on, which it is by default.
 
 The loops are in-process, so **each server worker process runs its own full set**.
 `uvicorn` runs one process unless you pass `--workers`; the unsupported embedded `mlflow server`

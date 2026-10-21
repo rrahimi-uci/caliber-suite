@@ -101,18 +101,32 @@ def test_caliber_container_points_the_hugging_face_cache_at_the_persistent_volum
     assert any(str(item).endswith(":/data") for item in caliber["volumes"])
 
 
-def test_the_compose_service_passes_the_alpha_feature_flags_through_defaulting_to_off() -> None:
-    """The unsupported areas ship off (``caliber.features``): the stack must not enable them
-    by omission, and an operator must be able to turn one on from the root ``.env``."""
+def test_the_compose_service_matches_each_flags_shipped_default() -> None:
+    """Every flag's compose default must match its ``caliber.config`` default exactly.
+
+    Three of the four unsupported areas ship off, so the stack must not enable them by
+    omission; Aria is the one exception (it ships on), so an operator must be able to turn
+    *it* off from the root ``.env`` the same way the others are turned on. The expected
+    default is read from ``CaliberConfig`` itself rather than hardcoded here, so this test
+    fails the moment compose and the config field disagree, whichever one drifts.
+    """
+    from caliber.config import CaliberConfig
     from caliber.features import FEATURES
 
     caliber = _compose(REPO_ROOT / "deploy" / "caliber" / "compose.yaml")["services"]["caliber"]
     environment = caliber["environment"]
-    for flag in FEATURES:
-        assert environment.get(flag.env_var) == f"${{{flag.env_var}:-false}}", flag.env_var
     example = (REPO_ROOT / ".env.example").read_text()
     for flag in FEATURES:
-        assert f"# {flag.env_var}=true" in example, f"{flag.env_var} is not in .env.example"
+        default = CaliberConfig.model_fields[flag.config_field].default
+        default_literal = "true" if default else "false"
+        assert environment.get(flag.env_var) == f"${{{flag.env_var}:-{default_literal}}}", (
+            flag.env_var
+        )
+        # The commented example line shows how to FLIP the shipped default.
+        flip_literal = "false" if default else "true"
+        assert f"# {flag.env_var}={flip_literal}" in example, (
+            f"{flag.env_var} is not in .env.example"
+        )
 
 
 def test_caliber_image_is_reproducible_and_unprivileged() -> None:

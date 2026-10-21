@@ -29,7 +29,7 @@ behavior.
 | --- | --- | --- |
 | ingest documents | confirm storage and extraction path | [Knowledge bases architecture](../08-knowledge-bases/architecture.md) |
 | improve retrieval quality | inspect chunking, embeddings, and reranking | [Knowledge bases architecture](../08-knowledge-bases/architecture.md) |
-| use knowledge in assistant answers | connect retrieval to the consuming surface (Aria is off by default; enable with `CALIBER_FEATURE_ARIA`) | [Aria assistant](../use/aria-assistant.md) |
+| use knowledge in assistant answers | connect retrieval to the consuming surface (Aria is on by default; disable with `CALIBER_FEATURE_ARIA=false`) | [Aria assistant](../use/aria-assistant.md) |
 | evaluate grounded answers | score citation quality and answer faithfulness | [Evaluation and test sets](../use/evaluation-and-test-sets.md) |
 
 ## Before the first step: what a knowledge base needs
