@@ -42,3 +42,7 @@ sdk/**/*.egg-info/
 # Local debug output from the Playwright MCP browser tool (console logs,
 # page snapshots) -- not test fixtures, never meant to be committed.
 .playwright-mcp/
+
+# Local state for an agent-bridge/coordination tool running against this
+# checkout -- machine-local session bookkeeping, never meant to be committed.
+.agentbridge/
