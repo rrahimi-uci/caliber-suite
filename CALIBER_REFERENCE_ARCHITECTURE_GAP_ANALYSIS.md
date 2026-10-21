@@ -34,7 +34,9 @@ Estimates are **incremental engineering person-weeks**, including implementation
 | MVP, after Beta | An operable reference platform with release evidence, stronger identity/isolation, recovery and a second use case | 42–70 | 52.5–87.5 | Independent deployment/restore exercise and all MVP scenarios pass |
 | Total remaining through MVP | Minimal reference implementation, not the entire book | **79–131** | **98.75–163.75** | Both milestone definitions of done |
 
-At the repository's documented **1.5 developer capacity**, reserved effort alone implies roughly **66–110 team-weeks through MVP**, before additional non-overlapping external delays. A five-person team operating at 75% effective delivery capacity implies roughly **27–44 weeks**. These are capacity calculations, not promised dates; the dependency graph prevents arbitrary parallelization. This expanded EGI scope does not fit automatically inside the existing six-month roadmap. [C24]
+At the repository's documented **1.5 developer capacity**, reserved effort alone implies roughly **66–110 team-weeks through MVP**, before additional non-overlapping external delays. A five-person team operating at 75% effective delivery capacity gives a capacity-only calculation of roughly **27–44 weeks**, before imposing the fixed five-week milestone cadence below. These are capacity calculations, not promised dates; the dependency graph prevents arbitrary parallelization. This expanded EGI scope does not fit automatically inside the existing six-month roadmap. [C24]
+
+**Five-person delivery plan:** the [nine-milestone execution plan](CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) allocates every B/M package to concrete delivery gates, using **five weeks per milestone: four for implementation/integration and one for QA and fixes**. The resulting calendar is **Beta at week 25 and MVP at week 45**. It retains the effort ranges above, includes availability and uncertainty separately, and makes Beta an explicit stop-or-fund-MVP decision. The capacity-only ranges are sizing context; the fixed milestone calendar is the current delivery baseline.
 
 ### How much does Alpha cover?
 
@@ -420,6 +422,8 @@ flowchart TB
 
 ## 11. Prioritized Engineering Backlog
 
+For the five-person staffing scenario, use the [detailed D1–D9 milestone plan](CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) for weekly capacity, package allocations, sequencing, demos and exit decisions. The waves below remain the architectural dependency grouping; they are not additional work or a second staffing commitment.
+
 ### Execution waves
 
 | Wave | Packages | Deliverable / gate |
@@ -443,12 +447,13 @@ This order is not permission to postpone a discovered security defect until its 
 - One supported connector in Beta, a second in MVP; one real-provider adapter plus scripted conformance. No multi-region, SaaS multi-tenancy, enterprise SSO rollout or generalized rule-extraction platform is hidden in the totals.
 - Package child issues should carry exact APIs/files, acceptance criteria, verification commands and dependencies. Split each into 1–2 day tickets; the package is not a single “implement governance” issue. B04, for example, has separate migration, dispatcher, each-backend wiring, denial/retry, SDK and public-journey tickets.
 
-| Capacity assumption | Beta, reserve included | MVP incremental, reserve included | Total remaining |
+| Capacity assumption / calendar | Beta | MVP incremental | Total remaining |
 | --- | ---: | ---: | ---: |
 | Existing 1.5 delivery FTE | 31–51 weeks | 35–59 weeks | 66–110 weeks |
-| Example five-person team at 75% effective delivery (3.75 FTE) | 13–21 weeks | 14–24 weeks | 27–44 weeks |
+| Five-person capacity-only calculation at 75% effective delivery, reserve included | 13–21 weeks | 14–24 weeks | 27–44 weeks |
+| Current five-person delivery calendar: nine milestones, each four implementation/integration weeks plus one QA week | **25 weeks** | **20 weeks** | **45 weeks** |
 
-Ranges are rounded upward from effort/capacity. The larger-team calculation assumes roughly two backend engineers, one platform/security engineer, one full-stack engineer and one test/reliability engineer, with domain-owner time available separately. Security expertise cannot be replaced by adding general-purpose developers. More people will not remove the B02 → B03 → B04/B05 → B06/B09 critical path.
+Capacity-only ranges include the 25% uncertainty reserve and are rounded upward from effort/capacity. The fixed delivery calendar schedules QA explicitly and supersedes those ranges as the current planning baseline; it does not increase the package effort estimates. The larger-team calculation assumes roughly two backend engineers, one platform/security engineer, one full-stack engineer and one test/reliability engineer, with domain-owner time available separately. Security expertise cannot be replaced by adding general-purpose developers. More people will not remove the B02 → B03 → B04/B05 → B06/B09 critical path.
 
 **Roadmap compatibility:** [the existing roadmap](docs/roadmap.md) owns a narrower controlled-pilot/single-tenant release sequence and uses historical issue references. This report proposes an expanded reference-architecture program with local IDs B01–M16; it does not claim those issues exist, re-date them, or supersede the PRD by implication. After scope approval, reconcile and recreate the backlog with live issue IDs. Do not label an old narrow milestone “EGI MVP” without meeting this report's gates.
 
@@ -586,7 +591,7 @@ Each validation run emits exact commit, dependency lock/container digests, datab
 
 ## 16. Recommended Next Steps
 
-1. **Approve the reference boundary and staffing assumption.** Decide whether the expanded EGI program replaces or follows the narrower existing MVP. Keep release labels separate until that decision is explicit.
+1. **Approve the reference boundary and staffing assumption.** Use the [five-person D1–D9 plan](CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) to name owners and fund the first checkpoint. Decide whether the expanded EGI program replaces or follows the narrower existing MVP. Keep release labels separate until that decision is explicit.
 2. **Start B01 and early B11/B12 work.** Freeze the synthetic document-request scenario, control contracts, allowed connector set and deployment threat model; address trace isolation before shared sensitive use.
 3. **Prototype B04/B05 before committing dates.** Route one protected action through persisted proposal, exact approval, stable downstream key and reconciliation. Kill the worker after downstream commit. This is the highest-value architecture test.
 4. **Implement immutable pins and execution authority.** Avoid building more agent features on top of owner-derived identity and optional lineage.
