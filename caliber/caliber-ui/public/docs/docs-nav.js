@@ -245,13 +245,13 @@ window.DOCS_DATA = {
           "newtab": false
         },
         {
-          "href": "m-cookbook-05-governed-mcp.html",
-          "label": "05 · Governed Tool Connectivity (MCP)",
+          "href": "m-cookbook-04-doc-to-json.html",
+          "label": "04 · Document-to-JSON Pipeline",
           "newtab": false
         },
         {
-          "href": "m-cookbook-04-doc-to-json.html",
-          "label": "04 · Document-to-JSON Pipeline",
+          "href": "m-cookbook-05-governed-mcp.html",
+          "label": "05 · Governed Tool Connectivity (MCP)",
           "newtab": false
         },
         {
@@ -275,11 +275,6 @@ window.DOCS_DATA = {
           "newtab": false
         },
         {
-          "href": "m-cookbook-16-observability-triage.html",
-          "label": "16 · Production Observability & Triage",
-          "newtab": false
-        },
-        {
           "href": "m-cookbook-10-trustworthy-evaluation.html",
           "label": "10 · Trustworthy Evaluation",
           "newtab": false
@@ -287,11 +282,6 @@ window.DOCS_DATA = {
         {
           "href": "m-cookbook-11-release-signoff.html",
           "label": "11 · Release Signoff Factory",
-          "newtab": false
-        },
-        {
-          "href": "m-cookbook-18-projects-roles-tokens-audit.html",
-          "label": "18 · Projects, Roles, Tokens & Audit",
           "newtab": false
         },
         {
@@ -312,6 +302,16 @@ window.DOCS_DATA = {
         {
           "href": "m-cookbook-15-aria-triage-loop.html",
           "label": "15 · Aria: Triage & Recalibrate Loop",
+          "newtab": false
+        },
+        {
+          "href": "m-cookbook-16-observability-triage.html",
+          "label": "16 · Production Observability & Triage",
+          "newtab": false
+        },
+        {
+          "href": "m-cookbook-18-projects-roles-tokens-audit.html",
+          "label": "18 · Projects, Roles, Tokens & Audit",
           "newtab": false
         }
       ]
@@ -2353,8 +2353,8 @@ window.DOCS_DATA = {
       "nav_hidden": false
     },
     {
-      "href": "m-cookbook-05-governed-mcp.html",
-      "label": "05 · Governed Tool Connectivity (MCP)",
+      "href": "m-cookbook-04-doc-to-json.html",
+      "label": "04 · Document-to-JSON Pipeline",
       "section": "Examples",
       "section_id": "examples",
       "summary": "",
@@ -2376,8 +2376,8 @@ window.DOCS_DATA = {
       "nav_hidden": false
     },
     {
-      "href": "m-cookbook-04-doc-to-json.html",
-      "label": "04 · Document-to-JSON Pipeline",
+      "href": "m-cookbook-05-governed-mcp.html",
+      "label": "05 · Governed Tool Connectivity (MCP)",
       "section": "Examples",
       "section_id": "examples",
       "summary": "",
@@ -2491,29 +2491,6 @@ window.DOCS_DATA = {
       "nav_hidden": false
     },
     {
-      "href": "m-cookbook-16-observability-triage.html",
-      "label": "16 · Production Observability & Triage",
-      "section": "Examples",
-      "section_id": "examples",
-      "summary": "",
-      "audience": [
-        "developer",
-        "operator",
-        "system-user"
-      ],
-      "doc_type": "example",
-      "prerequisites": [],
-      "stability": "ga",
-      "reviewed_on": "2026-08-10",
-      "version_applicability": "current main branch docs contract",
-      "tags": [
-        "cookbook",
-        "example"
-      ],
-      "newtab": false,
-      "nav_hidden": false
-    },
-    {
       "href": "m-cookbook-10-trustworthy-evaluation.html",
       "label": "10 · Trustworthy Evaluation",
       "section": "Examples",
@@ -2539,29 +2516,6 @@ window.DOCS_DATA = {
     {
       "href": "m-cookbook-11-release-signoff.html",
       "label": "11 · Release Signoff Factory",
-      "section": "Examples",
-      "section_id": "examples",
-      "summary": "",
-      "audience": [
-        "developer",
-        "operator",
-        "system-user"
-      ],
-      "doc_type": "example",
-      "prerequisites": [],
-      "stability": "ga",
-      "reviewed_on": "2026-08-10",
-      "version_applicability": "current main branch docs contract",
-      "tags": [
-        "cookbook",
-        "example"
-      ],
-      "newtab": false,
-      "nav_hidden": false
-    },
-    {
-      "href": "m-cookbook-18-projects-roles-tokens-audit.html",
-      "label": "18 · Projects, Roles, Tokens & Audit",
       "section": "Examples",
       "section_id": "examples",
       "summary": "",
@@ -2654,6 +2608,52 @@ window.DOCS_DATA = {
     {
       "href": "m-cookbook-15-aria-triage-loop.html",
       "label": "15 · Aria: Triage & Recalibrate Loop",
+      "section": "Examples",
+      "section_id": "examples",
+      "summary": "",
+      "audience": [
+        "developer",
+        "operator",
+        "system-user"
+      ],
+      "doc_type": "example",
+      "prerequisites": [],
+      "stability": "ga",
+      "reviewed_on": "2026-08-10",
+      "version_applicability": "current main branch docs contract",
+      "tags": [
+        "cookbook",
+        "example"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-cookbook-16-observability-triage.html",
+      "label": "16 · Production Observability & Triage",
+      "section": "Examples",
+      "section_id": "examples",
+      "summary": "",
+      "audience": [
+        "developer",
+        "operator",
+        "system-user"
+      ],
+      "doc_type": "example",
+      "prerequisites": [],
+      "stability": "ga",
+      "reviewed_on": "2026-08-10",
+      "version_applicability": "current main branch docs contract",
+      "tags": [
+        "cookbook",
+        "example"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-cookbook-18-projects-roles-tokens-audit.html",
+      "label": "18 · Projects, Roles, Tokens & Audit",
       "section": "Examples",
       "section_id": "examples",
       "summary": "",

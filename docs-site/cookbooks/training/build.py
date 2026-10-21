@@ -24,7 +24,16 @@ import json
 import pathlib
 import re
 
-from content import COOKBOOKS, INTRO, TRACKS  # noqa: E402
+from content import COOKBOOKS as _COOKBOOKS, INTRO, TRACKS  # noqa: E402
+
+# ``content.py``'s list literal is in edit order (entries inserted or touched over time), not
+# lab-number order -- it currently reads 01, 02, 03, 05, 04, 06, ..., 09, 16, 10, 11, 18, 12, ....
+# Every consumer below (the nav manifest, the index page's per-track cards, and each detail
+# page's prev/next pager) walks this list positionally, so that edit order became a user-visible
+# bug: the UI docs toolbar's cookbook list, and the Next/Previous links on cookbook pages, followed
+# it too. Sort once, here, so every consumer sees lab-number order without content.py's literal
+# needing to be reflowed by hand.
+COOKBOOKS = sorted(_COOKBOOKS, key=lambda cb: int(cb["num"]))
 
 HERE = pathlib.Path(__file__).resolve().parent   # docs-site/cookbooks/training
 COOKBOOKS_DIR = HERE.parent                       # docs-site/cookbooks
