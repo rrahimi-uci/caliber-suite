@@ -249,6 +249,8 @@ def test_the_generated_cookbook_nav_and_pagers_are_in_lab_number_order() -> None
         expected_prev = ordered_hrefs[i - 1] if i > 0 else None
         expected_next = ordered_hrefs[i + 1] if i < len(ordered_hrefs) - 1 else None
         if expected_prev:
-            assert f'href="{expected_prev}"' in pager, f"{href}: previous link is not {expected_prev}"
+            assert f'href="{expected_prev}"' in pager, (
+                f"{href}: previous link is not {expected_prev}"
+            )
         if expected_next:
             assert f'href="{expected_next}"' in pager, f"{href}: next link is not {expected_next}"
