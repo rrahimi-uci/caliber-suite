@@ -1,0 +1,18 @@
+
+Gate execution ledger
+===========================================================
+
+ . Lint & format                        success
+ . Type check                           success
+ . Backend smoke                        success
+ . Backend core journey                 success
+ . Migration parity (PostgreSQL)        success
+ . Docs validation                      success
+ . UI (test + build)                    success
+ . Compose merged-config validation     success
+ . Wheel build (with bundled SPA)       success
+ . Alpha install (wheels, no checkout)  success
+ . Alpha journey (browser)              success
+ . Security scan                        success
+
+all 12 required gates executed
