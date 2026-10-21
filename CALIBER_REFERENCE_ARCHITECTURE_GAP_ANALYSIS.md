@@ -36,6 +36,8 @@ Estimates are **incremental engineering person-weeks**, including implementation
 
 At the repository's documented **1.5 developer capacity**, reserved effort alone implies roughly **66–110 team-weeks through MVP**, before additional non-overlapping external delays. A five-person team operating at 75% effective delivery capacity implies roughly **27–44 weeks**. These are capacity calculations, not promised dates; the dependency graph prevents arbitrary parallelization. This expanded EGI scope does not fit automatically inside the existing six-month roadmap. [C24]
 
+**Five-person delivery plan:** the [nine-milestone execution plan](CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) allocates every B/M package to concrete delivery gates, with a midpoint planning target of **Beta at week 17 and MVP at week 36**. It retains the effort ranges above, includes availability and uncertainty separately, and makes Beta an explicit stop-or-fund-MVP decision.
+
 ### How much does Alpha cover?
 
 There is no defensible measured percentage of “the whole book implemented.” Its chapters mix required invariants, optional patterns, and large-scale deployment recommendations. Counting pages, endpoints, tests, or feature names would give a misleading answer.
@@ -420,6 +422,8 @@ flowchart TB
 
 ## 11. Prioritized Engineering Backlog
 
+For the five-person staffing scenario, use the [detailed D1–D9 milestone plan](CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) for weekly capacity, package allocations, sequencing, demos and exit decisions. The waves below remain the architectural dependency grouping; they are not additional work or a second staffing commitment.
+
 ### Execution waves
 
 | Wave | Packages | Deliverable / gate |
@@ -586,7 +590,7 @@ Each validation run emits exact commit, dependency lock/container digests, datab
 
 ## 16. Recommended Next Steps
 
-1. **Approve the reference boundary and staffing assumption.** Decide whether the expanded EGI program replaces or follows the narrower existing MVP. Keep release labels separate until that decision is explicit.
+1. **Approve the reference boundary and staffing assumption.** Use the [five-person D1–D9 plan](CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) to name owners and fund the first checkpoint. Decide whether the expanded EGI program replaces or follows the narrower existing MVP. Keep release labels separate until that decision is explicit.
 2. **Start B01 and early B11/B12 work.** Freeze the synthetic document-request scenario, control contracts, allowed connector set and deployment threat model; address trace isolation before shared sensitive use.
 3. **Prototype B04/B05 before committing dates.** Route one protected action through persisted proposal, exact approval, stable downstream key and reconciliation. Kill the worker after downstream commit. This is the highest-value architecture test.
 4. **Implement immutable pins and execution authority.** Avoid building more agent features on top of owner-derived identity and optional lineage.
