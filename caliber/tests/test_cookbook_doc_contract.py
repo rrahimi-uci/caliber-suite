@@ -14,6 +14,7 @@ fails here instead of shipping. This is the CI backstop the report recommended:
 from __future__ import annotations
 
 import json
+import re
 import typing
 from pathlib import Path
 
@@ -222,3 +223,32 @@ def test_cookbook05_uses_current_official_github_mcp_server() -> None:
     assert "https://api.githubcopilot.com/mcp/" in recipe_sources
     assert "GITHUB_PERSONAL_ACCESS_TOKEN" in product_source
     assert "CALIBER_MCP_REMOTE_HOST_ALLOWLIST" in recipe_sources
+
+
+def test_the_generated_cookbook_nav_and_pagers_are_in_lab_number_order() -> None:
+    """The nav manifest and each detail page's prev/next pager follow lab number, not edit order.
+
+    ``training/content.py``'s ``COOKBOOKS`` list literal is ordered by whenever each entry was
+    last touched (labs 05, 16 and 18 have historically landed out of sequence); every consumer
+    in ``training/build.py`` walks that list positionally, so an edit-order regression there is
+    directly visible as a scrambled cookbook list in the docs toolbar and wrong Next/Previous
+    links on the cookbook pages themselves. This pins the *output*, so it fails regardless of
+    which end (the source list or its consumers) drifts.
+    """
+    nav = json.loads((DOCS_SITE / "cookbooks-nav.json").read_text(encoding="utf-8"))
+    numbers = [int(entry["label"].split(" · ", 1)[0]) for entry in nav[1:]]  # skip "All cookbooks"
+    assert numbers == sorted(numbers), f"cookbooks-nav.json is not in lab-number order: {numbers}"
+
+    hrefs_by_number = {num: entry["href"] for num, entry in zip(numbers, nav[1:])}
+    ordered_hrefs = [hrefs_by_number[n] for n in numbers]
+    for i, href in enumerate(ordered_hrefs):
+        page = (DOCS_SITE / href).read_text(encoding="utf-8")
+        pager_match = re.search(r'<nav class="ck-pager">(.*?)</nav>', page)
+        assert pager_match, f"{href} has no pager"
+        pager = pager_match.group(1)
+        expected_prev = ordered_hrefs[i - 1] if i > 0 else None
+        expected_next = ordered_hrefs[i + 1] if i < len(ordered_hrefs) - 1 else None
+        if expected_prev:
+            assert f'href="{expected_prev}"' in pager, f"{href}: previous link is not {expected_prev}"
+        if expected_next:
+            assert f'href="{expected_next}"' in pager, f"{href}: next link is not {expected_next}"

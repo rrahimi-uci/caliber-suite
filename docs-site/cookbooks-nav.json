@@ -16,12 +16,12 @@
     "label": "03 \u00b7 Policy-Safe Decision Tool"
   },
   {
-    "href": "m-cookbook-05-governed-mcp.html",
-    "label": "05 \u00b7 Governed Tool Connectivity (MCP)"
-  },
-  {
     "href": "m-cookbook-04-doc-to-json.html",
     "label": "04 \u00b7 Document-to-JSON Pipeline"
+  },
+  {
+    "href": "m-cookbook-05-governed-mcp.html",
+    "label": "05 \u00b7 Governed Tool Connectivity (MCP)"
   },
   {
     "href": "m-cookbook-06-grounded-knowledge.html",
@@ -40,20 +40,12 @@
     "label": "09 \u00b7 Self-Healing Workflows"
   },
   {
-    "href": "m-cookbook-16-observability-triage.html",
-    "label": "16 \u00b7 Production Observability & Triage"
-  },
-  {
     "href": "m-cookbook-10-trustworthy-evaluation.html",
     "label": "10 \u00b7 Trustworthy Evaluation"
   },
   {
     "href": "m-cookbook-11-release-signoff.html",
     "label": "11 \u00b7 Release Signoff Factory"
-  },
-  {
-    "href": "m-cookbook-18-projects-roles-tokens-audit.html",
-    "label": "18 \u00b7 Projects, Roles, Tokens & Audit"
   },
   {
     "href": "m-cookbook-12-aria-eval-harness.html",
@@ -70,5 +62,13 @@
   {
     "href": "m-cookbook-15-aria-triage-loop.html",
     "label": "15 \u00b7 Aria: Triage & Recalibrate Loop"
+  },
+  {
+    "href": "m-cookbook-16-observability-triage.html",
+    "label": "16 \u00b7 Production Observability & Triage"
+  },
+  {
+    "href": "m-cookbook-18-projects-roles-tokens-audit.html",
+    "label": "18 \u00b7 Projects, Roles, Tokens & Audit"
   }
 ]
