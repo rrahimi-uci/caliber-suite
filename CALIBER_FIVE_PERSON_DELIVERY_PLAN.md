@@ -42,7 +42,7 @@ Calendar arithmetic: `5 Beta milestones × 5 weeks = 25 weeks`; `4 MVP milestone
 
 The nine dedicated QA weeks use `9 × 3.75 = 33.75 PW` of effective team capacity **within** those 168.75 PW; they are not added again. The remaining 36 weeks provide 135 effective PW for implementation, integration and continuous testing. Base package estimates already include tests, review, fixes and documentation; the QA week schedules that work and retains capacity for regression findings. A milestone needing the full 15 base PW must allocate at most 12 base PW to its first four weeks and at most 3 to QA/fixes in its final week. Refine the implementation-versus-QA split before starting each milestone; these aggregate budgets do not prove every specialist can finish on time.
 
-The assessment's **27–44 week capacity-only calculation** remains historical sizing context, not the delivery forecast for this fixed cadence. The current baseline is **45 weeks**, with gates that can slip if evidence is incomplete. The midpoint reserve fits the aggregate calendar; even the original upper reserved estimate of 163.75 PW fits within 168.75 PW overall, but milestone-level and specialist bottlenecks can still exceed their slots. Unused Beta capacity cannot remove a later dependency or specialist constraint. Reforecast at D1, D3 and every release gate.
+The assessment's **27–44 week capacity-only calculation** remains historical sizing context, not the delivery forecast for this fixed cadence. The current baseline is **45 weeks**, with gates that can slip if evidence is incomplete. The midpoint reserve fits the aggregate calendar. The upper estimate does **not** fit stage by stage: Beta's upper reserved effort (76.25 PW) fits D1–D5's 93.75 effective PW, but the MVP increment's upper reserved effort (87.5 PW; 70 PW base, 3.5 PW/week) exceeds D6–D9's 75 effective PW and 60 PW planned-base ceiling. The 163.75 PW aggregate only fits 168.75 PW by spending Beta headroom on MVP work, which the Beta investment decision forbids. At the upper range the MVP increment therefore needs about 24 weeks (87.5 ÷ 3.75, consistent with the gap analysis's 14–24 week MVP capacity-only figure), i.e. a fifth MVP milestone and an MVP gate near week 50. Treat week 45 as the midpoint baseline and reforecast at D1, D3 and every release gate; unused Beta capacity cannot remove a later dependency or specialist constraint.
 
 If only 60% of the team is available, effective capacity is 3 PW/week and the 45-week calendar provides 135 PW, just 3.75 PW above the 131.25 PW midpoint including reserve. Heavier milestones may then require more time despite the aggregate fit. Protect the team from competing roadmap commitments; do not shorten QA to compensate for unavailable staff.
 
@@ -58,23 +58,25 @@ If only 60% of the team is available, effective capacity is 3 PW/week and the 45
 
 These are five people, not five departments. A–D own tests for their changes; E supplies shared tooling and independent integration checks. D and E must be able to contribute code, and A/B must cover security-sensitive backend work with C. C is not assumed to implement identity, isolation and deployment simultaneously. Run at most two substantial implementation streams; use the other capacity for integration, review, tests and the next dependency-ready slice.
 
+**C is the MVP bottleneck unless work is reassigned.** Counting the gap analysis's component/owner column and splitting shared tags evenly, security- or platform-tagged work is about 10 PW in D1–D5 (fits C's 18.75 effective PW) but about **24 PW in D6–D9** (M01, M02, M04, M05, M07, M08, M11, M12) against C's **15 effective PW** over 20 weeks, while backend-tagged MVP work is only about 16.5 PW against A+B's 30 PW. Before D6, assign at least 9 PW of that work away from C: B owns M05's archive export/integrity chain and M08's bulkheads/queues, A owns M02's bundle verification at admission, E owns M12's load/outage drills and co-owns M11's upgrade/restore automation, and C keeps M01, M07 and the deployment artifact. Confirm the split at the D5 reforecast; otherwise D6–D9 slip on one person's calendar even though the aggregate capacity fits.
+
 A domain owner, an independent pilot operator and a security reviewer are **external dependencies**, not hidden sixth full-time engineers. Book their availability during D1 and again before D6. Their time/cost is excluded from the 225 staffed PW; if unavailable, move the affected gate or explicitly allocate one of the five to the work and reforecast. An implementer's self-review does not substitute for the independent MVP review.
 
 ## Milestone overview
 
-Base effort below is a planning allocation of package midpoints, not a new estimate. Each milestone's base effort divided by its duration is at most 3 PW/week; unused headroom stays available for dependency delays. This is an average capacity check, not a claim that every specialist's weekly assignments have already been leveled. Allocation details follow the milestone definitions.
+Base effort below is a planning allocation of package midpoints, not a new estimate. Each milestone's base effort divided by its duration is at most 3 PW/week; unused headroom stays available for dependency delays. D6 sits exactly at that ceiling and cannot be relieved by earlier milestones, because no MVP work may start before the Beta decision at D5; D3 and D7 were brought under it by moving one B07 slice into D2 and one M11 preparation slice into D9. This is an average capacity check, not a claim that every specialist's weekly assignments have already been leveled. Allocation details follow the milestone definitions.
 
 | ID | Planned weeks | Implementation / integration | QA / fixes week | Base PW | Demonstrable outcome |
 | --- | --- | --- | ---: | ---: | --- |
 | D1 | 1–5 | 1–4 | 5 | 6 | Fixed reference scope, early exposure controls, disposable action/recovery prototype |
-| D2 | 6–10 | 6–9 | 10 | 12 | Pinned admission, execution authority, owner fencing and initial authorized context |
-| D3 | 11–15 | 11–14 | 15 | 15 | One governed model-proposed external action, exact approval and restart-safe reconciliation |
+| D2 | 6–10 | 6–9 | 10 | 13 | Pinned admission, execution authority, owner fencing and authorized context manifest |
+| D3 | 11–15 | 11–14 | 15 | 14 | One governed model-proposed external action, exact approval and restart-safe reconciliation |
 | D4 | 16–20 | 16–19 | 20 | 8.5 | Verified outcome, side-effect-free replay and actual workspace evaluation |
 | D5 | 21–25 | 21–24 | 25 | 7.5 | Installable, documented Beta with public failure scenarios |
 | D6 | 26–30 | 26–29 | 30 | 15 | Credential leases, signed promotion, protected audit and operator controls |
-| D7 | 31–35 | 31–34 | 35 | 15 | Knowledge lifecycle, execution isolation and trajectory-based release checks |
+| D7 | 31–35 | 31–34 | 35 | 14 | Knowledge lifecycle, execution isolation and trajectory-based release checks |
 | D8 | 36–40 | 36–39 | 40 | 14 | Second connector recovery, persistent budgets and bounded delegation |
-| D9 | 41–45 | 41–44 | 45 | 12 | Independent install/restore/pilot and measured operating limits |
+| D9 | 41–45 | 41–44 | 45 | 13 | Independent install/restore/pilot and measured operating limits |
 
 D1–D4 are engineering previews restricted to fixtures and the declared development profile. D6–D8 are MVP previews. None inherits a Beta/MVP label merely because its planned week arrives. Demonstrations can show partially integrated functionality but must label it as such.
 
@@ -104,7 +106,7 @@ D1–D4 are engineering previews restricted to fixtures and the declared develop
 1. Finish immutable manifests, pins, required lineage and admission intent conflicts (B02).
 2. Implement separate subject/workload identity, scoped grants and current policy/revocation decisions (B03).
 3. Build most of B13's owner lease, fencing and transactional outbox/inbox; finish dispatcher integration in D3.
-4. Start B07 authorized source inventory/context manifests; continue B11 trace ownership/correlation and B12 deployment configuration.
+4. Build B07's approved source inventory, source authorization before loading and ordered context manifest with trust tiers; continue B11 trace ownership/correlation and B12 deployment configuration.
 
 **Order:** land B02 admission before B03 integration; prepare policy fixtures in parallel. Integrate context authorization only after B03 decisions exist. Outbox ownership depends on the persisted run identity.
 
@@ -120,7 +122,7 @@ D1–D4 are engineering previews restricted to fixtures and the declared develop
 
 1. Finish B04/B05 production dispatcher and logical effect ledger, reusing only reviewed prototype code.
 2. Complete exact proposal/evidence/policy/resource binding, expiry, supersession and concurrent approval consumption (B06).
-3. Finish B07 context and manual rule bundle; add bounded typed AgentStep and adapter conformance (B08).
+3. Finish B07's allocation/omission/redaction records and the manual rule bundle; add bounded typed AgentStep and adapter conformance (B08).
 4. Close B11 and B13 across actual execution; integrate most remaining B12 dispatcher refusal/security controls. Finish B12's full release-profile checks in D4.
 
 **Order:** establish B04/B05 protected dispatch before B06 approval consumption and B08 tool proposals. Freeze B07 context before final AgentStep conformance. Each supported HTTP/registered/OpenAPI/MCP/model-tool route must either enter the common contract or fail visibly; one connector does not mean leaving other reachable write paths unguarded.
@@ -232,7 +234,7 @@ Numbers are **base PW**, using each original package's midpoint. Multiple entrie
 | B04 | 4 | D1: 1; D3: 3 |
 | B05 | 4 | D1: 1; D3: 3 |
 | B06 | 3 | D3: 3 |
-| B07 | 4 | D2: 2; D3: 2 |
+| B07 | 4 | D2: 3; D3: 1 |
 | B08 | 2.5 | D3: 2.5 |
 | B09 | 4 | D4: 4 |
 | B10 | 3 | D4: 3 |
@@ -252,7 +254,7 @@ Numbers are **base PW**, using each original package's midpoint. Multiple entrie
 | M08 | 4 | D8: 4 |
 | M09 | 3 | D6: 1; D7: 2 |
 | M10 | 2.5 | D7: 1; D9: 1.5 |
-| M11 | 4 | D7: 2; D8: 1; D9: 1 |
+| M11 | 4 | D7: 1; D8: 1; D9: 2 |
 | M12 | 4 | D9: 4 |
 | M13 | 4 | D8: 4 |
 | M14 | 2.5 | D7: 1; D9: 1.5 |
