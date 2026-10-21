@@ -429,7 +429,11 @@ implementation:
 - Embeddings are local Hugging Face models only today, even though answer
   generation can use OpenAI or Anthropic, and they need the `knowledge-local` extra
   (`sentence-transformers`, `langchain-huggingface`, and torch) plus a model download
-  on the first build (pre-cache it into `HF_HOME` on an offline host).
+  on the first build (pre-cache it into `HF_HOME` on an offline host). The docker
+  stack's `caliber` container runs as a user with no home directory on a
+  read-only root filesystem, so `deploy/caliber/compose.yaml` pins `HF_HOME` to
+  `/data/huggingface` — the persistent volume already used for the SQLite
+  fallback — rather than the unwritable default `$HOME/.cache/huggingface`.
 - Dense retrieval defaults to an in-process scan over version chunks; on Postgres
   with pgvector it can instead push a SQL-side nearest-neighbour top-k into the
   database (see §10). The cross-encoder rerank stage is local-model only, behind

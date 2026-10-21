@@ -82,3 +82,18 @@ torch selector for the opt-in path, also set `CALIBER_TORCH_SPEC=...` before
 rebuilding. If the selected torch build is still flagged by CALIBER's runtime
 advisory, local embeddings remain blocked unless you deliberately set
 `CALIBER_ALLOW_FLAGGED_LOCAL_EMBEDDINGS=true` for an accepted-risk deployment.
+See the suite-root `.env.example` for a copy-pasteable version of both settings.
+
+The embedding model itself downloads from Hugging Face on first use. The
+container's user has no home directory and a read-only root filesystem, so
+`HF_HOME` is pinned to `/data/huggingface` — inside the same persistent
+`caliber_runtime_data` volume as the SQLite fallback — rather than the
+unwritable default `$HOME/.cache/huggingface`; the model survives container
+restarts/rebuilds once downloaded. To pre-cache it on a host that will be
+offline when a knowledge base first builds, warm the cache once while online:
+
+```bash
+docker compose --env-file deploy/.env --env-file .env -f deploy/compose.yaml \
+  --profile app exec caliber python -c \
+  "from sentence_transformers import SentenceTransformer as S; S('all-MiniLM-L6-v2')"
+```

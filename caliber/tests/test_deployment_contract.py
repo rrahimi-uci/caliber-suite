@@ -86,6 +86,21 @@ def test_caliber_container_retains_its_documented_runtime_hardening() -> None:
     assert environment["CALIBER_ASSISTANT_REASONING"].endswith(":-high}")
 
 
+def test_caliber_container_points_the_hugging_face_cache_at_the_persistent_volume() -> None:
+    """HF_HOME must not fall back to the default ``$HOME/.cache/huggingface``.
+
+    The container runs as a user with no home directory (``--no-create-home``) on a
+    read-only root filesystem, so an unset HF_HOME would fail to write the embedding
+    model cache the first time a knowledge base build (or cross-encoder rerank) actually
+    runs a local Hugging Face model. Pin it to the already-mounted persistent volume
+    instead, so the cache is writable and survives container restarts/rebuilds.
+    """
+    caliber = _compose(REPO_ROOT / "deploy" / "caliber" / "compose.yaml")["services"]["caliber"]
+    environment = caliber["environment"]
+    assert environment["HF_HOME"] == "${HF_HOME:-/data/huggingface}"
+    assert any(str(item).endswith(":/data") for item in caliber["volumes"])
+
+
 def test_the_compose_service_passes_the_alpha_feature_flags_through_defaulting_to_off() -> None:
     """The unsupported areas ship off (``caliber.features``): the stack must not enable them
     by omission, and an operator must be able to turn one on from the root ``.env``."""

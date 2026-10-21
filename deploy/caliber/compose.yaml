@@ -254,6 +254,13 @@ services:
       # CALIBER_INSTALL_EXTRAS=...,knowledge-local, this runtime guard should stay
       # false unless you explicitly accept flagged dependency risk.
       CALIBER_ALLOW_FLAGGED_LOCAL_EMBEDDINGS: ${CALIBER_ALLOW_FLAGGED_LOCAL_EMBEDDINGS:-false}
+      # sentence-transformers/huggingface_hub default the model cache to
+      # $HOME/.cache/huggingface, but this container's user has no home
+      # directory (--no-create-home) and a read-only root filesystem, so an
+      # unset HF_HOME would fail to write the cache on every embedding build.
+      # Point it at the already-mounted persistent volume instead, so the
+      # model downloads once and survives container restarts/rebuilds.
+      HF_HOME: ${HF_HOME:-/data/huggingface}
       # Serve the generated Allure report in-app at /observability/allure-report.
       # Default reads the host dir mounted below (single-host: make allure-report).
       # For multi-node, set this to s3://<bucket>/<prefix> and publish with

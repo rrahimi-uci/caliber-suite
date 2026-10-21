@@ -184,6 +184,9 @@ and neither comes with the steps above:
   Without `knowledge-local` every embedding model shows as unavailable, with this extra named. The default docker
   image installs `knowledge` only, so add `knowledge-local` to `CALIBER_INSTALL_EXTRAS` when you build it.
 - **The model.** The first build downloads it from Hugging Face; pre-cache it into `HF_HOME` on an offline host.
+  The docker stack already points `HF_HOME` at the persistent `/data/huggingface` volume
+  (`deploy/caliber/compose.yaml`), so a native install should set `HF_HOME` to somewhere durable too, or the
+  model re-downloads on every fresh venv.
 - **PostgreSQL with pgvector** only if you turn on ANN search; **Apache AGE** only for graph retrieval.
 
 The full list, and what is and is not verified, is on [Knowledge bases](m-43-use-knowledge-bases.md#before-the-first-step-what-a-knowledge-base-needs).
