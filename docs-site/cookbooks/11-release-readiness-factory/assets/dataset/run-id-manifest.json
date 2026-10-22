@@ -1,0 +1,54 @@
+{
+  "_comment": "Fill-in template. The operator pastes REAL evidence here before scoring — there is no engine that fills this. Leave a field empty until you have verified the evidence; the release-risk-summarizer (and the rubric) treat any empty required field as MISSING and force no_go. eval_run_id = the Evaluations scorecard run id (Evaluate -> Evaluations). review_queue_complete = true only when every required Review Queue is fully answered (Observe -> Review Queues). approval_branch_run_id = the fresh run id from re-running that scenario's high-risk pipeline slice (SCN-07 approval branch, SCN-08 rollback path, SCN-09 retry/resume recovery); it is REQUIRED only for SCN-07/08/09. SCN-10 is NOT required to carry approval_branch_run_id — its critical slice is human-review-queue completion, not a pipeline re-run, so SCN-10 readiness gates on eval_run_id + review_queue_complete only.",
+  "release_tag": "",
+  "prepared_by": "",
+  "prepared_at": "",
+  "scenarios": [
+    {
+      "scenario": "SCN-07",
+      "name": "support-triage-resolution-loop",
+      "critical_slice": "approval branch (human_approval gate -> approve -> resume)",
+      "required": ["eval_run_id", "review_queue_complete", "approval_branch_run_id"],
+      "eval_run_id": "",
+      "review_queue_complete": false,
+      "approval_branch_run_id": "",
+      "notes": ""
+    },
+    {
+      "scenario": "SCN-08",
+      "name": "incident-response-commander",
+      "critical_slice": "rollback path (re-run to confirm it still passes)",
+      "required": ["eval_run_id", "review_queue_complete", "approval_branch_run_id"],
+      "eval_run_id": "",
+      "review_queue_complete": false,
+      "approval_branch_run_id": "",
+      "notes": ""
+    },
+    {
+      "scenario": "SCN-09",
+      "name": "workflow-debugger-self-healing-lab",
+      "critical_slice": "retry/resume recovery path",
+      "required": ["eval_run_id", "review_queue_complete", "approval_branch_run_id"],
+      "eval_run_id": "",
+      "review_queue_complete": false,
+      "approval_branch_run_id": "",
+      "notes": ""
+    },
+    {
+      "scenario": "SCN-10",
+      "name": "judge-certification-human-review-lab",
+      "critical_slice": "judge certification + human-review queue completion",
+      "required": ["eval_run_id", "review_queue_complete"],
+      "eval_run_id": "",
+      "review_queue_complete": false,
+      "approval_branch_run_id": "",
+      "notes": ""
+    }
+  ],
+  "allure": {
+    "_comment": "Generated EXTERNALLY via `make allure-report`, then served in-app at Settings -> Allure Report (GET /observability/allure-report). Set loaded:true only after you have confirmed the report opens in-app; the tab reads the stored URL caliber.allure.reportUrl.",
+    "report_url": "",
+    "loaded": false,
+    "regenerated_at": ""
+  }
+}
