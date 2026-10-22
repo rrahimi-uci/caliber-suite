@@ -1,0 +1,99 @@
+{
+  "steps": [
+    {
+      "where": "Integrations › OpenAPI Integrations",
+      "do": "<strong>Before you start:</strong> start CALIBER with <code>CALIBER_FEATURE_INTEGRATIONS=true</code>, the lab's upstream (<code>assets/server/ticket_api.py</code>) running and its host on <code>CALIBER_EGRESS_ALLOWED_HOSTS</code>, and <code>OPENAPI_TICKET_TOKEN</code> set in both. Click <strong>+ New Integration</strong>, name it <code>Ticketing</code>, <strong>Create</strong>.",
+      "click": "+ New Integration",
+      "see": "The new integration's detail view opens, status <strong>draft</strong>.",
+      "asset": "the upstream Ticket API",
+      "assetlink": [
+        {
+          "href": "../cookbooks/19-openapi-integration-governance-lab/assets/server/ticket_api.py",
+          "label": "ticket_api.py"
+        }
+      ]
+    },
+    {
+      "where": "Integrations › OpenAPI Integrations › Import",
+      "do": "Click <strong>URL</strong>, paste the upstream's own <code>/openapi.yaml</code> address, click <strong>Check</strong> (reachable and allowed), then submit the import.",
+      "click": "Import",
+      "see": "<code>Imported OAIV-1</code>; the integration moves to <strong>review</strong>.",
+      "asset": "the spec the upstream serves",
+      "assetlink": [
+        {
+          "href": "../cookbooks/19-openapi-integration-governance-lab/assets/dataset/ticket-api-v1.yaml",
+          "label": "ticket-api-v1.yaml"
+        }
+      ]
+    },
+    {
+      "where": "Integrations › OpenAPI Integrations › Operations",
+      "do": "Select both <code>GET /tickets</code> and <code>GET /tickets/{ticket_id}</code>, check <strong>bind as one tool pack</strong>, and click <strong>Generate tool draft(s)</strong>.",
+      "click": "Generate tool draft(s)",
+      "see": "<code>Generated 1 tool draft</code>: a pack binding both read operations."
+    },
+    {
+      "where": "Integrations › OpenAPI Integrations › Dependencies",
+      "do": "The row from <code>createTicket</code> to <code>getTicket</code> shows <strong>Auto-wired</strong> (an explicit OpenAPI link) with no action available. Filter to <strong>Awaiting Review</strong> and click <strong>Confirm</strong> on the same-tag advisory row.",
+      "click": "Confirm",
+      "see": "The auto-wired row carries no Confirm/Reject action; the advisory row's status becomes <strong>confirmed</strong>."
+    },
+    {
+      "where": "Integrations › OpenAPI Integrations › Tool Drafts",
+      "do": "Open the pack draft, set <strong>Auth kind</strong> to <code>Bearer token</code> and the secret reference to <code>env://OPENAPI_TICKET_TOKEN</code>, <strong>Save</strong>, then <strong>Publish</strong>.",
+      "click": "Publish",
+      "see": "<code>Tool published successfully</code>, naming the tool id and <code>openapi_http</code>; <strong>Open in Tool Registry</strong> links to it.",
+      "asset": "the dependency the detector auto-wires",
+      "assetlink": [
+        {
+          "href": "../cookbooks/19-openapi-integration-governance-lab/assets/README.md",
+          "label": "the upstream's three operations"
+        }
+      ]
+    },
+    {
+      "where": "Integrations › OpenAPI Integrations › Operations",
+      "do": "Select <code>POST /tickets</code> alone and <strong>Generate tool draft(s)</strong> (no pack this time). Open the new draft, set the same bearer auth, and click <strong>Publish</strong> without checking anything else.",
+      "click": "Generate tool draft(s)",
+      "see": "The draft's side-effect level is <strong>write</strong> and it already requires approval -- a write defaults to it."
+    },
+    {
+      "where": "Integrations › OpenAPI Integrations › Tool Drafts",
+      "do": "Try <strong>Preview</strong> on the write draft before touching <strong>allow in preview</strong>.",
+      "click": "Preview",
+      "see": "Refused: <em>set 'allow_in_preview' before running a live upstream call</em>. Toggle <strong>allow in preview</strong> on, <strong>Preview</strong> again, confirm it ran against the upstream, then toggle it back off."
+    },
+    {
+      "where": "Integrations › OpenAPI Integrations › Tool Drafts",
+      "do": "With <strong>allow in preview</strong> off again, click <strong>Publish</strong>.",
+      "click": "Publish",
+      "see": "<code>Tool published successfully</code>; the published tool still carries <strong>requires approval</strong>."
+    },
+    {
+      "where": "Agent resources › Workflows",
+      "do": "Fill <code>__TOOL_NAME__</code> in a copy of <a href=\"../cookbooks/19-openapi-integration-governance-lab/assets/workflow/file-ticket.workflow.yaml\">file-ticket.workflow.yaml</a> with the published write tool's name. <strong>Import</strong>, <strong>Run</strong> with a ticket title as input. Approve yourself (refused), approve as the reviewer account in a second session, then <strong>Resume</strong>.",
+      "click": "Run",
+      "see": "<strong>Awaiting approval</strong> at <code>call_tool</code>; <em>the account that triggered this run cannot approve it; a second person must decide</em>; after the reviewer approves and you <strong>Resume</strong>, <strong>completed</strong>.",
+      "asset": "the one-tool workflow",
+      "assetlink": [
+        {
+          "href": "../cookbooks/19-openapi-integration-governance-lab/assets/workflow/file-ticket.workflow.yaml",
+          "label": "file-ticket.workflow.yaml"
+        }
+      ]
+    },
+    {
+      "where": "Integrations › OpenAPI Integrations",
+      "do": "Bump the upstream's served spec to v2 (<code>POST /admin/bump-spec</code> on the upstream itself), then click <strong>Reimport & diff</strong>.",
+      "click": "Reimport & diff",
+      "see": "<code>Re-imported OAIV-2: +0 -0 changed 2 (1 breaking)</code> -- the deprecation is caught; the new required <code>priority</code> field on <code>createTicket</code> is not.",
+      "asset": "the changed spec",
+      "assetlink": [
+        {
+          "href": "../cookbooks/19-openapi-integration-governance-lab/assets/dataset/ticket-api-v2.yaml",
+          "label": "ticket-api-v2.yaml"
+        }
+      ]
+    }
+  ]
+}

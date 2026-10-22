@@ -50,7 +50,7 @@ ENVSH="$REPO_ROOT/scripts/cookbook-env.sh"
 COOKBOOKS="$REPO_ROOT/docs-site/cookbooks"
 RUN_ROOT="$REPO_ROOT/.tmp/cookbook-run-all"
 ENV_ROOT="$REPO_ROOT/.tmp/cookbook-env"
-ALL_LABS="01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 18"
+ALL_LABS="01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 18 19"
 JOURNEY_LABS="18 01 02 03 07 16"
 API_TIMEOUT="${COOKBOOK_RUN_ALL_API_TIMEOUT:-1800}"
 UI_TIMEOUT="${COOKBOOK_RUN_ALL_UI_TIMEOUT:-2400}"
@@ -248,6 +248,13 @@ lab_config() {
         LAB_UP_ENV=(CALIBER_ADMIN_USERS=admin CALIBER_OPERATOR_USERS=admin,maya,omar,priya,sam,quinn,rosa,victor,nora
                     CALIBER_APPROVER_USERS=admin,maya,omar,quinn)
         LAB_API_ARGV=(-m examples.cookbooks.cookbook_18_projects_roles_tokens_audit); LAB_UI="18-projects-roles-tokens-audit.spec.ts" ;;
+    19) LAB_TITLE="OpenAPI governance"; LAB_FLAGS="integrations,cookbooks"; LAB_HELPERS="ticket19"
+        export OPENAPI_TICKET_TOKEN="${OPENAPI_TICKET_TOKEN:-lab19-ticket-token}"
+        export TICKET_API_LEDGER="$RUN_DIR/lab19-ticket-ledger.jsonl"
+        LAB_UP_ENV=(CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1 "OPENAPI_TICKET_TOKEN=$OPENAPI_TICKET_TOKEN"
+                    CALIBER_OPERATOR_USERS=admin,lab19-operator,lab19-reviewer CALIBER_APPROVER_USERS=admin,lab19-reviewer)
+        LAB_API_CWD="sdk/caliber-sdk"; LAB_API_ARGV=(-m examples.cookbooks.cookbook_19_openapi_integration_governance)
+        LAB_UI="19-openapi-governance.spec.ts" ;;
     *) die "no configuration for lab $n" ;;
   esac
   LAB_STACK="ra-lab$n"; [[ $TIER == standin ]] && LAB_STACK="ra-lab${n}m"
@@ -261,6 +268,7 @@ start_lab_helpers() {
       acct) start_helper account-service 8780 python3 "$COOKBOOKS/09-workflow-debugger-self-healing-lab/assets/upstream/account_service.py" 8780 || return 1 ;;
       standin01) start_helper standin-01 8765 python3 "$COOKBOOKS/01-prompt-regression-lab/assets/stand-in-model/server.py" --port 8765 || return 1 ;;
       standin10) start_helper standin-10 8770 python3 "$COOKBOOKS/10-judge-certification-human-review-lab/assets/stand-in-model/stand_in_model_server.py" 8770 || return 1 ;;
+      ticket19) start_helper ticket-api-19 8781 python3 "$COOKBOOKS/19-openapi-integration-governance-lab/assets/server/ticket_api.py" 8781 || return 1 ;;
     esac
   done
 }

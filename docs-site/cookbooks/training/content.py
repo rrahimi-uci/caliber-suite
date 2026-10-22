@@ -761,6 +761,59 @@ COOKBOOKS = [
         ],
     },
     {
+        "id": "CB-19",
+        "num": "19",
+        "slug": "openapi-governance",
+        "track": "Build",
+        "title": "Governed OpenAPI Tool",
+        "subtitle": "Import an OpenAPI spec, curate a read-only tool pack and a governed write draft, publish both, and gate the write behind a second person.",
+        "level": "Core",
+        "time": "20–40 min",
+        "surfaces": [
+            "OpenAPI Integrations",
+            "Tools",
+            "Workflows",
+            "Audit Log",
+        ],
+        "build": "A three-operation Ticket API (<code>assets/server/ticket_api.py</code>), imported by URL over CALIBER's guarded egress path. CALIBER normalizes and classifies the operations, auto-wires one dependency from an explicit OpenAPI <code>link</code>, and leaves a same-tag dependency for a human to confirm. A read-only tool pack binds two operations into one callable; a write draft defaults to requiring approval and cannot be previewed until an operator opts in. Both drafts publish into the ordinary tool registry, and the write tool's approval gate holds in a workflow until a second person decides. Reimporting the upstream's changed spec afterward shows the diff catching one breaking change and missing another, real one.",
+        "learn": [
+            "Create an integration and import a spec by URL (<strong>Integrations &gt; OpenAPI Integrations &gt; Import</strong>); see it normalize and classify every operation as read, write or external action automatically",
+            "Review <strong>Dependencies</strong>: an explicit OpenAPI link auto-wires at high confidence and cannot be reviewed (409); a weaker, same-tag match can be confirmed or rejected",
+            "Generate a tool pack from two selected operations (<strong>Operations &gt; bind as one tool pack</strong>) and a separate write draft; meet the write draft's preview refusal (409) until <strong>allow in preview</strong> is set",
+            "Publish both drafts (<strong>Tool Drafts &gt; Publish</strong>) into the standard tool registry, then bind the write tool in a workflow and watch a second person's approval hold it at <code>waiting_approval</code>",
+            "Change the upstream's spec and <strong>Reimport &amp; diff</strong>: one breaking change (an operation marked deprecated) is caught; a new required request-body field is not, because the diff tracks a fixed set of fields",
+        ],
+        "mermaid": """flowchart LR
+  IM["Import spec by URL"] --> CL["Classify: 2 read, 1 write"]
+  CL --> DEP["Auto-wire the explicit link"]
+  CL --> PACK["Generate a read-only tool pack"]
+  CL --> WRITE["Generate the write draft"]
+  WRITE --> GATE["Preview refused: 409"]
+  GATE --> OPTIN["allow_in_preview opt-in (break-glass)"]
+  PACK --> PUB["Publish into the tool registry"]
+  OPTIN --> PUB
+  PUB --> WF["Workflow: waiting_approval"]
+  WF --> APR["Second person approves + Resume"]
+  APR --> RI["Reimport after a spec change"]
+  RI --> DIFF["Diff: 1 breaking, 1 change undetected"]""",
+        "gates": [
+            {"gate": "Classification", "target": "3 operations normalized: GET /tickets and GET /tickets/{ticket_id} read, POST /tickets write"},
+            {"gate": "Dependency detection", "target": "exactly 1 auto-wired (high-confidence) dependency, from the explicit OpenAPI link; it cannot be reviewed (409)"},
+            {"gate": "Preview gate", "target": "the write draft is refused at preview (409) until allow_in_preview is set; the upstream's own request log shows no call for a refused preview"},
+            {"gate": "Role floors", "target": "a reviewer can preview (403 on publish); an editor can publish (403 on approve); only the reviewer role plus the platform approver scope can approve"},
+            {"gate": "Approval gate", "target": "the published write tool's workflow run pauses at waiting_approval and completes only after a second person approves and Resume is called"},
+            {"gate": "Reimport diff", "target": "changed_count 2, breaking_count 1 after the upstream's spec changes; the operation whose request body gained a required field is absent from \"changed\""},
+        ],
+        "notes": [
+            "<strong>Flags.</strong> <code>CALIBER_FEATURE_INTEGRATIONS=true</code> opens the OpenAPI Integrations page and API, shared with cookbook 05's MCP governance. Start with <code>scripts/cookbook-env.sh up lab19 --flags integrations</code>.",
+            "<strong>Egress and the secret.</strong> The upstream runs on loopback, so <code>CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1</code> is required for import, preview and reimport to reach it. <code>OPENAPI_TICKET_TOKEN</code> must be the same literal value in both the upstream's environment and CALIBER's (the auth binding reads it as <code>env://OPENAPI_TICKET_TOKEN</code>).",
+            "<strong>Preview is not simulated.</strong> <code>result</code> is <code>{status_code, text, json, headers}</code> from a real outbound call; a non-2xx upstream response comes back as data, not as a thrown error.",
+            "<strong>Four different gates, easy to conflate.</strong> <code>resource.execute</code> gates preview; the strictly narrower <code>resource.publish</code> gates publish; <code>resource.approve</code> plus the platform <strong>approver</strong> scope (independent of either) gates approving a workflow run.",
+            "<strong>The trust boundary, honestly.</strong> The diff compares a fixed field set (summary, side-effect level, deprecated, auth, whether a body is required, content types, response statuses, tags) -- not which fields inside a body are required. A real breaking change can reimport clean; re-run a published tool's calibration after every reimport, not just the diff.",
+            "<strong>Run it.</strong> Start the upstream first: <code>python3 docs-site/cookbooks/19-openapi-integration-governance-lab/assets/server/ticket_api.py 8781 &amp;</code>, then <code>cd sdk/caliber-sdk &amp;&amp; ../../caliber/.venv/bin/python -m examples.cookbooks.cookbook_19_openapi_integration_governance</code> (about a minute; <code>--cleanup</code> archives what it created).",
+        ],
+    },
+    {
         "id": "CB-12",
         "num": "12",
         "slug": "aria-eval-harness",

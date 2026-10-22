@@ -1,0 +1,39 @@
+# Verified by running the lab against a real stack -- see README.md ("Verify it worked").
+feasibility:
+  - Enforcement is deterministic: a draft without allow_in_preview is refused before any outbound call is made, and the proof that a refused call never reached the upstream is the upstream's own request log (assets/server/ticket_api.py --- TICKET_API_LEDGER), the same ledger-is-the-proof pattern cookbook 05 uses for its MCP server.
+  - Dependency detection, classification and diffing are pure functions of the normalized spec (caliber.integrations.openapi.{classify,dependencies,diff}); no model grades anything.
+evaluation:
+  deterministic_checks:
+    - name: CurationBeforeRuntime
+      type: deterministic_check
+      criteria: importing a spec creates no runtime tool; generate_tool_drafts and publish_tool_draft are the two steps that do
+    - name: WriteDraftPreviewGated
+      type: deterministic_check
+      criteria: a write draft is refused at preview (409) until allow_in_preview is set; the upstream's log shows zero calls for a refused preview
+    - name: ApprovalGateHolds
+      type: deterministic_check
+      criteria: the published write tool's workflow run does not execute before a second person approves and the run is resumed
+  rule_checks:
+    - auto_wired_dependency_not_reviewable
+    - publish_requires_resource_publish_and_operator_scope
+quality_gates:
+  operations_classified: 3
+  auto_wired_dependencies: 1
+  reimport_diff:
+    changed_count: 2
+    breaking_count: 1
+  blocked_preview_calls_reaching_upstream: 0
+monitoring:
+  # A real upstream call leaves a durable record in the stand-in's own request log, independent of
+  # CALIBER's own answer -- what proves a refusal is a refusal, not a partial success.
+  evidence:
+    - upstream_request_log      # the stand-in server's own record of what ran
+    - preview_response          # draft_id + result (status_code, json, headers) or a 409 refusal
+    - reimport_diff             # added/removed/changed/unchanged/breaking, with reasons
+    - audit_log
+  metrics:
+    - operations_classified_count
+    - breaking_change_count
+feedback_loop:
+  - re-run a published tool's calibration after every reimport, not just the diff.
+  - never set allow_in_preview on a write draft except to prove it once; publish and gate it in a workflow instead.

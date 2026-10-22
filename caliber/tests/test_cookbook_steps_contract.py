@@ -53,9 +53,9 @@ def _numbered_steps_in_readme(readme: Path) -> list[str]:
 
 def test_every_recipe_has_steps() -> None:
     recipes = _recipes()
-    # 01-16 and 18: 17 is a standalone SDK automation (``cookbook_17_financial_analysis``) with no
-    # catalog entry and no documentation lab.
-    assert [recipe["id"] for recipe in recipes] == [f"{n:02d}" for n in (*range(1, 17), 18)]
+    # 01-16, 18 and 19: 17 is a standalone SDK automation (``cookbook_17_financial_analysis``) with
+    # no catalog entry and no documentation lab.
+    assert [recipe["id"] for recipe in recipes] == [f"{n:02d}" for n in (*range(1, 17), 18, 19)]
     for recipe in recipes:
         assert recipe["steps"], f"cookbook {recipe['id']} has no guided steps"
 
