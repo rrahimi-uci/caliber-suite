@@ -397,7 +397,9 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(payload)
 
-    def _send_text(self, status: int, body: str, content_type: str = &quot;application/yaml&quot;) -&gt; None:
+    def _send_text(
+        self, status: int, body: str, content_type: str = &quot;application/yaml&quot;
+    ) -&gt; None:
         payload = body.encode(&quot;utf-8&quot;)
         self.send_response(status)
         self.send_header(&quot;content-type&quot;, content_type)
@@ -413,8 +415,7 @@ class Handler(BaseHTTPRequestHandler):
         raw = self.rfile.read(length) if length else b&quot;&quot;
         return json.loads(raw) if raw else {}
 
-    def do_GET(self) -&gt; None:  # noqa: N802 -- BaseHTTPRequestHandler&#x27;s own naming
-        global _spec_version
+    def do_GET(self) -&gt; None:
         url = urlparse(self.path)
         if url.path == &quot;/health&quot;:
             self._send(200, {&quot;ok&quot;: True})
@@ -445,7 +446,7 @@ class Handler(BaseHTTPRequestHandler):
             return
         self._send(404, {&quot;error&quot;: &quot;not found&quot;})
 
-    def do_POST(self) -&gt; None:  # noqa: N802
+    def do_POST(self) -&gt; None:
         global _spec_version, _next_id
         url = urlparse(self.path)
         if url.path == &quot;/admin/bump-spec&quot;:
