@@ -18,12 +18,14 @@ import { defineConfig, devices } from "@playwright/test";
  *     and tool builders, and the workflow studio from template to run, approval, and
  *     the wait-for-event and wait-until resumes, with the run queue on.
  *   - feature-flags.spec.ts: the four feature-flagged areas (Aria, MCP and OpenAPI
- *     integrations, cookbooks, release-candidate signoff) are off, hidden and refused.
+ *     integrations, cookbooks, release-candidate signoff) carry their shipped defaults —
+ *     Aria on, the other three off, hidden and refused.
  *
  * The server starts with NO `CALIBER_FEATURE_*` variable: the whole point of this gate is that
- * the clean release (every flagged area off) carries the journey. The command unsets them so a
- * variable exported in a developer's shell cannot turn an area on and make the gate lie. The
- * full suite (`playwright.config.ts`) and the cookbook journeys turn the flags they need on.
+ * the shipped defaults carry the journey, not whatever a developer's shell happens to export.
+ * The command unsets them so an exported variable cannot silently change an area's state and
+ * make the gate lie. The full suite (`playwright.config.ts`) and the cookbook journeys turn the
+ * flags they need on.
  *
  * Run with `npm run test:e2e:alpha`. It gets its own port and state directory, so it
  * never reuses (or disturbs) the server a developer has running for `npm run test:e2e`.
