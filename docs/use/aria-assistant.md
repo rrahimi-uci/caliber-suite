@@ -19,10 +19,10 @@ tags:
 
 # Aria assistant
 
-> **Disabled by default.** Aria is a preview area and is off by default; enable with `CALIBER_FEATURE_ARIA=true`
-> and restart CALIBER. While it is off, the `/assistant/*` and `/aria/*` routes answer 404
-> (`reason_code: feature_disabled`) and the Aria panel and the Plans page are hidden. Once it is on,
-> `CALIBER_ASSISTANT_ENABLED` and a configured engine still decide whether Aria answers. Enabling the flag means
+> **Preview area, on by default.** Aria ships on; set `CALIBER_FEATURE_ARIA=false` and restart CALIBER for a
+> deployment that wants it off. While it is off, the `/assistant/*` and `/aria/*` routes answer 404
+> (`reason_code: feature_disabled`) and the Aria panel and the Plans page are hidden. Even while it is on,
+> `CALIBER_ASSISTANT_ENABLED` and a configured engine still decide whether Aria answers. Leaving it on means
 > you accept preview behavior. See [Feature flags](../start/alpha-scope.md#feature-flags).
 
 Use this page when you need the practical operator or user path for Aria:

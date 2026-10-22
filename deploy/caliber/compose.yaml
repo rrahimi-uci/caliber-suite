@@ -164,8 +164,10 @@ services:
       CALIBER_OBJECT_STORE_SECRET_KEY_SOURCE: AWS_SECRET_ACCESS_KEY
 
       # Alpha feature flags: the areas the alpha does not stand behind are OFF unless
-      # the host/root .env turns them on (see docs/start/alpha-scope.md).
-      CALIBER_FEATURE_ARIA: ${CALIBER_FEATURE_ARIA:-false}
+      # the host/root .env turns them on (see docs/start/alpha-scope.md). Aria is the
+      # exception: it ships ON by default; set CALIBER_FEATURE_ARIA=false in the
+      # host/root .env for a deployment that wants it off.
+      CALIBER_FEATURE_ARIA: ${CALIBER_FEATURE_ARIA:-true}
       CALIBER_FEATURE_INTEGRATIONS: ${CALIBER_FEATURE_INTEGRATIONS:-false}
       CALIBER_FEATURE_COOKBOOKS: ${CALIBER_FEATURE_COOKBOOKS:-false}
       CALIBER_FEATURE_RELEASE_CANDIDATES: ${CALIBER_FEATURE_RELEASE_CANDIDATES:-false}

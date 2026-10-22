@@ -208,23 +208,26 @@ The full list, and what is and is not verified, is on [Knowledge bases](../use/k
 
 ## Enabling preview areas
 
-The install above leaves the preview areas **off**: MCP servers, OpenAPI integrations, cookbooks, the Aria
-assistant and plans, and release-candidate signoff with workspace releases. Their navigation entries are
-hidden and their routes answer 404 with `reason_code: feature_disabled`. To try one, export its variable
-next to the other settings in step 5 and restart CALIBER:
+The install above leaves most preview areas **off**: MCP servers, OpenAPI integrations, cookbooks, and
+release-candidate signoff with workspace releases. Their navigation entries are hidden and their routes
+answer 404 with `reason_code: feature_disabled`. The Aria assistant and plans is the one exception — it
+ships **on**. To try one of the others, export its variable next to the other settings in step 5 and restart
+CALIBER:
 
 ```bash
-export CALIBER_FEATURE_ARIA=true                # Aria assistant and plans (preview)
 export CALIBER_FEATURE_INTEGRATIONS=true        # MCP servers and OpenAPI integrations (preview)
 export CALIBER_FEATURE_COOKBOOKS=true           # Cookbooks (preview)
 export CALIBER_FEATURE_RELEASE_CANDIDATES=true  # release-candidate signoff and workspace releases
 ```
 
-Turn on only what you want to try. Each variable defaults to false, is read once at startup, and accepts
-`true`, `1`, `yes` or `on`. Enabling one means you accept that area's preview behavior (it may change, a
-signoff records a decision and deploys nothing, a workspace release evaluation never runs); see
+To turn Aria off instead, set `CALIBER_FEATURE_ARIA=false` and restart.
+
+Turn on only what you want to try. Each variable is read once at startup and accepts `true`, `1`, `yes` or
+`on`. Enabling one means you accept that area's preview behavior (it may change, a signoff records a
+decision and deploys nothing, a workspace release evaluation never runs); see
 [Feature flags](alpha-scope.md#feature-flags). Some cookbooks need more than the cookbooks flag, for
-example the Aria labs need `CALIBER_FEATURE_ARIA`; each lab's README names its flags.
+example the Aria labs need `CALIBER_FEATURE_ARIA` (already on by default); each lab's README names its
+flags.
 
 To confirm what the server picked up, sign in as in step 6 and read `features` from the capabilities
 response. Each of the four ids carries `enabled`, `env_var`, `label` and `stability`:
@@ -239,9 +242,9 @@ If you would rather run the whole stack in containers, use `make start` from a s
 The container entrypoint runs the migration and sets the roles and providers for you. See
 [Local bring-up](../operate/local-bring-up.md).
 
-The four `CALIBER_FEATURE_*` variables pass through from the environment to the container and default to
-false there as well. Set them in the suite-root `.env` (`.env.example` documents them), then run
-`make start` again; the container reads them at startup. The preview areas are off in the stack until you do.
+The four `CALIBER_FEATURE_*` variables pass through from the environment to the container with the same
+defaults (Aria on, the other three off). Set them in the suite-root `.env` (`.env.example` documents them),
+then run `make start` again; the container reads them at startup.
 
 ## Check it yourself
 

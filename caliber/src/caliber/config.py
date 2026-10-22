@@ -1040,11 +1040,12 @@ class CaliberConfig(BaseModel):
     # ------------------------------------------------------------------
 
     feature_aria_enabled: bool = Field(
-        default=False,
+        default=True,
         description=(
-            "Turn on the Aria assistant and plans (preview). Off by default: the "
-            "``/assistant`` and ``/aria`` routes answer 404 ``feature_disabled`` and the "
-            "SPA hides them. Independent of ``assistant_enabled``, which still decides "
+            "Turn on the Aria assistant and plans (preview). On by default, unlike the "
+            "other three feature flags: set this to false to turn it off, which makes the "
+            "``/assistant`` and ``/aria`` routes answer 404 ``feature_disabled`` and hides "
+            "them in the SPA. Independent of ``assistant_enabled``, which still decides "
             "whether an enabled assistant accepts requests."
         ),
     )

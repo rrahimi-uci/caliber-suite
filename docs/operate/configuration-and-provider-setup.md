@@ -65,11 +65,11 @@ is refused at startup unless `CALIBER_ALLOW_SIMULATED_PROVIDERS=true`, and so is
 Use [Config and environment reference](../reference/config-and-environment.md)
 when you need the representative variable names in one place.
 
-Aria, MCP servers, OpenAPI integrations, cookbooks, and release-candidate signoff with Workspace releases are
-**off by default**. Provider settings alone do not bring them back: Aria needs `CALIBER_FEATURE_ARIA=true`
-before an engine matters, and an MCP server needs `CALIBER_FEATURE_INTEGRATIONS=true`. The four variables are
-read at startup, so restart CALIBER after changing one. See
-[Feature flags](../start/alpha-scope.md#feature-flags) and the
+MCP servers, OpenAPI integrations, cookbooks, and release-candidate signoff with Workspace releases are
+**off by default**; Aria is the exception and ships **on**. Provider settings alone do not change any of
+this: an engine only matters once `CALIBER_FEATURE_ARIA` is on (it is, by default), and an MCP server needs
+`CALIBER_FEATURE_INTEGRATIONS=true`. The four variables are read at startup, so restart CALIBER after changing
+one. See [Feature flags](../start/alpha-scope.md#feature-flags) and the
 [Config and environment reference](../reference/config-and-environment.md#8-feature-flags).
 
 ## 3. Treat secret values as sources, not literals

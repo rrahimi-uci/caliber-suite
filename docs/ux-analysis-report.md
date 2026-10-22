@@ -8,11 +8,11 @@
 > reflect: the sidebar was regrouped (**Get started**, **Prompt lifecycle**, **Agent resources**,
 > **Operate**, **Integrations**, **Admin**; see §3.1); the "alpha", "beta" and "preview" labels
 > were removed from the interface; Aria, MCP and OpenAPI integrations, Cookbooks and release
-> candidates sit behind feature flags that are off by default, and a disabled area is hidden from
-> the navigation; the empty Dashboard shows a "New here? Start with the core loop" panel; a tool
-> has one page, its workspace at `/tools?tool=TL-…`, and `/tools/:toolId` redirects there; and the
-> prompt workspace always lists the **Playground** stage (with Aria off it says it needs
-> `CALIBER_FEATURE_ARIA=true`). The current product boundary is
+> candidates sit behind feature flags (Aria on by default, the other three off), and a disabled
+> area is hidden from the navigation; the empty Dashboard shows a "New here? Start with the core
+> loop" panel; a tool has one page, its workspace at `/tools?tool=TL-…`, and `/tools/:toolId`
+> redirects there; and the prompt workspace always lists the **Playground** stage (with Aria off
+> it says it needs `CALIBER_FEATURE_ARIA=true`). The current product boundary is
 > [Alpha scope and limitations](start/alpha-scope.md).
 
 **Scope:** Source-grounded UX review and implementation plan for the CALIBER web

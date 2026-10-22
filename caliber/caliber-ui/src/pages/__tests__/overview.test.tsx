@@ -450,7 +450,7 @@ describe("Dashboard", () => {
     expect(card).toHaveTextContent("—");
     expect(card).not.toHaveTextContent("0%");
   });
-  describe("when the Aria feature is off (the alpha default)", () => {
+  describe("when the Aria feature is off", () => {
     /** Wait until capabilities have been fetched and the dashboard has re-rendered with them. */
     async function settled(spy: ReturnType<typeof vi.spyOn>): Promise<void> {
       await waitFor(() => expect(spy).toHaveBeenCalled());

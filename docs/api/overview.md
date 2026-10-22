@@ -36,19 +36,19 @@ for resource classes and method signatures.
 | CSRF on browser-style writes | `X-CALIBER-CSRF: <token>` |
 | Served management OpenAPI | `GET /ajax-api/2.0/mlflow/caliber/openapi.json` |
 | Served workflow-service OpenAPI | `GET /ajax-api/2.0/mlflow/caliber/services/{workflow_id}/openapi.json` |
-| Preview areas | off by default; `GET /capabilities` reports them under `features`, and a disabled one answers 404 with `reason_code: feature_disabled` |
+| Preview areas | gated by a flag (Aria on by default, the rest off); `GET /capabilities` reports them under `features`, and a disabled one answers 404 with `reason_code: feature_disabled` |
 
-## Areas that are off by default
+## Areas gated behind a feature flag
 
-Four areas of the alpha sit behind server-side feature flags and are **off by default**: Aria (`/assistant/*` and
-`/aria/*`, flag `aria`), MCP servers and OpenAPI integrations (`/mcp-servers*` and `/openapi-integrations*`, flag
-`integrations`), cookbooks (`/cookbooks*`, flag `cookbooks`), and release-candidate signoff and Workspace releases
-(`/releases/candidates*`, `/releases/report-jobs*` and `/projects/{id}/releases*`, flag `release_candidates`).
-The routes stay in the served OpenAPI document in every deployment, but while a flag is off each of them answers
-404 with `reason_code: feature_disabled`; see [Error shapes](auth.md#error-shapes). An operator turns an area on
-with the variable the flag names (`CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`,
-`CALIBER_FEATURE_COOKBOOKS` or `CALIBER_FEATURE_RELEASE_CANDIDATES`); see
-[Feature flags](../start/alpha-scope.md#feature-flags).
+Four areas of the alpha sit behind server-side feature flags: Aria (`/assistant/*` and `/aria/*`, flag `aria`,
+**on** by default), MCP servers and OpenAPI integrations (`/mcp-servers*` and `/openapi-integrations*`, flag
+`integrations`, off), cookbooks (`/cookbooks*`, flag `cookbooks`, off), and release-candidate signoff and
+Workspace releases (`/releases/candidates*`, `/releases/report-jobs*` and `/projects/{id}/releases*`, flag
+`release_candidates`, off). The routes stay in the served OpenAPI document in every deployment, but while a
+flag is off each of them answers 404 with `reason_code: feature_disabled`; see
+[Error shapes](auth.md#error-shapes). An operator changes an area's state with the variable the flag names
+(`CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` or
+`CALIBER_FEATURE_RELEASE_CANDIDATES`); see [Feature flags](../start/alpha-scope.md#feature-flags).
 
 ## When to use the REST API directly
 

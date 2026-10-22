@@ -2,9 +2,10 @@
  * Alpha feature flags, as the server reports them.
  *
  * Four areas the alpha does not stand behind (the Aria assistant and plans, MCP servers and
- * OpenAPI integrations, cookbooks, and release-candidate signoff) are off by default and the
- * API refuses them with a 404 ``feature_disabled`` until a deployment turns them on.
- * ``GET /capabilities`` reports which are on under ``features``; this hook reads it.
+ * OpenAPI integrations, cookbooks, and release-candidate signoff) sit behind a flag each; Aria
+ * ships on by default, the other three off. Whichever way a flag is set, the API refuses the
+ * area with a 404 ``feature_disabled`` while it is off. ``GET /capabilities`` reports which are
+ * on under ``features``; this hook reads it.
  *
  * The rule that makes the clean alpha clean: **an area is on only when the server said so**.
  * While capabilities load, if the request fails, or if the response has no ``features`` (an

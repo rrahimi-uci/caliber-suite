@@ -54,11 +54,11 @@ containers (MinIO, PostgreSQL, MLflow, the MLflow AI Gateway and CALIBER), and t
 Use [Local bring-up](../operate/local-bring-up.md) if you need the operator path
 instead of the shortest happy-path summary.
 
-The product shell you reach this way leaves the preview areas **off**: Aria and Plans, MCP servers, OpenAPI
-integrations, cookbooks, and release-candidate signoff are off by default. The shortest success is the core
-journey (prompt, test set, calibration, review, Apply), which needs none of them. To try one, enable it with
-`CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` or
-`CALIBER_FEATURE_RELEASE_CANDIDATES` set to `true`, as described in
+The product shell you reach this way ships most preview areas **off**: MCP servers, OpenAPI integrations,
+cookbooks, and release-candidate signoff are off by default (Aria and Plans is the exception and is already
+on). The shortest success is the core journey (prompt, test set, calibration, review, Apply), which needs none
+of them. To try one of the others, enable it with `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS`
+or `CALIBER_FEATURE_RELEASE_CANDIDATES` set to `true`, as described in
 [Enabling preview areas](alpha-install.md#enabling-preview-areas).
 
 ## 2. If CALIBER is already running somewhere

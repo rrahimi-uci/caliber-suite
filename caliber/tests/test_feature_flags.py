@@ -1,8 +1,11 @@
 """The alpha ships its unsupported areas behind feature flags, off by default.
 
-``caliber.features`` gates four areas by path prefix in one middleware. These tests pin:
+``caliber.features`` gates four areas by path prefix in one middleware. Aria is the one
+exception: it ships on by default (the other three stay off), so a deployment that wants
+a clean alpha turns it off rather than on. These tests pin:
 
-* the shipped default (all four off) and how the environment turns each on;
+* the shipped default (aria on, the other three off) and how the environment turns each
+  flag on or off;
 * which paths belong to which flag, including the edges (``/releases/live`` is core,
   ``/cookbooks-extra`` is not ``/cookbooks``, ``/projects/{id}/releases:x`` is gated);
 * that **every route registered by a gated module is covered by a flag**, so a route
@@ -84,19 +87,27 @@ def make_client(
 # ---------------------------------------------------------------------------
 
 
-def test_every_gated_area_is_off_in_the_shipped_default() -> None:
+def test_the_shipped_default_turns_on_aria_and_leaves_the_rest_off() -> None:
     config = CaliberConfig.load(environ={})
 
-    assert {flag.id: feature_enabled(config, flag.id) for flag in FEATURES} == dict.fromkeys(
-        ALL, False
-    )
-    assert CaliberConfig().feature_aria_enabled is False
+    assert {flag.id: feature_enabled(config, flag.id) for flag in FEATURES} == {
+        "aria": True,
+        "integrations": False,
+        "cookbooks": False,
+        "release_candidates": False,
+    }
+    assert CaliberConfig().feature_aria_enabled is True
 
 
 @pytest.mark.parametrize("flag", FEATURES, ids=lambda flag: flag.id)
 @pytest.mark.parametrize("raw", ["true", "1", "yes", "on", "TRUE"])
 def test_the_environment_turns_one_flag_on_and_only_that_one(flag, raw: str) -> None:
-    config = CaliberConfig.load(environ={flag.env_var: raw})
+    environ = {flag.env_var: raw}
+    if flag.id != "aria":
+        # Aria ships on by default, so pin it off here unless it's the flag under test,
+        # or it would always show up alongside whichever other flag we just turned on.
+        environ["CALIBER_FEATURE_ARIA"] = "false"
+    config = CaliberConfig.load(environ=environ)
 
     assert feature_enabled(config, flag.id) is True
     assert [other.id for other in FEATURES if feature_enabled(config, other.id)] == [flag.id]

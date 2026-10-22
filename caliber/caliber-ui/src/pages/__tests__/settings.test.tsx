@@ -425,7 +425,7 @@ describe("Settings page", () => {
   });
 });
 
-describe("Settings page with the Aria feature off (the alpha default)", () => {
+describe("Settings page with the Aria feature off", () => {
   let assistantConfigReads: number;
 
   beforeEach(() => {

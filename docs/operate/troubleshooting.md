@@ -33,7 +33,7 @@ indeterminate, jump straight to the [Operations runbook](../runbook.md).
 | Local stack will not boot cleanly | port and dependency configuration | [Configuration and provider setup](../operate/configuration-and-provider-setup.md) |
 | Auth works in the browser but not automation | token, project scope, or CSRF model | [Developer troubleshooting](../build/developer-troubleshooting.md) |
 | Gateway page reports the LLM gateway unreachable | whether the gateway container is actually serving | [Gateways](../10-gateways/architecture.md) |
-| A page (Aria, Plans, MCP Servers, OpenAPI Integrations, Cookbooks, release-candidate signoff) is missing, or a call answers 404 with `reason_code: feature_disabled` | the area's feature flag is off, which is the default: `GET /capabilities` shows it under `features`, and `detail` names the variable | set `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` or `CALIBER_FEATURE_RELEASE_CANDIDATES` to `true` and restart ([Feature flags](../start/alpha-scope.md#feature-flags)) |
+| A page (Aria, Plans, MCP Servers, OpenAPI Integrations, Cookbooks, release-candidate signoff) is missing, or a call answers 404 with `reason_code: feature_disabled` | the area's feature flag is off (the default for everything except Aria, which ships on): `GET /capabilities` shows it under `features`, and `detail` names the variable | set `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` or `CALIBER_FEATURE_RELEASE_CANDIDATES` to `true` and restart ([Feature flags](../start/alpha-scope.md#feature-flags)) |
 
 ## 1. Start with the smallest reliable signal
 

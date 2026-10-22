@@ -119,13 +119,15 @@ Optimizer plugins are enabled by a separate allowlist; see [Writing a CALIBER pl
 
 ## 8. Feature flags
 
-Four settings turn on the areas the alpha does not stand behind. All four are **off by default** and are read
-once at startup, so restart CALIBER after changing one. Each accepts `true`, `1`, `yes` or `on` (any case);
-anything else, including unset, is false. Each is a `feature_<id>_enabled` field in `config.py`.
+Four settings gate the areas the alpha does not stand behind. Three are **off by default**; `CALIBER_FEATURE_ARIA`
+is the exception and defaults **on**. Each is read once at startup, so restart CALIBER after changing one. A
+set variable accepts `true`, `1`, `yes` or `on` (any case) as true and anything else as false (so a typo turns
+a flag off, even Aria's); leaving it unset falls back to the field's own default. Each is a
+`feature_<id>_enabled` field in `config.py`.
 
 | Setting | Default | What it turns on |
 | --- | --- | --- |
-| `CALIBER_FEATURE_ARIA` | `false` | The Aria assistant and plans (preview): the `/assistant/*` and `/aria/*` routes and the Plans page. `CALIBER_ASSISTANT_ENABLED` still decides whether an enabled assistant accepts requests |
+| `CALIBER_FEATURE_ARIA` | `true` | The Aria assistant and plans (preview): the `/assistant/*` and `/aria/*` routes and the Plans page. `CALIBER_ASSISTANT_ENABLED` still decides whether an enabled assistant accepts requests |
 | `CALIBER_FEATURE_INTEGRATIONS` | `false` | MCP servers and OpenAPI integrations (preview): the `/mcp-servers*` and `/openapi-integrations*` routes and their pages. While it is off, a workflow MCP node is reported as unavailable ("A registered MCP server that CALIBER can reach (needs CALIBER_FEATURE_INTEGRATIONS=true)") |
 | `CALIBER_FEATURE_COOKBOOKS` | `false` | Cookbooks (preview): the `/cookbooks*` routes and the Cookbooks page. A lab can need another flag as well; its README says which |
 | `CALIBER_FEATURE_RELEASE_CANDIDATES` | `false` | Release-candidate signoff and workspace releases (record-only and experimental): the `/releases/candidates*`, `/releases/report-jobs*` and `/projects/{id}/releases*` routes and the candidate UI. The live board, the timeline and release operations are core and always on |
@@ -133,8 +135,8 @@ anything else, including unset, is false. Each is a `feature_<id>_enabled` field
 While a flag is off, every route of its area answers HTTP 404 with `reason_code: feature_disabled`, and the web
 app hides the area's navigation entries. `GET /capabilities` reports all four under `features` (`enabled`,
 `env_var`, `label`, `stability`). In the Docker Compose stack the four variables pass through from the
-environment and default to false; `.env.example` documents them. See
-[Feature flags](../start/alpha-scope.md#feature-flags) for what enabling each one means.
+environment with the same defaults; `.env.example` documents them. See
+[Feature flags](../start/alpha-scope.md#feature-flags) for what changing one means.
 
 ## 9. Secret-source convention
 

@@ -79,13 +79,13 @@ does this capability live?" before you drop into per-route details.
 
 ## Assistant and agentic surfaces
 
-These families are previews and are **off by default**: a disabled one answers 404 with
+These families are previews, each gated by a flag: a disabled one answers 404 with
 `reason_code: feature_disabled`. `GET /capabilities` reports each under `features`.
 
 | Route family | Purpose |
 | --- | --- |
-| `/assistant/*` | Session-based assistant interactions, drafts, queue, and attachments. Off by default (`CALIBER_FEATURE_ARIA`) |
-| `/aria/plans`, `/aria/interactions`, `/aria/capabilities` | Goal-plan decomposition, approval, execution, polling, and human questions. Off by default (`CALIBER_FEATURE_ARIA`) |
+| `/assistant/*` | Session-based assistant interactions, drafts, queue, and attachments. On by default (`CALIBER_FEATURE_ARIA`) |
+| `/aria/plans`, `/aria/interactions`, `/aria/capabilities` | Goal-plan decomposition, approval, execution, polling, and human questions. On by default (`CALIBER_FEATURE_ARIA`) |
 | `/cookbooks` | Cookbook catalog and installation. Off by default (`CALIBER_FEATURE_COOKBOOKS`) |
 
 ## How this maps to the SDK

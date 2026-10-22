@@ -350,9 +350,10 @@ except CaliberAPIError as exc:
 
 ## Feature flags and disabled areas
 
-The server keeps the areas the alpha does not stand behind **off by default**: Aria (`aria`), MCP servers and
-OpenAPI integrations (`integrations`), cookbooks (`cookbooks`) and release-candidate signoff with Workspace
-releases (`release_candidates`). The resources that wrap them (`caliber.aria`, `caliber.mcp_servers`,
+The server gates the areas the alpha does not stand behind behind four flags: Aria (`aria`, **on** by
+default), MCP servers and OpenAPI integrations (`integrations`, off), cookbooks (`cookbooks`, off) and
+release-candidate signoff with Workspace releases (`release_candidates`, off). The resources that wrap them
+(`caliber.aria`, `caliber.mcp_servers`,
 `caliber.openapi_integrations`, `caliber.cookbooks`, the candidate and report-job methods of `caliber.releases`,
 and `caliber.workspaces.releases`) still exist in the SDK, but against a server with the flag off every one of
 those calls raises `CaliberNotFoundError` (404) whose `reason_code` is `feature_disabled` and whose `detail`
