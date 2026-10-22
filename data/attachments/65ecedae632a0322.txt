@@ -1,0 +1,1 @@
+{"t":"2026-10-22T00:51:44.986Z","severity":"WARNING","logger":"caliber.events.redis_bus","message":"dropping malformed Redis event payload"}
