@@ -19,10 +19,11 @@ import { expectRunStatus } from "../../helpers";
  * running. The upstream writes its own request log that this spec reads from disk: TICKET_API_LEDGER,
  * else $CALIBER_STATE_DIR/lab19-ticket-ledger.jsonl, else the OS temp directory.
  *
- * This spec's own "reimport and read the diff" step calls the upstream's /admin/bump-spec, which
- * permanently switches that long-lived process to spec v2 (a new required body field, a deprecated
- * operation). A preview earlier in a later run would then fail schema validation against v2's
- * required 'priority' field. Restart the upstream between runs of this spec to get a clean v1 start.
+ * The upstream's /admin/bump-spec (called by this spec's own reimport step, and by the SDK
+ * example's) permanently switches that long-lived process to spec v2, whose createTicket requires
+ * a 'priority' field this spec's preview deliberately omits. So the spec starts by calling the
+ * upstream's /admin/reset, making it self-contained no matter what ran against the same process
+ * before it -- cookbook-run-all runs the SDK path first against the same helper.
  */
 const UPSTREAM_PORT = Number(process.env["OPENAPI_TICKET_PORT"] ?? 8781);
 const UPSTREAM_URL = `http://127.0.0.1:${UPSTREAM_PORT}`;
@@ -82,7 +83,12 @@ test.describe("Cookbook 19: governed OpenAPI tool (UI)", () => {
     const ui = new CaliberUi(page);
     const api = "/ajax-api/2.0/mlflow/caliber";
 
-    // ---- Setup: people and a workspace (same pattern as cookbook 05) --------
+    // ---- Setup: a pristine v1 upstream, then people and a workspace ----------
+    const resetResponse = await page.request.post(
+      `${UPSTREAM_URL}/admin/reset`,
+    );
+    expect(resetResponse.ok()).toBeTruthy();
+
     await ui.signIn();
     await page.goto("/caliber/administration");
     await expect(

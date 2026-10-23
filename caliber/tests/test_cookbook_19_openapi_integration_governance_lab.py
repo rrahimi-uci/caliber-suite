@@ -294,3 +294,22 @@ def test_the_served_document_actually_changes_after_bump_spec(upstream: Any) -> 
     _request(port, "POST", "/admin/bump-spec")
     status, v2_text = _request(port, "GET", "/openapi.yaml")
     assert status == 200 and "deprecated: true" in v2_text
+
+
+def test_reset_restores_v1_and_clears_the_tickets(upstream: Any) -> None:
+    """bump-spec is permanent for the process; /admin/reset is how a second run of the lab
+    (cookbook-run-all runs the SDK path and then the UI path against one helper) gets a
+    pristine v1 start without restarting the server."""
+    server, _ledger = upstream
+    port = server.server_address[1]
+    _request(port, "POST", "/admin/bump-spec")
+    _request(port, "POST", "/tickets", token="test-token", body={"title": "t", "priority": "low"})
+    status, body = _request(port, "POST", "/admin/reset")
+    assert (status, body) == (200, {"spec_version": 1, "tickets": 0})
+    status, text = _request(port, "GET", "/openapi.yaml")
+    assert status == 200 and "deprecated" not in text
+    # v1 semantics again: priority is optional, and ids restart at TCK-1.
+    status, created = _request(port, "POST", "/tickets", token="test-token", body={"title": "new"})
+    assert status == 201 and created["ticket_id"] == "TCK-1"
+    status, listed = _request(port, "GET", "/tickets", token="test-token")
+    assert status == 200 and listed["total_count"] == 1

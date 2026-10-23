@@ -131,6 +131,11 @@ def bump_upstream_spec() -> None:
     httpx.post(f"{ticket_api_base()}/admin/bump-spec").raise_for_status()
 
 
+def reset_upstream() -> None:
+    """Put the stand-in back to pristine v1 (bump-spec is permanent for the process)."""
+    httpx.post(f"{ticket_api_base()}/admin/reset").raise_for_status()
+
+
 def login_client(
     base_url: str, user: str, password: str, *, timeout: float = 120.0
 ) -> CaliberClient:
@@ -183,6 +188,9 @@ def run(
     summary: dict[str, Any] = {}
     ledger.parent.mkdir(parents=True, exist_ok=True)
     ledger.write_text("")
+    # A fresh v1 upstream and an empty ledger: the run's assertions (TCK-1, zero tickets, exact
+    # ledger counts) describe a pristine start, and an earlier run leaves the upstream at v2.
+    reset_upstream()
     spec_url = f"{ticket_api_base()}/openapi.yaml"
     auth_binding = {"kind": "bearer", "secret_ref": "env://OPENAPI_TICKET_TOKEN"}
 

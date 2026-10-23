@@ -5,7 +5,7 @@ upstream itself: you import the lab's own spec and curate the operations it disc
 
 | Folder | Files | Used for |
 | --- | --- | --- |
-| [`server/`](server/) | `ticket_api.py` | the upstream API CALIBER calls over real loopback HTTP: serves its own OpenAPI document and the three ticket operations it describes, behind a bearer token |
+| [`server/`](server/) | `ticket_api.py` | the upstream API CALIBER calls over real loopback HTTP: serves its own OpenAPI document and the three ticket operations it describes, behind a bearer token; `POST /admin/bump-spec` switches it to v2, `POST /admin/reset` puts it back to a pristine v1 |
 | [`dataset/`](dataset/) | `ticket-api-v1.yaml`, `ticket-api-v2.yaml` | the two spec versions the upstream serves at `/openapi.yaml`, before and after `POST /admin/bump-spec`; identical copies of the strings embedded in `ticket_api.py` |
 | [`workflow/`](workflow/) | `file-ticket.workflow.yaml` | a one-tool workflow binding the published write tool; fill `__TOOL_NAME__` (the script does) |
 

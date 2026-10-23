@@ -286,6 +286,15 @@ class Handler(BaseHTTPRequestHandler):
             _spec_version = 2
             self._send(200, {"spec_version": _spec_version})
             return
+        if url.path == "/admin/reset":
+            # Back to a pristine v1 upstream. bump-spec is permanent for the process, so anything
+            # that runs the lab twice against the same server (cookbook-run-all runs the SDK path
+            # and then the UI path) resets here instead of restarting the process.
+            _spec_version = 1
+            _tickets.clear()
+            _next_id = 1
+            self._send(200, {"spec_version": _spec_version, "tickets": 0})
+            return
         if not self._authorized():
             self._send(401, {"error": "missing or wrong bearer token"})
             return

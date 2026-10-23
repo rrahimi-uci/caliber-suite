@@ -351,6 +351,7 @@ server's call ledger.
 | `403 the account that triggered this run cannot approve it; a second person must decide` | you started the run | approve as another account |
 | reimporting reports no changes you expected | the diff only tracks a fixed field set (see "The trust boundary, honestly") | check the spec by eye, or re-run the published tool's calibration |
 | `409 ... reimport ... only meaningful for a url source` | the last imported version was pasted or uploaded, not fetched by URL | import by URL first if you want to reimport later |
+| a second run's preview fails with `'priority' is a required property` | a previous run's `bump-spec` left the upstream at v2, which is permanent for the process | `curl -X POST http://127.0.0.1:8781/admin/reset` (the script and the UI spec do this themselves) |
 
 ## Cleanup and reset
 
