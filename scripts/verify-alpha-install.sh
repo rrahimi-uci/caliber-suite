@@ -16,11 +16,13 @@
 #   --wheel-dir DIR  directory holding the caliber-sdk, caliber-cli and caliber-suite
 #                    wheels (for example the release assets). Without it the wheels are
 #                    built from this checkout.
-#   --python PYTHON  interpreter for the venvs (default: python3). Must be 3.10-3.12.
+#   --python PYTHON  interpreter for the venvs (default: $PYTHON, else python3). Must be 3.10-3.12.
 #   --keep           keep the scratch directory and print its path (for debugging).
 #
-# Exit status is 0 only when every assertion passed. Nothing outside the scratch
-# directory is modified, and every process the script starts is stopped on exit.
+# Needs: a Python 3.10-3.12 interpreter, curl, and network access to PyPI (pip resolves MLflow and
+# every other dependency; building the wheels also installs `build`). Exit status: 0 only when every
+# assertion passed, 1 for a failed check or missing prerequisite, 2 for a usage error. Nothing outside
+# the scratch directory is modified, and every process the script starts is stopped on exit.
 
 set -euo pipefail
 
@@ -34,7 +36,7 @@ while [[ $# -gt 0 ]]; do
     --wheel-dir) WHEEL_DIR="${2:?--wheel-dir needs a directory}"; shift 2 ;;
     --python) PYTHON="${2:?--python needs an interpreter}"; shift 2 ;;
     --keep) KEEP=1; shift ;;
-    -h|--help) sed -n '2,24p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) echo "verify-alpha-install: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -42,7 +44,14 @@ done
 step() { printf '\n==> %s\n' "$*"; }
 fail() { printf 'verify-alpha-install: FAIL: %s\n' "$*" >&2; exit 1; }
 
-command -v "$PYTHON" >/dev/null 2>&1 || fail "interpreter not found: $PYTHON"
+command -v "$PYTHON" >/dev/null 2>&1 || fail "interpreter not found: $PYTHON (install Python 3.10-3.12, or pass --python /path/to/python3.12)"
+command -v curl >/dev/null 2>&1 || fail "curl is required (for example 'brew install curl' or 'sudo apt-get install curl')"
+# The script changes directory, so relative paths have to be pinned first.
+if [[ "$PYTHON" == */* ]]; then PYTHON="$(cd "$(dirname "$PYTHON")" && pwd)/$(basename "$PYTHON")"; fi
+if [[ -n "$WHEEL_DIR" ]]; then
+  [[ -d "$WHEEL_DIR" ]] || fail "no such directory: $WHEEL_DIR"
+  WHEEL_DIR="$(cd "$WHEEL_DIR" && pwd)"
+fi
 "$PYTHON" - <<'PY' || fail "Python 3.10, 3.11 or 3.12 is required (CALIBER does not support newer interpreters yet)"
 import sys
 raise SystemExit(0 if (3, 10) <= sys.version_info[:2] <= (3, 12) else 1)
@@ -50,11 +59,17 @@ PY
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/caliber-alpha-install.XXXXXX")"
 PIDS=()
+kill_tree() { # a process and its children (the MLflow server forks workers)
+  local child
+  for child in $(pgrep -P "$1" 2>/dev/null || true); do kill_tree "$child"; done
+  kill "$1" 2>/dev/null || true
+}
 cleanup() {
   local pid
+  trap - EXIT
   for pid in "${PIDS[@]:-}"; do
     if [[ -n "$pid" ]]; then
-      kill "$pid" 2>/dev/null || true
+      kill_tree "$pid"
       wait "$pid" 2>/dev/null || true
     fi
   done
@@ -75,13 +90,18 @@ with socket.socket() as s:
 PY
 }
 
-wait_for() { # wait_for URL SECONDS LABEL
-  local url="$1" seconds="$2" label="$3" i
+wait_for() { # wait_for URL SECONDS LABEL LOGFILE PID
+  local url="$1" seconds="$2" label="$3" logfile="$4" pid="$5" i
   for ((i = 0; i < seconds; i++)); do
     if curl -sf "$url" >/dev/null 2>&1; then return 0; fi
+    if ! kill -0 "$pid" 2>/dev/null; then
+      tail -n 20 "$logfile" >&2 || true
+      fail "$label exited during startup (log: $logfile)"
+    fi
     sleep 1
   done
-  fail "$label did not become healthy at $url within ${seconds}s"
+  tail -n 20 "$logfile" >&2 || true
+  fail "$label did not become healthy at $url within ${seconds}s (log: $logfile)"
 }
 
 # ---------------------------------------------------------------- wheels
@@ -90,7 +110,7 @@ if [[ -z "$WHEEL_DIR" ]]; then
   WHEEL_DIR="$WORK/wheels"
   mkdir -p "$WHEEL_DIR"
   "$PYTHON" -m venv "$WORK/build-venv"
-  "$WORK/build-venv/bin/pip" install -q build
+  "$WORK/build-venv/bin/pip" install -q build || fail "pip could not install 'build' (is PyPI reachable?)"
   for pkg in sdk/caliber-sdk sdk/caliber-cli caliber; do
     "$WORK/build-venv/bin/python" -m build --wheel --outdir "$WHEEL_DIR" "$REPO_ROOT/$pkg" >/dev/null
   done
@@ -105,7 +125,8 @@ cd "$WORK"
 "$PYTHON" -m venv alpha
 # shellcheck disable=SC1091
 source alpha/bin/activate
-pip install -q --find-links "$WHEEL_DIR" caliber-sdk caliber-cli caliber-suite
+pip install -q --find-links "$WHEEL_DIR" caliber-sdk caliber-cli caliber-suite \
+  || fail "pip could not install the wheels and their dependencies (is PyPI reachable?)"
 
 # caliber-cli must carry a bounded requirement on caliber-sdk, so it cannot resolve to an
 # unrelated package of that name (alpha gap P1-18), and all three console entry points exist.
@@ -139,7 +160,7 @@ mlflow server \
   --default-artifact-root "$WORK/mlflow-artifacts" \
   --host 127.0.0.1 --port "$MLFLOW_PORT" >"$WORK/mlflow.log" 2>&1 &
 PIDS+=("$!")
-wait_for "http://127.0.0.1:$MLFLOW_PORT/health" 120 "MLflow"
+wait_for "http://127.0.0.1:$MLFLOW_PORT/health" 120 "MLflow" "$WORK/mlflow.log" "${PIDS[0]}"
 
 step "4. Configure and start CALIBER"
 CALIBER_PORT="$(free_port)"
@@ -157,7 +178,7 @@ uvicorn caliber.server:create_app --factory --host 127.0.0.1 --port "$CALIBER_PO
   >"$WORK/caliber.log" 2>&1 &
 PIDS+=("$!")
 API="http://127.0.0.1:$CALIBER_PORT/ajax-api/2.0/mlflow/caliber"
-wait_for "$API/health" 180 "CALIBER"
+wait_for "$API/health" 180 "CALIBER" "$WORK/caliber.log" "${PIDS[1]}"
 
 step "5. Verify readiness, login, project and prompt creation"
 python - "$API" "$MLFLOW_PORT" <<'PY'
