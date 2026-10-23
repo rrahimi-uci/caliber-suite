@@ -173,17 +173,25 @@ services:
       CALIBER_FEATURE_RELEASE_CANDIDATES: ${CALIBER_FEATURE_RELEASE_CANDIDATES:-false}
 
       # Provider selection + LLM key pass-through (from host/root .env).
-      # Default to CALIBER's fake provider so the stack boots cleanly even
-      # when no OpenAI-compatible secret is present. Override with
-      # CALIBER_LLM_PROVIDER=openai once the required key is configured.
-      CALIBER_LLM_PROVIDER: ${CALIBER_LLM_PROVIDER:-fake}
+      # `auto` means "real when a key is present": with OPENAI_API_KEY in .env the workflow
+      # agents, calibration, judges and the evaluator are REAL; with no key they fall back to
+      # CALIBER's deterministic stubs (so the stack still boots) and /readiness says so, per
+      # component, under `ai_components`. Set CALIBER_LLM_PROVIDER=openai to require a real
+      # provider (the server then refuses to start without the key) or =fake to opt out.
+      CALIBER_LLM_PROVIDER: ${CALIBER_LLM_PROVIDER:-auto}
       CALIBER_LLM_DIAGNOSIS_MODEL: ${CALIBER_LLM_DIAGNOSIS_MODEL:-gpt-5.6-luna}
       CALIBER_LLM_REASONING_EFFORT: ${CALIBER_LLM_REASONING_EFFORT:-high}
       CALIBER_GEPA_REFLECTION_MODEL: ${CALIBER_GEPA_REFLECTION_MODEL:-gpt-5.6-luna}
       CALIBER_MEMORY_LLM_MODEL: ${CALIBER_MEMORY_LLM_MODEL:-gpt-5.6-luna}
       CALIBER_ASSISTANT_MODEL: ${CALIBER_ASSISTANT_MODEL:-gpt-5.6-luna}
       CALIBER_ASSISTANT_REASONING: ${CALIBER_ASSISTANT_REASONING:-high}
-      CALIBER_EVAL_PROVIDER: mlflow
+      CALIBER_EVAL_PROVIDER: ${CALIBER_EVAL_PROVIDER:-auto}
+      # `auto` follows the LLM provider (mlflow evaluation when the LLM is real, canned otherwise);
+      # the Aria assistant picks OpenAI or Anthropic by whichever key is present; the workflow
+      # LLM judge turns on exactly when the LLM is real. All three are overridable from .env.
+      CALIBER_ASSISTANT_ENGINE: ${CALIBER_ASSISTANT_ENGINE:-auto}
+      CALIBER_ASSISTANT_ENABLED: ${CALIBER_ASSISTANT_ENABLED:-true}
+      CALIBER_WORKFLOW_LLM_JUDGE_ENABLED: ${CALIBER_WORKFLOW_LLM_JUDGE_ENABLED:-auto}
       CALIBER_PROMOTER_PROVIDER: mlflow
       CALIBER_ARTIFACT_STORE_PROVIDER: mlflow
       CALIBER_LLM_API_KEY_ENV: ${CALIBER_LLM_API_KEY_ENV:-OPENAI_API_KEY}

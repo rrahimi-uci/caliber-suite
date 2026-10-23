@@ -332,3 +332,152 @@ def test_env_table_has_no_entry_for_a_field_that_does_not_exist() -> None:
     stale = sorted({field_name for _, field_name, _ in _ENV_VAR_TABLE} - fields)
 
     assert not stale, f"env table maps fields that no longer exist: {stale}"
+
+
+# --- CALIBER_LLM_PROVIDER=auto / CALIBER_EVAL_PROVIDER=auto -------------------------------------
+#
+# "Real when a key is present, simulated and reported when it is not." The container stack ships
+# `auto` so that a user who only puts OPENAI_API_KEY in `.env` gets a real LLM and a real evaluator,
+# while the *field defaults* stay `fake` so tests never reach the network by accident.
+
+
+def test_the_field_defaults_stay_simulated_even_when_a_key_is_in_the_environment() -> None:
+    config = CaliberConfig.load(environ={"OPENAI_API_KEY": "sk-test"})
+    assert config.llm_provider == "fake"
+    assert config.eval_provider == "fake"
+
+
+def test_auto_resolves_to_a_real_llm_and_evaluator_when_the_key_is_present() -> None:
+    config = CaliberConfig.load(
+        environ={
+            "CALIBER_LLM_PROVIDER": "auto",
+            "CALIBER_EVAL_PROVIDER": "auto",
+            "OPENAI_API_KEY": "sk-test",
+        }
+    )
+    assert config.llm_provider == "openai"
+    assert config.eval_provider == "mlflow"
+
+
+def test_auto_without_a_key_is_simulated_on_both_sides_never_a_mixed_state() -> None:
+    config = CaliberConfig.load(
+        environ={"CALIBER_LLM_PROVIDER": "auto", "CALIBER_EVAL_PROVIDER": "auto"}
+    )
+    assert config.llm_provider == "fake"
+    # A real evaluator paired with a fake LLM cannot score anything (it refuses with a 400).
+    assert config.eval_provider == "fake"
+
+
+@pytest.mark.parametrize("blank", ["", "   "])
+def test_a_blank_key_is_not_a_key(blank: str) -> None:
+    config = CaliberConfig.load(environ={"CALIBER_LLM_PROVIDER": "auto", "OPENAI_API_KEY": blank})
+    assert config.llm_provider == "fake"
+
+
+def test_auto_follows_a_custom_key_variable() -> None:
+    environ = {
+        "CALIBER_LLM_PROVIDER": "auto",
+        "CALIBER_LLM_API_KEY_ENV": "MY_TEAM_KEY",
+        "OPENAI_API_KEY": "sk-the-default-name-is-not-the-one-configured",
+    }
+    assert CaliberConfig.load(environ=environ).llm_provider == "fake"
+    assert CaliberConfig.load(environ={**environ, "MY_TEAM_KEY": "sk-x"}).llm_provider == "openai"
+
+
+@pytest.mark.parametrize("uri", ["secret://llm-key", "file:///run/secrets/openai"])
+def test_a_secret_uri_counts_as_configured_so_a_missing_secret_fails_at_start_not_silently(
+    uri: str,
+) -> None:
+    config = CaliberConfig.load(
+        environ={"CALIBER_LLM_PROVIDER": "auto", "CALIBER_LLM_API_KEY_ENV": uri}
+    )
+    assert config.llm_provider == "openai"
+
+
+def test_an_explicit_provider_is_never_second_guessed() -> None:
+    """`auto` is opt-in: explicit values pass through, key or no key."""
+    explicit_real = CaliberConfig.load(environ={"CALIBER_LLM_PROVIDER": "openai"})
+    assert explicit_real.llm_provider == "openai"
+    explicit_fake = CaliberConfig.load(
+        environ={"CALIBER_LLM_PROVIDER": "fake", "OPENAI_API_KEY": "sk-test"}
+    )
+    assert explicit_fake.llm_provider == "fake"
+    mixed = CaliberConfig.load(
+        environ={
+            "CALIBER_LLM_PROVIDER": "openai",
+            "CALIBER_EVAL_PROVIDER": "fake",
+            "OPENAI_API_KEY": "sk-test",
+        }
+    )
+    assert (mixed.llm_provider, mixed.eval_provider) == ("openai", "fake")
+
+
+def test_an_explicit_evaluator_survives_an_auto_llm() -> None:
+    config = CaliberConfig.load(
+        environ={
+            "CALIBER_LLM_PROVIDER": "auto",
+            "CALIBER_EVAL_PROVIDER": "mlflow",
+            "OPENAI_API_KEY": "sk-test",
+        }
+    )
+    assert (config.llm_provider, config.eval_provider) == ("openai", "mlflow")
+
+
+def test_auto_is_case_insensitive_and_logs_what_it_chose(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level("INFO", logger="caliber.config"):
+        config = CaliberConfig.load(
+            environ={"CALIBER_LLM_PROVIDER": " AUTO ", "OPENAI_API_KEY": "sk-test"}
+        )
+    assert config.llm_provider == "openai"
+    assert "resolved to openai" in caplog.text
+    # The key's value is never logged, only the name of the variable that supplied it.
+    assert "sk-test" not in caplog.text
+
+
+def test_auto_without_a_key_warns_that_the_providers_are_simulated(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level("WARNING", logger="caliber.config"):
+        CaliberConfig.load(environ={"CALIBER_LLM_PROVIDER": "auto"})
+    assert "SIMULATED" in caplog.text
+    assert "OPENAI_API_KEY" in caplog.text
+
+
+def test_an_anthropic_only_key_is_called_out_as_aria_only(
+    caplog: pytest.LogCaptureFixture,
+) -> None:
+    with caplog.at_level("WARNING", logger="caliber.config"):
+        config = CaliberConfig.load(
+            environ={"CALIBER_LLM_PROVIDER": "auto", "ANTHROPIC_API_KEY": "sk-ant-test"}
+        )
+    assert config.llm_provider == "fake"
+    assert "powers Aria" in caplog.text
+    assert "sk-ant-test" not in caplog.text
+
+
+def test_the_workflow_llm_judge_follows_the_resolved_llm_when_set_to_auto() -> None:
+    """Calibration scores outputs with a real judge exactly when a real LLM is behind it."""
+    real = CaliberConfig.load(
+        environ={
+            "CALIBER_LLM_PROVIDER": "auto",
+            "CALIBER_WORKFLOW_LLM_JUDGE_ENABLED": "auto",
+            "OPENAI_API_KEY": "sk-test",
+        }
+    )
+    assert real.workflow_llm_judge_enabled is True
+    simulated = CaliberConfig.load(
+        environ={"CALIBER_LLM_PROVIDER": "auto", "CALIBER_WORKFLOW_LLM_JUDGE_ENABLED": "auto"}
+    )
+    assert simulated.workflow_llm_judge_enabled is False
+
+
+@pytest.mark.parametrize(("raw", "expected"), [("true", True), ("1", True), ("false", False)])
+def test_an_explicit_judge_setting_is_still_a_plain_boolean(raw: str, expected: bool) -> None:
+    config = CaliberConfig.load(environ={"CALIBER_WORKFLOW_LLM_JUDGE_ENABLED": raw})
+    assert config.workflow_llm_judge_enabled is expected
+
+
+def test_the_judge_stays_off_by_default() -> None:
+    assert CaliberConfig.load(environ={}).workflow_llm_judge_enabled is False

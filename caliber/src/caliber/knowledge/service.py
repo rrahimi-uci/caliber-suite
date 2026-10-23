@@ -25,7 +25,7 @@ from starlette.exceptions import HTTPException
 
 from caliber.audit import record as audit_record
 from caliber.auth import CaliberIdentity
-from caliber.config import CaliberConfig
+from caliber.config import CaliberConfig, resolve_assistant_engine
 from caliber.db.models import (
     CaliberAuditLog,
     CaliberEvalDataset,
@@ -4806,7 +4806,9 @@ class KnowledgeBaseService:
     ) -> tuple[str | None, str | None]:
         if not retrieved_chunks:
             return None, "No relevant chunks were retrieved for this question."
-        engine = (self._config.assistant_engine or "fake").lower()
+        # ``auto`` must mean what it means everywhere else (a real engine by available key); read
+        # raw, it fell through to the canned extractive answer below on a default install.
+        engine = resolve_assistant_engine(self._config.assistant_engine or "fake")
         model = chat_model or self._config.assistant_model
         if engine == "openai":
             model = model or DEFAULT_OPENAI_MODEL

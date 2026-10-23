@@ -1040,6 +1040,60 @@ def test_generate_answer_dispatches_to_providers(
     assert error2 is None
 
 
+def test_generate_answer_resolves_auto_to_a_real_engine_by_key(
+    app_config: CaliberConfig,
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    """``auto`` is the shipped default; read raw it fell through to the canned answer."""
+    kb, version = _kb_and_version()
+    chunks = _one_chunk()
+    config = app_config.model_copy(update={"assistant_engine": "auto"})
+    service = _service(config, session_factory)
+    service._generate_openai_answer = lambda **_kw: "openai answer"  # type: ignore[method-assign]
+    service._generate_anthropic_answer = lambda **_kw: "claude answer"  # type: ignore[method-assign]
+    kwargs = {
+        "question": "q",
+        "history": [],
+        "knowledge_base": kb,
+        "version": version,
+        "retrieved_chunks": chunks,
+        "chat_model": None,
+    }
+
+    monkeypatch.setenv("OPENAI_API_KEY", "sk-openai")
+    assert service._generate_answer(**kwargs) == ("openai answer", None)
+
+    monkeypatch.delenv("OPENAI_API_KEY")
+    monkeypatch.setenv("ANTHROPIC_API_KEY", "sk-ant")
+    assert service._generate_answer(**kwargs) == ("claude answer", None)
+
+
+def test_generate_answer_with_auto_and_no_key_reports_the_failure_instead_of_going_quiet(
+    app_config: CaliberConfig,
+    session_factory: sessionmaker[Session],
+    monkeypatch: pytest.MonkeyPatch,
+) -> None:
+    kb, version = _kb_and_version()
+    monkeypatch.delenv("OPENAI_API_KEY", raising=False)
+    monkeypatch.delenv("ANTHROPIC_API_KEY", raising=False)
+    monkeypatch.setattr(knowledge_service, "resolve_secret", lambda *_a, **_k: None)
+    config = app_config.model_copy(update={"assistant_engine": "auto"})
+    service = _service(config, session_factory)
+
+    answer, error = service._generate_answer(
+        question="q",
+        history=[],
+        knowledge_base=kb,
+        version=version,
+        retrieved_chunks=_one_chunk(),
+        chat_model=None,
+    )
+
+    assert answer  # the extractive fallback is still returned...
+    assert error and "OpenAI API key" in error  # ...but the caller is told why it is one
+
+
 def test_generate_answer_without_chunks_reports_error(
     app_config: CaliberConfig, session_factory: sessionmaker[Session]
 ) -> None:
