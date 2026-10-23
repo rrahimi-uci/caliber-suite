@@ -58,7 +58,7 @@ ends up disagreeing with the document it measures.
 
 ## Ledger consistency check
 
-`scripts/check-ux-ledger.mjs` (`npm run ux:check-ledger`) verifies §15.2's
+`caliber/caliber-ui/scripts/check-ux-ledger.mjs` (`npm run ux:check-ledger` from `caliber/caliber-ui`) verifies §15.2's
 merge-state claims against `git log`: a row marked **Landed** must cite a PR
 present in the log, a row marked **In review** must not, and a row marked
 **Open** must cite none. Git-only, like the census — no network, no `gh`.

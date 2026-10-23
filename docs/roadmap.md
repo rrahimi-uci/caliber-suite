@@ -10,8 +10,8 @@ summary: Monthly release train and one- or two-day implementation backlog for th
 prerequisites:
   - Current-main capability matrix and first-mile evidence
   - A named single-tenant deployment owner and supported MLflow provider profile
-reviewed_on: 2026-10-20
-version_applicability: current main branch and GitHub Project #2
+reviewed_on: 2026-10-23
+version_applicability: current main branch (the GitHub Project #2 it cites no longer exists)
 tags:
   - roadmap
   - monthly-release
@@ -21,8 +21,8 @@ tags:
 
 # CALIBER roadmap
 
-This is the execution roadmap for the current CALIBER repository and [GitHub
-Project #2](https://github.com/rrahimi-uci/caliber-suite/projects/2). The
+This is the execution roadmap for the current CALIBER repository and its (since removed) GitHub
+Project #2. The
 [v1.0.0 product requirements document](./prd.md) defines the product boundary,
 requirements, and requirement-to-ticket trace; this document owns the delivery
 sequence, dates, capacity, and release gates. It uses a
@@ -151,7 +151,7 @@ rejected or API-only until a later ownership/broker design is implemented.
 
 | Month | GitHub milestone | Release/checkpoint | Scope | Exit evidence |
 | --- | --- | --- | --- | --- |
-| **M1 · Sep 2026** | `M1 2026-09 — First-mile pilot and scope freeze` | Current-main pilot checkpoint | Epic [#78](https://github.com/rrahimi-uci/caliber-suite/issues/78), discovery #100–#101, #153, #154 | Environment record, feature results, reproducible bugs, capability matrix, and selected M2 scope |
+| **M1 · Sep 2026** | `M1 2026-09 — First-mile pilot and scope freeze` | Current-main pilot checkpoint | Epic #78, discovery #100–#101, #153, #154 | Environment record, feature results, reproducible bugs, capability matrix, and selected M2 scope |
 | **M2 · Oct 2026** | `M2 2026-10 — Primary workflow and governance` | Foundation increment | Workstreams #102–#107; #152 | One seeded workflow is reproducible through UI and API/SDK; release and environment semantics are explicit |
 | **M3 · Nov 2026** | `M3 2026-11 — API contracts, recovery, and diagnostics` | Automation/operations increment | Workstreams #108–#116; #151 | Supported API/SDK/CLI matrix, bounded failure semantics, request correlation, and readiness diagnosis |
 | **M4 · Dec 2026** | `M4 2026-12 — v0.1.0 release candidate` | Controlled-pilot decision | Workstream #117–#121; #129 | Clean build/package, pilot evidence, no unaccepted pilot blocker, and human decision to begin v1 hardening |

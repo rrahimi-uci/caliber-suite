@@ -8,7 +8,7 @@ product_area: observability
 stability: beta
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-23
 version_applicability: current main branch docs contract
 tags:
   - observability
@@ -28,9 +28,9 @@ tags:
 | **Metrics** | A CALIBER-owned Prometheus `CollectorRegistry` scraped at `GET /metrics`. |
 | **Live events** | Ephemeral event-bus frames pushed to the SPA over `GET /events/stream` via a swappable fanout backend. |
 | **Key surfaces** | In-app trace viewer and monitoring dashboard (`Observability.tsx`), structured review queues that write back to MLflow, and operator queue/alert/incident/dead-letter APIs. |
-| **Retention** | Server-owned MLflow trace archival (Postgres → MinIO) via `MLFLOW_TRACE_ARCHIVAL_CONFIG`, opt-in and read transparently. |
+| **Retention** | Server-owned MLflow trace archival (Postgres → MinIO) via `MLFLOW_TRACE_ARCHIVAL_CONFIG` on the Docker MLflow image, opt-in and read transparently. |
 | **Alerting** | Operator-declared SLO objectives evaluated on read, with incidents opened/resolved in `caliber_incidents` and routed over the event bus to the webhook dispatcher. Silencing and acknowledgement are recorded, not inferred. |
-| **Trust / safety** | Authenticated trace surfaces, redaction and byte-caps before MLflow, and an explicit `503` (not an empty list) when the trace store is unreachable; the monitoring and experiment reads degrade to empty. |
+| **Trust / safety** | Authenticated trace surfaces (not scoped to a project: any signed-in user can read traces, see [Alpha scope](../start/alpha-scope.md)), redaction and byte-caps before MLflow, and an explicit `503` (not an empty list) when the trace store is unreachable; the monitoring and experiment reads degrade to empty. |
 
 The sections below start from this picture and drill down into each concern in detail, from scope and module boundaries through to retention and review queues.
 
@@ -53,8 +53,8 @@ following:
   execution behavior without leaving CALIBER;
 - driving structured human review of traces through review queues whose answers
   are written back onto the trace as MLflow assessments and expectations;
-- recording structured JSON logs and, optionally, batching them into
-  S3-compatible object storage;
+- recording structured JSON logs to stderr and, by default (`CALIBER_LOG_SINK=s3`), batching them into
+  S3-compatible object storage when that store is reachable;
 - publishing live workflow events over Server-Sent Events for the SPA;
 - reconciling configured SLO objectives into durable incident history and routing
   lifecycle notifications through the event bus;
@@ -78,6 +78,7 @@ These responsibilities are implemented across the following primary code paths:
 - `caliber/src/caliber/events/bus.py`
 - `caliber/src/caliber/events/database_bus.py`
 - `caliber/src/caliber/events/nats_bus.py`
+- `caliber/src/caliber/events/redis_bus.py`
 - `caliber/src/caliber/events/webhooks.py`
 - `caliber/src/caliber/observability/incidents.py`
 - `caliber/src/caliber/observability/readiness.py`
@@ -99,7 +100,7 @@ maps each responsibility to the file that owns it.
 | --- | --- | --- |
 | Trace/span lifecycle | `observability/mlflow_tracing.py` | Wraps MLflow tracing with CALIBER-safe helpers, redaction, token/cost attribution, and no-op degradation when tracing is unavailable. |
 | Request correlation | `observability/trace.py` | Binds the current trace/request ID into context and injects `X-Request-Id` through middleware. |
-| Structured logging | `observability/logging.py` | Emits single-line JSON logs to stderr or an S3-compatible sink while preserving request correlation. |
+| Structured logging | `observability/logging.py` | Emits single-line JSON logs to stderr and, with the default `CALIBER_LOG_SINK=s3`, also to an S3-compatible sink (bucket `caliber-log`), falling back to stderr alone with a warning when the store is unavailable at startup; request correlation is preserved. |
 | Prometheus metrics | `observability/metrics.py` | Owns the CALIBER registry, counters, histograms, and gauges for runtime health and throughput. |
 | Trace viewer APIs | `routes/observability.py` | Lists traces, fetches trace detail, logs human feedback, computes monitoring buckets, and serves Allure assets. |
 | SSE live updates | `routes/events_stream.py` + `events/*` | Streams event frames from `app.state.event_bus` to the SPA, with heartbeat support and pluggable fanout backends. |
@@ -193,7 +194,7 @@ where each lives and why.
 | Trace spans, tags, token/cost rollups, feedback assessments | MLflow | Source of truth for trace inspection and human review. |
 | Live event payloads | In-memory queue, database rows, or broker transport | Fanout substrate for SSE subscribers waiting on state changes. |
 | Metrics counters, histograms, and gauges | In-process Prometheus `CollectorRegistry` | Scrape-time operational counters and distributions. |
-| Structured logs | stderr and optional S3 JSONL batches | Operational logs with request correlation. |
+| Structured logs | stderr and S3 JSONL batches (default sink `s3`; stderr only if it is unavailable) | Operational logs with request correlation. |
 | Request correlation | `contextvars` + response headers | Carries `trace_id` / request ID through async execution paths. |
 | SLO incident lifecycle | `caliber_incidents` | Durable open/resolved history, acknowledgement, silence, routing metadata, and database arbitration for one open row per objective. |
 | Accepted outbound targets | `caliber_webhook_accepted_events` | Per-occurrence, per-target acceptance and lease state until that target is settled or dead-lettered. |
@@ -236,7 +237,7 @@ and they are worth stating explicitly.
   must never fail the tick it was observing.
 - Worker ids include the process id (`worker_registry.new_worker_id`) because the
   heartbeat table is shared by every process pointed at the same database. Under a
-  multi-worker server each process runs its own copy of all ten loops, so an
+  multi-process server (for example `uvicorn --workers N`) each process runs its own copy of the ten loops, so an
   id derived from the instance alone would collide and N live workers would report
   as one.
 
@@ -251,6 +252,7 @@ knobs:
 - `CALIBER_WORKFLOW_RUN_EVENT_BACKEND`
 - `CALIBER_NATS_URL`
 - `CALIBER_REDIS_URL`
+- `CALIBER_LOG_SINK`
 
 ## 5. API and interaction surfaces
 
@@ -401,7 +403,7 @@ These protections rest on a small number of explicit trust boundaries:
   layer.
 - The event bus transport is trusted for fanout, but browser subscribers receive
   only the normalized payload CALIBER emits.
-- Optional S3 log sinks are best-effort and always retain stderr as the startup
+- The S3 log sink is best-effort and always retains stderr as the startup
   fallback.
 
 ## 8. Observability and operations
@@ -418,7 +420,7 @@ The behaviors that matter most in operation are these:
   when a `SELECT 1` against the database answers; otherwise it returns `503` with
   `status: "degraded"` and `db: "down"`. It proves the API and its database, nothing
   more.
-- `GET /readiness` is the go/no-go probe. It probes the dependencies the current
+- `GET /readiness` is the go/no-go probe; its payload sits under a top-level `data` key. It probes the dependencies the current
   configuration actually needs and returns `503` when a required one is not ready.
   Each entry in `checks` carries `name`, `ready` (`true`, `false`, or `null` for
   skipped), `required`, `detail`, and `latency_ms`, and `blockers` names the required

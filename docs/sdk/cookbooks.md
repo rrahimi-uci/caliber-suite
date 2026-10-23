@@ -32,7 +32,7 @@ server (`scripts/cookbook-env.sh up NAME --flags ...`); the lab's README holds t
 what is simulated. On the alpha's default simulated model and evaluator the scripts assert structure and wiring (for
 example that **Evaluations** refuses with `400 evaluation requires a real LLM provider`), never a score. Each script
 prints one `ok` line per verified outcome and exits 0 only if all of them held; run it with
-`PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_NN_*.py` from a checkout.
+`PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_NN_*.py` from a checkout (`caliber/.venv` is the virtual environment that `make install` creates inside `caliber/`; the root `make setup` makes a different one at `.venv/`).
 
 These recipes are the SDK-native counterparts to the platform cookbook gallery.
 Each example uses only `caliber-sdk` plus Python's standard library.

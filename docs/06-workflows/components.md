@@ -7,7 +7,7 @@ product_area: workflows
 stability: ga
 prerequisites:
   - Workflow Studio or manifest familiarity
-reviewed_on: 2026-10-15
+reviewed_on: 2026-10-23
 version_applicability: current main branch docs contract
 tags:
   - workflows
@@ -72,7 +72,7 @@ node at a glance without opening it.
   the component definition.
 - **Configuration detail** — a compact, monospace line summarizing the node's
   key settings (for example `POST · https://api.example.com` for an API
-  Request, or `gpt-5.6-luna · high reasoning · 2 tools` for an Agent).
+  Request, or `inherit · 2 tools` for an Agent).
 - **Ports** — the typed input and output connection points, listed as labelled
   rows. Inputs sit on the left edge, outputs on the right edge, each with a
   colored dot that encodes the data type it carries (see

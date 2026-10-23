@@ -8,7 +8,7 @@ product_area: governance
 stability: ga
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-10-15
+reviewed_on: 2026-10-23
 version_applicability: current main branch docs contract
 tags:
   - qa
@@ -38,7 +38,7 @@ paths are shown relative to that prefix once the convention has been stated.
 | **What it is** | The seam where two notions of quality meet, spanning a runtime QA control plane, an engineering validation plane, and a shared evidence plane. |
 | **Runtime QA state** | Durable rows — `CaliberVerificationItem`, `CaliberRefinementJob`, `CaliberRegressionRun` — moving artifacts through triage → evidence → diagnosis → candidate → eval → apply. |
 | **Runtime approvals** | Paused live runs via `CaliberRuntimeApprovalRequest` + `CaliberWorkflowRunCheckpoint`, kept distinct from artifact promotion history. |
-| **Validation suites** | Backend pytest, frontend Vitest, and browser Playwright E2E run from repo-root `Makefile` / `test-all.sh`. |
+| **Validation suites** | Backend pytest, frontend Vitest, and browser Playwright E2E run locally from repo-root `Makefile` / `test-all.sh`. In CI the PR gates (listed in section 5) run the smoke and core-journey backend sets, Vitest with coverage, the alpha-journey browser specs and the docs, compose, package and security checks; the full backend suite runs on pushes to `main`. No CI job runs the full `npm run test:e2e` Playwright suite. |
 | **Evidence model** | MLflow assessments, Prometheus counters, dashboard summaries, merged engineering-test Allure HTML, and candidate-scoped Allure-compatible release jobs. |
 | **Key surfaces** | Runtime QA HTTP routes under `/ajax-api/2.0/mlflow/caliber`; CLI commands like `make test-all` for validation. |
 
@@ -148,7 +148,7 @@ quality story.
 | Repo-root validation orchestration | `Makefile`, `test-all.sh` | Defines the canonical full-suite entry points and final failure semantics. |
 | Backend Python tests | `caliber/Makefile`, `caliber/tests/`, `pyproject.toml` | Runs pytest with shared defaults, Allure emission, and the clean-exit wrapper. |
 | Frontend unit/component tests | `package.json`, `vitest.config.ts`, `src/test/*` | Uses jsdom, Testing Library, MSW, and serialized workers for deterministic UI coverage. |
-| Browser E2E harness | `playwright.config.ts`, `e2e/*.spec.ts`, `run-playwright-server.sh` | Drives real browser flows against an isolated or explicitly reused CALIBER instance. |
+| Browser E2E harness | `playwright.config.ts`, `e2e/*.spec.ts`, `run-playwright-server.sh` | Drives real browser flows against an isolated or explicitly reused CALIBER instance. The bootstrap script starts that instance through `caliber/scripts/run-dev.sh`, the development launcher (`mlflow server --app-name caliber`, i.e. the embedded mode), not the standalone `uvicorn caliber.server:create_app --factory` service that the alpha supports for deployments; the Docker stack smoke covers the supported topology. |
 | Shared report composition | `generate-allure.mjs`, `allure-report.sh`, `routes/observability.py` | Merges raw results, renders HTML, and serves the final report in-product. |
 
 The architectural separation that matters most inside the QA plan is the split
@@ -408,17 +408,44 @@ Its canonical entry points are:
 - `cd caliber/caliber-ui && npm run test:e2e:age`
 - `cd caliber/caliber-ui && npm run allure:generate:all`
 
+CI (`.github/workflows/ci.yml`) runs a subset of those entry points. These jobs run on
+every pull request and on pushes to `main`, and the `gate-ledger` job records which of
+them actually executed:
+
+- `lint` (`ruff check` and `ruff format --check`) and `type-check` (`mypy src`).
+- `test-smoke` (a small backend smoke set) and `backend-core` (the core-journey and
+  contract tests, including SDK and CLI against the real application, plus the SDK cookbook
+  example tests), both with `--no-cov`.
+- `migration-parity-postgres`, `docs-validation` (regenerates `docs-site` and fails if the
+  committed copy differs, then runs the docs contract tests), `compose` (merged-config
+  validation), `package` (wheel build with the bundled SPA), `alpha-install` (installs the
+  wheels into a fresh venv and boots a native MLflow plus CALIBER) and `security`.
+- `ui` (`npm run typecheck`, `npx eslint .`, `npm run test:coverage`, `npm run build`).
+- `alpha-journey` (`npm run test:e2e:alpha`, the browser specs on the shipped defaults).
+- `sdk`, `plugin-sdk` and `cli`, only when their directories (or the workflows) change.
+
+These run only on pushes to `main`: `test` (the full backend suite on Python 3.11, with
+coverage and Allure results), `compatibility` (Python 3.10 and 3.12), `integration`
+(`pytest -m integration`), `cookbook-ui-only` (`npm run test:e2e:cookbooks`) and
+`allure-report`. The coverage gates are the backend `fail_under = 90`
+(`[tool.coverage.report]` in `caliber/pyproject.toml`, enforced by the full-suite run on
+`main`; the PR jobs pass `--no-cov`) and the Vitest `coverage.thresholds` in
+`caliber/caliber-ui/vitest.config.ts` (lines 89, statements 87, functions 87,
+branches 78). Two further workflows are separate from `ci.yml` and never block a merge:
+`stack-smoke.yml` (builds the images and uses the Compose stack) and `cookbook-labs.yml`
+(runs every cookbook lab for real). `scripts/ci-local.sh [--fast] [job ...]` mirrors the
+`ci.yml` jobs on a developer machine.
+
 A few contract nuances are worth noting, because the surface as deployed differs
 from the surface the client still anticipates:
 
 - The frontend API client's generic `/verification-queue`,
   `/verification-queue/{id}/verify`, `/verification-queue/{id}/dismiss`,
   `/verification-queue/{id}/duplicate`, and `/verification-queue/batch`
-  endpoints are now served for real by `routes/verification.py` — this was a
-  frontend-only stub until `P3-B` wired it. Verifying an item there does not
-  create a `CaliberRefinementJob`; that remains adapter-shaped work for a later
-  phase, deliberately deferred rather
-  than half-built. It also does not change the row above: the four
+  endpoints are served for real by `routes/verification.py`; they were a
+  frontend-only stub before that route module existed. Verifying an item there
+  does not create a `CaliberRefinementJob`; that remains adapter-shaped work
+  for later, deliberately deferred rather than half-built. It also does not change the row above: the four
   feature-specific entry points still create their own already-verified item
   inline, so the generic route only reaches a manually-flagged concern, not
   the majority of today's refinement jobs.
@@ -532,9 +559,13 @@ unsafe state and unsafe execution from leaking across the plane:
   `/health` on that port (`reuseExistingServer: true`). The cookbook and alpha configs
   never reuse a server. The alpha
   journey config (`playwright.alpha.config.ts`, `npm run test:e2e:alpha`, the CI
-  `alpha-journey` job) uses its own port (`CALIBER_ALPHA_E2E_PORT`, default 5170)
-  and state directory with the shipped defaults (fake LLM and evaluator, real
-  MLflow promoter).
+  `alpha-journey` job) runs seven specs (the two-week and user-prompt journeys, the
+  skill and tool journeys, the build-workflows and workflow-studio specs, and
+  `feature-flags.spec.ts`) on its own port (`CALIBER_ALPHA_E2E_PORT`, default 5170)
+  and state directory. It unsets every `CALIBER_FEATURE_*` variable, so the shipped
+  defaults apply (Aria on, the other three areas off), with the fake LLM and evaluator
+  and the real MLflow promoter. The full suite ignores `feature-flags.spec.ts` and
+  `cookbooks/labs/**`.
 - The E2E bootstrap loads only a small allowlist of `.env` values rather than
   importing the entire ambient environment.
 
