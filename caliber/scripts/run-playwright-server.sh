@@ -45,7 +45,7 @@ if [[ "${1:-}" != "--force-cleanup" && ! -x "$VENV_DIR/bin/python" ]]; then
   echo "error: virtualenv not found at $VENV_DIR. Create it: 'make setup' in the repository root, or 'make install' in caliber/" >&2
   exit 1
 fi
-if ! command -v curl >/dev/null 2>&1; then
+if [[ "${1:-}" != "--force-cleanup" ]] && ! command -v curl >/dev/null 2>&1; then
   echo "error: curl is required (it probes the server's health endpoint)" >&2
   exit 1
 fi
