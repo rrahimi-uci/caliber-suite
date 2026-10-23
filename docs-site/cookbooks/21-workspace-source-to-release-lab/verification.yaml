@@ -1,0 +1,27 @@
+# Verified by running the lab against a real stack -- see README.md ("Verify it worked").
+feasibility:
+  - Every outcome is deterministic. Snapshots hash content, diffs compare pins, the review state machine is code, and every refusal carries its documented status and reason -- no model grades anything in this lab.
+  - The lab's hardest claim -- that a workspace release evaluation never executes -- is proven live (the evaluation is still queued after a wait) and pinned in the backend test suite by asserting the claim-side service functions have no caller, so the lab fails loudly the day an executor lands.
+evaluation:
+  deterministic_checks:
+    - name: SnapshotIdempotency
+      type: deterministic_check
+      criteria: identical pins return the identical revision_id; a changed pin returns a new revision with revision_number + 1
+    - name: DiffNamesTheChange
+      type: deterministic_check
+      criteria: the R1->R2 diff lists exactly one changed pin (the prompt) and nothing added or removed
+    - name: SecondPersonReview
+      type: deterministic_check
+      criteria: self-review is 403 self_review_forbidden; the assigned reviewer's approval makes the change request technically_approved
+    - name: TheBoundaryHolds
+      type: deterministic_check
+      criteria: the evaluation is queued and stays queued; accept is 409 qa_go_decision_required; signoff is 409 (gate evidence missing); apply is 409 (only approved)
+  rule_checks:
+    - snapshots_require_operator_scope_and_an_editor_role
+    - releases_share_the_release_candidates_flag_while_revisions_and_change_requests_are_ungated
+quality_gates:
+  seeded_environments: 4
+  active_environments_at_start: 1
+  changed_pins_in_the_diff: 1
+  version_tags_minted: 0
+  release_states_reached: "draft, evaluating (nothing beyond is reachable on a live alpha server)"

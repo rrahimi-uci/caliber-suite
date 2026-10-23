@@ -270,6 +270,29 @@ _RECIPES: tuple[dict[str, Any], ...] = (
             "--real-llm routed through it"
         ],
     },
+    {
+        "id": "21",
+        "slug": "workspace-source-to-release",
+        "title": "Workspace Source-to-Release",
+        "summary": (
+            "Pin a workspace's entities into an immutable revision, diff two revisions, carry one "
+            "through a reviewed change request, and take it to the release gate -- no Git involved. "
+            "An API-first journey: this surface has no UI in the alpha."
+        ),
+        "icon": "📌",
+        "template_kind": "single_agent",
+        "capabilities": [
+            "managed snapshots",
+            "revision diff",
+            "change requests",
+            "workspace releases",
+            "environments",
+        ],
+        "prerequisites": [
+            "The release_candidates preview flag (workspace releases share it; revisions and "
+            "change requests are ungated) and a second account to review"
+        ],
+    },
 )
 
 
@@ -858,6 +881,42 @@ _RECIPE_STEPS: dict[str, tuple[dict[str, str], ...]] = {
         {
             "title": "Reimport after the upstream spec changes and read the diff",
             "route": "/openapi-integrations",
+        },
+    ),
+    "21": (
+        {
+            "title": "Check the flag and create the workspace; read its four seeded environments",
+            "route": "/administration",
+        },
+        {
+            "title": "Confirm the source of truth is caliber-managed (no Git connection)",
+            "route": "/administration",
+        },
+        {
+            "title": "Author the entities: a prompt (two versions) and a test set",
+            "route": "/prompts",
+        },
+        {
+            "title": "Snapshot revision R1; the identical snapshot returns the identical revision",
+            "route": "/releases",
+        },
+        {"title": "Pin the prompt's v2 into revision R2", "route": "/releases"},
+        {"title": "Diff R2 against R1: exactly one changed pin", "route": "/releases"},
+        {
+            "title": "Open a change request on R2 and submit it with a reviewer",
+            "route": "/releases",
+        },
+        {
+            "title": "Review as a second person: self-review refused; approval makes it technically_approved",
+            "route": "/releases",
+        },
+        {
+            "title": "Create a draft release into dev and evaluate it: the evaluation stays queued (the alpha's boundary)",
+            "route": "/releases",
+        },
+        {
+            "title": "Read the refusals that guard the rest: accept, quality signoff and apply all 409",
+            "route": "/audit-log",
         },
     ),
     "20": (
