@@ -324,6 +324,27 @@ def test_a_plan_with_steps_still_approves(client: TestClient) -> None:
     assert client.post(APPROVE_PATH.replace("{plan_id}", plan_id)).status_code == 200
 
 
+class _ReturnsErrorEngine:
+    """Reports a missing provider SDK the way the real engines do: a returned error, no exception."""
+
+    def run_turn(self, request: object, *, toolset: object | None = None) -> AssistantTurnResult:
+        return AssistantTurnResult(
+            reply="Anthropic SDK is not installed. Please install 'anthropic' to use this engine.",
+            error="anthropic package not installed",
+        )
+
+
+def test_a_returned_engine_error_is_not_an_empty_draft() -> None:
+    """Describe it used to answer 200 with an empty draft when the engine returned an error."""
+    svc = AssistantService(engine=_ReturnsErrorEngine())  # type: ignore[arg-type]
+
+    with pytest.raises(AssistantUnavailableError) as raised:
+        svc.draft_prompt_from_description("Summarize support tickets.")
+
+    assert "package for its engine is not installed" in str(raised.value)
+    assert "extra" in str(raised.value)
+
+
 # --- test-case generation -----------------------------------------------------------------
 #
 # A canned refund-policy test set silently substituted for the user's own prompt, and labelled

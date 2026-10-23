@@ -160,6 +160,11 @@ def assistant_failure_message(exc: BaseException) -> str:
         )
     if type(exc).__name__ in {"AuthenticationError", "PermissionDeniedError"}:
         return "Aria's LLM provider rejected the API key. Check the key under Settings, Providers."
+    if "not installed" in text:
+        return (
+            "Aria cannot answer yet: the provider package for its engine is not installed. "
+            "Install the `llm` (OpenAI) or `anthropic` extra and restart CALIBER."
+        )
     return f"An error occurred: {type(exc).__name__}"
 
 
@@ -4975,6 +4980,12 @@ class AssistantService:
             except Exception as exc:
                 logger.warning("assistant draft turn failed", exc_info=True)
                 engine_error = exc
+                break
+            if result.error and not result.draft_deltas:
+                # Engines report a missing SDK, a rejected key or a provider outage as a returned
+                # error with an apology in ``reply``, not as an exception: that is not an answer.
+                logger.warning("assistant draft turn returned an error: %s", result.error)
+                engine_error = RuntimeError(str(result.error))
                 break
             answered = True
             if result.reply:
