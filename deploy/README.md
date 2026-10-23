@@ -54,6 +54,11 @@ cp deploy/.env.example deploy/.env        # optional: infra port/bucket override
 ./start.sh                                # or: make start
 ```
 
+`./start.sh` needs Docker with Compose v2.20 or newer and a running daemon, and it checks before it builds:
+the host ports (CALIBER 5001, MLflow 5000, the gateway 5002, MinIO 9000/9001, Postgres 5432, Adminer 8081, the
+AGE viewer 8082) must be free, and it waits for CALIBER's health check before printing the ready banner. The first
+run builds the images (several minutes); `./start.sh --help` lists the options.
+
 That brings up **MinIO** (with buckets pre-created), **Postgres** (pgvector +
 Apache AGE), **MLflow**, the **MLflow AI Gateway**, **CALIBER**, and the shared event bus
 required by the deployed app backend. `./start.sh` selects **NATS**.

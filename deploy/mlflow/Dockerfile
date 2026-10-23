@@ -27,7 +27,7 @@ ENV PYTHONUNBUFFERED=1 \
 # installs psycopg2-binary only, so a floating install makes the server die at
 # startup with ``ModuleNotFoundError: No module named 'psycopg'``.
 RUN pip install --upgrade pip \
- && pip install "mlflow>=3.14.0,<4" "boto3>=1.34" "psycopg2-binary>=2.9" "anyio>=4.15.1" "sqlalchemy>=2.0,<2.1"
+ && pip install "mlflow>=3.15.0,<4" "boto3>=1.34" "psycopg2-binary>=2.9" "anyio>=4.15.1" "sqlalchemy>=2.0,<2.1"
 
 # --- Guardrails AI — backend for MLflow's gateway guardrails -----------------
 # MLflow's gateway guardrails (``mlflow.gateway.guardrails``, enforced pre/post

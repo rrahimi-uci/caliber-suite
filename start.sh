@@ -8,7 +8,8 @@
 # Needs Docker with the Compose v2 plugin (2.20 or newer) and a running daemon.
 # Optional config: copy .env.example to .env (app settings and secrets) and
 # deploy/.env.example to deploy/.env (infra ports). Without them the documented
-# defaults apply (simulated LLM providers, admin / admin on localhost).
+# defaults apply: admin / admin on localhost, and the LLM, evaluator and Aria are REAL when
+# OPENAI_API_KEY is set in .env (CALIBER_LLM_PROVIDER=auto) and simulated, and reported as such, when it is not.
 #
 # Environment:
 #   CLEAN_START=1       (default) remove the app containers before starting, so UI/API changes
@@ -259,6 +260,22 @@ else
   LOGIN_LINE="${ADMIN_USER} / the CALIBER_BOOTSTRAP_PASSWORD you configured   (first boot only)"
 fi
 
+# Say plainly which AI-backed parts are real. /readiness reports each as real, simulated, unconfigured
+# or off; a deployment with keys in .env should show every one real. Best effort: only curl, grep and
+# sed are used, so a missing tool or an older server simply skips the section.
+AI_REPORT=""
+AI_NOTE=""
+if command -v curl >/dev/null 2>&1; then
+  READINESS_BODY="$(curl -s "http://127.0.0.1:${CALIBER_PORT}/ajax-api/2.0/mlflow/caliber/readiness" 2>/dev/null || true)"
+  AI_REPORT="$(printf '%s' "$READINESS_BODY" \
+    | grep -o '"name": *"[a-z_]*", *"mode": *"[a-z]*"' \
+    | sed -E 's/"name": *"([a-z_]*)", *"mode": *"([a-z]*)"/    \1: \2/' || true)"
+  if [[ -n "$AI_REPORT" ]] && printf '%s' "$AI_REPORT" | grep -Eq ': (simulated|unconfigured)$'; then
+    AI_NOTE="  Some AI components are NOT real. Put OPENAI_API_KEY (and optionally ANTHROPIC_API_KEY) in .env and re-run ./start.sh.
+  Details: curl -s http://127.0.0.1:${CALIBER_PORT}/ajax-api/2.0/mlflow/caliber/readiness"
+  fi
+fi
+
 cat <<EOF
 
 ready.
@@ -270,6 +287,9 @@ ready.
   Graph console  : http://127.0.0.1:${AGE_VIEWER_PORT_RESOLVED}   (AGE Viewer — auto-connects to graph knowledge_graph, no login)
   Event backend  : ${EVENT_BACKEND}
   CALIBER login  : ${LOGIN_LINE}
+${AI_REPORT:+  AI components  :
+${AI_REPORT}
+${AI_NOTE}}
 
   logs   : docker compose ${ENV_DISPLAY}-f deploy/compose.yaml ${PROFILE_ARGS[*]} logs -f
   status : docker compose ${ENV_DISPLAY}-f deploy/compose.yaml ${PROFILE_ARGS[*]} ps

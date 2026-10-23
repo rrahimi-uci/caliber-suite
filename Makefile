@@ -98,7 +98,7 @@ check: ## verify python3 (3.10-3.12), node, npm are installed
 		|| { echo "$(RED)MISSING$(NC)"; exit 1; }
 	@printf "  java    ... " && command -v java >/dev/null 2>&1 \
 		&& echo "$(GREEN)ok$(NC) ($$(java -version 2>&1 | head -1))" \
-		|| echo "$(YELLOW)optional$(NC) (only needed to render Allure reports; 'make allure' falls back to Docker)"
+		|| echo "$(YELLOW)optional$(NC) (only needed to render Allure reports: needs Java on PATH; there is no Docker fallback)"
 	@echo "$(GREEN)All required tools are installed.$(NC)"
 
 setup: check ## one-time: create venv, install deps, build UI
