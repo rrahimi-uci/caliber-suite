@@ -5,6 +5,9 @@ stack (`scripts/cookbook-env.sh`, new database, new MLflow, new browser context)
 instructions, real clicks in Chromium at 1280×720, and no API call, database edit or injected state to get past a
 step. The lab's SDK script (its API path) was run on the same fresh stack as well.
 
+Scope: labs 01 to 18 (17 is the SDK-only script). Labs 19 (OpenAPI), 20 (LLM gateway) and 21 (workspace releases) were added after this pass, so
+they are not in the matrix below: each of their READMEs carries its own captured run, and `scripts/cookbook-run-all.sh` runs them like the others.
+
 Status words: **PASS** the documented journey was executed and its results checked; **FAIL** executed, a required
 behaviour is still wrong; **BLOCKED** cannot be completed.
 
@@ -23,7 +26,7 @@ scored paths were run on the **stand-in** model tier (labs 01 and 10) and on a *
 | 05 MCP governance | MCP Servers → Playground → Workflows | server, 6 tool policies, calibration cases, workflow | no model: real MCP server | calibration suite (pass and a failing case) | workflow v1 published, v2 restored, loosened, refused by the policy gate | server ledger, audit log, traces | `05` | 5 | 5 | **PASS** |
 | 06 Knowledge Q&A | Object Store → Knowledge Bases → Workflows → Review Queues | documents, KB v1 and v2, answer prompt, workflow | simulated answers, real retrieval | model-judged scores simulated | KB v1, tuned v2, active version | chunks, rankings, trace in queue | `06` | 0 new | n/a | **PASS** |
 | 07 Support triage | Administration → Test Sets → Workflows → Runs | users, 44-ticket test set, workflow | rules, simulated draft node | n/a | publish, modify, v2, re-run, compare, rollback | approvals, audit log | `07` | 0 new | n/a | **PASS** |
-| 08 Incident commander | same shape as 07 | users, test set, workflow, agent | rules, simulated draft node | Evaluations and Calibrate | publish, modify, v2, re-run, compare, rollback | approvals, audit log | `08` | 0 new | n/a | **PASS** |
+| 08 Incident response copilot | same shape as 07 | users, test set, workflow, agent | rules, simulated draft node | Evaluations and Calibrate | publish, modify, v2, re-run, compare, rollback | approvals, audit log | `08` | 0 new | n/a | **PASS** |
 | 09 Workflow debugger | Workflows → Run Monitor → editor | workflow v1, patched nodes | real failures | n/a | v1 published, patch, v2, compare, promote | run status, node outputs | `09` | 1 | 1 | **PASS** |
 | 10 Judge certification | Test Sets → Prompts → Judges → Evaluations → Review Queues | test set, prompts, judge, review queue | stand-in model | judge scored on stand-in; refused on simulated | prompt v2, re-run, compare | alignment, certify or reject | `10` | 0 new | n/a | **PASS** |
 | 11 Release readiness | Releases → release candidates | candidate, waiver, signoff | no model | criteria, blockers, waivers | modify, new candidate, re-run | signoff log, viewer view | `11` | 0 new | n/a | **PASS** |
@@ -87,7 +90,7 @@ direct HTTP use is lab 04's cleanup of its own buckets after the journey, which 
 - ~~Cookbooks and Plans live under Integrations~~ **Fixed:** Cookbooks leads the sidebar under **Get started** (open by
   default), and Plans sits under **Operate** with the other things that wait for a person.
 - ~~Two tool pages overlap~~ **Fixed:** a tool has one page, its workspace. Edit, version history and calibration jobs moved into its Publish stage, `/tools/:id` redirects there, and a **New version** action makes the next version of a tool (name fixed, version one on).
-- **The Playground needs the Aria flag, by design, and now says so.** It chats through the Aria assistant, so a default install cannot use it. Its tab used to vanish without a word; it is now always listed and, with Aria off, says what it needs (`CALIBER_FEATURE_ARIA=true`) and points to **Evaluations** to run the prompt on real examples. Taking the chat out from under the Aria flag would put a model-calling endpoint outside it, which is a product decision, not a fix.
+- **The Playground needs the Aria assistant, by design, and now says so.** It chats through the Aria assistant, so it needs `CALIBER_FEATURE_ARIA` (which ships on) and a model that answers: on the default simulated stack the chat does not produce a faithful run of the prompt. Its tab used to vanish without a word; it is now always listed and, with Aria turned off (`CALIBER_FEATURE_ARIA=false`), says what it needs and points to **Evaluations** to run the prompt on real examples. Taking the chat out from under the Aria flag would put a model-calling endpoint outside it, which is a product decision, not a fix.
 - **Scoring a judge or a prompt needs a real model.** Simulated results are labelled as such everywhere, by design.
 
 ## How the verification was kept resource-safe

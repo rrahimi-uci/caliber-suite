@@ -13,7 +13,8 @@ same UI/route sources, and the Aria track (12–15) was re-verified when step in
 became answerable (see finding 1). Afterwards every lab (01 to 16, plus the new lab 18)
 was **rewritten after being run for real** against a disposable server, through the API
 and the browser; the per-lab verdict below reflects those runs, and a few findings
-(2 to 4, which name files of the original pack) are kept as the review-time record. Platform limitations discovered *after* this review — not among the
+(2 to 4, which name files of the original pack) are kept as the review-time record. Labs 19 (OpenAPI), 20 (LLM gateway) and 21 (workspace releases) were
+added after this review and are not in its per-lab table; each was written against its own script and spec and states its boundary in its README. Platform limitations discovered *after* this review — not among the
 findings below — are tracked in [§ Open gaps](#open-gaps-platform-limitations).
 
 ## Findings (all resolved)

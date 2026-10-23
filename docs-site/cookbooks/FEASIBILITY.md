@@ -7,10 +7,10 @@ environment-gated, and what remains deliberately bounded. The runtime-owned
 catalog is exported to [`capabilities.json`](capabilities.json); that generated
 inventory, rather than this prose, is the authoritative recipe list.
 
-> **Preview areas are off by default.** Aria and Plans, MCP servers and OpenAPI
-> integrations, the Cookbooks gallery, and release-candidate signoff sit behind
-> `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS`
-> and `CALIBER_FEATURE_RELEASE_CANDIDATES`. Every ✅ below that touches one of them
+> **Most preview areas are off by default; Aria ships on.** MCP servers and OpenAPI
+> integrations, the Cookbooks gallery, and release-candidate signoff are off until you set
+> `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` and `CALIBER_FEATURE_RELEASE_CANDIDATES`;
+> Aria and Plans (`CALIBER_FEATURE_ARIA`) is on unless set to `false`. Every ✅ below that touches one of them
 > assumes its flag is on; each recipe README names the flags it needs, and the
 > table is in [`README.md`](README.md#feature-flags-read-first). The Playground
 > and the prompt workspace's test generation and runs call the Aria assistant, so
@@ -41,7 +41,7 @@ SPA routes are under `/caliber`. A fresh local install seeds an `admin` / `admin
 | | Package export / import | ✅ Works | Export a ZIP (exactly `<name>/SKILL.md` and `<name>/agents/openai.yaml`) and upload it directly in the Skill UI. Import is bounded and supports explicit reject (`409` for the same name), rename, or admin-only versioned merge; a rename keeps the instructions but **not** the tags, category or trigger phrases (lab 02). |
 | | Calibration | ⚠️ Queued | `POST /skills/{id}/calibrate` enqueues a background job (same model as prompts). A skill has **no test set** (`n_examples` is `0`) and on the default fake provider the candidate and its scores are canned and marked `simulated: true`; the lab proves the wiring (queue, diff, Apply as a new version, rollback as a further version), not quality (lab 02). |
 | | Scenario Sets | ⚠️ Scaffolded | UI present; rich scenario authoring is minimal today — use Trigger Tests + Runs. |
-| **Workflows** | Cookbook system examples | ✅ Works (17) | **Cookbooks** installs any runtime-owned recipe atomically as a paused workflow and draft version after readiness review. |
+| **Workflows** | Cookbook system examples | ✅ Works (20) | **Cookbooks** installs any runtime-owned recipe atomically as a paused workflow and draft version after readiness review. |
 | | Code-free deterministic transforms | ✅ Works | `data_transform` supports fixture, mapping, Draft 2020-12 JSON Schema, ordered decision tables, and weighted confidence. |
 | | Review Queue enqueue | ✅ Works | `review_queue_enqueue` creates audited, idempotent trace-linked items and fails closed when the runtime binding is absent. |
 | | Run monitor: execute/approve/reject/retry/resume | ✅ Works | `POST /workflow-runs`, `.../approval/approve`, `.../approval/reject`, `.../retry`, `.../resume`, `.../resume-by-event`. Checkpoints, retry lineage ("Attempt N of M"), recovery panel, debugger panel all real. |
@@ -67,6 +67,9 @@ SPA routes are under `/caliber`. A fresh local install seeds an `admin` / `admin
 | | Playground invoke | ✅ Works | `POST /mcp-servers/{id}/invoke-tool` (10s timeout). A refusal (unclassified, blocked, unknown, rate limited) and a tool's own error are `200` with `success: false`; a call that passes policy leaves an `mcp.<server>.<tool>` trace, a refusal leaves none (lab 05). |
 | | Policy overlay | ✅ Works | Per-tool `allowed` (block), `side_effect_level` (`read`/`write`), `requires_approval`. `PATCH /mcp-servers/{id}/tools/{tool}/policy`. A tool is denied until classified; `allowed:false` is enforced on invoke; `requires_approval` holds a tool in a **workflow** (`waiting_approval`) but not on the admin Playground (lab 05). |
 | | Tool calibration panel | ✅ Works | `PUT .../tools/{tool}/test-cases`, `POST .../tools/{tool}/calibrate`. |
+| **OpenAPI Integrations** | Import, classify, curate, publish, reimport | ✅ Works (Preview, needs `CALIBER_FEATURE_INTEGRATIONS`) | Import a spec by URL or paste, three operations classified read or write automatically, one `link` auto-wired as a dependency, a read-only tool pack and a write draft curated, previewed (a write is refused until `allow_in_preview` is set), published into the ordinary tool registry and bound in a workflow where a second person's approval holds the write. Outbound calls go through the egress policy (loopback needs `CALIBER_EGRESS_ALLOWED_HOSTS`). The reimport diff tracks a fixed set of fields and does **not** catch a request body gaining a required field (lab 19). |
+| **LLM Gateway** | Endpoints, runtime key, pricing, usage, secrets, guardrail definitions | ✅ Works (Integrations › LLM Gateway) | Discovery from `CALIBER_GATEWAY_URI`, an admin-only audited `PATCH /settings/llm` key rotation, per-1K-token pricing rows with operator/admin floors, exact cost computed when the trace span is written (a rate change never re-prices history), an encrypted secrets store (needs `CALIBER_SECRET_ENCRYPTION_KEY_SOURCE`). Guardrails are **definitions** in the MLflow tracking store, enforced only by MLflow's own AI Gateway, not by the standalone gateway the Endpoints tab lists (lab 20). |
+| **Workspace revisions and releases** | Managed snapshot, diff, change request, release gate | ⚠️ API only; evaluation has no executor | A caliber-managed workspace pins named entity versions into immutable, content-hashed revisions (idempotent), diffs two revisions, carries one through a second person's review to `technically_approved`, and creates a draft release into `dev` (needs `CALIBER_FEATURE_RELEASE_CANDIDATES`). The release's evaluation stays `queued` in the alpha, so accept, quality signoff and apply each refuse with a documented reason (lab 21). No UI. |
 | **Knowledge Bases** | Build / Explore / Calibrate / Use | ✅ Works | Explore sub-views: **Query** (ask), **Chunks**, **Graph**. Use stage is "query via API" docs (not an ask box). |
 | | Retrieval modes | ✅ Works | `dense`, `hybrid`, `graph_hybrid`, `age_graph` (AGE only when enabled). |
 | | Calibrate metrics (inline) | ✅ Works | Recall@k, nDCG@k, Faithfulness, Answer-correctness — computed synchronously. Recall@k and nDCG@k are real arithmetic on real retrieval; Faithfulness and Answer-correctness are blank (`null`) on the simulated judge, and the default assistant's answer text is an extractive digest of the retrieved chunks (lab 06). |
