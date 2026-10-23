@@ -2233,6 +2233,7 @@ describe("WorkflowDetail calibration", () => {
       versions?: Array<Record<string, unknown>>;
       deployments?: Array<Record<string, unknown>>;
       runs?: Array<Record<string, unknown>>;
+      runDetailsById?: Record<string, Record<string, unknown>>;
       promotions?: Array<Record<string, unknown>>;
       patches?: Array<Record<string, unknown>>;
       capabilities?: Record<string, unknown>;
@@ -2255,6 +2256,7 @@ describe("WorkflowDetail calibration", () => {
     ];
     const deployments = overrides.deployments ?? [];
     const runs = overrides.runs ?? [];
+    const runDetailsById = overrides.runDetailsById ?? {};
     const promotions = overrides.promotions ?? [];
     const patches = overrides.patches ?? [];
     const workflow = {
@@ -2377,7 +2379,9 @@ describe("WorkflowDetail calibration", () => {
       http.get(`${API_BASE}/workflow-runs/:runId`, ({ params }) => {
         const runId = String(params.runId);
         const run =
-          runs.find((item) => String(item.workflow_run_id) === runId) ?? null;
+          runDetailsById[runId] ??
+          runs.find((item) => String(item.workflow_run_id) === runId) ??
+          null;
         if (!run) {
           return HttpResponse.json(
             { detail: `workflow run ${runId} not found` },
@@ -7807,6 +7811,120 @@ describe("WorkflowDetail calibration", () => {
       );
     },
   );
+
+  it("reloads the final step details when a selected run completes", async () => {
+    const runId = "WR-TERMINAL-DETAILS";
+    const step = (node_id: string, node_type: string, output: string) => ({
+      node_id,
+      node_type,
+      status: "ok",
+      output,
+      tool_calls: [],
+      handoff_target: null,
+      detail: output,
+      duration_ms: 5,
+      output_by_port: {},
+    });
+    const waitingStep = step("support_agent", "agent", "awaiting approval");
+    const historyRun = makeRun({
+      workflow_run_id: runId,
+      current_node_id: "support_agent",
+      summary: {
+        output: "",
+        node_path: ["start", "support_agent"],
+        steps: [waitingStep],
+      },
+    });
+    const finalRun = makeRun({
+      workflow_run_id: runId,
+      status: "completed",
+      current_node_id: null,
+      completed_at: NOW,
+      summary: {
+        output: "ROLLBACK_APPROVED",
+        status: "completed",
+        node_path: ["start", "support_agent", "final"],
+        steps: [waitingStep, step("final", "output", "ROLLBACK_APPROVED")],
+      },
+    });
+    const runDetailsById: Record<string, Record<string, unknown>> = {
+      [runId]: historyRun,
+    };
+    server.use(...detailHandlers({ runs: [historyRun], runDetailsById }));
+
+    const view = renderAt(
+      <WorkflowDetail />,
+      "/workflows/WF-1",
+      "/workflows/:workflowId",
+    );
+    await userEvent.click(await screen.findByTestId("tab-runs"));
+    await userEvent.click(await screen.findByTestId(`run-${runId}`));
+    expect(
+      await screen.findByTestId("workflow-run-step-detail"),
+    ).toHaveTextContent("awaiting approval");
+
+    runDetailsById[runId] = finalRun;
+    streamState.event = {
+      type: "workflow.run.completed",
+      workflow_id: "WF-1",
+      workflow_run_id: runId,
+      status: "completed",
+    };
+    view.rerenderAt();
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("workflow-run-recovery-panel"),
+      ).toHaveTextContent("This run ended in completed."),
+    );
+    await waitFor(() =>
+      expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent(
+        "ROLLBACK_APPROVED",
+      ),
+    );
+  });
+
+  it("keeps terminal status visible when the selected run detail refresh fails", async () => {
+    const runId = "WR-TERMINAL-DETAILS-UNAVAILABLE";
+    const run = makeRun({
+      workflow_run_id: runId,
+      current_node_id: "support_agent",
+    });
+    server.use(...detailHandlers({ runs: [run] }));
+    server.use(
+      http.get(`${API_BASE}/workflow-runs/${runId}`, () =>
+        HttpResponse.json(
+          { detail: "run details temporarily unavailable" },
+          { status: 503 },
+        ),
+      ),
+    );
+
+    const view = renderAt(
+      <WorkflowDetail />,
+      "/workflows/WF-1",
+      "/workflows/:workflowId",
+    );
+    await userEvent.click(await screen.findByTestId("tab-runs"));
+    await userEvent.click(await screen.findByTestId(`run-${runId}`));
+    expect(
+      await screen.findByTestId("workflow-run-step-detail"),
+    ).toBeInTheDocument();
+
+    streamState.event = {
+      type: "workflow.run.completed",
+      workflow_id: "WF-1",
+      workflow_run_id: runId,
+      status: "completed",
+    };
+    view.rerenderAt();
+
+    await waitFor(() =>
+      expect(
+        screen.getByTestId("workflow-run-recovery-panel"),
+      ).toHaveTextContent("This run ended in completed."),
+    );
+  });
 
   it("refreshes approval checkpoints when a selected run enters waiting approval", async () => {
     const liveRun = makeRun({

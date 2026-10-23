@@ -2168,6 +2168,23 @@ export function WorkflowDetail(): JSX.Element {
       );
       refreshRunHistoryQueries();
       if (refreshSelectedRun) {
+        void caliberApi
+          .getWorkflowRun(runId)
+          .then((run) => {
+            setSelectedRun((current) => {
+              if (!current || current.workflow_run_id !== runId) return current;
+              return {
+                ...run,
+                status: terminalStatus,
+                current_node_id: null,
+                summary: {
+                  ...(run.summary ?? {}),
+                  status: terminalStatus,
+                },
+              };
+            });
+          })
+          .catch(() => undefined);
         refreshRunDiagnostics(runId, {
           refreshApprovals: true,
           refreshCheckpoints: true,
