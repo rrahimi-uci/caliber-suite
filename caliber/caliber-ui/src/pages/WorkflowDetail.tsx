@@ -4157,6 +4157,7 @@ export function WorkflowDetail(): JSX.Element {
                     events={selectedRunEventsQuery.data ?? []}
                     checkpoints={selectedRunEffectiveCheckpoints}
                     focusedNodeId={selectedRunNodeId}
+                    focusedNodePinned={selectedRunNodePinned}
                     onSelectNodeId={focusSelectedRunNode}
                   />
                 )}
