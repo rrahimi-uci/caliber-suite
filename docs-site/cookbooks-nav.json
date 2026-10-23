@@ -78,5 +78,9 @@
   {
     "href": "m-cookbook-20-llm-gateway-metering.html",
     "label": "20 \u00b7 Metered LLM Gateway"
+  },
+  {
+    "href": "m-cookbook-21-workspace-source-to-release.html",
+    "label": "21 \u00b7 Workspace Source-to-Release"
   }
 ]

@@ -1,0 +1,27 @@
+id: SCN-21
+slug: workspace-source-to-release-lab
+name: "Workspace Source-to-Release"
+track: starter
+objective: Pin a workspace to an immutable revision, review it as a change request, and take it to the release gate -- knowing exactly where the alpha stops.
+why_it_matters:
+  - The question "what exactly is running?" needs an answer that survives edits -- a revision pins named versions of named entities with a content hash, not whatever is live at read time.
+  - Review is a second person's act, not a checkbox -- the author of a snapshot cannot approve it, and nothing is accepted without the gate evidence the process defines.
+  - Knowing a platform's boundary is part of operating it; the alpha documents that workspace release evaluations never execute, and this lab proves every refusal that follows from that.
+primary_persona: platform engineer
+secondary_personas:
+  - release manager
+  - developer
+caliber_surfaces:
+  - Projects / Workspaces (API)
+  - Releases
+  - Audit Log
+prerequisites:
+  - CALIBER_FEATURE_RELEASE_CANDIDATES=true (workspace releases share the flag; revisions and change requests are ungated).
+  - A second account with an editor role and the operator scope, to review (CALIBER_OPERATOR_USERS names it).
+  - No GitHub, no object store -- managed snapshots need neither.
+time_to_first_value: 15-30 minutes
+success_criteria:
+  - A snapshot returns a managed, ready revision; the identical request returns the identical revision; a changed pin makes a new one.
+  - The diff between two revisions names exactly the changed pin.
+  - The change request reaches technically_approved through a second person, and accept refuses with qa_go_decision_required.
+  - The release reaches evaluating with its evaluation queued, and stays there; signoff and apply refuse with the documented reasons.

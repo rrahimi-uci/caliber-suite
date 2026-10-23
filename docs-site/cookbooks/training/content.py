@@ -867,6 +867,58 @@ COOKBOOKS = [
         ],
     },
     {
+        "id": "CB-21",
+        "num": "21",
+        "slug": "workspace-source-to-release",
+        "track": "Operate",
+        "title": "Workspace Source-to-Release",
+        "subtitle": "Pin a workspace's entities into an immutable revision, diff two revisions, carry one through a reviewed change request, and take it to the release gate -- no Git involved.",
+        "level": "Core",
+        "time": "15–30 min",
+        "surfaces": [
+            "Projects / Workspaces (API)",
+            "Releases",
+            "Audit Log",
+        ],
+        "build": "A GitHub-free release train. A prompt (two versions) and a test set are authored live, then a managed snapshot pins them into revision R1 -- the identical request returns the identical revision, idempotent by content -- and pinning the prompt's v2 makes R2. The R2-vs-R1 diff names exactly the changed pin. A change request carries R2 through a second person's review (the author's self-review is refused) to technically_approved. A draft release into dev then moves to evaluating -- and its evaluation stays queued, because workspace release evaluations have no executor in the alpha. Every door past that boundary is demonstrated as the refusal it is: accept, quality signoff, apply, and the version tags that are never minted. <strong>This surface has no UI in the alpha; the journey is API/SDK-first.</strong>",
+        "learn": [
+            "Pin named versions of named entities with <code>POST /projects/{id}/revisions:snapshot</code> -- a content-hashed, immutable answer to \"what exactly is running?\" that needs no Git, no bundle, no object store",
+            "Trust the diff: <code>GET .../revisions/{R2}/diff?base={R1}</code> is deterministic, keyed by (resource_type, logical_name), and names exactly what changed",
+            "Run a review without GitHub: the caliber backend's change request reserves the semver claim at creation, requires an assigned reviewer to submit, refuses the author's own review (<code>self_review_forbidden</code>), and reaches <code>technically_approved</code> on the second person's approval",
+            "Create a release against an environment (four are seeded; only <code>dev</code> starts active) with content-address digests and an idempotency key, and move it to <code>evaluating</code>",
+            "Operate the boundary knowingly: the evaluation stays <code>queued</code> (never wait on it), and accept / quality signoff / apply each refuse with a documented reason -- the refusals are the demonstration",
+        ],
+        "mermaid": """flowchart LR
+  E["Prompt v1, v2 + test set"] --> S1["Snapshot R1 (managed, ready)"]
+  S1 --> IDEM["Identical pins -> identical revision"]
+  E --> S2["Pin v2 -> R2"]
+  S2 --> D["Diff R2 vs R1: one changed pin"]
+  D --> CR["Change request on R2, reviewer assigned"]
+  CR --> SELF["Author's review: 403 self_review_forbidden"]
+  CR --> APR["Second person approves: technically_approved"]
+  APR --> REL["Draft release into dev"]
+  REL --> EV["Evaluate: evaluation queued -- and stays queued"]
+  EV --> B1["Accept: 409 qa_go_decision_required"]
+  EV --> B2["Signoff: 409 gate evidence missing"]
+  EV --> B3["Apply: 409 only an approved release"]""",
+        "gates": [
+            {"gate": "Environments", "target": "dev, qa, staging and prod are seeded with the workspace; only dev starts active"},
+            {"gate": "Snapshot idempotency", "target": "identical pins return the identical revision_id; a changed pin returns revision_number + 1"},
+            {"gate": "Diff", "target": "exactly one changed pin (the prompt), nothing added or removed; a knowledge_base pin is 409 resource_type_adapter_unavailable; a viewer's snapshot is 403"},
+            {"gate": "Second-person review", "target": "self-review 403; the assigned reviewer's approval makes the change request technically_approved; accept stays 409 qa_go_decision_required"},
+            {"gate": "The boundary", "target": "the release reaches evaluating with its evaluation queued, and it is still queued after a wait; signoff and apply refuse with their documented reasons; version tags stay empty"},
+            {"gate": "Audit", "target": "snapshot_workspace_revision, create_workspace_change_request and submit_workspace_change_request appear in the audit log"},
+        ],
+        "notes": [
+            "<strong>Flags.</strong> Only <code>/projects/{id}/releases*</code> is gated, by <code>CALIBER_FEATURE_RELEASE_CANDIDATES</code> (shared with cookbook 11's record-only candidate signoff -- a different feature). Revisions, snapshots, diffs, change requests, environments and version tags are ungated.",
+            "<strong>No UI, on purpose.</strong> The alpha ships this surface API-first; the Releases page's candidate section belongs to lab 11's feature. The lab says so instead of inventing screens.",
+            "<strong>The reviewer needs two grants.</strong> An editor project role <em>and</em> the platform operator scope (<code>CALIBER_OPERATOR_USERS=admin,lab21-reviewer</code>) -- review eligibility checks both.",
+            "<strong>Never wait on the evaluation.</strong> It has no executor in the alpha (docs/start/alpha-scope.md); the SDK's <code>wait_for_evaluation</code> would sit out its full 900&nbsp;s timeout. The lab asserts the queued state deliberately, and its backend test trips the day an executor lands.",
+            "<strong>One-way doors.</strong> <code>PUT /projects/{id}/source</code> flips a workspace to git_managed with no reverse, after which managed revisions cannot be released beyond dev -- the lab never calls it.",
+            "<strong>Run it.</strong> <code>CALIBER_OPERATOR_USERS=admin,lab21-reviewer scripts/cookbook-env.sh up lab21 --flags release_candidates,cookbooks</code>, then <code>cd sdk/caliber-sdk &amp;&amp; ../../caliber/.venv/bin/python examples/cookbooks/cookbook_21_workspace_source_to_release.py</code> (under a minute; <code>--cleanup</code> archives what it created).",
+        ],
+    },
+    {
         "id": "CB-12",
         "num": "12",
         "slug": "aria-eval-harness",

@@ -1,0 +1,40 @@
+# The cases are the journey itself; this file names the representative ones. Everything is
+# created live through the product -- the lab ships no data files by design (see assets/README.md).
+golden_cases:
+  - id: snapshot-idempotent
+    call: "POST /projects/{id}/revisions:snapshot with identical pins, twice"
+    expected: the same revision_id both times (idempotent by content)
+  - id: diff-one-pin
+    call: "GET /projects/{id}/revisions/{R2}/diff?base={R1}"
+    expected: {changed: ["prompt"], added: [], removed: []}
+  - id: cr-approved
+    call: "a second person's POST /reviews {decision: approve}"
+    expected: {status: technically_approved}
+  - id: release-queued
+    call: "POST /projects/{id}/releases/{rid}/evaluate"
+    expected: {release_status: evaluating, evaluation_status: queued, note: "stays queued -- no executor in the alpha"}
+edge_cases:
+  - id: unsupported-pin
+    call: "snapshot with resource_type knowledge_base"
+    expected: {status: 409, reason_code: resource_type_adapter_unavailable}
+  - id: diff-without-base
+    call: "diff with no base revision"
+    expected: {status: 400}
+  - id: viewer-snapshot
+    call: "snapshot as a viewer"
+    expected: {status: 403}
+  - id: self-review
+    call: "the snapshot's author reviews their own revision"
+    expected: {status: 403, reason: self_review_forbidden}
+  - id: accept-without-qa
+    call: "accept a technically_approved change request"
+    expected: {status: 409, reason: qa_go_decision_required}
+  - id: signoff-without-evidence
+    call: "quality signoff on an evaluating release"
+    expected: {status: 409, reason: "machine gate evidence is missing"}
+  - id: apply-unapproved
+    call: "operations apply on a non-approved release"
+    expected: {status: 409, reason: "only an approved release can be applied"}
+  - id: git-import-path
+    call: "POST /projects/{id}/revision-imports on a caliber-managed workspace"
+    expected: {status: 409, reason: workspace_source_not_configured}

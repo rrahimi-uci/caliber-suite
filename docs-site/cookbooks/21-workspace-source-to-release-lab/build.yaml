@@ -1,0 +1,28 @@
+workflow_goal: Pin a workspace's entities into an immutable revision, carry it through a reviewed change request, and take it to the release gate -- proving exactly where the alpha's boundary is.
+# Verified by running the lab against a real stack (scripts/cookbook-env.sh up lab21 --flags release_candidates,cookbooks) -- see README.md.
+feasibility:
+  - Managed snapshots are the alpha's GitHub-free source of truth. POST /projects/{id}/revisions:snapshot resolves each (resource_type, resource_id, version_ref) pin through a registered adapter (prompt, tool, skill, eval_dataset, workflow, judge, mcp_server) and stores an immutable revision with a content hash -- no Git commit, no bundle, no object store.
+  - Snapshots are idempotent by content; the diff between two revisions is deterministic, keyed by (resource_type, logical_name); and an unsupported type is refused with its own reason code rather than silently skipped.
+  - Change requests work end to end on the caliber review backend without GitHub -- creation reserves the semver claim, submission requires an assigned reviewer, the snapshot's author cannot review their own revision (self_review_forbidden), and every reviewer's approval makes it technically_approved.
+  - The boundary is explicit and documented (docs/start/alpha-scope.md known limitations). Workspace release evaluations have no executor in the alpha, so an evaluation stays queued forever; quality signoff (machine gate evidence is missing), change-request accept (qa_go_decision_required), version tags (minted only by accept) and apply (only an approved release) are all unreachable on a live server -- the lab proves each refusal instead of pretending to pass the gate.
+  - Flag split, as shipped -- revisions, snapshots, diffs, change requests, environments and version tags are ungated; only /projects/{id}/releases* shares the release_candidates preview flag with cookbook 11's record-only candidate signoff. This surface has no UI in the alpha; the journey is API/SDK-first.
+manual_flow:
+  - step: pin
+    action: snapshot a prompt version and a test set into revision R1; pin v2 into R2; diff them
+  - step: review
+    action: open a change request on R2, submit it with a reviewer, have a second person approve it
+  - step: gate
+    action: create a draft release into dev, evaluate it, and read the queued evaluation -- the alpha's boundary
+  - step: refusals
+    action: accept, quality signoff and apply each refuse with the documented reason
+components:
+  prompts: authored live (two versions of one prompt; version 1 and 2 are the diff's changed pin)
+  skills: none
+  tools: none
+  mcp: none
+  eval_datasets: one, created live and pinned at version 1 (the diff's unchanged pin)
+  workspace:
+    revisions: managed snapshots (source_kind "managed", status "ready", null Git fields)
+    change_requests: caliber review backend, one reviewer, semver claim 1.0.0
+    releases: draft -> evaluating with the evaluation queued; nothing beyond is reachable live
+    environments: the four seeded ones; only dev starts active

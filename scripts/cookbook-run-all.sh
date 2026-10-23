@@ -50,7 +50,7 @@ ENVSH="$REPO_ROOT/scripts/cookbook-env.sh"
 COOKBOOKS="$REPO_ROOT/docs-site/cookbooks"
 RUN_ROOT="$REPO_ROOT/.tmp/cookbook-run-all"
 ENV_ROOT="$REPO_ROOT/.tmp/cookbook-env"
-ALL_LABS="01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 18 19 20"
+ALL_LABS="01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 18 19 20 21"
 JOURNEY_LABS="18 01 02 03 07 16"
 API_TIMEOUT="${COOKBOOK_RUN_ALL_API_TIMEOUT:-1800}"
 UI_TIMEOUT="${COOKBOOK_RUN_ALL_UI_TIMEOUT:-2400}"
@@ -270,6 +270,10 @@ lab_config() {
                     CALIBER_OPERATOR_USERS=admin,lab20-operator)
         LAB_API_CWD="sdk/caliber-sdk"; LAB_API_ARGV=(-m examples.cookbooks.cookbook_20_llm_gateway_cost_guardrails)
         LAB_UI="20-llm-gateway.spec.ts" ;;
+    21) LAB_TITLE="workspace source-to-release"; LAB_FLAGS="release_candidates,cookbooks"
+        LAB_UP_ENV=(CALIBER_OPERATOR_USERS=admin,lab21-reviewer)
+        LAB_API_CWD="sdk/caliber-sdk"; LAB_API_ARGV=(-m examples.cookbooks.cookbook_21_workspace_source_to_release)
+        LAB_UI="" ;;   # no UI exists for this surface in the alpha; the lab is API-first
     *) die "no configuration for lab $n" ;;
   esac
   LAB_STACK="ra-lab$n"; [[ $TIER == standin ]] && LAB_STACK="ra-lab${n}m"
@@ -409,9 +413,13 @@ run_lab_steps() { # run_lab_steps NUM STACK
     if [[ $rc == 0 ]]; then API_RES=PASS; else API_RES=FAIL; NOTE="$NOTE api(rc=$rc)"; tail_log "$RUN_DIR/lab$n.api.log"; fi
   fi
   if [[ $WANT_UI == 1 ]]; then
-    log "lab $n: UI path ($LAB_UI)"
-    run_step "$RUN_DIR/lab$n.ui.log" "$UI_TIMEOUT" step_ui; rc=$?
-    if [[ $rc == 0 ]]; then UI_RES=PASS; else UI_RES=FAIL; NOTE="$NOTE ui(rc=$rc)"; tail_log "$RUN_DIR/lab$n.ui.log" 30; fi
+    if [[ -z "$LAB_UI" ]]; then
+      log "lab $n: no UI path (this surface is API-only in the alpha)"
+    else
+      log "lab $n: UI path ($LAB_UI)"
+      run_step "$RUN_DIR/lab$n.ui.log" "$UI_TIMEOUT" step_ui; rc=$?
+      if [[ $rc == 0 ]]; then UI_RES=PASS; else UI_RES=FAIL; NOTE="$NOTE ui(rc=$rc)"; tail_log "$RUN_DIR/lab$n.ui.log" 30; fi
+    fi
   fi
   [[ "$API_RES" == FAIL || "$UI_RES" == FAIL ]] && save_server_log "$stack" "$RUN_DIR/lab$n.server.log"
   return 0
