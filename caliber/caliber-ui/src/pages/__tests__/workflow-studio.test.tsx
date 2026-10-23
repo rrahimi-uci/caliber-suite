@@ -7926,6 +7926,92 @@ describe("WorkflowDetail calibration", () => {
     );
   });
 
+  it("does not replace another selected run when a terminal detail refresh finishes late", async () => {
+    const runId = "WR-TERMINAL-DETAILS-LATE";
+    const otherRunId = "WR-OTHER-SELECTED";
+    let resolveRunDetail: (() => void) | undefined;
+    const runDetailPending = new Promise<void>((resolve) => {
+      resolveRunDetail = resolve;
+    });
+    const step = (node_id: string, output: string) => ({
+      node_id,
+      node_type: node_id === "final" ? "output" : "agent",
+      status: "ok",
+      output,
+      tool_calls: [],
+      handoff_target: null,
+      detail: output,
+      duration_ms: 5,
+      output_by_port: {},
+    });
+    const runWithStep = (workflow_run_id: string, output: string) =>
+      makeRun({
+        workflow_run_id,
+        current_node_id: "support_agent",
+        summary: {
+          output,
+          node_path: ["start", "support_agent"],
+          steps: [step("support_agent", output)],
+        },
+      });
+    const run = runWithStep(runId, "awaiting approval");
+    const otherRun = runWithStep(otherRunId, "other run selected");
+    const finalRun = makeRun({
+      workflow_run_id: runId,
+      status: "completed",
+      current_node_id: null,
+      completed_at: NOW,
+      summary: {
+        output: "ROLLBACK_APPROVED",
+        status: "completed",
+        node_path: ["start", "support_agent", "final"],
+        steps: [
+          step("support_agent", "awaiting approval"),
+          step("final", "ROLLBACK_APPROVED"),
+        ],
+      },
+    });
+    server.use(...detailHandlers({ runs: [run, otherRun] }));
+    server.use(
+      http.get(`${API_BASE}/workflow-runs/${runId}`, async () => {
+        await runDetailPending;
+        return HttpResponse.json(envelope(finalRun));
+      }),
+    );
+
+    const view = renderAt(
+      <WorkflowDetail />,
+      "/workflows/WF-1",
+      "/workflows/:workflowId",
+    );
+    await userEvent.click(await screen.findByTestId("tab-runs"));
+    await userEvent.click(await screen.findByTestId(`run-${runId}`));
+
+    streamState.event = {
+      type: "workflow.run.completed",
+      workflow_id: "WF-1",
+      workflow_run_id: runId,
+      status: "completed",
+    };
+    view.rerenderAt();
+
+    await userEvent.click(await screen.findByTestId("runs-back"));
+    await userEvent.click(await screen.findByTestId(`run-${otherRunId}`));
+    expect(await screen.findByTestId("workflow-run-step-detail")).toHaveTextContent(
+      "other run selected",
+    );
+
+    resolveRunDetail?.();
+    await waitFor(() =>
+      expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent(
+        "other run selected",
+      ),
+    );
+    expect(screen.getByTestId("workflow-run-step-detail")).not.toHaveTextContent(
+      "ROLLBACK_APPROVED",
+    );
+  });
+
   it("refreshes approval checkpoints when a selected run enters waiting approval", async () => {
     const liveRun = makeRun({
       workflow_run_id: "WR-APPROVAL",
