@@ -114,7 +114,7 @@
       "see": "<code>sam</code> is refused; the run shows <strong>Failed</strong> after <code>lena</code> rejects and never reaches <code>action_request</code>: nothing is released."
     },
     {
-      "where": "Admin › Audit Log",
+      "where": "Operate › Audit Log",
       "do": "Type <code>approve_workflow_run_runtime_approval</code> in <strong>Action</strong>, then <code>enqueue_workflow_run</code>.",
       "click": "Action",
       "see": "The newest approval row is by <code>lena</code>; the enqueue rows are by <code>admin</code>."

@@ -1,10 +1,10 @@
 # Aria Autonomous Track — what Aria can build end-to-end from intent
 
-> **Disabled by default.** Aria and its **Plans** page are a preview area and are off
-> by default; this whole track needs `CALIBER_FEATURE_ARIA=true` on the server (and
-> `CALIBER_FEATURE_COOKBOOKS=true` to install the recipes from the gallery). While it
-> is off, the `/aria/*` and `/assistant/*` routes answer 404
-> (`reason_code: feature_disabled`).
+> **Ships on.** Aria and its **Plans** page are a preview area, and unlike the other three
+> preview flags `CALIBER_FEATURE_ARIA` defaults to **true**: this whole track works on a stock server
+> (add `CALIBER_FEATURE_COOKBOOKS=true` to install the recipes from the gallery). Only on a deployment that set
+> `CALIBER_FEATURE_ARIA=false` do the `/aria/*` and `/assistant/*` routes answer 404
+> (`reason_code: feature_disabled`) and **Plans** disappear from the sidebar.
 
 Scenarios **12–15** are a different kind of demo: you give **Aria** a single
 clear **intent** and it **plans → (you approve) → executes** to create real

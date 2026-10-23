@@ -53,8 +53,8 @@ nothing about whether the candidate is better. On a real stack the same wiring h
 
 2. Sign in as `admin` / `admin` (the stack's bootstrap account). The lab needs `caliber.admin` and `caliber.operator`: creating a skill needs
    operator, changing its metadata or rolling it back needs admin.
-3. `caliber/.venv/bin/python` with `caliber_sdk`, `caliber` and `pyyaml` (the repo's dev venv has all three; `pip install caliber-sdk pyyaml` elsewhere),
-   `curl` and `jq` for the by-hand commands.
+3. `caliber/.venv/bin/python` with `caliber_sdk`, `caliber` and `pyyaml` (`caliber` and `pyyaml` come with `cd caliber && make install`; `caliber_sdk` needs
+   `caliber/.venv/bin/pip install -e sdk/caliber-sdk`, see [Before you start](../README.md#before-you-start-one-time-setup)), `curl` and `jq` for the by-hand commands.
 
 ## Dataset and sample files
 
@@ -92,7 +92,7 @@ with wording in the content. Scores depend on the skill's name too (a name conta
 | `CALIBER_LLM_PROVIDER` / `CALIBER_EVAL_PROVIDER` | `fake` (the `cookbook-env.sh` default); `openai` / `mlflow` with `--real-llm` | Simulated model and evaluator; real ones; see the table above. |
 | `OPENAI_API_KEY` | unset on the simulated tier; **your own key** for `--real-llm` | Read by `cookbook-env.sh` from your environment (or the gitignored repo-root `.env`). Never put it in a file you commit. |
 | `CALIBER_BACKGROUND_TASKS_ENABLED` | `true` (set by `cookbook-env.sh`) | A worker has to run for calibration to leave `queued`. If it is off the run stays queued forever. |
-| `CALIBER_BASE_URL` | the server root, e.g. `http://127.0.0.1:5001` | Where the SDK example connects (the SDK appends `/ajax-api/2.0/mlflow/caliber`). |
+| `CALIBER_BASE_URL` | the server root; `source .tmp/cookbook-env/lab02/env.sh` sets it (for your own server, e.g. `http://127.0.0.1:5001`) | Where the SDK example connects (the SDK appends `/ajax-api/2.0/mlflow/caliber`). |
 | `CALIBER_API` | `$CALIBER_BASE_URL/ajax-api/2.0/mlflow/caliber` | Used by the `curl` commands. |
 | `CALIBER_TOKEN` | a personal access token for `admin` | Used by the SDK example. Create one below. |
 | `COOKBOOK_02_SKILL_NAME` | unset (the example appends a random suffix) | Set it to pick the skill's name; the name must be unused, archived skills keep theirs. |

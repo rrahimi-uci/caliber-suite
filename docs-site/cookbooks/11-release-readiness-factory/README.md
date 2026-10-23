@@ -279,7 +279,7 @@ every card against the dataset's expected score, status and blockers). Then:
 10. **A signed GO deploys nothing.** Under **Prompts** create the prompt `payments-assistant` (**New prompt**, **Write / paste**; version 1 is live) and save a version 2 with the card's **Edit** (`Saved v2. Nothing is live yet`). On **Releases** the live board shows the prompt at `v1`.
     Create a candidate for it from RC01's row (type **Prompt**, artifact `payments-assistant`, version `2`, rollback `1`; **ready**), type a rationale and **Sign off GO**: **signed_go**, and after a reload the live board still reads `v1` and the timeline has no event for the prompt.
     The release is a separate act: on **Prompts**, the card's **Versions**, **Make live** on v2. Now **Releases** shows `v2` and the timeline records the promotion.
-11. **Who did what.** **Admin → Audit Log**: type each of `create_release_candidate`, `waive_release_blocker`, `generate_release_allure_report` and `signoff_release_candidate` in **Action**: the newest row is by `admin`.
+11. **Who did what.** **Operate → Audit Log**: type each of `create_release_candidate`, `waive_release_blocker`, `generate_release_allure_report` and `signoff_release_candidate` in **Action**: the newest row is by `admin`.
 12. **Reload and the viewer.** Reload the page: both signed candidates still read **signed_go** and **signed_no_go**: the decision is persisted, not page state.
     As `lab11-viewer` (no scopes), open **Releases**: the section is there, but there is no **New candidate** button and no **Generate Allure**,
     and the admin's candidates are not listed.

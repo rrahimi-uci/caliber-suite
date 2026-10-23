@@ -1,7 +1,7 @@
 # Trustworthy Intake Classifier: release a prompt change you can trust
 
-> **Prerequisite flag:** `CALIBER_FEATURE_COOKBOOKS=true`, and nothing else. No Aria, no integrations (the optional [appendix](#appendix-the-aria-steps-verified-on-a-hosted-model)
-> adds `CALIBER_FEATURE_ARIA=true`).
+> **Prerequisite flag:** `CALIBER_FEATURE_COOKBOOKS=true`, and nothing else. No integrations flag and no release-candidates flag. The main path does not use Aria
+> (which ships **on** by default); only the optional [appendix](#appendix-the-aria-steps-verified-on-a-hosted-model) does, and it starts its stack with `--flags cookbooks,aria` to say so explicitly.
 > Every step below was run against a real server (a fresh stack from `scripts/cookbook-env.sh up lab01 --flags cookbooks`)
 > through the API and through the browser, in four tiers:
 >
@@ -68,7 +68,8 @@ gate compares a canned `0.94` to your threshold, so it proves the gate *blocks*;
    Expected: `{"ready":true,"simulated":["eval","llm"]}`. `simulated` may list `llm` and `eval`; if it lists `promoter` or `artifact_store`, Apply would not
    move MLflow and this lab's registry checks would fail.
 3. Sign in as `admin` / `admin` (the install's bootstrap account). The web app is at `$CALIBER_URL/caliber/`.
-4. For the API path you also need `jq`, and for the SDK script a checkout (`caliber/.venv` already has `caliber_sdk` installed editable).
+4. For the API path you also need `jq`, and for the SDK script a checkout with `caliber/.venv` that has `caliber_sdk` installed (see
+   [Before you start](../README.md#before-you-start-one-time-setup) in the cookbooks README).
 
 ## Dataset and sample files
 
@@ -79,7 +80,7 @@ All under [`assets/`](assets/):
 | [`dataset/intake-classifier.jsonl`](assets/dataset/intake-classifier.jsonl) | **44 labelled support messages**, one JSON object per line: `{"id", "tags", "input": {"ticket_text", "channel"}, "expected": {"intent", "priority", "needs_review"}}` | The test set. `input`/`expected` are the exact keys the test-set API and the UI import read. |
 | [`prompts/intake-classifier.md`](assets/prompts/intake-classifier.md) | The strong **v1** prompt (front matter, then the template body) | What you author and make live. |
 | [`prompts/intake-classifier-weak.md`](assets/prompts/intake-classifier-weak.md) | The weaker **v2**: friendlier wording, the "JSON only" and "valid JSON" rules removed | The intentional regression. |
-| [`stand-in-model/server.py`](assets/stand-in-model/server.py) | A 200-line keyword "model" behind an OpenAI-compatible endpoint | Lets you watch a prompt being evaluated without a model key. **Not a model.** |
+| [`stand-in-model/server.py`](assets/stand-in-model/server.py) | A small (about 240-line) keyword "model" behind an OpenAI-compatible endpoint | Lets you watch a prompt being evaluated without a model key. **Not a model.** |
 
 The 44 cases, by tag: billing 6, bug 6 (one is a 3.6 kB pasted log and stack trace), how_to 5, account 5, injection 4, multilingual 4 (Spanish, French, German,
 Japanese), feature_request 3, cancellation 3, security 3, ambiguous 3 (`App stuck`, `It doesn't work.`), edge 2 (an empty message, `???`). Expected intent: billing 10,
@@ -99,7 +100,7 @@ Prompt contract used by the lab: intents `billing`, `how_to`, `bug`, `account`, 
 | `CALIBER_PROMOTER_PROVIDER` / `CALIBER_ARTIFACT_STORE_PROVIDER` | `mlflow` / `mlflow` | The real release path (Apply moves the MLflow alias). |
 | `CALIBER_ADMIN_USERS`, `CALIBER_OPERATOR_USERS`, `CALIBER_APPROVER_USERS` | `admin` | Who may apply. Any other account is a **viewer**: Apply is `403`. |
 | `MLFLOW_TRACKING_URI` | from `env.sh` (e.g. `http://127.0.0.1:51005`) | The script and the checks read the registry directly from here. |
-| `CALIBER_BASE_URL` | `$CALIBER_URL` (the server root, **without** `/ajax-api/...`) | What `caliber_sdk` connects to. `env.sh` also exports `CALIBER_API`, which is the root plus the API path; use that one for `curl`. |
+| `CALIBER_BASE_URL` | `$CALIBER_URL` (the server root, **without** `/ajax-api/...`) | What `caliber_sdk` connects to; `source .tmp/cookbook-env/lab01/env.sh` already sets it. `env.sh` also exports `CALIBER_API`, which is the root plus the API path; use that one for `curl`. |
 | `CALIBER_TOKEN` | a personal access token | The SDK script's credential (minted below). |
 | `COOKBOOK_01_ASSETS` | optional | Use a different assets directory for the script. |
 | `COOKBOOK_01_HTTP_TIMEOUT` | optional, `900` | Seconds a synchronous evaluation may take (a scored run answers when all 44 examples are answered; the SDK's default 30 s would cut a real model off). |
@@ -346,7 +347,7 @@ modes will differ. The stand-in does not read other languages, for instance, so 
 
 ```bash
 python3 docs-site/cookbooks/01-prompt-regression-lab/assets/stand-in-model/server.py --port 8765 &
-CALIBER_LLM_PROVIDER=openai OPENAI_API_KEY=stand-in OPENAI_BASE_URL=http://127.0.0.1:8765/v1 CALIBER_EVAL_PROVIDER=mlflow \
+CALIBER_LLM_PROVIDER=openai OPENAI_API_KEY=stand-in ANTHROPIC_API_KEY=stand-in OPENAI_BASE_URL=http://127.0.0.1:8765/v1 CALIBER_EVAL_PROVIDER=mlflow \
   scripts/cookbook-env.sh up lab01eval --flags cookbooks --real-llm
 source .tmp/cookbook-env/lab01eval/env.sh     # a second stack, so lab01 keeps its simulated model
 curl -s $CALIBER_API/readiness | jq -c '.data|{providers,simulated}'
@@ -418,7 +419,7 @@ Verified on OpenAI: `gpt-5.6-luna` (the default) answers the prompts and runs th
 with the `Guidelines` scorer. Nothing but your key is configured.
 
 ```bash
-export OPENAI_API_KEY=<your key>       # in your own shell only; never commit it or paste it into a file the repository tracks
+export OPENAI_API_KEY=sk-...       # your own key, in your own shell only; never commit it or paste it into a file the repository tracks
 scripts/cookbook-env.sh up lab01h --flags cookbooks --real-llm         # CALIBER_LLM_PROVIDER=openai, CALIBER_EVAL_PROVIDER=mlflow, model gpt-5.6-luna
 source .tmp/cookbook-env/lab01h/env.sh
 curl -s $CALIBER_API/readiness | jq -c '.data|{ready,simulated,all_real}'      # {"ready":true,"simulated":[],"all_real":true}
@@ -718,7 +719,7 @@ controls only exist with it) and a real model (with the simulated assistant, tes
 They are UI-only (they call the assistant's `/assistant/*` sessions; the SDK script does not cover them). Verified, API-free, on the hosted tier:
 
 ```bash
-export OPENAI_API_KEY=<your key>
+export OPENAI_API_KEY=sk-...   # your own key
 scripts/cookbook-env.sh up lab01ha --flags cookbooks,aria --real-llm      # both flags; --real-llm for the assistant engine and the judge
 source .tmp/cookbook-env/lab01ha/env.sh
 cd caliber/caliber-ui

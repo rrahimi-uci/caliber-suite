@@ -18,9 +18,9 @@ A workflow that is fine on the tickets you tested and fails on the ones producti
 
 ## Prerequisites and setup
 
-You need a running CALIBER ([`docs/start/alpha-install.md`](../../../docs/start/alpha-install.md)), an administrator login, a worker (the workflow run queue is on in the lab stack) and Python with `caliber-sdk` for the script. Two things are specific to this lab:
+You need a running CALIBER ([`docs/start/alpha-install.md`](../../../docs/start/alpha-install.md)), an administrator login, a worker (the workflow run queue is on in the lab stack) and `caliber/.venv` with `caliber_sdk` installed for the script (see [Before you start](../README.md#before-you-start-one-time-setup)). Two things are specific to this lab:
 
-1. **The stand-in account service.** The workflow's `lookup` node calls an HTTP service. In production that is your own account API. Here it is [`assets/upstream/account_service.py`](assets/upstream/account_service.py), a 60-line server that is **not a real system**: it answers 200 for most account ids and reproduces a 503, a 500 and a 404 for three fixed ids so that the failures are the same every time.
+1. **The stand-in account service.** The workflow's `lookup` node calls an HTTP service. In production that is your own account API. Here it is [`assets/upstream/account_service.py`](assets/upstream/account_service.py), a small standard-library server (about 80 lines) that is **not a real system**: it answers 200 for most account ids and reproduces a 503, a 500 and a 404 for three fixed ids so that the failures are the same every time.
 2. **Egress.** CALIBER refuses outbound calls to loopback addresses unless the host is allowed, so the server must start with `CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1`. Against a real account API you would allow its hostname instead.
 
 **Simulated or real provider: nothing here needs a model.** The workflow has no agent node, so `CALIBER_LLM_PROVIDER=fake` (the shipped default) does not matter, and every number below is a measurement, not a canned score. What *is* limited is Preview: the editor's **Preview** button and a deploy gate's replay both refuse a workflow with Python-code or API-request nodes (`preview blocked before execution because ordinary Preview cannot isolate these capability nodes: ...`). That is why the lab proves the fix with real runs of the dataset on the new version, and why the last step ends in a refusal. See "What is not covered".
@@ -78,7 +78,7 @@ Why these: a schema failure, a timeout and an upstream error look the same on th
 The whole lab is one script. From the repository root:
 
 ```bash
-PYTHONPATH=sdk/caliber-sdk python sdk/caliber-sdk/examples/cookbooks/cookbook_09_self_healing_workflows.py
+PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_09_self_healing_workflows.py
 ```
 
 It takes about three minutes (about 75 runs, each picked up by the worker, plus the 2-second timeouts) and prints the following on success (ids vary; everything else is deterministic) and exits 0. It exits non-zero, naming the ticket and the value, as soon as a documented outcome does not hold.
@@ -184,7 +184,7 @@ CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" \
 
 ```bash
 # the script's workflow
-PYTHONPATH=sdk/caliber-sdk python sdk/caliber-sdk/examples/cookbooks/cookbook_09_self_healing_workflows.py --cleanup
+PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_09_self_healing_workflows.py --cleanup
 # or by hand: DELETE $CALIBER_API/workflows/WF-...   (and delete the workflow from Workflows in the UI)
 
 # everything

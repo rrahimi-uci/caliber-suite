@@ -6,7 +6,7 @@ tools it discovers.
 | Folder | Files | Used for |
 | --- | --- | --- |
 | [`server/`](server/) | `repo_tracker_mcp.py` | the MCP server CALIBER starts over stdio (also speaks streamable HTTP, optionally with a bearer token) |
-| [`dataset/`](dataset/) | `repositories.json`, `issues.json` | the data the server serves (24 repositories, 36 issues) |
+| [`dataset/`](dataset/) | `repositories.json`, `issues.json` | the data the server serves (24 repositories, 33 issues) |
 | [`dataset/`](dataset/) | `tool-classification.jsonl` | one row per tool: `allowed`, `side_effect_level`, `requires_approval`, `rate_limit_per_minute`, `why`. The literal `PATCH .../tools/{tool}/policy` bodies are these fields |
 | [`dataset/`](dataset/) | `calibration-cases.jsonl` | 28 cases (`id`, `tags`, `tool_name`, `name`, `input`, `assertion`): 16 for `search_repositories`, 8 for `list_issues`, 4 for `get_issue`. When posting, send `{name, input, assertion}` with `name` as `"<id> <name>"` |
 | [`dataset/`](dataset/) | `invoke-checks.jsonl` | 10 refusals and failures: the call, the error it must give (`error_contains`), whether the server executed it (`executed`) and whether it leaves a trace (`trace`) |

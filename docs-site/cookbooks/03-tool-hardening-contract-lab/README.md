@@ -50,7 +50,8 @@ you try the ways that can go wrong.
    Expected: `{"ready":true,"simulated":["eval","llm"]}`. The `simulated` providers play no part in this lab.
    The 5-second tool deadline only makes the "stalled tool" check quick; the default is 30 seconds and the check still passes.
 4. `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` is **not** set, which is what makes the second-person rule bite. Leave it unset.
-5. For the API path you need a token for `admin` (below) and the dev virtualenv, which already has `caliber_sdk` installed editable.
+5. For the API path you need a token for `admin` (below), `curl`, `jq`, and `caliber/.venv` with `caliber_sdk` installed (see
+   [Before you start](../README.md#before-you-start-one-time-setup)).
    For the UI path you need `npx` and Chromium (`cd caliber/caliber-ui && npx playwright install chromium`).
 
 ## Dataset and sample files

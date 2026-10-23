@@ -17,7 +17,7 @@ You are done when:
 
 ## Prerequisites and setup
 
-Follow [`docs/start/alpha-install.md`](../../../docs/start/alpha-install.md) for a real install. For this lab the repository's disposable environment does the same thing from a checkout, with the cookbooks flag on and a private S3 endpoint (`moto_server`, in memory) behind both the Object Store console and the workflow storage backend. Run everything from the repository root.
+Follow [`docs/start/alpha-install.md`](../../../docs/start/alpha-install.md) for a real install (it needs an S3-compatible object store behind it). For this lab the repository's disposable environment does the same thing from a checkout, with the cookbooks flag on and a private S3 endpoint (`moto_server`, in memory) behind both the Object Store console and the workflow storage backend. Run everything from the repository root.
 
 ```bash
 CALIBER_APPROVER_USERS=admin,reviewer CALIBER_OPERATOR_USERS=admin,reviewer \
@@ -195,7 +195,7 @@ Preview is not available for this workflow: the editor's Preview (and `POST /wor
 
 1. **Create the reviewer account, the workspace and the membership.** Open **Administration** (Admin group): under **Accounts** enter `reviewer` as *User ID* and `reviewer-pass-123` as *Password*, click **Create account**; `reviewer` appears in *Accounts in this deployment* (the platform scopes it needs come from `CALIBER_APPROVER_USERS` / `CALIBER_OPERATOR_USERS`, set when the environment started). Click the **+** beside the workspace selector in the top bar, name the workspace `invoice-intake`, click **Create and select**. Back on **Administration**, choose the workspace under **Project for access management**, enter `reviewer`, pick **Reviewer**, click **Add member**. The **Project members** table lists `reviewer`.
 2. **Create the two buckets.** **Object Store** (Agent resources): type `doc-intake` in *new-bucket-name* and click **+**, then `doc-extracted`. Both appear next to `caliber-workspaces`.
-3. **Upload the sample invoices.** Open `doc-intake`, **New folder** `incoming`, **Create**, open the folder, **Upload** and select all 30 files in `assets/dataset/sources/`. The folder lists 30 objects, from `empty.txt` (0 B) to `inv-2026-0123-oversized.txt` (about 120 KB).
+3. **Upload the sample invoices.** Open `doc-intake`, **New folder** `incoming`, **Create**, open the folder, **Upload** and select the 30 documents in `assets/dataset/sources/` (every file there except its `README.md`). The folder lists 30 objects, from `empty.txt` (0 B) to `inv-2026-0123-oversized.txt` (about 120 KB).
 4. **Preview a stored document.** Click the eye action on `inv-2026-0101-acme.txt`. The dialog shows `Acme Industrial Supply Co.` and `Invoice No: INV-2026-0101`.
 5. **Install the cookbook.** **Cookbooks** (Get started): on **Document-to-JSON Pipeline** click Install, name it `doc-intake-to-json`, tick the prerequisites acknowledgement, **Install paused draft**. The Studio opens with `read_document`, `extract_fields`, `validate_schema`, `package_result`, `route`, `emit_extracted`, `write_extracted`, `review_gate`, `emit_reviewed`, `write_reviewed` and `final` in the outline; **Validate** answers *Valid.*
 6. **Resume the installed workflow.** Open **Workflows**, the workflow's page, click **Resume** (it reads **Pause** afterwards), open the editor again and click **Run monitor**.

@@ -92,7 +92,7 @@ All under [`assets/`](assets/) (the folder's [README](assets/README.md) has the 
 | --- | --- | --- |
 | [`server/repo_tracker_mcp.py`](assets/server/repo_tracker_mcp.py) | the MCP server: 6 tools, a call ledger, optional HTTP transport | something real to connect to |
 | [`dataset/repositories.json`](assets/dataset/repositories.json) | 24 repositories: language, stars, topics, archived | what `search_repositories` searches |
-| [`dataset/issues.json`](assets/dataset/issues.json) | 36 issues across 6 repositories, open and closed | what `list_issues` and `get_issue` read |
+| [`dataset/issues.json`](assets/dataset/issues.json) | 33 issues across 6 repositories, open and closed | what `list_issues` and `get_issue` read |
 | [`dataset/tool-classification.jsonl`](assets/dataset/tool-classification.jsonl) | one row per tool: allowed, side effect, approval, rate limit, and why | the classification you save |
 | [`dataset/calibration-cases.jsonl`](assets/dataset/calibration-cases.jsonl) | 28 cases: 16 search, 8 list, 4 get | what you save and calibrate |
 | [`dataset/invoke-checks.jsonl`](assets/dataset/invoke-checks.jsonl) | 10 refusals and failures with the error each must give | the failure scenarios |

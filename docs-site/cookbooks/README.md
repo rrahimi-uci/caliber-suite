@@ -1,7 +1,7 @@
 # CALIBER Cookbooks
 
 Twenty build-along labs (numbered 01 to 16 and 18 to 21; 17 is a standalone SDK automation, `cookbook_17_financial_analysis.py`, with no
-catalog entry) that teach the CALIBER platform end-to-end. Each lab was run for real, step by step, against a disposable server
+catalog entry and no lab folder) that teach the CALIBER platform end-to-end. Each lab was run for real, step by step, against a disposable server
 (`scripts/cookbook-env.sh`) through the API and through the browser, and its README says which parts run on the alpha's default
 **simulated** model and evaluator and which are real. Every lab is also a versioned system example: with `CALIBER_FEATURE_COOKBOOKS=true`
 set on the server (see [Feature flags](#feature-flags-read-first)), open
@@ -14,13 +14,14 @@ the product does not represent an unavailable dependency as ready. The generated
 > **🎓 Training guide:** open [`../m-16-cookbooks.html`](../m-16-cookbooks.html) — a
 > polished, self-contained HTML guide with refreshed names, step-by-step UI
 > walkthroughs, Mermaid flow diagrams, UI mockups, asset tables, and quality
-> gates for all 17 cookbooks. (Regenerate with `python3 training/build.py`.)
+> gates for all 20 cookbooks. (It is generated from `training/content.py` and each lab's `training-steps.json`:
+> `node docs-site/build-docs.mjs` rebuilds it, or run `python3 docs-site/cookbooks/training/build.py` for the cookbook pages alone.)
 >
 > **Start here:** [`FEASIBILITY.md`](FEASIBILITY.md) is the verified capability
 > matrix (what ships ✅ / is partial ⚠️ / is aspirational ❌) plus the reusable
 > recipe conventions every `README.md` depends on. Read it before building.
 >
-> **Aria track (12–15):** needs `CALIBER_FEATURE_ARIA=true`.
+> **Aria track (12–15):** needs the Aria assistant, which **ships on** (`CALIBER_FEATURE_ARIA` defaults to true; the lab commands pass `--flags cookbooks,aria` so the dependency is explicit).
 > [`ARIA-AUTONOMY.md`](ARIA-AUTONOMY.md) covers the
 > scenarios where you give **Aria** a one-line intent and it plans + creates the
 > artifacts, with you filling each step's inputs in the plan's form and approving
@@ -34,19 +35,37 @@ the product does not represent an unavailable dependency as ready. The generated
 > critique — every scenario checked against the shipped code, the defects found
 > + fixed, and a per-scenario verdict.
 
+## Before you start (one-time setup)
+
+Run everything from the repository root of a source checkout. You need Python 3.10 to 3.12 (3.11 is what CI runs), Node.js with `npm`, `curl`
+and `jq` (the by-hand commands in the READMEs use it). Then, once:
+
+```bash
+cd caliber && make install && cd ..                      # creates caliber/.venv with the server and its dev extras (including moto and boto3, which --s3 uses)
+caliber/.venv/bin/pip install -e sdk/caliber-sdk -e sdk/caliber-cli    # the SDK every lab script imports (caliber_sdk); caliberctl, used by lab 18
+cd caliber/caliber-ui && npm ci && npx playwright install chromium && cd ../..   # only for the browser (UI) paths; the first stack start also builds the web bundle with npm
+```
+
+Lab 06 additionally needs the local embedding libraries (`caliber/.venv/bin/pip install -e "caliber[knowledge,knowledge-local]"`, or `cd caliber && make install-extended`)
+and the `all-MiniLM-L6-v2` model in the Hugging Face cache (about 90 MB; its README says how to warm it). Labs 01, 02, 06, 07, 08, 10, 12 to 14 and 15 also have an
+optional real-model tier that needs your own `OPENAI_API_KEY`; the default path of every lab needs no key and no network.
+
+The SDK examples are run as `PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python <script or -m module>` from the repository root, with `CALIBER_BASE_URL`
+and `CALIBER_TOKEN` set (the lab README shows how to mint the token; `source .tmp/cookbook-env/NAME/env.sh` sets `CALIBER_BASE_URL`).
+
 ## Feature flags (read first)
 
 The Cookbooks gallery, and several of the areas the labs build on, are preview or
-record-only areas of the alpha and are **off by default** on the server (Aria is the exception: it ships on, and `CALIBER_FEATURE_ARIA=false` switches it off). Each is a
-variable you set to `true` before starting CALIBER (the Docker stack passes them
+record-only areas of the alpha. Three of the four are **off by default** on the server; **Aria ships on**.
+Each is a variable (`true` or `false`) you set before starting CALIBER (the Docker stack passes them
 through from the environment), and a restart picks it up:
 
-| Variable | Turns on | Labs that need it |
-| --- | --- | --- |
-| `CALIBER_FEATURE_COOKBOOKS` | the Cookbooks gallery and `/cookbooks` API (installing a lab) | the gallery step of all 20; the only flag labs 01, 02, 03, 04, 06, 07, 08, 09, 10, 16, 18 and 20 need |
-| `CALIBER_FEATURE_ARIA` | the Aria assistant and **Plans** | 12, 13, 14, 15 |
-| `CALIBER_FEATURE_INTEGRATIONS` | MCP servers and OpenAPI integrations | 05, 19 |
-| `CALIBER_FEATURE_RELEASE_CANDIDATES` | release-candidate signoff on **Releases** (record-only) and workspace releases (experimental) | 11, 21 |
+| Variable | Default | Turns on | Labs that need it |
+| --- | --- | --- | --- |
+| `CALIBER_FEATURE_COOKBOOKS` | off | the Cookbooks gallery and `/cookbooks` API (installing a lab) | the gallery step of all 20; the only flag labs 01, 02, 03, 04, 06, 07, 08, 09, 10, 16, 18 and 20 need |
+| `CALIBER_FEATURE_ARIA` | **on** | the Aria assistant and **Plans** | 12, 13, 14, 15 (and the optional appendix of lab 01) |
+| `CALIBER_FEATURE_INTEGRATIONS` | off | MCP servers and OpenAPI integrations | 05, 19 |
+| `CALIBER_FEATURE_RELEASE_CANDIDATES` | off | release-candidate signoff on **Releases** and workspace releases (record-only) | 11, 21 |
 
 Every lab README repeats its own flags in a **Prerequisite flag** line under the title.
 A disabled area answers 404 with `reason_code: feature_disabled`, and
@@ -56,9 +75,11 @@ accept that area's preview behavior; see
 
 Beyond the flags, some labs need server settings or helpers that `scripts/cookbook-env.sh` provides. It starts a
 disposable stack (migrate, native MLflow, CALIBER, background workers, `/readiness` ready) on ports it picks, never touching
-port 5001; `--flags aria,integrations,cookbooks,release_candidates` (or `all`) turns the preview areas on, `--s3` starts a
-private S3-compatible endpoint (labs 04 and 06), `--real-llm` uses a real provider instead of the simulated one (the stand-in
-model of labs 01 and 10). Sign in as `admin` / `admin`.
+port 5001; `--flags cookbooks,aria,integrations,release_candidates` (or `all`) turns the preview areas on (an area you do not list keeps its default, so Aria stays on),
+`--s3` starts a private S3-compatible endpoint (labs 04 and 06), `--real-llm` uses a real provider instead of the simulated one (the stand-in
+model of labs 01 and 10, and lab 20's stand-in gateway). `restart NAME` reuses the flags of the last `up`; stop the stack and `up` it again to change them.
+Settings that are not flags (`CALIBER_OPERATOR_USERS`, `CALIBER_APPROVER_USERS`, `CALIBER_EGRESS_ALLOWED_HOSTS`, ...) are exported in your shell before `up`; each lab
+README lists exactly which. Sign in as `admin` / `admin`.
 
 ## Labs at a glance
 
@@ -74,22 +95,22 @@ from `caliber/caliber-ui`). The lab README holds the exact commands and the expe
 | 02 | none | 40 trigger cases | Trigger selection is deterministic and real. Calibration is simulated (a skill has no test set). |
 | 03 | none | 49 refund fixtures | No model anywhere: nothing simulated. Needs runtime approvals, the run queue and checkpointing, and `CALIBER_APPROVER_USERS=admin,approver1`. |
 | 04 | none (needs an S3-compatible store: `--s3`) | 30 invoice documents and `extraction-cases.jsonl` | No model is called: the extractor is a Python Code node and the check a JSON Schema node. |
-| 05 | `CALIBER_FEATURE_INTEGRATIONS` | the lab's own six-tool MCP server and 28 test cases | No model anywhere. A real MCP server over `stdio`; its ledger proves what a refusal stopped. |
+| 05 | `CALIBER_FEATURE_INTEGRATIONS` (plus `CALIBER_MCP_STDIO_PYTHON_SCRIPT_ALLOWLIST` naming the lab's server script) | the lab's own six-tool MCP server and 28 test cases | No model anywhere. A real MCP server over `stdio`; its ledger proves what a refusal stopped. |
 | 06 | none (`--s3`) | 11 policy documents, 48 questions (`qa-eval.jsonl`), 41 calibration questions | Storage, chunking, embeddings and retrieval ranking are real; answer text and model-judged scores are simulated. |
 | 07 | none | 44 realistic tickets | The classifier is rules, not a model; the `draft_reply` agent node is simulated. |
 | 08 | none | 41 incidents | The decision is declarative (Preview and the deploy gate can run it); the `draft_update` agent node is simulated. |
 | 09 | none (`CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1` for the stand-in account service) | 35 refund tickets | Real failures from real code; the account service is a stand-in. |
 | 10 | none | 50 reviewed support replies and incident summaries | A judge needs a real model: the default stack refuses, a stand-in model (`lab10m`, `--real-llm`) runs it. |
 | 11 | `CALIBER_FEATURE_RELEASE_CANDIDATES` | 20 release candidates | No model anywhere; signing off records a decision and deploys nothing. |
-| 12 | `CALIBER_FEATURE_ARIA` | 28 planner goals and 30 support questions | Rules-based planner. Scoring the judge is refused on the simulated stack. |
-| 13 | `CALIBER_FEATURE_ARIA` | 26 planner goals and 30 flagged agent replies (12 reviewed) | Rules-based planner; no model involved. |
-| 14 | `CALIBER_FEATURE_ARIA` | 28 planner goals and 30 policy questions | Rules-based planner. Scoring the judge is refused on the simulated stack. |
-| 15 | `CALIBER_FEATURE_ARIA` (plus background workers) | 28 planner goals, a workflow with a 30-case test set, 12 flagged traces | Rules-based planner; the calibration finds no candidate on the simulated stack. |
+| 12 | `CALIBER_FEATURE_ARIA` (on by default) | 28 planner goals and 30 support questions | Rules-based planner. Scoring the judge is refused on the simulated stack. |
+| 13 | `CALIBER_FEATURE_ARIA` (on by default) | 26 planner goals and 30 flagged agent replies (12 reviewed) | Rules-based planner; no model involved. |
+| 14 | `CALIBER_FEATURE_ARIA` (on by default) | 28 planner goals and 30 policy questions | Rules-based planner. Scoring the judge is refused on the simulated stack. |
+| 15 | `CALIBER_FEATURE_ARIA` (on by default; plus background workers) | 28 planner goals, a workflow with a 30-case test set, 12 flagged traces | Rules-based planner; the calibration finds no candidate on the simulated stack. |
 | 16 | none (`CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1`) | 40 production-like refund tickets (12 `ERROR`, 28 `OK`) | Real traces from lab 09's workflow; Evaluations is not used. |
 | 18 | none | a nine-person roster and a 72-request role matrix | No model; `/readiness` names the simulated providers. |
-| 19 | `CALIBER_FEATURE_INTEGRATIONS` (plus `CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1` and the lab's stand-in Ticket API) | a three-operation OpenAPI spec in two versions | No model anywhere. Import, preview, publish and reimport are real HTTP against the stand-in; its ledger proves what a refusal stopped. |
-| 20 | none (needs `--real-llm` routed at the lab's stand-in gateway) | a stand-in OpenAI-compatible gateway billing a flat 1000+1000 tokens per call | The "model" is the stand-in; discovery, routing, pricing, usage and exact cost are real, and the gateway's own ledger agrees with the meter. |
-| 21 | `CALIBER_FEATURE_RELEASE_CANDIDATES` | none -- every artifact is created live (see the lab's assets/README.md) | No model anywhere. Snapshots, diffs and the review are real; the release evaluation stays queued, the alpha's documented boundary. |
+| 19 | `CALIBER_FEATURE_INTEGRATIONS` (plus `CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1` and the lab's stand-in ticket API on port 8781) | an OpenAPI spec in two versions served by the lab's own Ticket API | No model anywhere. Import, preview and reimport are real outbound calls to a stand-in upstream; its own request log proves what a refusal stopped. |
+| 20 | none (needs `--real-llm`, routed at the lab's stand-in gateway on port 8791) | a flat-bill stand-in gateway and one metered workflow | The model is the stand-in gateway (a flat 1000 + 1000 tokens per call), so cost is exact; no real provider is called. |
+| 21 | `CALIBER_FEATURE_RELEASE_CANDIDATES` | none by design: the lab creates a prompt, a test set, revisions, a change request and a release live | No model. API/SDK only: this surface has no UI in the alpha, so the lab has no Playwright spec. |
 
 ## Folder contract
 
@@ -107,8 +128,10 @@ Every `cookbooks/<scenario>/` folder for scenarios 01–15 and 18–21 contains:
 - `verification.yaml`: judges, rule checks, quality gates, monitoring (note:
   `monitoring.traces` lists are evidence labels, **not** literal span names)
 
-Scenarios 01 to 16 and 18 each have a runnable SDK example that drives the lab and asserts the outcomes
+Scenarios 01 to 16 and 18 to 21 each have a runnable SDK example that drives the lab and asserts the outcomes
 (scenario 18's data files, `assets/dataset/team-roster.csv`, `role-matrix.csv` and `failure-scenarios.json`, are read and asserted by it).
+Every one of them except 21 also has a Playwright spec (21's surface has no UI in the alpha, so its `assets/` holds only a README: the lab creates everything live).
+Lab 17 is not a lab folder: it is the standalone script `sdk/caliber-sdk/examples/cookbooks/cookbook_17_financial_analysis.py`.
 
 Scenario 16 (`16-observability-triage`) is README-only: it has a `README.md`
 (with its quality gates), `training-steps.json`, and `assets/`, but no
@@ -135,6 +158,14 @@ Scenario 16 (`16-observability-triage`) is README-only: it has a `README.md`
 | 15 | `15-aria-triage-recalibrate-loop` | Aria: Triage & Recalibrate Loop | Aria |
 | 16 | `16-observability-triage` | Production Observability & Triage | Operate |
 | 18 | `18-projects-roles-tokens-audit` | Projects, Roles, Tokens & Audit | Gate |
+| 19 | `19-openapi-integration-governance-lab` | Governed OpenAPI Tool | Gate |
+| 20 | `20-llm-gateway-cost-guardrails-lab` | Metered LLM Gateway | Operate |
+| 21 | `21-workspace-source-to-release-lab` | Workspace Source-to-Release | Operate |
+
+**Lab 17, the standalone script.** `sdk/caliber-sdk/examples/cookbooks/cookbook_17_financial_analysis.py` has no README, catalog entry or folder here. It uses only the SDK to
+create a workspace, put a CSV in an object-store bucket, run a prompt over it on a **real model**, and persist and release the result. It refuses to start on a simulated
+language model, so it needs a stack like `OPENAI_API_KEY=... scripts/cookbook-env.sh up lab17 --flags aria --s3 --real-llm`, an admin token and `CALIBER_BASE_URL`
+(see [Before you start](#before-you-start-one-time-setup)); it prints one JSON summary and exits 0 on success. Its browser spec only inspects what the script created.
 
 ## Recommended training sequences
 
@@ -147,18 +178,20 @@ Scenario 16 (`16-observability-triage`) is README-only: it has a `README.md`
 - Operate a running workflow (60-90 min): `09 -> 16` (lab 16 replays lab 09's buggy version 1).
 - Team set-up and governance (45-60 min, no model needed): `18` on its own, before anyone else
   uses the platform: roles, project-bound tokens, the audit log and readiness.
+- Governed integrations (45-60 min, no model needed): `05 -> 19` (an MCP server, then an OpenAPI spec: classify first, then call).
+- Meter and release (no model needed): `20` (cost per call through a gateway) and `21` (revisions, change requests and the release gate, API only).
 
 ## How to execute one scenario
 
 1. Read the lab's `README.md`: what it demonstrates, **You are done when**, and what is simulated.
-2. Start a disposable stack with the lab's flags, for example
+2. Do the [one-time setup](#before-you-start-one-time-setup), then start a disposable stack with the lab's flags, for example
    `scripts/cookbook-env.sh up lab01 --flags cookbooks` then `source .tmp/cookbook-env/lab01/env.sh`
-   (the lab README has the exact line, including any extra variables), or use your own server built per
+   (the lab README has the exact line, including every variable to export first and any helper process to start), or use your own server built per
    [`docs/start/alpha-install.md`](../../docs/start/alpha-install.md). With `CALIBER_FEATURE_COOKBOOKS=true`
    set, **Cookbooks** (sidebar group **Get started**) lists the lab's readiness checks.
-3. Run the whole lab in one command with its SDK example
-   (`PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_NN_*.py`),
-   or follow the README's steps by hand (`curl`) or through the UI.
+3. Mint an admin access token (the lab README has the `curl` lines; **Settings > API tokens** does the same in the browser), then run the whole lab in one command
+   with its SDK example (`PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_NN_*.py`, or the `-m examples.cookbooks...`
+   form the lab README shows), or follow the README's steps by hand (`curl`) or through the UI.
 4. Run the browser path with the lab's Playwright spec (command above), then compare with `verification.yaml`.
 5. `scripts/cookbook-env.sh down NAME` removes the stack.
 
@@ -170,7 +203,7 @@ token the README mints, the lab's SDK example script (API path), the lab's Playw
 then teardown. It prints a table (lab, API, UI, seconds) and exits non-zero if any step failed.
 
 ```bash
-scripts/cookbook-run-all.sh                       # every lab (01-16 and 18), simulated providers, API and UI
+scripts/cookbook-run-all.sh                       # every lab (01-16 and 18-21), simulated providers, API and UI
 scripts/cookbook-run-all.sh --labs 01,02,18       # a selection (always run in lab order)
 scripts/cookbook-run-all.sh --api-only            # only the SDK example scripts (no browser)
 scripts/cookbook-run-all.sh --ui-only             # only the Playwright specs
@@ -179,13 +212,14 @@ scripts/cookbook-run-all.sh --tier standin --labs 01,10   # labs 01 and 10 behin
 scripts/cookbook-run-all.sh --journey             # the cross-lab "alpha path" on one shared stack (below)
 ```
 
-Prerequisites: `caliber/.venv` (`make install`), Node with `npm ci` done in `caliber/caliber-ui`, the Playwright browser
-(`cd caliber/caliber-ui && npx playwright install chromium`), `curl` and `perl`; lab 06 needs the all-MiniLM-L6-v2 embedding
-model in the Hugging Face cache (see its README). No model key is needed: the default tier is the simulated one every lab is
-written for.
+Prerequisites: the [one-time setup](#before-you-start-one-time-setup) above (`caliber/.venv` with the SDK installed, `npm ci` in `caliber/caliber-ui`, the Playwright browser),
+plus `curl` and `perl`; lab 06 needs the `knowledge-local` extra and the all-MiniLM-L6-v2 embedding model in the Hugging Face cache (the runner warms the cache itself,
+online, once; see the lab's README). No model key is needed: the default tier is the simulated one every lab is written for. The runner starts each lab's helper process itself
+(stand-in services on ports 8780, 8781, 8765, 8770 and 8791, moto for `--s3`) and mints each token the way that lab's README does. Lab 21 has no browser path, so the runner runs
+only its API step.
 
-- **Time.** A full pass (all 17 labs, API and UI) took about 33 minutes on a laptop; the journey about 12 minutes; `--api-only`
-  is faster. Most labs take one to four minutes; labs 09 and 16 take about four to five each. The runner keeps a Mac awake with
+- **Time.** A full pass of labs 01-16 and 18 (API and UI) took about 33 minutes on a laptop, and the journey about 12 minutes; labs 19 to 21 were added
+  afterwards and take a few minutes more (about one to four each); `--api-only` is faster. Most labs take one to four minutes; labs 09 and 16 take about four to five each. The runner keeps a Mac awake with
   `caffeinate`. A step that hangs is stopped after `COOKBOOK_RUN_ALL_API_TIMEOUT` / `COOKBOOK_RUN_ALL_UI_TIMEOUT` (default 1800 /
   2400 seconds). Run it in the background and poll its log (`scripts/cookbook-run-all.sh > run.log 2>&1 &`).
 - **Flags.** `--labs` selects labs; `--tier standin` swaps in the stand-in model servers of labs 01 and 10 (the only labs that
@@ -193,8 +227,8 @@ written for.
   and helper processes up (earlier labs are still torn down: only one stack runs at a time); `--journey` is described below.
 - **Isolation.** It only starts stacks named `ra-*`, never touches the Docker stack on port 5001 or ports 5000/5001/9000, refuses
   to start while another run holds its lock, and on exit (also on failure or Ctrl-C) stops its stack and every helper it started:
-  the stand-in account service (port 8780, labs 09 and 16), the stand-in model servers (ports 8765 and 8770) and moto (`--s3`,
-  labs 04 and 06). Those ports must be free.
+  the stand-in account service (port 8780, labs 09 and 16), the stand-in model servers (ports 8765 and 8770), the stand-in ticket API
+  (port 8781, lab 19), the stand-in LLM gateway (port 8791, lab 20) and moto (`--s3`, labs 04 and 06). Those ports must be free.
 - **Logs.** `.tmp/cookbook-run-all/<timestamp>/` (also `latest`): `labNN.up.log`, `labNN.api.log`, `labNN.ui.log`, the server
   log of a failed lab, and the Playwright output (`pw-labNN/`, traces and screenshots of failures). Access tokens are redacted
   from every log; the stack of a failed lab is left in `.tmp/cookbook-env/ra-labNN` for debugging.
@@ -218,11 +252,11 @@ are not part of the alpha path (a judge certification, release candidates and th
 
 ## Current UI notes (verified in the labs; see FEASIBILITY.md for the full matrix)
 
-- **Sidebar groups:** **Prompt lifecycle** (Prompts, Test Sets, Evaluations, Releases), **Agent resources**
+- **Sidebar groups:** **Get started** (Cookbooks), **Prompt lifecycle** (Prompts, Test Sets, Evaluations, Releases), **Agent resources**
   (Skills, Tools, Workflows, Knowledge Bases, Object Store, Judges, Agents), **Operate** (Observability,
-  Review Queues, Audit Log), **Integrations** (LLM Gateway, MCP Servers, OpenAPI Integrations, Cookbooks, Plans)
-  and **Admin** (Administration, Settings). MCP Servers, OpenAPI Integrations, Cookbooks and Plans appear
-  only with their flags on.
+  Review Queues, Audit Log, Plans), **Integrations** (LLM Gateway, MCP Servers, OpenAPI Integrations)
+  and **Admin** (Administration, Settings). Cookbooks, MCP Servers and OpenAPI Integrations appear only with their
+  flags on; Plans appears with Aria, which ships on.
 - **The default LLM and evaluator are fake** (`llm_provider` / `eval_provider` default to `fake`).
   **Evaluations** answers `400 evaluation requires a real LLM provider` (a missing test set is `404`), and
   prompt and skill calibration score candidates with canned numbers marked `simulated: true`
@@ -241,7 +275,7 @@ are not part of the alpha path (a judge certification, release candidates and th
   explicitly); **KB and tool/MCP calibration run inline**.
 - A second person approves: a run's starter cannot approve it (`403`) unless
   `CALIBER_APPROVAL_ALLOW_SELF_APPROVAL` is set; scopes come from server settings
-  (`CALIBER_APPROVER_USERS`, `CALIBER_OPERATOR_USERS`, `CALIBER_ADMIN_USERS`) (labs 03, 04, 05, 07, 08).
+  (`CALIBER_APPROVER_USERS`, `CALIBER_OPERATOR_USERS`, `CALIBER_ADMIN_USERS`) (labs 03, 04, 05, 07, 08, 11, 18, 19, 20, 21).
 - `Test Sets` rows link to `/eval-datasets/:id` (`EvalDatasetDetail.tsx`, a full row editor: add/revise/retire
   examples and add-from-trace); a file import is on a prompt's **Calibration** stage or through the API.
 - Skill package: export in UI (`Download ZIP`) and upload the ZIP directly with explicit

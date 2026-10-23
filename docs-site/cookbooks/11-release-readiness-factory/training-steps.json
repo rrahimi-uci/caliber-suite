@@ -117,7 +117,7 @@
       "see": "After the signoff and a reload the live board still reads <code>v1</code> and the timeline has no event for the prompt; after <strong>Make live</strong> it reads <code>v2</code> and the timeline records the promotion."
     },
     {
-      "where": "Admin › Audit Log",
+      "where": "Operate › Audit Log",
       "do": "Type <code>create_release_candidate</code>, then <code>waive_release_blocker</code>, <code>generate_release_allure_report</code> and <code>signoff_release_candidate</code> in <strong>Action</strong>.",
       "click": "Action",
       "see": "The newest row of each is by <code>admin</code>: the audit log names who created, waived, reported and signed."

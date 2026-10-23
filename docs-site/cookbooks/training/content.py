@@ -20,12 +20,12 @@ INTRO = {
     "kicker": "UI Training Guide",
     "title": "CALIBER Cookbooks",
     "tagline": (
-        "Seventeen practical, build-along recipes that teach the CALIBER platform "
+        "Twenty practical, build-along recipes that teach the CALIBER platform "
         "end-to-end — each backed by a versioned, installable system example with "
         "readiness checks and an explicit review-before-activation boundary."
     ),
     "meta": [
-        "17 cookbooks",
+        "20 cookbooks",
         "5 tracks",
         "UI-first",
         "Training-ready",
@@ -48,20 +48,20 @@ INTRO = {
             a <strong>UI mockup</strong>, an <strong>assets table</strong>, and <strong>quality gates</strong>.</li>
           <li>Every <strong>green link</strong> opens the copy-paste asset file in that cookbook's
             <code>assets/</code> folder — paste its contents into the matching field.</li>
-          <li><strong>Preview areas are off by default (Aria ships on).</strong> Each cookbook's notes name the feature flags it needs
-            (<code>CALIBER_FEATURE_COOKBOOKS</code> for the gallery; <code>CALIBER_FEATURE_ARIA</code> for labs 12–15,
-            <code>CALIBER_FEATURE_INTEGRATIONS</code> for labs 05 and 19, or <code>CALIBER_FEATURE_RELEASE_CANDIDATES</code> for labs 11 and 21).
+          <li><strong>Most preview areas are off by default; Aria ships on.</strong> Each cookbook's notes name the feature flags it needs
+            (<code>CALIBER_FEATURE_COOKBOOKS</code> for the gallery; <code>CALIBER_FEATURE_ARIA</code>, on by default, for labs 12–15;
+            <code>CALIBER_FEATURE_INTEGRATIONS</code> for labs 05 and 19; <code>CALIBER_FEATURE_RELEASE_CANDIDATES</code> for labs 11 and 21).
             Set them on the server and restart. <code>scripts/cookbook-env.sh up NAME --flags …</code> starts a disposable stack with them.</li>
         </ul>
       </div>
       <div class="callout">
-        <strong>The UI-first promise.</strong> With <code>CALIBER_FEATURE_COOKBOOKS=true</code> set on the server (off by default), open <strong>Cookbooks</strong> to install any of the 17 recipes as a paused workflow and editable draft. Review readiness before activation.
+        <strong>The UI-first promise.</strong> With <code>CALIBER_FEATURE_COOKBOOKS=true</code> set on the server (off by default), open <strong>Cookbooks</strong> to install any of the 20 recipes as a paused workflow and editable draft. Review readiness before activation.
         <ul>
           <li><strong>Test sets</strong> come from a file (<code>Upload JSON/JSONL</code>, labs 01 and 06) or from real runs (<code>Observability → open a trace → Add to test set</code>, lab 16).</li>
           <li><strong>The default model and evaluator are simulated.</strong> <code>Evaluations</code> refuses to score without a real model (<code>400 evaluation requires a real LLM provider</code>), and calibration evidence on the default stack is canned and marked <em>Simulated evaluation — not evidence</em>. Each lab says which of its steps are real and which are simulated.</li>
           <li><strong>Deterministic logic</strong> uses Data Transform for decisions, JSON Schema, mapping, confidence, and fixtures; Python Code remains a bounded extension.</li>
           <li><strong>Judges</strong> are for LLM-graded criteria; deterministic checks are <strong>scorers</strong> or assertions.</li>
-          <li><strong>Aria</strong> (12–15) plans from one sentence in <code>Plans</code> (needs <code>CALIBER_FEATURE_ARIA=true</code>, off by default). The planner is rules, not a model; nothing runs until you approve the plan, each step asks for the fields it cannot know, and Aria creates the artifact once you approve.</li>
+          <li><strong>Aria</strong> (12–15) plans from one sentence in <code>Plans</code> (needs <code>CALIBER_FEATURE_ARIA</code>, which ships on by default). The planner is rules, not a model; nothing runs until you approve the plan, each step asks for the fields it cannot know, and Aria creates the artifact once you approve.</li>
         </ul>
       </div>
     </div>
@@ -382,7 +382,7 @@ COOKBOOKS = [
             {"gate": "Version 2 and workflow review", "target": "69 chunks, rollback works; only the 0.25-confidence run is enqueued for review"},
         ],
         "notes": [
-            "<strong>Flag.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> and nothing else (no Aria, no integrations). Knowledge needs more than the base install: an S3-compatible store, <code>pip install \"caliber-suite[knowledge,knowledge-local]\"</code> and the <code>all-MiniLM-L6-v2</code> model (about 90 MB). Start with <code>HF_HUB_OFFLINE=1 scripts/cookbook-env.sh up lab06 --flags cookbooks --s3</code>.",
+            "<strong>Flag.</strong> <code>CALIBER_FEATURE_COOKBOOKS=true</code> and nothing else (no Aria, no integrations). Knowledge needs more than the base install: an S3-compatible store, the <code>knowledge-local</code> extra (from a checkout: <code>caliber/.venv/bin/pip install -e \"caliber[knowledge,knowledge-local]\"</code>) and the <code>all-MiniLM-L6-v2</code> model (about 90 MB). Start with <code>HF_HUB_OFFLINE=1 scripts/cookbook-env.sh up lab06 --flags cookbooks --s3</code>.",
             "<strong>Real:</strong> object store, queue and worker, chunking, embeddings, ranking, Recall@k, nDCG@k, the score gate, activation and rollback. <strong>Simulated</strong> (default <code>fake</code> LLM/eval providers): answer text is an extractive digest, Faithfulness and Answer-correctness are blank (<code>—</code>), and <strong>Evaluations</strong> refuses scoring with <code>400 evaluation requires a real LLM provider</code>.",
             "<strong>No decision is produced on a simulated stack.</strong> The <code>kb-answer</code> prompt and the <code>CitationFaithfulness</code> judge are stored for real, but answer, abstain or clarify and the 0.90 faithfulness target need a real model. The lab verifies the evidence (both conflicting refund documents are retrieved together) and what retrieval alone can refuse.",
             "<strong>The gate has a limit.</strong> 0.42 is tuned on this question set. It cannot refuse the 2 trap questions (Enterprise terms), whose policy exists but whose clause does not (scores 0.56 and 0.66); that needs a model and the review queue. Re-derive the gate from your own scores.",
@@ -548,7 +548,7 @@ COOKBOOKS = [
             "<strong>Nothing here needs a model.</strong> There is no agent node, so <code>CALIBER_LLM_PROVIDER=fake</code> does not matter and every number is measured. The poison records time out because Python <code>re</code> really backtracks.",
             "<strong>Preview and deploy gates cannot run this workflow.</strong> Python Code and API Request nodes are refused (<code>preview blocked before execution ...</code>), so the proof is real runs of the dataset on version 2, and a <code>prod</code> promotion is refused for lack of a deploy gate.",
             "<strong>Patching is manual.</strong> <code>propose-patch</code> is API only, agent-shaped (it cannot repair a code node) and no page calls it. Aria is not used and there is no UI for aliases: the alpha UI has one live alias (<code>prod</code>), so <code>staging</code> and its rollback are API only.",
-            "<strong>Run it.</strong> <code>PYTHONPATH=sdk/caliber-sdk python sdk/caliber-sdk/examples/cookbooks/cookbook_09_self_healing_workflows.py</code> (about three minutes, about 75 runs) or the spec <code>caliber/caliber-ui/e2e/cookbooks/labs/09-workflow-debugger.spec.ts</code> (<code>npx playwright test --config=playwright.labs.config.ts</code>); offline check <code>caliber/tests/test_cookbook_09_self_healing.py</code>.",
+            "<strong>Run it.</strong> <code>PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_09_self_healing_workflows.py</code> (about three minutes, about 75 runs) or the spec <code>caliber/caliber-ui/e2e/cookbooks/labs/09-workflow-debugger.spec.ts</code> (<code>npx playwright test --config=playwright.labs.config.ts</code>); offline check <code>caliber/tests/test_cookbook_09_self_healing.py</code>.",
             "<strong>Retry from a checkpoint</strong> exists for approvals and waits (lab 03), not for node failures; role failures are covered by lab 18.",
         ],
     },
@@ -805,7 +805,7 @@ COOKBOOKS = [
             {"gate": "Reimport diff", "target": "changed_count 2, breaking_count 1 after the upstream's spec changes; the operation whose request body gained a required field is absent from \"changed\""},
         ],
         "notes": [
-            "<strong>Flags.</strong> <code>CALIBER_FEATURE_INTEGRATIONS=true</code> opens the OpenAPI Integrations page and API, shared with cookbook 05's MCP governance. Start with <code>scripts/cookbook-env.sh up lab19 --flags integrations</code>.",
+            "<strong>Flags.</strong> <code>CALIBER_FEATURE_INTEGRATIONS=true</code> opens the OpenAPI Integrations page and API, shared with cookbook 05's MCP governance; <code>CALIBER_FEATURE_COOKBOOKS=true</code> is needed for the script's last (gallery) stage. Start with <code>scripts/cookbook-env.sh up lab19 --flags integrations,cookbooks</code> (the lab README has the full list of exports to make first).",
             "<strong>Egress and the secret.</strong> The upstream runs on loopback, so <code>CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1</code> is required for import, preview and reimport to reach it. <code>OPENAPI_TICKET_TOKEN</code> must be the same literal value in both the upstream's environment and CALIBER's (the auth binding reads it as <code>env://OPENAPI_TICKET_TOKEN</code>).",
             "<strong>Preview is not simulated.</strong> <code>result</code> is <code>{status_code, text, json, headers}</code> from a real outbound call; a non-2xx upstream response comes back as data, not as a thrown error.",
             "<strong>Four different gates, easy to conflate.</strong> <code>resource.execute</code> gates preview; the strictly narrower <code>resource.publish</code> gates publish; <code>resource.approve</code> plus the platform <strong>approver</strong> scope (independent of either) gates approving a workflow run.",
@@ -831,7 +831,7 @@ COOKBOOKS = [
         ],
         "build": "An OpenAI-compatible stand-in gateway (<code>assets/server/llm_gateway.py</code>) that serves the MLflow AI Gateway discovery listing and <code>/v1/chat/completions</code> behind a bearer key, billing a flat 1000+1000 tokens per call so the arithmetic is checkable by eye. The stack boots with a deliberately wrong provider key; the first run fails with the gateway's own 401 (in the gateway's ledger), an admin rotates the key live through the audited Settings surface, and the next run adds exactly 2000 tokens and $3.00 to the model's usage row. A rate change re-prices only subsequent calls. The key's durable home -- the encrypted secrets store -- and a deterministic guardrail definition close the loop.",
         "learn": [
-            "Read <strong>Operate &gt; LLM Gateway &gt; Endpoints</strong>: configured, reachable, <em>Through gateway</em> (CALIBER's own LLM base URL points at it), and the gateway's endpoint rows -- and watch the page degrade to <em>Unreachable</em> with the error while the gateway is down, instead of breaking",
+            "Read <strong>Integrations &gt; LLM Gateway &gt; Endpoints</strong>: configured, reachable, <em>Through gateway</em> (CALIBER's own LLM base URL points at it), and the gateway's endpoint rows -- and watch the page degrade to <em>Unreachable</em> with the error while the gateway is down, instead of breaking",
             "Diagnose a credential failure by its evidence: a run that errors with the gateway's <code>401</code> plus a refused line in the gateway's own ledger means the key reached the gateway and was wrong there -- then rotate it at runtime (<code>PATCH /settings/llm</code>, admin-only, audited, fingerprint-masked)",
             "Price a model on the <strong>Pricing</strong> tab in USD per 1K tokens: duplicates 409, viewer creation 403, edits admin-only",
             "Read the <strong>Usage</strong> tab after a run: calls, tokens and <em>exact</em> cost per model, aggregated from trace spans -- and see that raising a rate never rewrites what past calls cost",
@@ -858,7 +858,7 @@ COOKBOOKS = [
             {"gate": "Audit", "target": "settings.update_llm, create/update_llm_pricing, put/revoke_secret and create/delete_gateway_guardrail each appear in the audit log"},
         ],
         "notes": [
-            "<strong>Flags.</strong> The gateway surface needs no feature flag; only the gallery step needs <code>cookbooks</code>. The stack itself must be started with <code>--real-llm</code> and routed through the stand-in: <code>CALIBER_GATEWAY_URI=http://127.0.0.1:8791</code>, <code>CALIBER_LLM_BASE_URL=http://127.0.0.1:8791/v1</code>.",
+            "<strong>Flags.</strong> The gateway surface needs no feature flag; only the gallery step needs <code>cookbooks</code>. The stack itself must be started with <code>--real-llm</code> and routed through the stand-in: <code>CALIBER_GATEWAY_URI=http://127.0.0.1:8791</code>, <code>CALIBER_LLM_BASE_URL=http://127.0.0.1:8791/v1</code>, plus a generated <code>LAB20_SECRET_KEY</code> for the secrets stage and <code>CALIBER_OPERATOR_USERS=admin,lab20-operator</code>; the lab README's Prerequisites has every export, in order.",
             "<strong>The base URL ends in /v1.</strong> The OpenAI client appends <code>/chat/completions</code> to it. A value ending in <code>/gateway</code> 404s against the standalone MLflow gateway -- this lab fixed that example in <code>.env.example</code> and the gateway deployment README.",
             "<strong>Boot with the wrong key on purpose.</strong> <code>OPENAI_API_KEY=lab20-boot-key-wrong</code> both stages the lab's credential-failure beat and keeps your real key out of a disposable stack (<code>--real-llm</code> would otherwise read it from <code>.env</code>).",
             "<strong>Cost is written at call time.</strong> The agent-turn span carries tokens, model and cost computed from the pricing table at that moment; <code>/gateway/usage</code> only aggregates spans. Editing a rate re-prices the future, never history -- an audit property and a bookkeeping caveat in one.",
@@ -962,7 +962,7 @@ COOKBOOKS = [
             {"gate": "Script and UI spec", "target": "script prints \"All documented outcomes verified.\" (exit 0); Playwright 12-aria-evaluation-harness.spec.ts passes"},
         ],
         "notes": [
-            "<strong>Flags.</strong> <code>CALIBER_FEATURE_ARIA=true</code> opens <code>/aria/*</code> and <strong>Plans</strong> (404 <code>feature_disabled</code> without it); <code>CALIBER_FEATURE_COOKBOOKS=true</code> is only needed for the gallery card. Start the stack with <code>scripts/cookbook-env.sh up lab12 --flags cookbooks,aria</code>.",
+            "<strong>Flags.</strong> <code>CALIBER_FEATURE_ARIA=true</code> opens <code>/aria/*</code> and <strong>Plans</strong> (Aria ships on by default; <code>404 feature_disabled</code> only if it was set to <code>false</code>); <code>CALIBER_FEATURE_COOKBOOKS=true</code> is only needed for the gallery card. Start the stack with <code>scripts/cookbook-env.sh up lab12 --flags cookbooks,aria</code>.",
             "<strong>Operator accounts.</strong> Export <code>CALIBER_OPERATOR_USERS=admin,olga</code> before starting the stack: <code>judge.create</code> and <code>eval_dataset.create</code> need <code>caliber.operator</code>, and <code>vera</code> (created by the script) must not be an operator.",
             "<strong>Simulated vs real.</strong> The planner is rules (no model, same on a real deployment); <code>judge.create</code>, <code>eval_dataset.create</code> and the 30 rows are real. With the default <code>fake</code> LLM/eval providers <strong>Evaluations</strong> is refused (<code>400 evaluation requires a real LLM provider</code>), so the lab verifies the refusal, not a score; <strong>Ask Aria</strong> is not used.",
             "<strong>Planner limits.</strong> It does not read negation, synonyms beyond <code>testset</code> / <code>test set</code> / <code>test-set</code> / <code>eval dataset</code> / <code>eval_dataset</code>, or questions, and matches <code>judge</code> inside <code>judgement</code>. \"Faithfulness scoring\" and \"evaluation dataset\" do not match, so read the plan before approving.",
@@ -1013,7 +1013,7 @@ COOKBOOKS = [
             {"gate": "Script and UI spec", "target": "script prints \"All documented outcomes verified.\" (exit 0); Playwright 13-aria-review-queue.spec.ts passes"},
         ],
         "notes": [
-            "<strong>Flags.</strong> <code>CALIBER_FEATURE_ARIA=true</code> opens <code>/aria/*</code> and <strong>Plans</strong> (404 <code>feature_disabled</code> without it); <code>CALIBER_FEATURE_COOKBOOKS=true</code> is only for the gallery card. <code>scripts/cookbook-env.sh up lab13 --flags cookbooks,aria</code> with <code>CALIBER_OPERATOR_USERS=admin,olga</code> exported first (<code>vera</code> must not be an operator).",
+            "<strong>Flags.</strong> <code>CALIBER_FEATURE_ARIA=true</code> opens <code>/aria/*</code> and <strong>Plans</strong> (Aria ships on by default; <code>404 feature_disabled</code> only if it was set to <code>false</code>); <code>CALIBER_FEATURE_COOKBOOKS=true</code> is only for the gallery card. <code>scripts/cookbook-env.sh up lab13 --flags cookbooks,aria</code> with <code>CALIBER_OPERATOR_USERS=admin,olga</code> exported first (<code>vera</code> must not be an operator).",
             "<strong>No model anywhere.</strong> The planner is rules (same on a real deployment) and review is people's work; the 12 reviews are the labels in <code>assets/dataset/agent-replies.jsonl</code>, submitted by the script. Judge alignment against them needs a real model and is lab 10.",
             "<strong>Traces are seeded.</strong> A fresh checkout has no agent, so <code>assets/seed_traces.py</code> writes 30 MLflow traces (needs <code>mlflow</code> from the dev virtualenv and <code>MLFLOW_TRACKING_URI</code> from <code>env.sh</code>); with your own agent you copy the flagged trace ids.",
             "<strong>The enqueue does not check ids.</strong> A trace id that does not exist is queued (201, pending) and fails when reviewed (502 <code>RESOURCE_DOES_NOT_EXIST</code>); it stays pending. The enqueue does not discover traces either.",
@@ -1066,7 +1066,7 @@ COOKBOOKS = [
             {"gate": "Refusals hold", "target": "denied queue skips enqueue; taken queue name fails the plan and the judge stays; bad judge fails before anything else is made; no-step goal 409; no operator scope creates nothing; non-owner 403 / 404"},
         ],
         "notes": [
-            "<strong>Flags.</strong> <code>CALIBER_FEATURE_ARIA=true</code> opens <code>/aria/*</code> and <strong>Plans</strong> (404 <code>feature_disabled</code> without it); <code>CALIBER_FEATURE_COOKBOOKS=true</code> is only for the gallery card. <code>scripts/cookbook-env.sh up lab14 --flags cookbooks,aria</code> with <code>CALIBER_OPERATOR_USERS=admin,olga</code> exported first (<code>vera</code> must not be an operator).",
+            "<strong>Flags.</strong> <code>CALIBER_FEATURE_ARIA=true</code> opens <code>/aria/*</code> and <strong>Plans</strong> (Aria ships on by default; <code>404 feature_disabled</code> only if it was set to <code>false</code>); <code>CALIBER_FEATURE_COOKBOOKS=true</code> is only for the gallery card. <code>scripts/cookbook-env.sh up lab14 --flags cookbooks,aria</code> with <code>CALIBER_OPERATOR_USERS=admin,olga</code> exported first (<code>vera</code> must not be an operator).",
             "<strong>Simulated vs real.</strong> The planner is rules (no model, same on a real deployment); the judge, queue, test set and the 30 rows are real. With the default <code>fake</code> LLM/eval providers <strong>Evaluations</strong> is refused (<code>400 evaluation requires a real LLM provider</code>); a real provider would let the judge score the 30 rows.",
             "<strong>Three names.</strong> Each step asks for its own <code>name</code>; nothing is shared between the judge, queue and test set (an older build linked names). Names are unique across the deployment, archived ones included.",
             "<strong>Planner limits.</strong> Domain words only: <code>judge</code>, <code>eval dataset</code>, <code>test set</code>, <code>review queue</code>, <code>workflow</code>. \"Governance\", \"starter kit\" and \"spot-check\" plan nothing; <code>test-set</code> works but <code>review-queue</code> does not; negation and \"delete\" are not read; a <code>workflow</code> plans a calibration of an existing one (lab 15), Aria cannot build one.",
