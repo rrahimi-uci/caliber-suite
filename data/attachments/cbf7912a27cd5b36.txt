@@ -1,0 +1,130 @@
+INFO     caliber:server.py:558 CALIBER plugin starting (log_level=INFO, log_sink=s3)
+INFO     caliber.observability.mlflow_tracing:mlflow_tracing.py:635 CALIBER tracing: autolog enabled for openai
+INFO     caliber:server.py:345 encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve
+INFO     caliber:server.py:931 CALIBER assistant engine: fake (configured=fake)
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/projects "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/skills/SK-fbbc16ae "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-2caa2294/publish "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/deployments/prod/promote "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-2caa2294/run "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/service "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/service/tokens "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-f1439e3a/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-378614ef/publish "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-f1439e3a/deployments/prod/promote "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills/import-package "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills/import-package.zip "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills/test-runs "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills/SK-fbbc16ae/baseline "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills/SK-fbbc16ae/bind "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills/SK-fbbc16ae/calibrate "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/skills/SK-fbbc16ae "HTTP/1.1 403 Forbidden"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/skills/SK-fbbc16ae/rollback "HTTP/1.1 403 Forbidden"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools "HTTP/1.1 403 Forbidden"
+INFO     httpx2:_client.py:1084 HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-c5c80f92 "HTTP/1.1 403 Forbidden"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/test-runs "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-c5c80f92/test-run "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: PUT http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-c5c80f92/test-cases "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-c5c80f92/baseline "HTTP/1.1 404 Not Found"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-c5c80f92/calibrate "HTTP/1.1 400 Bad Request"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-c5c80f92/calibration-jobs "HTTP/1.1 400 Bad Request"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-c5c80f92/calibration-jobs/CAL-ISO/resolve "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/import "HTTP/1.1 400 Bad Request"
+INFO     httpx2:_client.py:1084 HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/session-memory?session_id=s1 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/versions "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-13042a08 "HTTP/1.1 409 Conflict"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-2caa2294/restore "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-13042a08/compile "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-13042a08/propose-patch "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-13042a08/copilot-edit "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-13042a08/plan-build "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-13042a08/publish "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-2caa2294/preview-run "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-2caa2294/run "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs "HTTP/1.1 202 Accepted"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-f1439e3a/trigger "HTTP/1.1 202 Accepted"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/resume-by-event "HTTP/1.1 202 Accepted"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-4090d651/cancel "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-4090d651/retry "HTTP/1.1 202 Accepted"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-4090d651/resume "HTTP/1.1 409 Conflict"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-4090d651/approval/approve "HTTP/1.1 403 Forbidden"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-4090d651/approval/reject "HTTP/1.1 403 Forbidden"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-4090d651/files "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-runs/WR-4090d651/artifacts "HTTP/1.1 404 Not Found"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/calibration/runs "HTTP/1.1 400 Bad Request"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/deployments/dev/promote "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/deployments/dev/rollback "HTTP/1.1 404 Not Found"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-promotions/PRM-ISO/approve "HTTP/1.1 403 Forbidden"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-promotions/PRM-ISO/reject "HTTP/1.1 403 Forbidden"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/service "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/service/tokens "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports "HTTP/1.1 201 Created"
+INFO     httpx2:_client.py:1084 HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports/WFB-70a6a31a "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases "HTTP/1.1 503 Service Unavailable"
+INFO     httpx2:_client.py:1084 HTTP Request: PATCH http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-ISO "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-ISO/versions "HTTP/1.1 503 Service Unavailable"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-ISO/versions/KBV-ISO/activate "HTTP/1.1 409 Conflict"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-ISO/baseline "HTTP/1.1 400 Bad Request"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-ISO/calibrate "HTTP/1.1 404 Not Found"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-ISO/rollback "HTTP/1.1 409 Conflict"
+INFO     httpx2:_client.py:1084 HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/tools/TL-c5c80f92/archive "HTTP/1.1 403 Forbidden"
+INFO     httpx2:_client.py:1084 HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/service/tokens/svtc578f5b9 "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3/service "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/workflow-benchmark-reports/WFB-70a6a31a "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/workflows/WF-2b4644d3 "HTTP/1.1 409 Conflict"
+WARNING  caliber.knowledge.service:service.py:5284 best-effort object-store cleanup failed for knowledge-base output iso-bucket/iso/
+Traceback (most recent call last):
+  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/knowledge/service.py", line 5272, in _best_effort_delete_output_prefix
+    response = client.list_objects_v2(**kwargs)
+               ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/botocore/client.py", line 606, in _api_call
+    return self._make_api_call(operation_name, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/botocore/context.py", line 123, in wrapper
+    return func(*args, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/botocore/client.py", line 1076, in _make_api_call
+    http, parsed_response = self._make_request(
+                            ^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/botocore/client.py", line 1100, in _make_request
+    return self._endpoint.make_request(operation_model, request_dict)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/botocore/endpoint.py", line 119, in make_request
+    return self._send_request(request_dict, operation_model)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/botocore/endpoint.py", line 198, in _send_request
+    request = self.create_request(request_dict, operation_model)
+              ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/botocore/endpoint.py", line 132, in create_request
+    self._event_emitter.emit(
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/botocore/hooks.py", line 412, in emit
+    return self._emitter.emit(aliased_event_name, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/botocore/hooks.py", line 256, in emit
+    return self._emit(event_name, kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/botocore/hooks.py", line 239, in _emit
+    response = handler(**kwargs)
+               ^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/botocore/signers.py", line 108, in handler
+    return self.sign(operation_name, request)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/botocore/signers.py", line 200, in sign
+    auth.add_auth(request)
+  File "/opt/hostedtoolcache/Python/3.11.17/x64/lib/python3.11/site-packages/botocore/auth.py", line 432, in add_auth
+    raise NoCredentialsError()
+botocore.exceptions.NoCredentialsError: Unable to locate credentials
+INFO     httpx2:_client.py:1084 HTTP Request: DELETE http://testserver/ajax-api/2.0/mlflow/caliber/knowledge-bases/KB-ISO "HTTP/1.1 200 OK"
+INFO     httpx2:_client.py:1084 HTTP Request: GET http://testserver/ajax-api/2.0/mlflow/caliber/workflow-versions/WFV-13042a08 "HTTP/1.1 200 OK"

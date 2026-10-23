@@ -1,7 +1,0 @@
-{"t":"2026-10-23T12:37:23.975Z","severity":"INFO","logger":"caliber","message":"CALIBER plugin starting (log_level=INFO, log_sink=s3)"}
-{"t":"2026-10-23T12:37:23.989Z","severity":"INFO","logger":"caliber.observability.mlflow_tracing","message":"CALIBER tracing: autolog enabled for openai"}
-{"t":"2026-10-23T12:37:23.995Z","severity":"WARNING","logger":"caliber","message":"auth bootstrap admin 'admin' was not created: password must be at least 12 characters"}
-{"t":"2026-10-23T12:37:23.996Z","severity":"INFO","logger":"caliber","message":"encrypted secret store disabled (CALIBER_SECRET_ENCRYPTION_KEY_SOURCE unset); secret:// references will not resolve"}
-{"t":"2026-10-23T12:37:23.997Z","severity":"INFO","logger":"caliber","message":"CALIBER assistant engine: fake (configured=fake)"}
-{"t":"2026-10-23T12:37:24.093Z","severity":"WARNING","logger":"caliber.routes.auth","message":"failed sign-in for 'admin' from testclient","trace_id":"4b90d31ec5d75223"}
-{"t":"2026-10-23T12:37:24.095Z","severity":"INFO","logger":"httpx2","message":"HTTP Request: POST http://testserver/ajax-api/2.0/mlflow/caliber/auth/login \"HTTP/1.1 401 Unauthorized\""}
