@@ -1177,6 +1177,18 @@ export function CaliberAssistantPanel(): JSX.Element | null {
 
             {/* ---- Input ---- */}
             <div className="space-y-3 border-t border-slate-200 bg-gradient-to-b from-white to-slate-50/80 p-3 dark:border-slate-700 dark:from-slate-900 dark:to-slate-950/80">
+              {/* Say so before the first send, not after a failed one (alpha gap P1-11). A server
+                  that does not report ``configured`` is treated as configured. */}
+              {assistantConfig?.configured === false && (
+                <div
+                  role="status"
+                  data-testid="assistant-unconfigured"
+                  className="rounded-xl border border-amber-300/70 bg-amber-50 px-3 py-2 text-xs text-amber-900 dark:border-amber-500/40 dark:bg-amber-950/40 dark:text-amber-200"
+                >
+                  {assistantConfig.reason ??
+                    "Aria is not configured on this deployment."}
+                </div>
+              )}
               <div className="rounded-[26px] border border-slate-200/80 bg-white/90 shadow-sm dark:border-slate-700 dark:bg-slate-950/75">
                 <div className="border-b border-slate-200/80 px-2.5 py-2 dark:border-slate-700/80">
                   <div className="flex flex-wrap items-center gap-2">

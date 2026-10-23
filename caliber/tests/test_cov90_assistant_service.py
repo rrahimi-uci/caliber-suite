@@ -36,6 +36,7 @@ from caliber.assistant.models import (
 from caliber.assistant.service import (
     AssistantRuntimeSettings,
     AssistantService,
+    AssistantUnavailableError,
     ConflictError,
     _assistant_process_steps,
     _content_hash,
@@ -2029,8 +2030,11 @@ def test_draft_prompt_engine_raises() -> None:
             raise RuntimeError("boom")
 
     svc = AssistantService(engine=_Boom())  # type: ignore[arg-type]
-    result = svc.draft_prompt_from_description("do a thing")
-    assert result["template"] == ""
+    # An engine that never answers is an outage, not "no usable draft": it must not be
+    # dressed up as an empty draft the prompt builder would seed as Aria's work.
+    with pytest.raises(AssistantUnavailableError) as raised:
+        svc.draft_prompt_from_description("do a thing")
+    assert str(raised.value) == "An error occurred: RuntimeError"
 
 
 def test_draft_prompt_ignores_non_prompt_delta() -> None:

@@ -567,6 +567,16 @@ class AssistantSessionCredentialMismatchError(ValueError):
     """Raised when a bound credential cannot use the session's project."""
 
 
+class AssistantUnavailableError(RuntimeError):
+    """Raised when the engine could not answer at all (no key, rejected key, provider down).
+
+    Distinct from "the engine answered but produced nothing usable": a caller that can fall back
+    on the latter must not silently fall back on this one, or a default install with no API key
+    presents the user's own text as if Aria had drafted it. The message is the user-facing one from
+    :func:`assistant_failure_message`.
+    """
+
+
 def default_prompt_fetcher(name: str) -> str | None:
     """Best-effort fetch of a prompt's template text from the MLflow registry.
 
@@ -4916,6 +4926,8 @@ class AssistantService:
         session_id = new_assistant_session_id()
         history: list[dict[str, Any]] = []
         reply = ""
+        answered = False
+        engine_error: Exception | None = None
         for index in range(max(1, max_turns)):
             message = (
                 clean
@@ -4931,9 +4943,11 @@ class AssistantService:
             )
             try:
                 result = self._engine.run_turn(request)
-            except Exception:
+            except Exception as exc:
                 logger.warning("assistant draft turn failed", exc_info=True)
+                engine_error = exc
                 break
+            answered = True
             if result.reply:
                 reply = result.reply
             history.append({"role": "user", "content": message})
@@ -4956,8 +4970,14 @@ class AssistantService:
                     }
             if result.done:
                 break
-        # No usable draft — return an empty template; the builder falls back to
-        # seeding the description so the user still continues the manual flow.
+        if engine_error is not None and not answered:
+            # The engine never answered (no key, a rejected key, the provider down): say so,
+            # rather than returning an empty draft the builder would present as Aria's work.
+            raise AssistantUnavailableError(
+                assistant_failure_message(engine_error)
+            ) from engine_error
+        # The engine answered but produced no usable draft — return an empty template; the
+        # builder falls back to seeding the description so the user still continues the manual flow.
         return {
             "reply": reply,
             "name": "",

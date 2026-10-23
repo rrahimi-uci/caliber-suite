@@ -98,6 +98,69 @@ describe("CaliberAssistantPanel", () => {
     expect(screen.getByText("Aria")).toBeInTheDocument();
   });
 
+  // Alpha gap P1-11: Aria ships on, and on a default install it has no engine key. The panel says so
+  // up front instead of letting the first message fail.
+  describe("when the engine is not configured", () => {
+    const assistantConfig = (extra: Record<string, unknown>) =>
+      http.get(`${API_BASE}/assistant/config`, () =>
+        HttpResponse.json(
+          envelope({
+            engine: "openai",
+            model: "gpt-5.6-luna",
+            provider: "openai",
+            reasoning: "high",
+            enabled: true,
+            disabled_intents: [],
+            disabled_domains: [],
+            available_models: [],
+            ...extra,
+          }),
+        ),
+      );
+
+    it("shows the server's reason before any message is sent", async () => {
+      const reason =
+        "Aria needs an LLM API key, and OPENAI_API_KEY is not set. Set it and restart CALIBER, or save a key under Settings, Providers.";
+      server.use(assistantConfig({ configured: false, reason }));
+
+      renderPanel();
+      await openPanel();
+
+      const notice = await screen.findByTestId("assistant-unconfigured");
+      expect(notice).toHaveTextContent("OPENAI_API_KEY is not set");
+      expect(notice).toHaveAttribute("role", "status");
+    });
+
+    it("falls back to a generic notice when the server gives no reason", async () => {
+      server.use(assistantConfig({ configured: false, reason: null }));
+
+      renderPanel();
+      await openPanel();
+
+      expect(await screen.findByTestId("assistant-unconfigured")).toHaveTextContent(
+        "Aria is not configured on this deployment.",
+      );
+    });
+
+    it("shows nothing when the engine is configured", async () => {
+      server.use(assistantConfig({ configured: true, reason: null }));
+
+      renderPanel();
+      await openPanel();
+
+      await waitFor(() => expect(screen.getByText("Aria")).toBeInTheDocument());
+      expect(screen.queryByTestId("assistant-unconfigured")).not.toBeInTheDocument();
+    });
+
+    it("treats a server that does not report configured as configured", async () => {
+      renderPanel();
+      await openPanel();
+
+      await waitFor(() => expect(screen.getByText("Aria")).toBeInTheDocument());
+      expect(screen.queryByTestId("assistant-unconfigured")).not.toBeInTheDocument();
+    });
+  });
+
   it("restores a persisted active session and hydrates its runtime metadata", async () => {
     window.localStorage.setItem(ACTIVE_SESSION_KEY, "ASST-restore0001");
     server.use(
