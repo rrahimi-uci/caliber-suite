@@ -7,6 +7,16 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Fixed
+
+- **Aria no longer pretends on an install with no engine key.** Aria ships on, and without `OPENAI_API_KEY` or
+  `ANTHROPIC_API_KEY` the default `assistant_engine=auto` resolves to an engine that cannot answer. The top-bar
+  toggle and chat replies already said so; two places did not. `POST /assistant/prompt-draft` ("Describe it")
+  answered HTTP 200 with an empty draft, and the prompt builder then seeded the user's own text as if the assistant
+  had drafted it: it now answers 503 with the actionable reason (an engine that answered but produced no usable
+  draft still falls back to the manual builder). And the Aria panel now shows the reason as soon as it opens, rather
+  than after a failed first message.
+
 ### Changed
 
 - **Aria now ships on by default.** `CALIBER_FEATURE_ARIA` (`feature_aria_enabled`) defaults to `true` instead
