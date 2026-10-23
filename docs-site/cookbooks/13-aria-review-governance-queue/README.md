@@ -1,6 +1,6 @@
 # Aria: Human-Review Queue from Intent
 
-> **Prerequisite flag:** `CALIBER_FEATURE_ARIA=true` (Aria and its **Plans** page are a preview area, off by default; the `/aria/*` routes answer 404 `feature_disabled` without it). `CALIBER_FEATURE_COOKBOOKS=true` is only needed for the Cookbooks gallery card. This lab is outside the supported alpha journey (`docs/start/alpha-scope.md`); the review queues it creates are part of it.
+> **Prerequisite flag:** `CALIBER_FEATURE_ARIA=true` (Aria and its **Plans** page are a preview area that ships **on** by default, so a stock server already has it; the `/aria/*` routes answer 404 `feature_disabled` only on a deployment that set `CALIBER_FEATURE_ARIA=false`). The commands below pass `--flags cookbooks,aria` so the dependency is explicit. `CALIBER_FEATURE_COOKBOOKS=true` is only needed for the Cookbooks gallery card. This lab is outside the supported alpha journey (`docs/start/alpha-scope.md`); the review queues it creates are part of it.
 
 ## What this lab demonstrates and the expected outcome
 
@@ -175,7 +175,7 @@ The script provokes these on purpose; the same ones by hand:
 | A goal with no domain word | `201` with `step_count` 0 and a `warnings` entry; approving it is `409` |
 | Run a plan as an account without the operator scope (`vera`) | `execute` returns the plan `failed` at once with the step error `plan owner lacks required scope(s): operator`; nothing is created |
 | Answer another account's question (`olga` answering the admin's) | `403 only the plan owner may answer this interaction` |
-| Aria switched off | every `/aria/*` call: `404 {"detail": "Aria assistant and plans is disabled in this deployment. Set CALIBER_FEATURE_ARIA=true to enable it.", "reason_code": "feature_disabled"}`, and **Plans** is not in the sidebar |
+| Aria switched off (`CALIBER_FEATURE_ARIA=false`) | every `/aria/*` call: `404 {"detail": "Aria assistant and plans is disabled in this deployment. Set CALIBER_FEATURE_ARIA=true to enable it.", "reason_code": "feature_disabled"}`, and **Plans** is not in the sidebar |
 
 ## Recipe: run it through the UI
 
@@ -192,7 +192,7 @@ For your own run, write the traces first and keep the ids: `MLFLOW_TRACKING_URI=
 2. **Review the plan.** Under **Plan steps**: `Create review queue` (`review_queue.create`) then `Enqueue traces for review` (`review_queue.add_items`), the second reading `depends on 1 prior step(s)`. Nothing has run.
 3. **Approve the plan.** Press **Approve plan**. Expected: the status becomes `approved` and an **Execute** button appears.
 4. **Execute and answer the queue's questions.** Press **Execute**. Expected: **Aria needs information**, "Provide the required inputs for step 1: Create review queue.". Fill **name** (`agent-reply-review`), **description**, **questions** (the JSON array from `assets/review-queues/agent-reply-review.queue.json`) and **reviewers** (`["olga"]`), press **Continue plan**. Expected: **Aria needs your approval**, "Approve step 1: Create review queue (review_queue.create)?". Press **Approve**.
-5. **Answer the enqueue step.** Expected: "Provide the required inputs for step 2: Enqueue traces for review." with **no** queue id field (it is already known). Fill **trace ids** with a JSON array of trace ids (from `traces.json`, or the first five), **assigned to** with `admin`, press **Continue plan**, then **Approve** the prompt "Approve step 2: Enqueue traces for review (review_queue.add_items)?". Expected: the plan reads `completed` and both steps `done`.
+5. **Answer the enqueue step.** Expected: "Provide the required inputs for step 2: Enqueue traces for review." with **no** queue id field (it is already known). Fill **trace ids** with a JSON array of trace ids (from `/tmp/traces.json`, or the first five), **assigned to** with `admin`, press **Continue plan**, then **Approve** the prompt "Approve step 2: Enqueue traces for review (review_queue.add_items)?". Expected: the plan reads `completed` and both steps `done`.
 6. **Find the queue.** Open **Operate > Review Queues**. Expected: a row `agent-reply-review` with 5 questions, the reviewers `olga`, and `0/5 reviewed`.
 7. **Review one trace.** Open the queue. Expected: "Items (5)" listing the trace ids, the first one selected. Answer the questions (**Fail** for safety, `high` for severity, **Pass** for citation, **Fail** for tone, a note), press **Submit review**. Expected: that trace now reads `completed` in the list and the form moves to the next one; on the queue list the row reads `1/5 reviewed`.
 8. **A review that does not fit.** On another item answer only the safety question and press **Submit review**. Expected: the red message `missing required answer 'citation_ok'`; the item stays `pending`.
@@ -268,7 +268,7 @@ ok   the chat's queue is active with the question that was asked for  [RVQ-584d1
 
 | You see | Cause and fix |
 | --- | --- |
-| `404 {"reason_code": "feature_disabled"}` on `/aria/...`; no **Plans** in the sidebar | Start the server with `--flags aria` (`CALIBER_FEATURE_ARIA=true`) and restart |
+| `404 {"reason_code": "feature_disabled"}` on `/aria/...`; no **Plans** in the sidebar | Aria ships on, so someone turned it off: remove `CALIBER_FEATURE_ARIA=false` from the server's environment (or start a new stack with `--flags cookbooks,aria`; `cookbook-env.sh restart` reuses the old flags) and restart |
 | `SetupError: Aria is off: start the server with CALIBER_FEATURE_ARIA=true` | The same, reported by the script |
 | `SetupError: start CALIBER with CALIBER_OPERATOR_USERS=admin,olga ...` | The server was started without the export in Prerequisites; restart it with it. `vera` must not be listed |
 | `could not sign in as 'olga': 401` | An account from an earlier run has another password: reset it under Administration, or set `COOKBOOK_ARIA_PASSWORD` |

@@ -1,6 +1,6 @@
 # Aria: Evaluation Harness from Intent
 
-> **Prerequisite flag:** `CALIBER_FEATURE_ARIA=true` (Aria and its **Plans** page are a preview area, off by default; the `/aria/*` routes answer 404 `feature_disabled` without it). `CALIBER_FEATURE_COOKBOOKS=true` is only needed for the Cookbooks gallery card. This lab is outside the supported alpha journey (`docs/start/alpha-scope.md`).
+> **Prerequisite flag:** `CALIBER_FEATURE_ARIA=true` (Aria and its **Plans** page are a preview area that ships **on** by default, so a stock server already has it; the `/aria/*` routes answer 404 `feature_disabled` only on a deployment that set `CALIBER_FEATURE_ARIA=false`). The commands below pass `--flags cookbooks,aria` so the dependency is explicit. `CALIBER_FEATURE_COOKBOOKS=true` is only needed for the Cookbooks gallery card. This lab is outside the supported alpha journey (`docs/start/alpha-scope.md`).
 
 ## What this lab demonstrates and the expected outcome
 
@@ -183,7 +183,7 @@ The script provokes these on purpose; the same ones by hand:
 | A judge name that already exists | step error `ValueError: judge name '...' is already in use`, plan `failed` |
 | Run a plan as an account without the operator scope (`vera`) | `execute` returns the plan `failed` at once, before any question, with the step error `plan owner lacks required scope(s): operator`; nothing is created. The judge route itself answers `403` for her |
 | Answer another account's question (`olga` answering the admin's) | `403 only the plan owner may answer this interaction`; the plan itself is `404` for her: plans are private to their owner |
-| Aria switched off | every `/aria/*` call: `404 {"detail": "Aria assistant and plans is disabled in this deployment. Set CALIBER_FEATURE_ARIA=true to enable it.", "reason_code": "feature_disabled"}`, and **Plans** is not in the sidebar. To see it, start a stack without the flag (`scripts/cookbook-env.sh up lab12off --flags none`) |
+| Aria switched off (`CALIBER_FEATURE_ARIA=false`) | every `/aria/*` call: `404 {"detail": "Aria assistant and plans is disabled in this deployment. Set CALIBER_FEATURE_ARIA=true to enable it.", "reason_code": "feature_disabled"}`, and **Plans** is not in the sidebar. To see it, start a stack with Aria switched off (`CALIBER_FEATURE_ARIA=false scripts/cookbook-env.sh up lab12off --flags cookbooks`) |
 
 ## Recipe: run it through the UI
 
@@ -306,7 +306,7 @@ A second test opens **Ask Aria**, sends the judge request in a default chat (no 
 
 | You see | Cause and fix |
 | --- | --- |
-| `404 {"reason_code": "feature_disabled"}` on `/aria/...`; no **Plans** in the sidebar | Start the server with `--flags aria` (`CALIBER_FEATURE_ARIA=true`) and restart |
+| `404 {"reason_code": "feature_disabled"}` on `/aria/...`; no **Plans** in the sidebar | Aria ships on, so someone turned it off: remove `CALIBER_FEATURE_ARIA=false` from the server's environment (or start a new stack with `--flags cookbooks,aria`; `cookbook-env.sh restart` reuses the old flags) and restart |
 | `SetupError: Aria is off: start the server with CALIBER_FEATURE_ARIA=true` | The same, reported by the script |
 | `SetupError: start CALIBER with CALIBER_OPERATOR_USERS=admin,olga ...` | The server was started without the export in Prerequisites; restart it with it. `vera` must not be listed |
 | `SetupError: CALIBER_TOKEN must be an admin personal access token` | The script creates accounts, so it needs the admin's token |

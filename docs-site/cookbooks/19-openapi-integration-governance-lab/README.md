@@ -1,10 +1,11 @@
 # Governed OpenAPI Tool: curate first, then publish
 
 > **Prerequisite flags:** `CALIBER_FEATURE_INTEGRATIONS=true` (the **OpenAPI Integrations** page and the
-> `/openapi-integrations` API, shared with cookbook 05's MCP governance). A preview area, off by default.
-> No model is involved anywhere in this lab, so nothing in it is simulated. Every step was run against a
-> real CALIBER server (a fresh stack from `scripts/cookbook-env.sh up lab19 --flags integrations`) and a
-> real upstream HTTP server, through the API.
+> `/openapi-integrations` API, shared with cookbook 05's MCP governance) and, for the gallery step at the end of the
+> script (stage 14), `CALIBER_FEATURE_COOKBOOKS=true`. Both are preview areas, off by default; the script fails at stage 14
+> without the second. No model is involved anywhere in this lab, so nothing in it is simulated. Every step was run against a
+> real CALIBER server (a fresh stack from `scripts/cookbook-env.sh up lab19 --flags integrations,cookbooks`) and a
+> real upstream HTTP server, through the API and the browser.
 
 ## What this lab demonstrates
 
@@ -56,11 +57,8 @@ reimport it: the diff catches one breaking change and stays silent about another
 
 1. A running CALIBER built per [`docs/start/alpha-install.md`](../../../docs/start/alpha-install.md)
    with the **integrations** flag on.
-2. The lab's upstream running, and its host allowed through CALIBER's egress policy:
-
-   ```bash
-   python3 docs-site/cookbooks/19-openapi-integration-governance-lab/assets/server/ticket_api.py 8781 &
-   ```
+2. The lab's upstream running (the command is in step 4), and its host allowed through CALIBER's egress policy
+   (`CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1`).
 
    `OPENAPI_TICKET_TOKEN` must be set (and equal) in **both** the upstream's environment and CALIBER's:
    it is the bearer token the upstream expects and the literal value CALIBER's `env://OPENAPI_TICKET_TOKEN`
@@ -77,10 +75,11 @@ reimport it: the diff catches one breaking change and stays silent about another
    ```bash
    export CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1
    export OPENAPI_TICKET_TOKEN=lab19-ticket-token
+   mkdir -p .tmp/cookbook-env/lab19
    export TICKET_API_LEDGER="$PWD/.tmp/cookbook-env/lab19/lab19-ticket-ledger.jsonl"
-   python3 docs-site/cookbooks/19-openapi-integration-governance-lab/assets/server/ticket_api.py 8781 &
+   python3 docs-site/cookbooks/19-openapi-integration-governance-lab/assets/server/ticket_api.py 8781 &      # the upstream; port 8781 must be free
    CALIBER_OPERATOR_USERS=admin,lab19-operator,lab19-reviewer CALIBER_APPROVER_USERS=admin,lab19-reviewer \
-   scripts/cookbook-env.sh up lab19 --flags integrations
+   scripts/cookbook-env.sh up lab19 --flags integrations,cookbooks
    source .tmp/cookbook-env/lab19/env.sh
    curl -s $CALIBER_API/readiness | jq -c '.data|{ready,simulated}'
    ```
@@ -111,6 +110,7 @@ cannot drift from what the lab's script actually observes.
 | Variable | Value used | Why |
 | --- | --- | --- |
 | `CALIBER_FEATURE_INTEGRATIONS` | `true` (via `--flags integrations`) | opens OpenAPI Integrations and `/openapi-integrations`; without it they answer `404 feature_disabled` |
+| `CALIBER_FEATURE_COOKBOOKS` | `true` (via `--flags cookbooks`) | only the last stage, the gallery starter (`GET /cookbooks`); the script stops there with `404 feature_disabled` without it |
 | `CALIBER_EGRESS_ALLOWED_HOSTS` | `127.0.0.1` | lets CALIBER call the upstream; without it import-by-URL, preview and reimport all fail with an egress refusal |
 | `OPENAPI_TICKET_TOKEN` | the same literal value in both the upstream's environment and CALIBER's | the upstream's expected bearer token; CALIBER resolves it via the `env://OPENAPI_TICKET_TOKEN` secret reference set on the auth binding |
 | `TICKET_API_LEDGER` | an absolute path, set before starting the upstream | where the upstream appends its own request log |

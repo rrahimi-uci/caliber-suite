@@ -2,7 +2,7 @@
   "steps": [
     {
       "where": "Operate › Plans",
-      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default) and its background workers. This loop remediates things that already exist, so first run <code>assets/setup_subject.py</code> (it prints a <code>workflow_id</code> and an <code>agent_id</code>) and <code>assets/seed_traces.py</code> (it prints the 12 flagged trace ids). In the sidebar open <strong>Operate</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>.",
+      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans ship on by default; this matters only if your deployment set it to <code>false</code>) and its background workers. This loop remediates things that already exist, so first run <code>assets/setup_subject.py</code> (it prints a <code>workflow_id</code> and an <code>agent_id</code>) and <code>assets/seed_traces.py</code> (it prints the 12 flagged trace ids). In the sidebar open <strong>Operate</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/15-aria-triage-recalibrate-loop/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>.",
       "fill": [
         [
           "Goal",

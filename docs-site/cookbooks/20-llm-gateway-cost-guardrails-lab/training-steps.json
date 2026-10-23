@@ -1,7 +1,7 @@
 {
   "steps": [
     {
-      "where": "Operate › LLM Gateway",
+      "where": "Integrations › LLM Gateway",
       "do": "<strong>Before you start:</strong> start the stand-in gateway (<code>assets/server/llm_gateway.py</code>) and a stack as the README describes (<code>--real-llm</code>, <code>CALIBER_GATEWAY_URI</code> and <code>CALIBER_LLM_BASE_URL</code> pointing at it, the deliberately wrong boot key). Open <strong>LLM Gateway</strong> and read the <strong>Endpoints</strong> tab.",
       "see": "<strong>Reachable</strong>, <strong>Through gateway</strong>, and two endpoint rows: <code>chat-lab</code> and <code>embeddings-lab</code>.",
       "asset": "the stand-in gateway",
@@ -13,7 +13,7 @@
       ]
     },
     {
-      "where": "Operate › LLM Gateway",
+      "where": "Integrations › LLM Gateway",
       "do": "Pause the stand-in (<code>curl -X POST http://127.0.0.1:8791/admin/pause</code>) and refresh the page; then resume it and refresh again.",
       "see": "<strong>Unreachable</strong> with the discovery error while paused -- a degraded card, never a broken page -- then <strong>Reachable</strong> again."
     },
@@ -36,7 +36,7 @@
       "see": "The masked fingerprint (<code>••••</code> + the key's last 4) confirms which key is live; the value itself is never readable back."
     },
     {
-      "where": "Operate › LLM Gateway › Pricing",
+      "where": "Integrations › LLM Gateway › Pricing",
       "do": "Click <strong>Add rate</strong> and price the gateway's model: provider <code>lab</code>, model <code>lab-chat-mini</code>, <code>$1</code>/1K prompt, <code>$2</code>/1K completion.",
       "click": "Create",
       "see": "The rate row appears. A duplicate (provider, model) is refused with 409, and editing a rate is admin-only."
@@ -48,12 +48,12 @@
       "see": "The run completes with the gateway model's reply, and the gateway's ledger records one real call billing a flat 1000+1000 tokens."
     },
     {
-      "where": "Operate › LLM Gateway › Usage",
+      "where": "Integrations › LLM Gateway › Usage",
       "do": "Open the <strong>Usage</strong> tab and find <code>lab-chat-mini</code> in the by-model table.",
       "see": "One more call, 2000 more tokens, and exactly <strong>$3.00</strong> more cost: (1000/1000)×$1 + (1000/1000)×$2."
     },
     {
-      "where": "Operate › LLM Gateway › Pricing",
+      "where": "Integrations › LLM Gateway › Pricing",
       "do": "Raise the prompt rate to <code>$10</code>/1K (admin), re-read Usage, then run the workflow once more.",
       "see": "Past cost is unchanged -- the meter is written at call time -- and the new call bills <strong>$12.00</strong>."
     },
@@ -64,7 +64,7 @@
       "see": "The listing shows the name, a bumped version and a <code>secret://</code> reference -- never a value. A <code>secret://</code> source for <code>CALIBER_LLM_API_KEY_ENV</code> resolves from this store at boot."
     },
     {
-      "where": "Operate › LLM Gateway › Guardrails",
+      "where": "Integrations › LLM Gateway › Guardrails",
       "do": "Click <strong>New guardrail</strong>, pick the deterministic <code>regex</code> kind, name it, set a pattern, create it -- then delete it.",
       "click": "Create guardrail",
       "see": "The definition is listed (stored in the MLflow tracking store). Enforcement happens in MLflow's own AI Gateway, not in the standalone gateway the Endpoints tab lists -- the lab is explicit about that boundary."

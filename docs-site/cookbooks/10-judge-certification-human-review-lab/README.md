@@ -37,9 +37,9 @@ is never certified, a candidate given the evidence states the expected fact far 
 ## Prerequisites and setup
 
 You need a running CALIBER ([`docs/start/alpha-install.md`](../../../docs/start/alpha-install.md)), an
-administrator login, `CALIBER_FEATURE_COOKBOOKS=true` for the gallery card, and Python with
-`caliber-sdk` and `mlflow` installed (`mlflow` writes the traces; it is already there if CALIBER runs
-from the same environment).
+administrator login, `CALIBER_FEATURE_COOKBOOKS=true` for the gallery card, and `caliber/.venv` with `caliber_sdk`
+installed (see [Before you start](../README.md#before-you-start-one-time-setup); `mlflow`, which writes the traces, is already in that
+venv).
 
 **Simulated or real model: read this first.** By default CALIBER runs simulated providers
 (`CALIBER_LLM_PROVIDER=fake`, `CALIBER_EVAL_PROVIDER=fake`, see
@@ -76,7 +76,7 @@ source .tmp/cookbook-env/lab10/env.sh
 
 # B. with the stand-in model behind it (start it first, in its own terminal or with &)
 python3 docs-site/cookbooks/10-judge-certification-human-review-lab/assets/stand-in-model/stand_in_model_server.py 8770 &
-CALIBER_LLM_PROVIDER=openai CALIBER_EVAL_PROVIDER=mlflow OPENAI_API_KEY=stand-in \
+CALIBER_LLM_PROVIDER=openai CALIBER_EVAL_PROVIDER=mlflow OPENAI_API_KEY=stand-in ANTHROPIC_API_KEY=stand-in \
   OPENAI_BASE_URL=http://127.0.0.1:8770/v1 OPENAI_API_BASE=http://127.0.0.1:8770/v1 \
   scripts/cookbook-env.sh up lab10m --flags cookbooks --real-llm
 source .tmp/cookbook-env/lab10m/env.sh
@@ -158,7 +158,7 @@ root, with the environment above:
 
 ```bash
 # With a model behind the server (the stand-in): pin the exact numbers
-PYTHONPATH=sdk/caliber-sdk python sdk/caliber-sdk/examples/cookbooks/cookbook_10_trustworthy_evaluation.py --expect-stand-in
+PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_10_trustworthy_evaluation.py --expect-stand-in
 # With a real provider: same command without --expect-stand-in (the numbers are your judge's; see "Run it with a real provider")
 # On the simulated default: the same command; it detects the stack and verifies the refusals instead
 ```
@@ -348,7 +348,7 @@ CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber" npx playwright test --config=playwri
 First write the traces the review will use (the UI cannot create them; your application would):
 
 ```bash
-python docs-site/cookbooks/10-judge-certification-human-review-lab/assets/seed_traces.py > traces.json   # needs MLFLOW_TRACKING_URI
+caliber/.venv/bin/python docs-site/cookbooks/10-judge-certification-human-review-lab/assets/seed_traces.py > .tmp/traces.json   # needs MLFLOW_TRACKING_URI (env.sh sets it)
 ```
 
 1. **Load the test set.** Under **Prompt lifecycle > Test Sets** click **+ New Test Set**, name it `judge-certification-set`, owner `admin`, **Create**, open it and click **Import from file**; choose `aggregated-outputs.jsonl` and click **Import 50 rows**
@@ -381,7 +381,7 @@ python docs-site/cookbooks/10-judge-certification-human-review-lab/assets/seed_t
    What the comparison proves is that v1 and v2 were scored on the same rows with the same graders; whether v2 is better is the model's answer (with the stand-in, which replays recorded answers, the two are identical).
 7. **Human review.** Under **Operate > Review Queues** click **New queue**, name it `faithfulness-certification`; Question 1: key `faithful`, type `pass_fail`;
    click **+ Add question**: key `evidence`, type `text`; **Create queue**, then open it. Paste the trace ids of J01, J02, J03, J04, J05, J08, J09, J11, J14 and J26
-   (from `traces.json`) into **Add traces to review** and click **Enqueue**: `Items (10)`. For each item click **Pass** or **Fail** as that row's `human_label` says, paste
+   (from `.tmp/traces.json`) into **Add traces to review** and click **Enqueue**: `Items (10)`. For each item click **Pass** or **Fail** as that row's `human_label` says, paste
    that row's `expected` JSON into the **evidence** box and click **Submit review**. Keep that box to the evidence: whatever is in it reaches the judge as
    `{{ expectations }}`. The page ends on `All items reviewed.`
 8. **Compute alignment, certify or reject, close the loop.** Under **Agent resources > Judges** click **Try it** on `FaithfulnessJudge`, switch to **Human alignment**,

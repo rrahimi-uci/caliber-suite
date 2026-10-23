@@ -17,7 +17,7 @@ caliber_surfaces:
   - Workflows
   - Audit Log
 prerequisites:
-  - CALIBER_FEATURE_INTEGRATIONS=true (preview area, off by default; shared with cookbook 05).
+  - CALIBER_FEATURE_INTEGRATIONS=true (preview area, off by default; shared with cookbook 05), and CALIBER_FEATURE_COOKBOOKS=true for the script's gallery stage.
   - A reachable upstream HTTP API (the lab ships one, assets/server/ticket_api.py) and its host on CALIBER_EGRESS_ALLOWED_HOSTS.
   - Accounts for an operator, a reviewer and a viewer; CALIBER_OPERATOR_USERS and CALIBER_APPROVER_USERS name the roles that can publish and approve.
 time_to_first_value: 20-40 minutes

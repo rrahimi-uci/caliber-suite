@@ -22,7 +22,7 @@ A workflow that is **already running** in production, and what you do when it go
 
 ## Prerequisites and setup
 
-You need a running CALIBER ([`docs/start/alpha-install.md`](../../../docs/start/alpha-install.md)), an administrator login, a worker, and Python with `caliber-sdk`. The traces come from running cookbook 09's workflow, so the same two things apply as there:
+You need a running CALIBER ([`docs/start/alpha-install.md`](../../../docs/start/alpha-install.md)), an administrator login, a worker, and `caliber/.venv` with `caliber_sdk` installed (see [Before you start](../README.md#before-you-start-one-time-setup)). The traces come from running cookbook 09's workflow, so the same two things apply as there:
 
 1. the stand-in account service, [`assets/upstream/account_service.py`](../09-workflow-debugger-self-healing-lab/assets/upstream/account_service.py) in lab 09 (it is **not a real system**; it answers 503, 500 and 404 for three fixed ids), on port 8780;
 2. `CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1` on the server.
@@ -47,8 +47,8 @@ export CALIBER_TOKEN=$(curl -s -b /tmp/lab16.jar -X POST $CALIBER_API/auth/token
 Seed the traffic. The API script does this itself and the UI path sends the tickets through the Run Monitor (step 2 of the UI recipe), so this is only needed to make traces for your own exploration. It takes about a minute and a half and prints one line of JSON per ticket, the run and its trace:
 
 ```bash
-PYTHONPATH=sdk/caliber-sdk python docs-site/cookbooks/16-observability-triage/assets/seed_traces.py > traces.json
-python3 -c 'import json,collections; d=json.load(open("traces.json")); print(collections.Counter(v["status"] for v in d.values()))'
+PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python docs-site/cookbooks/16-observability-triage/assets/seed_traces.py > .tmp/traces.json
+python3 -c 'import json,collections; d=json.load(open(".tmp/traces.json")); print(collections.Counter(v["status"] for v in d.values()))'
 # Counter({'completed': 28, 'failed': 12})
 ```
 
@@ -81,7 +81,7 @@ The silent failures are the point of the triage queue: the Error filter finds 12
 ## Run it through the API
 
 ```bash
-PYTHONPATH=sdk/caliber-sdk python sdk/caliber-sdk/examples/cookbooks/cookbook_16_observability_triage.py
+PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_16_observability_triage.py
 ```
 
 About a minute and a half. It exits 0 and prints the following (ids vary):
@@ -160,7 +160,7 @@ It takes about three minutes and leaves 56 traces, a workflow with two versions,
 
 | Check | How | Expected |
 | --- | --- | --- |
-| 40 real traces | `traces.json`, **Observability** | 28 `completed` runs, 12 `failed`; 28 `OK` and 12 `ERROR` traces |
+| 40 real traces | `.tmp/traces.json`, **Observability** | 28 `completed` runs, 12 `failed`; 28 `OK` and 12 `ERROR` traces |
 | The Error filter is complete | `GET $B/observability/traces?status=ERROR` | every failed run's trace |
 | The failing node | trace `spans` | `node.validate`, `node.check_reference` or `node.decide` is `ERROR`, with an `ERROR` root |
 | The request is there | trace `request` | the ticket JSON |
@@ -182,7 +182,7 @@ It takes about three minutes and leaves 56 traces, a workflow with two versions,
 | a trace reads `IN_PROGRESS` right after its run ended, and the status counts are 11 `ERROR`, 1 `IN_PROGRESS` | MLflow records traces asynchronously; the last trace of a run can lag by a moment | wait a few seconds and read again; the script does this itself |
 | Observability is empty after a run | `CALIBER_TRACING_ENABLED=false`, or `CALIBER_TRACING_EXPERIMENT` points elsewhere | check `/readiness` (`tracing_enabled`) and the variable |
 | **Add example** answers `trace '...' not found or has no request to capture` | the trace has no request. Traces of runs recorded by an older server have none | seed again; a current server records the run input as the request |
-| the captured example's expected answer is an error message | a capture stores the response, which for a failed run is the error | edit the example (step 6) or pass `expected` in the API |
+| the captured example's expected answer is an error message | a capture stores the response, which for a failed run is the error | edit the example (step 8) or pass `expected` in the API |
 | Failed runs show as `OK` in Observability | an older server closed a failed run's trace `OK` | upgrade: the root span is now marked `ERROR` (`observability/mlflow_tracing.py`) |
 | `403` creating a queue or a test set | the account lacks `caliber.operator` | sign in as an operator, or see [lab 18](../18-projects-roles-tokens-audit/README.md) |
 | `409` creating the test set or queue | the name exists | use another name |
@@ -199,7 +199,7 @@ It takes about three minutes and leaves 56 traces, a workflow with two versions,
 
 ```bash
 # the script's test set and queue
-PYTHONPATH=sdk/caliber-sdk python sdk/caliber-sdk/examples/cookbooks/cookbook_16_observability_triage.py --cleanup
+PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_16_observability_triage.py --cleanup
 # the UI path's: archive the prod-regression test set (Test Sets) and the prod-triage queue (Review Queues)
 
 # everything, including the 40 traces

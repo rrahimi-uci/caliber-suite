@@ -1,4 +1,4 @@
-# Incident Response Commander
+# Incident Response Copilot
 
 > **Prerequisite flag:** `CALIBER_FEATURE_COOKBOOKS=true` (the Cookbooks gallery is a preview area and is off by default). The optional MCP evidence nodes of the original recipe would also need `CALIBER_FEATURE_INTEGRATIONS=true`; they are not part of this lab.
 > The main path runs on the alpha's default **simulated** providers. It was also run, end to end, against **real providers** (`--real-llm`), with an optional model-based variant: see [Run it with a real provider](#run-it-with-a-real-provider).

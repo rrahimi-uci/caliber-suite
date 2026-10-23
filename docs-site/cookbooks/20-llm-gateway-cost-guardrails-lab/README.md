@@ -56,12 +56,14 @@ definition — honestly scoped to what it does and does not enforce.
 
 ## Prerequisites and setup
 
-1. **Start the stand-in gateway** (any terminal; it listens on `127.0.0.1` only):
+1. **Start the stand-in gateway** from the repository root (it listens on `127.0.0.1` only, port 8791 must be free). The `&` keeps it
+   running in this shell; do the next steps in the same shell, or run it in its own terminal and `export` the same three variables in the other one:
 
    ```bash
    export LAB20_GATEWAY_KEY=lab20-gateway-key
    export LLM_GATEWAY_LEDGER=/tmp/lab20-gateway-ledger.jsonl
-   python3 docs-site/cookbooks/20-llm-gateway-cost-guardrails-lab/assets/server/llm_gateway.py 8791
+   rm -f "$LLM_GATEWAY_LEDGER"           # the ledger is the lab's proof: start it empty
+   python3 docs-site/cookbooks/20-llm-gateway-cost-guardrails-lab/assets/server/llm_gateway.py 8791 &
    ```
 
 2. **Start a disposable stack routed through it.** The boot key is *deliberately wrong* — stage 3
@@ -87,9 +89,12 @@ definition — honestly scoped to what it does and does not enforce.
 3. **Run the lab script:**
 
    ```bash
-   source .tmp/cookbook-env/lab20/env.sh
-   # mint an admin token (or reuse one), then:
-   export CALIBER_BASE_URL="$CALIBER_URL" CALIBER_TOKEN=<token>
+   source .tmp/cookbook-env/lab20/env.sh      # CALIBER_URL, CALIBER_BASE_URL, CALIBER_API, CALIBER_STATE_DIR, ...
+   # mint an admin token (Settings > API tokens does the same in the browser):
+   curl -s -c /tmp/lab20.jar -X POST $CALIBER_API/auth/login -H 'content-type: application/json' \
+     -d '{"user_id":"admin","password":"admin"}' >/dev/null
+   export CALIBER_TOKEN=$(curl -s -b /tmp/lab20.jar -X POST $CALIBER_API/auth/tokens \
+     -H 'content-type: application/json' -d '{"name":"lab20"}' | jq -r .data.token)
    export LAB20_GATEWAY_PORT=8791 LLM_GATEWAY_LEDGER=/tmp/lab20-gateway-ledger.jsonl
    (cd sdk/caliber-sdk && PYTHONPATH=. ../../caliber/.venv/bin/python \
       examples/cookbooks/cookbook_20_llm_gateway_cost_guardrails.py)
@@ -199,7 +204,7 @@ curl -s -H "$AUTH" "$API/gateway/usage?since_ms=0" | python3 -m json.tool       
 
 ## Recipe: run it through the UI
 
-1. **Read the Endpoints tab.** Open **Operate › LLM Gateway**. The status cards say *Reachable*
+1. **Read the Endpoints tab.** Open **Integrations › LLM Gateway**. The status cards say *Reachable*
    and *Through gateway* (CALIBER's own LLM base URL points at the gateway), and the table lists
    the stand-in's two endpoints, `chat-lab` and `embeddings-lab`.
 2. **Watch it degrade, honestly.** Pause the stand-in

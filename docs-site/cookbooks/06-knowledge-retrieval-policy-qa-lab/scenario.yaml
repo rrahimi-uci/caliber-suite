@@ -19,7 +19,7 @@ caliber_surfaces:
   - Observability
 prerequisites:
   - An S3-compatible object store with credentials (CALIBER_OBJECT_STORE_ENDPOINT_URL and the two key sources).
-  - "pip install caliber-suite[knowledge,knowledge-local] and the all-MiniLM-L6-v2 model cached (HF_HUB_OFFLINE=1 once cached)."
+  - "The knowledge-local extra (from a checkout: caliber/.venv/bin/pip install -e \"caliber[knowledge,knowledge-local]\") and the all-MiniLM-L6-v2 model cached (HF_HUB_OFFLINE=1 once cached)."
   - The 11 policy documents in assets/dataset/sources/.
 time_to_first_value: 120-180 minutes
 success_criteria:

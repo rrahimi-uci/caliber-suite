@@ -79,7 +79,9 @@ export CALIBER_TOKEN=$(curl -s -X POST "$CALIBER_API/auth/tokens" \
   -d '{"name":"lab18-admin"}' | jq -r .data.token)
 ```
 
-You also need `jq` for the by-hand tour, `caliber/.venv` (`make install`) for the SDK, `caliberctl` and the script,
+You also need `jq` for the by-hand tour, `caliber/.venv` with `caliber_sdk` and `caliberctl` installed for the SDK, the CLI and the script
+(`cd caliber && make install`, then `caliber/.venv/bin/pip install -e sdk/caliber-sdk -e sdk/caliber-cli`; see
+[Before you start](../README.md#before-you-start-one-time-setup); without the CLI the script prints `skip caliberctl is not installed`),
 and, for the UI path, `npm ci` in `caliber/caliber-ui`.
 
 **Simulated versus real providers.** By default `CALIBER_LLM_PROVIDER=fake` and
@@ -148,7 +150,7 @@ ok   the secret is only on the issuing response, never in the list
 ok   the bound token acts as its owner  [priya]
 ok   with no project named, it acts in its bound project
 ok   the prompt is released to @prod by the token  [REL-f83fab39]
-ok   cookbook 18 is in the catalog with its guided steps  [10 steps]
+ok   cookbook 18 is in the catalog with its guided steps  [11 steps]
 ok   the lab installs into the project through the bound token  [WF-bff0b770]
 ok   a viewer's prompt inventory lists the project's prompts  [7 prompts]
 ok   a non-member's prompt inventory shows nothing from the project
