@@ -1,1 +1,0 @@
-INFO     caliber.orchestrator.optimizer_select:optimizer_select.py:136 GEPA selected for job=RFN-GEPA (diagnosis meets GEPA criteria)
