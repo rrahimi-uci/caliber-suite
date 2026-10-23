@@ -16,6 +16,24 @@ from caliber.assistant.models import (
 from caliber.assistant.skill_runtime import AssistantResolvedSkill, build_skill_prompt_block
 from caliber.assistant.task_context import AssistantTaskContext, TaskContextRef
 
+_DRAFT_DELTA_FORMAT = (
+    "DRAFT DELTA FORMAT\n"
+    "Each draft_deltas item is exactly "
+    '{"artifact_type": "<type>", "title": "<short title>", "summary": "<one sentence>", '
+    '"spec": {"assumptions": ["..."]}, "artifact": {...}}. '
+    "Put the artifact itself in the `artifact` object (never in `content`, `instructions` or any "
+    "other key); CALIBER validates exactly these fields:\n"
+    '- prompt: {"name": "kebab-case-name", "template": "text with {{variable}} placeholders", '
+    '"variables": ["every", "placeholder", "name"]}. Every {{placeholder}} must be listed in '
+    "`variables`, and each variable must appear in the template.\n"
+    '- skill: {"name": "...", "description": "...", "prompt": "the skill instructions", "metadata": {}}.\n'
+    '- tool: {"name": "snake_case_name", "description": "...", "source": "Python source defining the '
+    'function", "input_schema": {JSON Schema}, "output_schema": {JSON Schema}}. Never put secrets in source.\n'
+    '- workflow: {"name": "...", "description": "...", "manifest": {"version": "1.0", "nodes": {...}}}.\n'
+    '- mcp_server: {"name": "...", "transport": "stdio" | "sse" | "streamable-http", "command": "...", '
+    '"args": [...]} for stdio, or "uri" instead of "command" for sse / streamable-http.'
+)
+
 
 def build_assistant_system_prompt(request: AssistantTurnRequest) -> str:
     """Build one system prompt shared by provider-backed assistant engines."""
@@ -61,6 +79,7 @@ def build_assistant_system_prompt(request: AssistantTurnRequest) -> str:
             "Only produce structured JSON output when you are actively creating or modifying an artifact.",
             'When creating artifacts, respond with a JSON object containing {"reply": "...", "questions": [...], "draft_deltas": [...], "done": false/true}. Otherwise, respond in plain text.',
             "Every draft_delta artifact_type must be exactly one of: tool, skill, prompt, workflow, or mcp_server, and must match the active Artifact type. File formats such as csv, json, pdf, and markdown are not CALIBER artifact types; provide requested file content in reply unless an available tool can persist it.",
+            _DRAFT_DELTA_FORMAT,
         ]
     )
 

@@ -107,7 +107,7 @@ make infra-reset  # DELETES the data volumes (Postgres, MinIO, ...): a clean sla
 | Service | URL |
 | --- | --- |
 | CALIBER web app | http://127.0.0.1:5001/caliber/ |
-| CALIBER API | http://127.0.0.1:5001/ajax-api/2.0/mlflow/caliber/ (OpenAPI document at `/openapi.json` on the same host) |
+| CALIBER API | `http://127.0.0.1:5001/ajax-api/2.0/mlflow/caliber/` (the OpenAPI document is at `.../caliber/openapi.json`; it needs a login or token) |
 | MLflow | http://127.0.0.1:5000 (the next free port if 5000 is busy; `start.sh` says which) |
 | LLM gateway (MLflow AI Gateway) | http://127.0.0.1:5002/api/2.0/endpoints/ |
 | MinIO console | http://127.0.0.1:9001 (`minioadmin` / `minioadmin`) |

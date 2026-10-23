@@ -204,3 +204,45 @@ def test_prompt_includes_task_context_block() -> None:
     assert "Done when:" in prompt
     assert "- workflow:WF-1 (Support Flow)" in prompt
     assert "- knowledge_base:KB-1 (Support KB)" in prompt
+
+
+def test_system_prompt_tells_the_model_the_draft_delta_shape() -> None:
+    """A real model only produces a usable draft if the prompt names the fields CALIBER reads.
+
+    Without this block a hosted model invented ``content``/``instructions`` keys and every
+    draft arrived empty (found by driving Aria with a real OpenAI key).
+    """
+    prompt = build_assistant_system_prompt(AssistantTurnRequest(session_id="s", user_message="hi"))
+    assert "DRAFT DELTA FORMAT" in prompt
+    for needle in (
+        '"artifact"',
+        '"template"',
+        '"variables"',
+        '"source"',
+        '"manifest"',
+        '"transport"',
+    ):
+        assert needle in prompt, needle
+
+
+def test_playground_prompts_do_not_carry_the_draft_format() -> None:
+    prompt = build_assistant_system_prompt(
+        AssistantTurnRequest(
+            session_id="s",
+            user_message="hi",
+            artifact_type="prompt",
+            goal="Answer briefly.",
+            prompt_playground=True,
+        )
+    )
+    assert "DRAFT DELTA FORMAT" not in prompt
+
+
+def test_a_conforming_prompt_draft_envelope_parses_into_a_usable_delta() -> None:
+    result = parse_assistant_response(
+        '{"reply": "ok", "questions": [], "draft_deltas": [{"artifact_type": "prompt", '
+        '"title": "Classifier", "summary": "s", "spec": {}, "artifact": {"name": "classifier", '
+        '"template": "Label: {{ticket}}", "variables": ["ticket"]}}], "done": true}'
+    )
+    assert result.draft_deltas[0].artifact["template"] == "Label: {{ticket}}"
+    assert result.draft_deltas[0].artifact["variables"] == ["ticket"]
