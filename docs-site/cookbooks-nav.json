@@ -74,5 +74,9 @@
   {
     "href": "m-cookbook-19-openapi-governance.html",
     "label": "19 \u00b7 Governed OpenAPI Tool"
+  },
+  {
+    "href": "m-cookbook-20-llm-gateway-metering.html",
+    "label": "20 \u00b7 Metered LLM Gateway"
   }
 ]

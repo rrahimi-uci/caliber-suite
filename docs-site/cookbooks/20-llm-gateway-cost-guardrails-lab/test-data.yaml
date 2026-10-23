@@ -1,0 +1,35 @@
+# The cases live in the stand-in's behavior (assets/server/llm_gateway.py) and the pricing
+# arithmetic; this file names the representative ones.
+golden_cases:
+  - id: metered-call
+    call: "POST /v1/chat/completions (model lab-chat-mini)"
+    usage: {prompt_tokens: 1000, completion_tokens: 1000}
+    pricing: {prompt_price: 1.0, completion_price: 2.0}   # USD per 1K tokens
+    expected_cost_usd: 3.0
+    note: the ground truth caliber/tests/test_routes_llm_pricing.py pins (1000/1000 at $1/$2 -> 3.0)
+  - id: repriced-call
+    call: the same call after the prompt rate is raised to $10/1K
+    expected_cost_usd: 12.0
+    note: only calls made after the change are billed at the new rate
+edge_cases:
+  - id: wrong-key
+    call: "POST /v1/chat/completions with a key the gateway does not hold"
+    expected: {status: 401, run_status: error, ledger_line: {ok: false}}
+  - id: paused-gateway
+    call: "GET /api/2.0/endpoints/ while paused"
+    expected: {status: 503, page: "configured, unreachable, error shown"}
+  - id: duplicate-pricing
+    call: "POST /llm-pricing for an existing (provider, model_id)"
+    expected: {status: 409}
+  - id: viewer-pricing
+    call: "POST /llm-pricing as a viewer (no operator scope)"
+    expected: {status: 403}
+  - id: operator-reprice
+    call: "PATCH /llm-pricing/{id} as the operator who created it"
+    expected: {status: 403, note: updates are admin-only}
+  - id: operator-key-write
+    call: "PATCH /settings/llm as an operator"
+    expected: {status: 403, note: provider credentials are admin-only}
+  - id: operator-secret-write
+    call: "PUT /secrets/{name} as an operator"
+    expected: {status: 403}

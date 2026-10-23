@@ -49,9 +49,11 @@ filter and get the gateway's own strict all-or-nothing validation back.
 - **Discovery (default on):** CALIBER's **Gateway** page probes this server's endpoint
   inventory via `CALIBER_GATEWAY_URI` (default `http://mlflow-gateway:5002`) and derives
   reachability from that request. This only makes the gateway *visible* in CALIBER.
-- **Routing (opt-in):** set `CALIBER_LLM_BASE_URL=http://mlflow-gateway:5002/gateway`
-  on the CALIBER service to route every LLM call through the gateway. Left unset
-  by default, so existing direct-provider routing is unchanged.
+- **Routing (opt-in):** set `CALIBER_LLM_BASE_URL=http://mlflow-gateway:5002/v1`
+  on the CALIBER service to route every LLM call through the gateway's
+  OpenAI-compatible root (the OpenAI client appends `/chat/completions`, which
+  only exists under `/v1`; a `/gateway` base would 404). Left unset by default,
+  so existing direct-provider routing is unchanged.
 
 ## Guardrails
 

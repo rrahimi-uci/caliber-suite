@@ -193,7 +193,7 @@ services:
       CALIBER_GATEWAY_URI: ${CALIBER_GATEWAY_URI:-http://mlflow-gateway:5002}
       # OPT-IN routing: leave CALIBER_LLM_BASE_URL unset to keep talking to the
       # provider directly. Set it to the gateway's OpenAI-compatible base
-      # (e.g. http://mlflow-gateway:5002/gateway) to route every LLM call through
+      # (e.g. http://mlflow-gateway:5002/v1) to route every LLM call through
       # the gateway (guardrails + rate limits + a single key boundary).
       CALIBER_LLM_BASE_URL: ${CALIBER_LLM_BASE_URL:-}
       # Keep interpolation optional so docker compose down/config can run even

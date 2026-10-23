@@ -1,0 +1,435 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook 20: Metered LLM Gateway | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Cookbooks — UI-only, build-along recipes for the platform.">
+  <link rel="icon" type="image/png" href="../caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) { document.documentElement.dataset.theme = "light"; }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Browse documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span class="topbar-search-label">Search docs</span><span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="../caliber-icon.png" alt="CALIBER logo"><div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search"><input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections"></div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+    <main class="main" id="docsContent">
+      <article class="content doc-body ck-wide">
+        
+      <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+        <span>Cookbooks</span><span aria-hidden="true">/</span>
+        <a href="m-16-cookbooks.html">All</a><span aria-hidden="true">/</span>
+        <span class="current">20 · Metered LLM Gateway</span>
+      </nav>
+      <header class="doc-header">
+        <p class="doc-eyebrow">Cookbook 20 · Operate</p>
+        <h1>Metered LLM Gateway</h1>
+        <p class="doc-lead">Route every agent LLM call through one gateway, price the model per 1K tokens, and read exact cost next to usage -- with the gateway&#x27;s own ledger agreeing.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Operate</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">15–30 min</span></div>
+      </header>
+      <div class="ck-cols">
+        <div class="callout"><strong>What you build.</strong> An OpenAI-compatible stand-in gateway (<code>assets/server/llm_gateway.py</code>) that serves the MLflow AI Gateway discovery listing and <code>/v1/chat/completions</code> behind a bearer key, billing a flat 1000+1000 tokens per call so the arithmetic is checkable by eye. The stack boots with a deliberately wrong provider key; the first run fails with the gateway's own 401 (in the gateway's ledger), an admin rotates the key live through the audited Settings surface, and the next run adds exactly 2000 tokens and $3.00 to the model's usage row. A rate change re-prices only subsequent calls. The key's durable home -- the encrypted secrets store -- and a deterministic guardrail definition close the loop.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">LLM Gateway</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Settings</span> <span class="ck-badge ck-surface">Administration</span> <span class="ck-badge ck-surface">Audit Log</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Read <strong>Operate &gt; LLM Gateway &gt; Endpoints</strong>: configured, reachable, <em>Through gateway</em> (CALIBER's own LLM base URL points at it), and the gateway's endpoint rows -- and watch the page degrade to <em>Unreachable</em> with the error while the gateway is down, instead of breaking</li><li>Diagnose a credential failure by its evidence: a run that errors with the gateway's <code>401</code> plus a refused line in the gateway's own ledger means the key reached the gateway and was wrong there -- then rotate it at runtime (<code>PATCH /settings/llm</code>, admin-only, audited, fingerprint-masked)</li><li>Price a model on the <strong>Pricing</strong> tab in USD per 1K tokens: duplicates 409, viewer creation 403, edits admin-only</li><li>Read the <strong>Usage</strong> tab after a run: calls, tokens and <em>exact</em> cost per model, aggregated from trace spans -- and see that raising a rate never rewrites what past calls cost</li><li>Store and rotate the key in <strong>Administration &gt; Secrets</strong> (version bump, <code>secret://</code> reference, no readback), and define a deterministic <code>regex</code> guardrail on the <strong>Guardrails</strong> tab, knowing exactly where it is and is not enforced</li></ul></div>
+      </div>
+      <h2 id="flow">Implementation flow</h2>
+      <div class="diagram"><pre class="mermaid">flowchart LR
+  GW[&quot;Stand-in gateway :8791&quot;] --&gt; DISC[&quot;Endpoints tab: reachable, routed through&quot;]
+  GW --&gt; P[&quot;Paused: page degrades, never breaks&quot;]
+  WRONG[&quot;Run on the wrong key&quot;] --&gt; L401[&quot;Gateway 401 + ledger line ok:false&quot;]
+  L401 --&gt; ROT[&quot;Admin rotates the key: PATCH /settings/llm&quot;]
+  PRICE[&quot;Pricing: lab-chat-mini $1/$2 per 1K&quot;] --&gt; RUN[&quot;Metered run&quot;]
+  ROT --&gt; RUN
+  RUN --&gt; USE[&quot;Usage: +2000 tokens, +$3.00 exactly&quot;]
+  USE --&gt; RAISE[&quot;Raise the rate to $10/1K&quot;]
+  RAISE --&gt; NEXT[&quot;Next call bills $12.00; the past is unchanged&quot;]
+  SEC[&quot;Secrets: put / rotate / revoke, no readback&quot;] --&gt; AUD[&quot;Audit Log&quot;]
+  GRD[&quot;Guardrail defined (regex), honestly scoped&quot;] --&gt; AUD</pre></div>
+      <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
+      <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
+        and a snapshot of the CALIBER screen you'll be on.</p>
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Operate › LLM Gateway</code> <span class="ck-made">creates · the stand-in gateway</span> <a class="ck-assetref" href="#asset-assets-server-llm-gateway-py">llm_gateway.py ↓</a></div><div class="ck-step-do"><strong>Before you start:</strong> start the stand-in gateway (<code>assets/server/llm_gateway.py</code>) and a stack as the README describes (<code>--real-llm</code>, <code>CALIBER_GATEWAY_URI</code> and <code>CALIBER_LLM_BASE_URL</code> pointing at it, the deliberately wrong boot key). Open <strong>LLM Gateway</strong> and read the <strong>Endpoints</strong> tab.</div><div class="ck-see"><strong>You'll see:</strong> <strong>Reachable</strong>, <strong>Through gateway</strong>, and two endpoint rows: <code>chat-lab</code> and <code>embeddings-lab</code>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Operate › LLM Gateway</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">LLM Gateway</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Operate › LLM Gateway</code></div><div class="ck-step-do">Pause the stand-in (<code>curl -X POST http://127.0.0.1:8791/admin/pause</code>) and refresh the page; then resume it and refresh again.</div><div class="ck-see"><strong>You'll see:</strong> <strong>Unreachable</strong> with the discovery error while paused -- a degraded card, never a broken page -- then <strong>Reachable</strong> again.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Operate › LLM Gateway</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">LLM Gateway</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows</code> <span class="ck-made">creates · the metered workflow</span> <a class="ck-assetref" href="#asset-assets-workflow-metered-reply-workflow-yaml">metered-reply.workflow.yaml ↓</a></div><div class="ck-step-do">Import <code>assets/workflow/metered-reply.workflow.yaml</code>, publish it, and run it once while the provider key is still the wrong boot key.</div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The run ends <strong>error</strong> with the gateway's own <code>401</code> in the message, and the gateway's ledger records one refused call.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Agent resources › Workflows</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Workflows</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Admin › Settings</code></div><div class="ck-step-do">As an admin, write the right provider key at runtime (<code>PATCH /settings/llm {"openai_api_key": ...}</code>; the Settings page's LLM section is the same surface). An operator gets 403.</div><div class="ck-see"><strong>You'll see:</strong> The masked fingerprint (<code>••••</code> + the key's last 4) confirms which key is live; the value itself is never readable back.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Admin › Settings</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Settings</span><span class="ck-mk-title">Settings</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Operate › LLM Gateway › Pricing</code></div><div class="ck-step-do">Click <strong>Add rate</strong> and price the gateway's model: provider <code>lab</code>, model <code>lab-chat-mini</code>, <code>$1</code>/1K prompt, <code>$2</code>/1K completion.</div><div class="ck-click">Click <span class="ck-btn">Create</span></div><div class="ck-see"><strong>You'll see:</strong> The rate row appears. A duplicate (provider, model) is refused with 409, and editing a rate is admin-only.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Operate › LLM Gateway › Pricing</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Pricing</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Create</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows</code></div><div class="ck-step-do">Run the metered workflow again, now on the right key.</div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> The run completes with the gateway model's reply, and the gateway's ledger records one real call billing a flat 1000+1000 tokens.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Agent resources › Workflows</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Workflows</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Operate › LLM Gateway › Usage</code></div><div class="ck-step-do">Open the <strong>Usage</strong> tab and find <code>lab-chat-mini</code> in the by-model table.</div><div class="ck-see"><strong>You'll see:</strong> One more call, 2000 more tokens, and exactly <strong>$3.00</strong> more cost: (1000/1000)×$1 + (1000/1000)×$2.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Operate › LLM Gateway › Usage</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Usage</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Operate › LLM Gateway › Pricing</code></div><div class="ck-step-do">Raise the prompt rate to <code>$10</code>/1K (admin), re-read Usage, then run the workflow once more.</div><div class="ck-see"><strong>You'll see:</strong> Past cost is unchanged -- the meter is written at call time -- and the new call bills <strong>$12.00</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Operate › LLM Gateway › Pricing</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Pricing</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-empty">Read / inspect this surface — no form to fill.</div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Admin › Administration › Secrets</code></div><div class="ck-step-do">Store the gateway key under a name (<strong>Store / rotate</strong>), then store it again with a new value.</div><div class="ck-click">Click <span class="ck-btn">Store / rotate</span></div><div class="ck-see"><strong>You'll see:</strong> The listing shows the name, a bumped version and a <code>secret://</code> reference -- never a value. A <code>secret://</code> source for <code>CALIBER_LLM_API_KEY_ENV</code> resolves from this store at boot.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Admin › Administration › Secrets</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Secrets</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Store / rotate</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Operate › LLM Gateway › Guardrails</code></div><div class="ck-step-do">Click <strong>New guardrail</strong>, pick the deterministic <code>regex</code> kind, name it, set a pattern, create it -- then delete it.</div><div class="ck-click">Click <span class="ck-btn">Create guardrail</span></div><div class="ck-see"><strong>You'll see:</strong> The definition is listed (stored in the MLflow tracking store). Enforcement happens in MLflow's own AI Gateway, not in the standalone gateway the Endpoints tab lists -- the lab is explicit about that boundary.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Operate › LLM Gateway › Guardrails</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Guardrails</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Create guardrail</span></div></div>
+      </div>
+    </figure></div></div></li></ol>
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/20-llm-gateway-cost-guardrails-lab/assets/</code>.</p><div class="ck-asset" id="asset-assets-server-llm-gateway-py">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/server/llm_gateway.py</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="python"><code>#!/usr/bin/env python3
+&quot;&quot;&quot;A stand-in LLM gateway for the Metered LLM Gateway lab. It is NOT a real model.
+
+CALIBER&#x27;s gateway surface is about CALIBER&#x27;s *view* of an OpenAI-compatible gateway: discovery,
+routing, usage, and cost. This server plays the gateway-plus-provider role the way the lab&#x27;s other
+stand-ins play a ticketing SaaS or an account service: it exposes the same two surfaces the real
+MLflow AI Gateway exposes -- the discovery listing CALIBER&#x27;s Endpoints tab reads, and the
+OpenAI-compatible chat-completions route CALIBER&#x27;s workflow executor posts to -- and it bills a
+flat, fixed token count per call so every cost number downstream is checkable by eye.
+
+    python3 llm_gateway.py [PORT]   # default 8791, listens on 127.0.0.1 only
+
+Environment:
+    LAB20_GATEWAY_KEY    the bearer key chat completions require (default &quot;lab20-gateway-key&quot;).
+                         CALIBER holds this key as the secret ``secret://lab20-gateway-key``.
+    LLM_GATEWAY_LEDGER   path to a JSONL file this server appends one line to per call
+
+Routes:
+    GET  /health                200, no auth
+    GET  /api/2.0/endpoints/    200 -- the MLflow AI Gateway discovery shape CALIBER&#x27;s /gateway
+                                 route fetches; 503 while paused
+    POST /v1/chat/completions   200 -- an OpenAI chat-completions response with a canned reply and
+                                 fixed usage (1000 prompt + 1000 completion tokens, every call);
+                                 401 without ``Authorization: Bearer &lt;LAB20_GATEWAY_KEY&gt;``;
+                                 503 while paused
+    POST /admin/pause           200 -- discovery and completions answer 503 until /admin/resume.
+                                 Lab-only: it stands in for a gateway outage.
+    POST /admin/resume          200
+    POST /admin/reset           200 -- unpause; a fresh start for a re-run on the same process
+
+Usage is fixed at 1000/1000 so the arithmetic stays visible: at the lab&#x27;s pricing row of $1 per 1K
+prompt tokens and $2 per 1K completion tokens, every call costs exactly $3.00. The ledger line
+``{&quot;path&quot;, &quot;model&quot;, &quot;ok&quot;, &quot;prompt_tokens&quot;, &quot;completion_tokens&quot;}`` is written before the response is
+sent: a client must never observe &quot;success&quot; before the gateway&#x27;s own record of it exists -- that
+record is this lab&#x27;s proof, the same pattern the MCP and OpenAPI labs use.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+import time
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+
+PROMPT_TOKENS = 1000
+COMPLETION_TOKENS = 1000
+REPLY = &quot;Filed through the metered gateway.&quot;
+
+ENDPOINTS = {
+    &quot;endpoints&quot;: [
+        {
+            &quot;name&quot;: &quot;chat-lab&quot;,
+            &quot;endpoint_type&quot;: &quot;llm/v1/chat&quot;,
+            &quot;model&quot;: {&quot;name&quot;: &quot;lab-chat-mini&quot;, &quot;provider&quot;: &quot;lab&quot;},
+            &quot;endpoint_url&quot;: &quot;/v1/chat/completions&quot;,
+            &quot;limit&quot;: None,
+        },
+        {
+            &quot;name&quot;: &quot;embeddings-lab&quot;,
+            &quot;endpoint_type&quot;: &quot;llm/v1/embeddings&quot;,
+            &quot;model&quot;: {&quot;name&quot;: &quot;lab-embed-mini&quot;, &quot;provider&quot;: &quot;lab&quot;},
+            &quot;endpoint_url&quot;: &quot;/v1/embeddings&quot;,
+            &quot;limit&quot;: None,
+        },
+    ]
+}
+
+KEY = os.environ.get(&quot;LAB20_GATEWAY_KEY&quot;, &quot;lab20-gateway-key&quot;)
+_paused = False
+
+
+def _ledger(
+    path: str, model: str, ok: bool, prompt: int = 0, completion: int = 0
+) -&gt; None:
+    ledger = os.environ.get(&quot;LLM_GATEWAY_LEDGER&quot;)
+    if not ledger:
+        return
+    with open(ledger, &quot;a&quot;, encoding=&quot;utf-8&quot;) as handle:
+        handle.write(
+            json.dumps(
+                {
+                    &quot;path&quot;: path,
+                    &quot;model&quot;: model,
+                    &quot;ok&quot;: ok,
+                    &quot;prompt_tokens&quot;: prompt,
+                    &quot;completion_tokens&quot;: completion,
+                }
+            )
+            + &quot;\n&quot;
+        )
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _send(self, status: int, body: dict) -&gt; None:
+        payload = json.dumps(body).encode()
+        self.send_response(status)
+        self.send_header(&quot;content-type&quot;, &quot;application/json&quot;)
+        self.send_header(&quot;content-length&quot;, str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _body(self) -&gt; dict:
+        length = int(self.headers.get(&quot;Content-Length&quot;, &quot;0&quot;))
+        raw = self.rfile.read(length) if length else b&quot;&quot;
+        return json.loads(raw) if raw else {}
+
+    def do_GET(self) -&gt; None:
+        if self.path == &quot;/health&quot;:
+            self._send(200, {&quot;ok&quot;: True})
+            return
+        if self.path.rstrip(&quot;/&quot;) == &quot;/api/2.0/endpoints&quot;:
+            if _paused:
+                self._send(503, {&quot;error&quot;: &quot;gateway paused&quot;})
+                return
+            self._send(200, ENDPOINTS)
+            return
+        self._send(404, {&quot;error&quot;: &quot;not found&quot;})
+
+    def do_POST(self) -&gt; None:
+        global _paused
+        if self.path == &quot;/admin/pause&quot;:
+            _paused = True
+            self._send(200, {&quot;paused&quot;: True})
+            return
+        if self.path == &quot;/admin/resume&quot;:
+            _paused = False
+            self._send(200, {&quot;paused&quot;: False})
+            return
+        if self.path == &quot;/admin/reset&quot;:
+            _paused = False
+            self._send(200, {&quot;paused&quot;: False})
+            return
+        if self.path == &quot;/v1/chat/completions&quot;:
+            body = self._body()
+            model = str(body.get(&quot;model&quot;, &quot;&quot;))
+            if _paused:
+                _ledger(&quot;/v1/chat/completions&quot;, model, False)
+                self._send(503, {&quot;error&quot;: &quot;gateway paused&quot;})
+                return
+            if self.headers.get(&quot;Authorization&quot;) != f&quot;Bearer {KEY}&quot;:
+                _ledger(&quot;/v1/chat/completions&quot;, model, False)
+                self._send(
+                    401,
+                    {
+                        &quot;error&quot;: {
+                            &quot;message&quot;: &quot;missing or wrong gateway key&quot;,
+                            &quot;type&quot;: &quot;auth_error&quot;,
+                        }
+                    },
+                )
+                return
+            # Logged before the response is sent: a caller must never observe &quot;success&quot;
+            # before the gateway&#x27;s own record of the call exists.
+            _ledger(
+                &quot;/v1/chat/completions&quot;, model, True, PROMPT_TOKENS, COMPLETION_TOKENS
+            )
+            self._send(
+                200,
+                {
+                    &quot;id&quot;: &quot;chatcmpl-lab20&quot;,
+                    &quot;object&quot;: &quot;chat.completion&quot;,
+                    &quot;created&quot;: int(time.time()),
+                    &quot;model&quot;: model,
+                    &quot;choices&quot;: [
+                        {
+                            &quot;index&quot;: 0,
+                            &quot;message&quot;: {&quot;role&quot;: &quot;assistant&quot;, &quot;content&quot;: REPLY},
+                            &quot;finish_reason&quot;: &quot;stop&quot;,
+                        }
+                    ],
+                    &quot;usage&quot;: {
+                        &quot;prompt_tokens&quot;: PROMPT_TOKENS,
+                        &quot;completion_tokens&quot;: COMPLETION_TOKENS,
+                        &quot;total_tokens&quot;: PROMPT_TOKENS + COMPLETION_TOKENS,
+                    },
+                },
+            )
+            return
+        self._send(404, {&quot;error&quot;: &quot;not found&quot;})
+
+    def log_message(self, format: str, *args: object) -&gt; None:
+        pass
+
+
+if __name__ == &quot;__main__&quot;:
+    port = int(sys.argv[1]) if len(sys.argv) &gt; 1 else 8791
+    ThreadingHTTPServer((&quot;127.0.0.1&quot;, port), Handler).serve_forever()
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-workflow-metered-reply-workflow-yaml">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/workflow/metered-reply.workflow.yaml</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="yaml"><code># One agent, one model, one metered call per run. The agent&#x27;s `model` names the gateway
+# endpoint&#x27;s model id (`lab-chat-mini`), which is also the pricing row&#x27;s `model_id` -- that
+# is the whole join: span model -&gt; pricing model_id -&gt; cost.
+schema_version: 1
+workflow_id: metered-reply
+name: metered-reply
+description: Cookbook 20. A single agent whose every call goes through the metered gateway.
+nodes:
+  start:
+    id: start
+    type: start
+    outputs:
+      user_message:
+        type: string
+  reply_agent:
+    id: reply_agent
+    type: agent
+    name: reply-agent
+    model: lab-chat-mini
+    instructions:
+      type: inline
+      text: &gt;-
+        Answer the user&#x27;s message in one short sentence. You are a stand-in agent in a cost
+        accounting lab; the content of your reply does not matter, the metering of it does.
+    inputs:
+      input:
+        type: string
+    outputs:
+      final_output:
+        type: string
+  final:
+    id: final
+    type: output
+    inputs:
+      response:
+        type: string
+edges:
+  - id: e_start_agent
+    from: start
+    to: reply_agent
+    map:
+      user_message: input
+  - id: e_agent_final
+    from: reply_agent
+    to: final
+    map:
+      final_output: response
+</code></pre>
+    </div>
+      <h2 id="gates">Evaluation &amp; quality gates</h2>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Discovery</td><td>GET /gateway reports configured, reachable and routing_through_gateway true, with the stand-in's 2 endpoints; a paused gateway flips reachable to false with the error, HTTP 200 either way</td></tr><tr><td>Two ledgers agree</td><td>usage's call count for lab-chat-mini equals the gateway ledger's ok count; a refused call is in the ledger (ok false) and never in usage</td></tr><tr><td>Exact cost</td><td>one run adds exactly 2000 tokens and $3.00 at $1/$2 per 1K (the same arithmetic test_routes_llm_pricing.py pins); after the rate rises to $10, the next call bills $12.00 and past cost is unchanged</td></tr><tr><td>Role floors</td><td>pricing create needs the operator scope (viewer 403); pricing edits and key rotation are admin-only (operator 403); secrets are admin-only end to end</td></tr><tr><td>No credential readback</td><td>GET /settings/llm returns presence and a masked fingerprint; secret responses carry metadata and a secret:// reference, never a value</td></tr><tr><td>Audit</td><td>settings.update_llm, create/update_llm_pricing, put/revoke_secret and create/delete_gateway_guardrail each appear in the audit log</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li><strong>Flags.</strong> The gateway surface needs no feature flag; only the gallery step needs <code>cookbooks</code>. The stack itself must be started with <code>--real-llm</code> and routed through the stand-in: <code>CALIBER_GATEWAY_URI=http://127.0.0.1:8791</code>, <code>CALIBER_LLM_BASE_URL=http://127.0.0.1:8791/v1</code>.</li><li><strong>The base URL ends in /v1.</strong> The OpenAI client appends <code>/chat/completions</code> to it. A value ending in <code>/gateway</code> 404s against the standalone MLflow gateway -- this lab fixed that example in <code>.env.example</code> and the gateway deployment README.</li><li><strong>Boot with the wrong key on purpose.</strong> <code>OPENAI_API_KEY=lab20-boot-key-wrong</code> both stages the lab's credential-failure beat and keeps your real key out of a disposable stack (<code>--real-llm</code> would otherwise read it from <code>.env</code>).</li><li><strong>Cost is written at call time.</strong> The agent-turn span carries tokens, model and cost computed from the pricing table at that moment; <code>/gateway/usage</code> only aggregates spans. Editing a rate re-prices the future, never history -- an audit property and a bookkeeping caveat in one.</li><li><strong>The trust boundary, honestly.</strong> Guardrail definitions live in the MLflow tracking store and are enforced by MLflow's <em>own</em> AI Gateway, not by the standalone gateway the Endpoints tab lists. Pricing matches on <code>model_id</code> alone and an unknown model costs $0. The refinement/diagnosis LLM client does not route through <code>CALIBER_LLM_BASE_URL</code>.</li><li><strong>Run it.</strong> Start the stand-in first: <code>python3 docs-site/cookbooks/20-llm-gateway-cost-guardrails-lab/assets/server/llm_gateway.py 8791 &amp;</code>, then <code>cd sdk/caliber-sdk &amp;&amp; ../../caliber/.venv/bin/python examples/cookbooks/cookbook_20_llm_gateway_cost_guardrails.py</code> (under a minute; <code>--cleanup</code> archives what it created).</li></ul></div>
+      <nav class="ck-pager"><a href="m-cookbook-19-openapi-governance.html">← Governed OpenAPI Tool</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><span></span></nav>
+        <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
+        Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>
+      </article>
+    </main>
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card"><div class="toc-title">On this page</div><nav class="toc-links" id="page-toc"></nav></div>
+    </aside>
+  </div>
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+  <script>
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-ck-copy]"); if (!b) return;
+      var pre = b.closest(".ck-asset").querySelector("pre code");
+      var txt = pre ? pre.textContent : "";
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () {
+        var old = b.textContent; b.textContent = "Copied"; b.classList.add("ok");
+        setTimeout(function () { b.textContent = old; b.classList.remove("ok"); }, 1400);
+      }).catch(function () { b.textContent = "Select + copy"; });
+    });
+  </script>
+</body>
+
+</html>

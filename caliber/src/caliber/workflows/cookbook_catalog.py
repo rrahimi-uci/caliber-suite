@@ -254,6 +254,22 @@ _RECIPES: tuple[dict[str, Any], ...] = (
             "preview flag"
         ],
     },
+    {
+        "id": "20",
+        "slug": "llm-gateway-cost-guardrails",
+        "title": "Metered LLM Gateway",
+        "summary": (
+            "Route every agent LLM call through one gateway, price the model per 1K tokens, "
+            "and read exact cost next to usage -- with the gateway's own ledger agreeing."
+        ),
+        "icon": "🧮",
+        "template_kind": "single_agent",
+        "capabilities": ["LLM gateway", "usage and cost", "model pricing", "secrets", "guardrails"],
+        "prerequisites": [
+            "An OpenAI-compatible gateway (the lab ships a stand-in) and a stack started with "
+            "--real-llm routed through it"
+        ],
+    },
 )
 
 
@@ -843,6 +859,36 @@ _RECIPE_STEPS: dict[str, tuple[dict[str, str], ...]] = {
             "title": "Reimport after the upstream spec changes and read the diff",
             "route": "/openapi-integrations",
         },
+    ),
+    "20": (
+        {
+            "title": "Read the Endpoints tab: configured, reachable, routed through",
+            "route": "/gateway",
+        },
+        {
+            "title": "Pause the stand-in gateway and watch the page degrade, then recover",
+            "route": "/gateway",
+        },
+        {
+            "title": "Run the workflow on the wrong key and read the gateway's 401",
+            "route": "/workflows",
+        },
+        {"title": "Rotate the provider key at runtime as an admin", "route": "/settings"},
+        {
+            "title": "Price the gateway's model per 1K tokens on the Pricing tab",
+            "route": "/gateway",
+        },
+        {"title": "Run the metered workflow for real", "route": "/workflows"},
+        {"title": "Read Usage: tokens, calls and exact cost", "route": "/gateway"},
+        {
+            "title": "Raise the rate and run again: past cost stays, the next call re-prices",
+            "route": "/gateway",
+        },
+        {
+            "title": "Store and rotate the gateway key in the secrets store",
+            "route": "/administration",
+        },
+        {"title": "Define a deterministic guardrail, then delete it", "route": "/gateway"},
     ),
 }
 

@@ -1,0 +1,30 @@
+id: SCN-20
+slug: llm-gateway-cost-guardrails-lab
+name: "Metered LLM Gateway"
+track: starter
+objective: Route every agent LLM call through one gateway, price the model, and prove the cost numbers against the gateway's own request ledger.
+why_it_matters:
+  - An agent platform without a meter is a blank check; routing calls through one gateway is what makes usage observable and cost attributable at all.
+  - Cost is written at call time from the pricing table, so a rate change re-prices the future, never the past -- an audit property, not a bug.
+  - Provider keys are operational secrets; the platform exposes presence and a masked fingerprint, rotates at runtime through an audited admin surface, and offers an encrypted store with no readback.
+primary_persona: platform engineer
+secondary_personas:
+  - finance / FinOps reviewer
+  - AI engineer
+caliber_surfaces:
+  - LLM Gateway
+  - Workflows
+  - Settings
+  - Administration
+  - Audit Log
+prerequisites:
+  - A stack started with --real-llm, CALIBER_GATEWAY_URI and CALIBER_LLM_BASE_URL pointing at the lab's stand-in gateway (assets/server/llm_gateway.py), and the deliberately wrong boot key the README names.
+  - CALIBER_SECRET_ENCRYPTION_KEY_SOURCE naming an env var with a 32-byte key, for the secrets stages.
+  - Accounts for an operator and a viewer; CALIBER_OPERATOR_USERS names who can price models and define guardrails.
+time_to_first_value: 15-30 minutes
+success_criteria:
+  - The Endpoints tab shows the gateway configured, reachable and routed-through, lists its two endpoints, and degrades honestly while the gateway is paused.
+  - A run on the wrong key fails with the gateway's 401, and the gateway's own ledger records the refused call; an admin fixes the key at runtime and the run succeeds.
+  - One metered run adds exactly 2000 tokens and $3.00 to the model's usage row, and the gateway's ledger agrees on the call count.
+  - Raising the rate leaves past cost unchanged and bills the next call at the new rate.
+  - A secret rotates with a version bump and is never readable back; a deterministic guardrail is defined, listed and deleted.

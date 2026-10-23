@@ -1,0 +1,36 @@
+workflow_goal: Route every agent LLM call through one gateway, price the model per 1K tokens, and read exact cost next to usage -- with the gateway's own ledger agreeing on every number.
+# Verified by running the lab against a real stack (scripts/cookbook-env.sh up lab20 --real-llm) -- see README.md.
+feasibility:
+  - The gateway is the lab's own (assets/server/llm_gateway.py), a real loopback OpenAI-compatible server CALIBER calls for real -- discovery is a genuine fetch of the MLflow AI Gateway listing shape, and every workflow agent turn is a genuine POST to /v1/chat/completions carrying a bearer key. Nothing on the cost path is simulated; the stand-in merely replaces a paid provider, the way other labs' stand-ins replace a SaaS.
+  - Usage and cost are read from traces, not from a separate metering database. The workflow runtime records prompt/completion token counts on the agent-turn span, computes cost at span-write time from the pricing table (DB rows over built-in defaults, matched on model_id), and /gateway/usage aggregates those spans. Changing a price later does not change what past traces cost.
+  - The stand-in bills a flat 1000 prompt + 1000 completion tokens per call, so the arithmetic is checkable by eye -- at $1/$2 per 1K, every call costs exactly $3.00, the same ground truth caliber/tests/test_routes_llm_pricing.py pins.
+  - Provider credentials are governed. GET /settings/llm reports presence and a masked fingerprint, never a value; PATCH /settings/llm (admin-only, audited) rotates the key on the running server. The secrets store (admin-only, AES-256-GCM, no readback, rotation bumps a version) is the durable home for such a key -- a secret:// source for CALIBER_LLM_API_KEY_ENV resolves at boot.
+  - Guardrail definitions are real and live in the MLflow tracking store; the deterministic kinds (regex, pii) need no judge model. Enforcement happens in MLflow's own AI Gateway (the tracking server's gateway API), not in the standalone endpoint listing this lab's Endpoints tab shows -- the lab says so instead of pretending otherwise.
+manual_flow:
+  - step: discover
+    action: read the Endpoints tab -- configured, reachable, routed through -- then watch it degrade while the gateway is paused
+  - step: rotate
+    action: run on the wrong provider key, read the gateway's own 401, fix the key at runtime as an admin
+  - step: price
+    action: put a per-1K-token rate on the gateway's model
+  - step: meter
+    action: run the workflow and read tokens, calls and exact cost on the Usage tab
+  - step: govern
+    action: store and rotate the key in the secrets store; define and delete a deterministic guardrail
+components:
+  prompts: none
+  skills: none
+  tools: none
+  mcp: none
+  gateway:
+    required:
+      - assets/server/llm_gateway.py over real loopback HTTP
+    surfaces:
+      - endpoint discovery      # GET {CALIBER_GATEWAY_URI}/api/2.0/endpoints/, the MLflow AI Gateway listing shape
+      - usage and cost          # /gateway/usage, aggregated from trace spans
+      - model pricing           # /llm-pricing rows, USD per 1K tokens, matched on model_id
+      - guardrail definitions   # /gateway/guardrails*, stored in the MLflow tracking store
+  workflows:
+    - assets/workflow/metered-reply.workflow.yaml   # one agent, model lab-chat-mini -- the pricing join key
+  secrets:
+    - lab20-gateway-key   # the stand-in's bearer key; admin-only store, secret:// reference, no readback
