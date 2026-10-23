@@ -54,6 +54,7 @@ interface WorkflowRunDebuggerProps {
   events?: WorkflowRunEvent[];
   checkpoints?: WorkflowRunCheckpoint[];
   focusedNodeId?: string | null;
+  focusedNodePinned?: boolean;
   onSelectNodeId?: (nodeId: string) => void;
 }
 
@@ -1665,6 +1666,7 @@ export function WorkflowRunDebugger({
   events = [],
   checkpoints = [],
   focusedNodeId = null,
+  focusedNodePinned = true,
   onSelectNodeId,
 }: WorkflowRunDebuggerProps): JSX.Element {
   const summarySteps = useMemo(() => deriveSummarySteps(run), [run]);
@@ -1703,6 +1705,11 @@ export function WorkflowRunDebugger({
   }, [steps]);
 
   useEffect(() => {
+    if (!focusedNodePinned) {
+      pickedStepRef.current = false;
+      setSelectedKey(steps[steps.length - 1]?.selectionKey ?? null);
+      return;
+    }
     if (!focusedNodeId) return;
     const matchingStep =
       [...steps].reverse().find((step) => step.node_id === focusedNodeId) ??
@@ -1714,7 +1721,7 @@ export function WorkflowRunDebugger({
         ? current
         : matchingStep.selectionKey,
     );
-  }, [focusedNodeId, steps]);
+  }, [focusedNodeId, focusedNodePinned, steps]);
 
   const selectedStep = useMemo(
     () =>

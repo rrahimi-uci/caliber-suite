@@ -757,6 +757,59 @@ describe("selection persistence and focus effects", () => {
     expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent("start");
   });
 
+  it("keeps following the newest step when the focused graph node is not pinned", () => {
+    const reviewRun: WorkflowRun = {
+      ...threeStepRun({ status: "running" }),
+      current_node_id: "middle",
+      summary: {
+        node_path: ["start", "middle"],
+        steps: [
+          baseStep({ node_id: "start" }),
+          baseStep({ node_id: "middle", node_type: "agent", detail: "review" }),
+        ],
+      },
+    };
+    const completedRun: WorkflowRun = {
+      ...threeStepRun(),
+      summary: {
+        node_path: ["start", "middle", "final"],
+        steps: [
+          baseStep({ node_id: "start" }),
+          baseStep({ node_id: "middle", node_type: "agent", detail: "review" }),
+          baseStep({
+            node_id: "final",
+            node_type: "output",
+            detail: "ROLLBACK_APPROVED",
+            output: "ROLLBACK_APPROVED",
+          }),
+        ],
+      },
+    };
+    const { rerender } = render(
+      <WorkflowRunDebugger
+        manifest={manifest}
+        run={reviewRun}
+        events={[]}
+        focusedNodeId="middle"
+        focusedNodePinned={false}
+      />,
+    );
+    expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent("review");
+
+    rerender(
+      <WorkflowRunDebugger
+        manifest={manifest}
+        run={completedRun}
+        events={[]}
+        focusedNodeId="middle"
+        focusedNodePinned={false}
+      />,
+    );
+    expect(screen.getByTestId("workflow-run-step-detail")).toHaveTextContent(
+      "ROLLBACK_APPROVED",
+    );
+  });
+
   it("leaves the selection untouched when the focused node id is already selected", () => {
     render(
       <WorkflowRunDebugger
