@@ -6,20 +6,55 @@
 # - Lets concurrent Playwright invocations reuse one bootstrap instead of
 #   racing migrations, temp-file cleanup, or port binding
 # - Cleans up only after the last active client exits
+#
+# Usage: caliber/scripts/run-playwright-server.sh [--force-cleanup | -h | --help]
+# Started by Playwright (playwright*.config.ts `webServer.command`); run by hand only to debug.
+#   --force-cleanup  stop the server of this port and delete its state directory, then exit.
+#
+# Environment (all optional):
+#   MLFLOW_PORT (default 5150), MLFLOW_HOST (default 127.0.0.1)   where the disposable server listens
+#   VENV_DIR            virtualenv (default: caliber/.venv, else the repository .venv from `make setup`)
+#   CALIBER_E2E_TMP_ROOT / CALIBER_E2E_STATE_DIR   where state lives (default caliber/.tmp)
+#   CALIBER_E2E_ENV_FILE  a shell-syntax env file to read CALIBER_DATABASE_URL / POSTGRES_URL /
+#                       CALIBER_KNOWLEDGE_AGE_* from. NOT read by default: the repository .env belongs
+#                       to your own stack and must not leak into a disposable test server.
+#   CALIBER_E2E_ALLOW_EXTERNAL_DB=1   permit a non-SQLite CALIBER_DATABASE_URL / MLFLOW_BACKEND_STORE_URI.
+#                       Refused otherwise: this harness RESETS the database it is given.
+# The server always starts on a fresh SQLite database under the state directory unless you override it.
 
 set -euo pipefail
+
+case "${1:-}" in
+  -h|--help)
+    awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; seen = 1; next } seen { exit }' "${BASH_SOURCE[0]}"
+    exit 0
+    ;;
+esac
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 SCRIPT_PATH="$REPO_ROOT/scripts/run-playwright-server.sh"
 cd "$REPO_ROOT"
 
-VENV_DIR="${VENV_DIR:-.venv}"
+# The virtualenv, relative to caliber/ unless absolute: $VENV_DIR, else caliber/.venv, else ../.venv.
+if [[ -z "${VENV_DIR:-}" ]]; then
+  if [[ -x ".venv/bin/python" ]]; then VENV_DIR=".venv"
+  elif [[ -x "../.venv/bin/python" ]]; then VENV_DIR="../.venv"
+  else VENV_DIR=".venv"; fi
+fi
 if [[ "${1:-}" != "--force-cleanup" && ! -x "$VENV_DIR/bin/python" ]]; then
-  echo "error: virtualenv not found at $VENV_DIR (run make install first)" >&2
+  echo "error: virtualenv not found at $VENV_DIR. Create it: 'make setup' in the repository root, or 'make install' in caliber/" >&2
+  exit 1
+fi
+if ! command -v curl >/dev/null 2>&1; then
+  echo "error: curl is required (it probes the server's health endpoint)" >&2
   exit 1
 fi
 
-PROJECT_ENV_FILE="${CALIBER_E2E_ENV_FILE:-$REPO_ROOT/../.env}"
+# Opt-in only: sourcing the repository .env by default let a developer's own database settings
+# reach this harness, which resets the database it uses.
+PROJECT_ENV_FILE="${CALIBER_E2E_ENV_FILE:-}"
+E2E_ENV_FILE_OPTED_IN=0
+if [[ -n "$PROJECT_ENV_FILE" && "$PROJECT_ENV_FILE" != /dev/null ]]; then E2E_ENV_FILE_OPTED_IN=1; fi
 
 load_e2e_env_defaults() {
   local env_file="$1"
@@ -39,7 +74,9 @@ load_e2e_env_defaults() {
   done < <(env -i bash -a -c "source \"$env_file\" >/dev/null 2>&1; env -0")
 }
 
-load_e2e_env_defaults "$PROJECT_ENV_FILE"
+if [[ -n "$PROJECT_ENV_FILE" ]]; then
+  load_e2e_env_defaults "$PROJECT_ENV_FILE"
+fi
 if [[ -z "${CALIBER_DATABASE_URL:-}" && -n "${POSTGRES_URL:-}" ]]; then
   export CALIBER_DATABASE_URL="$POSTGRES_URL"
 fi
@@ -246,6 +283,18 @@ cleanup_shared_state() {
   local pid
   pid="$(server_pid || true)"
   stop_pid "$pid"
+  # STATE_DIR can be overridden through the environment; never recursively delete something that
+  # is not clearly this harness's own scratch directory.
+  case "$STATE_DIR" in
+    "" | / | "$HOME" | "$REPO_ROOT")
+      echo "error: refusing to delete the unsafe state directory '$STATE_DIR'" >&2
+      return 1
+      ;;
+  esac
+  if [[ "$STATE_DIR" != "$TMP_ROOT"/* && "$(basename "$STATE_DIR")" != *playwright* ]]; then
+    echo "error: refusing to delete '$STATE_DIR': it is neither under $TMP_ROOT nor named *playwright*" >&2
+    return 1
+  fi
   rm -rf "$STATE_DIR"
   rmdir "$TMP_ROOT" 2>/dev/null || true
 }
@@ -489,9 +538,25 @@ fi
 
 if [[ "${1:-}" == "--force-cleanup" ]]; then
   acquire_lock
-  cleanup_shared_state
+  cleanup_rc=0
+  cleanup_shared_state || cleanup_rc=$?
   release_lock
-  exit 0
+  exit "$cleanup_rc"
+fi
+
+# This harness resets the database it is given (demo seed with --reset, the alpha journey fixture).
+# Never point it at a real database by accident (for example one exported in your shell for the
+# Docker stack): only SQLite, which defaults to a fresh file in the state directory, is accepted
+# unless you say otherwise.
+if [[ "${CALIBER_E2E_ALLOW_EXTERNAL_DB:-0}" != "1" && "$E2E_ENV_FILE_OPTED_IN" != "1" ]]; then
+  for external_db_var in CALIBER_DATABASE_URL MLFLOW_BACKEND_STORE_URI; do
+    external_db_value="${!external_db_var:-}"
+    if [[ -n "$external_db_value" && "$external_db_value" != sqlite* ]]; then
+      echo "error: $external_db_var is set to a non-SQLite database, and this test harness RESETS the database it uses." >&2
+      echo "       Unset $external_db_var to use the disposable SQLite database, or export CALIBER_E2E_ALLOW_EXTERNAL_DB=1 if you really mean it." >&2
+      exit 1
+    fi
+  done
 fi
 
 register_client
@@ -502,8 +567,9 @@ cleanup() {
 }
 trap cleanup EXIT INT TERM
 
-export CALIBER_DATABASE_URL="$(normalize_postgres_driver_url "${CALIBER_DATABASE_URL:-sqlite:///$DB_FILE}")"
-export MLFLOW_BACKEND_STORE_URI="$(normalize_postgres_driver_url "${MLFLOW_BACKEND_STORE_URI:-$CALIBER_DATABASE_URL}")"
+CALIBER_DATABASE_URL="$(normalize_postgres_driver_url "${CALIBER_DATABASE_URL:-sqlite:///$DB_FILE}")"
+MLFLOW_BACKEND_STORE_URI="$(normalize_postgres_driver_url "${MLFLOW_BACKEND_STORE_URI:-$CALIBER_DATABASE_URL}")"
+export CALIBER_DATABASE_URL MLFLOW_BACKEND_STORE_URI
 # ``caliber.db.session.create_engine_from_config`` already extends CALIBER's
 # own SQLite connections to a 30s busy-timeout (its own comment: "the
 # default 5s busy-timeout still triggers spurious 'database table is

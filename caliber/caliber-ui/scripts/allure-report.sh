@@ -7,12 +7,30 @@
 # the Allure distribution that ``allure-commandline`` already vendored into
 # node_modules. So any host with *either* Java or Docker can produce the report.
 #
-# Usage: allure-report.sh [generate|serve]   (default: generate, then open)
+# Usage: allure-report.sh [generate|serve|-h|--help]   (default: generate, then open)
+#   generate  render the report into caliber/caliber-ui/allure-report, then open it on
+#             http://${ALLURE_HOST}:${ALLURE_PORT} (the Dockerized fallback only renders it).
+#   serve     render and serve straight from the results (needs a local Java; no Docker fallback).
+# Needs: results from a test run (see the message printed when there are none),
+# `npm install` in caliber/caliber-ui (it vendors the Allure CLI), and a Java runtime or Docker.
+# Environment: ALLURE_HOST (default 127.0.0.1), ALLURE_PORT (default 5252).
+# Exit status: 0 done, 1 missing results/CLI/runtime, 2 a usage error.
 set -euo pipefail
 
 UI_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"   # caliber/caliber-ui
 SUITE_DIR="$(cd "$UI_DIR/../.." && pwd)"                     # caliber-suite
 ACTION="${1:-generate}"
+case "$ACTION" in
+  generate|serve) ;;
+  -h|--help)
+    awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
+    exit 0
+    ;;
+  *)
+    echo "allure-report.sh: unknown action '$ACTION' (use generate or serve; see --help)" >&2
+    exit 2
+    ;;
+esac
 REPORT_DIR="$UI_DIR/allure-report"
 ALLURE_BIN="$UI_DIR/node_modules/allure-commandline/dist/bin/allure"
 # Fixed host/port so the Settings "Open Allure report" link (default
@@ -54,7 +72,11 @@ if java -version >/dev/null 2>&1; then
   exec "$ALLURE_BIN" open "$REPORT_DIR" --host "$ALLURE_HOST" --port "$ALLURE_PORT"
 fi
 
-if command -v docker >/dev/null 2>&1; then
+if command -v docker >/dev/null 2>&1 && docker info >/dev/null 2>&1; then
+  if [ "$ACTION" = "serve" ]; then
+    echo "'serve' needs a local Java runtime; the Docker fallback can only render the report. Install Java, or run 'generate'." >&2
+    exit 1
+  fi
   echo "No local Java — rendering with a Dockerized JRE (eclipse-temurin:21-jre)."
   # Translate host result dirs to their in-container paths under /work.
   REL_RESULTS=()
@@ -76,6 +98,6 @@ Allure report rendering needs a Java runtime (or Docker). Install one:
   Debian/Ubuntu:  sudo apt-get install -y default-jre
   Fedora/RHEL:    sudo dnf install -y java-21-openjdk-headless
   Windows:        choco install temurin            (or: scoop install temurin)
-…or install Docker and re-run — this script will then render in a container.
+…or install Docker (and start it) and re-run — this script will then render in a container.
 EOF
 exit 1

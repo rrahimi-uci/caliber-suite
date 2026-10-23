@@ -9,6 +9,12 @@ Usage: ./scripts/run-workflow-platform-release-gate.sh [options]
 Runs the broad local workflow-platform release gate across backend, frontend,
 integration, and packaging surfaces.
 
+Prerequisites: the backend virtualenv (VENV_DIR, else caliber/.venv from `make install`, else the
+repository .venv from `make setup`) with the dev tools, and Node.js with npm (run
+`npm ci` in caliber-ui, or pass --npm-ci). The package step also needs `python -m build`
+in that virtualenv. Exit status: 0 every selected step passed, 1 a step failed or a
+prerequisite is missing.
+
 Options:
   --npm-ci            Run `npm ci` in caliber-ui before frontend checks.
   --with-security     Also run the supported-Python dependency audit for the
@@ -30,7 +36,18 @@ EOF
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 BACKEND_DIR="${ROOT_DIR}/caliber"
 FRONTEND_DIR="${BACKEND_DIR}/caliber-ui"
-VENV_DIR="${BACKEND_DIR}/.venv"
+# The backend virtualenv: $VENV_DIR, else caliber/.venv, else the repository .venv (`make setup`).
+if [[ -z "${VENV_DIR:-}" ]]; then
+  if [[ -x "${BACKEND_DIR}/.venv/bin/python" ]]; then
+    VENV_DIR="${BACKEND_DIR}/.venv"
+  elif [[ -x "${ROOT_DIR}/.venv/bin/python" ]]; then
+    VENV_DIR="${ROOT_DIR}/.venv"
+  else
+    VENV_DIR="${BACKEND_DIR}/.venv"
+  fi
+fi
+# Like the other caliber scripts, a relative VENV_DIR is relative to caliber/.
+[[ "${VENV_DIR}" == /* ]] || VENV_DIR="${BACKEND_DIR}/${VENV_DIR}"
 RUFF_BIN="${VENV_DIR}/bin/ruff"
 MYPY_BIN="${VENV_DIR}/bin/mypy"
 PYTEST_BIN="${VENV_DIR}/bin/pytest"
@@ -158,7 +175,15 @@ echo "  backend   : ${BACKEND_DIR}"
 echo "  frontend  : ${FRONTEND_DIR}"
 
 if [[ ! -x "${RUFF_BIN}" || ! -x "${MYPY_BIN}" || ! -x "${PYTEST_BIN}" || ! -x "${PYTHON_BIN}" ]]; then
-  echo "Expected backend toolchain in ${VENV_DIR}/bin. Run the local install first." >&2
+  echo "Expected the backend toolchain (ruff, mypy, pytest) in ${VENV_DIR}/bin. Install it: 'make install' in caliber/ (or 'make setup' in the repository root)." >&2
+  exit 1
+fi
+if ! command -v node >/dev/null 2>&1 || ! command -v npm >/dev/null 2>&1; then
+  echo "Node.js (node and npm) is required for the frontend steps. Install Node (see 'engines' in caliber/caliber-ui/package.json)." >&2
+  exit 1
+fi
+if [[ "${RUN_NPM_CI}" -eq 0 && ! -d "${FRONTEND_DIR}/node_modules" ]]; then
+  echo "The frontend dependencies are not installed. Run 'npm ci' in caliber/caliber-ui, or pass --npm-ci." >&2
   exit 1
 fi
 
@@ -218,12 +243,12 @@ else
 fi
 
 if [[ "${SKIP_PACKAGE}" -eq 0 ]]; then
-  run_in_dir "Python package build" "${BACKEND_DIR}" bash -lc '
-    rm -rf src/caliber/ui
-    mkdir -p src/caliber/ui
-    cp -R caliber-ui/dist/. src/caliber/ui/
-    "'"${PYTHON_BIN}"'" -m build
-  '
+  if ! "${PYTHON_BIN}" -c 'import build' >/dev/null 2>&1; then
+    echo "The package step needs 'build' in the backend virtualenv: ${PYTHON_BIN} -m pip install build (or pass --skip-package)." >&2
+    exit 1
+  fi
+  run_step "Sync packaged UI bundle" sync_packaged_ui_from_dist
+  run_in_dir "Python package build (python -m build)" "${BACKEND_DIR}" "${PYTHON_BIN}" -m build
 else
   echo
   echo "==> Skipping Python package build"
