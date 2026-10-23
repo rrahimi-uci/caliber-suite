@@ -50,10 +50,10 @@ alias, see what is live and what put it there, and roll it back, with an audit t
 workflows and knowledge bases are in the alpha too, each with its own journey. Projects, roles and access
 tokens decide who may do what, and a person outside a project cannot see its resources.
 
-## Preview areas are off by default
+## Preview areas are off by default (Aria ships on)
 
 The areas the alpha does not stand behind are switched **off** in a default deployment, so a fresh install shows
-only what the alpha supports. Four server-side flags turn them on; each is read at startup, defaults to false,
+only what the alpha supports. Four server-side flags control them; each is read at startup (three default to false; `CALIBER_FEATURE_ARIA` defaults to true),
 and is passed through by the Docker stack from the environment (`.env.example` documents them):
 
 | Variable | Turns on |
@@ -96,7 +96,7 @@ required before publication:
   knowledge bases is exercised as an outsider, a viewer, a reviewer, an editor and a non-member admin.
 - **Knowledge bases** create, build, version, query and roll back against a real MinIO and PostgreSQL, with
   simulated embeddings (`scripts/verify-knowledge-stack.sh`).
-- **The cookbook labs.** All seventeen were run on a fresh stack through the web app and through the SDK, with the
+- **The cookbook labs.** All twenty were run on a fresh stack through the web app and through the SDK, with the
   preview flags each lab needs; the browser specs run on `main` as the `Cookbook UI-only browser journeys` check, and
   the findings and fixes are in
   [First-user verification](../../docs-site/cookbooks/FIRST-USER-VERIFICATION.md).
