@@ -106,7 +106,7 @@ discovery exit criterion below — it does not replace or shorten M1–M6.
   signoff) are off by default behind `CALIBER_FEATURE_*` flags. The flagged-trace start
   of the journey, a second approver, one-active-process enforcement, a measured
   workload envelope and rehearsed recovery are not.
-- **Alpha work since 2026-10-14.** The seventeen cookbook labs were run through
+- **Alpha work since 2026-10-14.** The cookbook labs (twenty, as of labs 19-21) were run through
   the UI and the SDK on fresh stacks, and the defects that surfaced were fixed
   (see [First-user verification](../docs-site/cookbooks/FIRST-USER-VERIFICATION.md)).
   The repository is Apache-2.0 throughout. None of this is an M1-M6 exit.

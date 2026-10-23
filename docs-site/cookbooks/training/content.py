@@ -48,9 +48,9 @@ INTRO = {
             a <strong>UI mockup</strong>, an <strong>assets table</strong>, and <strong>quality gates</strong>.</li>
           <li>Every <strong>green link</strong> opens the copy-paste asset file in that cookbook's
             <code>assets/</code> folder — paste its contents into the matching field.</li>
-          <li><strong>Preview areas are off by default.</strong> Each cookbook's notes name the feature flags it needs
+          <li><strong>Preview areas are off by default (Aria ships on).</strong> Each cookbook's notes name the feature flags it needs
             (<code>CALIBER_FEATURE_COOKBOOKS</code> for the gallery; <code>CALIBER_FEATURE_ARIA</code> for labs 12–15,
-            <code>CALIBER_FEATURE_INTEGRATIONS</code> for lab 05 or <code>CALIBER_FEATURE_RELEASE_CANDIDATES</code> for lab 11).
+            <code>CALIBER_FEATURE_INTEGRATIONS</code> for labs 05 and 19, or <code>CALIBER_FEATURE_RELEASE_CANDIDATES</code> for labs 11 and 21).
             Set them on the server and restart. <code>scripts/cookbook-env.sh up NAME --flags …</code> starts a disposable stack with them.</li>
         </ul>
       </div>

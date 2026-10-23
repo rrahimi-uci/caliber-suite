@@ -73,8 +73,8 @@ gets 403. The role each action needs is listed in
 
 ## Feature-flagged areas
 
-Aria, MCP servers and OpenAPI integrations, cookbooks, and release-candidate signoff with Workspace releases are
-**off by default**. While one is off, every route of that area answers HTTP 404 with
+MCP servers and OpenAPI integrations, cookbooks, and release-candidate signoff with Workspace releases are
+**off by default**; the Aria assistant and plans ship **on** (disable with `CALIBER_FEATURE_ARIA=false`). While one is off, every route of that area answers HTTP 404 with
 `reason_code: feature_disabled` and a `detail` that names the variable to set. The routes still appear in the
 served OpenAPI document. Call `GET /capabilities` and read `features` before you rely on one, rather than
 probing for the 404; the response also reports `openapi_integrations.enabled`, which follows the `integrations`

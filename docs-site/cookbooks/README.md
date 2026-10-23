@@ -1,6 +1,6 @@
 # CALIBER Cookbooks
 
-Seventeen build-along labs (numbered 01 to 16 and 18; 17 is a standalone SDK automation, `cookbook_17_financial_analysis.py`, with no
+Twenty build-along labs (numbered 01 to 16 and 18 to 21; 17 is a standalone SDK automation, `cookbook_17_financial_analysis.py`, with no
 catalog entry) that teach the CALIBER platform end-to-end. Each lab was run for real, step by step, against a disposable server
 (`scripts/cookbook-env.sh`) through the API and through the browser, and its README says which parts run on the alpha's default
 **simulated** model and evaluator and which are real. Every lab is also a versioned system example: with `CALIBER_FEATURE_COOKBOOKS=true`
@@ -37,16 +37,16 @@ the product does not represent an unavailable dependency as ready. The generated
 ## Feature flags (read first)
 
 The Cookbooks gallery, and several of the areas the labs build on, are preview or
-record-only areas of the alpha and are **off by default** on the server. Each is a
+record-only areas of the alpha and are **off by default** on the server (Aria is the exception: it ships on, and `CALIBER_FEATURE_ARIA=false` switches it off). Each is a
 variable you set to `true` before starting CALIBER (the Docker stack passes them
 through from the environment), and a restart picks it up:
 
 | Variable | Turns on | Labs that need it |
 | --- | --- | --- |
-| `CALIBER_FEATURE_COOKBOOKS` | the Cookbooks gallery and `/cookbooks` API (installing a lab) | the gallery step of all 17; the only flag labs 01, 02, 03, 04, 06, 07, 08, 09, 10, 16 and 18 need |
+| `CALIBER_FEATURE_COOKBOOKS` | the Cookbooks gallery and `/cookbooks` API (installing a lab) | the gallery step of all 20; the only flag labs 01, 02, 03, 04, 06, 07, 08, 09, 10, 16, 18 and 20 need |
 | `CALIBER_FEATURE_ARIA` | the Aria assistant and **Plans** | 12, 13, 14, 15 |
-| `CALIBER_FEATURE_INTEGRATIONS` | MCP servers and OpenAPI integrations | 05 |
-| `CALIBER_FEATURE_RELEASE_CANDIDATES` | release-candidate signoff on **Releases** (record-only) | 11 |
+| `CALIBER_FEATURE_INTEGRATIONS` | MCP servers and OpenAPI integrations | 05, 19 |
+| `CALIBER_FEATURE_RELEASE_CANDIDATES` | release-candidate signoff on **Releases** (record-only) and workspace releases (experimental) | 11, 21 |
 
 Every lab README repeats its own flags in a **Prerequisite flag** line under the title.
 A disabled area answers 404 with `reason_code: feature_disabled`, and
@@ -87,10 +87,13 @@ from `caliber/caliber-ui`). The lab README holds the exact commands and the expe
 | 15 | `CALIBER_FEATURE_ARIA` (plus background workers) | 28 planner goals, a workflow with a 30-case test set, 12 flagged traces | Rules-based planner; the calibration finds no candidate on the simulated stack. |
 | 16 | none (`CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1`) | 40 production-like refund tickets (12 `ERROR`, 28 `OK`) | Real traces from lab 09's workflow; Evaluations is not used. |
 | 18 | none | a nine-person roster and a 72-request role matrix | No model; `/readiness` names the simulated providers. |
+| 19 | `CALIBER_FEATURE_INTEGRATIONS` (plus `CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1` and the lab's stand-in Ticket API) | a three-operation OpenAPI spec in two versions | No model anywhere. Import, preview, publish and reimport are real HTTP against the stand-in; its ledger proves what a refusal stopped. |
+| 20 | none (needs `--real-llm` routed at the lab's stand-in gateway) | a stand-in OpenAI-compatible gateway billing a flat 1000+1000 tokens per call | The "model" is the stand-in; discovery, routing, pricing, usage and exact cost are real, and the gateway's own ledger agrees with the meter. |
+| 21 | `CALIBER_FEATURE_RELEASE_CANDIDATES` | none -- every artifact is created live (see the lab's assets/README.md) | No model anywhere. Snapshots, diffs and the review are real; the release evaluation stays queued, the alpha's documented boundary. |
 
 ## Folder contract
 
-Every `cookbooks/<scenario>/` folder for scenarios 01–15 and 18 contains:
+Every `cookbooks/<scenario>/` folder for scenarios 01–15 and 18–21 contains:
 
 - `scenario.yaml`: goal, persona, prerequisites, demo profile
 - `README.md`: **executable recipe** — what the lab demonstrates, what is simulated,
