@@ -322,3 +322,87 @@ def test_a_plan_with_steps_still_approves(client: TestClient) -> None:
         "plan_id"
     ]
     assert client.post(APPROVE_PATH.replace("{plan_id}", plan_id)).status_code == 200
+
+
+class _ReturnsErrorEngine:
+    """Reports a missing provider SDK the way the real engines do: a returned error, no exception."""
+
+    def run_turn(self, request: object, *, toolset: object | None = None) -> AssistantTurnResult:
+        return AssistantTurnResult(
+            reply="Anthropic SDK is not installed. Please install 'anthropic' to use this engine.",
+            error="anthropic package not installed",
+        )
+
+
+def test_a_returned_engine_error_is_not_an_empty_draft() -> None:
+    """Describe it used to answer 200 with an empty draft when the engine returned an error."""
+    svc = AssistantService(engine=_ReturnsErrorEngine())  # type: ignore[arg-type]
+
+    with pytest.raises(AssistantUnavailableError) as raised:
+        svc.draft_prompt_from_description("Summarize support tickets.")
+
+    assert "package for its engine is not installed" in str(raised.value)
+    assert "extra" in str(raised.value)
+
+
+# --- test-case generation -----------------------------------------------------------------
+#
+# A canned refund-policy test set silently substituted for the user's own prompt, and labelled
+# "generated", is a fake that looks real. Only the explicit fake engine may return placeholders.
+
+
+class _ErroringEngine:
+    """A real-looking engine that reports a failure the way the OpenAI/Anthropic engines do."""
+
+    def run_turn(self, request: object, *, toolset: object | None = None) -> AssistantTurnResult:
+        return AssistantTurnResult(reply="", error="OPENAI_API_KEY is required to call the model")
+
+
+class _ProseEngine:
+    """A real engine that answers, but not with a JSON array."""
+
+    def run_turn(self, request: object, *, toolset: object | None = None) -> AssistantTurnResult:
+        return AssistantTurnResult(reply="Sure! Here are some thoughts on testing that prompt.")
+
+
+class _CasesEngine:
+    def run_turn(self, request: object, *, toolset: object | None = None) -> AssistantTurnResult:
+        return AssistantTurnResult(
+            reply='[{"input": {"query": "Where is my order?"}, '
+            '"expected": {"behavior": "Look up the order."}, "tags": ["orders"]}]'
+        )
+
+
+def test_a_real_engine_that_cannot_answer_does_not_get_canned_cases() -> None:
+    svc = AssistantService(engine=_NoKeyEngine())  # type: ignore[arg-type]
+    with pytest.raises(AssistantUnavailableError) as raised:
+        svc._generate_test_cases("support-agent")
+    assert "OPENAI_API_KEY is not set" in str(raised.value)
+
+
+def test_a_real_engine_that_reports_an_error_does_not_get_canned_cases() -> None:
+    svc = AssistantService(engine=_ErroringEngine())  # type: ignore[arg-type]
+    with pytest.raises(AssistantUnavailableError, match="OPENAI_API_KEY is not set"):
+        svc._generate_test_cases("support-agent")
+
+
+def test_a_real_engine_that_answers_in_prose_is_an_error_not_a_refund_policy_test_set() -> None:
+    svc = AssistantService(engine=_ProseEngine())  # type: ignore[arg-type]
+    with pytest.raises(ValueError, match="did not return a JSON array"):
+        svc._generate_test_cases("support-agent")
+
+
+def test_a_real_engine_that_returns_cases_has_them_passed_through() -> None:
+    svc = AssistantService(engine=_CasesEngine())  # type: ignore[arg-type]
+    cases = svc._generate_test_cases("support-agent")
+    assert [c["input"]["query"] for c in cases] == ["Where is my order?"]
+    assert cases[0]["tags"] == ["orders"]
+
+
+def test_the_fake_engine_still_gets_deterministic_cases_and_says_they_are_simulated() -> None:
+    from caliber.assistant.fake import FakeAssistantEngine
+
+    svc = AssistantService(engine=FakeAssistantEngine())
+    assert svc._engine_is_simulated() is True
+    assert len(svc._generate_test_cases("support-agent")) >= 3  # the deterministic fallback
+    assert AssistantService(engine=_CasesEngine())._engine_is_simulated() is False  # type: ignore[arg-type]

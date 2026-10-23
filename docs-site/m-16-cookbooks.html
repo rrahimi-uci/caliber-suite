@@ -64,8 +64,8 @@
       <header class="doc-header">
         <p class="doc-eyebrow">Cookbooks</p>
         <h1>Cookbooks</h1>
-        <p class="doc-lead">Seventeen practical, build-along recipes that teach the CALIBER platform end-to-end — each backed by a versioned, installable system example with readiness checks and an explicit review-before-activation boundary.</p>
-        <div class="ck-meta"><span class="ck-badge">17 cookbooks</span><span class="ck-badge">5 tracks</span><span class="ck-badge">UI-first</span><span class="ck-badge">Training-ready</span><span class="ck-badge">Mermaid flows + UI mockups</span></div>
+        <p class="doc-lead">Twenty practical, build-along recipes that teach the CALIBER platform end-to-end — each backed by a versioned, installable system example with readiness checks and an explicit review-before-activation boundary.</p>
+        <div class="ck-meta"><span class="ck-badge">20 cookbooks</span><span class="ck-badge">5 tracks</span><span class="ck-badge">UI-first</span><span class="ck-badge">Training-ready</span><span class="ck-badge">Mermaid flows + UI mockups</span></div>
       </header>
       
     <div class="ck-cols">
@@ -78,20 +78,20 @@
             a <strong>UI mockup</strong>, an <strong>assets table</strong>, and <strong>quality gates</strong>.</li>
           <li>Every <strong>green link</strong> opens the copy-paste asset file in that cookbook's
             <code>assets/</code> folder — paste its contents into the matching field.</li>
-          <li><strong>Preview areas are off by default.</strong> Each cookbook's notes name the feature flags it needs
-            (<code>CALIBER_FEATURE_COOKBOOKS</code> for the gallery; <code>CALIBER_FEATURE_ARIA</code> for labs 12–15,
-            <code>CALIBER_FEATURE_INTEGRATIONS</code> for lab 05 or <code>CALIBER_FEATURE_RELEASE_CANDIDATES</code> for lab 11).
+          <li><strong>Most preview areas are off by default; Aria ships on.</strong> Each cookbook's notes name the feature flags it needs
+            (<code>CALIBER_FEATURE_COOKBOOKS</code> for the gallery; <code>CALIBER_FEATURE_ARIA</code>, on by default, for labs 12–15;
+            <code>CALIBER_FEATURE_INTEGRATIONS</code> for labs 05 and 19; <code>CALIBER_FEATURE_RELEASE_CANDIDATES</code> for labs 11 and 21).
             Set them on the server and restart. <code>scripts/cookbook-env.sh up NAME --flags …</code> starts a disposable stack with them.</li>
         </ul>
       </div>
       <div class="callout">
-        <strong>The UI-first promise.</strong> With <code>CALIBER_FEATURE_COOKBOOKS=true</code> set on the server (off by default), open <strong>Cookbooks</strong> to install any of the 17 recipes as a paused workflow and editable draft. Review readiness before activation.
+        <strong>The UI-first promise.</strong> With <code>CALIBER_FEATURE_COOKBOOKS=true</code> set on the server (off by default), open <strong>Cookbooks</strong> to install any of the 20 recipes as a paused workflow and editable draft. Review readiness before activation.
         <ul>
           <li><strong>Test sets</strong> come from a file (<code>Upload JSON/JSONL</code>, labs 01 and 06) or from real runs (<code>Observability → open a trace → Add to test set</code>, lab 16).</li>
           <li><strong>The default model and evaluator are simulated.</strong> <code>Evaluations</code> refuses to score without a real model (<code>400 evaluation requires a real LLM provider</code>), and calibration evidence on the default stack is canned and marked <em>Simulated evaluation — not evidence</em>. Each lab says which of its steps are real and which are simulated.</li>
           <li><strong>Deterministic logic</strong> uses Data Transform for decisions, JSON Schema, mapping, confidence, and fixtures; Python Code remains a bounded extension.</li>
           <li><strong>Judges</strong> are for LLM-graded criteria; deterministic checks are <strong>scorers</strong> or assertions.</li>
-          <li><strong>Aria</strong> (12–15) plans from one sentence in <code>Plans</code> (needs <code>CALIBER_FEATURE_ARIA=true</code>, off by default). The planner is rules, not a model; nothing runs until you approve the plan, each step asks for the fields it cannot know, and Aria creates the artifact once you approve.</li>
+          <li><strong>Aria</strong> (12–15) plans from one sentence in <code>Plans</code> (needs <code>CALIBER_FEATURE_ARIA</code>, which ships on by default). The planner is rules, not a model; nothing runs until you approve the plan, each step asks for the fields it cannot know, and Aria creates the artifact once you approve.</li>
         </ul>
       </div>
     </div>
@@ -169,6 +169,12 @@
               <div class="ck-card-num">20</div>
               <strong>Metered LLM Gateway</strong>
               <span class="ck-card-sub">Route every agent LLM call through one gateway, price the model per 1K tokens, and read exact cost next to usage -- with the gateway&#x27;s own ledger agreeing.</span>
+              <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">15–30 min</span></div>
+              <span class="ck-card-go">Open cookbook →</span>
+            </a><a class="ck-card" href="m-cookbook-21-workspace-source-to-release.html">
+              <div class="ck-card-num">21</div>
+              <strong>Workspace Source-to-Release</strong>
+              <span class="ck-card-sub">Pin a workspace&#x27;s entities into an immutable revision, diff two revisions, carry one through a reviewed change request, and take it to the release gate -- no Git involved.</span>
               <div class="ck-badges"><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">15–30 min</span></div>
               <span class="ck-card-go">Open cookbook →</span>
             </a></div><h2 id="govern">Govern</h2><div class="ck-card-grid"><a class="ck-card" href="m-cookbook-10-trustworthy-evaluation.html">

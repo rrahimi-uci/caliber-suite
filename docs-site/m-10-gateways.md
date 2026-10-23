@@ -169,8 +169,9 @@ encode the discovery-versus-routing distinction directly:
   `http://mlflow-gateway:5002`, so the Gateway page is configured there out of the box.
 - `reachable=false` means the gateway URI was configured but the live probe
   failed or returned an error.
-- `routing_through_gateway` is derived by comparing whether `llm_base_url`
-  starts with the same scheme/host/port prefix as `gateway_uri`.
+- `routing_through_gateway` is derived by a plain string-prefix test: it is true
+  only when both URLs are non-empty and `llm_base_url` (trailing slash trimmed)
+  starts with `gateway_uri` (trailing slash trimmed).
 - Endpoint inventory is read from the external gateway's `/api/2.0/endpoints/`
   API and is never stored durably inside CALIBER.
 
@@ -285,7 +286,7 @@ The authorization model is as follows:
 
 A small set of data-handling protections keeps discovery safe and predictable:
 
-- Gateway probes use a short HTTP timeout and degrade into an error field rather
+- Gateway probes use a short HTTP timeout (4 seconds) and degrade into an error field rather
   than blocking or crashing the page.
 - The gateway status route is read-only and never forwards prompts or model
   payloads through the discovery path.

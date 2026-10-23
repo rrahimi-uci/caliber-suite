@@ -49,13 +49,28 @@ class AnthropicAssistantEngine:
         api_key_env: str = "ANTHROPIC_API_KEY",
     ) -> None:
         self._model = model
-        self._api_key = api_key or os.environ.get(api_key_env, "")
+        self._explicit_key = api_key or ""
+        self._api_key_env = api_key_env
         if not self._api_key:
             logger.warning(
                 "Anthropic API key not found in environment variable %s. "
                 "Assistant engine calls will fail until a valid key is set.",
                 api_key_env,
             )
+
+    @property
+    def _api_key(self) -> str:
+        """The key to use *now*: an explicit constructor key, else the environment variable.
+
+        Read per call rather than cached at construction, so a key written into the process
+        environment after start (Settings -> Providers, ``PATCH /settings/llm``) reaches the next
+        turn instead of leaving a running engine on the key it booted with.
+        """
+        return self._explicit_key or os.environ.get(self._api_key_env, "")
+
+    @_api_key.setter
+    def _api_key(self, value: str) -> None:
+        self._explicit_key = value
 
     def run_turn(
         self,

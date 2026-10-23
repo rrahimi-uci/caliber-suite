@@ -5,11 +5,11 @@ audience:
   - decision-maker
 doc_type: strategy
 product_area: strategy
-stability: draft
+stability: internal
 summary: Evidence-based gap analysis and execution plan for tagging CALIBER Suite as a Minimal Viable Alpha (MVA) — scope, journeys, P0/P1/P2 gaps with acceptance criteria, and exit criteria.
 prerequisites:
   - Read docs/two-week-alpha-plan.md and docs/reports/two-week-alpha-release-notes.md for the narrower journey this plan generalizes
-reviewed_on: 2026-10-20
+reviewed_on: 2026-10-23
 version_applicability: gap baseline at dfe48481471; completion checklist updated through 5f21bc7710e (P1-25 and the licence included)
 tags:
   - alpha
@@ -28,12 +28,15 @@ tags:
 > tag, assets, and release verification. `caliber-v0.1.0a1` has not been published; the
 > only tag is `caliber-v0.0.1`. The licence question inside P0-7 is settled
 > (Apache-2.0, #486). After the baseline the work moved on to the cookbook labs: all
-> seventeen were run on a fresh stack through the UI and the SDK, with scored paths also
+> the labs (twenty, as of labs 19-21) were run on a fresh stack through the UI and the SDK, with scored paths also
 > run on a stand-in and a hosted model (see
 > [First-user verification](../docs-site/cookbooks/FIRST-USER-VERIFICATION.md)). That work
 > is not tracked as gap items here. See
 > [Alpha scope and limitations](start/alpha-scope.md) for the current capability
 > boundary and [Releasing](operate/releasing.md) for the remaining release steps.
+> One later change this baseline text does not reflect: `CALIBER_FEATURE_ARIA` now defaults
+> to **on** (the other three flags are off), so read "all four flags are off by default" and
+> "Off by default behind `CALIBER_FEATURE_ARIA`" below as the state when P1-25 landed.
 
 **Baseline verdict at the audited commit: not releasable as an alpha.** The core prompt lifecycle was largely
 built and well tested (about 7,900 backend tests, 93% coverage), and it worked end to
@@ -153,7 +156,7 @@ sync Python SDK, do the following with an audit trail and honest failure reporti
 | Workflows (design, validate, preview, publish, run, deploy, promote, rollback) | **IN (extended)** | Works live with the fake executor; 1,545 tests. Needs CI proof, runtime-queue docs, node prerequisites and honest calibration ([P1-22](#p1-22)). |
 | Knowledge bases and the object-store console | **IN (extended, infrastructure-gated)** | Requires an S3/MinIO bucket, the `knowledge-local` extra and (for ANN) PostgreSQL. Must fail fast without them ([P1-12](#p1-12), [P1-23](#p1-23)). |
 | MCP servers, OpenAPI integrations, cookbooks | **LABEL preview** | Work in tests and live checks, but need external servers or are convenience surfaces. Off by default behind `CALIBER_FEATURE_INTEGRATIONS` and `CALIBER_FEATURE_COOKBOOKS` ([P1-25](#p1-25)). |
-| Aria assistant and plans | **HIDE unless an engine is configured**, otherwise LABEL | Every reply is `OpenAIError` on the default install `[exec]`. Off by default behind `CALIBER_FEATURE_ARIA` ([P1-25](#p1-25)). |
+| Aria assistant and plans | **HIDE unless an engine is configured**, otherwise LABEL | Every reply is `OpenAIError` on the default install `[exec]`. Behind `CALIBER_FEATURE_ARIA` ([P1-25](#p1-25)); its default was later flipped to on, with the fake engine available for offline installs (see the CHANGELOG). |
 | Memory (mem0) | **OUT** (already off; clean 503) | — |
 | Flagged trace → verification → refinement | **OUT for alpha (document)** | No poller, no UI flag action, and verify creates no job. |
 
@@ -1197,10 +1200,10 @@ deferral.
 - **Category:** Scope / product honesty / deployment configuration.
 - **Current state:**
   - [P1-10](#p1-10) labelled MCP servers, OpenAPI integrations, cookbooks, Aria and plans, the release-candidate signoff and Workspace releases, and [P1-11](#p1-11) disabled the Aria toggle when no engine is configured. Labelling does not remove anything: on a default install every one of those areas is still in the navigation, still served by the API, and still a way to reach behaviour the alpha does not stand behind (a signoff that deploys nothing, a Workspace release evaluation that stays `queued`, plans against a simulated engine).
-  - The seventeen cookbook labs build on those same areas: lab 05 uses MCP servers, lab 11 uses the release-candidate signoff and labs 12 to 15 use Aria plans (lab 01 no longer uses the Playground or test generation that call the Aria assistant). The gallery is part of the surface, not a separate one.
+  - The twenty cookbook labs build on those same areas: labs 05 and 19 use the integrations flag, labs 11 and 21 the release-candidates flag, and labs 12 to 15 Aria plans (lab 01 no longer uses the Playground or test generation that call the Aria assistant). The gallery is part of the surface, not a separate one.
   - A tester who opens the alpha cannot tell from the product which areas the release is meant to be judged by, and an operator has no switch to give a team only the supported journey.
 - **Expected alpha state:**
-  - Four server-side flags, all off by default and read at startup like other `CALIBER_*` variables: `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` and `CALIBER_FEATURE_RELEASE_CANDIDATES` (config fields `feature_<id>_enabled`).
+  - Four server-side flags, read at startup (all shipped off by default here; Aria's default was later flipped to on -- see the CHANGELOG) like other `CALIBER_*` variables: `CALIBER_FEATURE_ARIA`, `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS` and `CALIBER_FEATURE_RELEASE_CANDIDATES` (config fields `feature_<id>_enabled`).
   - A call to a route of a disabled area answers HTTP 404 with `reason_code: feature_disabled` and the variable to set. Aria covers `/assistant/*` and `/aria/*`; integrations covers `/mcp-servers*` and `/openapi-integrations*`; cookbooks covers `/cookbooks*`; release candidates covers `/releases/candidates*`, `/releases/report-jobs*` and `/projects/{id}/releases*`. The live board, the release timeline and release operations stay on.
   - `GET /capabilities` returns `features`, keyed by the four ids, each with `enabled`, `env_var`, `label` and `stability`, and the SDK decodes it.
   - The web app hides a disabled area's navigation entries and shows a "disabled in this deployment" panel on a direct URL; workflow MCP nodes are reported as unavailable while integrations is off.

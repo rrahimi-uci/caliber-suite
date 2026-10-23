@@ -1,10 +1,15 @@
 ---
 name: Optimizer proposal
-about: Propose a new optimizer to add to the §6.6 catalog
+about: Propose a new optimizer for CALIBER's calibration loop (built in, or as a plugin)
 title: "[optimizer] "
 labels: optimizer, proposal
 assignees: ''
 ---
+
+Background: the built-in optimizers and how one is selected are described in
+[Calibration architecture](../../docs/15-calibration/architecture.md#6-per-asset-calibration-algorithms).
+A third party can also ship an optimizer without changing CALIBER; see
+[Writing a CALIBER plugin](../../docs/sdk/plugins.md). Say below whether you propose a built-in or a plugin.
 
 ## Optimizer name
 
@@ -27,15 +32,15 @@ assignees: ''
 
 ## Backing candidate generator
 
-<!-- Which existing agent class would back this, or does it need a new one? -->
+<!-- Which existing optimizer or code path would back this, or does it need a new one? -->
 
 ## Selection rule
 
-<!-- When should the orchestrator (§6.6.9) auto-select this optimizer? -->
+<!-- When should CALIBER's optimizer-selection policy choose this optimizer (see Calibration architecture)? -->
 
 ## Demo coverage
 
-<!-- Which existing demo story would this fit, or what would a new scenario look like? -->
+<!-- Which existing test set, cookbook lab or scenario would exercise it, or what would a new one look like? -->
 
 ## Costs and risks
 

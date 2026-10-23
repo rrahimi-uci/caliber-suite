@@ -160,6 +160,11 @@ def assistant_failure_message(exc: BaseException) -> str:
         )
     if type(exc).__name__ in {"AuthenticationError", "PermissionDeniedError"}:
         return "Aria's LLM provider rejected the API key. Check the key under Settings, Providers."
+    if "not installed" in text:
+        return (
+            "Aria cannot answer yet: the provider package for its engine is not installed. "
+            "Install the `llm` (OpenAI) or `anthropic` extra and restart CALIBER."
+        )
     return f"An error occurred: {type(exc).__name__}"
 
 
@@ -3768,10 +3773,16 @@ class AssistantService:
             raise ValueError("prompt_name must be a non-empty string")
         clean_name = prompt_name.strip()
         examples = self._generate_test_cases(clean_name)
+        simulated = self._engine_is_simulated()
         return self._result_envelope(
             result_type="test_cases",
             status="completed",
-            summary=f"Generated {len(examples)} candidate test cases for {clean_name}.",
+            summary=(
+                f"Generated {len(examples)} candidate test cases for {clean_name}."
+                if not simulated
+                else f"Produced {len(examples)} SIMULATED placeholder test cases for "
+                f"{clean_name}: the assistant engine is fake, so these are canned, not generated."
+            ),
             ids={"prompt_name": clean_name},
             next_actions=[
                 {
@@ -3784,15 +3795,23 @@ class AssistantService:
                     "requires_confirmation": True,
                 }
             ],
-            extra={"examples": examples},
+            extra={"examples": examples, "simulated": simulated},
         )
+
+    def _engine_is_simulated(self) -> bool:
+        """True when the assistant engine is the deterministic test stub."""
+        from caliber.assistant.fake import FakeAssistantEngine  # noqa: PLC0415
+
+        return isinstance(self._engine, FakeAssistantEngine)
 
     def _generate_test_cases(self, prompt_name: str) -> list[dict[str, Any]]:
         """Generate candidate test cases for a prompt via the assistant engine.
 
-        Falls back to a deterministic set when the engine is unavailable or its
-        reply isn't parseable JSON (e.g. the fake engine), so this never raises
-        and the fake/CI path stays deterministic (golden-path roadmap, Wave 5.3).
+        With the fake engine (tests, offline demos) a deterministic set is returned so the CI path
+        stays deterministic (golden-path roadmap, Wave 5.3), and the result is marked simulated. With
+        a real engine nothing is invented: if it cannot answer, or its reply is not a JSON array of
+        cases, this raises. A refund-policy test set silently substituted for a user's own prompt,
+        and labelled "generated", is worse than an error.
         """
         grounding = ""
         if self._prompt_fetcher is not None:
@@ -3811,6 +3830,7 @@ class AssistantService:
             'string), "expected" (object with a "behavior" string describing the '
             'desired behavior), and "tags" (array of strings).'
         )
+        simulated = self._engine_is_simulated()
         try:
             result = self._engine.run_turn(
                 AssistantTurnRequest(
@@ -3819,11 +3839,25 @@ class AssistantService:
                     goal="generate_test_cases",
                 )
             )
-            cases = self._parse_test_cases(result.reply if result else "")
-        except Exception:
-            logger.debug("test-case generation via engine failed; using fallback", exc_info=True)
-            cases = []
-        return cases or self._fallback_test_cases()
+        except Exception as exc:
+            if not simulated:
+                raise AssistantUnavailableError(assistant_failure_message(exc)) from exc
+            logger.debug("test-case generation via the fake engine failed", exc_info=True)
+            return self._fallback_test_cases()
+        engine_error = getattr(result, "error", None) if result else None
+        if engine_error and not simulated:
+            raise AssistantUnavailableError(
+                assistant_failure_message(RuntimeError(str(engine_error)))
+            )
+        cases = self._parse_test_cases(result.reply if result else "")
+        if cases:
+            return cases
+        if simulated:
+            return self._fallback_test_cases()
+        raise ValueError(
+            "The assistant did not return a JSON array of test cases. Try again, or add cases by "
+            "hand on the Test Sets page."
+        )
 
     @staticmethod
     def _parse_test_cases(reply: str) -> list[dict[str, Any]]:
@@ -4946,6 +4980,12 @@ class AssistantService:
             except Exception as exc:
                 logger.warning("assistant draft turn failed", exc_info=True)
                 engine_error = exc
+                break
+            if result.error and not result.draft_deltas:
+                # Engines report a missing SDK, a rejected key or a provider outage as a returned
+                # error with an apology in ``reply``, not as an exception: that is not an answer.
+                logger.warning("assistant draft turn returned an error: %s", result.error)
+                engine_error = RuntimeError(str(result.error))
                 break
             answered = True
             if result.reply:

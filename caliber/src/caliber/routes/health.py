@@ -18,7 +18,11 @@ from starlette.routing import Route
 
 import caliber
 from caliber.observability.queue_health import collect_queue_health_for_config
-from caliber.observability.readiness import collect_readiness
+from caliber.observability.readiness import (
+    ai_components,
+    all_ai_real,
+    collect_readiness,
+)
 
 HEALTH_PATH = "/ajax-api/2.0/mlflow/caliber/health"
 READINESS_PATH = "/ajax-api/2.0/mlflow/caliber/readiness"
@@ -90,6 +94,8 @@ async def readiness(request: Request) -> JSONResponse:
         key for key, value in providers.items() if value not in _REAL_PROVIDER_VALUES
     )
 
+    ai_list = ai_components(config, dict(os.environ))
+
     factory = getattr(request.app.state, "session_factory", None)
     queue_health = None
     if factory is not None and bool(getattr(config, "workflow_run_queue_enabled", False)):
@@ -111,6 +117,8 @@ async def readiness(request: Request) -> JSONResponse:
                 "providers": providers,
                 "simulated": simulated,
                 "all_real": not simulated,
+                "ai_components": [c.to_dict() for c in ai_list],
+                "all_ai_real": all_ai_real(ai_list),
                 "tracing_enabled": bool(getattr(config, "tracing_enabled", False)),
                 "tracing_autolog_enabled": bool(getattr(config, "tracing_autolog_enabled", False)),
                 "workflow_llm_judge_enabled": bool(

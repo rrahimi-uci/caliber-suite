@@ -2,20 +2,22 @@
 
 ## Supported versions
 
-CALIBER is in pre-1.0 development and this repository does not currently publish a
-PyPI release. Security fixes target the latest `main` source snapshot. Once versioned
-releases begin, this matrix will be updated with an explicit support window.
+CALIBER is a pre-1.0 alpha (`0.1.0a1`), and this repository does not currently publish a PyPI release.
+Security fixes target the latest `main` source snapshot. Once versioned releases begin, this matrix will be
+updated with an explicit support window.
 
 | Version | Supported |
 | ------- | --------- |
-| Unreleased `main` snapshot | yes |
+| Latest `main` (the `0.1.0a1` alpha line) | yes |
 | Historical source snapshots | no |
 
 ## Reporting a vulnerability
 
 **Please do not file a public GitHub issue for security reports.**
 
-Email the maintainers privately. If a security contact email is not yet listed in this repository, open a draft security advisory via GitHub's "Report a vulnerability" feature, which is private to repository maintainers.
+Email the maintainers privately. GitHub's private vulnerability reporting (Security, then *Report a
+vulnerability*) is not currently enabled on this repository, so there is no private advisory form to use. See also the
+repository-level [SECURITY.md](../SECURITY.md).
 
 Include:
 
@@ -33,10 +35,9 @@ You can expect:
 
 ## Scope
 
-CALIBER can run either as an in-process `mlflow.app` or as a standalone ASGI
-service that calls MLflow over HTTP. The same CALIBER authentication,
-authorization, persistence, and API boundaries apply in both topologies; the
-embedded topology additionally shares MLflow's process failure domain.
+CALIBER runs as a standalone ASGI service that calls MLflow over HTTP. Running it embedded in MLflow
+(`mlflow server --app-name caliber`) is unsupported, so vulnerabilities that exist only in that
+configuration are out of scope.
 
 - **Authentication and authorization**: the default `session` mode validates a
   database-backed CALIBER account and issues a revocable server-side session.

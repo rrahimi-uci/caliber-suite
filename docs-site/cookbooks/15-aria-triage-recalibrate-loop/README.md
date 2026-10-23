@@ -1,6 +1,6 @@
 # Aria: Triage & Recalibrate Loop
 
-> **Prerequisite flag:** `CALIBER_FEATURE_ARIA=true` (Aria and its **Plans** page are a preview area, off by default; the `/aria/*` routes answer 404 `feature_disabled` without it). `CALIBER_FEATURE_COOKBOOKS=true` is only needed for the Cookbooks gallery card. This lab is outside the supported alpha journey (`docs/start/alpha-scope.md`). It also needs the server's background workers (the plan worker and the refinement worker), which `scripts/cookbook-env.sh` starts.
+> **Prerequisite flag:** `CALIBER_FEATURE_ARIA=true` (Aria and its **Plans** page are a preview area that ships **on** by default, so a stock server already has it; the `/aria/*` routes answer 404 `feature_disabled` only on a deployment that set `CALIBER_FEATURE_ARIA=false`). The commands below pass `--flags cookbooks,aria` so the dependency is explicit. `CALIBER_FEATURE_COOKBOOKS=true` is only needed for the Cookbooks gallery card. This lab is outside the supported alpha journey (`docs/start/alpha-scope.md`). It also needs the server's background workers (the plan worker and the refinement worker), which `scripts/cookbook-env.sh` starts.
 
 ## What this lab demonstrates and the expected outcome
 
@@ -68,6 +68,7 @@ All under `docs-site/cookbooks/15-aria-triage-recalibrate-loop/assets/`.
 | --- | --- | --- |
 | `dataset/goals.jsonl` | 28 goals, one JSON object per line: `{id, goal, expected_steps, outcome, note}` | The planner is checked against it. `outcome`: `as_asked` (16), `unasked` (7, a step you did not ask for), `nothing` (5, no steps) |
 | `dataset/support-runs.jsonl` | 30 recorded runs of a support agent: `{id, question, reply, tools_called, required_tools, reference, weak, reason}` | Three things at once. The **test set** the workflow is calibrated against (input = the question, expected = `reference` and `required_tools`). The **flagged traces**: the 12 `weak` rows are the runs that skipped a tool their question needed (`S19`..`S30`: answered from memory, the wrong tool, a claim the policy contradicts, an escalation the policy did not require). And the labels a reviewer gives. 18 rows are runs the agent got right, including honest uncertainty (`S17`) and small talk (`S10`, `S14`) |
+| `dataset/support-gate-cases.jsonl` | The same 30 cases already in the test-set import shape: `{id, tags, input: {input}, expected: {expected, contains, required_tools}}` | What `setup_subject.py` builds from `support-runs.jsonl`; the Playwright spec imports this file (**Test Sets > Import from file**) so the UI path can make the gate's test set without the script |
 | `workflows/support-policy-agent.workflow.json` | The workflow manifest: `start -> support_agent (tools lookup_policy, get_order) -> policy_guardrail -> final`, with a deploy gate on the test set | The existing workflow Aria calibrates. Imported by `setup_subject.py` with the test set's real name |
 | `tools/lookup-policy.tool.json`, `tools/get-order.tool.json` | The two read tools the agent binds, backed by `caliber.workflows.demo_tools` | Registered by `setup_subject.py` (one already registered is kept) |
 | `setup_subject.py` | Registers the tools, loads the 30-case test set, imports and publishes the workflow, registers an agent; prints their ids | The subject: Aria remediates it, it does not create it |
@@ -189,7 +190,7 @@ The script provokes these on purpose; the same ones by hand:
 | Answer or poll another account's plan (`olga`) | `403 only the plan owner may answer this interaction` / `404 aria plan '...' not found` |
 | A goal with no domain word | `201` with `step_count` 0 and a `warnings` entry; approving it is `409` |
 | Workers off (`--no-workers`) | Observed: the plan stays `running` with the step `waiting_job` and the job `queued`, after 40 seconds and after `POST /aria/plans/{id}/poll`. Poll only reads the job; nothing runs it |
-| Aria switched off | every `/aria/*` call: `404 {"detail": "Aria assistant and plans is disabled in this deployment. Set CALIBER_FEATURE_ARIA=true to enable it.", "reason_code": "feature_disabled"}`, and **Plans** is not in the sidebar |
+| Aria switched off (`CALIBER_FEATURE_ARIA=false`) | every `/aria/*` call: `404 {"detail": "Aria assistant and plans is disabled in this deployment. Set CALIBER_FEATURE_ARIA=true to enable it.", "reason_code": "feature_disabled"}`, and **Plans** is not in the sidebar |
 
 ## Recipe: run it through the UI
 
@@ -300,7 +301,7 @@ ok   the chat's queue is active with the question that was asked for  [RVQ-29cda
 
 | You see | Cause and fix |
 | --- | --- |
-| `404 {"reason_code": "feature_disabled"}` on `/aria/...`; no **Plans** in the sidebar | Start the server with `--flags aria` (`CALIBER_FEATURE_ARIA=true`) and restart |
+| `404 {"reason_code": "feature_disabled"}` on `/aria/...`; no **Plans** in the sidebar | Aria ships on, so someone turned it off: remove `CALIBER_FEATURE_ARIA=false` from the server's environment (or start a new stack with `--flags cookbooks,aria`; `cookbook-env.sh restart` reuses the old flags) and restart |
 | `SetupError: start CALIBER with CALIBER_OPERATOR_USERS=admin,olga ...` | The server was started without the export in Prerequisites; restart it with it. `vera` must not be listed |
 | `could not sign in as 'olga': 401` | An account from an earlier run has another password: reset it under Administration, or set `COOKBOOK_ARIA_PASSWORD` |
 | `ModuleNotFoundError: mlflow` or the traces cannot be written | Run with the dev virtualenv (`caliber/.venv/bin/python`) and make sure `MLFLOW_TRACKING_URI` is set (`source .tmp/cookbook-env/lab15/env.sh`) |

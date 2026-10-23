@@ -296,6 +296,10 @@ prompt-optimization job creation through the same verify route the
 manually-flagged path already uses, rather than self-stamping the item
 `verified` inline.
 
+> **Alpha:** in `0.1.0a1` nothing watches production traces and there is no "flag this
+> trace" action, so the loop starts at ② Diagnose from a prompt and a test set you
+> create. See [Alpha scope and limitations](docs/start/alpha-scope.md).
+
 Other asset families reuse the chain but **not** its full guarantees — a workflow
 is measured by manifest replay, a tool by a revision-fenced deterministic suite,
 a knowledge base by retrieval calibration. The chain is the shape; the evidence
@@ -518,8 +522,8 @@ Three consequences worth stating plainly:
   async. Selected blocking work is explicitly sent through `run_in_threadpool`
   or `asyncio.to_thread`; there is no async ORM.
 - **Every process runs its own full set of loops, and some limits are per-process.**
-  `mlflow server` defaults to four gunicorn workers, so all ten loops exist four
-  times over. That is safe where arbitration is durable — the claim-based consumers
+  `uvicorn caliber.server:create_app --factory` runs one process unless you pass
+  `--workers N`; with N workers all ten loops exist N times over. That is safe where arbitration is durable — the claim-based consumers
   compete for rows atomically, and the cron scheduler is idempotent by a
   minute-bucketed key backed by a unique partial index, so duplicate fires are
   impossible. It is *not* uniform: the failed-login throttle
@@ -668,8 +672,8 @@ touching the substrate.
 | --- | --- |
 | An **executive** sizing the platform | §1 the stack, §3 the governed asset, §4 the guarantees table — then [the competitive analysis](docs-site/m-17-competitive-analysis.html) and [roadmap](docs-site/m-18-roadmap.html) |
 | An **architect** evaluating fit | §5 topologies, §6 execution, §7 state ownership, §8 trust — then [docs/01-caliber/architecture.md](docs/01-caliber/architecture.md) |
-| A **builder** joining the codebase | §2 the chain, §9 the seams — then [CONTRIBUTING.md](caliber/CONTRIBUTING.md) and [server.py](caliber/src/caliber/server.py) |
-| An **operator** bringing it up | The [walkthrough runbook](docs-site/walkthrough.html) and [deploy/README.md](deploy/README.md) |
+| A **builder** joining the codebase | §2 the chain, §9 the seams — then [CONTRIBUTING.md](CONTRIBUTING.md) and [server.py](caliber/src/caliber/server.py) |
+| An **operator** bringing it up | [Alpha install](docs/start/alpha-install.md), [Local bring-up](docs/operate/local-bring-up.md), the [walkthrough runbook](docs-site/walkthrough.html) and [deploy/README.md](deploy/README.md) |
 | Anyone asking **"what is actually built?"** | [docs/reports/product-completeness-report.md](docs/reports/product-completeness-report.md) — the dated implementation and validation record; use the latest `main` CI run for current release evidence |
 
 The deeper architecture specs, operator runbooks, integration guides, and audit

@@ -44,7 +44,7 @@ does this capability live?" before you drop into per-route details.
 | `/verification-queue` | Stage ① Verify: manually-flagged concerns, list/create/verify/dismiss/mark-duplicate/batch. Does not create a refinement job — see the SDK reference |
 | `/knowledge-runs/{id}/events` | Live build-progress events for a knowledge-base run |
 | `/playground-runs/{id}/files` | Files produced by an ad-hoc playground run |
-| `/memory` | Long-term agent memory: add, search, list, and delete, always scoped by agent/user/run |
+| `/memory` | Long-term agent memory: add, search, list, and delete, always scoped by agent/user/run. Not part of the alpha: memory is off by default (`CALIBER_MEMORY_ENABLED=false`) and these routes answer 503 until it is configured |
 
 ## Operations and governance
 

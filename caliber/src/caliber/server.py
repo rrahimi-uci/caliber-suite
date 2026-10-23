@@ -32,7 +32,7 @@ from starlette.exceptions import HTTPException
 from caliber.artifact_store import ArtifactStore, build_store
 from caliber.assistant.plan_worker import AriaPlanWorker
 from caliber.audit import configure_redactor
-from caliber.config import CaliberConfig
+from caliber.config import CaliberConfig, resolve_assistant_engine
 from caliber.csrf import CSRFMiddleware, build_token_manager
 from caliber.db.session import create_engine_from_config, sessionmaker_from_engine
 from caliber.db_url import shared_sqlite_store
@@ -102,6 +102,26 @@ _WARNED_DEPENDENCY_ADVISORIES: set[tuple[str, str]] = set()
 Lifespan = Callable[[Starlette], AbstractAsyncContextManager[None]]
 
 
+def _assistant_model_kwargs(engine_name: str, model: str) -> dict[str, Any]:
+    """The ``model=`` argument for the assistant engine, or nothing to use the engine's default.
+
+    An empty model means "the resolved provider's own default". A model that cannot belong to the
+    resolved provider is dropped for the same reason: the shipped default model name is an OpenAI
+    one, and Claude rejects it, so a deployment that only has an Anthropic key would otherwise fail
+    every Aria turn with an opaque 404 instead of using Claude's default.
+    """
+    if not model:
+        return {}
+    if engine_name == "anthropic" and not model.lower().startswith("claude"):
+        logger.info(
+            "CALIBER_ASSISTANT_MODEL=%s is not a Claude model; the Anthropic engine "
+            "will use its own default instead",
+            model,
+        )
+        return {}
+    return {"model": model}
+
+
 def _resolve_assistant_engine_name(configured: str) -> str:
     """Resolve the assistant engine, expanding ``auto`` to a real provider.
 
@@ -112,13 +132,7 @@ def _resolve_assistant_engine_name(configured: str) -> str:
     (``openai`` / ``anthropic`` / ``ollama`` / ``fake``) pass through unchanged;
     ``fake`` is reserved for tests, which set it explicitly.
     """
-    if configured != "auto":
-        return configured
-    if os.environ.get("OPENAI_API_KEY"):
-        return "openai"
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return "anthropic"
-    return "openai"
+    return resolve_assistant_engine(configured)
 
 
 #: MLflow environment variables that can point its store at a SQLite file.
@@ -902,10 +916,7 @@ def create_app(config: CaliberConfig | None = None) -> ASGIApp:  # noqa: PLR0915
     # 'auto' (the default) resolves to a REAL provider by available API key —
     # the fake stub is never selected automatically (tests pin it explicitly).
     engine_name = _resolve_assistant_engine_name(resolved.assistant_engine)
-    # Empty model → let the resolved provider's engine use its own default.
-    model_kwargs: dict[str, Any] = (
-        {"model": resolved.assistant_model} if resolved.assistant_model else {}
-    )
+    model_kwargs = _assistant_model_kwargs(engine_name, resolved.assistant_model)
 
     if not resolved.assistant_enabled:
         asst_engine = FakeAssistantEngine()

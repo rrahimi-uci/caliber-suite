@@ -24,6 +24,8 @@ Examples of unacceptable behavior:
 
 Instances of abusive, harassing, or otherwise unacceptable behavior may be reported to the project maintainers responsible for enforcement. All complaints will be reviewed and investigated promptly and fairly.
 
+This repository does not yet publish a conduct mailbox. To report a problem privately, open a GitHub issue titled `Code of Conduct contact request` that says only that you have a report (no names and no details), and a maintainer will reply on the issue to arrange a private channel.
+
 ## Attribution
 
 This Code of Conduct is adapted from the [Contributor Covenant](https://www.contributor-covenant.org), version 2.1, available at https://www.contributor-covenant.org/version/2/1/code_of_conduct.html.

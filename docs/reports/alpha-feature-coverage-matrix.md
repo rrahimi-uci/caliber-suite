@@ -1,0 +1,108 @@
+---
+audience:
+  - decision-maker
+  - developer
+  - operator
+doc_type: reference
+product_area: release
+stability: beta
+summary: Every Alpha capability traced to its implementation, cookbook, UI coverage, tests and documentation, with an explicit status -- including the intentional exceptions.
+prerequisites:
+  - docs/start/alpha-scope.md for what the alpha claims
+  - docs-site/cookbooks/README.md for the lab index
+reviewed_on: 2026-10-23
+version_applicability: 0.1.0a1 alpha
+tags:
+  - alpha
+  - coverage
+  - cookbooks
+---
+
+# Alpha feature coverage matrix
+
+Every capability the 0.1.0a1 alpha claims ([alpha scope](../start/alpha-scope.md)), traced to its
+implementation, the cookbook that demonstrates it as a real user workflow, its UI and test
+coverage, and whether the whole journey was verified end to end against a live stack. This matrix
+was produced by a full review of the alpha's claims against the code, the twenty cookbook labs
+(01–16, 18–21; 17 is a standalone SDK automation), and the CI gates; labs 19, 20 and 21 were added
+by that review to close the gaps it found.
+
+**Status legend.** ✅ **Full** — demonstrated as a complete user workflow, tested, documented, and
+verified end to end. 🟡 **Partial** — exercised, with named aspects not demonstrated. 📘
+**Documented exception** — intentionally not demonstrated, with the reason stated here and in the
+docs. Implementation paths are relative to `caliber/src/caliber/` unless noted; "lab NN" means
+`docs-site/cookbooks/NN-*/` plus its SDK example and (where one exists) Playwright spec.
+
+## Core journey (always on)
+
+| Feature | Implementation | Cookbook | UI coverage | Tests | Documentation | E2E verified | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Prompts: author, version, promote, roll back | `routes/prompts.py`, `apply.py`, `promoter.py` | lab 01 | `Prompts.tsx`; lab 01 spec + CI alpha journey | SDK cookbook tests; backend prompt suites | lab 01 README; start/use docs | yes (API + UI, CI) | ✅ Full |
+| Test sets (eval datasets) | `routes/eval_datasets.py` | labs 01, 06, 10, 16 | Test Sets pages; lab specs | dataset suites; lab dataset tests | lab READMEs | yes | ✅ Full |
+| Evaluations / scorecards | `routes/evaluations.py`, `eval/*` | labs 01, 10 (stand-in tier scores for real) | Evaluations pages | eval suites | READMEs state the simulated-default 400 | yes (incl. the refusal path) | ✅ Full |
+| Judges + alignment | `routes/judges.py`, `eval/judge_scorer.py` | lab 10 | Judges page; lab 10 spec | judge suites; lab 10 tests | lab 10 README | yes | ✅ Full |
+| Prompt calibration (MetaPrompt/GEPA) | `calibration.py`, `orchestrator/*` | labs 01, 10 | Calibration stage; review dialog | calibration suites | lab READMEs | yes | ✅ Full |
+| Review → Apply → release ops → rollback | `routes/jobs.py`, `rollback.py`, `release_operations.py` | labs 01, 11 | review dialog; Releases page | release suites | lab READMEs | yes | ✅ Full |
+| Releases: live board, timeline, operations | `routes/releases.py` | labs 01, 11, 18 | `Releases.tsx` | route suites | READMEs | yes | ✅ Full |
+| Projects, members, roles, tokens, sessions | `routes/projects.py`, `auth.py` | lab 18 (72-request role matrix) | Administration; lab 18 spec | lab 18 tests; auth suites | lab 18 README | yes | ✅ Full |
+| Audit log + CSV export | `routes/audit.py` | labs 01, 05, 18, 19, 20, 21 | Audit Log page | audit suites | READMEs | yes | ✅ Full |
+| Health, readiness, capabilities, settings | `routes/health.py`, `capabilities.py`, `settings.py` | labs 01, 18, 20 | Settings/Overview; banner | `test_alpha_scope_claims.py` | alpha-scope | yes | ✅ Full |
+| Simulated-provider honesty and real providers from `.env` (`auto`, `ai_components`) | `config.py`, `observability/readiness.py`, `routes/health.py`, `start.sh` | every lab's "what is simulated" section; labs 01 and 12 re-run on real OpenAI (2026-10-23) | provider banner; `./start.sh` AI-components report | `test_alpha_scope_claims.py`, `test_config.py`, `test_readiness_ai_components.py`, `test_aria_honesty.py` | alpha-scope; alpha-install; every README | yes | ✅ Full |
+
+## Extended tier (always on)
+
+| Feature | Implementation | Cookbook | UI coverage | Tests | Documentation | E2E verified | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Skills: author, trigger-test, package, calibrate | `routes/skills.py`, `skill_*` | lab 02 | Skills pages; lab 02 spec | lab 02 + skill suites | lab 02 README | yes | 🟡 Partial — the **Bind** stage is not covered (named in lab 02's "Not covered") |
+| Tools: registry, sandbox, calibration, baselines | `routes/tools.py`, `tool_sandbox/*` | lab 03 | Tool pages; lab 03 spec | lab 03 tests + tool suites | lab 03 README (incl. sandbox limits, honestly) | yes | ✅ Full |
+| Workflows: studio, validate, publish, run, approvals, deploy gates, wait-for-event, debugger | `routes/workflow*`, `workflows/*` | labs 03, 04, 07, 08, 09 | editor + run monitor; lab specs | lab + workflow suites | lab READMEs | yes | 🟡 Partial — exports/deployment bundles, cron triggers and the webhook node are not run by any lab; a workflow calibration that *applies* a candidate never occurs (07/08/15 end rejected by design of the simulated stack) |
+| Agents registry + checkpoints | `routes/agents.py`, `rollback.py` | labs 07, 08, 15 | Agents pages | suites | READMEs | yes | ✅ Full |
+| Knowledge bases | `routes/knowledge_bases.py`, `knowledge/*` | lab 06 | KB pages; lab 06 spec | lab 06 + KB suites | lab 06 README | yes (MinIO; simulated embeddings per alpha scope) | ✅ Full |
+| Object-store console | `routes/object_store.py` | labs 04, 06, 17 | Object Store page | suites | READMEs | yes | ✅ Full |
+| Observability: traces, feedback, metrics | `routes/observability.py` | labs 05, 16 | Observability page; lab 16 spec | lab 16 tests | lab 16 README | yes | 🟡 Partial — the events stream (`/events` SSE) is not exercised by a lab; traces are not project-scoped (a documented alpha limitation) |
+| Review / verification queues | `routes/review_queues.py`, `verification.py` | labs 06, 10, 13, 15, 16 | Review Queues page | suites | READMEs | yes | ✅ Full |
+| LLM gateway: discovery, usage, cost | `routes/gateway.py`, `routes/observability.py:486` | **lab 20** (new) | Gateway page (4 tabs); lab 20 spec | lab 20 tests + `test_routes_gateway.py` | lab 20 README; the `/v1` base-URL doc bug fixed | yes (API + UI, two-ledger proof) | ✅ Full |
+| Model pricing | `routes/llm_pricing.py` | **lab 20** | Pricing tab | lab 20 + pricing suites | lab 20 README | yes | ✅ Full |
+| Gateway guardrails | `routes/gateway.py` (tracking-store API) | **lab 20** (definitions lifecycle) | Guardrails tab | lab 20 + route suites | lab 20 README's trust boundary | yes (definitions) | 🟡 Partial — *enforcement* happens in MLflow's own AI Gateway, which the alpha deployment does not route CALIBER's traffic through; stated explicitly in the lab |
+| Runtime LLM settings (key presence, rotation) | `routes/settings.py:1330+` | **lab 20** | Settings page | lab 20 run | lab 20 README | yes | ✅ Full |
+| Secrets store (`secret://`) | `routes/secrets.py`, `secret_store.py` | **lab 20** (lifecycle) + lab 19 (`env://` binding) | Administration Secrets panel; lab 20 spec | lab 20 run + `test_secret_store.py` | lab 20 README (incl. the boot-time `secret://` pattern) | yes | ✅ Full |
+| SDK / CLI / plugin SDK | `sdk/*` | every lab's SDK path; lab 18 uses `caliberctl` | n/a | `test_sdk_api_coverage.py`; SDK suites | sdk docs | yes | 🟡 Partial — `caliberctl` has read/ops verbs only (apply/rollback verbs are planned post-alpha; documented) |
+
+## Flagged areas
+
+| Feature | Implementation | Cookbook | UI coverage | Tests | Documentation | E2E verified | Status |
+| --- | --- | --- | --- | --- | --- | --- | --- |
+| Aria assistant + plans (preview, **on**) | `routes/assistant.py`, `aria_plans.py` | labs 12–15 (plans), 17 (sessions), 01 appendix | Plans page + Aria panel; lab specs | Aria lab tests | lab READMEs; ARIA-AUTONOMY.md | yes (deterministic rule-based planner; chat, drafts and helpers use a real model when a key is set, else simulated and stated) | ✅ Full |
+| MCP servers (preview, off) | `routes/mcp_servers.py`, `mcp_gateway.py` | lab 05 | MCP Servers page; lab 05 spec | lab 05 tests | lab 05 README | yes | ✅ Full |
+| OpenAPI integrations (preview, off) | `routes/openapi_integrations.py`, `integrations/openapi/*` | **lab 19** (new) | OpenAPI Integrations page; lab 19 spec | lab 19 tests (12) | lab 19 README (incl. the diff's blind spot) | yes (API + UI) | ✅ Full |
+| Cookbooks gallery (preview, off) | `routes/cookbooks.py`, `cookbook_catalog.py` | every lab's gallery step | Cookbooks page | steps/doc contract suites | cookbooks README | yes | ✅ Full |
+| Release-candidate signoff (record-only, off) | `routes/releases.py` (candidates) | lab 11 | candidate section of Releases | lab 11 tests | lab 11 README ("records a decision, deploys nothing") | yes | ✅ Full |
+| Workspace revisions, snapshots, diffs | `routes/workspace.py` | **lab 21** (new) | **no UI exists (API-first, stated)** | lab 21 tests + snapshot suites | lab 21 README | yes (API) | ✅ Full |
+| Workspace change requests + environments | `routes/workspace_change_requests.py`, `routes/projects.py` | **lab 21** | no UI (stated) | lab 21 run + CR suites | lab 21 README | yes (API) | ✅ Full |
+| Workspace releases (experimental, off) | `routes/workspace_releases.py` | **lab 21** — to the documented boundary | no UI (stated) | lab 21 tests incl. the no-executor tripwire | alpha-scope known limitations; lab 21 README | yes, to `evaluating`/`queued` | 📘 Documented exception — release evaluations have no executor in the alpha; the lab demonstrates the boundary and every refusal beyond it |
+| Workspace source connections (GitHub) | `workspace_source_connections.py` | lab 21 shows the managed default and the Git path's 409 | no UI | source suites | lab 21 README ("one-way door" warning) | negative paths only | 📘 Documented exception — `github_source_control` is off by default in the alpha |
+
+## Intentionally not demonstrated
+
+| Capability | Why | Where that is stated |
+| --- | --- | --- |
+| Memory (`/memory`, session memory) | out of the alpha; routes answer 503, `memory_enabled=false` | alpha-scope "Not in the alpha" |
+| Flagged-trace → refinement automation | out of the alpha; nothing watches traces | alpha-scope known limitations; README's loop section disclaimer; lab 16's "Not covered" |
+| Guardrail *enforcement* on the standalone gateway | MLflow's standalone gateway does not load guardrails; enforcement lives in the tracking server's own AI Gateway | lab 20's trust-boundary section |
+| Workspace release execution, QA signoff, version tags, apply | no evaluation executor in this build; everything downstream is unreachable live | alpha-scope; lab 21 (each refusal demonstrated); a backend tripwire fails when an executor lands |
+| Workflow exports / deployment bundles, cron triggers, webhook node; skill Bind; `/events` SSE | exercised by their own unit/route suites but by no cookbook; candidates for extending labs 08/09/02 rather than new labs | this matrix (the 🟡 rows above) |
+
+## How this was verified
+
+- **Labs 19, 20 and 21** were each developed against a live disposable stack
+  (`scripts/cookbook-env.sh`), run end to end through the SDK (every stage transcript captured
+  verbatim in the lab README), re-run on the same stack to prove re-runnability, and — where a UI
+  exists — run through a real browser via their Playwright specs in CI's SDK-then-UI order.
+- **Labs 01–16 and 18** were verified in the earlier first-user verification pass
+  ([FIRST-USER-VERIFICATION](../../docs-site/cookbooks/FIRST-USER-VERIFICATION.md)) and run on
+  every `main` push by the `Run every cookbook lab (API and UI)` CI job, which now includes
+  19, 20 and 21.
+- **Contract tests** keep this matrix's inputs honest: `test_cookbook_steps_contract.py` pins the
+  catalog to the READMEs, `test_cookbook_doc_contract.py` pins the lab folders, the lab-21
+  tripwire pins the no-executor boundary, and `test_alpha_scope_claims.py` pins the
+  simulated-provider claims.

@@ -142,7 +142,7 @@ Creating a skill, tool, workflow or knowledge base is checked against the projec
 need the global `caliber.admin` scope, which is checked first. Before this contract only the workflow,
 run and knowledge-base roots checked a project role, so a `viewer` could publish a workflow version, move
 a production alias, approve a pending production promotion, publish a workflow as a service and mint a
-bearer token for it, run a tool, replace its test cases, and queue a calibration. `tests/test_extended_family_isolation.py`
+bearer token for it, run a tool, replace its test cases, and queue a calibration. `caliber/tests/test_extended_family_isolation.py`
 sweeps every one of these routes as an outsider, a viewer, a reviewer and an editor.
 
 ### What the alpha does not enforce

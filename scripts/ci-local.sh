@@ -24,9 +24,18 @@
 #   scripts/ci-local.sh              # everything
 #   scripts/ci-local.sh --fast       # skip the extended/heavier jobs
 #   scripts/ci-local.sh lint test    # only the named jobs
+#   scripts/ci-local.sh --list       # print the job names, one per line, and exit
+#   scripts/ci-local.sh --help       # this text
 #
-# Exit status is non-zero if any job fails. Every job runs regardless, so one failure
-# does not hide the rest — the point is a full picture, which is what CI gives you.
+# Prerequisites: the CI virtualenv at caliber/.venv with the extras CI installs
+# (`cd caliber && make install-extended`), Node and npm for the UI jobs, Docker for the compose and
+# PostgreSQL jobs (reported as SKIPPED when absent), python3.10 and python3.12 for the compatibility
+# job (SKIPPED when absent). Several jobs create and reuse their own virtualenvs under the package
+# directories, install packages with pip (network access), and the UI jobs run `npm ci`.
+#
+# Exit status: 0 when every job that ran passed, 1 when a job failed, 2 for an unknown job name or
+# option. Every job runs regardless, so one failure does not hide the rest — the point is a full
+# picture, which is what CI gives you.
 
 set -uo pipefail
 
@@ -44,6 +53,7 @@ VENV_PY="$CALIBER_DIR/.venv/bin/python"
 
 # Mirrors CALIBER_CI_EXTRAS in the workflow, so a locally-missing optional dependency
 # fails here the same way it would there.
+# shellcheck disable=SC2034  # read by tests/test_ci_local_parity.py, and the install target to use
 CI_EXTRAS="dev,postgres,ingest,ocr,llm,knowledge,dspy,knowledge-local,memory"
 
 ALL_JOBS=(lint type-check test-smoke backend-core migration-parity-postgres test compatibility integration docs-validation ui cookbook-ui-only compose package alpha-install alpha-journey security sdk plugin-sdk cli)
@@ -68,6 +78,13 @@ EXIT_SKIPPED=77
 # timeout. Keep the command line identical to CI (`-n auto --dist loadgroup`) while
 # bounding what "auto" expands to locally; callers can still override it explicitly.
 LOCAL_XDIST_AUTO_WORKERS="${CALIBER_LOCAL_XDIST_AUTO_WORKERS:-8}"
+
+# require_cmd TOOL HINT: fail the calling job at once, saying what to install.
+require_cmd() {
+  command -v "$1" >/dev/null 2>&1 && return 0
+  red "  '$1' was not found on PATH. $2" >&2
+  return 1
+}
 
 # Run one job, record its outcome, and keep going. Timing is printed because "which
 # gate is slow" is the first thing you want when deciding what to run before a commit.
@@ -204,8 +221,8 @@ job_migration_parity_postgres() {
     -p "127.0.0.1:${port}:5432" \
     pgvector/pgvector:pg16 >/dev/null || return 1
 
-  local ready=1 attempt
-  for attempt in $(seq 1 30); do
+  local ready=1
+  for _ in $(seq 1 30); do
     if docker exec "$container" pg_isready -U caliber >/dev/null 2>&1; then
       ready=0
       break
@@ -277,6 +294,9 @@ job_integration() {
 }
 
 job_ui() {
+  require_cmd git "Install git." || return 1
+  require_cmd node "Install Node.js (see 'engines' in caliber/caliber-ui/package.json)." || return 1
+  require_cmd npm "Install npm (it ships with Node.js)." || return 1
   cd "$UI_DIR" || return 1
   # A pre-commit run may already contain intentional, synchronized documentation edits.
   # Comparing generated files to HEAD would reject that valid dirty tree. Fingerprint the
@@ -317,6 +337,7 @@ job_ui() {
 # owns browser availability and cleanup so a failed run does not leave state in
 # the repository.
 job_cookbook_ui_only() {
+  require_cmd npx "Install Node.js and npm (see 'engines' in caliber/caliber-ui/package.json)." || return 1
   cd "$UI_DIR" || return 1
   npx playwright install chromium || return 1
   CALIBER_SKIP_UI_BUILD=1 npm run test:e2e:cookbooks
@@ -332,6 +353,7 @@ job_cookbook_ui_only() {
 }
 
 job_docs_validation() {
+  require_cmd node "Install Node.js (see 'engines' in caliber/caliber-ui/package.json)." || return 1
   cd "$REPO_ROOT" || return 1
   CALIBER_DOCS_PYTHON="$VENV_PY" CALIBER_DOCS_STRICT=1 node caliber/caliber-ui/scripts/sync-docs.mjs \
     || return 1
@@ -367,6 +389,7 @@ job_compose() {
 # The alpha journey (alpha gap P0-6): the seeded and the user-path browser specs against an
 # isolated server with the shipped defaults. The same npm script the CI job runs.
 job_alpha_journey() {
+  require_cmd npx "Install Node.js and npm (see 'engines' in caliber/caliber-ui/package.json)." || return 1
   cd "$UI_DIR" || return 1
   npx playwright install chromium || return 1
   npm run test:e2e:alpha
@@ -380,6 +403,7 @@ job_alpha_journey() {
 
 # Executes docs/start/alpha-install.md against freshly built wheels in a scratch directory.
 job_alpha_install() {
+  require_cmd curl "Install curl." || return 1
   cd "$REPO_ROOT" || return 1
   scripts/verify-alpha-install.sh --python "${ALPHA_INSTALL_PYTHON:-python3}"
 }
@@ -387,6 +411,7 @@ job_alpha_install() {
 # Builds the wheel and asserts the SPA is inside it — the check that catches a
 # packaging change that would ship an empty UI.
 job_package() {
+  require_cmd npm "Install Node.js and npm (see 'engines' in caliber/caliber-ui/package.json)." || return 1
   cd "$CALIBER_DIR" || return 1
   # A pre-existing dist/ may come from an older source tree. Rebuild every time
   # so the local package gate has the same commit binding as the remote UI
@@ -584,17 +609,39 @@ job_security() {
 
 main() {
   local -a requested=()
-  local fast=0
+  local fast=0 arg known
   for arg in "$@"; do
     case "$arg" in
       --fast) fast=1 ;;
-      -h | --help)
-        sed -n '2,30p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'
+      --list)
+        printf '%s\n' "${ALL_JOBS[@]}"
         return 0
+        ;;
+      -h | --help)
+        awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
+        return 0
+        ;;
+      -*)
+        red "unknown option '$arg' (see --help)"
+        return 2
         ;;
       *) requested+=("$arg") ;;
     esac
   done
+
+  # Reject a misspelt job name before running anything, not after the first jobs have run.
+  if [ ${#requested[@]} -gt 0 ]; then
+    for arg in "${requested[@]}"; do
+      known=0
+      for job in "${ALL_JOBS[@]}"; do
+        [ "$job" = "$arg" ] && known=1
+      done
+      if [ "$known" = 0 ]; then
+        red "unknown job '$arg' (known: ${ALL_JOBS[*]})"
+        return 2
+      fi
+    done
+  fi
 
   local -a jobs=()
   if [ ${#requested[@]} -gt 0 ]; then
@@ -614,7 +661,7 @@ main() {
   # that look like product defects — that happened while building this script, and cost
   # a diagnosis cycle. Overridable, because sometimes you know what you are doing.
   if [ "${CI_LOCAL_ALLOW_CONCURRENT:-0}" != "1" ] \
-    && pgrep -f "pytest" >/dev/null 2>&1; then
+    && command -v pgrep >/dev/null 2>&1 && pgrep -f "pytest" >/dev/null 2>&1; then
     red "pytest is already running on this machine."
     yellow "Two concurrent suites starve the sandbox subprocesses and produce spurious"
     yellow "timeout failures. Wait for it, or set CI_LOCAL_ALLOW_CONCURRENT=1 to override."
@@ -622,7 +669,9 @@ main() {
   fi
 
   [ -x "$VENV_PY" ] || {
-    red "no venv at $VENV_PY — run 'make install-extended' in caliber/ first"
+    red "no virtualenv at $VENV_PY."
+    yellow "Create it with the extras CI installs:  cd caliber && make install-extended"
+    yellow "(it picks python3.12, 3.11 or 3.10; override with: make install-extended CALIBER_PYTHON=python3.11)"
     return 1
   }
 

@@ -1,14 +1,17 @@
 """Tests for engine-backed test-case generation (golden-path roadmap, Wave 5.3).
 
-Generation uses the assistant engine and parses a JSON array from its reply,
-falling back to a deterministic set when the engine is unavailable or its reply
-isn't parseable (e.g. the fake engine) — so the fake/CI path stays deterministic.
+Generation uses the assistant engine and parses a JSON array from its reply.
+Only the fake engine (tests, offline demos) falls back to a deterministic canned
+set; a real engine that fails or answers with prose raises rather than inventing
+cases (see ``test_aria_honesty.py`` for the fake-engine side).
 """
 
 from __future__ import annotations
 
+import pytest
+
 from caliber.assistant.models import AssistantTurnRequest, AssistantTurnResult
-from caliber.assistant.service import AssistantService
+from caliber.assistant.service import AssistantService, AssistantUnavailableError
 
 
 class _ReplyEngine:
@@ -114,19 +117,19 @@ def test_generate_uses_engine_output_when_parseable() -> None:
     assert engine.calls and "support-bot" in engine.calls[0].user_message
 
 
-def test_generate_falls_back_on_non_json_reply() -> None:
-    cases = _svc(_ReplyEngine(reply="Sure, here's a draft."))._generate_test_cases("p")
-    assert cases == AssistantService._fallback_test_cases()
+def test_generate_raises_on_non_json_reply() -> None:
+    with pytest.raises(ValueError, match="did not return a JSON array"):
+        _svc(_ReplyEngine(reply="Sure, here's a draft."))._generate_test_cases("p")
 
 
-def test_generate_falls_back_on_engine_error() -> None:
-    cases = _svc(_ReplyEngine(raises=True))._generate_test_cases("p")
-    assert cases == AssistantService._fallback_test_cases()
+def test_generate_raises_unavailable_on_engine_error() -> None:
+    with pytest.raises(AssistantUnavailableError):
+        _svc(_ReplyEngine(raises=True))._generate_test_cases("p")
 
 
-def test_generate_falls_back_on_empty_array() -> None:
-    cases = _svc(_ReplyEngine(reply="[]"))._generate_test_cases("p")
-    assert cases == AssistantService._fallback_test_cases()
+def test_generate_raises_on_empty_array() -> None:
+    with pytest.raises(ValueError, match="did not return a JSON array"):
+        _svc(_ReplyEngine(reply="[]"))._generate_test_cases("p")
 
 
 def test_generate_grounds_in_prompt_template() -> None:

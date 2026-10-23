@@ -18,7 +18,7 @@ caliber_surfaces:
   - Review Queues
   - Evaluations
 prerequisites:
-  - CALIBER_FEATURE_ARIA=true (Aria and its Plans page are a preview area, off by default). CALIBER_FEATURE_COOKBOOKS=true only for the gallery card.
+  - CALIBER_FEATURE_ARIA=true (Aria and its Plans page are a preview area that ships on by default; set it to false to turn it off). CALIBER_FEATURE_COOKBOOKS=true only for the gallery card.
   - Two extra accounts for the refusals: olga (an operator who does not own the plan) and vera (not an operator). The server must list olga in CALIBER_OPERATOR_USERS and not vera.
   - No model is needed to create the artifacts; a real model provider is needed only to run the judge in Evaluations (refused on the simulated default) and for the Ask Aria chat. A real tier is verified: scripts/cookbook-env.sh up lab14h --flags cookbooks,aria --real-llm with your own OPENAI_API_KEY (README, Run it with a real provider).
 time_to_first_value: 15-30 minutes

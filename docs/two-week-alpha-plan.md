@@ -5,11 +5,11 @@ audience:
   - developer
 doc_type: strategy
 product_area: strategy
-stability: draft
+stability: internal
 summary: A proposed, lighter, earlier checkpoint than v0.1.0 -- one seeded journey, tagged and installable, in two weeks.
 prerequisites:
   - Read docs/roadmap.md and docs/prd.md for the approved v1.0.0 plan this proposes a lighter run-up to
-reviewed_on: 2026-10-20
+reviewed_on: 2026-10-23
 version_applicability: proposal; Days 1-9 executed against current main (see docs/reports/two-week-alpha-day*-decision.md), Day 10 tag left to the repo owner and still unpublished as of 2026-10-20 (0.1.0a1 is prepared on main); no roadmap or PRD change
 tags:
   - roadmap
@@ -19,6 +19,9 @@ tags:
 ---
 
 # Two-week alpha plan
+
+> **Superseded.** This is a historical proposal. The alpha that was built is `0.1.0a1`, bounded by
+> [Alpha scope and limitations](start/alpha-scope.md); nothing below describes the current product or an open plan.
 
 ## Status
 
@@ -57,7 +60,7 @@ below remains the historical draft.
 What has landed on `main` since is the four preview areas behind feature flags
 (`CALIBER_FEATURE_ARIA`, on by default; `CALIBER_FEATURE_INTEGRATIONS`,
 `CALIBER_FEATURE_COOKBOOKS` and `CALIBER_FEATURE_RELEASE_CANDIDATES`, off by default), a neutral
-interface with no alpha, beta or preview labels, the seventeen cookbook labs run for
+interface with no alpha, beta or preview labels, the cookbook labs run for
 real through the UI and the SDK on a fresh stack (with a stand-in and a hosted model
 tier for the scored paths), and the Apache-2.0 licence settled across the repository.
 The note below ("one journey", "sync only") describes the plan, not today's product;

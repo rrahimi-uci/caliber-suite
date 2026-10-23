@@ -304,6 +304,23 @@
       "slug": "llm-gateway-cost-guardrails",
       "summary": "Route every agent LLM call through one gateway, price the model per 1K tokens, and read exact cost next to usage -- with the gateway's own ledger agreeing.",
       "title": "Metered LLM Gateway"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "managed snapshots",
+        "revision diff",
+        "change requests",
+        "workspace releases",
+        "environments"
+      ],
+      "id": "21",
+      "prerequisites": [
+        "The release_candidates preview flag (workspace releases share it; revisions and change requests are ungated) and a second account to review"
+      ],
+      "slug": "workspace-source-to-release",
+      "summary": "Pin a workspace's entities into an immutable revision, diff two revisions, carry one through a reviewed change request, and take it to the release gate -- no Git involved. An API-first journey: this surface has no UI in the alpha.",
+      "title": "Workspace Source-to-Release"
     }
   ],
   "schema_version": 1,

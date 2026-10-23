@@ -1,0 +1,54 @@
+{
+  "steps": [
+    {
+      "where": "API · Projects",
+      "do": "<strong>Before you start:</strong> start CALIBER with <code>CALIBER_FEATURE_RELEASE_CANDIDATES=true</code> and a second account in <code>CALIBER_OPERATOR_USERS</code>. Check <code>GET /capabilities</code> shows the flag enabled, create the workspace, and read <code>GET /projects/{id}/environments</code>.",
+      "see": "Four seeded environments -- <code>dev</code>, <code>qa</code>, <code>staging</code>, <code>prod</code> -- and only <code>dev</code> starts <strong>active</strong>."
+    },
+    {
+      "where": "API · Workspace source",
+      "do": "Read <code>GET /projects/{id}/source</code> and <code>GET .../source/connection</code>.",
+      "see": "<code>source_mode: caliber_managed</code> with a null source and no connection: managed snapshots need no Git. The Git import path (<code>POST .../revision-imports</code>) refuses with 409 <code>workspace_source_not_configured</code>."
+    },
+    {
+      "where": "Prompt lifecycle › Prompts · Test Sets",
+      "do": "Author a prompt and give it a second version; create a test set. These are the entities the revision will pin.",
+      "see": "An ordinary prompt with versions 1 and 2, and a test set at version 1."
+    },
+    {
+      "where": "API · Revisions",
+      "do": "Snapshot revision R1: <code>POST /projects/{id}/revisions:snapshot</code> with two pins -- the prompt at <code>version_ref \"1\"</code> and the test set at <code>\"1\"</code>. Repeat the identical request.",
+      "see": "A <code>managed</code>, <code>ready</code> revision -- and the identical request returns the <em>identical</em> revision id: snapshots are idempotent by content."
+    },
+    {
+      "where": "API · Revisions",
+      "do": "Snapshot R2 with the prompt pinned at <code>version_ref \"2\"</code> (the test set unchanged).",
+      "see": "A new revision id with <code>revision_number</code> one higher."
+    },
+    {
+      "where": "API · Revisions",
+      "do": "Diff them: <code>GET .../revisions/{R2}/diff?base={R1}</code>. Also try a pin with <code>resource_type: knowledge_base</code>.",
+      "see": "Exactly one <strong>changed</strong> pin (the prompt), nothing added or removed. The unsupported type is refused with 409 <code>resource_type_adapter_unavailable</code>; a viewer's snapshot is 403."
+    },
+    {
+      "where": "API · Change requests",
+      "do": "Create a change request on R2 (<code>semantic_version 1.0.0</code>, <code>review_backend caliber</code>, the reviewer assigned) and <code>:submit</code> it.",
+      "see": "Status <code>open</code>; the semver claim is reserved at creation."
+    },
+    {
+      "where": "API · Change requests",
+      "do": "Try to review it as its author, then review it as the assigned second person (<code>POST .../reviews {\"head_id\": ..., \"decision\": \"approve\"}</code>).",
+      "see": "The author is refused: 403 <code>self_review_forbidden</code>. The reviewer's approval makes it <strong>technically_approved</strong>."
+    },
+    {
+      "where": "API · Releases (flagged)",
+      "do": "Create a release of R2 into <code>dev</code> (three 64-hex content digests, an idempotency key), replay the same key, then <code>POST .../evaluate</code>.",
+      "see": "A <code>draft</code> release; the replay returns the same release; evaluate moves it to <strong>evaluating</strong> with the evaluation <strong>queued</strong> -- where it stays. Workspace release evaluations have no executor in the alpha; never wait on one."
+    },
+    {
+      "where": "API · Releases · Audit Log",
+      "do": "Read the refusals that guard everything beyond the boundary: <code>:accept</code> on the change request, <code>quality-signoff</code> and <code>operations {\"kind\": \"apply\"}</code> on the release.",
+      "see": "409 <code>qa_go_decision_required</code>, 409 <em>machine gate evidence is missing</em>, 409 <em>only an approved release can be applied</em> -- and <code>snapshot_workspace_revision</code>, <code>create_workspace_change_request</code>, <code>submit_workspace_change_request</code> in the audit log. Version tags stay empty: only an accept mints one."
+    }
+  ]
+}

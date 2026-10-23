@@ -53,7 +53,7 @@ Found by running the policy-QA cookbook ([lab 06](cookbooks/06-knowledge-retriev
 
 ## What is verified, and what is not
 
-`tests/test_knowledge_stack_journey.py` runs create, build, version, query, activate and roll back against the
+`caliber/tests/test_knowledge_stack_journey.py` runs create, build, version, query, activate and roll back against the
 docker stack's real MinIO and PostgreSQL (`scripts/verify-knowledge-stack.sh`; the `stack-smoke` workflow runs it
 weekly and on pull requests that touch `deploy/`, the stack scripts or `caliber/src/caliber/knowledge/`, and it is
 not a required check on every pull request). **Its embeddings are simulated**: a deterministic bag-of-words double stands in for a model, so a

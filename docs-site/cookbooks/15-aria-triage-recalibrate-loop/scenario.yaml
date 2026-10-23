@@ -17,7 +17,7 @@ caliber_surfaces:
   - Workflows
   - Observability
 prerequisites:
-  - CALIBER_FEATURE_ARIA=true (Aria and its Plans page are a preview area, off by default). CALIBER_FEATURE_COOKBOOKS=true only for the gallery card.
+  - CALIBER_FEATURE_ARIA=true (Aria and its Plans page are a preview area that ships on by default; set it to false to turn it off). CALIBER_FEATURE_COOKBOOKS=true only for the gallery card.
   - The server's background workers on (the plan worker resumes the parked plan, the refinement worker runs the calibration job).
   - An EXISTING published workflow with a deploy-gate test set, a registered agent, and the flagged trace ids. assets/setup_subject.py and assets/seed_traces.py create them for the lab; in a real deployment they are yours.
   - Two extra accounts for the refusals: olga (an operator who does not own the plan) and vera (not an operator). The server must list olga in CALIBER_OPERATOR_USERS and not vera.

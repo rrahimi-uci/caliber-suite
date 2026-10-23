@@ -13,6 +13,7 @@ defaults, approval-policy defaults, observability sinks) so the import path
 
 from __future__ import annotations
 
+import logging
 import os
 from collections.abc import Mapping
 from pathlib import Path
@@ -26,6 +27,8 @@ from caliber.model_defaults import (
     DEFAULT_OPENAI_REASONING_EFFORT,
     ReasoningEffort,
 )
+
+_LOG = logging.getLogger(__name__)
 
 #: Shipped ceiling for one LLM provider HTTP request. Referenced by both the
 #: ``CaliberConfig`` field and :func:`provider_request_timeout` so the default
@@ -174,7 +177,11 @@ class CaliberConfig(BaseModel):
             "Which LLM provider implementation to construct by default. "
             "``openai`` uses OpenAI-backed providers (requires the ``[llm]`` extra). "
             "``fake`` returns a deterministic stub — safe default so unit tests "
-            "and demos work with no API key."
+            "and demos work with no API key. ``auto`` (the container stack's default) "
+            "resolves once, at load time, to ``openai`` when the key named by "
+            "``llm_api_key_env`` is available and to ``fake`` otherwise; it is only "
+            "honoured by ``CaliberConfig.load()``, so library and test code that builds "
+            "a config directly never reaches the network by accident."
         ),
     )
     llm_diagnosis_model: str = Field(
@@ -408,7 +415,9 @@ class CaliberConfig(BaseModel):
             "refinement eval scores run OUTPUTS with an LLM judge (quality "
             "dimension) instead of the structural completion/guardrail proxy "
             "(golden-path roadmap, Wave 5.2). Default off — eval is unchanged "
-            "until opted in. Falls back to the structural score on any judge error."
+            "until opted in; ``auto`` (the container stack's default) turns it on "
+            "exactly when the LLM provider resolved to a real one. Falls back to the "
+            "structural score on any judge error."
         ),
     )
 
@@ -479,7 +488,10 @@ class CaliberConfig(BaseModel):
         description=(
             "Which EvalProvider to construct. ``mlflow`` wraps "
             "``mlflow.genai.evaluate`` (production); ``fake`` returns canned "
-            "scores (default; safe for development and CI)."
+            "scores (default; safe for development and CI). ``auto`` (the container "
+            "stack's default) resolves at load time to ``mlflow`` when the LLM provider "
+            "resolved to a real one and to ``fake`` otherwise, so a real LLM is never "
+            "paired with canned scores."
         ),
     )
 
@@ -1791,10 +1803,87 @@ class CaliberConfig(BaseModel):
             storage_kwargs["retention"] = retention_kwargs
         if storage_kwargs:
             kwargs["workflow_storage"] = storage_kwargs
+        _resolve_auto_providers(kwargs, env)
         try:
             return cls(**kwargs)
         except ValidationError as exc:
             raise ConfigError(f"invalid CALIBER configuration: {exc}") from exc
+
+
+def resolve_assistant_engine(configured: str, environ: Mapping[str, str] | None = None) -> str:
+    """Expand ``auto`` to the real assistant engine the keys in the environment select.
+
+    ``auto`` prefers OpenAI when ``OPENAI_API_KEY`` is set, then Anthropic when
+    ``ANTHROPIC_API_KEY`` is set, and otherwise OpenAI (whose missing key is then reported by name
+    rather than papered over). It never resolves to ``fake``. Explicit values pass through
+    unchanged. This is the single definition used by the server, the assistant routes and the
+    knowledge-base answerer, so they cannot disagree about which engine ``auto`` means.
+    """
+    value = (configured or "").strip().lower()
+    if value != "auto":
+        return value
+    env = os.environ if environ is None else environ
+    if str(env.get("OPENAI_API_KEY", "")).strip():
+        return "openai"
+    if str(env.get("ANTHROPIC_API_KEY", "")).strip():
+        return "anthropic"
+    return "openai"
+
+
+def _llm_key_available(source: str, env: Mapping[str, str]) -> bool:
+    """Whether the LLM key named by ``source`` can be found.
+
+    A bare name is an environment variable, looked up in ``env`` (the mapping ``load`` was given).
+    A URI (``secret://``, ``file://``) is an explicit operator choice that is only resolvable at
+    server start, so it counts as available here and a missing secret fails there, loudly, instead
+    of silently degrading to a simulated provider.
+    """
+    source = source.strip()
+    if "://" in source:
+        return True
+    return bool(str(env.get(source, "")).strip())
+
+
+def _resolve_auto_providers(kwargs: dict[str, Any], env: Mapping[str, str]) -> None:
+    """Turn ``CALIBER_LLM_PROVIDER=auto`` / ``CALIBER_EVAL_PROVIDER=auto`` into concrete providers.
+
+    ``auto`` means "real when a key is present, simulated (and reported as such) when it is not".
+    It exists so a deployment that only supplies ``OPENAI_API_KEY`` in its ``.env`` gets real LLM
+    calls and real evaluation without also having to know which provider switches to flip. It is
+    resolved here, once, so every later ``config.llm_provider == ...`` comparison sees a concrete
+    value, and it is only ever applied to the *explicit* string ``auto``: the field defaults stay
+    ``fake``, so tests and library callers never pick up a key from the environment by accident.
+    """
+    llm = str(kwargs.get("llm_provider", "")).strip().lower()
+    if llm == "auto":
+        key_source = str(kwargs.get("llm_api_key_env") or "OPENAI_API_KEY")
+        if _llm_key_available(key_source, env):
+            kwargs["llm_provider"] = "openai"
+            _LOG.info("CALIBER_LLM_PROVIDER=auto resolved to openai (%s is set)", key_source)
+        else:
+            kwargs["llm_provider"] = "fake"
+            _LOG.warning(
+                "CALIBER_LLM_PROVIDER=auto resolved to fake: %s is not set, so workflow agents, "
+                "calibration and judges are SIMULATED. Put the key in .env to use a real model.",
+                key_source,
+            )
+            if str(env.get("ANTHROPIC_API_KEY", "")).strip():
+                _LOG.warning(
+                    "ANTHROPIC_API_KEY is set, but the workflow/calibration LLM provider supports "
+                    "OpenAI only; the Anthropic key powers Aria (the assistant) but not those."
+                )
+    real_llm = str(kwargs.get("llm_provider", "fake")).strip().lower() not in {"", "fake"}
+    if str(kwargs.get("eval_provider", "")).strip().lower() == "auto":
+        kwargs["eval_provider"] = "mlflow" if real_llm else "fake"
+    if kwargs.get("workflow_llm_judge_enabled") == "auto":
+        # Workflow calibration scores outputs with an LLM judge instead of a structural proxy;
+        # that only makes sense (and only works) with a real LLM behind it.
+        kwargs["workflow_llm_judge_enabled"] = real_llm
+
+
+def _flag_or_auto(raw: str) -> bool | str:
+    """Like :func:`_flag`, but keep the literal ``auto`` for :func:`_resolve_auto_providers`."""
+    return "auto" if raw.strip().lower() == "auto" else _flag(raw)
 
 
 def _flag(raw: str) -> bool:
@@ -1862,7 +1951,7 @@ _ENV_VAR_TABLE: list[tuple[str, str, Any]] = [
     (
         "CALIBER_WORKFLOW_LLM_JUDGE_ENABLED",
         "workflow_llm_judge_enabled",
-        _flag,
+        _flag_or_auto,
     ),
     ("CALIBER_REFINEMENT_MAX_ITERATIONS", "refinement_max_iterations", int),
     (

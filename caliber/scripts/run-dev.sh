@@ -1,22 +1,44 @@
 #!/usr/bin/env bash
 # Launch MLflow with the CALIBER plugin enabled for local development.
 #
-# Loads ./.env (if present) without overwriting already-exported variables,
+# Loads caliber/.env (if present; NOT the suite-root .env) without overwriting already-exported variables,
 # applies sensible defaults for the caliber metadata DB + MLflow backend
 # store, runs alembic to bring schemas current, then starts the server.
 #
 # Override anything by exporting before invoking, e.g.:
 #   MLFLOW_PORT=5050 ./scripts/run-dev.sh
 #   CALIBER_DATABASE_URL=postgresql://… ./scripts/run-dev.sh
+#
+# Usage: caliber/scripts/run-dev.sh [-h|--help]      (or: cd caliber && make dev)
+# Needs: the virtualenv ($VENV_DIR, else caliber/.venv, else the repository .venv from `make setup`),
+# and, with the default MLFLOW_ARTIFACT_ROOT=s3://mlflow/mlruns, a MinIO at MLFLOW_S3_ENDPOINT_URL
+# (default http://127.0.0.1:9000; `make infra-up` in the repository root starts one). Without it the
+# server starts but a warning is printed and artifact writes fail. To run with no MinIO at all,
+# export MLFLOW_ARTIFACT_ROOT=./mlartifacts first.
 
 set -euo pipefail
+
+case "${1:-}" in
+    -h|--help)
+        awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"
+        exit 0
+        ;;
+    "") ;;
+    *) echo "error: unknown argument: $1 (see --help)" >&2; exit 2 ;;
+esac
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 cd "$REPO_ROOT"
 
-VENV_DIR="${VENV_DIR:-.venv}"
+# The virtualenv, relative to caliber/ unless absolute: $VENV_DIR, else caliber/.venv (`make install`
+# in caliber/), else the repository .venv that `make setup` creates.
+if [[ -z "${VENV_DIR:-}" ]]; then
+    if [[ -x ".venv/bin/python" ]]; then VENV_DIR=".venv"
+    elif [[ -x "../.venv/bin/python" ]]; then VENV_DIR="../.venv"
+    else VENV_DIR=".venv"; fi
+fi
 if [[ ! -x "$VENV_DIR/bin/python" ]]; then
-    echo "error: virtualenv not found at $VENV_DIR — run 'make install' first" >&2
+    echo "error: virtualenv not found at $VENV_DIR. Create it: 'make setup' in the repository root, or 'make install' in caliber/" >&2
     exit 1
 fi
 
@@ -37,19 +59,24 @@ normalize_postgres_driver_url() {
     printf '%s\n' "$value"
 }
 
-# Source .env without clobbering anything the caller already exported.
-# The `set -a` block exports every variable assigned inside, and the
-# conditional skips lines whose key is already set.
+# Source caliber/.env (this directory's .env, not the suite-root one) without clobbering anything
+# the caller already exported. Lines are KEY=VALUE, optionally prefixed with `export `; one pair of
+# surrounding quotes is removed; comments and anything that is not a valid name are skipped.
 if [[ -f .env ]]; then
-    set -a
-    while IFS='=' read -r key value; do
-        [[ -z "$key" || "$key" =~ ^# ]] && continue
+    while IFS='=' read -r key value || [[ -n "$key" ]]; do
+        key="${key#"${key%%[![:space:]]*}"}"
+        key="${key#export }"
+        key="${key%"${key##*[![:space:]]}"}"
+        [[ "$key" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || continue
+        value="${value%$'\r'}"
+        case "$value" in
+            \"*\") value="${value#\"}"; value="${value%\"}" ;;
+            \'*\') value="${value#\'}"; value="${value%\'}" ;;
+        esac
         if [[ -z "${!key:-}" ]]; then
-            # shellcheck disable=SC2086
-            export $key="${value}"
+            export "$key=$value"
         fi
     done < .env
-    set +a
 fi
 
 # Local-dev defaults. Caliber and MLflow share the same SQLite file so a
@@ -57,8 +84,9 @@ fi
 # audit log. MLflow artifacts default to the local MinIO bucket so new
 # runs do not spill back into filesystem-backed `mlruns` / `mlartifacts`
 # trees unless the operator explicitly overrides the artifact root.
-export CALIBER_DATABASE_URL="$(normalize_postgres_driver_url "${CALIBER_DATABASE_URL:-sqlite:///./caliber.db}")"
-export MLFLOW_BACKEND_STORE_URI="$(normalize_postgres_driver_url "${MLFLOW_BACKEND_STORE_URI:-$CALIBER_DATABASE_URL}")"
+CALIBER_DATABASE_URL="$(normalize_postgres_driver_url "${CALIBER_DATABASE_URL:-sqlite:///./caliber.db}")"
+MLFLOW_BACKEND_STORE_URI="$(normalize_postgres_driver_url "${MLFLOW_BACKEND_STORE_URI:-$CALIBER_DATABASE_URL}")"
+export CALIBER_DATABASE_URL MLFLOW_BACKEND_STORE_URI
 export MINIO_ROOT_USER="${MINIO_ROOT_USER:-minioadmin}"
 export MINIO_ROOT_PASSWORD="${MINIO_ROOT_PASSWORD:-minioadmin}"
 export AWS_ACCESS_KEY_ID="${AWS_ACCESS_KEY_ID:-$MINIO_ROOT_USER}"
@@ -153,7 +181,20 @@ fi
 echo
 
 # Fail fast on config errors before alembic touches the DB.
-"$PY" -c "from caliber.config import CaliberConfig; CaliberConfig.load()"
+"$PY" -c "from caliber.config import CaliberConfig; CaliberConfig.load()" \
+    || { echo "error: the CALIBER configuration is invalid (see the message above)" >&2; exit 1; }
+
+# The default artifact root is the local MinIO. If nothing answers there, MLflow still starts, but the
+# first artifact write fails far from the cause: warn now (a warning, not an error, because the
+# browser test harness runs this script with no MinIO and never writes an artifact).
+if [[ "$MLFLOW_ARTIFACT_ROOT" == s3://* && "$MLFLOW_S3_ENDPOINT_URL" =~ ^https?://(127\.0\.0\.1|localhost)(:([0-9]+))? ]]; then
+    minio_port="${BASH_REMATCH[3]:-80}"
+    if ! "$PY" -c 'import socket, sys; socket.create_connection(("127.0.0.1", int(sys.argv[1])), 2).close()' "$minio_port" 2>/dev/null; then
+        echo "warning: the artifact root is an S3 bucket but nothing is listening on the MinIO endpoint (127.0.0.1:$minio_port)." >&2
+        echo "         Writing artifacts will fail. Start MinIO ('make infra-up' in the repository root), or use a local" >&2
+        echo "         artifact root: MLFLOW_ARTIFACT_ROOT=./mlartifacts ./scripts/run-dev.sh" >&2
+    fi
+fi
 
 echo ">> checking runtime dependency advisories"
 CALIBER_RUNTIME_ADVISORIES_WARN_ONLY=1 "$REPO_ROOT/scripts/check-runtime-advisories.sh"
@@ -167,12 +208,13 @@ echo ">> applying caliber migrations"
 # pragma cannot run while other connections hold the DB. WAL is a
 # persistent per-database setting, so doing it once here is enough.
 if [[ "$CALIBER_DATABASE_URL" == sqlite* ]]; then
-    DB_PATH="${CALIBER_DATABASE_URL#sqlite:///}"
-    DB_PATH="${DB_PATH#/}"
+    # sqlite:///relative.db is relative to this directory; sqlite:////absolute.db is absolute.
+    DB_PATH="${CALIBER_DATABASE_URL#*:///}"
+    DB_PATH="${DB_PATH%%\?*}"
     if command -v sqlite3 >/dev/null 2>&1; then
-        echo ">> enabling SQLite WAL mode on /$DB_PATH"
+        echo ">> enabling SQLite WAL mode on $DB_PATH"
         # `PRAGMA journal_mode=WAL;` returns the resulting mode on stdout.
-        MODE="$(sqlite3 "/$DB_PATH" 'PRAGMA journal_mode=WAL;' 2>/dev/null || true)"
+        MODE="$(sqlite3 "$DB_PATH" 'PRAGMA journal_mode=WAL;' 2>/dev/null || true)"
         echo "   journal_mode=$MODE"
     else
         echo "   (sqlite3 CLI missing; skipping WAL pragma — locking under load may degrade)"
@@ -225,4 +267,4 @@ exec "$MLFLOW" server \
     --default-artifact-root "$MLFLOW_ARTIFACT_ROOT" \
     --host "$MLFLOW_HOST" \
     --port "$MLFLOW_PORT" \
-    "${WORKER_ARGS[@]}"
+    ${WORKER_ARGS[@]+"${WORKER_ARGS[@]}"}

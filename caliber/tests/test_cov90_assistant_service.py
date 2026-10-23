@@ -3013,9 +3013,9 @@ def test_generate_test_cases_engine_raises() -> None:
             raise RuntimeError("boom")
 
     svc = AssistantService(engine=_Boom())  # type: ignore[arg-type]
-    cases = svc._generate_test_cases("support-agent")
-    # falls back to the deterministic set
-    assert len(cases) == 3
+    # A real engine that cannot answer is an error, not a refund-policy test set labelled "generated".
+    with pytest.raises(AssistantUnavailableError):
+        svc._generate_test_cases("support-agent")
 
 
 def test_parse_test_cases_more_variants() -> None:

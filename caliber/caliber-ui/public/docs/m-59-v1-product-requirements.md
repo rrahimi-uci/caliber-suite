@@ -94,7 +94,7 @@ incident procedure.
 - An unmeasured scale or performance promise.
 
 These are post-v1 decisions, not implicit v1 commitments. They are represented
-by [Epic #58](https://github.com/rrahimi-uci/caliber-suite/issues/58) and its
+by Epic #58 and its
 child work.
 
 ## Product requirements
@@ -135,14 +135,14 @@ test commands, dependencies, and completion evidence.
 
 | PRD requirement | Primary epic/workstream | Delivery issues | Exit evidence |
 | --- | --- | --- | --- |
-| PRD-01 | [#78](https://github.com/rrahimi-uci/caliber-suite/issues/78), [#56](https://github.com/rrahimi-uci/caliber-suite/issues/56) | #79–#101, #153–#154 | Capability matrix, pilot evidence/triage rules, MVP contract, provider matrix |
+| PRD-01 | #78, #56 | #79–#101, #153–#154 | Capability matrix, pilot evidence/triage rules, MVP contract, provider matrix |
 | PRD-02 | #56 / #60 | #102–#104, #107 | Seeded fixture; durable stage evidence; browser and API evidence; single-environment contract |
 | PRD-03 | #56 / #61 | #105–#106, #152 | Release state machine; approval-gate test; failure-injection and reconciliation evidence |
 | PRD-04 | #56 / #62–#64 | #108–#116, #151 | Operation matrix; SDK/CLI contract tests; failure taxonomy; recovery, correlation, and readiness evidence; topology decision |
 | PRD-05 | #56 / #65–#66, #76 | #117–#121, #129 | Clean-checkout/package and deployment evidence; documentation parity; bug bash; human v0.1 decision |
-| PRD-06 | [#57](https://github.com/rrahimi-uci/caliber-suite/issues/57) / #67–#68 | #122–#125, #130, #157, #159 | Rejected unsafe defaults; isolation/redaction tests; loop guard; hardened deployment and retention profile |
+| PRD-06 | #57 / #67–#68 | #122–#125, #130, #157, #159 | Rejected unsafe defaults; isolation/redaction tests; loop guard; hardened deployment and retention profile |
 | PRD-07 | #57 / #69–#72, #77 | #131–#142, #158 | Measured envelope; backpressure; recovery objectives; restore, rollback, incident, regression, acceptance, upgrade, and v1 decision evidence |
-| PRD-08 | [#58](https://github.com/rrahimi-uci/caliber-suite/issues/58) / #73–#75 | #126–#128, #143–#149 | Decision records or bounded prototypes after #142; no v1 release dependency |
+| PRD-08 | #58 / #73–#75 | #126–#128, #143–#149 | Decision records or bounded prototypes after #142; no v1 release dependency |
 
 ## Implementation status against current main
 
@@ -192,7 +192,7 @@ milestones as follows:
 ## Approval and change control
 
 Approval requires the product lead to accept this boundary and record the
-decision in [#153](https://github.com/rrahimi-uci/caliber-suite/issues/153).
+decision in #153.
 Any material change to the supported journey, topology, provider profile, or
 non-goal must update this PRD, the roadmap, the Project hierarchy, and the
 affected issue acceptance criteria in the same pull request.

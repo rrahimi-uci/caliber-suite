@@ -2,7 +2,7 @@
   "steps": [
     {
       "where": "Operate › Plans",
-      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans are off by default). In the sidebar open <strong>Operate</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>. The planner is rules, not a model: it looks for the words <code>judge</code>, <code>eval dataset</code> / <code>test set</code> and <code>review queue</code>.",
+      "do": "<strong>Before you start:</strong> the server needs <code>CALIBER_FEATURE_ARIA=true</code> (Aria and Plans ship on by default; this matters only if your deployment set it to <code>false</code>). In the sidebar open <strong>Operate</strong> and click <strong>Plans</strong>. Paste the canonical sentence from <a href=\"../cookbooks/14-aria-governance-starter-kit/assets/intent.md\">intent.md</a> into <strong>Goal</strong>, set <strong>Autonomy</strong> to <strong>Stop before each change</strong> and press <strong>Decompose goal</strong>. The planner is rules, not a model: it looks for the words <code>judge</code>, <code>eval dataset</code> / <code>test set</code> and <code>review queue</code>.",
       "fill": [
         [
           "Goal",

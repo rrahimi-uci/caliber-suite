@@ -47,6 +47,7 @@ from caliber.auth import (
     resolve_identity,
     scopes_for_user,
 )
+from caliber.config import resolve_assistant_engine
 from caliber.llm.models import DEFAULT_OPENAI_MODEL
 from caliber.routes._deps import envelope_response, get_session_factory, parse_json_object
 
@@ -552,13 +553,7 @@ _DEFAULT_MODEL_BY_PROVIDER = {
 
 def _resolve_auto_engine(engine: str) -> str:
     """Expand ``auto`` to the real provider it would run (OpenAI/Claude by key)."""
-    if engine != "auto":
-        return engine
-    if os.environ.get("OPENAI_API_KEY"):
-        return "openai"
-    if os.environ.get("ANTHROPIC_API_KEY"):
-        return "anthropic"
-    return "openai"
+    return resolve_assistant_engine(engine)
 
 
 #: The environment variable each hosted engine reads its key from.

@@ -19,12 +19,13 @@ tags:
 # SDK recipes
 
 > **Disabled by default.** The cookbooks are a preview area and are off by default; enable with
-> `CALIBER_FEATURE_COOKBOOKS=true` on the server and restart it. Recipes 03 to 08 and 18 install their catalog
+> `CALIBER_FEATURE_COOKBOOKS=true` on the server and restart it. Recipes 03 to 08, 18 and 20 install their catalog
 > entry with `caliber.cookbooks.install`, and recipes 01 and 10 list it, so against a default server they fail with a 404 whose
-> `reason_code` is `feature_disabled`. Some recipes use other preview areas as well: recipe 05 needs
-> `CALIBER_FEATURE_INTEGRATIONS` (MCP servers), recipe 11 needs `CALIBER_FEATURE_RELEASE_CANDIDATES`, and
-> recipes 12 to 15 and 17 need `CALIBER_FEATURE_ARIA`. Read `features` from the capabilities response first
-> (see the [SDK guide](guide.md#feature-flags-and-disabled-areas)). See also
+> `reason_code` is `feature_disabled`. Some recipes use other preview areas as well: recipes 05 and 19 need
+> `CALIBER_FEATURE_INTEGRATIONS` (MCP servers and OpenAPI integrations) and recipes 11 and 21 need
+> `CALIBER_FEATURE_RELEASE_CANDIDATES`. Recipes 12 to 15 and 17 use Aria, which ships **on** (`CALIBER_FEATURE_ARIA`
+> defaults to true); recipe 20 needs a stack started with `--real-llm` routed at its stand-in gateway. Read `features`
+> from the capabilities response first (see the [SDK guide](guide.md#feature-flags-and-disabled-areas)). See also
 > [Feature flags](../start/alpha-scope.md#feature-flags).
 
 Each recipe is the SDK counterpart of a lab under `docs-site/cookbooks/`, which was run for real against a disposable
@@ -32,7 +33,7 @@ server (`scripts/cookbook-env.sh up NAME --flags ...`); the lab's README holds t
 what is simulated. On the alpha's default simulated model and evaluator the scripts assert structure and wiring (for
 example that **Evaluations** refuses with `400 evaluation requires a real LLM provider`), never a score. Each script
 prints one `ok` line per verified outcome and exits 0 only if all of them held; run it with
-`PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_NN_*.py` from a checkout.
+`PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python sdk/caliber-sdk/examples/cookbooks/cookbook_NN_*.py` from a checkout (`caliber/.venv` is the virtual environment that `make install` creates inside `caliber/`; the root `make setup` makes a different one at `.venv/`).
 
 These recipes are the SDK-native counterparts to the platform cookbook gallery.
 Each example uses only `caliber-sdk` plus Python's standard library.

@@ -33,9 +33,10 @@ The image builds the CALIBER SPA (multi-stage), installs the safer default
 extras profile
 `caliber-suite[s3,postgres,llm,anthropic,nats,ingest,ocr,knowledge]` + `uvicorn`,
 preloads the default spaCy model for knowledge-graph extraction, and on boot
-runs `alembic upgrade head` before serving. Background loops (feedback poller,
-webhook dispatcher/recovery, refinement and calibration drains, workflow/Aria/knowledge
-workers, scheduler, and janitor) run in-process; set
+runs `alembic upgrade head` before serving. Up to ten background loops (the
+refinement and calibration drains, workflow-run, Aria plan, knowledge-base and Workspace-import
+workers, the workflow scheduler, the webhook dispatcher, the release reconciler and the janitor)
+run in-process; set
 `CALIBER_BACKGROUND_TASKS_ENABLED=false` for an API-only replica.
 
 Published workflow-service invocation bodies are capped at 1 MiB of raw JSON by default.

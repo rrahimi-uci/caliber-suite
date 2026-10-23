@@ -7,8 +7,8 @@ doc_type: how-to
 product_area: assistant
 stability: beta
 prerequisites:
-  - A CALIBER deployment with Aria access (CALIBER_FEATURE_ARIA=true)
-reviewed_on: 2026-10-15
+  - A CALIBER deployment with Aria enabled (CALIBER_FEATURE_ARIA is on by default) and an engine key (OPENAI_API_KEY or ANTHROPIC_API_KEY)
+reviewed_on: 2026-10-23
 version_applicability: current main branch docs contract
 tags:
   - aria
@@ -22,7 +22,11 @@ tags:
 > **Preview area, on by default.** Aria ships on; set `CALIBER_FEATURE_ARIA=false` and restart CALIBER for a
 > deployment that wants it off. While it is off, the `/assistant/*` and `/aria/*` routes answer 404
 > (`reason_code: feature_disabled`) and the Aria panel and the Plans page are hidden. Even while it is on,
-> `CALIBER_ASSISTANT_ENABLED` and a configured engine still decide whether Aria answers. Leaving it on means
+> `CALIBER_ASSISTANT_ENABLED` and a configured engine still decide whether Aria answers. Aria needs an engine
+> key: set `OPENAI_API_KEY` (with the `llm` extra installed) or `ANTHROPIC_API_KEY` (with the `anthropic` extra)
+> in the server's environment and restart CALIBER; the Docker image already installs both extras. Until a key is
+> set, the **Ask Aria** button is disabled with the reason, the Aria panel opens with the reason at the top and
+> **Describe it** fails with the same message instead of drafting anything. Leaving Aria on means
 > you accept preview behavior. See [Feature flags](../start/alpha-scope.md#feature-flags).
 
 Use this page when you need the practical operator or user path for Aria:
@@ -82,7 +86,8 @@ deploy and spend actions are never callable by the model during the authoring tu
 | The assistant paused instead of finishing | a human approval or review boundary was reached |
 | A tool Aria does not offer, or refuses to call | its tier is not allowed in the current interaction and approval mode, or it requires approval (a published OpenAPI tool that requires approval is never offered as a direct Aria tool) |
 | Aria answered, but you cannot justify the answer | inspect the evidence, tool trace, or retrieval path |
-| There is no Aria panel or Plans page, or a call answers 404 with `reason_code: feature_disabled` | `CALIBER_FEATURE_ARIA` is off (the default); set it to `true` and restart |
+| Aria says it cannot answer yet, **Ask Aria** is disabled, or **Describe it** fails naming `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` | no engine key is configured (the default install has none), or the matching provider package is not installed; set the key, install the `llm` or `anthropic` extra if you installed from wheels, and restart |
+| There is no Aria panel or Plans page, or a call answers 404 with `reason_code: feature_disabled` | `CALIBER_FEATURE_ARIA` was set to `false`; remove it or set it to `true` and restart |
 
 ## 4. Related docs
 

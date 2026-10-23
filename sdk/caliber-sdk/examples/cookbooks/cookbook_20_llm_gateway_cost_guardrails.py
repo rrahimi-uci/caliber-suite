@@ -264,7 +264,7 @@ def run(
     admin.settings.update_llm(openai_api_key=gateway_key())
     rotated = admin.settings.llm()
     check(
-        rotated.openai_key_fingerprint.endswith(gateway_key()[-4:]),
+        (rotated.openai_key_fingerprint or "").endswith(gateway_key()[-4:]),
         "the masked fingerprint names the live key without disclosing it",
     )
 

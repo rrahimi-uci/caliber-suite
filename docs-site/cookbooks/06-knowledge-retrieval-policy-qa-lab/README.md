@@ -52,8 +52,10 @@ that is not ready), then wire the answer **workflow**, run it, and send its low-
 
 1. A running CALIBER built per [`docs/start/alpha-install.md`](../../../docs/start/alpha-install.md), with `CALIBER_FEATURE_COOKBOOKS=true`.
 2. **Knowledge needs more than the base install** ([`docs/use/knowledge-bases.md`](../../../docs/use/knowledge-bases.md)): an S3-compatible
-   object store with credentials, `pip install "caliber-suite[knowledge,knowledge-local]"`, and the embedding model on the host
-   (about 90 MB for `all-MiniLM-L6-v2`; it is downloaded from Hugging Face on first use). PostgreSQL/pgvector and Apache AGE are optional and
+   object store with credentials, the `knowledge-local` extra, and the embedding model on the host
+   (about 90 MB for `all-MiniLM-L6-v2`; it is downloaded from Hugging Face on first use). From a checkout, after `cd caliber && make install`, add the extra with
+   `caliber/.venv/bin/pip install -e "caliber[knowledge,knowledge-local]"` (from the alpha wheels: `pip install --find-links ./wheels "caliber-suite[knowledge,knowledge-local]"`).
+   The `--s3` stack below supplies the object store. PostgreSQL/pgvector and Apache AGE are optional and
    off by default; this lab uses neither.
 3. **Warm the embedding-model cache once, while online.** The first time on a machine (a fresh laptop or a CI runner) the model is not cached yet:
 
@@ -329,7 +331,8 @@ Each of these was provoked on a real stack.
 ```bash
 # what the API script created (suffix is printed on its first line)
 PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python -m examples.cookbooks.cookbook_06_grounded_knowledge_assistant --cleanup <suffix>
-# the bucket and its documents
+# the bucket and its documents (JAR is the cookie jar from the login above)
+JAR=/tmp/lab06.jar
 KEYS=$(curl -s -b $JAR "$CALIBER_API/object-store/buckets/policy-corpus/objects?recursive=true" | jq -c '{keys:[.data.objects[].key]}')
 curl -s -b $JAR -X POST $CALIBER_API/object-store/buckets/policy-corpus/objects/delete -H 'content-type: application/json' -d "$KEYS"
 curl -s -b $JAR -X DELETE $CALIBER_API/object-store/buckets/policy-corpus      # 204; a non-empty bucket answers 409 "bucket is not empty"

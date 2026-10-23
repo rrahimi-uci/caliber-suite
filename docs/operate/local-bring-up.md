@@ -7,7 +7,7 @@ product_area: operations
 stability: ga
 prerequisites:
   - Repository checkout
-reviewed_on: 2026-10-15
+reviewed_on: 2026-10-23
 version_applicability: current main branch docs contract
 tags:
   - setup
@@ -61,7 +61,8 @@ Then verify:
 
 The stack starts with most preview areas **off**: MCP servers, OpenAPI integrations, cookbooks, and
 release-candidate signoff are off by default, so their navigation entries are hidden. The Aria assistant and
-plans is the exception and starts **on**. To change one, set its variable in the suite-root `.env`
+plans is the exception and starts **on**, but it needs an `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` in the suite-root
+`.env` to answer. To change one, set its variable in the suite-root `.env`
 (`.env.example` documents them) and run `make start` again; see [Preview areas](#preview-areas) below.
 
 To prove a fresh clone does all of this, `scripts/verify-compose-stack.sh` builds the CALIBER and MLflow
@@ -80,7 +81,8 @@ repository root without starting the containerized CALIBER service:
 docker compose -f deploy/compose.yaml --profile app up -d mlflow
 
 cd caliber
-make install
+make install                     # creates caliber/.venv with the development extras
+source .venv/bin/activate        # puts caliber-migrate and uvicorn on PATH
 export CALIBER_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
 caliber-migrate   # creates or upgrades the tables; the server never does
 export MLFLOW_TRACKING_URI=http://127.0.0.1:5000

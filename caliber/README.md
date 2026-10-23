@@ -1,338 +1,213 @@
-# CALIBER
+# CALIBER server package
 
-> **Human-in-the-loop refinement pipeline for AI agents.**
-> An MLflow-integrated control plane that turns production feedback into governed prompt fixes with verification plus an explicit operator Apply action, reusing MLflow's registries and evidence surfaces.
+> The Python package behind **CALIBER Suite**: a standalone ASGI service (API, web app and
+> background workers) that adds governed prompt, skill, tool and workflow releases to
+> [MLflow](https://mlflow.org).
 
 [![Python](https://img.shields.io/badge/Python-3.10%20%E2%80%93%203.12-3776AB?logo=python&logoColor=white)](pyproject.toml)
 [![License: Apache 2.0](https://img.shields.io/badge/License-Apache_2.0-blue.svg)](LICENSE)
 
----
+This directory holds the server: the `caliber` import package (`src/caliber`), its Alembic
+migrations, the React web app (`caliber-ui/`) and the backend tests. It is published as the
+Python distribution **`caliber-suite`**, version `0.1.0a1`. This is an **alpha**, and this repository
+does not currently publish a PyPI release, so you install from a source checkout or from wheels you
+build (see below).
 
-## What CALIBER does
+For what CALIBER is, the product tour and the user guides, start at the
+[repository README](../README.md). What the alpha does and does not support, including the
+feature flags, is in [Alpha scope and known limitations](../docs/start/alpha-scope.md). This page
+covers only the package: install it, configure it, run it, test it.
 
-When someone flags a production AI agent's response as wrong (via an MLflow Assessment), CALIBER:
+## What runs
 
-1. **Verifies** — a human confirms the feedback is actionable (one click).
-2. **Diagnoses** — an LLM agent identifies the root cause from the trace.
-3. **Optimizes a fix** — through one of five implemented provider paths. The prompt form exposes MetaPrompt and GEPA; policy can select SkillMetaPrompt and DSPy BootstrapFewShot; DSPy MIPRO requires explicit configuration and the DSPy dependency profile.
-4. **Evaluates** — the configured `EvalProvider` compares the candidate with the baseline on a pinned dataset, then the aggregate/per-dimension gate decides whether it reaches `candidate_ready`.
-5. **Awaits Apply** — an operator can inspect the diff, eval comparison, and root-cause summary, then invoke Apply. This is one action boundary, not a separate vote/quorum/reject approval workflow.
-6. **Promotes across a dual-write boundary** — applying a prompt candidate rotates its alias in external MLflow before the CALIBER database transaction commits its checkpoint, audit, and provenance rows. No distributed transaction joins those systems, so a failure after the alias write can require reconciliation. Explicit rollback restores the recorded outgoing target when that database record exists. Prompt version authoring can opt out of the default alias rotation with `promote: false`.
+CALIBER is a **standalone ASGI service**. You run it with `uvicorn`, next to a separately
+running MLflow server that it reaches over HTTP.
 
-The canonical loop has **two human decisions**: verification and Apply. Its runtime depends on the provider, dataset, and optimizer;
-the project does not publish a universal time-to-fix measurement.
+| Piece | Default address | Notes |
+| --- | --- | --- |
+| CALIBER (API, web app, workers) | `http://127.0.0.1:5001` | API under `/ajax-api/2.0/mlflow/caliber/`, web app at `/caliber/` |
+| MLflow tracking and prompt registry | `http://127.0.0.1:5000` | `mlflow server`, version 3.15 or later; set `MLFLOW_TRACKING_URI` |
+| CALIBER database | `CALIBER_DATABASE_URL` | PostgreSQL (supported) or SQLite (evaluation and development). Keep it separate from MLflow's own store |
 
----
+Running CALIBER embedded inside MLflow (`mlflow server --app-name caliber`, or `make dev` in this
+directory) is **not supported**. The server never creates its own tables: run `caliber-migrate`
+before the first start and after every upgrade.
 
-## Why it exists
+## Install
 
-Modern LLM agents fail in ways unit tests can't catch — hallucinated policies, missed tool calls, multi-agent handoff conflicts, context drift across long conversations. Catching these in production is well-tooled (MLflow Tracing, OpenTelemetry GenAI, LangSmith). Doing something about them at scale is not. CALIBER's canonical prompt path connects production trace → verified feedback → refined artifact → evaluation evidence → explicit review → alias update → measurement.
-
-CALIBER's design center of gravity:
-
-- **MLflow-integrated.** Runs as a standalone CALIBER ASGI service that integrates with MLflow over HTTP via `MLFLOW_TRACKING_URI`. Embedded `mlflow.app` mode is unsupported.
-- **Evidence-gated.** Aggregate and per-dimension thresholds gate candidate readiness; prompt release surfaces carry the resulting evidence as an advisory verdict into an explicitly authorized promotion.
-- **Auditable.** Refinement-originated prompt changes retain signal-to-job lineage; direct prompt edits and releases follow their own audit path.
-- **Honest about bundle scope.** Multi-target promotion plumbing exists, but automatic multi-agent bundle optimization (`MultiAgentCoord`) remains roadmap work; current submission paths are single-target.
-
-See the suite-level [layered architecture](../ARCHITECTURE.md), its
-[generated HTML page](../docs-site/m-00-layered-architecture.html), and
-[`caliber-suite/`](../) for the full design specs and demo stories.
-
----
-
-## Status
-
-The implementation spans the refinement pipeline, workflow studio and queued execution, project/file
-directories, settings, pattern detection, RBAC, and the SPA. Verification is not uniform across those
-surfaces. The suite-level [`product-complete-report.md`](../product-complete-report.md) is the maintained
-evidence ledger for current repairs, residual risks, historical test runs, and production-readiness limits;
-dated totals there must not be read as a current full-suite result.
-
----
-
----
-
-## Contributors
-
-- [GitHub Copilot](https://github.com/features/copilot)
-
----
-
-## Installation
-
-Package metadata supports Python **3.10–3.12**, with **3.11 recommended** for local development. The
-canonical GitHub functional suite currently runs on Python 3.11 rather than a three-version matrix; the
-supported-Python dependency-audit helper selects 3.10–3.12. Python 3.13+ is not supported.
-
-The repository does not currently publish a PyPI release. The distribution metadata is
-named `caliber-suite` (the unrelated `caliber` name is already occupied), but until a
-release is published install from a source checkout:
-
-```bash
-git clone https://github.com/rrahimi-uci/caliber-suite.git
-cd caliber-suite
-python -m pip install -e "./caliber"
-```
-
-**Trying the alpha without a checkout?** Follow [Alpha install](../docs/start/alpha-install.md): wheels, `caliber-migrate`, a native MLflow server, and the role and provider settings, with a script that verifies each step.
-
-For supported local development, start backing services and vanilla MLflow first, then run CALIBER separately:
-
-```bash
-# From the repository root: start vanilla MLflow and its Postgres/MinIO
-# dependencies, but do not start the containerized CALIBER service on :5001.
-docker compose -f deploy/compose.yaml --profile app up -d mlflow
-
-# From caliber/: run standalone CALIBER with backend reload enabled.
-export CALIBER_DATABASE_URL=postgresql+psycopg://caliber:caliber@127.0.0.1:5432/caliber
-caliber-migrate   # creates or upgrades the tables; the server never does
-export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
-export CALIBER_ADMIN_USERS=admin CALIBER_OPERATOR_USERS=admin CALIBER_APPROVER_USERS=admin
-export CALIBER_AUTH_SESSION_COOKIE_SECURE=false
-export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true
-uvicorn caliber.server:create_app --factory --reload --host 127.0.0.1 --port 5001
-```
-
-The CALIBER UI is served at `http://127.0.0.1:5001/caliber/`. The bootstrap flags above are only for a trusted loopback run; change the first-boot password immediately and use a strong password source with Secure cookies in every network-reachable deployment.
-
-`make dev` and `./scripts/run-dev.sh` still exercise the embedded `mlflow.app`
-compatibility path. They are not supported local-development entrypoints. The
-Playwright bootstrap and supported standalone path default MLflow artifacts to
-`s3://mlflow/mlruns` through the local MinIO endpoint at
-`http://127.0.0.1:9000` so new runs do not fall back to filesystem-backed
-`mlruns` / `mlartifacts` trees unless you override `MLFLOW_ARTIFACT_ROOT`.
-Set `MLFLOW_TRACKING_URI=http://127.0.0.1:5000` (suite-root `.env`) so ad-hoc
-host scripts log run/trace records to the Postgres-backed server rather than a
-local `mlruns/` tree.
-
-### File Directory storage
-
-The File Directory page can create directories backed by the local filesystem or by MinIO/S3-compatible storage. `CALIBER_WORKFLOW_STORAGE_BACKEND` sets the default backend for workflow/run files, while the File Directory UI offers MinIO/S3 as an additional choice when the S3 fields are configured.
-
-For local plus MinIO in development, keep local as the default and set the MinIO fields in `.env`:
-
-```bash
-CALIBER_WORKFLOW_STORAGE_BACKEND=local
-CALIBER_WORKFLOW_STORAGE_BASE_URI=file://./caliber-workspaces
-CALIBER_WORKFLOW_STORAGE_BUCKET=caliber-workspaces
-CALIBER_WORKFLOW_STORAGE_INTERNAL_ENDPOINT_URL=http://localhost:9000
-CALIBER_WORKFLOW_STORAGE_PUBLIC_ENDPOINT_URL=http://localhost:9000
-CALIBER_WORKFLOW_STORAGE_REGION=us-east-1
-CALIBER_WORKFLOW_STORAGE_FORCE_PATH_STYLE=true
-CALIBER_WORKFLOW_STORAGE_ACCESS_KEY_SOURCE=MINIO_ROOT_USER
-CALIBER_WORKFLOW_STORAGE_SECRET_KEY_SOURCE=MINIO_ROOT_PASSWORD
-MINIO_ROOT_USER=minioadmin
-MINIO_ROOT_PASSWORD=minioadmin
-```
-
-Install the S3 extra from the `caliber/` source directory (`pip install -e ".[s3]"`),
-create the bucket in MinIO, then restart the CALIBER server.
-
----
-
-## Quickstart (post-Phase-1)
-
-```python
-# 1. Instrument your agent with MLflow Tracing.
-import mlflow
-
-mlflow.openai.autolog()
-mlflow.set_experiment("exp-support-prod")
-
-# 2. Run the agent. Traces flow to MLflow.
-from agents import Agent, Runner
-
-support_agent = Agent(
-    name="support-agent",
-    instructions=mlflow.load_prompt("support-agent@prod").content,
-    tools=[lookup_policy, get_order],
-)
-result = Runner.run_sync(support_agent, user_message)
-
-# 3. A QA reviewer thumbs-down a trace in the MLflow UI and adds an
-#    Assessment with category "hallucination". CALIBER's feedback poller
-#    creates a verification-queue item automatically.
-
-# 4. Open http://127.0.0.1:5001/caliber/, verify the item, wait for the
-#    refinement job to reach candidate_ready, inspect it, and invoke Apply.
-#    CALIBER then rotates the prompt alias.
-#    Your code keeps loading "support-agent@prod" — the next call gets
-#    the new version with no code change.
-```
-
-End-to-end walkthrough: [`walkthrough.html`](../docs-site/walkthrough.html).
-
----
-
-## Development
+You need Python 3.10, 3.11 or 3.12 (3.11 is what CI runs the full suite on; 3.13 and later are not
+supported). To try the alpha from wheels with no checkout, follow
+[Alpha install](../docs/start/alpha-install.md). To work on the package, install from a checkout.
+You also need Node.js 20.19 or later (or 22.12 or later) with npm to build the web app.
 
 ```bash
 git clone https://github.com/rrahimi-uci/caliber-suite.git
 cd caliber-suite/caliber
-
-# Use a supported interpreter (3.11 recommended and used by the canonical CI suite).
-#
-# Use uv for dependency management (10–100× faster than pip).
-# Falls back to pip + venv if uv is not installed. The default safe dev extras
-# include the OpenAI-backed provider, KB chunking/graph tooling, OCR-backed
-# ingestion, and the first-party DB MCP server without pulling the flagged
-# DSPy or local-Hugging-Face embedding stacks.
-uv venv && uv pip install -e ".[dev,postgres,ingest,ocr,llm,knowledge]"
-# or:  python -m venv .venv && source .venv/bin/activate && pip install -e ".[dev,postgres,ingest,ocr,llm,knowledge]"
-
-# Add these only when you explicitly want the higher-risk optional stacks:
-# - DSPy teleprompters / LiteLLM-backed optimizers
-# - local Hugging Face embedding builds (sentence-transformers / torch)
-uv pip install -e ".[dspy,knowledge-local]"
-# or:  pip install -e ".[dspy,knowledge-local]"
-
-# OCR fallback also needs the system Tesseract binary.
-# macOS:  brew install tesseract
-# Debian/Ubuntu:  sudo apt-get install -y tesseract-ocr
-
-# Install pre-commit hooks (runs ruff + mypy on every commit).
-pre-commit install
-
-# Run the test suite (xdist parallel; the opt-in integration tests need external servers).
-pytest -n auto -m "not integration"
-
-# Lint + format.
-ruff check src tests && ruff format src tests
-
-# Type-check.
-mypy src
-
-# Broad local workflow-platform release gate (backend + frontend + package).
-./scripts/run-workflow-platform-release-gate.sh
-# Optional heavier variants:
-#   ./scripts/run-workflow-platform-release-gate.sh --with-security
-#   ./scripts/run-workflow-platform-release-gate.sh --with-playwright
-
-# Run the supported-Python security audit directly. This creates or reuses
-# .venv-security-audit/ on Python 3.10-3.12 and audits the default
-# production-safe llm+knowledge profile.
-./scripts/run-supported-python-security-audit.sh
-
-# Audit the extended DSPy + local-embedding profile explicitly.
-CALIBER_SECURITY_AUDIT_EXTRAS=llm,knowledge,dspy,knowledge-local \
-  ./scripts/run-supported-python-security-audit.sh
+make install             # creates .venv and installs ".[dev,postgres,ingest,ocr,llm,knowledge]"
+source .venv/bin/activate
+make ui                  # builds the web app into src/caliber/ui (without it, /caliber/ answers 503)
 ```
 
-Frontend development:
+`make install` picks `python3.12`, then `python3.11`, then `python3.10`; run `make install CALIBER_PYTHON=python3.11` to
+choose one. Without `make`, create a virtual environment and run
+`pip install -e ".[dev,postgres,ingest,ocr,llm,knowledge]"` yourself.
+
+Optional features are extras of the `caliber-suite` distribution. The base install is enough to
+run the server and the core journey.
+
+| Extra | Adds |
+| --- | --- |
+| `dev` | pytest, ruff, mypy, build and test helpers |
+| `postgres` | the PostgreSQL driver (`psycopg`), also used by the bundled database MCP server |
+| `llm` | the OpenAI-backed provider, which real calibration and the Aria assistant's OpenAI engine need |
+| `anthropic` | the Anthropic engine for the Aria assistant |
+| `knowledge` | knowledge-base chunking and graph tooling (spaCy, LangChain splitters) |
+| `knowledge-local` | local Hugging Face embeddings for knowledge bases (pulls in torch) |
+| `ingest`, `ocr` | PDF, Office and markdown ingestion; OCR fallback (also needs the `tesseract` binary: `brew install tesseract`, or `apt-get install tesseract-ocr`) |
+| `s3` | S3 and MinIO storage backends (`boto3`) |
+| `dspy`, `deepeval`, `memory`, `nats`, `redis`, `docs` | the DSPy optimizers, the DeepEval scorers, agent memory, the NATS and Redis event backends, and the MkDocs toolchain |
+
+## Run
+
+These steps start CALIBER from your checkout on SQLite, with a native MLflow server, the simulated
+language model and evaluator, and a bootstrap `admin` login. They are for a machine only you can
+reach. The same steps, run against built wheels, are checked by
+[`scripts/verify-alpha-install.sh`](../scripts/verify-alpha-install.sh).
+
+Use two terminals, each with the virtual environment active (`source <your checkout>/caliber/.venv/bin/activate`)
+and each in the same empty scratch directory outside the checkout (for example `mkdir ~/caliber-run && cd ~/caliber-run`),
+so the database and artifact files stay out of the source tree.
 
 ```bash
-cd caliber-ui
-npm install
-npm run dev
-npm run lint
-npm run typecheck
-npm run test:coverage
-npm run test:e2e
-npm run test:e2e:age   # against the running Docker stack on http://127.0.0.1:5001/caliber
+# Terminal 1: MLflow, on its own SQLite file.
+mlflow server \
+  --backend-store-uri sqlite:///$PWD/mlflow.db \
+  --default-artifact-root $PWD/mlflow-artifacts \
+  --host 127.0.0.1 --port 5000
 ```
 
-See [CONTRIBUTING.md](CONTRIBUTING.md) for the full contributor workflow.
+```bash
+# Terminal 2: CALIBER.
+export CALIBER_DATABASE_URL=sqlite:///$PWD/caliber.db
+caliber-migrate                      # creates or upgrades the tables
 
----
-
-## Architecture
-
-CALIBER's supported topology is a standalone ASGI service. Uvicorn serves the CALIBER
-API/SPA and its in-process background loops on `:5001`, MLflow runs separately on
-`:5000`, and CALIBER reaches vanilla MLflow through `MLFLOW_TRACKING_URI`. The embedded
-`mlflow.app` path remains only as unsupported internal compatibility coverage. The
-service registers:
-
-- **ASGI routes** under `/ajax-api/2.0/mlflow/caliber/*` for the verification queue, refinement jobs, Apply/rollback, workflows, and dashboard.
-- **Static-file routes** under `/caliber/` for the React SPA (built from `caliber-ui/`).
-- **A background feedback poller** that turns new MLflow Assessments into verification-queue items.
-- **A refinement task adapter** that runs queued triage → evidence → diagnosis → candidate → eval work. A passing eval ends at `candidate_ready`; the later operator-scoped Apply action runs on the request path, not as a worker approval stage.
-- **Alembic-managed CALIBER tables** through `CALIBER_DATABASE_URL`, which may and in the
-  bundled stack does point to a separate logical database from MLflow's backend store.
-
-```
-Supported standalone topology:
-Browser / SPA ──> CALIBER :5001 ──HTTP (`MLFLOW_TRACKING_URI`)──> MLflow :5000
-       │                   │                                        │
-       │                   ├──> CALIBER DB (`CALIBER_DATABASE_URL`) │
-       │                   └──> CALIBER storage service             ├──> MLflow backend store
-       │                                                            └──> MLflow artifact root
-
-Unsupported internal compatibility coverage:
-MLflow `mlflow.app` may still load CALIBER in-process for compatibility testing, but it is
-not a supported product or developer deployment path.
+export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
+export CALIBER_ADMIN_USERS=admin CALIBER_OPERATOR_USERS=admin CALIBER_APPROVER_USERS=admin
+export CALIBER_LOG_SINK=stderr
+export CALIBER_AUTH_SESSION_COOKIE_SECURE=false
+export CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=true
+uvicorn caliber.server:create_app --factory --host 127.0.0.1 --port 5001
 ```
 
-The development Compose stack uses separate `caliber` and `mlflow` databases. See
-[`deploy/caliber/README.md`](../deploy/caliber/README.md).
+Open `http://127.0.0.1:5001/caliber/` and sign in as `admin` with password `admin`. Check the
+server with:
 
-Architectural reading order: the [layered architecture](../ARCHITECTURE.md) first
-([generated HTML](../docs-site/m-00-layered-architecture.html)), then the deeper
-[platform implementation reference](../docs/01-caliber/architecture.md),
-[workflow architecture](../docs/06-workflows/architecture.md), and the
-[rendered documentation site](../docs-site/index.html).
+```bash
+curl -s http://127.0.0.1:5001/ajax-api/2.0/mlflow/caliber/readiness   # expect "ready": true
+```
 
-## Configuration Summary
+Notes:
 
-CALIBER is configured through environment variables loaded by
-`caliber.config.CaliberConfig`. The Settings page exposes a safe, grouped runtime
-inventory for admins and super users. Important groups include:
+- The server reads its configuration from the **process environment**. It does not read a
+  `.env` file (only the repository's Docker and launcher scripts do).
+- The three role variables decide what a user may do. With none set, the first login is a viewer who
+  cannot create anything.
+- `CALIBER_LOG_SINK=stderr` keeps logs on stderr. The default, `s3`, also mirrors them to a bucket, which
+  needs the `s3` extra and an object store.
+- The last two `export` lines before `uvicorn` create the weak first-boot `admin` / `admin` account. Change that
+  password under Administration at once, and never use those lines on a network-reachable
+  deployment: there, provide a strong bootstrap password source and keep Secure cookies.
+- To use PostgreSQL instead, point `CALIBER_DATABASE_URL` at a database of its own, for example
+  `postgresql+psycopg://user:password@host:5432/caliber`, and install the `postgres` extra.
+- To run the whole stack in containers instead (MLflow, PostgreSQL, MinIO and CALIBER), use
+  `make start` from the repository root; see [Local bring-up](../docs/operate/local-bring-up.md).
+- Backend development: add `--reload --reload-dir <your checkout>/caliber/src` to the `uvicorn` command.
+- Web app development: run the server as above, then `npm run dev` in `caliber-ui/`. See
+  [`caliber-ui/README.md`](caliber-ui/README.md).
 
-| Group | Examples |
-| --- | --- |
-| Providers | `CALIBER_LLM_PROVIDER`, `CALIBER_LLM_DIAGNOSIS_MODEL`, `CALIBER_LLM_REASONING_EFFORT`, `CALIBER_EVAL_PROVIDER`, `CALIBER_PROMOTER_PROVIDER`, `CALIBER_ARTIFACT_STORE_PROVIDER`, `CALIBER_ALLOW_SIMULATED_PROVIDERS` (the promoter and artifact store default to the real `mlflow` providers; a `fake` one is refused at startup without this opt-in) |
-| Assistant | `CALIBER_ASSISTANT_ENABLED`, `CALIBER_ASSISTANT_ENGINE`, `CALIBER_ASSISTANT_MODEL`, `CALIBER_ASSISTANT_REASONING`, `CALIBER_ASSISTANT_DISABLED_INTENTS` |
-| Storage | `CALIBER_WORKFLOW_STORAGE_BACKEND`, `CALIBER_WORKFLOW_STORAGE_BUCKET`, `CALIBER_WORKFLOW_STORAGE_BASE_URI`, `CALIBER_WORKFLOW_STORAGE_INTERNAL_ENDPOINT_URL` |
-| Workflow runs | `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED`, `CALIBER_WORKFLOW_RUN_WORKER_ENABLED`, `CALIBER_WORKFLOW_RUN_LEASE_SECONDS`, `CALIBER_WORKFLOW_RUN_MAX_ATTEMPTS` |
-| Knowledge bases | `CALIBER_KNOWLEDGE_GRAPH_EXTRACTOR_BACKEND`, `CALIBER_KNOWLEDGE_GRAPH_SPACY_MODEL`, `CALIBER_KNOWLEDGE_AGE_ENABLED`, `CALIBER_KNOWLEDGE_AGE_GRAPH_NAME` |
-| Security | `CALIBER_ADMIN_USERS`, `CALIBER_OPERATOR_USERS`, `CALIBER_APPROVER_USERS`, `CALIBER_CSRF_ENABLED`, `CALIBER_RATE_LIMIT_ENABLED`, `CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES` |
-| Operations | `CALIBER_BACKGROUND_TASKS_ENABLED`, `CALIBER_WEBHOOK_URLS`, `CALIBER_LOG_LEVEL`, `CALIBER_DATABASE_URL` |
+## Configure
 
-OpenAI-backed paths default to `gpt-5.6-luna` with `high` reasoning. This applies
-to diagnosis and candidate agents, workflows, evaluation and judge calls,
-calibration optimizers, memory, knowledge chat, and the assistant. An explicit
-model or reasoning setting at the environment, asset, or call level still wins.
+Settings are `CALIBER_*` environment variables, loaded by `caliber.config.CaliberConfig`. The
+authoritative list, with every default, is the variable table near the bottom of
+[`src/caliber/config.py`](src/caliber/config.py); admins can also read a safe grouped inventory on the
+Settings page. The task-oriented guide is
+[Configuration and provider setup](../docs/operate/configuration-and-provider-setup.md). The ones you
+meet first:
 
-## Deployment Guidance
+| Group | Variables | Shipped default |
+| --- | --- | --- |
+| Database | `CALIBER_DATABASE_URL` | `sqlite:///./caliber.db` |
+| MLflow | `MLFLOW_TRACKING_URI` (not a `CALIBER_` setting; MLflow reads it) | unset: set it to your MLflow server |
+| Roles | `CALIBER_ADMIN_USERS`, `CALIBER_OPERATOR_USERS`, `CALIBER_APPROVER_USERS` | empty |
+| Providers | `CALIBER_LLM_PROVIDER`, `CALIBER_EVAL_PROVIDER` | `fake` and `fake`: simulated, with canned evaluation scores |
+| | `CALIBER_PROMOTER_PROVIDER`, `CALIBER_ARTIFACT_STORE_PROVIDER` | `mlflow` (the real registry). A `fake` one is refused at startup unless `CALIBER_ALLOW_SIMULATED_PROVIDERS=true` |
+| Feature flags | `CALIBER_FEATURE_ARIA` | on |
+| | `CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS`, `CALIBER_FEATURE_RELEASE_CANDIDATES` | off. Read once at startup; see [Feature flags](../docs/start/alpha-scope.md#feature-flags) |
+| Aria assistant | `CALIBER_ASSISTANT_ENABLED`, `CALIBER_ASSISTANT_ENGINE`, `CALIBER_ASSISTANT_MODEL` | enabled, engine `auto` (needs `OPENAI_API_KEY` or `ANTHROPIC_API_KEY` to answer) |
+| Workflow files | `CALIBER_WORKFLOW_STORAGE_BACKEND` and the other `CALIBER_WORKFLOW_STORAGE_*` settings | backend `local`, under `./caliber-workspaces` |
+| Workflow runs | `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED`, `CALIBER_WORKFLOW_RUN_WORKER_ENABLED`, and the checkpointing and runtime-approval settings | see [Alpha install](../docs/start/alpha-install.md#waits-approvals-and-queued-runs) |
+| Knowledge bases | `CALIBER_KNOWLEDGE_GRAPH_EXTRACTOR_BACKEND`, `CALIBER_KNOWLEDGE_AGE_ENABLED`, `CALIBER_KNOWLEDGE_AGE_GRAPH_NAME` | `heuristic` extractor; see [Knowledge bases](../docs/use/knowledge-bases.md) |
+| Security | `CALIBER_AUTH_SESSION_COOKIE_SECURE`, `CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT`, `CALIBER_CSRF_ENABLED`, `CALIBER_RATE_LIMIT_ENABLED`, `CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES` | Secure cookie on; insecure bootstrap off; the invoke body limit is 1 MiB |
+| Operations | `CALIBER_BACKGROUND_TASKS_ENABLED`, `CALIBER_LOG_LEVEL`, `CALIBER_LOG_SINK`, `CALIBER_WEBHOOK_URLS` | background tasks on, level `INFO`, log sink `s3` (set `stderr` unless you run an object store) |
 
-Use the bundled loopback Compose stack or the documented standalone Uvicorn workflow for
-local development. For a production design, run CALIBER as its own ASGI service against a
-separately running vanilla MLflow server over HTTP, use PostgreSQL with independently owned
-CALIBER and MLflow databases (the bundled stack uses `caliber` and `mlflow`; sharing one
-schema creates Alembic ownership collisions), S3/MinIO or a shared volume for workflow
-files, explicit admin/operator/approver lists, and environment-backed secret sources. The
-embedded `mlflow.app` path is unsupported and should be treated only as internal
-compatibility coverage. The repository's Compose files are development evidence, not a
-production topology.
-Queue-based workflow execution should enable
-`CALIBER_WORKFLOW_RUN_QUEUE_ENABLED=true`; only replicas intended to consume the
-queue should set `CALIBER_WORKFLOW_RUN_WORKER_ENABLED=true`. The loopback launchers may
-opt into the first-boot `admin` / `admin` convenience. A network-reachable deployment
-must keep `CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=false`, provide a strong
-bootstrap password source, use TLS/Secure cookies, and terminate direct unauthenticated
-access at an appropriate identity boundary.
-Published workflow-service calls accept at most 1 MiB of raw JSON by default
-(`CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES`). Protected endpoints validate their Bearer
-token before consuming the body and revalidate policy under the enqueue lock. Use managed
-storage references for larger content; the byte ceiling does not replace ingress/IP rate
-controls.
+With the shipped `fake` language model and evaluator, calibration runs and returns a candidate, but
+the scores are canned, and every screen and record that carries them says so. For real evidence set
+`CALIBER_LLM_PROVIDER=openai` (with the `llm` extra and an API key) and `CALIBER_EVAL_PROVIDER=mlflow`; see
+[Real LLM and evaluation](../docs/start/alpha-install.md#real-llm-and-evaluation). OpenAI-backed paths
+default to the model `gpt-5.6-luna` with `high` reasoning effort; an explicit model or reasoning
+setting at the environment, asset or call level wins.
+
+## Deployment
+
+The Compose files in this repository are development evidence, not a production topology. For a
+production design, run CALIBER as its own ASGI service against a separately running MLflow server over
+HTTP, with PostgreSQL databases that CALIBER and MLflow own separately (the bundled stack uses the
+databases `caliber` and `mlflow`; sharing one schema causes Alembic ownership collisions), S3 or MinIO
+(or a shared volume) for workflow files, explicit role lists, and environment-backed secret sources.
+Keep `CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=false`, supply a strong bootstrap password source,
+and use TLS with Secure cookies. Only replicas meant to consume the workflow queue should set
+`CALIBER_WORKFLOW_RUN_WORKER_ENABLED=true`. Published workflow-service calls accept at most 1 MiB of raw
+JSON by default (`CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES`); this does not replace ingress rate limits.
+See [Local bring-up](../docs/operate/local-bring-up.md), [Health and readiness](../docs/operate/health-and-readiness.md)
+and [Backup and recovery](../docs/operate/backup-and-recovery.md).
+
+## Test
+
+Run these from this directory with the virtual environment active. CI runs the same checks (see
+[`.github/workflows/ci.yml`](../.github/workflows/ci.yml)); [CONTRIBUTING.md](CONTRIBUTING.md) has the full
+contributor workflow.
+
+```bash
+pytest -n auto --dist loadgroup      # the backend suite, with branch coverage (the gate is 90%)
+ruff check . && ruff format --check .
+mypy src
+```
+
+A targeted run such as `pytest tests/test_x.py` fails the coverage gate on its own, because it measures
+the whole package: add `--no-cov`. The web app has its own checks (`npm run typecheck`, `npm run lint`,
+`npm run test:coverage`, `npm run build`) and browser tests; see [`caliber-ui/README.md`](caliber-ui/README.md).
+From the repository root, `./scripts/ci-local.sh` runs every executable CI job.
 
 ## Troubleshooting
 
 | Symptom | Check |
 | --- | --- |
-| MinIO/S3 shows "Not configured" | Set `CALIBER_WORKFLOW_STORAGE_BUCKET` and the S3 endpoint/region/path-style/credential-source fields; install `.[s3]`. |
-| Knowledge-base builds cannot parse PDFs / PPTX / DOCX / XLSX | Install the document-ingestion extras (`.[ingest]`), add `.[ocr]` plus the `tesseract` binary if you need OCR fallback for scanned PDFs, then restart CALIBER. |
-| Knowledge graph falls back to heuristic | Confirm `CALIBER_KNOWLEDGE_GRAPH_EXTRACTOR_BACKEND=spacy`, install `.[knowledge]`, and ensure the configured spaCy model is installed. |
-| Knowledge-base build says local embeddings are unavailable | Install `.[knowledge-local]` for the local Hugging Face embedder stack, or keep the safer default profile and leave local embeddings disabled in this deployment. |
-| Apache AGE retrieval is missing from the KB UI | Confirm `CALIBER_KNOWLEDGE_AGE_ENABLED=true`, the metadata DB is PostgreSQL with AGE enabled, and `CALIBER_KNOWLEDGE_AGE_GRAPH_NAME` matches the shared graph you expect to query. Native `run-dev.sh` now auto-enables AGE when `CALIBER_DATABASE_URL` points at PostgreSQL; `npm run test:e2e:age` targets the running Docker stack on `http://127.0.0.1:5001/caliber`. |
-| Static `/caliber/` route returns an operator-facing 503 | Build the SPA with `npm run build` and package/copy `caliber-ui/dist` into `src/caliber/ui`, or run Vite dev server locally. |
-| Starlette TestClient warnings fail tests | Reinstall dev dependencies so `httpx2>=2.3` is present. |
-| Workflow queue run stays queued | Confirm `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED` and `CALIBER_WORKFLOW_RUN_WORKER_ENABLED`, check database connectivity, and inspect worker logs for lease/claim errors. |
-| Published workflow service returns 413 | The raw JSON envelope exceeded `CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES` (1 MiB by default). Use managed storage references or deliberately increase the deployment limit and restart. |
+| Login returns 500, or `/readiness` reports a `schema` blocker, and the log says `no such table` | Run `caliber-migrate` with the same `CALIBER_DATABASE_URL`, then restart. |
+| Creating a prompt answers 503 "MLflow tracking server unreachable" | Start MLflow, or correct `MLFLOW_TRACKING_URI`. Nothing was changed. |
+| `/caliber/` answers 503 "CALIBER SPA not bundled" | Run `make ui` (this builds `caliber-ui` into `src/caliber/ui`), or run `npm run dev` in `caliber-ui/` and use `http://localhost:5173/caliber/`. The API works either way. |
+| Login works but you cannot create a project (403) | No role list names you: set `CALIBER_ADMIN_USERS` and restart. |
+| `admin` / `admin` is rejected | No account was created. Set the two bootstrap `export` lines (or a password source) on a fresh database. |
+| The server refuses to start naming a `fake` promoter or artifact store | Use the real `mlflow` ones, or deliberately set `CALIBER_ALLOW_SIMULATED_PROVIDERS=true`. |
+| A page or route answers 404 with `reason_code: feature_disabled` | That area is behind a feature flag that is off. Set its `CALIBER_FEATURE_*` variable and restart. |
+| Knowledge-base builds cannot parse PDF, PPTX, DOCX or XLSX files | Install the `ingest` extra (and `ocr` plus the `tesseract` binary for scanned PDFs), then restart. |
+| The knowledge graph falls back to the heuristic extractor | Set `CALIBER_KNOWLEDGE_GRAPH_EXTRACTOR_BACKEND=spacy`, install the `knowledge` extra, and install the configured spaCy model. |
+| A knowledge-base build says local embeddings are unavailable | Install the `knowledge-local` extra. |
+| MinIO or S3 shows "Not configured" | Set `CALIBER_WORKFLOW_STORAGE_BUCKET` and the endpoint, region, path-style and credential-source settings, and install the `s3` extra. |
+| A queued workflow run stays queued | Check `CALIBER_WORKFLOW_RUN_QUEUE_ENABLED` and `CALIBER_WORKFLOW_RUN_WORKER_ENABLED`, the database connection, and the worker log for lease or claim errors. |
+| A published workflow service answers 413 | The JSON body exceeded `CALIBER_SERVICE_INVOKE_MAX_BODY_BYTES` (1 MiB by default). Use managed storage references, or raise the limit and restart. |
+| Tests fail on starlette `TestClient` warnings | Reinstall the `dev` extra so `httpx2>=2.3` is present. |
 
----
+More on operating and diagnosing a deployment: [Troubleshooting](../docs/operate/troubleshooting.md).
 
 ## License
 

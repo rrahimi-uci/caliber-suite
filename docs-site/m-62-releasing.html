@@ -82,7 +82,7 @@
           <div class="doc-eyebrow">Operate CALIBER</div>
           <h1 id="top">Releasing</h1>
           <p class="doc-summary">How a CALIBER release is cut: version and tag names, what must be green first, building and attaching the wheels, and verifying the release as a tester would.</p>
-          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">Operator</span><span class="doc-meta-chip doc-meta-chip-type">How To</span><span class="doc-meta-chip doc-meta-chip-stability">BETA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">Push access to the repository and the GitHub CLI (`gh`) signed in as the owner</span></div><div class="doc-meta-notes">Reviewed 2026-10-14 · 0.1.0a1 alpha</div></div>
+          <div class="doc-meta"><div class="doc-meta-chips"><span class="doc-meta-chip">Developer</span><span class="doc-meta-chip">Operator</span><span class="doc-meta-chip doc-meta-chip-type">How To</span><span class="doc-meta-chip doc-meta-chip-stability">BETA</span></div><div class="doc-meta-extra"><span class="doc-meta-label">Prerequisites</span><span class="doc-meta-prereqs">Push access to the repository and the GitHub CLI (`gh`) signed in as the owner</span></div><div class="doc-meta-notes">Reviewed 2026-10-23 · 0.1.0a1 alpha</div></div>
           <div class="doc-actions">
             <button type="button" class="doc-copy-button" data-copy-page data-copy-default="Copy page" data-copy-success="Copied" data-copy-failure="Copy failed">
               Copy page
@@ -90,9 +90,10 @@
           </div>
         </header>
 <p>How a CALIBER release is cut. It is manual on purpose: there is no tag-triggered workflow, because the alpha ships a handful of wheels to a handful of testers and a person should look at the commit before it goes out. Automating it is on the post-alpha backlog.</p>
-<p>A release is <strong>four wheels and their sdists, attached to a GitHub prerelease, on a tag</strong>. Nothing is published to PyPI; the install page tells testers to install from the downloaded wheels.</p>
+<p>A release is <strong>four wheels and their sdists, plus one named bundle and a checksum file, attached to a GitHub prerelease, on a tag</strong>. Nothing is published to PyPI; the install page tells testers to install from the downloaded wheels.</p>
 <h2 id="the-names">The names<a class="anchor" href="#the-names" aria-hidden="true" tabindex="-1">#</a></h2>
-<div class="table-wrap"><table><thead><tr><th>Thing</th><th>Spelling</th><th>Why</th></tr></thead><tbody><tr><td>Git tag</td><td><code>caliber-v0.1.0a1</code></td><td>the repository's <code>caliber-v*</code> prefix plus the PEP 440 version the wheels carry</td></tr><tr><td>Python packages</td><td><code>0.1.0a1</code></td><td><code>caliber-suite</code>, <code>caliber-sdk</code>, <code>caliber-cli</code>, <code>caliber-plugin-sdk</code>, all the same version</td></tr><tr><td><code>caliber-ui/package.json</code></td><td><code>0.1.0-alpha.1</code></td><td>npm needs semver; the same release spelled that way</td></tr></tbody></table></div>
+<div class="table-wrap"><table><thead><tr><th>Thing</th><th>Spelling</th><th>Why</th></tr></thead><tbody><tr><td>Git tag</td><td><code>caliber-v0.1.0a1</code></td><td>the repository's <code>caliber-v*</code> prefix plus the PEP 440 version the wheels carry</td></tr><tr><td>Python packages</td><td><code>0.1.0a1</code></td><td><code>caliber-suite</code>, <code>caliber-sdk</code>, <code>caliber-cli</code>, <code>caliber-plugin-sdk</code>, all the same version</td></tr><tr><td><code>caliber-ui/package.json</code></td><td><code>0.1.0-alpha.1</code></td><td>npm needs semver; the same release spelled that way</td></tr><tr><td>Release name and bundle</td><td><code>caliber-suite-alpha</code></td><td>the product-level name of the alpha line: the GitHub release title (<code>caliber-suite-alpha: CALIBER Suite Alpha 0.1.0a1</code>) and the bundle file <code>caliber-suite-alpha-0.1.0a1.tar.gz</code></td></tr></tbody></table></div>
+<p>The release <strong>name</strong> is not the release <strong>tag</strong>. The tag keeps the <code>caliber-v&lt;PEP 440 version&gt;</code> spelling because <code>tests/test_version_lockstep.py</code> and the history of the repository (<code>caliber-v0.0.1</code>) rely on it, and a tag that is not a version cannot carry the next alpha. <code>caliber-suite-alpha</code> therefore names what testers download, and <code>0.1.0a2</code> will be released as <code>caliber-suite-alpha</code> again under its own tag.</p>
 <p><code>tests/test_version_lockstep.py</code> fails if any of the four <code>pyproject.toml</code> files, their <code>__version__</code> constants, <code>package.json</code> or the lockfile's root entry disagree. Bump all of them in one commit.</p>
 <p>The alpha is a <strong>prerelease</strong>. Formal product tags (<code>caliber-v0.1.0</code>, <code>caliber-v1.0.0</code>) are for the roadmap's M4 and M6 gates and are a different thing.</p>
 <h2 id="before-you-tag">Before you tag<a class="anchor" href="#before-you-tag" aria-hidden="true" tabindex="-1">#</a></h2>
@@ -117,15 +118,23 @@ twine check dist/*
 ls dist                                  # four wheels and four sdists
 scripts/verify-wheel-boot.sh --python python3.12 dist/caliber_suite-0.1.0a1-py3-none-any.whl</code></pre>
 <p><code>verify-wheel-boot.sh</code> fails if the wheel has lost its bundled UI or its migrations, then installs it alone, migrates, boots it and fetches the UI.</p>
+<p>Assemble the named bundle (the four wheels, the four sdists, and the install guide) and the checksums:</p>
+<pre class="language-bash"><code class="language-bash">VERSION=0.1.0a1
+rm -rf bundle &amp;&amp; mkdir -p bundle/caliber-suite-alpha-$VERSION
+cp dist/* bundle/caliber-suite-alpha-$VERSION/
+cp docs/start/alpha-install.md docs/start/alpha-scope.md LICENSE bundle/caliber-suite-alpha-$VERSION/
+tar -C bundle -czf dist/caliber-suite-alpha-$VERSION.tar.gz caliber-suite-alpha-$VERSION
+(cd dist &amp;&amp; shasum -a 256 *.whl *.tar.gz &gt; SHA256SUMS)    # the sdists are .tar.gz too; list them all</code></pre>
 <p>Publish the prerelease. <code>--latest=false</code> is explicit because a prerelease must not take the "Latest" badge:</p>
 <pre class="language-bash"><code class="language-bash">gh release create caliber-v0.1.0a1 --prerelease --latest=false \
-  --title "CALIBER 0.1.0a1 (alpha)" \
+  --title "caliber-suite-alpha: CALIBER Suite Alpha 0.1.0a1" \
   --notes-file docs/reports/release-0.1.0a1-notes.md \
   dist/*</code></pre>
 <h2 id="verify-the-release-as-a-tester-would">Verify the release as a tester would<a class="anchor" href="#verify-the-release-as-a-tester-would" aria-hidden="true" tabindex="-1">#</a></h2>
 <p>Download the assets into an empty directory and run the install script against them, in a clean virtual environment, away from the checkout:</p>
 <pre class="language-bash"><code class="language-bash">rm -rf /tmp/caliber-release &amp;&amp; mkdir /tmp/caliber-release
 gh release download caliber-v0.1.0a1 --dir /tmp/caliber-release
+(cd /tmp/caliber-release &amp;&amp; shasum -a 256 -c SHA256SUMS)
 scripts/verify-alpha-install.sh --python python3.12 --wheel-dir /tmp/caliber-release</code></pre>
 <p>It installs the SDK, the CLI and the server from the wheels, migrates, starts MLflow and CALIBER, then asserts readiness, an admin login, a project, a prompt and a real registry write. If it fails, the release is broken: pull it (below) and fix forward.</p>
 <h2 id="housekeeping">Housekeeping<a class="anchor" href="#housekeeping" aria-hidden="true" tabindex="-1">#</a></h2>

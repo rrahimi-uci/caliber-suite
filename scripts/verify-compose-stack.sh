@@ -26,7 +26,11 @@
 # end never touches a developer's data. The stack's containers have fixed names and it
 # publishes on the default loopback ports (5000 MLflow, 5001 CALIBER), so the script refuses to
 # start while another CALIBER stack exists; stop it first (without -v, to keep its data).
-# Exit status is 0 only when every check passed. On failure the container logs are printed.
+# Needs: Docker with the Compose v2 plugin and a running daemon, curl, python3, free host ports 5000
+# and 5001 (override with MLFLOW_PORT / CALIBER_PORT), and network access for the image builds.
+# Exit status: 0 only when every check passed, 1 for a failed check or missing prerequisite, 2 for a
+# usage error. On failure the container logs are printed. The only thing it removes is its own
+# compose project (caliber-stack-smoke) and that project's volumes, unless --keep is given.
 
 set -euo pipefail
 
@@ -39,8 +43,10 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --no-build) BUILD=0; shift ;;
     --keep) KEEP=1; shift ;;
-    --timeout) TIMEOUT="${2:?--timeout needs a number of seconds}"; shift 2 ;;
-    -h|--help) sed -n '2,28p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    --timeout)
+      [[ $# -ge 2 && "$2" =~ ^[0-9]+$ ]] || { echo "verify-compose-stack: --timeout needs a number of seconds" >&2; exit 2; }
+      TIMEOUT="$2"; shift 2 ;;
+    -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     *) echo "verify-compose-stack: unknown argument: $1" >&2; exit 2 ;;
   esac
 done
@@ -48,7 +54,12 @@ done
 step() { printf '\n==> %s\n' "$*"; }
 
 cd "$REPO_ROOT"
-command -v docker >/dev/null 2>&1 || { echo "verify-compose-stack: docker is required" >&2; exit 1; }
+prereq() { printf 'verify-compose-stack: %s\n' "$*" >&2; exit 1; }
+command -v docker >/dev/null 2>&1 || prereq "docker is required. Install Docker Desktop (macOS, Windows) or Docker Engine with the Compose plugin (Linux): https://docs.docker.com/get-docker/"
+docker compose version >/dev/null 2>&1 || prereq "'docker compose' (Compose v2) is required. Install the Compose plugin: https://docs.docker.com/compose/install/ (the legacy 'docker-compose' is not supported)"
+docker info >/dev/null 2>&1 || prereq "the Docker daemon is not reachable. Start Docker Desktop (or 'sudo systemctl start docker') and re-run"
+command -v curl >/dev/null 2>&1 || prereq "curl is required (for example 'brew install curl' or 'sudo apt-get install curl')"
+command -v python3 >/dev/null 2>&1 || prereq "python3 is required (it runs the API checks); install Python 3"
 
 # Example environment only: the point is to prove what a fresh clone gets.
 export COMPOSE_DISABLE_ENV_FILE=1
@@ -65,9 +76,29 @@ API="$CALIBER_URL/ajax-api/2.0/mlflow/caliber"
 foreign="$(docker ps -a --filter "name=^caliber" \
   --format '{{.Names}} {{.Label "com.docker.compose.project"}}' | awk -v p="$PROJECT" '$2 != p {print $1}')"
 if [[ -n "$foreign" ]]; then
-  echo "verify-compose-stack: another CALIBER stack owns these containers: $(echo $foreign)" >&2
+  echo "verify-compose-stack: another CALIBER stack owns these containers: $(printf '%s' "$foreign" | tr '\n' ' ')" >&2
   echo "Stop it first, keeping its data:  docker compose -f deploy/compose.yaml --profile app --profile nats down" >&2
   exit 1
+fi
+
+# The stack publishes on fixed loopback ports; say so up front rather than failing inside `docker compose up`.
+# (Skipped when this project's own containers exist: they hold the ports and `up` recreates them.)
+port_in_use() {
+  python3 - "$1" <<'PY'
+import socket
+import sys
+
+with socket.socket() as s:
+    s.settimeout(0.5)
+    sys.exit(0 if s.connect_ex(("127.0.0.1", int(sys.argv[1]))) == 0 else 1)
+PY
+}
+if [[ -z "$(docker ps -aq --filter "label=com.docker.compose.project=$PROJECT")" ]]; then
+  for port in "${MLFLOW_PORT:-5000}" "${CALIBER_PORT:-5001}"; do
+    if port_in_use "$port"; then
+      prereq "host port $port is already in use. Free it (on macOS, port 5000 is often AirPlay Receiver: System Settings > General > AirDrop & Handoff) or pick other ports with MLFLOW_PORT=... CALIBER_PORT=..."
+    fi
+  done
 fi
 
 dump_logs() {
@@ -89,6 +120,7 @@ cleanup() {
   fi
 }
 trap 'STATUS=$?; cleanup; exit $STATUS' EXIT
+trap 'exit 130' INT TERM
 
 fail() { printf 'verify-compose-stack: FAIL: %s\n' "$*" >&2; exit 1; }
 

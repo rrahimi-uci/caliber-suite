@@ -34,6 +34,7 @@ from __future__ import annotations
 import asyncio
 import contextlib
 import time
+from collections.abc import Mapping
 from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlparse
@@ -46,6 +47,123 @@ PROBE_TIMEOUT_SECONDS = 2.0
 #: Provider-selector values that mean a real (non-simulated) backend. Shared with
 #: the SPA honesty banner via :mod:`caliber.routes.health`.
 REAL_PROVIDER_VALUES = frozenset({"openai", "anthropic", "mlflow"})
+
+
+@dataclass(frozen=True)
+class AIComponent:
+    """One AI-backed capability and whether it is genuinely backed by a real model.
+
+    ``mode`` is one of ``real`` (a real model answers it), ``simulated`` (a deterministic stub
+    answers it), ``unconfigured`` (a real provider is selected but cannot work: no key, or a
+    partner provider that is simulated) or ``off`` (deliberately not running). Only the first is
+    honest about producing real results; the next two are what a deployment that "should be real"
+    must not have.
+    """
+
+    name: str
+    mode: str
+    detail: str
+
+    def to_dict(self) -> dict[str, str]:
+        return {"name": self.name, "mode": self.mode, "detail": self.detail}
+
+
+def _has_key(environ: Mapping[str, str], name: str) -> bool:
+    return bool(str(environ.get(name, "")).strip())
+
+
+def _agents_component(llm: str, key_ok: bool) -> AIComponent:
+    if llm not in {"openai", "anthropic"}:
+        return AIComponent(
+            "workflow_agents",
+            "simulated",
+            "The LLM provider is fake: workflow agents, calibration and judges run against a "
+            "deterministic stub. Set the provider to openai (or auto) and add your OpenAI key.",
+        )
+    if not key_ok:
+        return AIComponent("workflow_agents", "unconfigured", "No LLM key is available.")
+    return AIComponent("workflow_agents", "real", f"{llm} (agents, calibration, judges)")
+
+
+def _evaluation_component(evaluator: str, llm_ready: bool) -> AIComponent:
+    if evaluator == "fake":
+        return AIComponent(
+            "evaluation", "simulated", "The evaluation provider is fake: scores are canned."
+        )
+    if not llm_ready:
+        return AIComponent(
+            "evaluation",
+            "unconfigured",
+            "The evaluator is real but the LLM behind it is not, so scoring is refused.",
+        )
+    return AIComponent("evaluation", "real", f"{evaluator} (mlflow.genai.evaluate)")
+
+
+def _judge_component(enabled: bool, llm_ready: bool) -> AIComponent:
+    if enabled and llm_ready:
+        return AIComponent("workflow_judge", "real", "LLM-judged workflow quality")
+    return AIComponent(
+        "workflow_judge",
+        "off",
+        "Workflow calibration scores with the structural proxy, not an LLM judge. Turn the "
+        "workflow LLM judge on (true, or auto) to use one.",
+    )
+
+
+def _assistant_engine_mode(engine: str, environ: Mapping[str, str]) -> tuple[str, str]:
+    key_env = {"openai": "OPENAI_API_KEY", "anthropic": "ANTHROPIC_API_KEY"}.get(engine)
+    if engine in {"", "fake"}:
+        return "simulated", "The assistant engine is fake."
+    if key_env and not _has_key(environ, key_env):
+        return "unconfigured", f"No {engine} key is available."
+    return "real", f"{engine} assistant engine"
+
+
+def ai_components(config: Any, environ: Mapping[str, str]) -> list[AIComponent]:
+    """Report, per AI-backed component, whether it is real, simulated, unconfigured or off.
+
+    ``/readiness`` already says which *selectors* are simulated (``llm``, ``eval``, ``promoter``,
+    ``artifact_store``). That is not the same as "nothing is fake": the Aria assistant, the
+    knowledge-base answerer and the workflow LLM judge are chosen by other settings, and an
+    evaluator set to ``mlflow`` beside a simulated LLM cannot score anything. This is the
+    per-component truth an operator can check after setting keys in ``.env``. Reads configuration
+    and key *presence* only. The text never names a key variable or a value: the probe is
+    unauthenticated and a test forbids those words in its body.
+    """
+    from caliber.config import resolve_assistant_engine  # noqa: PLC0415 - config imports no observability
+
+    def get(attr: str, default: Any = "") -> Any:
+        return getattr(config, attr, default)
+
+    llm = str(get("llm_provider", "fake") or "fake").strip().lower()
+    evaluator = str(get("eval_provider", "fake") or "fake").strip().lower()
+    key_source = str(get("llm_api_key_env", "OPENAI_API_KEY") or "OPENAI_API_KEY").strip()
+    # A URI source (secret://, file://) is resolved by the server at start; a bare name is an env var.
+    key_ok = "://" in key_source or _has_key(environ, key_source)
+    llm_ready = llm in {"openai", "anthropic"} and key_ok
+
+    engine = resolve_assistant_engine(str(get("assistant_engine", "auto") or "auto"), environ)
+    engine_mode, engine_detail = _assistant_engine_mode(engine, environ)
+    aria_off = not bool(get("feature_aria_enabled", True)) or not bool(
+        get("assistant_enabled", True)
+    )
+
+    return [
+        _agents_component(llm, key_ok),
+        _evaluation_component(evaluator, llm_ready),
+        _judge_component(bool(get("workflow_llm_judge_enabled", False)), llm_ready),
+        AIComponent("aria", "off", "Aria is disabled on this deployment.")
+        if aria_off
+        else AIComponent("aria", engine_mode, engine_detail),
+        # The knowledge-base answerer reads the same engine setting whether or not Aria is exposed.
+        AIComponent("knowledge_answers", engine_mode, engine_detail),
+    ]
+
+
+def all_ai_real(components: list[AIComponent]) -> bool:
+    """True when no AI-backed component is simulated or unconfigured (``off`` is a choice)."""
+    return not any(c.mode in {"simulated", "unconfigured"} for c in components)
+
 
 #: A dependency answering below this is up and routing — 401/404 from a health
 #: path still proves the process is alive, which is what readiness of a

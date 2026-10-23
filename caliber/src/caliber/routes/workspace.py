@@ -1093,8 +1093,10 @@ def _create_snapshot_sync(
     :class:`~caliber.workspace_release_adapters.WorkspaceResourceAdapter` for
     its ``resource_type`` -- failing closed (409) for any resource type with
     no registered adapter, or whose adapter's ``snapshot()`` does not yet
-    return a :class:`~caliber.workspace_release_adapters.SnapshotPin` (see
-    that type's docstring: only ``prompt`` does today).
+    return a :class:`~caliber.workspace_release_adapters.SnapshotPin`.
+    Supported today: ``prompt``, ``tool``, ``skill``, ``eval_dataset``,
+    ``workflow`` (published versions), ``judge`` and ``mcp_server``
+    (see ``server.py``'s adapter registrations).
 
     Idempotency is content-derived rather than header-based: the resource
     list's own digest becomes ``revision_sha256``, so a byte-identical retry

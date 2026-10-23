@@ -7,7 +7,7 @@ product_area: docs
 stability: beta
 prerequisites:
   - Python 3.10, 3.11 or 3.12 and the three CALIBER wheels (release assets or a source checkout)
-reviewed_on: 2026-10-15
+reviewed_on: 2026-10-23
 version_applicability: 0.1.0a1 alpha
 tags:
   - install
@@ -94,7 +94,15 @@ writer at a time, and the server warns at startup if you do.
 
 ## 5. Configure and start CALIBER
 
-The server reads its configuration from the process environment. It does not read a `.env` file.
+The server reads its configuration from the process environment. It does not read a `.env` file itself;
+the Docker stack and `scripts/cookbook-env.sh` do. If you keep your keys in a `.env` (copy `.env.example`),
+load them into the shell before starting the server, so the same file serves every way of running CALIBER:
+
+```bash
+set -a; . ./.env; set +a      # exports every KEY=value line of .env into this shell
+```
+
+(`.env` lines must be plain `KEY=value` without spaces around the `=`; quote any value that contains spaces.)
 
 ```bash
 export MLFLOW_TRACKING_URI=http://127.0.0.1:5000
@@ -156,19 +164,38 @@ as `CALIBER_TOKEN`. The command line cannot issue the first one.
 
 ## Real LLM and evaluation
 
-Evidence you can trust needs a real evaluator and a real model. Install the extra, set the key,
-and switch both providers:
+The steps above run **simulated** providers on purpose: they need no key, so the install is reproducible
+offline. Evidence you can trust needs a real model and a real evaluator. Put your keys in `.env`
+(`OPENAI_API_KEY=...`, and optionally `ANTHROPIC_API_KEY=...`), install the provider extras, and let `auto`
+choose real providers because a key is present:
 
 ```bash
-pip install --find-links ./wheels "caliber-suite[llm]"
-export OPENAI_API_KEY=sk-...
-export CALIBER_LLM_PROVIDER=openai
-export CALIBER_LLM_API_KEY_ENV=OPENAI_API_KEY
-export CALIBER_EVAL_PROVIDER=mlflow
+pip install --find-links ./wheels "caliber-suite[llm,anthropic]"
+set -a; . ./.env; set +a
+export CALIBER_LLM_PROVIDER=auto CALIBER_EVAL_PROVIDER=auto CALIBER_WORKFLOW_LLM_JUDGE_ENABLED=auto
 ```
 
-Restart CALIBER. `/readiness` then lists nothing under `simulated`. A real model with the fake
-evaluator is refused at startup unless you set `CALIBER_ALLOW_SIMULATED_PROVIDERS=true`.
+(Replace the `CALIBER_EVAL_PROVIDER=fake` line of step 5 with these.) `auto` means "real when the key is
+present": the workflow agents, calibration, judges and the evaluator become real, and CALIBER logs which it
+chose. To *require* a real provider instead, set `CALIBER_LLM_PROVIDER=openai` and
+`CALIBER_EVAL_PROVIDER=mlflow`: the server then refuses to start without the key rather than quietly falling
+back. A real model with the fake evaluator is refused at startup unless you set
+`CALIBER_ALLOW_SIMULATED_PROVIDERS=true`.
+
+**Which key drives what.** `OPENAI_API_KEY` drives everything: workflow agents, prompt/skill/tool
+calibration, judges, evaluation and Aria. `ANTHROPIC_API_KEY` is optional: Aria and knowledge-base answers use
+Claude when there is no OpenAI key (`CALIBER_ASSISTANT_ENGINE=auto` prefers OpenAI, then Anthropic).
+Workflow agents and calibration are OpenAI-only in this alpha, so an Anthropic key alone cannot run them.
+
+**Check that nothing is simulated.** After restarting, read `/readiness`:
+
+```bash
+curl -s http://127.0.0.1:5001/ajax-api/2.0/mlflow/caliber/readiness | python3 -m json.tool
+```
+
+`simulated` should be empty, `all_real` true, and `ai_components` lists each AI-backed part as `real`,
+`simulated`, `unconfigured` or `off` with a one-line reason; `all_ai_real` is true when none is simulated or
+unconfigured. (The workflow LLM judge shows `off` until you enable it; that is a choice, not a fault.)
 
 ## Waits, approvals and queued runs
 
@@ -195,7 +222,8 @@ and neither comes with the steps above:
 
 - **An object store.** Run MinIO or point at S3 (`CALIBER_OBJECT_STORE_ENDPOINT_URL` and credentials). Without
   one, creating a knowledge base answers 503 and names the object store.
-- **The embedding libraries.** `pip install --find-links ./wheels "caliber-suite[knowledge,knowledge-local]"`.
+- **The embedding libraries.** `pip install --find-links ./wheels "caliber-suite[s3,knowledge,knowledge-local]"`
+  (`s3` brings `boto3` for the object store).
   Without `knowledge-local` every embedding model shows as unavailable, with this extra named. The default docker
   image installs `knowledge` only, so add `knowledge-local` to `CALIBER_INSTALL_EXTRAS` when you build it.
 - **The model.** The first build downloads it from Hugging Face; pre-cache it into `HF_HOME` on an offline host.
@@ -238,13 +266,20 @@ curl -s -b jar $B/capabilities
 
 ## Docker instead
 
-If you would rather run the whole stack in containers, use `make start` from a source checkout.
-The container entrypoint runs the migration and sets the roles and providers for you. See
-[Local bring-up](../operate/local-bring-up.md).
+If you would rather run the whole stack in containers, do this from a source checkout (it needs Docker with
+Compose v2, and no Python or Node on the host):
 
-The four `CALIBER_FEATURE_*` variables pass through from the environment to the container with the same
-defaults (Aria on, the other three off). Set them in the suite-root `.env` (`.env.example` documents them),
-then run `make start` again; the container reads them at startup.
+```bash
+cp .env.example .env        # then put OPENAI_API_KEY (and optionally ANTHROPIC_API_KEY) in .env
+./start.sh                  # builds the images on first run, then starts everything
+```
+
+The container entrypoint runs the migration and sets the roles and providers for you, and the compose defaults
+are `auto`, so the keys in `.env` make the LLM, the evaluator and Aria real with no other setting. See the
+[README](../../README.md#quickstart) and [Local bring-up](../operate/local-bring-up.md).
+
+The four `CALIBER_FEATURE_*` variables pass through from `.env` to the container with the same defaults (Aria
+on, the other three off); edit `.env` and run `./start.sh` again, because the container reads them at startup.
 
 ## Check it yourself
 
