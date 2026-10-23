@@ -84,9 +84,9 @@ Things to know before you turn one on:
   without notice. A release-candidate signoff records a decision and deploys or rolls back nothing, and a
   workspace release evaluation stays queued because nothing in this build executes it. Enabling a flag does
   not move an area into the supported journey.
-- **The areas depend on each other.** The seventeen cookbooks build on other areas, so a lab can need more than
-  `CALIBER_FEATURE_COOKBOOKS`: labs 12 to 15 need `CALIBER_FEATURE_ARIA`, lab 05 needs
-  `CALIBER_FEATURE_INTEGRATIONS`, and lab 11 needs `CALIBER_FEATURE_RELEASE_CANDIDATES`. Each lab's
+- **The areas depend on each other.** The twenty cookbooks build on other areas, so a lab can need more than
+  `CALIBER_FEATURE_COOKBOOKS`: labs 12 to 15 need `CALIBER_FEATURE_ARIA`, labs 05 and 19 need
+  `CALIBER_FEATURE_INTEGRATIONS`, and labs 11 and 21 need `CALIBER_FEATURE_RELEASE_CANDIDATES`. Each lab's
   README names the flags it needs.
 - **Aria also backs a few helpers inside supported pages.** The **Ask Aria** button, **Describe it** prompt
   drafting, the prompt Playground, test-case generation and test runs inside the prompt workspace, and the tool

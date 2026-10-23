@@ -318,6 +318,13 @@
       "doc_type": "runbook"
     },
     {
+      "href": "m-63-alpha-feature-coverage-matrix.html",
+      "label": "Alpha feature coverage matrix",
+      "section": "start",
+      "nav_order": 131,
+      "doc_type": "reference"
+    },
+    {
       "href": "m-19-runbook.html",
       "label": "Operations runbook",
       "section": "operate",

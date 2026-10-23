@@ -34,6 +34,11 @@ window.DOCS_DATA = {
           "href": "m-35-decision-maker-overview.html",
           "label": "Decision-maker overview",
           "newtab": false
+        },
+        {
+          "href": "m-63-alpha-feature-coverage-matrix.html",
+          "label": "Alpha feature coverage matrix",
+          "newtab": false
         }
       ]
     },
@@ -1274,6 +1279,33 @@ window.DOCS_DATA = {
         "release",
         "versioning",
         "alpha"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-63-alpha-feature-coverage-matrix.html",
+      "label": "Alpha feature coverage matrix",
+      "section": "Start here",
+      "section_id": "start",
+      "summary": "Every Alpha capability traced to its implementation, cookbook, UI coverage, tests and documentation, with an explicit status -- including the intentional exceptions.",
+      "audience": [
+        "decision-maker",
+        "developer",
+        "operator"
+      ],
+      "doc_type": "reference",
+      "prerequisites": [
+        "docs/start/alpha-scope.md for what the alpha claims",
+        "docs-site/cookbooks/README.md for the lab index"
+      ],
+      "stability": "beta",
+      "reviewed_on": "2026-10-23",
+      "version_applicability": "0.1.0a1 alpha",
+      "tags": [
+        "alpha",
+        "coverage",
+        "cookbooks"
       ],
       "newtab": false,
       "nav_hidden": false

@@ -572,8 +572,9 @@ class ProjectRevisionsAPI(Resource):
         pin (``logical_name``/``purpose`` are optional), so the same request
         always produces the same content. A resource type with no registered
         adapter, or whose adapter does not yet support managed snapshotting,
-        is refused (``409``) rather than silently skipped -- today that's
-        only ``"prompt"``.
+        is refused (``409``) rather than silently skipped. Supported today:
+        ``prompt``, ``tool``, ``skill``, ``eval_dataset``, ``workflow``
+        (published versions), ``judge`` and ``mcp_server``.
 
         Idempotent by content: retrying with the same ``resources`` list
         returns the already-created revision instead of a duplicate (the
