@@ -32,6 +32,7 @@ from caliber.assistant.service import (
     AssistantService,
     AssistantSessionCredentialMismatchError,
     AssistantSessionProjectMismatchError,
+    AssistantUnavailableError,
     ConflictError,
     normalize_disabled_domains,
     normalize_disabled_intents,
@@ -286,7 +287,11 @@ async def draft_prompt(request: Request) -> JSONResponse:
     description = str(data.get("description") or "").strip()
     if not description:
         raise HTTPException(status_code=400, detail="'description' is required")
-    result = svc.draft_prompt_from_description(description)
+    try:
+        result = svc.draft_prompt_from_description(description)
+    except AssistantUnavailableError as exc:
+        # 503, not an empty 200: the caller must be told Aria could not draft anything, and why.
+        raise HTTPException(status_code=503, detail=str(exc)) from exc
     return JSONResponse({"data": result})
 
 

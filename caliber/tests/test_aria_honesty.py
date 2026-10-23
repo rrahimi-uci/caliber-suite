@@ -13,8 +13,13 @@ from sqlalchemy.orm import Session
 from starlette.testclient import TestClient
 
 from caliber.assistant.capabilities import registered_capabilities
+from caliber.assistant.models import AssistantTurnResult
 from caliber.assistant.plans import HeuristicPlanner
-from caliber.assistant.service import assistant_failure_message
+from caliber.assistant.service import (
+    AssistantService,
+    AssistantUnavailableError,
+    assistant_failure_message,
+)
 from caliber.db.models import CaliberAriaPlan
 from caliber.routes.aria_plans import APPROVE_PATH, EXECUTE_PATH, LIST_PATH
 
@@ -153,6 +158,88 @@ def test_other_failures_keep_only_the_exception_class() -> None:
     message = assistant_failure_message(RuntimeError(f"boom contacting {secret_url}"))
     assert message == "An error occurred: RuntimeError"
     assert "hunter2" not in message
+
+
+# --- "Describe it" (prompt drafting) -----------------------------------------------------
+
+
+class _NoKeyEngine:
+    """An engine that cannot answer at all, the way OpenAI's client fails with no key."""
+
+    def run_turn(self, request: object, *, toolset: object | None = None) -> AssistantTurnResult:
+        raise OpenAIError(
+            "The api_key client option must be set either by passing api_key to the client or by "
+            "setting the OPENAI_API_KEY environment variable"
+        )
+
+
+class _AnswersOnceThenFails:
+    """Answers the first turn (a clarifying question, no draft), then goes down."""
+
+    def __init__(self) -> None:
+        self.turns = 0
+
+    def run_turn(self, request: object, *, toolset: object | None = None) -> AssistantTurnResult:
+        self.turns += 1
+        if self.turns > 1:
+            raise RuntimeError("provider went away")
+        return AssistantTurnResult(reply="Which tickets do you mean?")
+
+
+def test_drafting_without_a_key_raises_instead_of_returning_an_empty_draft() -> None:
+    """The builder used to seed the user's own text as if Aria had drafted it."""
+    svc = AssistantService(engine=_NoKeyEngine())  # type: ignore[arg-type]
+
+    with pytest.raises(AssistantUnavailableError) as raised:
+        svc.draft_prompt_from_description("Summarize support tickets.")
+
+    assert "OPENAI_API_KEY is not set" in str(raised.value)
+    assert "restart" in str(raised.value)
+    assert "OpenAIError" not in str(raised.value)
+
+
+def test_drafting_stops_after_the_first_failed_turn() -> None:
+    """No five-turn retry loop against an engine that cannot answer."""
+
+    class _CountingNoKey(_NoKeyEngine):
+        turns = 0
+
+        def run_turn(
+            self, request: object, *, toolset: object | None = None
+        ) -> AssistantTurnResult:
+            type(self).turns += 1
+            return super().run_turn(request, toolset=toolset)
+
+    svc = AssistantService(engine=_CountingNoKey())  # type: ignore[arg-type]
+
+    with pytest.raises(AssistantUnavailableError):
+        svc.draft_prompt_from_description("Summarize support tickets.", max_turns=5)
+
+    assert _CountingNoKey.turns == 1
+
+
+def test_an_engine_that_answered_then_failed_keeps_the_builders_fallback() -> None:
+    """Only "never answered" is an outage; a partial conversation still seeds the manual flow."""
+    svc = AssistantService(engine=_AnswersOnceThenFails())  # type: ignore[arg-type]
+
+    result = svc.draft_prompt_from_description("Summarize support tickets.")
+
+    assert result["template"] == ""
+    assert result["reply"] == "Which tickets do you mean?"
+
+
+def test_prompt_draft_route_answers_503_with_the_actionable_reason(client: TestClient) -> None:
+    client.app.state.assistant_service = AssistantService(engine=_NoKeyEngine())  # type: ignore[arg-type,attr-defined]
+
+    response = client.post(
+        "/ajax-api/2.0/mlflow/caliber/assistant/prompt-draft",
+        json={"description": "Summarize support tickets."},
+    )
+
+    assert response.status_code == 503
+    detail = response.json()["detail"]
+    assert "OPENAI_API_KEY is not set" in detail
+    assert "restart" in detail
 
 
 # --- plans -------------------------------------------------------------------------------

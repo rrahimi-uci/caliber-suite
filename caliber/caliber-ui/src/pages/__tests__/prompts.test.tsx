@@ -1031,6 +1031,36 @@ describe("Prompts", () => {
     expect(nameField.value).toBe("ticket-classifier");
   });
 
+  // Alpha gap P1-11: with no engine key the draft used to come back empty (HTTP 200) and the builder
+  // seeded the user's own text as if the assistant had drafted it. It is a 503 now, and the user stays put.
+  it("shows why Describe it failed, and seeds nothing, when Aria has no engine key", async () => {
+    const reason =
+      "Aria cannot answer yet: OPENAI_API_KEY is not set. Set it and restart CALIBER, or save a key under Settings, Providers.";
+    server.use(
+      http.post(`${API_BASE}/assistant/prompt-draft`, () =>
+        HttpResponse.json({ detail: reason, status_code: 503 }, { status: 503 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await openCreate(user);
+    await user.click(await screen.findByRole("button", { name: /Describe it/i }));
+    await user.type(
+      screen.getByLabelText("Task description"),
+      "Classify support tickets as billing or technical.",
+    );
+    await user.click(screen.getByRole("button", { name: /Draft with CALIBER/i }));
+
+    expect(await screen.findByText(reason)).toBeInTheDocument();
+    // Still on the describe view: no hand-off to the manual builder, no "drafted by the assistant" banner.
+    expect(screen.getByLabelText("Task description")).toBeInTheDocument();
+    expect(screen.queryByTestId("assistant-draft-banner")).not.toBeInTheDocument();
+    expect(screen.queryByLabelText(/Custom prompt/i)).not.toBeInTheDocument();
+  });
+
   it("opens version history, compares templates, promotes a version, and closes the panel", async () => {
     const versionRequests: Array<number> = [];
     let promoted: Record<string, unknown> | null = null;

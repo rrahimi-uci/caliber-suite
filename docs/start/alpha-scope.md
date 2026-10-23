@@ -107,7 +107,9 @@ Things to know before you turn one on:
   drafting, the prompt Playground, test-case generation and test runs inside the prompt workspace, and the tool
   unit-test generator call the assistant; these are visible out of the box since Aria ships on, but if you set
   `CALIBER_FEATURE_ARIA=false` they are hidden or show a notice that names the variable (the Playground stage
-  stays listed and says so). The core journey does not need them: build the test set by hand on the Test Sets
+  stays listed and says so). Aria ships on but needs an engine key (`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`) to
+  answer: until one is set, the **Ask Aria** button is disabled with the reason, the Aria panel opens with the
+  reason at the top, and **Describe it** fails with the same message instead of drafting anything. The core journey does not need them: build the test set by hand on the Test Sets
   page, or load it with **Import from file** (JSON Lines or a JSON array).
 - **A disabled area answers 404.** Every route of a disabled area returns HTTP 404 with the machine-readable
   `reason_code` `feature_disabled`, so a client can tell "this deployment has it off" from "no such record"
