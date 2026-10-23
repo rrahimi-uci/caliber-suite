@@ -47,7 +47,7 @@ docs. Implementation paths are relative to `caliber/src/caliber/` unless noted; 
 | Projects, members, roles, tokens, sessions | `routes/projects.py`, `auth.py` | lab 18 (72-request role matrix) | Administration; lab 18 spec | lab 18 tests; auth suites | lab 18 README | yes | ✅ Full |
 | Audit log + CSV export | `routes/audit.py` | labs 01, 05, 18, 19, 20, 21 | Audit Log page | audit suites | READMEs | yes | ✅ Full |
 | Health, readiness, capabilities, settings | `routes/health.py`, `capabilities.py`, `settings.py` | labs 01, 18, 20 | Settings/Overview; banner | `test_alpha_scope_claims.py` | alpha-scope | yes | ✅ Full |
-| Simulated-provider honesty | `config.py`, `server.py:171-195` | every lab's "what is simulated" section | provider banner | `test_alpha_scope_claims.py` | alpha-scope; every README | yes | ✅ Full |
+| Simulated-provider honesty and real providers from `.env` (`auto`, `ai_components`) | `config.py`, `observability/readiness.py`, `routes/health.py`, `start.sh` | every lab's "what is simulated" section; labs 01 and 12 re-run on real OpenAI (2026-10-23) | provider banner; `./start.sh` AI-components report | `test_alpha_scope_claims.py`, `test_config.py`, `test_readiness_ai_components.py`, `test_aria_honesty.py` | alpha-scope; alpha-install; every README | yes | ✅ Full |
 
 ## Extended tier (always on)
 
@@ -72,7 +72,7 @@ docs. Implementation paths are relative to `caliber/src/caliber/` unless noted; 
 
 | Feature | Implementation | Cookbook | UI coverage | Tests | Documentation | E2E verified | Status |
 | --- | --- | --- | --- | --- | --- | --- | --- |
-| Aria assistant + plans (preview, **on**) | `routes/assistant.py`, `aria_plans.py` | labs 12–15 (plans), 17 (sessions), 01 appendix | Plans page + Aria panel; lab specs | Aria lab tests | lab READMEs; ARIA-AUTONOMY.md | yes (deterministic planner; chat engines fake by default, stated) | ✅ Full |
+| Aria assistant + plans (preview, **on**) | `routes/assistant.py`, `aria_plans.py` | labs 12–15 (plans), 17 (sessions), 01 appendix | Plans page + Aria panel; lab specs | Aria lab tests | lab READMEs; ARIA-AUTONOMY.md | yes (deterministic rule-based planner; chat, drafts and helpers use a real model when a key is set, else simulated and stated) | ✅ Full |
 | MCP servers (preview, off) | `routes/mcp_servers.py`, `mcp_gateway.py` | lab 05 | MCP Servers page; lab 05 spec | lab 05 tests | lab 05 README | yes | ✅ Full |
 | OpenAPI integrations (preview, off) | `routes/openapi_integrations.py`, `integrations/openapi/*` | **lab 19** (new) | OpenAPI Integrations page; lab 19 spec | lab 19 tests (12) | lab 19 README (incl. the diff's blind spot) | yes (API + UI) | ✅ Full |
 | Cookbooks gallery (preview, off) | `routes/cookbooks.py`, `cookbook_catalog.py` | every lab's gallery step | Cookbooks page | steps/doc contract suites | cookbooks README | yes | ✅ Full |

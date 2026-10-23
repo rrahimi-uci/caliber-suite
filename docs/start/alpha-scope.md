@@ -43,11 +43,12 @@ through the web app or the Python SDK, do this with an audit trail and honest fa
 The same loop works for a skill, a tool and a workflow (the extended tier), and, where an object store
 is configured, for building and querying a knowledge base.
 
-Two things about the evidence. With the shipped defaults the language model and the evaluator are
-simulated: calibration runs and returns a candidate, but the scores are canned, and every screen,
-audit row and release record that carries them says so. Real evidence needs a real model and
-evaluator ([Real LLM and evaluation](alpha-install.md#real-llm-and-evaluation)). And the browser
-journey is proven in CI on every change, offline, on the simulated defaults.
+Two things about the evidence. The language model and the evaluator are real when you give CALIBER an
+`OPENAI_API_KEY` (the Docker stack's `auto` setting, in `.env`), and simulated when you do not: calibration
+then runs and returns a candidate, but the scores are canned, and every screen, audit row and release record
+that carries them says so. `GET /readiness` and `./start.sh` list each AI-backed part as real or simulated
+([Real LLM and evaluation](alpha-install.md#real-llm-and-evaluation)). And the browser journey is proven in CI
+on every change, offline, on the simulated defaults; real-model runs are manual (see the release notes).
 
 ## Supported setups
 
@@ -149,11 +150,13 @@ These are real and deliberate for the alpha. Read them before you rely on the pr
 - **CSRF protection is off by default.** `CALIBER_CSRF_ENABLED` defaults to false, on the assumption of a
   loopback or trusted-network deployment. Turn it on, and set a signing secret, before exposing CALIBER
   beyond that.
-- **Simulated by default.** The LLM and evaluator default to `fake`, so a prompt or a judge cannot be scored
-  (the Evaluations route answers 400 `evaluation requires a real LLM provider`) until a real provider is configured. The
-  Docker stack sets the evaluator to `mlflow`, so only its model is simulated, and scoring is refused there for the same
-  reason. The provider banner and the Settings page say what is simulated, and the banner cannot be dismissed while the
-  evaluator or promoter is simulated.
+- **Simulated by default, real with a key.** The library defaults for the LLM and the evaluator are `fake`, and the Docker
+  stack's `auto` falls back to them when no `OPENAI_API_KEY` is present, so a prompt or a judge cannot be scored
+  (the Evaluations route answers 400 `evaluation requires a real LLM provider`) until a key is configured. The
+  provider banner, the Settings page, `/readiness` (`ai_components`, `all_ai_real`) and `./start.sh` say what is
+  simulated, and the banner cannot be dismissed while the evaluator or promoter is simulated. An Anthropic key
+  alone makes Aria, knowledge-base answers and Claude-model judges real, but not workflow agents or calibration,
+  which need OpenAI in this alpha. Aria's planner is rule-based by design; only its chat, drafts and helpers use a model.
 - **SQLite needs a separate MLflow store.** CALIBER and MLflow can share one SQLite file in development,
   and startup warns when they do, but only one writer wins at a time. Use PostgreSQL for anything shared.
 - **The tool sandbox is a process boundary, not isolation.** Tool code runs in a short-lived,

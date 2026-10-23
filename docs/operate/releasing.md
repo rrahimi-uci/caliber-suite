@@ -7,7 +7,7 @@ product_area: operate
 stability: beta
 prerequisites:
   - Push access to the repository and the GitHub CLI (`gh`) signed in as the owner
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-23
 version_applicability: 0.1.0a1 alpha
 tags:
   - release
@@ -21,8 +21,9 @@ How a CALIBER release is cut. It is manual on purpose: there is no tag-triggered
 ships a handful of wheels to a handful of testers and a person should look at the commit before it goes out.
 Automating it is on the post-alpha backlog.
 
-A release is **four wheels and their sdists, attached to a GitHub prerelease, on a tag**. Nothing is published
-to PyPI; the install page tells testers to install from the downloaded wheels.
+A release is **four wheels and their sdists, plus one named bundle and a checksum file, attached to a GitHub
+prerelease, on a tag**. Nothing is published to PyPI; the install page tells testers to install from the
+downloaded wheels.
 
 ## The names
 
@@ -31,6 +32,12 @@ to PyPI; the install page tells testers to install from the downloaded wheels.
 | Git tag | `caliber-v0.1.0a1` | the repository's `caliber-v*` prefix plus the PEP 440 version the wheels carry |
 | Python packages | `0.1.0a1` | `caliber-suite`, `caliber-sdk`, `caliber-cli`, `caliber-plugin-sdk`, all the same version |
 | `caliber-ui/package.json` | `0.1.0-alpha.1` | npm needs semver; the same release spelled that way |
+| Release name and bundle | `caliber-suite-alpha` | the product-level name of the alpha line: the GitHub release title (`caliber-suite-alpha: CALIBER Suite Alpha 0.1.0a1`) and the bundle file `caliber-suite-alpha-0.1.0a1.tar.gz` |
+
+The release **name** is not the release **tag**. The tag keeps the `caliber-v<PEP 440 version>` spelling because
+`tests/test_version_lockstep.py` and the history of the repository (`caliber-v0.0.1`) rely on it, and a tag that
+is not a version cannot carry the next alpha. `caliber-suite-alpha` therefore names what testers download, and
+`0.1.0a2` will be released as `caliber-suite-alpha` again under its own tag.
 
 `tests/test_version_lockstep.py` fails if any of the four `pyproject.toml` files, their `__version__`
 constants, `package.json` or the lockfile's root entry disagree. Bump all of them in one commit.
@@ -86,11 +93,22 @@ scripts/verify-wheel-boot.sh --python python3.12 dist/caliber_suite-0.1.0a1-py3-
 `verify-wheel-boot.sh` fails if the wheel has lost its bundled UI or its migrations, then installs it alone,
 migrates, boots it and fetches the UI.
 
+Assemble the named bundle (the four wheels, the four sdists, and the install guide) and the checksums:
+
+```bash
+VERSION=0.1.0a1
+rm -rf bundle && mkdir -p bundle/caliber-suite-alpha-$VERSION
+cp dist/* bundle/caliber-suite-alpha-$VERSION/
+cp docs/start/alpha-install.md docs/start/alpha-scope.md LICENSE bundle/caliber-suite-alpha-$VERSION/
+tar -C bundle -czf dist/caliber-suite-alpha-$VERSION.tar.gz caliber-suite-alpha-$VERSION
+(cd dist && shasum -a 256 *.whl *.tar.gz > SHA256SUMS)    # the sdists are .tar.gz too; list them all
+```
+
 Publish the prerelease. `--latest=false` is explicit because a prerelease must not take the "Latest" badge:
 
 ```bash
 gh release create caliber-v0.1.0a1 --prerelease --latest=false \
-  --title "CALIBER 0.1.0a1 (alpha)" \
+  --title "caliber-suite-alpha: CALIBER Suite Alpha 0.1.0a1" \
   --notes-file docs/reports/release-0.1.0a1-notes.md \
   dist/*
 ```
@@ -103,6 +121,7 @@ environment, away from the checkout:
 ```bash
 rm -rf /tmp/caliber-release && mkdir /tmp/caliber-release
 gh release download caliber-v0.1.0a1 --dir /tmp/caliber-release
+(cd /tmp/caliber-release && shasum -a 256 -c SHA256SUMS)
 scripts/verify-alpha-install.sh --python python3.12 --wheel-dir /tmp/caliber-release
 ```
 

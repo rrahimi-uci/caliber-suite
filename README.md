@@ -179,6 +179,8 @@ One-time setup, from the repository root (Python 3.10–3.12, Node.js 20.19+, `c
 ```bash
 cd caliber && make install && cd ..                                   # creates caliber/.venv
 caliber/.venv/bin/pip install -e sdk/caliber-sdk -e sdk/caliber-cli
+# only to run a lab's browser (UI) path, not its API path:
+(cd caliber/caliber-ui && npm ci && npx playwright install chromium)
 ```
 
 Then run a lab (Lab 01, the prompt release loop, is a good first one):
