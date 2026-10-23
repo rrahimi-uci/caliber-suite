@@ -16,7 +16,7 @@
 #   scripts/cookbook-run-all.sh [--labs 01,02,...] [--tier simulated|standin]
 #                               [--api-only | --ui-only] [--keep] [--journey]
 #
-#   --labs LIST    comma list of lab numbers (default: 01-16 and 18). Always run in lab order.
+#   --labs LIST    comma list of lab numbers (default: 01-16, 18, 19 and 20). Always run in lab order.
 #   --tier T       simulated (default): the shipped simulated LLM and evaluator, which every lab
 #                  is written for. standin: labs 01 and 10 only, behind their scripted
 #                  OpenAI-compatible stand-in model servers (the other labs have no such tier).
@@ -29,9 +29,11 @@
 #                  /readiness, the audit log, the release timeline and Observability reflect all of
 #                  it (scripts/cookbook-journey-check.py). With --keep the stack stays up.
 #
-# Prerequisites: caliber/.venv (make install), Node with `npm ci` done in caliber/caliber-ui and the
-# Playwright chromium installed (cd caliber/caliber-ui && npx playwright install chromium), curl,
-# perl. Lab 06 needs the all-MiniLM-L6-v2 embedding model in the Hugging Face cache; the runner
+# Prerequisites (checked before anything starts): a virtualenv with caliber-suite installed
+# ($CALIBER_COOKBOOK_VENV, else caliber/.venv from `cd caliber && make install`, else the repository
+# .venv from `make setup`), Node with `npm ci` done in caliber/caliber-ui and the Playwright chromium
+# installed (cd caliber/caliber-ui && npx playwright install chromium), curl, perl. Lab 06 needs the
+# all-MiniLM-L6-v2 embedding model in the Hugging Face cache; the runner
 # warms the cache itself (online, once, only when the model is not already cached), so a cold
 # machine works. After that the lab runs with HF_HUB_OFFLINE=1, as its README documents.
 #
@@ -40,11 +42,20 @@
 # redacts access tokens from every log it writes, and on exit (also on failure or Ctrl-C) stops its
 # stack and every helper process it started. Logs: .tmp/cookbook-run-all/<timestamp>/ (latest ->).
 # Environment: COOKBOOK_RUN_ALL_API_TIMEOUT / _UI_TIMEOUT / _UP_TIMEOUT (seconds per step).
+# Variables beginning CALIBER_, OPENAI_, ANTHROPIC_, MLFLOW_, AWS_ or HF_HUB in YOUR environment are
+# removed before the first lab (CALIBER_COOKBOOK_VENV excepted), so nothing of yours leaks into a lab;
+# each lab sets exactly what its README says. Exit status: 0 every step passed, 1 a step failed,
+# 2 a usage error or a missing prerequisite.
 
+# shellcheck disable=SC2329  # step_*, journey_check_step and friends run through run_step (indirectly)
 set -o pipefail
 
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
-PY="${CALIBER_COOKBOOK_VENV:-$REPO_ROOT/caliber/.venv}/bin/python"
+if [[ -n "${CALIBER_COOKBOOK_VENV:-}" ]]; then VENV="$CALIBER_COOKBOOK_VENV"
+elif [[ -x "$REPO_ROOT/caliber/.venv/bin/python" ]]; then VENV="$REPO_ROOT/caliber/.venv"
+elif [[ -x "$REPO_ROOT/.venv/bin/python" ]]; then VENV="$REPO_ROOT/.venv"
+else VENV="$REPO_ROOT/caliber/.venv"; fi
+PY="$VENV/bin/python"
 UI_DIR="$REPO_ROOT/caliber/caliber-ui"
 ENVSH="$REPO_ROOT/scripts/cookbook-env.sh"
 COOKBOOKS="$REPO_ROOT/docs-site/cookbooks"
@@ -60,8 +71,11 @@ UP_TIMEOUT="${COOKBOOK_RUN_ALL_UP_TIMEOUT:-900}"
 for v in $(compgen -e | grep -E '^(CALIBER_|OPENAI_|ANTHROPIC_|MLFLOW_|AWS_|COOKBOOK_[0-9]|LAB[0-9]|HF_HUB)' || true); do
   [[ "$v" == CALIBER_COOKBOOK_VENV ]] || unset "$v"
 done
+export CALIBER_COOKBOOK_VENV="$VENV"   # the stacks cookbook-env.sh starts use the same virtualenv
 
 die() { printf 'cookbook-run-all: %s\n' "$*" >&2; exit 2; }
+usage() { awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "${BASH_SOURCE[0]}"; }
+need_arg() { [[ $# -ge 2 && -n "$2" ]] || die "$1 needs a value (see --help)"; }
 log() { printf '[%s] %s\n' "$(date +%H:%M:%S)" "$*"; }
 redact() {
   perl -pe 'BEGIN{$|=1} s/calpat_[^\s"\x27\\]+/calpat_***/g; s/(Bearer\s+)[A-Za-z0-9._~+\/=-]{20,}/$1***/g; s/\bsk-[A-Za-z0-9_-]{20,}/sk-***/g'
@@ -71,13 +85,13 @@ redact() {
 LABS_ARG=""; TIER=simulated; WANT_API=1; WANT_UI=1; KEEP=0; JOURNEY=0
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --labs) LABS_ARG="${2:?--labs needs a list}"; shift 2 ;;
-    --tier) TIER="${2:?--tier needs simulated or standin}"; shift 2 ;;
+    --labs) need_arg "$@"; LABS_ARG="$2"; shift 2 ;;
+    --tier) need_arg "$@"; TIER="$2"; shift 2 ;;
     --api-only) WANT_UI=0; shift ;;
     --ui-only) WANT_API=0; shift ;;
     --keep) KEEP=1; shift ;;
     --journey) JOURNEY=1; shift ;;
-    -h|--help) sed -n '2,38p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) usage; exit 0 ;;
     *) die "unknown argument: $1 (see --help)" ;;
   esac
 done
@@ -88,7 +102,8 @@ SELECTED=""
 if [[ -n "$LABS_ARG" ]]; then
   requested=""
   for n in ${LABS_ARG//,/ }; do
-    n="$(printf '%02d' "$((10#$n))" 2>/dev/null)" || die "bad lab number: $n"
+    [[ "$n" =~ ^[0-9]{1,2}$ ]] || die "bad lab number: '$n' (use two-digit lab numbers such as 01,02,18)"
+    n="$(printf '%02d' "$((10#$n))")"
     [[ " $ALL_LABS " == *" $n "* ]] || die "no lab $n (labs: $ALL_LABS)"
     requested="$requested $n"
   done
@@ -102,14 +117,24 @@ if [[ $TIER == standin ]]; then
 fi
 
 # ---- preflight --------------------------------------------------------------------------------
-[[ -x "$PY" ]] || die "no virtualenv at ${PY%/bin/python} (run 'make install')"
-command -v curl >/dev/null || die "curl is required"
-command -v perl >/dev/null || die "perl is required"
+[[ -x "$PY" ]] || die "no virtualenv at $VENV. Create one: 'make setup' in the repository root, or 'make install' in caliber/ (or set CALIBER_COOKBOOK_VENV)"
+case "$("$PY" -c 'import sys; print("%d.%d" % sys.version_info[:2])')" in
+  3.10|3.11|3.12) ;;
+  *) die "$VENV runs an unsupported Python (CALIBER supports 3.10-3.12). Recreate the virtualenv, for example: PYTHON=python3.12 make setup" ;;
+esac
+"$PY" -c 'import caliber, mlflow, uvicorn' >/dev/null 2>&1 \
+  || die "caliber-suite is not installed in $VENV. Install it: 'make setup' in the repository root, or 'make install' in caliber/"
+[[ -x "$ENVSH" ]] || die "missing or not executable: $ENVSH"
+command -v curl >/dev/null || die "curl is required (for example 'brew install curl' or 'sudo apt-get install curl')"
+command -v perl >/dev/null || die "perl is required (it redacts tokens from the logs)"
+command -v pgrep >/dev/null || die "pgrep is required (it stops the processes a lab starts)"
 if [[ $WANT_UI == 1 ]]; then
-  command -v node >/dev/null && command -v npx >/dev/null || die "Node (node, npx) is required for the UI specs"
-  [[ -d "$UI_DIR/node_modules" ]] || die "run 'npm ci' in caliber/caliber-ui first"
+  if ! command -v node >/dev/null || ! command -v npx >/dev/null; then
+    die "Node.js (node and npx) is required for the UI specs. Install Node (see 'engines' in caliber/caliber-ui/package.json) or use --api-only"
+  fi
+  [[ -d "$UI_DIR/node_modules" ]] || die "run 'npm ci' in caliber/caliber-ui first (or use --api-only)"
   (cd "$UI_DIR" && node -e 'const {chromium}=require("@playwright/test");process.exit(require("fs").existsSync(chromium.executablePath())?0:1)') 2>/dev/null \
-    || die "Playwright chromium is missing: cd caliber/caliber-ui && npx playwright install chromium"
+    || die "Playwright chromium is missing: cd caliber/caliber-ui && npx playwright install chromium (or use --api-only)"
 fi
 
 mkdir -p "$RUN_ROOT"
@@ -175,12 +200,13 @@ run_step() {
   [[ $STEP_TIMED_OUT == 1 ]] && { printf '\nTIMED OUT after %ss\n' "$tmo" >>"$logf"; return 124; }
   return $rc
 }
-tail_log() { printf '    ---- last lines of %s\n' "${1#$REPO_ROOT/}"; tail -n "${2:-25}" "$1" | sed 's/^/    | /'; }
+tail_log() { printf '    ---- last lines of %s\n' "${1#"$REPO_ROOT"/}"; tail -n "${2:-25}" "$1" | sed 's/^/    | /'; }
 
 # ---- per-lab configuration (taken from each lab README's setup section) -----------------------
 # Sets: LAB_TITLE LAB_FLAGS LAB_S3 LAB_UP_ENV(array) LAB_HELPERS LAB_TOKEN LAB_API_CWD LAB_API_ARGV
 #       (array) LAB_UI LAB_UI_ENV(array) LAB_TIER_STACK
 ARIA_USERS="admin,olga"
+# shellcheck disable=SC2054  # the commas are inside VAR=a,b values (user lists), not array separators
 lab_config() {
   local n="$1" sdk="$REPO_ROOT/sdk/caliber-sdk/examples/cookbooks"
   LAB_TITLE=""; LAB_FLAGS="cookbooks"; LAB_S3=0; LAB_UP_ENV=(); LAB_HELPERS=""; LAB_TOKEN="plain:lab$n"
@@ -234,13 +260,13 @@ lab_config() {
         LAB_UP_ENV=(CALIBER_OPERATOR_USERS=admin,lab11-operator)
         LAB_API_CWD="sdk/caliber-sdk"; LAB_API_ARGV=(-m examples.cookbooks.cookbook_11_release_signoff_factory)
         LAB_UI="11-release-signoff.spec.ts" ;;
-    12) LAB_TITLE="Aria evaluation harness"; LAB_FLAGS="cookbooks,aria"; LAB_UP_ENV=(CALIBER_OPERATOR_USERS=$ARIA_USERS)
+    12) LAB_TITLE="Aria evaluation harness"; LAB_FLAGS="cookbooks,aria"; LAB_UP_ENV=(CALIBER_OPERATOR_USERS="$ARIA_USERS")
         LAB_API_ARGV=(-m examples.cookbooks.cookbook_12_aria_evaluation_harness); LAB_UI="12-aria-evaluation-harness.spec.ts" ;;
-    13) LAB_TITLE="Aria review queue"; LAB_FLAGS="cookbooks,aria"; LAB_UP_ENV=(CALIBER_OPERATOR_USERS=$ARIA_USERS)
+    13) LAB_TITLE="Aria review queue"; LAB_FLAGS="cookbooks,aria"; LAB_UP_ENV=(CALIBER_OPERATOR_USERS="$ARIA_USERS")
         LAB_API_ARGV=(-m examples.cookbooks.cookbook_13_aria_review_queue); LAB_UI="13-aria-review-queue.spec.ts" ;;
-    14) LAB_TITLE="Aria governance kit"; LAB_FLAGS="cookbooks,aria"; LAB_UP_ENV=(CALIBER_OPERATOR_USERS=$ARIA_USERS)
+    14) LAB_TITLE="Aria governance kit"; LAB_FLAGS="cookbooks,aria"; LAB_UP_ENV=(CALIBER_OPERATOR_USERS="$ARIA_USERS")
         LAB_API_ARGV=(-m examples.cookbooks.cookbook_14_aria_governance_starter_kit); LAB_UI="14-aria-governance-starter-kit.spec.ts" ;;
-    15) LAB_TITLE="Aria recalibrate loop"; LAB_FLAGS="cookbooks,aria"; LAB_UP_ENV=(CALIBER_OPERATOR_USERS=$ARIA_USERS)
+    15) LAB_TITLE="Aria recalibrate loop"; LAB_FLAGS="cookbooks,aria"; LAB_UP_ENV=(CALIBER_OPERATOR_USERS="$ARIA_USERS")
         LAB_API_ARGV=(-m examples.cookbooks.cookbook_15_aria_triage_recalibrate_loop); LAB_UI="15-aria-triage-recalibrate-loop.spec.ts" ;;
     16) LAB_TITLE="observability triage"; LAB_HELPERS="acct"; LAB_UP_ENV=(CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1)
         LAB_API_ARGV=("$sdk/cookbook_16_observability_triage.py"); LAB_UI="16-observability-triage.spec.ts" ;;
@@ -280,11 +306,11 @@ start_lab_helpers() {
   local h
   for h in $1; do
     case "$h" in
-      acct) start_helper account-service 8780 python3 "$COOKBOOKS/09-workflow-debugger-self-healing-lab/assets/upstream/account_service.py" 8780 || return 1 ;;
-      standin01) start_helper standin-01 8765 python3 "$COOKBOOKS/01-prompt-regression-lab/assets/stand-in-model/server.py" --port 8765 || return 1 ;;
-      standin10) start_helper standin-10 8770 python3 "$COOKBOOKS/10-judge-certification-human-review-lab/assets/stand-in-model/stand_in_model_server.py" 8770 || return 1 ;;
-      ticket19) start_helper ticket-api-19 8781 python3 "$COOKBOOKS/19-openapi-integration-governance-lab/assets/server/ticket_api.py" 8781 || return 1 ;;
-      gateway20) start_helper llm-gateway-20 8791 python3 "$COOKBOOKS/20-llm-gateway-cost-guardrails-lab/assets/server/llm_gateway.py" 8791 || return 1 ;;
+      acct) start_helper account-service 8780 "$PY" "$COOKBOOKS/09-workflow-debugger-self-healing-lab/assets/upstream/account_service.py" 8780 || return 1 ;;
+      standin01) start_helper standin-01 8765 "$PY" "$COOKBOOKS/01-prompt-regression-lab/assets/stand-in-model/server.py" --port 8765 || return 1 ;;
+      standin10) start_helper standin-10 8770 "$PY" "$COOKBOOKS/10-judge-certification-human-review-lab/assets/stand-in-model/stand_in_model_server.py" 8770 || return 1 ;;
+      ticket19) start_helper ticket-api-19 8781 "$PY" "$COOKBOOKS/19-openapi-integration-governance-lab/assets/server/ticket_api.py" 8781 || return 1 ;;
+      gateway20) start_helper llm-gateway-20 8791 "$PY" "$COOKBOOKS/20-llm-gateway-cost-guardrails-lab/assets/server/llm_gateway.py" 8791 || return 1 ;;
     esac
   done
 }
@@ -301,6 +327,7 @@ stack_up() { # stack_up NAME FLAGS S3 [VAR=VALUE...]
   [[ ${LAB_REAL:-0} == 1 ]] && args+=(--real-llm)
   env "$@" "$ENVSH" "${args[@]}"
 }
+# shellcheck disable=SC1090
 stack_vars() { source "$ENV_ROOT/$1/env.sh"; }   # always called inside a subshell
 
 mint_token() { # prints the token on stdout (and nothing else); run in a subshell with env.sh sourced
@@ -343,13 +370,13 @@ step_up() { stack_up "$LAB_STACK" "$LAB_FLAGS" "$LAB_S3" ${LAB_UP_ENV[@]+"${LAB_
 step_api() {
   stack_vars "$LAB_STACK"; export CALIBER_TOKEN="$TOKEN"
   export PYTHONPATH="$REPO_ROOT/sdk/caliber-sdk"
-  local kv; for kv in ${LAB_API_ENV[@]+"${LAB_API_ENV[@]}"}; do export "$kv"; done
+  local kv; for kv in ${LAB_API_ENV[@]+"${LAB_API_ENV[@]}"}; do export "${kv?}"; done
   readiness_check || exit 1
   cd "$REPO_ROOT/$LAB_API_CWD" && exec "$PY" "${LAB_API_ARGV[@]}"
 }
 step_ui() {
   stack_vars "$LAB_STACK"; export CALIBER_TOKEN="$TOKEN"
-  local kv; for kv in ${LAB_UI_ENV[@]+"${LAB_UI_ENV[@]}"}; do export "$kv"; done
+  local kv; for kv in ${LAB_UI_ENV[@]+"${LAB_UI_ENV[@]}"}; do export "${kv?}"; done
   export CALIBER_LAB_BASE_URL="$CALIBER_URL/caliber"
   cd "$UI_DIR" && exec npx playwright test --config=playwright.labs.config.ts "e2e/cookbooks/labs/$LAB_UI" --output="$RUN_DIR/pw-lab$LAB_NUM"
 }
@@ -378,7 +405,7 @@ warm_embedding_model() {
   if "$PY" -c "$EMBED_WARM_PY" "$EMBED_MODEL" >>"$RUN_DIR/embedding-model.log" 2>&1; then
     log "embedding model $EMBED_MODEL: cached"; return 0
   fi
-  log "embedding model $EMBED_MODEL: could not be downloaded (lab 06 needs it; see ${RUN_DIR#$REPO_ROOT/}/embedding-model.log)"
+  log "embedding model $EMBED_MODEL: could not be downloaded (lab 06 needs it; see ${RUN_DIR#"$REPO_ROOT"/}/embedding-model.log)"
   tail_log "$RUN_DIR/embedding-model.log" 8
   return 1
 }
@@ -395,7 +422,7 @@ print_table() {
     IFS='|' read -r lab name api ui secs notes <<<"$r"
     printf '%-5s %-26s %-6s %-6s %8s  %s\n' "$lab" "$name" "$api" "$ui" "$secs" "$notes"
   done
-  printf '\nlogs: %s\n' "${RUN_DIR#$REPO_ROOT/}"
+  printf '\nlogs: %s\n' "${RUN_DIR#"$REPO_ROOT"/}"
 }
 
 # run the API and UI steps of the lab described by lab_config; sets API_RES and UI_RES
@@ -442,11 +469,11 @@ run_lab() { # run_lab NUM IS_LAST
   TOKEN=""
   if [[ $KEEP == 1 && $last == 1 ]]; then
     KEPT=1
-    log "lab $n: stack kept: source ${ENV_ROOT#$REPO_ROOT/}/$LAB_STACK/env.sh  (stop it with: scripts/cookbook-env.sh down $LAB_STACK; helpers: kill ${HELPER_PIDS[*]-})"
+    log "lab $n: stack kept: source ${ENV_ROOT#"$REPO_ROOT"/}/$LAB_STACK/env.sh  (stop it with: scripts/cookbook-env.sh down $LAB_STACK; helpers: kill ${HELPER_PIDS[*]-})"
   else
     stop_stack; stop_helpers
     if [[ "$API_RES" != FAIL && "$UI_RES" != FAIL ]]; then rm -rf "${ENV_ROOT:?}/$LAB_STACK"
-    else log "lab $n: stack state kept for debugging in ${ENV_ROOT#$REPO_ROOT/}/$LAB_STACK"; fi
+    else log "lab $n: stack state kept for debugging in ${ENV_ROOT#"$REPO_ROOT"/}/$LAB_STACK"; fi
   fi
   add_row "$n" "$LAB_TITLE" "$API_RES" "$UI_RES" "$((SECONDS - t0))" "${NOTE# }"
   log "lab $n: API $API_RES, UI $UI_RES in $((SECONDS - t0))s"
@@ -454,8 +481,9 @@ run_lab() { # run_lab NUM IS_LAST
 
 # ---- the journey: one stack, every flag, the alpha path in the order a new team follows it -------
 JOURNEY_STACK="ra-journey"
+# shellcheck disable=SC2054  # the commas are inside VAR=a,b values (user lists), not array separators
 journey() {
-  local t0=$SECONDS rc n first_lab_cfg helpers="" lab_ui_env=()
+  local t0=$SECONDS rc n helpers=""
   # one stack for all of them: the union of what each lab's README exports before `up`
   local up_env=(
     CALIBER_ADMIN_USERS=admin
@@ -499,7 +527,7 @@ journey() {
   save_server_log "$JOURNEY_STACK" "$RUN_DIR/journey.server.log"
   add_row journey "cross-lab checks" "$JOURNEY_RES" SKIP "$((SECONDS - t0))" "total for the whole journey"
   if [[ $KEEP == 1 ]]; then
-    KEPT=1; log "journey stack kept: source ${ENV_ROOT#$REPO_ROOT/}/$JOURNEY_STACK/env.sh  (stop it with: scripts/cookbook-env.sh down $JOURNEY_STACK; helpers: kill ${HELPER_PIDS[*]-})"
+    KEPT=1; log "journey stack kept: source ${ENV_ROOT#"$REPO_ROOT"/}/$JOURNEY_STACK/env.sh  (stop it with: scripts/cookbook-env.sh down $JOURNEY_STACK; helpers: kill ${HELPER_PIDS[*]-})"
   else stop_stack; stop_helpers; fi
 }
 journey_check_step() {
@@ -510,14 +538,14 @@ journey_check_step() {
 
 # ---- main --------------------------------------------------------------------------------------
 T_START=$SECONDS
-log "cookbook-run-all: labs [$SELECTED] tier $TIER $([[ $WANT_API == 0 ]] && echo '(ui only) ')$([[ $WANT_UI == 0 ]] && echo '(api only) ')$([[ $JOURNEY == 1 ]] && echo '(journey) ')-> ${RUN_DIR#$REPO_ROOT/}"
+log "cookbook-run-all: labs [$SELECTED] tier $TIER $([[ $WANT_API == 0 ]] && echo '(ui only) ')$([[ $WANT_UI == 0 ]] && echo '(api only) ')$([[ $JOURNEY == 1 ]] && echo '(journey) ')-> ${RUN_DIR#"$REPO_ROOT"/}"
 log "building the web bundle if its sources changed"
 "$ENVSH" build-ui >"$RUN_DIR/build-ui.log" 2>&1 || { tail_log "$RUN_DIR/build-ui.log"; die "web bundle build failed"; }
 if [[ " $SELECTED " == *" 06 "* ]]; then warm_embedding_model || EMBED_MODEL_OK=0; fi
 if [[ $JOURNEY == 1 ]]; then
   journey
 else
-  count=0; total=$(wc -w <<<"$SELECTED")
+  count=0; total=$(( $(wc -w <<<"$SELECTED") ))   # arithmetic: macOS wc pads its number with spaces
   for n in $SELECTED; do count=$((count + 1)); last=0; [[ $count == "$total" ]] && last=1; run_lab "$n" "$last"; done
 fi
 print_table

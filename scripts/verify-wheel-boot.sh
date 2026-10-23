@@ -16,9 +16,11 @@
 # Usage:
 #   scripts/verify-wheel-boot.sh [--python PYTHON] WHEEL
 #
-#   --python PYTHON  interpreter for the venv (default: python3). Must be 3.10-3.12.
+#   --python PYTHON  interpreter for the venv (default: $PYTHON, else python3). Must be 3.10-3.12.
 #
-# Exit status is 0 only when every check passed. Nothing outside a scratch directory is
+# Needs: a Python 3.10-3.12 interpreter, curl, and network access to PyPI (pip resolves the wheel's
+# dependencies). Exit status: 0 only when every check passed, 1 for a failed check or missing
+# prerequisite, 2 for a usage error. Nothing outside a scratch directory is
 # modified and the server is stopped on exit. The full stack, with MLflow, is covered by
 # scripts/verify-alpha-install.sh; this script exists to be fast and to need no MLflow.
 
@@ -30,7 +32,7 @@ WHEEL=""
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --python) PYTHON="${2:?--python needs an interpreter}"; shift 2 ;;
-    -h|--help) sed -n '2,23p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+    -h|--help) awk 'NR == 1 { next } /^#/ { sub(/^# ?/, ""); print; next } { exit }' "$0"; exit 0 ;;
     -*) echo "verify-wheel-boot: unknown argument: $1" >&2; exit 2 ;;
     *) [[ -z "$WHEEL" ]] || { echo "verify-wheel-boot: one wheel only" >&2; exit 2; }; WHEEL="$1"; shift ;;
   esac
@@ -41,7 +43,7 @@ step() { printf '\n==> %s\n' "$*"; }
 
 [[ -n "$WHEEL" ]] || { echo "usage: verify-wheel-boot.sh [--python PYTHON] WHEEL" >&2; exit 2; }
 [[ -f "$WHEEL" ]] || fail "no such wheel: $WHEEL"
-command -v "$PYTHON" >/dev/null 2>&1 || fail "interpreter not found: $PYTHON"
+command -v "$PYTHON" >/dev/null 2>&1 || fail "interpreter not found: $PYTHON (install Python 3.10-3.12, or pass --python /path/to/python3.12)"
 # The script changes directory, so a relative interpreter path has to be pinned first.
 if [[ "$PYTHON" == */* ]]; then PYTHON="$(cd "$(dirname "$PYTHON")" && pwd)/$(basename "$PYTHON")"; fi
 WHEEL="$(cd "$(dirname "$WHEEL")" && pwd)/$(basename "$WHEEL")"
@@ -74,11 +76,19 @@ import sys
 raise SystemExit(0 if (3, 10) <= sys.version_info[:2] <= (3, 12) else 1)
 PY
 
+command -v curl >/dev/null 2>&1 || fail "curl is required (for example 'brew install curl' or 'sudo apt-get install curl')"
+
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/caliber-wheel-boot.XXXXXX")"
 SERVER_PID=""
+kill_tree() { # a process and its children
+  local child
+  for child in $(pgrep -P "$1" 2>/dev/null || true); do kill_tree "$child"; done
+  kill "$1" 2>/dev/null || true
+}
 cleanup() {
+  trap - EXIT
   if [[ -n "$SERVER_PID" ]]; then
-    kill "$SERVER_PID" 2>/dev/null || true
+    kill_tree "$SERVER_PID"
     wait "$SERVER_PID" 2>/dev/null || true
   fi
   rm -rf "$WORK"
@@ -90,7 +100,7 @@ cd "$WORK"
 "$PYTHON" -m venv venv
 # shellcheck disable=SC1091
 source venv/bin/activate
-pip install -q "$WHEEL"
+pip install -q "$WHEEL" || fail "pip could not install the wheel and its dependencies (is PyPI reachable? is the wheel built for this Python?)"
 command -v caliber-migrate >/dev/null || fail "caliber-migrate was not installed by the wheel"
 
 step "3. Migrate an empty database"
