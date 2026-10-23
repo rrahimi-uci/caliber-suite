@@ -1,0 +1,796 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Cookbook 19: Governed OpenAPI Tool | CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement</title>
+  <meta name="description" content="CALIBER Cookbooks — UI-only, build-along recipes for the platform.">
+  <link rel="icon" type="image/png" href="caliber-icon.png">
+  <script>
+    (function () {
+      try {
+        var t = localStorage.getItem("caliber-docs-theme");
+        if (t !== "light" && t !== "dark") t = window.matchMedia("(prefers-color-scheme: dark)").matches ? "dark" : "light";
+        document.documentElement.dataset.theme = t;
+      } catch (e) { document.documentElement.dataset.theme = "light"; }
+    })();
+  </script>
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <link rel="stylesheet" href="docs.css">
+  <script src="https://cdn.jsdelivr.net/npm/mermaid@11/dist/mermaid.min.js"></script>
+</head>
+
+<body data-doc-page="module">
+  <a class="skip-link" href="#docsContent">Skip to content</a>
+  <header class="topbar">
+    <div class="topbar-row">
+      <a class="topbar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <strong>CALIBER</strong>
+      </a>
+      <nav class="docs-section-tabs" id="docsSectionTabs" aria-label="Browse documentation sections"></nav>
+      <div class="topbar-actions">
+        <button type="button" class="topbar-search-trigger" id="topbarSearch" aria-label="Search docs" title="Search docs">
+          <svg class="topbar-search-icon" width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><circle cx="11" cy="11" r="7"/><line x1="21" y1="21" x2="16.65" y2="16.65"/></svg>
+          <span class="topbar-search-label">Search docs</span><span class="keycap" data-doc-search-key>⌘K</span>
+        </button>
+        <a class="topbar-cta" href="index.html#playbook-build">Quickstart</a>
+        <button type="button" class="theme-toggle" id="themeToggle" aria-label="Toggle dark mode" title="Toggle light / dark theme">
+          <svg class="icon-moon" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><path d="M21 12.79A9 9 0 1 1 11.21 3 7 7 0 0 0 21 12.79z"/></svg>
+          <svg class="icon-sun" width="17" height="17" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="5"/><line x1="12" y1="1" x2="12" y2="3"/><line x1="12" y1="21" x2="12" y2="23"/><line x1="4.22" y1="4.22" x2="5.64" y2="5.64"/><line x1="18.36" y1="18.36" x2="19.78" y2="19.78"/><line x1="1" y1="12" x2="3" y2="12"/><line x1="21" y1="12" x2="23" y2="12"/><line x1="4.22" y1="19.78" x2="5.64" y2="18.36"/><line x1="18.36" y1="5.64" x2="19.78" y2="4.22"/></svg>
+        </button>
+      </div>
+    </div>
+  </header>
+  <button type="button" class="menu-toggle" id="menuToggle" aria-label="Toggle menu" aria-controls="docsSidebar" aria-expanded="false">
+    <svg width="20" height="20" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="3" y1="6" x2="21" y2="6"/><line x1="3" y1="12" x2="21" y2="12"/><line x1="3" y1="18" x2="21" y2="18"/></svg>
+  </button>
+  <div class="layout">
+    <aside class="sidebar" id="docsSidebar">
+      <a class="sidebar-brand" href="index.html" aria-label="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" title="CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement docs home" style="text-decoration:none;color:inherit">
+        <img src="caliber-icon.png" alt="CALIBER logo"><div class="sidebar-brand-title">CALIBER</div>
+      </a>
+      <div class="sidebar-search"><input id="nav-filter" type="search" placeholder="Search docs and sections..." aria-label="Search docs and sections"></div>
+      <nav id="docs-nav" aria-label="Documentation"></nav>
+    </aside>
+    <main class="main" id="docsContent">
+      <article class="content doc-body ck-wide">
+        
+      <nav class="doc-breadcrumb" aria-label="Breadcrumb">
+        <span>Cookbooks</span><span aria-hidden="true">/</span>
+        <a href="m-16-cookbooks.html">All</a><span aria-hidden="true">/</span>
+        <span class="current">19 · Governed OpenAPI Tool</span>
+      </nav>
+      <header class="doc-header">
+        <p class="doc-eyebrow">Cookbook 19 · Build</p>
+        <h1>Governed OpenAPI Tool</h1>
+        <p class="doc-lead">Import an OpenAPI spec, curate a read-only tool pack and a governed write draft, publish both, and gate the write behind a second person.</p>
+        <div class="ck-badges"><span class="ck-badge ck-track">Build</span><span class="ck-badge ck-ok">Core</span><span class="ck-badge ck-orange">20–40 min</span></div>
+      </header>
+      <div class="ck-cols">
+        <div class="callout"><strong>What you build.</strong> A three-operation Ticket API (<code>assets/server/ticket_api.py</code>), imported by URL over CALIBER's guarded egress path. CALIBER normalizes and classifies the operations, auto-wires one dependency from an explicit OpenAPI <code>link</code>, and leaves a same-tag dependency for a human to confirm. A read-only tool pack binds two operations into one callable; a write draft defaults to requiring approval and cannot be previewed until an operator opts in. Both drafts publish into the ordinary tool registry, and the write tool's approval gate holds in a workflow until a second person decides. Reimporting the upstream's changed spec afterward shows the diff catching one breaking change and missing another, real one.
+          <div class="ck-surfaces"><span>Surfaces:</span> <span class="ck-badge ck-surface">OpenAPI Integrations</span> <span class="ck-badge ck-surface">Tools</span> <span class="ck-badge ck-surface">Workflows</span> <span class="ck-badge ck-surface">Audit Log</span></div></div>
+        <div class="callout ck-learn"><strong>What you learn</strong><ul><li>Create an integration and import a spec by URL (<strong>Integrations &gt; OpenAPI Integrations &gt; Import</strong>); see it normalize and classify every operation as read, write or external action automatically</li><li>Review <strong>Dependencies</strong>: an explicit OpenAPI link auto-wires at high confidence and cannot be reviewed (409); a weaker, same-tag match can be confirmed or rejected</li><li>Generate a tool pack from two selected operations (<strong>Operations &gt; bind as one tool pack</strong>) and a separate write draft; meet the write draft's preview refusal (409) until <strong>allow in preview</strong> is set</li><li>Publish both drafts (<strong>Tool Drafts &gt; Publish</strong>) into the standard tool registry, then bind the write tool in a workflow and watch a second person's approval hold it at <code>waiting_approval</code></li><li>Change the upstream's spec and <strong>Reimport &amp; diff</strong>: one breaking change (an operation marked deprecated) is caught; a new required request-body field is not, because the diff tracks a fixed set of fields</li></ul></div>
+      </div>
+      <h2 id="flow">Implementation flow</h2>
+      <div class="diagram"><pre class="mermaid">flowchart LR
+  IM[&quot;Import spec by URL&quot;] --&gt; CL[&quot;Classify: 2 read, 1 write&quot;]
+  CL --&gt; DEP[&quot;Auto-wire the explicit link&quot;]
+  CL --&gt; PACK[&quot;Generate a read-only tool pack&quot;]
+  CL --&gt; WRITE[&quot;Generate the write draft&quot;]
+  WRITE --&gt; GATE[&quot;Preview refused: 409&quot;]
+  GATE --&gt; OPTIN[&quot;allow_in_preview opt-in (break-glass)&quot;]
+  PACK --&gt; PUB[&quot;Publish into the tool registry&quot;]
+  OPTIN --&gt; PUB
+  PUB --&gt; WF[&quot;Workflow: waiting_approval&quot;]
+  WF --&gt; APR[&quot;Second person approves + Resume&quot;]
+  APR --&gt; RI[&quot;Reimport after a spec change&quot;]
+  RI --&gt; DIFF[&quot;Diff: 1 breaking, 1 change undetected&quot;]</pre></div>
+      <h2 id="steps">Step-by-step <span class="ck-uionly">UI only</span></h2>
+      <p class="ck-steps-lead">Each step shows the exact navigation path, the fields to fill, the button to click,
+        and a snapshot of the CALIBER screen you'll be on.</p>
+      <ol class="ck-steps"><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › OpenAPI Integrations</code> <span class="ck-made">creates · the upstream Ticket API</span> <a class="ck-assetref" href="#asset-assets-server-ticket-api-py">ticket_api.py ↓</a></div><div class="ck-step-do"><strong>Before you start:</strong> start CALIBER with <code>CALIBER_FEATURE_INTEGRATIONS=true</code>, the lab's upstream (<code>assets/server/ticket_api.py</code>) running and its host on <code>CALIBER_EGRESS_ALLOWED_HOSTS</code>, and <code>OPENAPI_TICKET_TOKEN</code> set in both. Click <strong>+ New Integration</strong>, name it <code>Ticketing</code>, <strong>Create</strong>.</div><div class="ck-click">Click <span class="ck-btn">+ New Integration</span></div><div class="ck-see"><strong>You'll see:</strong> The new integration's detail view opens, status <strong>draft</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Integrations › OpenAPI Integrations</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">OpenAPI Integrations</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">+ New Integration</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › OpenAPI Integrations › Import</code> <span class="ck-made">creates · the spec the upstream serves</span> <a class="ck-assetref" href="#asset-assets-dataset-ticket-api-v1-yaml">ticket-api-v1.yaml ↓</a></div><div class="ck-step-do">Click <strong>URL</strong>, paste the upstream's own <code>/openapi.yaml</code> address, click <strong>Check</strong> (reachable and allowed), then submit the import.</div><div class="ck-click">Click <span class="ck-btn">Import</span></div><div class="ck-see"><strong>You'll see:</strong> <code>Imported OAIV-1</code>; the integration moves to <strong>review</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Integrations › OpenAPI Integrations › Import</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Import</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Import</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › OpenAPI Integrations › Operations</code></div><div class="ck-step-do">Select both <code>GET /tickets</code> and <code>GET /tickets/{ticket_id}</code>, check <strong>bind as one tool pack</strong>, and click <strong>Generate tool draft(s)</strong>.</div><div class="ck-click">Click <span class="ck-btn">Generate tool draft(s)</span></div><div class="ck-see"><strong>You'll see:</strong> <code>Generated 1 tool draft</code>: a pack binding both read operations.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Integrations › OpenAPI Integrations › Operations</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Operations</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Generate tool draft(s)</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › OpenAPI Integrations › Dependencies</code></div><div class="ck-step-do">The row from <code>createTicket</code> to <code>getTicket</code> shows <strong>Auto-wired</strong> (an explicit OpenAPI link) with no action available. Filter to <strong>Awaiting Review</strong> and click <strong>Confirm</strong> on the same-tag advisory row.</div><div class="ck-click">Click <span class="ck-btn">Confirm</span></div><div class="ck-see"><strong>You'll see:</strong> The auto-wired row carries no Confirm/Reject action; the advisory row's status becomes <strong>confirmed</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Integrations › OpenAPI Integrations › Dependencies</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Dependencies</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Confirm</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › OpenAPI Integrations › Tool Drafts</code> <span class="ck-made">creates · the dependency the detector auto-wires</span> <a class="ck-assetref" href="#asset-assets-readme-md">the upstream&#x27;s three operations ↓</a></div><div class="ck-step-do">Open the pack draft, set <strong>Auth kind</strong> to <code>Bearer token</code> and the secret reference to <code>env://OPENAPI_TICKET_TOKEN</code>, <strong>Save</strong>, then <strong>Publish</strong>.</div><div class="ck-click">Click <span class="ck-btn">Publish</span></div><div class="ck-see"><strong>You'll see:</strong> <code>Tool published successfully</code>, naming the tool id and <code>openapi_http</code>; <strong>Open in Tool Registry</strong> links to it.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Integrations › OpenAPI Integrations › Tool Drafts</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Tool Drafts</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Publish</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › OpenAPI Integrations › Operations</code></div><div class="ck-step-do">Select <code>POST /tickets</code> alone and <strong>Generate tool draft(s)</strong> (no pack this time). Open the new draft, set the same bearer auth, and click <strong>Publish</strong> without checking anything else.</div><div class="ck-click">Click <span class="ck-btn">Generate tool draft(s)</span></div><div class="ck-see"><strong>You'll see:</strong> The draft's side-effect level is <strong>write</strong> and it already requires approval -- a write defaults to it.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Integrations › OpenAPI Integrations › Operations</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Operations</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Generate tool draft(s)</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › OpenAPI Integrations › Tool Drafts</code></div><div class="ck-step-do">Try <strong>Preview</strong> on the write draft before touching <strong>allow in preview</strong>.</div><div class="ck-click">Click <span class="ck-btn">Preview</span></div><div class="ck-see"><strong>You'll see:</strong> Refused: <em>set 'allow_in_preview' before running a live upstream call</em>. Toggle <strong>allow in preview</strong> on, <strong>Preview</strong> again, confirm it ran against the upstream, then toggle it back off.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Integrations › OpenAPI Integrations › Tool Drafts</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Tool Drafts</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Preview</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › OpenAPI Integrations › Tool Drafts</code></div><div class="ck-step-do">With <strong>allow in preview</strong> off again, click <strong>Publish</strong>.</div><div class="ck-click">Click <span class="ck-btn">Publish</span></div><div class="ck-see"><strong>You'll see:</strong> <code>Tool published successfully</code>; the published tool still carries <strong>requires approval</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Integrations › OpenAPI Integrations › Tool Drafts</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">Tool Drafts</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Publish</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Agent resources › Workflows</code> <span class="ck-made">creates · the one-tool workflow</span> <a class="ck-assetref" href="#asset-assets-workflow-file-ticket-workflow-yaml">file-ticket.workflow.yaml ↓</a></div><div class="ck-step-do">Fill <code>__TOOL_NAME__</code> in a copy of <a href="#asset-assets-workflow-file-ticket-workflow-yaml">file-ticket.workflow.yaml</a> with the published write tool's name. <strong>Import</strong>, <strong>Run</strong> with a ticket title as input. Approve yourself (refused), approve as the reviewer account in a second session, then <strong>Resume</strong>.</div><div class="ck-click">Click <span class="ck-btn">Run</span></div><div class="ck-see"><strong>You'll see:</strong> <strong>Awaiting approval</strong> at <code>call_tool</code>; <em>the account that triggered this run cannot approve it; a second person must decide</em>; after the reviewer approves and you <strong>Resume</strong>, <strong>completed</strong>.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Agent resources › Workflows</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-page">Workflows</span><span class="ck-mk-title">Workflows</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Run</span></div></div>
+      </div>
+    </figure></div></div></li><li><div class="ck-step-grid"><div class="ck-step-text"><div class="ck-step-head"><code class="ck-where">Integrations › OpenAPI Integrations</code> <span class="ck-made">creates · the changed spec</span> <a class="ck-assetref" href="#asset-assets-dataset-ticket-api-v2-yaml">ticket-api-v2.yaml ↓</a></div><div class="ck-step-do">Bump the upstream's served spec to v2 (<code>POST /admin/bump-spec</code> on the upstream itself), then click <strong>Reimport & diff</strong>.</div><div class="ck-click">Click <span class="ck-btn">Reimport &amp; diff</span></div><div class="ck-see"><strong>You'll see:</strong> <code>Re-imported OAIV-2: +0 -0 changed 2 (1 breaking)</code> -- the deprecation is caught; the new required <code>priority</code> field on <code>createTicket</code> is not.</div></div><div class="ck-step-snap"><div class="ck-snap-label">Screen snapshot</div><figure class="ck-mock" aria-label="CALIBER UI snapshot">
+      <div class="ck-mk-chrome"><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span><span class="ck-mk-dot"></span>
+        <span class="ck-mk-url">caliber · Integrations › OpenAPI Integrations</span></div>
+      <div class="ck-mk-screen">
+        <div class="ck-mk-bar"><span class="ck-mk-title">OpenAPI Integrations</span></div>
+        <div class="ck-mk-panel"><div class="ck-mk-actions"><span class="ck-mk-btn">Reimport &amp; diff</span></div></div>
+      </div>
+    </figure></div></div></li></ol>
+      <h2 id="assets">Assets (copy-paste)</h2><p class="ck-assets-lead">The exact files this cookbook uses — copy each into the matching field. Source: <code>docs-site/cookbooks/19-openapi-integration-governance-lab/assets/</code>.</p><div class="ck-asset" id="asset-assets-server-ticket-api-py">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/server/ticket_api.py</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="python"><code>#!/usr/bin/env python3
+&quot;&quot;&quot;A stand-in Ticket API for the OpenAPI Integration Governance lab. It is NOT a real system.
+
+CALIBER&#x27;s OpenAPI Integrations feature imports a spec and then calls a *real* upstream server —
+nothing about preview or publish is simulated. This 100-line server is that upstream: it serves its
+own OpenAPI document (so the lab can import it by URL, reimport it, and diff two versions) and the
+three ticket operations the document describes, behind the same bearer token CALIBER is configured
+to send.
+
+    python3 ticket_api.py [PORT]   # default 8781, listens on 127.0.0.1 only
+
+Environment:
+    OPENAPI_TICKET_TOKEN   the bearer token every call must present (default &quot;ticket-api-token&quot;)
+    TICKET_API_LEDGER  path to a JSONL file this server appends one line to per call it executes
+
+Routes:
+    GET  /health                    200, no auth
+    GET  /openapi.yaml              200, no auth -- the document at its current version (see below)
+    POST /admin/bump-spec           200 {&quot;spec_version&quot;: 2} -- switches the served document (and the
+                                     server&#x27;s own validation) from v1 to v2. Lab-only: a real upstream
+                                     would publish a new document at its own pace, not on a command.
+    GET  /tickets                   200 {&quot;total_count&quot;, &quot;items&quot;: [...]}; v2 accepts ?status=
+    POST /tickets                   201 {&quot;ticket_id&quot;, &quot;title&quot;, &quot;priority&quot;, &quot;status&quot;}; v1 requires only
+                                     &quot;title&quot;; v2 also requires &quot;priority&quot; (the breaking change the lab&#x27;s
+                                     reimport-and-diff step finds)
+    GET  /tickets/{ticket_id}       200, or 404 {&quot;error&quot;: &quot;unknown ticket&quot;}
+
+Every route but /health and /openapi.yaml requires ``Authorization: Bearer &lt;OPENAPI_TICKET_TOKEN&gt;``;
+anything else is a 401. The server keeps tickets in memory (gone on restart) and appends
+``{&quot;method&quot;, &quot;path&quot;, &quot;ok&quot;}`` to the ledger for every call it actually executes -- refused and
+unauthenticated calls never execute, so they never appear there. That is the proof the lab uses that
+a draft CALIBER refuses to preview (or a workflow run that is still waiting on approval) never reached
+this server.
+&quot;&quot;&quot;
+
+from __future__ import annotations
+
+import json
+import os
+import sys
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+from urllib.parse import parse_qs, urlparse
+
+SPEC_V1 = &quot;&quot;&quot;
+openapi: 3.0.3
+info:
+  title: Ticket API
+  version: &quot;2026-08-11&quot;
+  description: Manage tickets.
+servers:
+  - url: https://tickets.example.com
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+security:
+  - bearerAuth: []
+paths:
+  /tickets:
+    get:
+      operationId: listTickets
+      summary: List tickets
+      tags: [tickets]
+      responses:
+        &quot;200&quot;:
+          description: ok
+    post:
+      operationId: createTicket
+      summary: Create ticket
+      tags: [tickets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+              required: [title]
+      responses:
+        &quot;201&quot;:
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket_id:
+                    type: string
+          links:
+            GetCreatedTicket:
+              operationId: getTicket
+              parameters:
+                ticket_id: &quot;$response.body#/ticket_id&quot;
+  /tickets/{ticket_id}:
+    get:
+      operationId: getTicket
+      summary: Get one ticket
+      tags: [tickets]
+      parameters:
+        - in: path
+          name: ticket_id
+          required: true
+          schema:
+            type: string
+      responses:
+        &quot;200&quot;:
+          description: ok
+&quot;&quot;&quot;
+
+# v2 makes three changes, deliberately of three different kinds the lab&#x27;s reimport-and-diff step
+# tells apart:
+#   1. listTickets gains an optional `status` filter and a reworded summary. CALIBER&#x27;s diff compares
+#      a fixed set of normalized fields (summary, side_effect_level, deprecated, auth_schemes,
+#      request_body_required, request_content_types, response_statuses, tags) -- a new query
+#      PARAMETER is not one of them, so only the summary edit shows up, as a non-breaking &quot;changed&quot;.
+#   2. getTicket is marked deprecated: true -- a tracked field, and the one change `_breaking_reason`
+#      (caliber/src/caliber/integrations/openapi/diff.py) flags on its own: &quot;operation was deprecated&quot;.
+#   3. createTicket&#x27;s body gains a *required* `priority` field. `request_body_required` (whether a
+#      body is required at all) is tracked; which fields *within* it are required is not. The diff
+#      reports zero changes for createTicket even though the lab&#x27;s own write draft now fails at
+#      runtime without `priority` -- the real behavioral break the diff does not catch. See the
+#      README&#x27;s &quot;The trust boundary, honestly&quot;.
+SPEC_V2 = &quot;&quot;&quot;
+openapi: 3.0.3
+info:
+  title: Ticket API
+  version: &quot;2026-09-02&quot;
+  description: Manage tickets.
+servers:
+  - url: https://tickets.example.com
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+security:
+  - bearerAuth: []
+paths:
+  /tickets:
+    get:
+      operationId: listTickets
+      summary: List all tickets
+      tags: [tickets]
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            enum: [open, closed]
+      responses:
+        &quot;200&quot;:
+          description: ok
+    post:
+      operationId: createTicket
+      summary: Create ticket
+      tags: [tickets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                priority:
+                  type: string
+                  enum: [low, normal, high]
+              required: [title, priority]
+      responses:
+        &quot;201&quot;:
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket_id:
+                    type: string
+          links:
+            GetCreatedTicket:
+              operationId: getTicket
+              parameters:
+                ticket_id: &quot;$response.body#/ticket_id&quot;
+  /tickets/{ticket_id}:
+    get:
+      operationId: getTicket
+      summary: Get one ticket
+      deprecated: true
+      tags: [tickets]
+      parameters:
+        - in: path
+          name: ticket_id
+          required: true
+          schema:
+            type: string
+      responses:
+        &quot;200&quot;:
+          description: ok
+&quot;&quot;&quot;
+
+TOKEN = os.environ.get(&quot;OPENAPI_TICKET_TOKEN&quot;, &quot;ticket-api-token&quot;)
+_spec_version = 1
+_tickets: list[dict] = []
+_next_id = 1
+
+
+def _ledger_path() -&gt; str | None:
+    return os.environ.get(&quot;TICKET_API_LEDGER&quot;)
+
+
+def _ledger(method: str, path: str, ok: bool) -&gt; None:
+    ledger = _ledger_path()
+    if not ledger:
+        return
+    with open(ledger, &quot;a&quot;, encoding=&quot;utf-8&quot;) as handle:
+        handle.write(json.dumps({&quot;method&quot;: method, &quot;path&quot;: path, &quot;ok&quot;: ok}) + &quot;\n&quot;)
+
+
+class Handler(BaseHTTPRequestHandler):
+    def _send(self, status: int, body: dict) -&gt; None:
+        payload = json.dumps(body).encode()
+        self.send_response(status)
+        self.send_header(&quot;content-type&quot;, &quot;application/json&quot;)
+        self.send_header(&quot;content-length&quot;, str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _send_text(
+        self, status: int, body: str, content_type: str = &quot;application/yaml&quot;
+    ) -&gt; None:
+        payload = body.encode(&quot;utf-8&quot;)
+        self.send_response(status)
+        self.send_header(&quot;content-type&quot;, content_type)
+        self.send_header(&quot;content-length&quot;, str(len(payload)))
+        self.end_headers()
+        self.wfile.write(payload)
+
+    def _authorized(self) -&gt; bool:
+        return self.headers.get(&quot;Authorization&quot;) == f&quot;Bearer {TOKEN}&quot;
+
+    def _body(self) -&gt; dict:
+        length = int(self.headers.get(&quot;Content-Length&quot;, &quot;0&quot;))
+        raw = self.rfile.read(length) if length else b&quot;&quot;
+        return json.loads(raw) if raw else {}
+
+    def do_GET(self) -&gt; None:
+        url = urlparse(self.path)
+        if url.path == &quot;/health&quot;:
+            self._send(200, {&quot;ok&quot;: True})
+            return
+        if url.path == &quot;/openapi.yaml&quot;:
+            self._send_text(200, SPEC_V2 if _spec_version == 2 else SPEC_V1)
+            return
+        if not self._authorized():
+            self._send(401, {&quot;error&quot;: &quot;missing or wrong bearer token&quot;})
+            return
+        if url.path == &quot;/tickets&quot;:
+            status = (parse_qs(url.query).get(&quot;status&quot;) or [None])[0]
+            items = [t for t in _tickets if status is None or t[&quot;status&quot;] == status]
+            # Logged before the response is sent: a client must never be able to observe &quot;success&quot;
+            # before the upstream&#x27;s own record of it exists -- that record is this lab&#x27;s proof.
+            _ledger(&quot;GET&quot;, &quot;/tickets&quot;, True)
+            self._send(200, {&quot;total_count&quot;: len(items), &quot;items&quot;: items})
+            return
+        if url.path.startswith(&quot;/tickets/&quot;):
+            ticket_id = url.path.removeprefix(&quot;/tickets/&quot;)
+            found = next((t for t in _tickets if t[&quot;ticket_id&quot;] == ticket_id), None)
+            if found is None:
+                _ledger(&quot;GET&quot;, url.path, False)
+                self._send(404, {&quot;error&quot;: &quot;unknown ticket&quot;})
+                return
+            _ledger(&quot;GET&quot;, url.path, True)
+            self._send(200, found)
+            return
+        self._send(404, {&quot;error&quot;: &quot;not found&quot;})
+
+    def do_POST(self) -&gt; None:
+        global _spec_version, _next_id
+        url = urlparse(self.path)
+        if url.path == &quot;/admin/bump-spec&quot;:
+            _spec_version = 2
+            self._send(200, {&quot;spec_version&quot;: _spec_version})
+            return
+        if url.path == &quot;/admin/reset&quot;:
+            # Back to a pristine v1 upstream. bump-spec is permanent for the process, so anything
+            # that runs the lab twice against the same server (cookbook-run-all runs the SDK path
+            # and then the UI path) resets here instead of restarting the process.
+            _spec_version = 1
+            _tickets.clear()
+            _next_id = 1
+            self._send(200, {&quot;spec_version&quot;: _spec_version, &quot;tickets&quot;: 0})
+            return
+        if not self._authorized():
+            self._send(401, {&quot;error&quot;: &quot;missing or wrong bearer token&quot;})
+            return
+        if url.path == &quot;/tickets&quot;:
+            body = self._body()
+            title = body.get(&quot;title&quot;)
+            priority = body.get(&quot;priority&quot;)
+            if not title:
+                _ledger(&quot;POST&quot;, &quot;/tickets&quot;, False)
+                self._send(400, {&quot;error&quot;: &quot;title is required&quot;})
+                return
+            if _spec_version == 2 and not priority:
+                _ledger(&quot;POST&quot;, &quot;/tickets&quot;, False)
+                self._send(400, {&quot;error&quot;: &quot;priority is required&quot;})
+                return
+            ticket = {
+                &quot;ticket_id&quot;: f&quot;TCK-{_next_id}&quot;,
+                &quot;title&quot;: title,
+                &quot;priority&quot;: priority or &quot;normal&quot;,
+                &quot;status&quot;: &quot;open&quot;,
+            }
+            _next_id += 1
+            _tickets.append(ticket)
+            _ledger(&quot;POST&quot;, &quot;/tickets&quot;, True)
+            self._send(201, ticket)
+            return
+        self._send(404, {&quot;error&quot;: &quot;not found&quot;})
+
+    def log_message(self, format: str, *args: object) -&gt; None:
+        pass
+
+
+if __name__ == &quot;__main__&quot;:
+    port = int(sys.argv[1]) if len(sys.argv) &gt; 1 else 8781
+    ThreadingHTTPServer((&quot;127.0.0.1&quot;, port), Handler).serve_forever()
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-ticket-api-v1-yaml">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/ticket-api-v1.yaml</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="yaml"><code>openapi: 3.0.3
+info:
+  title: Ticket API
+  version: &quot;2026-08-11&quot;
+  description: Manage tickets.
+servers:
+  - url: https://tickets.example.com
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+security:
+  - bearerAuth: []
+paths:
+  /tickets:
+    get:
+      operationId: listTickets
+      summary: List tickets
+      tags: [tickets]
+      responses:
+        &quot;200&quot;:
+          description: ok
+    post:
+      operationId: createTicket
+      summary: Create ticket
+      tags: [tickets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+              required: [title]
+      responses:
+        &quot;201&quot;:
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket_id:
+                    type: string
+          links:
+            GetCreatedTicket:
+              operationId: getTicket
+              parameters:
+                ticket_id: &quot;$response.body#/ticket_id&quot;
+  /tickets/{ticket_id}:
+    get:
+      operationId: getTicket
+      summary: Get one ticket
+      tags: [tickets]
+      parameters:
+        - in: path
+          name: ticket_id
+          required: true
+          schema:
+            type: string
+      responses:
+        &quot;200&quot;:
+          description: ok
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-readme-md">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/README.md</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="markdown"><code># SCN-19 assets
+
+Everything the lab runs, from the [README](../README.md). There is nothing to author beyond the
+upstream itself: you import the lab&#x27;s own spec and curate the operations it discovers.
+
+| Folder | Files | Used for |
+| --- | --- | --- |
+| [`server/`](server/) | `ticket_api.py` | the upstream API CALIBER calls over real loopback HTTP: serves its own OpenAPI document and the three ticket operations it describes, behind a bearer token; `POST /admin/bump-spec` switches it to v2, `POST /admin/reset` puts it back to a pristine v1 |
+| [`dataset/`](dataset/) | `ticket-api-v1.yaml`, `ticket-api-v2.yaml` | the two spec versions the upstream serves at `/openapi.yaml`, before and after `POST /admin/bump-spec`; identical copies of the strings embedded in `ticket_api.py` |
+| [`workflow/`](workflow/) | `file-ticket.workflow.yaml` | a one-tool workflow binding the published write tool; fill `__TOOL_NAME__` (the script does) |
+
+## The upstream&#x27;s three operations
+
+| Operation | Side effect (derived automatically) | What it does |
+| --- | --- | --- |
+| `GET /tickets` (`listTickets`) | read | list tickets; v2 adds an optional `status` filter |
+| `GET /tickets/{ticket_id}` (`getTicket`) | read | one ticket by id, or 404; v2 marks it `deprecated` |
+| `POST /tickets` (`createTicket`) | write | create a ticket; v1 requires only `title`, v2 also requires `priority` at runtime |
+
+`createTicket`&#x27;s 201 response carries an OpenAPI `links` entry naming `getTicket` and mapping its
+`ticket_id` field to that operation&#x27;s path parameter -- the one **explicit** dependency source
+CALIBER&#x27;s detector auto-wires at high confidence and never offers for review. The same three
+operations also share one tag (`tickets`), which the detector&#x27;s weakest signal (same-tag grouping)
+turns into one or more low-confidence, advisory dependencies that an operator can confirm or reject.
+
+## v1 -&gt; v2, and what the diff does and does not catch
+
+CALIBER&#x27;s reimport diff compares a fixed set of normalized fields (summary, side-effect level,
+`deprecated`, auth, whether a body is required, content types, response statuses, tags) -- not every
+field. v2 makes three changes, deliberately of three kinds:
+
+| Change | Tracked field? | Diff reports it as |
+| --- | --- | --- |
+| `getTicket` marked `deprecated: true` | yes (`deprecated`) | **breaking** (&quot;operation was deprecated&quot;) |
+| `listTickets`&#x27;s summary reworded | yes (`summary`) | changed, not breaking |
+| `createTicket`&#x27;s body gains a *required* `priority` field | no -- only *whether* a body is required is tracked, not which fields within it are | **nothing**. The diff reports zero changes for `createTicket`, even though the published write tool now fails at runtime without `priority` |
+
+That third row is the lab&#x27;s point: the diff is a real, useful signal, and it is not a substitute for
+re-running a published tool&#x27;s calibration after a reimport.
+
+## The upstream&#x27;s own request log
+
+`ticket_api.py` keeps no database -- tickets live in memory and are gone on restart -- but it does
+append one JSON line (`{&quot;method&quot;, &quot;path&quot;, &quot;ok&quot;}`) to `TICKET_API_LEDGER` for every call it actually
+executes. A call CALIBER refuses (an unready draft, a blocked preview, an egress refusal) never
+reaches the process at all, so it never appears here. That is the same &quot;the ledger is the proof, not
+CALIBER&#x27;s own answer&quot; pattern cookbook 05 uses for its MCP server&#x27;s call ledger.
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-workflow-file-ticket-workflow-yaml">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/workflow/file-ticket.workflow.yaml</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="yaml"><code># A one-tool workflow that calls the published, OpenAPI-derived write tool. Published tools are
+# ordinary CaliberToolRegistry rows: this binds one exactly like docs-site/cookbooks/03&#x27;s
+# registered-tool workflow does (a `tool` node plus a `registry_ref` in `tools:`), not a special
+# OpenAPI node type. __TOOL_NAME__ is filled in by the lab script (or by hand, see the README) with
+# the name the draft was published under. Whether the run pauses for approval is a property of the
+# published tool itself (carried over from the draft&#x27;s requires_approval), not of this binding.
+schema_version: 1
+workflow_id: file-ticket
+name: file-ticket
+description: Call the published create-ticket tool from a workflow; a write that requires approval waits for a second person.
+runtime:
+  sdk: openai-agents-python
+  sdk_version_policy: runtime-pinned
+  compiler_version: caliber-workflow-compiler-v1
+  default_model_ref: CALIBER_WORKFLOW_DEFAULT_MODEL
+  session:
+    type: none
+nodes:
+  start:
+    id: start
+    type: start
+    outputs:
+      user_message:
+        type: string
+  call_tool:
+    id: call_tool
+    type: tool
+    tool_name: __TOOL_NAME__
+    inputs:
+      input:
+        type: string
+      arguments:
+        type: structured
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+      metadata:
+        type: structured
+  done:
+    id: done
+    type: output
+    inputs:
+      response:
+        type: string
+edges:
+  - id: e_start_call
+    from: start
+    to: call_tool
+    map:
+      user_message: input
+  - id: e_call_done
+    from: call_tool
+    to: done
+    map:
+      text: response
+tools:
+  __TOOL_NAME__:
+    registry_ref: tool.__TOOL_NAME__.v1
+    version_constraint: &quot;&gt;=1,&lt;2&quot;
+</code></pre>
+    </div><div class="ck-asset" id="asset-assets-dataset-ticket-api-v2-yaml">
+      <div class="ck-asset-bar"><span class="ck-asset-name">assets/dataset/ticket-api-v2.yaml</span>
+        <button type="button" class="ck-copy" data-ck-copy>Copy</button></div>
+      <pre data-lang="yaml"><code>openapi: 3.0.3
+info:
+  title: Ticket API
+  version: &quot;2026-09-02&quot;
+  description: Manage tickets.
+servers:
+  - url: https://tickets.example.com
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+security:
+  - bearerAuth: []
+paths:
+  /tickets:
+    get:
+      operationId: listTickets
+      summary: List all tickets
+      tags: [tickets]
+      parameters:
+        - in: query
+          name: status
+          required: false
+          schema:
+            type: string
+            enum: [open, closed]
+      responses:
+        &quot;200&quot;:
+          description: ok
+    post:
+      operationId: createTicket
+      summary: Create ticket
+      tags: [tickets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+                priority:
+                  type: string
+                  enum: [low, normal, high]
+              required: [title, priority]
+      responses:
+        &quot;201&quot;:
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket_id:
+                    type: string
+          links:
+            GetCreatedTicket:
+              operationId: getTicket
+              parameters:
+                ticket_id: &quot;$response.body#/ticket_id&quot;
+  /tickets/{ticket_id}:
+    get:
+      operationId: getTicket
+      summary: Get one ticket
+      deprecated: true
+      tags: [tickets]
+      parameters:
+        - in: path
+          name: ticket_id
+          required: true
+          schema:
+            type: string
+      responses:
+        &quot;200&quot;:
+          description: ok
+</code></pre>
+    </div>
+      <h2 id="gates">Evaluation &amp; quality gates</h2>
+      <div class="table-wrap"><table><thead><tr><th>Quality gate</th><th>Target</th></tr></thead><tbody><tr><td>Classification</td><td>3 operations normalized: GET /tickets and GET /tickets/{ticket_id} read, POST /tickets write</td></tr><tr><td>Dependency detection</td><td>exactly 1 auto-wired (high-confidence) dependency, from the explicit OpenAPI link; it cannot be reviewed (409)</td></tr><tr><td>Preview gate</td><td>the write draft is refused at preview (409) until allow_in_preview is set; the upstream's own request log shows no call for a refused preview</td></tr><tr><td>Role floors</td><td>a reviewer can preview (403 on publish); an editor can publish (403 on approve); only the reviewer role plus the platform approver scope can approve</td></tr><tr><td>Approval gate</td><td>the published write tool's workflow run pauses at waiting_approval and completes only after a second person approves and Resume is called</td></tr><tr><td>Reimport diff</td><td>changed_count 2, breaking_count 1 after the upstream's spec changes; the operation whose request body gained a required field is absent from "changed"</td></tr></tbody></table></div>
+      <div class="callout ck-notes"><strong>Developer notes &amp; gotchas</strong><ul><li><strong>Flags.</strong> <code>CALIBER_FEATURE_INTEGRATIONS=true</code> opens the OpenAPI Integrations page and API, shared with cookbook 05's MCP governance. Start with <code>scripts/cookbook-env.sh up lab19 --flags integrations</code>.</li><li><strong>Egress and the secret.</strong> The upstream runs on loopback, so <code>CALIBER_EGRESS_ALLOWED_HOSTS=127.0.0.1</code> is required for import, preview and reimport to reach it. <code>OPENAPI_TICKET_TOKEN</code> must be the same literal value in both the upstream's environment and CALIBER's (the auth binding reads it as <code>env://OPENAPI_TICKET_TOKEN</code>).</li><li><strong>Preview is not simulated.</strong> <code>result</code> is <code>{status_code, text, json, headers}</code> from a real outbound call; a non-2xx upstream response comes back as data, not as a thrown error.</li><li><strong>Four different gates, easy to conflate.</strong> <code>resource.execute</code> gates preview; the strictly narrower <code>resource.publish</code> gates publish; <code>resource.approve</code> plus the platform <strong>approver</strong> scope (independent of either) gates approving a workflow run.</li><li><strong>The trust boundary, honestly.</strong> The diff compares a fixed field set (summary, side-effect level, deprecated, auth, whether a body is required, content types, response statuses, tags) -- not which fields inside a body are required. A real breaking change can reimport clean; re-run a published tool's calibration after every reimport, not just the diff.</li><li><strong>Run it.</strong> Start the upstream first: <code>python3 docs-site/cookbooks/19-openapi-integration-governance-lab/assets/server/ticket_api.py 8781 &amp;</code>, then <code>cd sdk/caliber-sdk &amp;&amp; ../../caliber/.venv/bin/python -m examples.cookbooks.cookbook_19_openapi_integration_governance</code> (about a minute; <code>--cleanup</code> archives what it created).</li></ul></div>
+      <nav class="ck-pager"><a href="m-cookbook-18-projects-roles-tokens-audit.html">← Projects, Roles, Tokens &amp; Audit</a><a class="ck-pager-up" href="m-16-cookbooks.html">All cookbooks</a><span></span></nav>
+        <footer><p>CALIBER : Contextual Adaptive Lifecycle for Intelligent Build, Evaluation, and Refinement — Cookbooks — every recipe is UI-implementable on the shipped platform.
+        Source + assets under <code>docs-site/cookbooks/&lt;nn&gt;-…/</code>. Regenerate with <code>python3 docs-site/cookbooks/training/build.py</code>.</p></footer>
+      </article>
+    </main>
+    <aside class="toc" aria-label="On this page">
+      <div class="toc-card"><div class="toc-title">On this page</div><nav class="toc-links" id="page-toc"></nav></div>
+    </aside>
+  </div>
+  <script defer src="docs-nav.js"></script>
+  <script defer src="docs.js"></script>
+  <script>
+    document.addEventListener("click", function (e) {
+      var b = e.target.closest("[data-ck-copy]"); if (!b) return;
+      var pre = b.closest(".ck-asset").querySelector("pre code");
+      var txt = pre ? pre.textContent : "";
+      (navigator.clipboard ? navigator.clipboard.writeText(txt) : Promise.reject()).then(function () {
+        var old = b.textContent; b.textContent = "Copied"; b.classList.add("ok");
+        setTimeout(function () { b.textContent = old; b.classList.remove("ok"); }, 1400);
+      }).catch(function () { b.textContent = "Select + copy"; });
+    });
+  </script>
+</body>
+
+</html>

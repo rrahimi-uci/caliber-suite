@@ -1,0 +1,42 @@
+id: SCN-19
+slug: openapi-integration-governance-lab
+name: "Governed OpenAPI Tool"
+track: starter
+objective: Import an OpenAPI spec, curate it into a read-only tool pack and a governed write tool, publish both, and prove the write waits for a second person.
+why_it_matters:
+  - Importing a spec is not the same as trusting it with runtime calls; curation and publication are separate, explicit, human-gated steps.
+  - A write operation defaults to requiring approval, and the same flag that blocks preview blocks the published tool in a workflow -- one property, two gates.
+  - A spec's own diff can miss a real behavioral change: knowing what CALIBER's diff does and does not track is part of operating this feature safely.
+primary_persona: platform engineer
+secondary_personas:
+  - developer
+  - AI engineer
+caliber_surfaces:
+  - OpenAPI Integrations
+  - Tools
+  - Workflows
+  - Audit Log
+prerequisites:
+  - CALIBER_FEATURE_INTEGRATIONS=true (preview area, off by default; shared with cookbook 05).
+  - A reachable upstream HTTP API (the lab ships one, assets/server/ticket_api.py) and its host on CALIBER_EGRESS_ALLOWED_HOSTS.
+  - Accounts for an operator, a reviewer and a viewer; CALIBER_OPERATOR_USERS and CALIBER_APPROVER_USERS name the roles that can publish and approve.
+time_to_first_value: 20-40 minutes
+success_criteria:
+  - Importing the spec normalizes three operations and auto-wires one dependency from an explicit OpenAPI link.
+  - A write draft cannot be previewed until allow_in_preview is set, and publishing it needs both a project role and a platform scope beyond what previewing needs.
+  - The published write tool waits for a second person's approval in a workflow, exactly like a registered Python tool would.
+  - Reimporting after the upstream's spec changes reports one breaking change and is silent about one real behavioral change it does not track.
+demo_profile:
+  recommended_sequence_index: 5
+  tier: foundation
+  live_demo_minutes: 20-35
+  depends_on: []
+  included_in:
+    - quick_reliability
+    - end_to_end
+    - release_governance
+  showcase_capabilities:
+    - OpenAPI import and curation
+    - deterministic dependency detection
+    - tool packs
+    - the preview and approval gates on a governed write

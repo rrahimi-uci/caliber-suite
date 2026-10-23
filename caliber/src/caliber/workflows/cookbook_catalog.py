@@ -238,6 +238,22 @@ _RECIPES: tuple[dict[str, Any], ...] = (
             "Accounts for the team, with the operator and approver platform scopes set for them",
         ],
     },
+    {
+        "id": "19",
+        "slug": "openapi-integration-governance",
+        "title": "Governed OpenAPI Tool",
+        "summary": (
+            "Import an OpenAPI spec, curate a read-only tool pack and a governed write draft, "
+            "publish both into the tool registry, and gate the write behind a second person."
+        ),
+        "icon": "🧩",
+        "template_kind": "single_agent",
+        "capabilities": ["OpenAPI", "dependency detection", "tool packs", "approval gate"],
+        "prerequisites": [
+            "A reachable upstream HTTP API (the lab ships a stand-in) and the integrations "
+            "preview flag"
+        ],
+    },
 )
 
 
@@ -800,6 +816,33 @@ _RECIPE_STEPS: dict[str, tuple[dict[str, str], ...]] = {
         {"title": "Read the audit log", "route": "/audit-log"},
         {"title": "Read the release timeline and the live board", "route": "/releases"},
         {"title": "Read readiness: the health dot and the simulated-provider banner", "route": "/"},
+    ),
+    "19": (
+        {"title": "Create the integration", "route": "/openapi-integrations"},
+        {"title": "Import the spec from the upstream's own URL", "route": "/openapi-integrations"},
+        {
+            "title": "Review operations and generate the read-only tool pack",
+            "route": "/openapi-integrations",
+        },
+        {
+            "title": "Review dependencies: confirm the advisory one, meet the auto-wired one",
+            "route": "/openapi-integrations",
+        },
+        {"title": "Configure auth and publish the read pack", "route": "/openapi-integrations"},
+        {
+            "title": "Generate the write draft and meet the preview gate",
+            "route": "/openapi-integrations",
+        },
+        {
+            "title": "Break-glass: opt the write draft into preview once, then re-gate it",
+            "route": "/openapi-integrations",
+        },
+        {"title": "Publish the write draft", "route": "/openapi-integrations"},
+        {"title": "Gate the write behind a second person in a workflow", "route": "/workflows"},
+        {
+            "title": "Reimport after the upstream spec changes and read the diff",
+            "route": "/openapi-integrations",
+        },
     ),
 }
 

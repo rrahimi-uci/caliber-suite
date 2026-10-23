@@ -1,0 +1,56 @@
+workflow_goal: Curate an OpenAPI spec into governed tools, and prove a write draft cannot fire until an operator explicitly opts in.
+# Verified by running the lab against a real stack (scripts/cookbook-env.sh up lab19) -- see README.md.
+feasibility:
+  - The upstream is the lab's own (assets/server/ticket_api.py), a real loopback HTTP server CALIBER calls for real -- import, preview and reimport are genuine outbound HTTP, guarded by the egress policy the same way a workflow api_request node is. A cloud-metadata-range host is refused even though it was never registered as a server, the way lab05's loopback MCP host is refused by the same policy.
+  - Importing a spec never creates a runtime tool by itself. Curation (generate_tool_drafts) and publication (publish_tool_draft) are the two explicit steps that do, and a draft's side_effect_level is derived automatically from the OpenAPI operation (HTTP method and path/operationId tokens), not hand-declared.
+  - Dependency detection is deterministic and tiered: an explicit OpenAPI `links` entry auto-wires at high confidence and cannot be reviewed (409); a structural match (path hierarchy, identifier-field matching) lands as medium-confidence "suggested"; a same-tag grouping lands as low-confidence "advisory". No LLM is involved in any tier.
+  - A write draft defaults to requires_approval and cannot be fired through preview until an operator sets allow_in_preview -- the OpenAPI analogue of the admin Playground's break-glass behavior in cookbook 05. Once published, the same requires_approval flag is an ordinary CaliberToolRegistry field: bound in a workflow, it pauses the run at waiting_approval until a second person (the project's reviewer role, holding the platform approver scope) approves and the run is resumed.
+  - Publishing needs a project role of owner or editor (resource.publish) plus the platform operator scope; previewing needs only resource.execute (owner, editor or reviewer) plus admin-or-operator scope -- a reviewer can preview a draft they could never publish.
+  - The diff between two imported versions compares a fixed set of normalized fields (summary, side_effect_level, deprecated, auth_schemes, request_body_required, request_content_types, response_statuses, tags). A newly required field *inside* a request body is not one of them: the diff can report zero changes for an operation whose real behavior just broke.
+manual_flow:
+  - step: curate
+    action: create an integration, import the upstream's spec by URL, review operations and dependencies
+  - step: generate
+    action: generate a read-only tool pack and a write draft from selected operations
+  - step: gate
+    action: meet the preview gate on the write draft, then publish both drafts
+  - step: approve
+    action: bind the write tool in a workflow; a second person approves before it runs
+  - step: reimport
+    action: reimport after the upstream's spec changes and read the diff
+components:
+  prompts: none
+  skills: none
+  tools: openapi_derived_only
+  mcp: none
+  openapi:
+    required:
+      - assets/server/ticket_api.py over real loopback HTTP
+    curation_fields:
+      - side_effect_level      # derived automatically from the operation; read | write | external_action
+      - requires_approval      # defaults true for a non-read operation; gates the published tool in a workflow
+      - allow_in_preview       # opt-in; without it preview refuses a write draft (409)
+      - auth_binding           # a bearer env:// secret reference in this lab
+  workflow: assets/workflow/file-ticket.workflow.yaml
+contracts:
+  input_schema:
+    type: object
+    properties:
+      path_params:
+        type: object
+      query_params:
+        type: object
+      body:
+        type: object
+  output_schema:
+    type: object
+    required: [status_code, text, json, headers]
+failure_modes:
+  - host_not_egress_allowed
+  - unclassified_or_unready_draft
+  - write_draft_not_previewable
+  - insufficient_project_role
+  - diff_misses_an_untracked_field_change
+fallbacks:
+  - keep a write draft's allow_in_preview off by default; opt in deliberately, once, when you need to prove it works.
+  - re-run a published tool's calibration after every reimport, not just the diff.

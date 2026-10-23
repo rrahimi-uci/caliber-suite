@@ -70,5 +70,9 @@
   {
     "href": "m-cookbook-18-projects-roles-tokens-audit.html",
     "label": "18 \u00b7 Projects, Roles, Tokens & Audit"
+  },
+  {
+    "href": "m-cookbook-19-openapi-governance.html",
+    "label": "19 \u00b7 Governed OpenAPI Tool"
   }
 ]

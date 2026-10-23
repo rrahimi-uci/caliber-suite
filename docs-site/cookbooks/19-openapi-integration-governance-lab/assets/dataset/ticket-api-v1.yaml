@@ -1,0 +1,66 @@
+openapi: 3.0.3
+info:
+  title: Ticket API
+  version: "2026-08-11"
+  description: Manage tickets.
+servers:
+  - url: https://tickets.example.com
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+security:
+  - bearerAuth: []
+paths:
+  /tickets:
+    get:
+      operationId: listTickets
+      summary: List tickets
+      tags: [tickets]
+      responses:
+        "200":
+          description: ok
+    post:
+      operationId: createTicket
+      summary: Create ticket
+      tags: [tickets]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              type: object
+              properties:
+                title:
+                  type: string
+              required: [title]
+      responses:
+        "201":
+          description: created
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  ticket_id:
+                    type: string
+          links:
+            GetCreatedTicket:
+              operationId: getTicket
+              parameters:
+                ticket_id: "$response.body#/ticket_id"
+  /tickets/{ticket_id}:
+    get:
+      operationId: getTicket
+      summary: Get one ticket
+      tags: [tickets]
+      parameters:
+        - in: path
+          name: ticket_id
+          required: true
+          schema:
+            type: string
+      responses:
+        "200":
+          description: ok

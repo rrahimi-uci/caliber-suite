@@ -313,6 +313,11 @@ window.DOCS_DATA = {
           "href": "m-cookbook-18-projects-roles-tokens-audit.html",
           "label": "18 · Projects, Roles, Tokens & Audit",
           "newtab": false
+        },
+        {
+          "href": "m-cookbook-19-openapi-governance.html",
+          "label": "19 · Governed OpenAPI Tool",
+          "newtab": false
         }
       ]
     },
@@ -2654,6 +2659,29 @@ window.DOCS_DATA = {
     {
       "href": "m-cookbook-18-projects-roles-tokens-audit.html",
       "label": "18 · Projects, Roles, Tokens & Audit",
+      "section": "Examples",
+      "section_id": "examples",
+      "summary": "",
+      "audience": [
+        "developer",
+        "operator",
+        "system-user"
+      ],
+      "doc_type": "example",
+      "prerequisites": [],
+      "stability": "ga",
+      "reviewed_on": "2026-08-10",
+      "version_applicability": "current main branch docs contract",
+      "tags": [
+        "cookbook",
+        "example"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-cookbook-19-openapi-governance.html",
+      "label": "19 · Governed OpenAPI Tool",
       "section": "Examples",
       "section_id": "examples",
       "summary": "",

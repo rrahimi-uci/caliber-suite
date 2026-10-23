@@ -1,0 +1,61 @@
+# A one-tool workflow that calls the published, OpenAPI-derived write tool. Published tools are
+# ordinary CaliberToolRegistry rows: this binds one exactly like docs-site/cookbooks/03's
+# registered-tool workflow does (a `tool` node plus a `registry_ref` in `tools:`), not a special
+# OpenAPI node type. __TOOL_NAME__ is filled in by the lab script (or by hand, see the README) with
+# the name the draft was published under. Whether the run pauses for approval is a property of the
+# published tool itself (carried over from the draft's requires_approval), not of this binding.
+schema_version: 1
+workflow_id: file-ticket
+name: file-ticket
+description: Call the published create-ticket tool from a workflow; a write that requires approval waits for a second person.
+runtime:
+  sdk: openai-agents-python
+  sdk_version_policy: runtime-pinned
+  compiler_version: caliber-workflow-compiler-v1
+  default_model_ref: CALIBER_WORKFLOW_DEFAULT_MODEL
+  session:
+    type: none
+nodes:
+  start:
+    id: start
+    type: start
+    outputs:
+      user_message:
+        type: string
+  call_tool:
+    id: call_tool
+    type: tool
+    tool_name: __TOOL_NAME__
+    inputs:
+      input:
+        type: string
+      arguments:
+        type: structured
+    outputs:
+      text:
+        type: string
+      result:
+        type: structured
+      metadata:
+        type: structured
+  done:
+    id: done
+    type: output
+    inputs:
+      response:
+        type: string
+edges:
+  - id: e_start_call
+    from: start
+    to: call_tool
+    map:
+      user_message: input
+  - id: e_call_done
+    from: call_tool
+    to: done
+    map:
+      text: response
+tools:
+  __TOOL_NAME__:
+    registry_ref: tool.__TOOL_NAME__.v1
+    version_constraint: ">=1,<2"

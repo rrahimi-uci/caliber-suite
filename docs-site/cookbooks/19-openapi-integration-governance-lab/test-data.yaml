@@ -1,0 +1,31 @@
+# The cases live in the spec itself (assets/dataset/) and the stand-in server's behavior
+# (assets/server/ticket_api.py); this file names the representative ones.
+golden_cases:
+  - id: listTickets
+    operation: "GET /tickets"
+    side_effect_level: read
+    note: bound into the read-only tool pack alongside getTicket
+  - id: getTicket
+    operation: "GET /tickets/{ticket_id}"
+    side_effect_level: read
+    note: the auto-wired dependency's target (an explicit OpenAPI link from createTicket)
+edge_cases:
+  - id: getTicket-unknown
+    operation: "GET /tickets/{ticket_id}"
+    input: {path_params: {ticket_id: "TCK-404"}}
+    expected: {status_code: 404}
+  - id: egress-blocked-host
+    check: validate-spec-source
+    input: {spec_url: "http://169.254.169.254/openapi.yaml"}
+    expected: {allowed: false}
+negative_cases:
+  - id: write-not-previewable
+    operation: "POST /tickets"
+    expected_error: "set 'allow_in_preview' before running a live upstream call"
+  - id: write-missing-required-field-in-v2
+    operation: "POST /tickets"
+    input: {body: {title: "no priority"}}
+    note: refused by the upstream at runtime once the spec is reimported at v2; CALIBER's diff does not flag this change
+datasets:
+  spec_v1: assets/dataset/ticket-api-v1.yaml
+  spec_v2: assets/dataset/ticket-api-v2.yaml
