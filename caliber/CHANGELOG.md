@@ -5,29 +5,7 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.1.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
-## [Unreleased]
-
-### Fixed
-
-- **Aria no longer pretends on an install with no engine key.** Aria ships on, and without `OPENAI_API_KEY` or
-  `ANTHROPIC_API_KEY` the default `assistant_engine=auto` resolves to an engine that cannot answer. The top-bar
-  toggle and chat replies already said so; two places did not. `POST /assistant/prompt-draft` ("Describe it")
-  answered HTTP 200 with an empty draft, and the prompt builder then seeded the user's own text as if the assistant
-  had drafted it: it now answers 503 with the actionable reason (an engine that answered but produced no usable
-  draft still falls back to the manual builder). And the Aria panel now shows the reason as soon as it opens, rather
-  than after a failed first message.
-
-### Changed
-
-- **Aria now ships on by default.** `CALIBER_FEATURE_ARIA` (`feature_aria_enabled`) defaults to `true` instead
-  of `false`; the other three alpha feature flags (`CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS`,
-  `CALIBER_FEATURE_RELEASE_CANDIDATES`) are unchanged and still default to `false`. The `/assistant/*` and
-  `/aria/*` routes, the Aria panel, the Plans page, and the Aria-backed helpers inside the prompt workspace
-  (Ask Aria, Describe it, the Playground, test-case generation) are now visible out of the box; set
-  `CALIBER_FEATURE_ARIA=false` and restart for a deployment that wants Aria off. `CALIBER_ASSISTANT_ENABLED`
-  and a configured engine still decide whether an enabled assistant actually answers.
-
-## [0.1.0a1] - 2026-10-14
+## [0.1.0a1] - 2026-10-23
 
 First alpha. What it does, what it does not and the known limitations are in the
 [alpha scope note](../docs/start/alpha-scope.md); how it was verified is in
@@ -35,11 +13,26 @@ First alpha. What it does, what it does not and the known limitations are in the
 
 ### Added
 
-- **The preview, record-only and experimental areas are off by default, behind four feature flags.** Aria and plans
+- **Real providers from `.env`, and nothing simulated without saying so.** `CALIBER_LLM_PROVIDER`,
+  `CALIBER_EVAL_PROVIDER` and `CALIBER_WORKFLOW_LLM_JUDGE_ENABLED` accept `auto` (the container default): the
+  LLM is real (`openai`) when `OPENAI_API_KEY` is present, the evaluator follows it (`mlflow` or `fake`), and the
+  workflow judge follows the LLM. With no key the stack still starts, logs a SIMULATED warning, and reports it.
+  `CALIBER_ASSISTANT_ENGINE=auto` picks OpenAI, then Anthropic, by key, through one shared resolver that Aria, the
+  assistant routes and knowledge-base answers all use. Library defaults stay `fake`; only `CaliberConfig.load()`
+  resolves `auto`, and explicit values are never touched. `GET /readiness` gains `ai_components` (workflow agents,
+  evaluation, workflow judge, Aria, knowledge answers: `real`, `simulated`, `unconfigured` or `off`) and
+  `all_ai_real`; the text never names a key variable or value. `./start.sh` prints the same summary, the compose
+  file passes the assistant and judge variables through (it used to drop them and hard-code the evaluator), and
+  `.env.example` documents which key drives what. Anthropic keys power Aria, knowledge-base answers and
+  Claude-model judges; workflow agents and calibration need `OPENAI_API_KEY` (`llm_provider=anthropic` cannot boot).
+- **Cookbook labs 19, 20 and 21** (governed OpenAPI tool, metered LLM gateway, workspace source-to-release),
+  bringing the gallery to twenty labs plus the standalone SDK script 17.
+
+- **The preview, record-only and experimental areas sit behind four feature flags (Aria on, the other three off by default).** Aria and plans
   (`CALIBER_FEATURE_ARIA`), MCP servers and OpenAPI integrations (`CALIBER_FEATURE_INTEGRATIONS`), cookbooks
   (`CALIBER_FEATURE_COOKBOOKS`), and release-candidate signoff with Workspace releases
   (`CALIBER_FEATURE_RELEASE_CANDIDATES`) used to be fully reachable on a default install, marked only by labels.
-  Each is now a `feature_<id>_enabled` setting that defaults to false. While one is off, every route of its area
+  Each is now a `feature_<id>_enabled` setting (`false` by default, except Aria, which ships on). While one is off, every route of its area
   answers 404 with `reason_code: feature_disabled` and the variable to set, the web app hides its navigation entries
   and shows a "disabled in this deployment" panel on a direct URL, and a workflow MCP node is reported as unavailable.
   `GET /capabilities` returns `features` (`enabled`, `env_var`, `label`, `stability` for each of the four ids), and
@@ -79,6 +72,38 @@ First alpha. What it does, what it does not and the known limitations are in the
   evidence (badged "Simulated evaluation — not evidence" when it is, with the real example count) and an
   **Apply to skill** button, and the Author stage shows the version history with **Roll back**. A browser spec
   and an SDK test drive the whole loop, and `docs/use/skills.md` walks it step by step.
+
+### Fixed
+
+- **Aria no longer pretends on an install with no engine key.** Aria ships on, and without `OPENAI_API_KEY` or
+  `ANTHROPIC_API_KEY` the default `assistant_engine=auto` resolves to an engine that cannot answer. The top-bar
+  toggle and chat replies already said so; two places did not. `POST /assistant/prompt-draft` ("Describe it")
+  answered HTTP 200 with an empty draft, and the prompt builder then seeded the user's own text as if the assistant
+  had drafted it: it now answers 503 with the actionable reason (an engine that answered but produced no usable
+  draft still falls back to the manual builder). And the Aria panel now shows the reason as soon as it opens, rather
+  than after a failed first message.
+
+- **Aria engines pick up a key added after boot, and test-case generation is honest.** The OpenAI and Anthropic
+  engines read their key from the environment on each use instead of caching a missing key for the life of the
+  process. `generate_test_cases` raises "assistant unavailable" for a real engine that fails or returns prose,
+  and only the fake engine returns canned cases, which the result marks `simulated`. Knowledge-base answers use the
+  shared engine resolver instead of a private copy.
+- **Operator scripts.** `start.sh` no longer crashes on macOS's bash 3.2, checks Compose v2.20+ and ports, and waits
+  for health; `test-all.sh` runs the web-app unit tests; `cookbook-env.sh` finds the virtual environment and rejects
+  flags on `restart`; `run-playwright-server.sh` no longer reads the root `.env` by default; destructive `rm -rf`
+  calls are guarded; `deploy/mlflow/Dockerfile` pins `mlflow>=3.15` like the server.
+- **Documentation audit.** Every page, cookbook README and script was re-executed against the code; prerequisite,
+  command and port errors were corrected, and the root README was rewritten around a verified fresh-clone path.
+
+### Changed
+
+- **Aria now ships on by default.** `CALIBER_FEATURE_ARIA` (`feature_aria_enabled`) defaults to `true` instead
+  of `false`; the other three alpha feature flags (`CALIBER_FEATURE_INTEGRATIONS`, `CALIBER_FEATURE_COOKBOOKS`,
+  `CALIBER_FEATURE_RELEASE_CANDIDATES`) are unchanged and still default to `false`. The `/assistant/*` and
+  `/aria/*` routes, the Aria panel, the Plans page, and the Aria-backed helpers inside the prompt workspace
+  (Ask Aria, Describe it, the Playground, test-case generation) are now visible out of the box; set
+  `CALIBER_FEATURE_ARIA=false` and restart for a deployment that wants Aria off. `CALIBER_ASSISTANT_ENABLED`
+  and a configured engine still decide whether an enabled assistant actually answers.
 
 ### Fixed
 
