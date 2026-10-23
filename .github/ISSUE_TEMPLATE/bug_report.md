@@ -21,7 +21,12 @@ What you expected to happen.
 
 - OS:
 - Python version:
-- Commit/tag:
+- CALIBER version or commit (`pip show caliber-suite`, or the commit hash of your checkout):
+- How you installed it (wheels per docs/start/alpha-install.md, or `make start` / Docker Compose):
+- MLflow version:
+- Feature flags you changed (`CALIBER_FEATURE_*`), and your `/readiness` output if the problem is at startup:
+
+Do not paste tokens, passwords or API keys. For a security problem, follow SECURITY.md instead of filing a public issue.
 
 ## Additional context
 

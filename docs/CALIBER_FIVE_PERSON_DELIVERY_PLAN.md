@@ -1,4 +1,8 @@
-# Caliber delivery plan for a five-person team
+# CALIBER delivery plan for a five-person team
+
+> **Planning proposal, not a commitment and not part of the `0.1.0a1` alpha.** It describes a possible post-alpha program
+> (a Beta and an MVP gate) built on the [reference architecture gap analysis](CALIBER_REFERENCE_ARCHITECTURE_GAP_ANALYSIS.md).
+> The current product boundary is [Alpha scope and limitations](start/alpha-scope.md).
 
 ## Decision and planning basis
 
@@ -8,7 +12,7 @@ This plan refines the [reference architecture gap analysis](CALIBER_REFERENCE_AR
 
 **Staffing assumption:** “5 person per week” means five full-time people, each available five working days per week. If it means five person-days total per week, this schedule does not apply. Week 1 starts when the named team, supported scope, synthetic downstream fixture and development environments are available; no calendar start date is assumed.
 
-Evidence baseline: this planning refinement starts from Caliber `b137bd1bd5faf096dde49c81893465cd2535b2f8`; the technical assessment and book snapshots remain those recorded in the gap analysis. It is a capacity and sequencing refinement, not a new implementation audit or a refreshed publication-status claim.
+Evidence baseline: this planning refinement starts from CALIBER `b137bd1bd5faf096dde49c81893465cd2535b2f8`; the technical assessment and book snapshots remain those recorded in the gap analysis. It is a capacity and sequencing refinement, not a new implementation audit or a refreshed publication-status claim.
 
 ### What the team is building
 
@@ -277,7 +281,7 @@ QA is performed by the **same five-person team**. E coordinates the test matrix;
 
 At the week-2 and week-4 reviews and the week-5 acceptance review, show a functioning public path, retained failure evidence and the remaining blockers. Report **accepted base PW**, reserved capacity consumed and actual availability, alongside completed child tickets; never convert raw ticket counts or story points into architectural coverage.
 
-Keep implementation tickets to **1–2 developer days** as specified in [the existing roadmap](docs/roadmap.md). Treat package estimates as budgets including review/integration, not promises to issue a fixed number of tickets. Before a milestone starts, refine its first two weeks only into fully specified child issues; retain the rest as an ordered package checklist to avoid hundreds of speculative tickets.
+Keep implementation tickets to **1–2 developer days** as specified in [the existing roadmap](roadmap.md). Treat package estimates as budgets including review/integration, not promises to issue a fixed number of tickets. Before a milestone starts, refine its first two weeks only into fully specified child issues; retain the rest as an ordered package checklist to avoid hundreds of speculative tickets.
 
 Every child issue must include:
 

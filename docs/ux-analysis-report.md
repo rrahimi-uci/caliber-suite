@@ -269,7 +269,7 @@ audience taxonomy in frontmatter. Counting `audience:` values across `docs/`:
 | `system-user`    | 14          | `caliber.viewer`                             |
 | `decision-maker` | 9           | `caliber.approver` (partially)               |
 
-The authorization model in [auth.py:85-106](caliber/src/caliber/auth.py#L85-L106)
+The authorization model in [auth.py:85-106](../caliber/src/caliber/auth.py#L85-L106)
 recognises exactly four scopes, in an implication hierarchy:
 
 ```text
@@ -340,7 +340,7 @@ point that assembles them. Developed in §7.2.
 > polled every 30 seconds) but is only polled while Aria is on.
 
 The IA is declared as data in
-[Sidebar.tsx:199-261](caliber/caliber-ui/src/components/Sidebar.tsx#L199-L261) —
+[Sidebar.tsx:199-261](../caliber/caliber-ui/src/components/Sidebar.tsx#L199-L261) —
 6 collapsible groups, 21 in-app destinations, plus a Dashboard and an external
 Docs link.
 
@@ -388,13 +388,13 @@ flowchart TD
 
 Only one destination in the entire navigation carries a badge — Plans, driven by
 a 30-second poll for paused Aria plans
-([Sidebar.tsx:320-339](caliber/caliber-ui/src/components/Sidebar.tsx#L320-L339)).
+([Sidebar.tsx:320-339](../caliber/caliber-ui/src/components/Sidebar.tsx#L320-L339)).
 Everything else requires the user to visit the page to learn whether it wants
 them. See §7.3.
 
 ### 3.2 Routes vs. navigation: directly addressable but unlinked surfaces
 
-[App.tsx:294-383](caliber/caliber-ui/src/App.tsx#L294-L383) declares 35 route
+[App.tsx:294-383](../caliber/caliber-ui/src/App.tsx#L294-L383) declares 35 route
 entries. Nine are detail routes not present in navigation:
 
 | Detail route                               | Reached from     |
@@ -413,8 +413,8 @@ entries. Nine are detail routes not present in navigation:
 `ToolWizard` (976 lines) and `SkillWizard` (1,415 lines) are page-sized
 components rendered _inside a tab_ of another page:
 
-- [ToolRegistry.tsx:269](caliber/caliber-ui/src/pages/ToolRegistry.tsx#L269) — `<ToolWizard onClose={() => setActiveTab("registry")} />`
-- [Skills.tsx:753](caliber/caliber-ui/src/pages/Skills.tsx#L753) — `<SkillWizard onClose={() => onCreated?.()} />`
+- [ToolRegistry.tsx:269](../caliber/caliber-ui/src/pages/ToolRegistry.tsx#L269) — `<ToolWizard onClose={() => setActiveTab("registry")} />`
+- [Skills.tsx:753](../caliber/caliber-ui/src/pages/Skills.tsx#L753) — `<SkillWizard onClose={() => onCreated?.()} />`
 
 2,391 lines of multi-step authoring flow is therefore not linkable, not
 bookmarkable, and not recoverable: a refresh or an accidental tab switch
@@ -470,15 +470,15 @@ Adoption of shared primitives across the 34 pages:
 | `EmptyState`    | 1 / 34         | **defined locally, not shared** |
 
 **Finding IA-2 — the shared header component's own contract is not met.**
-[PageHeader.tsx:1-5](caliber/caliber-ui/src/components/PageHeader.tsx#L1-L5)
+[PageHeader.tsx:1-5](../caliber/caliber-ui/src/components/PageHeader.tsx#L1-L5)
 states it is _"Used by every top-level page so the header looks identical
 everywhere."_ It is used by 18 of 34.
 
 **Finding IA-3 — breadcrumbs are built and unused.** `PageHeader` accepts a
 `crumbs` array for a real trail
-([PageHeader.tsx:15-16](caliber/caliber-ui/src/components/PageHeader.tsx#L15-L16)),
+([PageHeader.tsx:15-16](../caliber/caliber-ui/src/components/PageHeader.tsx#L15-L16)),
 and defaults to a flat `Dashboard › <title>` when omitted
-([PageHeader.tsx:36](caliber/caliber-ui/src/components/PageHeader.tsx#L36)).
+([PageHeader.tsx:36](../caliber/caliber-ui/src/components/PageHeader.tsx#L36)).
 Exactly one page passes `crumbs`: `ObjectStore.tsx`. So on all nine detail
 routes — including `/workflows/:id/editor/:versionId`, three levels deep — the
 breadcrumb claims the user came from the Dashboard and offers no way back up to
@@ -487,7 +487,7 @@ change per page.
 
 **Finding IA-4 — `EmptyState` is a local function inside a 4,788-line page.**
 Defined at
-[WorkflowDetail.tsx:177](caliber/caliber-ui/src/pages/WorkflowDetail.tsx#L177)
+[WorkflowDetail.tsx:177](../caliber/caliber-ui/src/pages/WorkflowDetail.tsx#L177)
 and used four times within that same file. No other page can reach it, so empty
 states elsewhere are hand-rolled or absent — the highest-leverage moment for a
 new user is the least standardised surface in the product.
@@ -519,9 +519,9 @@ the _fastest_ verified path — they are floors, not averages.
 ### 4.1 Journey: Prompt Management (Developer → Evaluator)
 
 The named journey for this review. Six stages are declared "in pipeline order"
-at [Prompts.tsx:71](caliber/caliber-ui/src/pages/Prompts.tsx#L71) with the intent
+at [Prompts.tsx:71](../caliber/caliber-ui/src/pages/Prompts.tsx#L71) with the intent
 recorded in a source comment at
-[Prompts.tsx:67](caliber/caliber-ui/src/pages/Prompts.tsx#L67) — a comment the
+[Prompts.tsx:67](../caliber/caliber-ui/src/pages/Prompts.tsx#L67) — a comment the
 user never sees.
 
 ```mermaid
@@ -627,10 +627,10 @@ references**.
 **The single most severe finding in the whole review sits here:** the human
 reviewer is never shown the thing being reviewed. `ReviewForm` renders
 `item.trace_id` and the questions and nothing else
-([ReviewQueues.tsx:575-604](caliber/caliber-ui/src/pages/ReviewQueues.tsx#L575-L604)).
+([ReviewQueues.tsx:575-604](../caliber/caliber-ui/src/pages/ReviewQueues.tsx#L575-L604)).
 A person is asked _"Pass or Fail?"_ about `tr-abc123`. The backend proves the
 data is available — it calls `fetch_trace_detail(item.trace_id)` in the
-alignment path ([review_queues.py:476](caliber/src/caliber/routes/review_queues.py#L476))
+alignment path ([review_queues.py:476](../caliber/src/caliber/routes/review_queues.py#L476))
 — but `GET /review-queues/{id}` returns only ids (`:218-235`). **Every human
 label, every κ, and every gate decision downstream is built on labels produced
 without evidence.**
@@ -666,11 +666,11 @@ tells the user _"defaults are fine — pick files and go."_
 
 **The worst defect in this journey is a cross-page schema contract with no UI
 expression.** KB calibration requires `input["question"]`
-([service.py:5278-5282](caliber/src/caliber/knowledge/service.py#L5278-L5282))
+([service.py:5278-5282](../caliber/src/caliber/knowledge/service.py#L5278-L5282))
 and `expected = {"sources": [...], "answer": "..."}`
-([calibration.py:99-131](caliber/src/caliber/knowledge/calibration.py#L99-L131)).
+([calibration.py:99-131](../caliber/src/caliber/knowledge/calibration.py#L99-L131)).
 The dataset editor defaults to `{"input": ""}` / `{"expected": ""}`
-([EvalDatasetDetail.tsx:523-528](caliber/caliber-ui/src/pages/EvalDatasetDetail.tsx#L523-L528))
+([EvalDatasetDetail.tsx:523-528](../caliber/caliber-ui/src/pages/EvalDatasetDetail.tsx#L523-L528))
 and the strings `"question"` and `"sources"` **appear nowhere in that file**.
 Wrong key → HTTP 400 _"eval dataset 'X' has no examples"_ — a message that is
 actively false, since the dataset visibly does have examples.
@@ -730,7 +730,7 @@ same skeleton and three different vocabularies:**
 Their lifecycle ladders are the same five rungs renamed twice
 (`Draft → Has test set/scenarios/fixtures → Tested → Calibrated/Hardened →
 Bound/Published`), and the tool ladder awards its **top** rung to a tool that is
-bound to nothing ([tools.py:1133-1134](caliber/src/caliber/routes/tools.py#L1133-L1134)).
+bound to nothing ([tools.py:1133-1134](../caliber/src/caliber/routes/tools.py#L1133-L1134)).
 
 ### 4.6 Journey: First run & operate (all personas)
 
@@ -759,7 +759,7 @@ flowchart LR
 **A fresh install opens on two red 0% reliability tiles and an amber 0% coverage
 tile — three false alarms before the user has done anything.** The tone logic
 has no zero-denominator branch
-([Overview.tsx:191-196](caliber/caliber-ui/src/pages/Overview.tsx#L191-L196),
+([Overview.tsx:191-196](../caliber/caliber-ui/src/pages/Overview.tsx#L191-L196),
 `:233-244`), and the two "Awaiting signal" fallbacks that would have prevented
 this are **dead code**: `assistant_slo` is non-optional, so the ternary always
 takes the truthy branch and prints `0/0 completed`.
@@ -769,7 +769,7 @@ Verbatim: _"No recent events yet."_ · _"No workflow calibration jobs have been
 recorded yet."_ · _"Nothing deployed yet in your visible projects."_ · _"No
 audit entries recorded yet."_ **Exactly one** contains a call to action —
 Observability's _"No traces yet. Run a workflow or agent with tracing enabled,
-then refresh."_ ([Observability.tsx:388-395](caliber/caliber-ui/src/pages/Observability.tsx#L388-L395)).
+then refresh."_ ([Observability.tsx:388-395](../caliber/caliber-ui/src/pages/Observability.tsx#L388-L395)).
 
 ---
 
@@ -809,7 +809,7 @@ name + commit: `PromptBuilder.tsx:1583-1615`, `:2214-2253`, `:2344-2485`).
 
 Step 9 issues **two sequential LLM round-trips per test case** (one agent
 session, one judge session) with no concurrency and **no cancel control**
-([Prompts.tsx:4315-4358](caliber/caliber-ui/src/pages/Prompts.tsx#L4315-L4358)).
+([Prompts.tsx:4315-4358](../caliber/caliber-ui/src/pages/Prompts.tsx#L4315-L4358)).
 At the default N=5 that is 10 serial model calls behind one button.
 
 #### 5.1.2 The core regression loop is broken by a state bug — and the error message prescribes the fix that does not work
@@ -820,23 +820,23 @@ At the default N=5 that is 10 serial model calls behind one button.
 > Test Sets_ → go to Runs → click _Run tests_ → get told to go build a test set.
 > **Problem:** `optimizer_config.dataset_id` is written in exactly one place in
 > the entire backend — `enqueue_prompt_optimization_run`
-> ([routes/prompts.py:473](caliber/src/caliber/routes/prompts.py#L473)) — i.e.
+> ([routes/prompts.py:473](../caliber/src/caliber/routes/prompts.py#L473)) — i.e.
 > **only a calibration run pins a dataset.** `saveToEvalDataset`
-> ([Prompts.tsx:4996](caliber/caliber-ui/src/pages/Prompts.tsx#L4996)) creates
+> ([Prompts.tsx:4996](../caliber/caliber-ui/src/pages/Prompts.tsx#L4996)) creates
 > the dataset and fires `onDatasetSaved`, which in Workspace mode only calls
-> `refreshWorkspace()` ([Prompts.tsx:1676](caliber/caliber-ui/src/pages/Prompts.tsx#L1676))
+> `refreshWorkspace()` ([Prompts.tsx:1676](../caliber/caliber-ui/src/pages/Prompts.tsx#L1676))
 > — nothing persists the id. So `PromptRunsStage`'s
 > `datasetId = workspace?.dataset_id ?? null`
-> ([Prompts.tsx:1948](caliber/caliber-ui/src/pages/Prompts.tsx#L1948)) stays
+> ([Prompts.tsx:1948](../caliber/caliber-ui/src/pages/Prompts.tsx#L1948)) stays
 > `null` forever.
 > **Evidence:** the dead-end message reads _"No test set is pinned and no
 > previous run exists. **Build one on the Test Sets tab first.**"_
-> ([Prompts.tsx:2110](caliber/caliber-ui/src/pages/Prompts.tsx#L2110)).
+> ([Prompts.tsx:2110](../caliber/caliber-ui/src/pages/Prompts.tsx#L2110)).
 > Following that instruction does not clear it. The only escapes are to run
 > tests _on the Test Sets tab_ so a prior run exists to scavenge cases from
 > (`:2054-2093`), or to start a calibration run. Consequently the lifecycle
 > status `Has test set`
-> ([prompt_targets.py:125](caliber/src/caliber/prompt_targets.py#L125)) is
+> ([prompt_targets.py:125](../caliber/src/caliber/prompt_targets.py#L125)) is
 > **unreachable** except via Calibration.
 > **User impact:** the single most important loop in the product — regression
 > testing a prompt — dead-ends on first use, and the remediation text is wrong.
@@ -852,12 +852,12 @@ At the default N=5 that is 10 serial model calls behind one button.
 
 Polling exists in exactly **one** place in this 8,192-line page: the Calibration
 tab polls its job and the assistant operation every 2s
-([Prompts.tsx:6541-6575](caliber/caliber-ui/src/pages/Prompts.tsx#L6541-L6575),
+([Prompts.tsx:6541-6575](../caliber/caliber-ui/src/pages/Prompts.tsx#L6541-L6575),
 `:6357-6389`). Both are unmounted on tab switch.
 
 `PromptOptimizationTab` is passed **no completion callback** — only
 `prompts`/`loading`/`lockedPrompt`
-([Prompts.tsx:1690-1694](caliber/caliber-ui/src/pages/Prompts.tsx#L1690-L1694)).
+([Prompts.tsx:1690-1694](../caliber/caliber-ui/src/pages/Prompts.tsx#L1690-L1694)).
 Every sibling stage has one: Author `onSaved` (`:1659`), Test Sets
 `onDatasetSaved` (`:1676`), Runs `onAfterRun` (`:1687`), Bind `onBound` (`:1701`).
 
@@ -865,7 +865,7 @@ Consequences, all verified:
 
 1. After a calibration Apply succeeds, the workspace header **does not** flip to
    `Calibrated`; `has_applied_job` is only re-read by `GET /workspace`
-   ([routes/prompts.py:2204](caliber/src/caliber/routes/prompts.py#L2204)). The
+   ([routes/prompts.py:2204](../caliber/src/caliber/routes/prompts.py#L2204)). The
    user must navigate away and back.
 2. Leave the Calibration tab while a job is `running` and **there is no queued-job
    indicator anywhere in the product** — the poll is gone and no badge exists.
@@ -874,7 +874,7 @@ Consequences, all verified:
 
 **The backend already solved half of this and the UI discards it.**
 `PromptWorkspaceResponse` returns `last_run` and `baseline_run` summaries
-([routes/prompts.py:2280-2290](caliber/src/caliber/routes/prompts.py#L2280-L2290))
+([routes/prompts.py:2280-2290](../caliber/src/caliber/routes/prompts.py#L2280-L2290))
 with a comment stating they exist so _"the Runs tab can mark/compare against it
 without a second round-trip"_ (`:2262`). **No `.tsx` file reads either field**;
 Runs re-fetches both details itself (`:2004`, `:2028`).
@@ -883,13 +883,13 @@ Runs re-fetches both details itself (`:2004`, `:2028`).
 
 The backend returns structured field errors:
 `{"detail": "request body validation failed", "errors": [{loc, msg, type}]}`
-([routes/\_errors.py:39-68](caliber/src/caliber/routes/_errors.py#L39-L68)).
+([routes/\_errors.py:39-68](../caliber/src/caliber/routes/_errors.py#L39-L68)).
 The client **models them** — `ApiErrorBody.errors?: Array<{loc, msg, type}>`
-([api/types.ts:52](caliber/caliber-ui/src/api/types.ts#L52)) — and `ApiError`
+([api/types.ts:52](../caliber/caliber-ui/src/api/types.ts#L52)) — and `ApiError`
 carries the parsed body
-([api/caliberApi.ts:321-327](caliber/caliber-ui/src/api/caliberApi.ts#L321-L327)).
+([api/caliberApi.ts:321-327](../caliber/caliber-ui/src/api/caliberApi.ts#L321-L327)).
 But the throw keeps only `detail`
-([caliberApi.ts:731-732](caliber/caliber-ui/src/api/caliberApi.ts#L731-L732)),
+([caliberApi.ts:731-732](../caliber/caliber-ui/src/api/caliberApi.ts#L731-L732)),
 and **no component anywhere reads `.errors`**. Every renderer is
 `err instanceof Error ? err.message : "…"` (`Prompts.tsx:544`, `:1804`, `:2135`,
 `:2153`, `:2653`, `:4878`, `:5027`, `:6522`, `:6662`, `:6729`).
@@ -911,12 +911,12 @@ shared error component; the data is already on the wire. **Priority: High.**
 
 Only two of five paths honour the release gate. The other three hardcode
 `overridden: true`, and the backend treats the verdict as advisory by design
-([docs/02-prompts/architecture.md:302](docs/02-prompts/architecture.md#L302)), so
+([docs/02-prompts/architecture.md:302](02-prompts/architecture.md)), so
 nothing catches it. **Governance is therefore a function of which button the
 user happened to find.**
 
 Worse, one path promotes without saying so: the Edit modal's button reads
-**"Save as New Version"** ([Prompts.tsx:943](caliber/caliber-ui/src/pages/Prompts.tsx#L943))
+**"Save as New Version"** ([Prompts.tsx:943](../caliber/caliber-ui/src/pages/Prompts.tsx#L943))
 but `submitEditPrompt` also calls `promotePrompt` with
 `override_reason: "direct prompt edit activation"` (`:530-534`). **It goes
 live.** A button that ships to production without using the word "live",
@@ -927,14 +927,14 @@ live.** A button that ships to production without using the word "live",
 Author's Version history (`adapters.ts:52-54`). The modal literally named
 "Versions" has **no rollback**, so rolling back from there means _promoting_ an
 older version — which emits a `promote_prompt` audit event instead of
-`rollback_prompt` ([Releases.tsx:38-39](caliber/caliber-ui/src/pages/Releases.tsx#L38-L39)),
+`rollback_prompt` ([Releases.tsx:38-39](../caliber/caliber-ui/src/pages/Releases.tsx#L38-L39)),
 corrupting the audit trail for the operator persona downstream.
 
 #### 5.1.6 The page scores prompts with an unregistered judge, so its numbers can't be compared to the product's own evaluation surface
 
 The Prompts page never touches `/judges` — **zero references**. It scores with a
 judge prompt hardcoded in the frontend bundle
-([Prompts.tsx:4331-4346](caliber/caliber-ui/src/pages/Prompts.tsx#L4331-L4346),
+([Prompts.tsx:4331-4346](../caliber/caliber-ui/src/pages/Prompts.tsx#L4331-L4346),
 invoked at `:4351`), returning `{verdict, score, reasoning}`.
 
 | Capability                           | Prompts page        | `/evaluations`                                                                           |
@@ -981,7 +981,7 @@ pre-optimization score in the Apply dialog (`:7615`).
 
 **A documented implementation detail is surfaced as a user-facing label.**
 `agent_id` is described in
-[prompt_targets.py:29-38](caliber/src/caliber/prompt_targets.py#L29-L38) as
+[prompt_targets.py:29-38](../caliber/src/caliber/prompt_targets.py#L29-L38) as
 _"an implementation detail, never something an operator manages directly."_ It
 is displayed on every prompt card (`:3931`), keys the Edit modal's switcher
 (`:838`), and populates a picker whose `aria-label` is "Select a prompt"
@@ -1002,7 +1002,7 @@ forbids showing. **Priority: Medium** (trivial fix, pure noise removal).
   (`PromptBuilder.tsx:1250`, default `true` at `:197`) passes
   `{ openCalibration }` (`:724`), but the call site drops it —
   `onCreated={(created) => onPromptCreated(created)}`
-  ([Prompts.tsx:1654](caliber/caliber-ui/src/pages/Prompts.tsx#L1654)). You
+  ([Prompts.tsx:1654](../caliber/caliber-ui/src/pages/Prompts.tsx#L1654)). You
   always land on Author (`:1537`). It only changes the button label to
   "Create and Open" (`:1278`). **The button lies.**
 - **~150 lines of dead code with the stepper the page needs.**
@@ -1021,7 +1021,7 @@ forbids showing. **Priority: Medium** (trivial fix, pure noise removal).
 
 `PageTabs` renders plain buttons — no `disabled`, no step numbers, no completion
 marks, no progress
-([components/PageTabs.tsx:24-51](caliber/caliber-ui/src/components/PageTabs.tsx#L24-L51)).
+([components/PageTabs.tsx:24-51](../caliber/caliber-ui/src/components/PageTabs.tsx#L24-L51)).
 All six stages are clickable at all times, in any order. The only ordering
 signals are the array order, an invisible source comment (`:67`), and a status
 pill whose five values _do_ encode the pipeline (`PROMPT_STATUS_TONES`, `:169`)
@@ -1073,10 +1073,10 @@ but which never maps back to a tab and never marks one "next".
 > Navigate away. Lose everything.
 > **Problem:** "Open in Editor" resolves `latest.version_id` as
 > `versions.find(published) ?? versions[0]`
-> ([WorkflowDetail.tsx:1404-1405](caliber/caliber-ui/src/pages/WorkflowDetail.tsx#L1404-L1405))
+> ([WorkflowDetail.tsx:1404-1405](../caliber/caliber-ui/src/pages/WorkflowDetail.tsx#L1404-L1405))
 > — i.e. the **published, immutable** version, not the run's version and not a
 > draft. The editor computes `published`
-> ([WorkflowEditor.tsx:2072](caliber/caliber-ui/src/pages/WorkflowEditor.tsx#L2072))
+> ([WorkflowEditor.tsx:2072](../caliber/caliber-ui/src/pages/WorkflowEditor.tsx#L2072))
 > and uses it to disable Undo, Redo, Save, and Publish (`:4103`, `:4114`,
 > `:4123`, `:4205`) — but **`patchManifest` has no `published` guard at all**,
 > so every canvas drag, edge wire, and Inspector edit still mutates state and
@@ -1085,7 +1085,7 @@ but which never maps back to a tab and never marks one "next".
 > `read-only|readOnly|immutable|cannot be edited` in `WorkflowEditor.tsx`
 > returns nothing. The backend is unambiguous: `409 "only draft versions can be
 edited (published is immutable)"`
-> ([workflow_versions.py:633-636](caliber/src/caliber/routes/workflow_versions.py#L633-L636)).
+> ([workflow_versions.py:633-636](../caliber/src/caliber/routes/workflow_versions.py#L633-L636)).
 > **User impact:** uncommitted work is destroyed, reached from the most
 > prominent button on the page, with the UI actively signalling "Unsaved" —
 > i.e. it tells the user there is something to save while making saving
@@ -1100,7 +1100,7 @@ edited (published is immutable)"`
 #### 5.2.2 The only Compile and Export affordance is on a route nothing links to
 
 `WorkflowVersionDetail` is the sole surface with a **Compile** button
-([WorkflowVersionDetail.tsx:202-210](caliber/caliber-ui/src/pages/WorkflowVersionDetail.tsx#L202-L210)),
+([WorkflowVersionDetail.tsx:202-210](../caliber/caliber-ui/src/pages/WorkflowVersionDetail.tsx#L202-L210)),
 a compiler report (`:319-331`), generated Python (`:333-343`), and YAML/Python
 export (`:211-228`). **Nothing in the app links to `/workflow-versions/:id`** —
 the only references to that path are the route declaration and API helpers. The
@@ -1108,7 +1108,7 @@ Versions tab links every row to the _editor_ instead (`WorkflowDetail.tsx:3236-3
 
 Consequence: `compile_version_route` returns a structured
 `{detail, status_code, report}` on `CompileError`
-([workflow_versions.py:686-699](caliber/src/caliber/routes/workflow_versions.py#L686-L699))
+([workflow_versions.py:686-699](../caliber/src/caliber/routes/workflow_versions.py#L686-L699))
 and the only renderer for it is unreachable. In practice compile errors reach
 users as an opaque publish failure — `setMessage("Publish failed: " +
 err.message)` (`WorkflowEditor.tsx:2105`) in a small grey toolbar pill, wrapping
@@ -1118,7 +1118,7 @@ the backend's `"version does not compile: {exc}"`.
 
 `create_workflow_run` gates on queue-enabled, MCP preflight, paused, and
 archived — but **never checks `version.status`**
-([workflow_runs.py:602-635](caliber/src/caliber/routes/workflow_runs.py#L602-L635)).
+([workflow_runs.py:602-635](../caliber/src/caliber/routes/workflow_runs.py#L602-L635)).
 The editor posts `workflow_version_id` with `source: "editor"` and an inline
 `manifest` when dirty (`WorkflowEditor.tsx:2125-2135`). So a draft — or even an
 unsaved snapshot — produces a real, persisted run, and `WorkflowDetail`'s
@@ -1139,7 +1139,7 @@ blocker — `!queueRunsEnabled` — gets no inline banner at all.
 Worse, that blocker names a setting the UI cannot change.
 `workflow_run_queue_enabled`, `..._runtime_approvals_enabled`, and
 `..._checkpointing_enabled` all default to `False`
-([config.py:539-559](caliber/src/caliber/config.py#L539-L559)) and are flipped
+([config.py:539-559](../caliber/src/caliber/config.py#L539-L559)) and are flipped
 on only by the dev/e2e scripts. `Settings.tsx` has five tabs and **no run-queue
 toggle**; `Administration.tsx` has none either. So the message _"Enable the run
 queue to execute workflows"_ names an action no page can perform — and on
@@ -1167,14 +1167,14 @@ the SSE frame lands — and the handler early-returns if a different run is
 selected (`WorkflowDetail.tsx:1925-1933`) — or (ii) be handed the URL by a
 human. Quorum approvals make it worse: the backend emits
 `workflow.run.approval.partial` with `remaining_approvals`
-([workflow_runs.py:1507-1564](caliber/src/caliber/routes/workflow_runs.py#L1507-L1564)),
+([workflow_runs.py:1507-1564](../caliber/src/caliber/routes/workflow_runs.py#L1507-L1564)),
 and that event type is absent from both surfaces' subscription lists, so a
 partial approval refreshes nothing.
 
 #### 5.2.5 `/agents` is the clearest IA mistake in the product
 
 The page's own banner
-([Agents.tsx:123-127](caliber/caliber-ui/src/pages/Agents.tsx#L123-L127)) says:
+([Agents.tsx:123-127](../caliber/caliber-ui/src/pages/Agents.tsx#L123-L127)) says:
 
 > "These records bind an MLflow experiment to CALIBER evaluation and refinement
 > settings. Runtime model, prompt, and orchestration behavior remains versioned
@@ -1275,11 +1275,11 @@ the user gets:
 
 The same app already does this correctly for tool calibration:
 `refetchInterval: … queued|running ? 2000 : false`
-([ToolCalibrationJobs.tsx:25-31](caliber/caliber-ui/src/components/ToolCalibrationJobs.tsx#L25-L31)).
+([ToolCalibrationJobs.tsx:25-31](../caliber/caliber-ui/src/components/ToolCalibrationJobs.tsx#L25-L31)).
 
 Two smaller cuts in the same flow: the created `EvalRun` is explicitly discarded
 — `const run = await caliberApi.createEvaluation(payload); void run;`
-([Evaluations.tsx:261-263](caliber/caliber-ui/src/pages/Evaluations.tsx#L261-L263))
+([Evaluations.tsx:261-263](../caliber/caliber-ui/src/pages/Evaluations.tsx#L261-L263))
 — forcing the user to hunt for it in a list that has **no search and no
 filters**; and pre-flight errors are backend-voiced, e.g. _"set
 `CALIBER_LLM_PROVIDER` (openai/anthropic) and the matching API key, then
@@ -1293,7 +1293,7 @@ Settings or Gateway.
 (pickers), `eval-datasets` (URL), `dataset_id` (API), and _"eval dataset
 'ED-…'"_ in every error message the user sees. The docs concede it in writing:
 _"(UI "Test Sets", backend `eval-datasets`)"_
-([docs/11-test-sets/architecture.md:26](docs/11-test-sets/architecture.md#L26)).
+([docs/11-test-sets/architecture.md:26](11-test-sets/architecture.md)).
 
 **The grader concept has five names**: _Judges_ (nav/page), _Graders_ (the
 column header and field label — the word a user meets first), _Custom LLM
@@ -1304,7 +1304,7 @@ boolean on the Dashboard).
 **The `Judge.<id>` token is invisible and misdocumented.** It is computed and
 used only as a checkbox `value` (`Evaluations.tsx:26-31`, `:387`), then stripped
 and replaced by `⚖ <name>` on read-back (`:69-75`). The backend docstring says
-the format is `Judge.<name>` ([judges.py:7](caliber/src/caliber/routes/judges.py#L7))
+the format is `Judge.<name>` ([judges.py:7](../caliber/src/caliber/routes/judges.py#L7))
 while the code partitions the **id** (`evaluations.py:334`) — so an SDK user
 following the docstring gets a 404, and a UI-only user cannot attribute a
 `Judge.JDG-7f3a90c2` string in an audit row at all.
@@ -1371,7 +1371,7 @@ for the run.
 
 Nearly half the page's test surface and 40% of its helpers exist for Apache
 AGE, an optional backend that is **off by default**
-([knowledge/schemas.py:502](caliber/src/caliber/knowledge/schemas.py#L502)).
+([knowledge/schemas.py:502](../caliber/src/caliber/knowledge/schemas.py#L502)).
 
 **Duplication census — same data, multiple renderers:** entities/relationships
 have **four** renderers; graph query presets **two** (identical five cards);
@@ -1637,7 +1637,7 @@ their decision.
 `memory`, `storage`, `knowledge`, `security`, `runtime-advisories`,
 `operations`, `tool-sandbox`, `versioning`. The UI renders **exactly one** —
 `groups.find(g => g.id === "versioning")`
-([Settings.tsx:196](caliber/caliber-ui/src/pages/Settings.tsx#L196)) — and the
+([Settings.tsx:196](../caliber/caliber-ui/src/pages/Settings.tsx#L196)) — and the
 endpoint is `GET`-only, so even that one is display-only.
 
 The group whose name most obviously belongs under "Administration" —

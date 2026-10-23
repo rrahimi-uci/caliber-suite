@@ -5,11 +5,11 @@ audience:
   - decision-maker
 doc_type: strategy
 product_area: strategy
-stability: draft
+stability: internal
 summary: Evidence-based gap analysis and execution plan for tagging CALIBER Suite as a Minimal Viable Alpha (MVA) — scope, journeys, P0/P1/P2 gaps with acceptance criteria, and exit criteria.
 prerequisites:
   - Read docs/two-week-alpha-plan.md and docs/reports/two-week-alpha-release-notes.md for the narrower journey this plan generalizes
-reviewed_on: 2026-10-20
+reviewed_on: 2026-10-23
 version_applicability: gap baseline at dfe48481471; completion checklist updated through 5f21bc7710e (P1-25 and the licence included)
 tags:
   - alpha
@@ -28,12 +28,15 @@ tags:
 > tag, assets, and release verification. `caliber-v0.1.0a1` has not been published; the
 > only tag is `caliber-v0.0.1`. The licence question inside P0-7 is settled
 > (Apache-2.0, #486). After the baseline the work moved on to the cookbook labs: all
-> seventeen were run on a fresh stack through the UI and the SDK, with scored paths also
+> seventeen (there are now twenty) were run on a fresh stack through the UI and the SDK, with scored paths also
 > run on a stand-in and a hosted model (see
 > [First-user verification](../docs-site/cookbooks/FIRST-USER-VERIFICATION.md)). That work
 > is not tracked as gap items here. See
 > [Alpha scope and limitations](start/alpha-scope.md) for the current capability
 > boundary and [Releasing](operate/releasing.md) for the remaining release steps.
+> One later change this baseline text does not reflect: `CALIBER_FEATURE_ARIA` now defaults
+> to **on** (the other three flags are off), so read "all four flags are off by default" and
+> "Off by default behind `CALIBER_FEATURE_ARIA`" below as the state when P1-25 landed.
 
 **Baseline verdict at the audited commit: not releasable as an alpha.** The core prompt lifecycle was largely
 built and well tested (about 7,900 backend tests, 93% coverage), and it worked end to

@@ -30,7 +30,7 @@ Three properties are worth the generator, and all three are the same ones
 1. **Numbers stay single-sourced.** `stats()` parses `\newcommand{\stat...}` out of
    `tex/macros.tex` and `generated/stats.tex` — so the family count, the route-declaration
    count and the line counts come from the same place the manuscript's prose
-   does. Re-run `scripts/gen_stats.py` and the deck moves with
+   does. Re-run `paper/scripts/gen_stats.py` and the deck moves with
    the paper. A count the generator cannot find is a build failure, not a slide
    someone has to notice.
 

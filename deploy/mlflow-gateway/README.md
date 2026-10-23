@@ -47,7 +47,7 @@ filter and get the gateway's own strict all-or-nothing validation back.
 ## How CALIBER uses it
 
 - **Discovery (default on):** CALIBER's **Gateway** page probes this server's endpoint
-  inventory via `CALIBER_GATEWAY_URI` (default `http://mlflow-gateway:5002`) and derives
+  inventory via `CALIBER_GATEWAY_URI` (the Compose stack sets it to `http://mlflow-gateway:5002`; the server's own default is empty) and derives
   reachability from that request. This only makes the gateway *visible* in CALIBER.
 - **Routing (opt-in):** set `CALIBER_LLM_BASE_URL=http://mlflow-gateway:5002/v1`
   on the CALIBER service to route every LLM call through the gateway's

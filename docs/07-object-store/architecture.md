@@ -8,7 +8,7 @@ product_area: storage
 stability: beta
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-23
 version_applicability: current main branch docs contract
 tags:
   - storage
@@ -28,7 +28,7 @@ tags:
 | **Runtime model** | The console talks to S3 directly via `routes/object_store.py`; scoped storage flows through `WorkingDirectoryService` over `local` or `s3` backends. |
 | **Key surfaces** | HTTP routes under `/ajax-api/2.0/mlflow/caliber`: `/object-store/...` console routes, `/workflow-files` and run-scoped file routes, and `/projects` workspace routes. |
 | **Reference grammar** | Runtime code uses `caliber://` refs resolved against physical objects, never raw bucket keys. |
-| **Trust / safety** | Reads need an authenticated user and visibility of the owning run or project; console mutations require `SCOPE_ADMIN` and scoped writes `SCOPE_OPERATOR` plus the project role the action names; `safe_relative_path` and `local_realpath_guard` block traversal/symlink escape. |
+| **Trust / safety** | Reads need an authenticated user and visibility of the owning run or project; console mutations require `SCOPE_ADMIN` (import into a project needs `SCOPE_OPERATOR`) and scoped writes `SCOPE_OPERATOR` plus the project role the action names; `safe_relative_path` and `local_realpath_guard` block traversal/symlink escape. |
 | **Extends via** | New backends implement the `StorageBackend` protocol through `build_backend(...)`. |
 
 The sections below start from this picture and drill down into the scope, boundaries, runtime paths, data model, surfaces, and trust boundaries in detail.
@@ -336,7 +336,8 @@ Authentication and authorization are split by surface, with console mutations
 held to a higher bar than scoped file writes. The access rules are:
 
 - Object-store reads require an authenticated user.
-- Object-store mutations require `SCOPE_ADMIN`.
+- Object-store console mutations (bucket create and delete, upload, folder create, object delete) require
+  `SCOPE_ADMIN`. The one exception is import into a project (below), which needs `SCOPE_OPERATOR`.
 - Workflow and project file reads require an authenticated user *and* visibility
   of the resource the files hang off.
 - Project file writes (staging upload, project upload, folder creation and delete,
@@ -463,3 +464,9 @@ Those extension points sit alongside constraints that bound the current design:
   means the storage story is not yet fully unified.
 - Object storage remains whole-object oriented: uploads, copies, and deletes
   operate on complete objects rather than appendable streams.
+- The console and the `s3` backend use `boto3`, which is not a core dependency: a wheel install
+  needs the `s3` extra (`pip install "caliber-suite[s3]"`), and the Docker image installs it by default.
+  Only the `local` and `s3` backends exist: `build_backend` rejects any other `workflow_storage.backend`
+  value, even though `gs` and `az` are recognized as remote when readiness decides whether to probe.
+- The object store is needed only for knowledge bases and the console; a plain install runs on the `local`
+  backend (see [Alpha scope](../start/alpha-scope.md)).

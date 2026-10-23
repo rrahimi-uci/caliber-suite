@@ -28,8 +28,8 @@ deploy/
 
 ## App tier — MLflow and CALIBER are **separated**
 
-The `app` profile runs independent containers, mirroring the native
-`make start` topology, rather than mounting CALIBER inside MLflow:
+The `app` profile runs independent containers, the same topology as
+`make start`, rather than mounting CALIBER inside MLflow:
 
 ```text
         CALIBER UI ──► caliber (:5001/caliber/)  ──HTTP──►  mlflow (:5000, vanilla)
@@ -45,6 +45,8 @@ The `app` profile runs independent containers, mirroring the native
   the **Settings → Services** tab in CALIBER lists them all with live health.
 
 ## Quick start
+
+Run these from the repository root.
 
 ```bash
 cp .env.example .env                      # put app secrets here, e.g. OPENAI_API_KEY
@@ -71,7 +73,8 @@ selects the next free port and prints the resulting URL. Set `MLFLOW_PORT` in
 `deploy/.env` to choose a fixed host port; an occupied explicit port fails with
 an actionable error.
 
-For backing services only:
+For backing services only (these commands pass `--env-file deploy/.env`, which Compose refuses if the
+file does not exist: run the `cp` above first, or drop the flag):
 
 ```bash
 docker compose --env-file deploy/.env -f deploy/compose.yaml up -d
@@ -93,7 +96,8 @@ docker compose --env-file deploy/.env -f deploy/compose.yaml down
 All host mappings in that table are loopback-only. `localhost` is intentional,
 not shorthand for a remotely reachable server.
 
-Run the full, separated app tier in containers too:
+Run the full, separated app tier in containers too (this also passes the suite-root `.env`, so create both
+files first, or drop the flags you do not need):
 
 ```bash
 docker compose --env-file deploy/.env --env-file .env -f deploy/compose.yaml --profile app --profile nats up -d --build
@@ -118,9 +122,9 @@ the same script weekly and on pull requests that change `deploy/`: `.github/work
 
 The stack pins the local service topology and keeps state in named volumes, so a
 developer can reproduce Postgres/AGE, MinIO, NATS, MLflow, the gateway, and the
-standalone CALIBER server without installing each dependency on the host. Native
-plugin development remains available through `cd caliber && make dev`; it is a
-different topology, not what `make start` launches from the suite root.
+standalone CALIBER server without installing each dependency on the host. To
+work on CALIBER itself against these services, use the standalone development path in
+[Local bring-up](../docs/operate/local-bring-up.md#2-standalone-development-path).
 
 ## Add a new service
 
@@ -153,4 +157,4 @@ the container without extra manual layering.
 
 > The app tier (MLflow, MLflow AI Gateway, CALIBER) is containerized too — see the
 > `app`-profile services above. The suite-root `make start` uses this container
-> topology; `cd caliber && make dev` runs the embedded-plugin development topology.
+> topology. The embedded `mlflow.app` topology is not supported.

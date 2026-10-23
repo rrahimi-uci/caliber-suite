@@ -8,7 +8,7 @@ product_area: architecture
 stability: ga
 prerequisites:
   - Layered architecture overview
-reviewed_on: 2026-10-14
+reviewed_on: 2026-10-23
 version_applicability: current main branch docs contract
 tags:
   - platform
@@ -271,8 +271,8 @@ than exhaustive:
 - `/releases/timeline`, `/releases/live` (cross-artifact releases & rollback)
 - `/releases/operations`, `/releases/operations/reconcile` (operator-visible prompt release recovery)
 
-Four preview areas are gated by feature flags (`caliber/src/caliber/features.py`); three
-default to off and one, Aria, defaults to on: `CALIBER_FEATURE_ARIA` (`/assistant`, `/aria`,
+Four areas (preview, record-only or experimental; see [Alpha scope](../start/alpha-scope.md)) are gated by feature flags
+(`caliber/src/caliber/features.py`); three default to off and one, Aria, defaults to on: `CALIBER_FEATURE_ARIA` (`/assistant`, `/aria`,
 **on** by default), `CALIBER_FEATURE_INTEGRATIONS` (`/mcp-servers`, `/openapi-integrations`),
 `CALIBER_FEATURE_COOKBOOKS` (`/cookbooks`) and `CALIBER_FEATURE_RELEASE_CANDIDATES`
 (`/releases/candidates`, `/releases/report-jobs`, per-project `/projects/{id}/releases`).
@@ -321,10 +321,9 @@ six loops do not; of those, `AriaPlanWorker` is constructed only when
 `CALIBER_FEATURE_ARIA` is on, which it is by default.
 
 The loops are in-process, so **each server worker process runs its own full set**.
-`uvicorn` runs one process unless you pass `--workers`; the unsupported embedded `mlflow server`
-launcher (`caliber/scripts/run-dev.sh`) defaults to four gunicorn workers, which means all ten loops
-exist four times over. Where arbitration is durable that is safe: queue consumers
-so exactly one process wins each row, and the cron scheduler is idempotent by a
+`uvicorn` runs one process unless you pass `--workers` (the container entrypoint, `deploy/caliber/entrypoint.sh`, does not), so the supported
+topology runs one set. If you do pass `--workers N`, all ten loops exist N times over. Where arbitration is durable that is safe: queue consumers
+claim rows so exactly one process wins each, and the cron scheduler is idempotent by a
 minute-bucketed key backed by a unique partial index. Two consequences do not
 follow that rule and are worth sizing for:
 
@@ -340,7 +339,7 @@ follow that rule and are worth sizing for:
   (`routes/auth.py`) and the API `RateLimiter` (`rate_limit.py`) are token/attempt
   buckets behind a thread lock, not shared state, so their effective ceiling
   scales with the worker count. Size the configured limits accordingly, or pin the
-  server to one worker (`--workers 1`, or `MLFLOW_WORKERS=1` for `caliber/scripts/run-dev.sh`). See [the layered architecture](../../ARCHITECTURE.md) for the same
+  server to one worker (the default, or `--workers 1`). See [the layered architecture](../../ARCHITECTURE.md) for the same
   point at the platform tier.
 
 ```mermaid
@@ -389,14 +388,14 @@ request handling, and shutdown — and each has well-defined checkpoints:
 
 ## 7. Security and trust boundaries
 
-CALIBER implements its own default session login in both deployment topologies.
+CALIBER implements its own default session login (`CALIBER_AUTH_MODE=session`).
 Credentials are checked against scrypt hashes in the account table,
 and successful login creates a revocable server-side session carried by an HttpOnly
 cookie. The product default
 `CALIBER_AUTH_BOOTSTRAP_ALLOW_INSECURE_DEFAULT=false` does not create a known
-credential. The native launcher opts into `admin` / `admin` only when MLflow binds
-to loopback, and the bundled Compose stack opts in only while every published port
-is pinned to `127.0.0.1`; the operator must replace that credential immediately.
+credential. The bundled Compose stack (`./start.sh`) opts in to `admin` / `admin`
+for first-boot convenience only while every published port is pinned to `127.0.0.1`;
+the operator must replace that credential immediately.
 The bootstrap runs only while the account table is empty and never resets an
 existing account. Any network-reachable deployment must keep the opt-in false,
 configure a strong bootstrap password source, and use TLS/Secure cookies. Normal
@@ -413,7 +412,7 @@ provide the identity:
 - Route handlers call `require_user()` or `require_scopes()` before any
   mutation.
 
-The shipped local launchers assign `admin` every scope. Before exposing a deployment,
+The bundled Compose stack assigns `admin` every scope. Before exposing a deployment,
 set the variable named by `CALIBER_AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV` (the Compose stack and
 `.env.example` use `CALIBER_BOOTSTRAP_PASSWORD`) to a strong value before first boot or reset the
 password in Administration; password changes revoke the account's existing sessions.

@@ -112,7 +112,7 @@ Two configuration facts belong with this table:
   deployment-wide, not per-workflow or per-agent. With none set, `/caliber/system/alerts`
   has nothing to say and incidents never open.
 
-## P1 — a prompt release is stuck
+## P1: a prompt release is stuck
 
 A prompt alias release writes a durable intent *before* calling the provider, so a
 crash mid-release is visible rather than silent. It is still not atomic: the provider
@@ -152,7 +152,7 @@ weeks, because that is the point of the record.
 > the record of how it got there. Fix the record, but do not roll back behaviour that
 > is already correct.
 
-## P2 — an external effect is indeterminate
+## P2: an external effect is indeterminate
 
 This is the only tier where the platform deliberately refuses to decide. The effect
 ledger gives external effects at-most-once semantics across a run restart, and reports
@@ -184,7 +184,7 @@ CALIBER's records stop short of the answer.
 outside world that CALIBER cannot verify. Who claimed it and on what basis is
 release-relevant evidence — not a convenience toggle.
 
-## P3 — the workflow-run queue is not draining
+## P3: the workflow-run queue is not draining
 
 **Symptom.** Runs sit in `queued`, or `/caliber/system/queue` reports
 `healthy: false`.
@@ -225,7 +225,7 @@ no longer reports `workflow_queue`.
 > not a choice. During an upgrade an old worker may hold a claim without registering,
 > and counting one source alone under-reports.
 
-## P4 — a refinement or calibration job vanished
+## P4: a refinement or calibration job vanished
 
 Two loops are **at-most-once**, and this is the case where "the queue" is the wrong
 mental model. Recovery is per loop.
@@ -259,7 +259,7 @@ between attempts. Creating an unlinked job loses that, so link it.
 > an audit row, so the candidate can be applied again. A job that has an operation is
 > never touched there; that is [P1](#p1-a-prompt-release-is-stuck).
 
-## P5 — outbound webhooks are dead-lettering
+## P5: outbound webhooks are dead-lettering
 
 **Symptom.** Downstream consumers report missing events.
 
@@ -275,7 +275,7 @@ acknowledge it to stop it being counted.
 
 **Verify.** The dead-letter list drains and the consumer confirms receipt.
 
-## P6 — roll back a release
+## P6: roll back a release
 
 **Rollback is not one operation.** Per-family guarantees are load-bearing here, and
 the most likely operator error in CALIBER is assuming a guarantee transfers between
@@ -305,7 +305,7 @@ the prompt path, so it is scope-checked, audited, and checkpointed like any prom
 rolled back a family with no recorded target, say so explicitly — that is a weaker
 claim than a prompt rollback and should not read like the same thing.
 
-## P7 — an SLO incident is open
+## P7: an SLO incident is open
 
 **Symptom.** `GET /caliber/system/incidents` lists a `status: open` incident at
 `severity: warning` or `critical`.
