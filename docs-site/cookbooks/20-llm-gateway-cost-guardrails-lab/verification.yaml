@@ -1,0 +1,24 @@
+# Verified by running the lab against a real stack -- see README.md ("Verify it worked").
+feasibility:
+  - Every number is deterministic. The stand-in bills a flat 1000+1000 tokens per call; cost is pure arithmetic over the pricing table at span-write time; and the gateway's own request ledger (assets/server/llm_gateway.py --- LLM_GATEWAY_LEDGER) is the independent record the usage rollup is checked against -- the ledger-is-the-proof pattern cookbooks 05 and 19 use.
+  - No model grades anything: the deterministic guardrail kinds (regex, pii) are rule-based scorers, and the lab's single LLM "model" is the stand-in itself.
+evaluation:
+  deterministic_checks:
+    - name: TwoLedgersAgree
+      type: deterministic_check
+      criteria: /gateway/usage's call count for the model equals the gateway's own ok-call count; a refused call appears in the gateway's ledger and never in usage
+    - name: ExactCost
+      type: deterministic_check
+      criteria: one call adds exactly 2000 tokens and $3.00 at the lab's rates; raising the rate re-prices only subsequent calls
+    - name: CredentialsNeverReadable
+      type: deterministic_check
+      criteria: GET /settings/llm returns presence and a masked fingerprint only; the secrets listing and put responses carry metadata and a secret:// reference, never a value
+  rule_checks:
+    - pricing_create_requires_operator_scope
+    - pricing_update_and_key_rotation_are_admin_only
+    - gateway_page_degrades_instead_of_failing_while_the_gateway_is_down
+quality_gates:
+  discovered_endpoints: 2
+  tokens_per_call: 2000
+  cost_per_call_usd: 3.0
+  refused_calls_reaching_usage: 0

@@ -50,7 +50,7 @@ ENVSH="$REPO_ROOT/scripts/cookbook-env.sh"
 COOKBOOKS="$REPO_ROOT/docs-site/cookbooks"
 RUN_ROOT="$REPO_ROOT/.tmp/cookbook-run-all"
 ENV_ROOT="$REPO_ROOT/.tmp/cookbook-env"
-ALL_LABS="01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 18 19"
+ALL_LABS="01 02 03 04 05 06 07 08 09 10 11 12 13 14 15 16 18 19 20"
 JOURNEY_LABS="18 01 02 03 07 16"
 API_TIMEOUT="${COOKBOOK_RUN_ALL_API_TIMEOUT:-1800}"
 UI_TIMEOUT="${COOKBOOK_RUN_ALL_UI_TIMEOUT:-2400}"
@@ -255,6 +255,21 @@ lab_config() {
                     CALIBER_OPERATOR_USERS=admin,lab19-operator,lab19-reviewer CALIBER_APPROVER_USERS=admin,lab19-reviewer)
         LAB_API_CWD="sdk/caliber-sdk"; LAB_API_ARGV=(-m examples.cookbooks.cookbook_19_openapi_integration_governance)
         LAB_UI="19-openapi-governance.spec.ts" ;;
+    20) LAB_TITLE="LLM gateway metering"; LAB_HELPERS="gateway20"; LAB_REAL=1
+        export LAB20_GATEWAY_KEY="${LAB20_GATEWAY_KEY:-lab20-gateway-key}"
+        export LLM_GATEWAY_LEDGER="$RUN_DIR/lab20-gateway-ledger.jsonl"
+        # The boot key is deliberately wrong (the lab's stage 3); it also stops --real-llm from
+        # reading the owner's real key out of .env into a disposable stack.
+        LAB_UP_ENV=(OPENAI_API_KEY=lab20-boot-key-wrong ANTHROPIC_API_KEY=stand-in
+                    CALIBER_GATEWAY_URI=http://127.0.0.1:8791
+                    CALIBER_LLM_BASE_URL=http://127.0.0.1:8791/v1
+                    CALIBER_ASSISTANT_ENGINE=fake
+                    CALIBER_SECRET_ENCRYPTION_KEY_SOURCE=LAB20_SECRET_KEY
+                    LAB20_SECRET_KEY=axLKNUmQ8fnvbvwNQvRyoHbh0Xv0GAD2M+IAWFKpJrs=
+                    "LAB20_GATEWAY_KEY=$LAB20_GATEWAY_KEY"
+                    CALIBER_OPERATOR_USERS=admin,lab20-operator)
+        LAB_API_CWD="sdk/caliber-sdk"; LAB_API_ARGV=(-m examples.cookbooks.cookbook_20_llm_gateway_cost_guardrails)
+        LAB_UI="20-llm-gateway.spec.ts" ;;
     *) die "no configuration for lab $n" ;;
   esac
   LAB_STACK="ra-lab$n"; [[ $TIER == standin ]] && LAB_STACK="ra-lab${n}m"
@@ -269,6 +284,7 @@ start_lab_helpers() {
       standin01) start_helper standin-01 8765 python3 "$COOKBOOKS/01-prompt-regression-lab/assets/stand-in-model/server.py" --port 8765 || return 1 ;;
       standin10) start_helper standin-10 8770 python3 "$COOKBOOKS/10-judge-certification-human-review-lab/assets/stand-in-model/stand_in_model_server.py" 8770 || return 1 ;;
       ticket19) start_helper ticket-api-19 8781 python3 "$COOKBOOKS/19-openapi-integration-governance-lab/assets/server/ticket_api.py" 8781 || return 1 ;;
+      gateway20) start_helper llm-gateway-20 8791 python3 "$COOKBOOKS/20-llm-gateway-cost-guardrails-lab/assets/server/llm_gateway.py" 8791 || return 1 ;;
     esac
   done
 }

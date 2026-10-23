@@ -287,6 +287,23 @@
       "slug": "openapi-integration-governance",
       "summary": "Import an OpenAPI spec, curate a read-only tool pack and a governed write draft, publish both into the tool registry, and gate the write behind a second person.",
       "title": "Governed OpenAPI Tool"
+    },
+    {
+      "activation_requires_review": true,
+      "capabilities": [
+        "LLM gateway",
+        "usage and cost",
+        "model pricing",
+        "secrets",
+        "guardrails"
+      ],
+      "id": "20",
+      "prerequisites": [
+        "An OpenAI-compatible gateway (the lab ships a stand-in) and a stack started with --real-llm routed through it"
+      ],
+      "slug": "llm-gateway-cost-guardrails",
+      "summary": "Route every agent LLM call through one gateway, price the model per 1K tokens, and read exact cost next to usage -- with the gateway's own ledger agreeing.",
+      "title": "Metered LLM Gateway"
     }
   ],
   "schema_version": 1,

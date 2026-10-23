@@ -1,0 +1,73 @@
+{
+  "steps": [
+    {
+      "where": "Operate › LLM Gateway",
+      "do": "<strong>Before you start:</strong> start the stand-in gateway (<code>assets/server/llm_gateway.py</code>) and a stack as the README describes (<code>--real-llm</code>, <code>CALIBER_GATEWAY_URI</code> and <code>CALIBER_LLM_BASE_URL</code> pointing at it, the deliberately wrong boot key). Open <strong>LLM Gateway</strong> and read the <strong>Endpoints</strong> tab.",
+      "see": "<strong>Reachable</strong>, <strong>Through gateway</strong>, and two endpoint rows: <code>chat-lab</code> and <code>embeddings-lab</code>.",
+      "asset": "the stand-in gateway",
+      "assetlink": [
+        {
+          "href": "../cookbooks/20-llm-gateway-cost-guardrails-lab/assets/server/llm_gateway.py",
+          "label": "llm_gateway.py"
+        }
+      ]
+    },
+    {
+      "where": "Operate › LLM Gateway",
+      "do": "Pause the stand-in (<code>curl -X POST http://127.0.0.1:8791/admin/pause</code>) and refresh the page; then resume it and refresh again.",
+      "see": "<strong>Unreachable</strong> with the discovery error while paused -- a degraded card, never a broken page -- then <strong>Reachable</strong> again."
+    },
+    {
+      "where": "Agent resources › Workflows",
+      "do": "Import <code>assets/workflow/metered-reply.workflow.yaml</code>, publish it, and run it once while the provider key is still the wrong boot key.",
+      "click": "Run",
+      "see": "The run ends <strong>error</strong> with the gateway's own <code>401</code> in the message, and the gateway's ledger records one refused call.",
+      "asset": "the metered workflow",
+      "assetlink": [
+        {
+          "href": "../cookbooks/20-llm-gateway-cost-guardrails-lab/assets/workflow/metered-reply.workflow.yaml",
+          "label": "metered-reply.workflow.yaml"
+        }
+      ]
+    },
+    {
+      "where": "Admin › Settings",
+      "do": "As an admin, write the right provider key at runtime (<code>PATCH /settings/llm {\"openai_api_key\": ...}</code>; the Settings page's LLM section is the same surface). An operator gets 403.",
+      "see": "The masked fingerprint (<code>••••</code> + the key's last 4) confirms which key is live; the value itself is never readable back."
+    },
+    {
+      "where": "Operate › LLM Gateway › Pricing",
+      "do": "Click <strong>Add rate</strong> and price the gateway's model: provider <code>lab</code>, model <code>lab-chat-mini</code>, <code>$1</code>/1K prompt, <code>$2</code>/1K completion.",
+      "click": "Create",
+      "see": "The rate row appears. A duplicate (provider, model) is refused with 409, and editing a rate is admin-only."
+    },
+    {
+      "where": "Agent resources › Workflows",
+      "do": "Run the metered workflow again, now on the right key.",
+      "click": "Run",
+      "see": "The run completes with the gateway model's reply, and the gateway's ledger records one real call billing a flat 1000+1000 tokens."
+    },
+    {
+      "where": "Operate › LLM Gateway › Usage",
+      "do": "Open the <strong>Usage</strong> tab and find <code>lab-chat-mini</code> in the by-model table.",
+      "see": "One more call, 2000 more tokens, and exactly <strong>$3.00</strong> more cost: (1000/1000)×$1 + (1000/1000)×$2."
+    },
+    {
+      "where": "Operate › LLM Gateway › Pricing",
+      "do": "Raise the prompt rate to <code>$10</code>/1K (admin), re-read Usage, then run the workflow once more.",
+      "see": "Past cost is unchanged -- the meter is written at call time -- and the new call bills <strong>$12.00</strong>."
+    },
+    {
+      "where": "Admin › Administration › Secrets",
+      "do": "Store the gateway key under a name (<strong>Store / rotate</strong>), then store it again with a new value.",
+      "click": "Store / rotate",
+      "see": "The listing shows the name, a bumped version and a <code>secret://</code> reference -- never a value. A <code>secret://</code> source for <code>CALIBER_LLM_API_KEY_ENV</code> resolves from this store at boot."
+    },
+    {
+      "where": "Operate › LLM Gateway › Guardrails",
+      "do": "Click <strong>New guardrail</strong>, pick the deterministic <code>regex</code> kind, name it, set a pattern, create it -- then delete it.",
+      "click": "Create guardrail",
+      "see": "The definition is listed (stored in the MLflow tracking store). Enforcement happens in MLflow's own AI Gateway, not in the standalone gateway the Endpoints tab lists -- the lab is explicit about that boundary."
+    }
+  ]
+}

@@ -814,6 +814,59 @@ COOKBOOKS = [
         ],
     },
     {
+        "id": "CB-20",
+        "num": "20",
+        "slug": "llm-gateway-metering",
+        "track": "Operate",
+        "title": "Metered LLM Gateway",
+        "subtitle": "Route every agent LLM call through one gateway, price the model per 1K tokens, and read exact cost next to usage -- with the gateway's own ledger agreeing.",
+        "level": "Core",
+        "time": "15–30 min",
+        "surfaces": [
+            "LLM Gateway",
+            "Workflows",
+            "Settings",
+            "Administration",
+            "Audit Log",
+        ],
+        "build": "An OpenAI-compatible stand-in gateway (<code>assets/server/llm_gateway.py</code>) that serves the MLflow AI Gateway discovery listing and <code>/v1/chat/completions</code> behind a bearer key, billing a flat 1000+1000 tokens per call so the arithmetic is checkable by eye. The stack boots with a deliberately wrong provider key; the first run fails with the gateway's own 401 (in the gateway's ledger), an admin rotates the key live through the audited Settings surface, and the next run adds exactly 2000 tokens and $3.00 to the model's usage row. A rate change re-prices only subsequent calls. The key's durable home -- the encrypted secrets store -- and a deterministic guardrail definition close the loop.",
+        "learn": [
+            "Read <strong>Operate &gt; LLM Gateway &gt; Endpoints</strong>: configured, reachable, <em>Through gateway</em> (CALIBER's own LLM base URL points at it), and the gateway's endpoint rows -- and watch the page degrade to <em>Unreachable</em> with the error while the gateway is down, instead of breaking",
+            "Diagnose a credential failure by its evidence: a run that errors with the gateway's <code>401</code> plus a refused line in the gateway's own ledger means the key reached the gateway and was wrong there -- then rotate it at runtime (<code>PATCH /settings/llm</code>, admin-only, audited, fingerprint-masked)",
+            "Price a model on the <strong>Pricing</strong> tab in USD per 1K tokens: duplicates 409, viewer creation 403, edits admin-only",
+            "Read the <strong>Usage</strong> tab after a run: calls, tokens and <em>exact</em> cost per model, aggregated from trace spans -- and see that raising a rate never rewrites what past calls cost",
+            "Store and rotate the key in <strong>Administration &gt; Secrets</strong> (version bump, <code>secret://</code> reference, no readback), and define a deterministic <code>regex</code> guardrail on the <strong>Guardrails</strong> tab, knowing exactly where it is and is not enforced",
+        ],
+        "mermaid": """flowchart LR
+  GW["Stand-in gateway :8791"] --> DISC["Endpoints tab: reachable, routed through"]
+  GW --> P["Paused: page degrades, never breaks"]
+  WRONG["Run on the wrong key"] --> L401["Gateway 401 + ledger line ok:false"]
+  L401 --> ROT["Admin rotates the key: PATCH /settings/llm"]
+  PRICE["Pricing: lab-chat-mini $1/$2 per 1K"] --> RUN["Metered run"]
+  ROT --> RUN
+  RUN --> USE["Usage: +2000 tokens, +$3.00 exactly"]
+  USE --> RAISE["Raise the rate to $10/1K"]
+  RAISE --> NEXT["Next call bills $12.00; the past is unchanged"]
+  SEC["Secrets: put / rotate / revoke, no readback"] --> AUD["Audit Log"]
+  GRD["Guardrail defined (regex), honestly scoped"] --> AUD""",
+        "gates": [
+            {"gate": "Discovery", "target": "GET /gateway reports configured, reachable and routing_through_gateway true, with the stand-in's 2 endpoints; a paused gateway flips reachable to false with the error, HTTP 200 either way"},
+            {"gate": "Two ledgers agree", "target": "usage's call count for lab-chat-mini equals the gateway ledger's ok count; a refused call is in the ledger (ok false) and never in usage"},
+            {"gate": "Exact cost", "target": "one run adds exactly 2000 tokens and $3.00 at $1/$2 per 1K (the same arithmetic test_routes_llm_pricing.py pins); after the rate rises to $10, the next call bills $12.00 and past cost is unchanged"},
+            {"gate": "Role floors", "target": "pricing create needs the operator scope (viewer 403); pricing edits and key rotation are admin-only (operator 403); secrets are admin-only end to end"},
+            {"gate": "No credential readback", "target": "GET /settings/llm returns presence and a masked fingerprint; secret responses carry metadata and a secret:// reference, never a value"},
+            {"gate": "Audit", "target": "settings.update_llm, create/update_llm_pricing, put/revoke_secret and create/delete_gateway_guardrail each appear in the audit log"},
+        ],
+        "notes": [
+            "<strong>Flags.</strong> The gateway surface needs no feature flag; only the gallery step needs <code>cookbooks</code>. The stack itself must be started with <code>--real-llm</code> and routed through the stand-in: <code>CALIBER_GATEWAY_URI=http://127.0.0.1:8791</code>, <code>CALIBER_LLM_BASE_URL=http://127.0.0.1:8791/v1</code>.",
+            "<strong>The base URL ends in /v1.</strong> The OpenAI client appends <code>/chat/completions</code> to it. A value ending in <code>/gateway</code> 404s against the standalone MLflow gateway -- this lab fixed that example in <code>.env.example</code> and the gateway deployment README.",
+            "<strong>Boot with the wrong key on purpose.</strong> <code>OPENAI_API_KEY=lab20-boot-key-wrong</code> both stages the lab's credential-failure beat and keeps your real key out of a disposable stack (<code>--real-llm</code> would otherwise read it from <code>.env</code>).",
+            "<strong>Cost is written at call time.</strong> The agent-turn span carries tokens, model and cost computed from the pricing table at that moment; <code>/gateway/usage</code> only aggregates spans. Editing a rate re-prices the future, never history -- an audit property and a bookkeeping caveat in one.",
+            "<strong>The trust boundary, honestly.</strong> Guardrail definitions live in the MLflow tracking store and are enforced by MLflow's <em>own</em> AI Gateway, not by the standalone gateway the Endpoints tab lists. Pricing matches on <code>model_id</code> alone and an unknown model costs $0. The refinement/diagnosis LLM client does not route through <code>CALIBER_LLM_BASE_URL</code>.",
+            "<strong>Run it.</strong> Start the stand-in first: <code>python3 docs-site/cookbooks/20-llm-gateway-cost-guardrails-lab/assets/server/llm_gateway.py 8791 &amp;</code>, then <code>cd sdk/caliber-sdk &amp;&amp; ../../caliber/.venv/bin/python examples/cookbooks/cookbook_20_llm_gateway_cost_guardrails.py</code> (under a minute; <code>--cleanup</code> archives what it created).",
+        ],
+    },
+    {
         "id": "CB-12",
         "num": "12",
         "slug": "aria-eval-harness",

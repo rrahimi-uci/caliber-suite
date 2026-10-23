@@ -318,6 +318,11 @@ window.DOCS_DATA = {
           "href": "m-cookbook-19-openapi-governance.html",
           "label": "19 · Governed OpenAPI Tool",
           "newtab": false
+        },
+        {
+          "href": "m-cookbook-20-llm-gateway-metering.html",
+          "label": "20 · Metered LLM Gateway",
+          "newtab": false
         }
       ]
     },
@@ -2682,6 +2687,29 @@ window.DOCS_DATA = {
     {
       "href": "m-cookbook-19-openapi-governance.html",
       "label": "19 · Governed OpenAPI Tool",
+      "section": "Examples",
+      "section_id": "examples",
+      "summary": "",
+      "audience": [
+        "developer",
+        "operator",
+        "system-user"
+      ],
+      "doc_type": "example",
+      "prerequisites": [],
+      "stability": "ga",
+      "reviewed_on": "2026-08-10",
+      "version_applicability": "current main branch docs contract",
+      "tags": [
+        "cookbook",
+        "example"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
+      "href": "m-cookbook-20-llm-gateway-metering.html",
+      "label": "20 · Metered LLM Gateway",
       "section": "Examples",
       "section_id": "examples",
       "summary": "",

@@ -1,0 +1,47 @@
+# One agent, one model, one metered call per run. The agent's `model` names the gateway
+# endpoint's model id (`lab-chat-mini`), which is also the pricing row's `model_id` -- that
+# is the whole join: span model -> pricing model_id -> cost.
+schema_version: 1
+workflow_id: metered-reply
+name: metered-reply
+description: Cookbook 20. A single agent whose every call goes through the metered gateway.
+nodes:
+  start:
+    id: start
+    type: start
+    outputs:
+      user_message:
+        type: string
+  reply_agent:
+    id: reply_agent
+    type: agent
+    name: reply-agent
+    model: lab-chat-mini
+    instructions:
+      type: inline
+      text: >-
+        Answer the user's message in one short sentence. You are a stand-in agent in a cost
+        accounting lab; the content of your reply does not matter, the metering of it does.
+    inputs:
+      input:
+        type: string
+    outputs:
+      final_output:
+        type: string
+  final:
+    id: final
+    type: output
+    inputs:
+      response:
+        type: string
+edges:
+  - id: e_start_agent
+    from: start
+    to: reply_agent
+    map:
+      user_message: input
+  - id: e_agent_final
+    from: reply_agent
+    to: final
+    map:
+      final_output: response
