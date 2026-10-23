@@ -170,6 +170,7 @@ process sandbox, not a container; knowledge bases need an object store and, for 
 - The AGE graph viewer image tracks PostgreSQL 16 while the database is 17 (the viewer is a convenience only).
 - A cold `./start.sh` can fail on a transient Docker Hub timeout while pulling base images; run it again.
 - Python 3.13 and newer are not supported by the server package.
+- After you **Resume** an approved workflow run, the Execution Debugger can keep showing the approval step instead of jumping to the final step; reselect the step or reload the page. The Lab 08 browser spec fails on this (it also fails on `main` before this release), and the Lab 07 browser spec is intermittently affected in CI. The API path of every lab passes.
 
 ## Troubleshooting
 
