@@ -2144,7 +2144,25 @@ export function WorkflowDetail(): JSX.Element {
       workflowRunEvent.type === "workflow.run.expired" ||
       workflowRunEvent.type === "workflow.run.failed"
     ) {
+      const terminalStatus =
+        workflowRunEvent.type === "workflow.run.completed"
+          ? "completed"
+          : workflowRunEvent.type === "workflow.run.expired"
+            ? "expired"
+            : "failed";
       setActiveRunId(runId || null);
+      setSelectedRun((current) => {
+        if (!current || current.workflow_run_id !== runId) return current;
+        return {
+          ...current,
+          status: terminalStatus,
+          current_node_id: null,
+          summary: {
+            ...(current.summary ?? {}),
+            status: terminalStatus,
+          },
+        };
+      });
       setRunMessage(
         workflowRunLifecycleMessage(runId, workflowRunEvent.type, workflowRunEvent),
       );
@@ -2214,6 +2232,14 @@ export function WorkflowDetail(): JSX.Element {
     if (!refreshed) return;
     setSelectedRun((current) => {
       if (!current || current.workflow_run_id !== refreshed.workflow_run_id) return current;
+      // A lifecycle event is authoritative. A slower history response can still contain the
+      // pre-terminal snapshot, so it must not put an already-finished selection back in flight.
+      if (
+        RUN_TERMINAL_STATUSES.has(current.status) &&
+        !RUN_TERMINAL_STATUSES.has(refreshed.status)
+      ) {
+        return current;
+      }
       return refreshed;
     });
   }, [selectedRun?.workflow_run_id, selectedRunCandidates]);

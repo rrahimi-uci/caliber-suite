@@ -7741,6 +7741,73 @@ describe("WorkflowDetail calibration", () => {
     );
   });
 
+  it.each([
+    { eventType: "workflow.run.completed" as const, status: "completed" as const },
+    { eventType: "workflow.run.expired" as const, status: "expired" as const },
+    { eventType: "workflow.run.failed" as const, status: "failed" as const },
+  ])(
+    "keeps a selected run $status when run history still has a running snapshot",
+    async ({ eventType, status }) => {
+      const liveRun = makeRun({
+        workflow_run_id: "WR-STALE-TERMINAL",
+        status: "running",
+        current_node_id: "support_agent",
+        completed_at: null,
+      });
+      const pagedRun = makeRun({
+        workflow_run_id: "WR-STALE-TERMINAL",
+        status: "running",
+        current_node_id: "support_agent",
+        completed_at: null,
+      });
+      let pagedRunRequests = 0;
+
+      server.use(...detailHandlers({ runs: [liveRun] }));
+      server.use(
+        http.get(`${API_BASE}/workflows/WF-1/runs`, ({ request }) => {
+          if (!new URL(request.url).searchParams.has("limit")) {
+            return HttpResponse.json(envelope([liveRun]));
+          }
+          pagedRunRequests += 1;
+          return HttpResponse.json({ data: [pagedRun], next_cursor: null });
+        }),
+      );
+
+      const view = renderAt(
+        <WorkflowDetail />,
+        "/workflows/WF-1",
+        "/workflows/:workflowId",
+      );
+      await userEvent.click(await screen.findByTestId("tab-runs"));
+      await userEvent.click(await screen.findByTestId("run-WR-STALE-TERMINAL"));
+      expect(
+        await screen.findByTestId("workflow-run-recovery-panel"),
+      ).toHaveTextContent("Actively executing");
+      await waitFor(() => expect(pagedRunRequests).toBeGreaterThan(0));
+
+      liveRun.status = status;
+      liveRun.current_node_id = null;
+      liveRun.completed_at = NOW;
+      const previousPagedRunRequests = pagedRunRequests;
+      streamState.event = {
+        type: eventType,
+        workflow_id: "WF-1",
+        workflow_run_id: "WR-STALE-TERMINAL",
+        status,
+      };
+      view.rerenderAt();
+
+      await waitFor(() =>
+        expect(
+          screen.getByTestId("workflow-run-recovery-panel"),
+        ).toHaveTextContent(`This run ended in ${status}.`),
+      );
+      await waitFor(() =>
+        expect(pagedRunRequests).toBeGreaterThan(previousPagedRunRequests),
+      );
+    },
+  );
+
   it("refreshes approval checkpoints when a selected run enters waiting approval", async () => {
     const liveRun = makeRun({
       workflow_run_id: "WR-APPROVAL",
