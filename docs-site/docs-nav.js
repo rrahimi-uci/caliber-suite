@@ -1273,7 +1273,7 @@ window.DOCS_DATA = {
         "Push access to the repository and the GitHub CLI (`gh`) signed in as the owner"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "0.1.0a1 alpha",
       "tags": [
         "release",
