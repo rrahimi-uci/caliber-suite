@@ -12,8 +12,8 @@
 | **Ingestion** | `KnowledgeBaseService.execute_run()` expands object-store sources, extracts text, chunks, embeds, and builds graph artifacts, optionally via `KnowledgeBaseWorker`. |
 | **Retrieval** | Version-scoped dense, hybrid, graph-hybrid, or AGE-backed modes through `POST /knowledge/query`, with optional pgvector ANN and cross-encoder rerank. |
 | **Key surfaces** | Routes under `/ajax-api/2.0/mlflow/caliber`, the `KnowledgeBases.tsx` UI, and the service in `caliber/src/caliber/knowledge/service.py`. |
-| **Calibration** | `knowledge/calibration.py` scores quality against eval datasets and pins baseline runs via `CaliberKnowledgeBaseTestRun`. |
-| **Prerequisites** | An S3-compatible object store for sources and outputs, and for local embeddings the `knowledge-local` extra (the default docker image installs `knowledge` only); without them creation fails fast with a 503 that names the missing piece. |
+| **Calibration** | `knowledge/calibration.py` scores quality against test sets (eval datasets in the API) and pins baseline runs via `CaliberKnowledgeBaseTestRun`. |
+| **Prerequisites** | An S3-compatible object store for sources and outputs (a wheel install also needs the `s3` extra for `boto3`), and for local embeddings the `knowledge` and `knowledge-local` extras (the default docker image installs `knowledge` but not `knowledge-local`); a missing object store or embedding package fails fast with a 503 that names the missing piece. See [Alpha install](m-60-alpha-install.md#knowledge-bases-need-more-than-this-page-sets-up). |
 | **Trust boundary** | Reads need an authenticated user; mutating routes require `SCOPE_OPERATOR` plus the project role the action names. |
 
 The sections below start from this picture and drill down into the scope, data
@@ -39,7 +39,7 @@ together span ingestion, retrieval, and quality assurance:
 - It derives graph artifacts and optionally syncs them into Apache AGE.
 - It answers questions through dense, hybrid, graph-hybrid, or AGE-backed
   retrieval.
-- It calibrates retrieval quality against eval datasets and pins baseline runs.
+- It calibrates retrieval quality against test sets (eval datasets in the API) and pins baseline runs.
 
 The behavior above is implemented across the following primary code paths,
 which split cleanly between the HTTP surface, the build and retrieval service,
@@ -230,8 +230,8 @@ version, including its derived graph:
 - `GET /knowledge-base-versions/{version_id}/graph`
 - `POST /knowledge-base-versions/{version_id}/age-sync`
 
-Retrieval and calibration routes answer questions and score quality against eval
-datasets:
+Retrieval and calibration routes answer questions and score quality against test
+sets (eval datasets):
 
 - `POST /knowledge/query`
 - `POST /knowledge-bases/{knowledge_base_id}/calibrate`
@@ -404,7 +404,7 @@ landing list; opening a knowledge base shows four stage tabs, one per task:
 - Build covers source selection, chunking, embeddings, and the graph profile.
 - Explore offers query, chunk inspection, and graph inspection (Query, Chunks,
   and Graph views).
-- Calibrate runs eval-dataset scoring and manages baselines.
+- Calibrate runs test-set scoring and manages baselines.
 - Use surfaces the runtime-facing KB identity and version selection.
 
 ## 9. Extension points and current constraints

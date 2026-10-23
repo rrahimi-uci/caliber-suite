@@ -56,7 +56,7 @@ responsibility to its owner.
 | --- | --- | --- |
 | Tool metadata registry | `CaliberToolRegistry` | Versioned, project-scoped registry rows and lifecycle metadata. |
 | Tool resolution by family/version | `workflows/tools.py` | Metadata-only resolution used by compiler and validation. |
-| Callable import/binding | `workflows/tools.py` | Resolves a registry entry to a callable. The import itself happens **in the sandbox child**, not the control plane — see §Execution boundary. |
+| Callable import/binding | `workflows/tools.py` | Resolves a registry entry to a callable. The import itself happens **in the sandbox child**, not the control plane; see section 7.1. |
 | Request-path testing and calibration | `routes/tools.py` | API surface for testing, fixtures, calibration, baselines, and archive protection. |
 | Execution isolation | `tool_sandbox/service.py` | Runs tool code in a short-lived subprocess with a timeout, resource limits, and clipped output. The backend is pluggable (`CALIBER_TOOL_SANDBOX_BACKEND`). |
 | Workflow runtime preview behavior | `workflows/sandbox.py` | Applies preview-mode restrictions and mocking for non-preview-safe tools. |
@@ -152,7 +152,7 @@ built-in is a tool CALIBER seeded itself, recognised only when the name, the own
 `memory_tools`) all match, so a registered tool cannot pass itself off as one. The four
 agent-memory tools (`memory_search`, `memory_list`, `list_entities`, `memory_add`) are
 seeded as `active` regardless, but report `availability: "unavailable"` with a reason
-while `CALIBER_MEMORY_ENABLED` is off, because they only return an error in that state.
+while `CALIBER_MEMORY_ENABLED` is off (the default; agent memory is not part of the alpha), because they only return an error in that state.
 The Tools page shows these as Built-in and Unavailable badges.
 
 ## 5. API and interaction surfaces

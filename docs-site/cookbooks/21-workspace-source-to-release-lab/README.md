@@ -66,9 +66,13 @@ requirements), which the script assigns and `CALIBER_OPERATOR_USERS` grants.
 Run it:
 
 ```bash
-source .tmp/cookbook-env/lab21/env.sh
-# mint an admin token, then:
-export CALIBER_BASE_URL="$CALIBER_URL" CALIBER_TOKEN=<token>
+source .tmp/cookbook-env/lab21/env.sh      # CALIBER_URL, CALIBER_API, CALIBER_STATE_DIR, ...
+# mint an admin token (Settings > API tokens does the same in the browser):
+curl -s -c /tmp/lab21.jar -X POST $CALIBER_API/auth/login -H 'content-type: application/json' \
+  -d '{"user_id":"admin","password":"admin"}' >/dev/null
+export CALIBER_TOKEN=$(curl -s -b /tmp/lab21.jar -X POST $CALIBER_API/auth/tokens \
+  -H 'content-type: application/json' -d '{"name":"lab21"}' | jq -r .data.token)
+export CALIBER_BASE_URL="$CALIBER_URL"
 (cd sdk/caliber-sdk && PYTHONPATH=. ../../caliber/.venv/bin/python \
    examples/cookbooks/cookbook_21_workspace_source_to_release.py)
 ```

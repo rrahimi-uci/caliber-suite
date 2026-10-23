@@ -259,7 +259,10 @@ version history.
 
 Finally, the assistant runtime can select skills in `auto`, `manual`, or `off`
 mode using `assistant/skill_runtime.py`, giving operators explicit control over
-how aggressively skills are applied.
+how aggressively skills are applied. The assistant is Aria, a preview area that ships on
+by default (`CALIBER_FEATURE_ARIA`); with it off the `/assistant/*` routes answer `404` while the
+skills registry, packaging, tests and calibration keep working. Aria also needs an engine key
+(`OPENAI_API_KEY` or `ANTHROPIC_API_KEY`) to answer; without one it reports that instead of drafting.
 
 ## 7. Security and trust boundaries
 

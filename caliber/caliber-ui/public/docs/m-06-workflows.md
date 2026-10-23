@@ -279,7 +279,7 @@ The final group exposes calibration, which discovers the available options for a
 workflow and enqueues calibration runs against it. A calibration's `eval_results`
 carries `provider`, `simulated`, and `scorer`: with the default `fake` LLM provider the
 candidate and baseline are replayed through canned outputs (`simulated` is `true`), and
-unless the LLM judge is enabled and available (`workflow_llm_judge_enabled` with a real
+unless the LLM judge is enabled and available (`CALIBER_WORKFLOW_LLM_JUDGE_ENABLED=true` with a real
 provider) the score is `structural`, which checks that the run completed and used its
 tools rather than that the output was good. The workflow page badges both:
 
@@ -495,7 +495,7 @@ Queued execution, runtime approvals, and checkpointing are each off by default
 Every node type declares what it needs beyond the base install in
 `workflows/component_catalog.py`: a real LLM provider (`agent`), a remote object store
 (`input_bucket`, `output_bucket`, `knowledge_query`, `knowledge_build`), a registered MCP
-server (`mcp_resource`), `CALIBER_EXTERNAL_APP_ENTRYPOINT_ALLOWLIST` (`external_app`), or the
+server (`mcp_resource`, which also needs `CALIBER_FEATURE_INTEGRATIONS=true`, off by default), `CALIBER_EXTERNAL_APP_ENTRYPOINT_ALLOWLIST` (`external_app`), or the
 run queue with checkpointing (`human_approval`, `wait_until`, `wait_for_event`).
 `GET /workflow-components` resolves each requirement against the running configuration
 and the palette marks the ones this server does not meet. "Met" means configured, not

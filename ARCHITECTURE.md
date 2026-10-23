@@ -673,7 +673,7 @@ touching the substrate.
 | An **executive** sizing the platform | §1 the stack, §3 the governed asset, §4 the guarantees table — then [the competitive analysis](docs-site/m-17-competitive-analysis.html) and [roadmap](docs-site/m-18-roadmap.html) |
 | An **architect** evaluating fit | §5 topologies, §6 execution, §7 state ownership, §8 trust — then [docs/01-caliber/architecture.md](docs/01-caliber/architecture.md) |
 | A **builder** joining the codebase | §2 the chain, §9 the seams — then [CONTRIBUTING.md](CONTRIBUTING.md) and [server.py](caliber/src/caliber/server.py) |
-| An **operator** bringing it up | [Alpha install](docs/start/alpha-install.md), [Local bring-up](docs/operate/local-bring-up.md) and [deploy/README.md](deploy/README.md) |
+| An **operator** bringing it up | [Alpha install](docs/start/alpha-install.md), [Local bring-up](docs/operate/local-bring-up.md), the [walkthrough runbook](docs-site/walkthrough.html) and [deploy/README.md](deploy/README.md) |
 | Anyone asking **"what is actually built?"** | [docs/reports/product-completeness-report.md](docs/reports/product-completeness-report.md) — the dated implementation and validation record; use the latest `main` CI run for current release evidence |
 
 The deeper architecture specs, operator runbooks, integration guides, and audit

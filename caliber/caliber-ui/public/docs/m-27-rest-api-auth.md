@@ -138,9 +138,10 @@ back to `detail` and the status code.
 
 One code is always set: a route of an area that this deployment has turned off
 answers 404 with `reason_code: feature_disabled`, and `detail` names the variable
-that enables it. The preview and record-only areas (Aria, MCP servers and OpenAPI
+that enables it. The preview and record-only areas (MCP servers and OpenAPI
 integrations, cookbooks, release-candidate signoff and Workspace releases) are off
-by default. Read `features` from `GET /capabilities` to check before you call, and
+by default; Aria ships on and answers this 404 only if an operator sets
+`CALIBER_FEATURE_ARIA=false`. Read `features` from `GET /capabilities` to check before you call, and
 treat this 404 as "not enabled here" rather than "no such record":
 
 ```json

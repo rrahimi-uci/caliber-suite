@@ -339,13 +339,13 @@ No single competitor occupies all of it:
 - **[19]** [Dify `LICENSE` (Apache-2.0 with additional conditions)](https://github.com/langgenius/dify/blob/main/LICENSE) — GitHub
 - **[20]** [Dify Documentation](https://docs.dify.ai/)
 - **[21]** [Release 1.13.0 — Human-in-the-Loop node](https://github.com/langgenius/dify/releases/tag/1.13.0) — GitHub
-- **[22]** [Version Control](https://docs.dify.ai/en/guides/management/version-control) — Dify Docs
+- **[22]** [Version Control](https://web.archive.org/web/20250518033336/https://docs.dify.ai/en/guides/management/version-control) (archived copy; the original page has moved) — Dify Docs
 - **[23]** [Dify × Arize: Evaluate, Monitor, and Improve Agents](https://dify.ai/blog/dify-arize-how-to-evaluate-monitor-and-improve-agents) — Dify Blog
 
 **n8n**
 
 - **[24]** [`n8n-io/n8n`](https://github.com/n8n-io/n8n) — GitHub (~195k★)
-- **[25]** [Sustainable Use License](https://docs.n8n.io/sustainable-use-license/) — n8n Docs
+- **[25]** [Sustainable Use License](https://github.com/n8n-io/n8n/blob/master/LICENSE.md) — n8n Docs
 - **[26]** [n8n raises $180M Series C (Oct 9 2025)](https://blog.n8n.io/series-c/) — n8n Blog
 - **[27]** [Introducing Evaluations for AI workflows](https://blog.n8n.io/introducing-evaluations-for-ai-workflows/) — n8n Blog
 - **[28]** [Source control & environments (feature availability)](https://docs.n8n.io/source-control-environments/) — n8n Docs

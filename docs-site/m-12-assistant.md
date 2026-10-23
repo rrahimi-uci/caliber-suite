@@ -71,7 +71,7 @@ Concretely, Aria owns the following responsibilities:
   the default planner proposes steps whose required inputs are not yet known, so a step
   pauses on a typed `input` interaction until the owner supplies them; parked async steps
   advance through the plan worker, the inline goal-plan card's poll, or an explicit
-  poll — the standalone Plans page does not poll on its own.) The assistant drawer's
+  poll — the standalone Plans page only re-reads a running plan on a timer and never calls `POST /aria/plans/{plan_id}/poll` itself.) The assistant drawer's
   **Plan** mode now creates these durable plans and renders them as an inline
   goal-plan card; a standalone Plans page and a sidebar "needs you" badge let a
   user leave a plan running and return when it needs a decision. This is the

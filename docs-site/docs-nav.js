@@ -532,7 +532,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "platform",
@@ -613,7 +613,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "tools",
@@ -640,7 +640,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "skills",
@@ -667,7 +667,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-15",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "mcp",
@@ -694,7 +694,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "workflows",
@@ -720,7 +720,7 @@ window.DOCS_DATA = {
         "Workflow Studio or manifest familiarity"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-15",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "workflows",
@@ -747,7 +747,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "storage",
@@ -774,7 +774,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "knowledge-bases",
@@ -882,7 +882,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "observability",
@@ -909,7 +909,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "gateways",
@@ -936,7 +936,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-15",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "qa",
@@ -1016,7 +1016,7 @@ window.DOCS_DATA = {
         "Layered architecture overview"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-15",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "assistant",
@@ -1221,7 +1221,7 @@ window.DOCS_DATA = {
         "Python 3.10, 3.11 or 3.12 and the three CALIBER wheels (release assets or a source checkout)"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-15",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "0.1.0a1 alpha",
       "tags": [
         "install",
@@ -1451,7 +1451,7 @@ window.DOCS_DATA = {
         "Repository checkout"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-15",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "setup",
@@ -1555,7 +1555,7 @@ window.DOCS_DATA = {
         "A CALIBER failure or degraded runtime question"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-15",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "troubleshooting",
@@ -1873,10 +1873,10 @@ window.DOCS_DATA = {
       ],
       "doc_type": "how-to",
       "prerequisites": [
-        "A CALIBER deployment with Aria access (CALIBER_FEATURE_ARIA=true)"
+        "A CALIBER deployment with Aria enabled (CALIBER_FEATURE_ARIA is on by default) and an engine key (OPENAI_API_KEY or ANTHROPIC_API_KEY)"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-15",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "aria",
@@ -2135,7 +2135,7 @@ window.DOCS_DATA = {
         "Decision-maker overview"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-20",
+      "reviewed_on": "2026-10-23",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "strategy",
@@ -2161,11 +2161,11 @@ window.DOCS_DATA = {
       "doc_type": "strategy",
       "prerequisites": [
         "Read docs/roadmap.md for sequencing, milestones, and capacity assumptions",
-        "Review the current GitHub Project #2 issue hierarchy and dated delivery evidence before approving a release"
+        "Review the dated delivery evidence before approving a release (the GitHub Project #2 issue hierarchy it was written against no longer exists)"
       ],
       "stability": "internal",
-      "reviewed_on": "2026-10-20",
-      "version_applicability": "current main branch, GitHub Project #2, and the proposed v1.0.0 release",
+      "reviewed_on": "2026-10-23",
+      "version_applicability": "current main branch and the proposed v1.0.0 release",
       "tags": [
         "prd",
         "mvp",
@@ -2192,8 +2192,8 @@ window.DOCS_DATA = {
         "A named single-tenant deployment owner and supported MLflow provider profile"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-20",
-      "version_applicability": "current main branch and GitHub Project #2",
+      "reviewed_on": "2026-10-23",
+      "version_applicability": "current main branch (the GitHub Project #2 it cites no longer exists)",
       "tags": [
         "roadmap",
         "monthly-release",

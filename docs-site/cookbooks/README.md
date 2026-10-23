@@ -48,7 +48,7 @@ cd caliber/caliber-ui && npm ci && npx playwright install chromium && cd ../..  
 
 Lab 06 additionally needs the local embedding libraries (`caliber/.venv/bin/pip install -e "caliber[knowledge,knowledge-local]"`, or `cd caliber && make install-extended`)
 and the `all-MiniLM-L6-v2` model in the Hugging Face cache (about 90 MB; its README says how to warm it). Labs 01, 02, 06, 07, 08, 10, 12 to 14 and 15 also have an
-optional real-model tier that needs your own `OPENAI_API_KEY`; the default path of every lab needs no key and no network.
+optional real-model tier that needs your own `OPENAI_API_KEY`. **The default path of every lab is deliberately deterministic**: it needs no key and no network, so its results reproduce exactly, and each README says what is simulated. To run a lab on **real** models instead, put `OPENAI_API_KEY` (and optionally `ANTHROPIC_API_KEY`) in the repository-root `.env` (copy `.env.example`) and start its stack with `scripts/cookbook-env.sh up NAME --flags ... --real-llm`, which reads those two keys from `.env` and selects the real LLM, evaluator and Aria engine; `/readiness` (`ai_components`) then confirms nothing is simulated.
 
 The SDK examples are run as `PYTHONPATH=sdk/caliber-sdk caliber/.venv/bin/python <script or -m module>` from the repository root, with `CALIBER_BASE_URL`
 and `CALIBER_TOKEN` set (the lab README shows how to mint the token; `source .tmp/cookbook-env/NAME/env.sh` sets `CALIBER_BASE_URL`).
