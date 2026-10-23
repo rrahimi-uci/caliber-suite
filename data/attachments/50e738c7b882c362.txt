@@ -1,0 +1,1 @@
+WARNING  caliber.config:config.py:1865 CALIBER_LLM_PROVIDER=auto resolved to fake: OPENAI_API_KEY is not set, so workflow agents, calibration and judges are SIMULATED. Put the key in .env to use a real model.
