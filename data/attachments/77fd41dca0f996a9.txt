@@ -1,2 +1,0 @@
-{"t":"2026-10-23T21:38:35.446Z","severity":"WARNING","logger":"caliber.config","message":"CALIBER_LLM_PROVIDER=auto resolved to fake: OPENAI_API_KEY is not set, so workflow agents, calibration and judges are SIMULATED. Put the key in .env to use a real model."}
-{"t":"2026-10-23T21:38:35.447Z","severity":"WARNING","logger":"caliber.config","message":"ANTHROPIC_API_KEY is set, but the workflow/calibration LLM provider supports OpenAI only; the Anthropic key powers Aria (the assistant) but not those."}

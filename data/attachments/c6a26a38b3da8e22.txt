@@ -1,1 +1,0 @@
-WARNING  caliber.assistant.openai_engine:openai_engine.py:68 OpenAI API key not found in environment variable MY_TEAM_OPENAI_KEY. Assistant engine calls will fail until a valid key is set.

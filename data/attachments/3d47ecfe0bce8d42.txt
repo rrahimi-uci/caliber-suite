@@ -1,8 +1,0 @@
-WARNING  caliber.assistant.service:service.py:4981 assistant draft turn failed
-Traceback (most recent call last):
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/src/caliber/assistant/service.py", line 4979, in draft_prompt_from_description
-    result = self._engine.run_turn(request)
-             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
-  File "/home/runner/work/caliber-suite/caliber-suite/caliber/tests/test_aria_honesty.py", line 170, in run_turn
-    raise OpenAIError(
-tests.test_aria_honesty.OpenAIError: The api_key client option must be set either by passing api_key to the client or by setting the OPENAI_API_KEY environment variable
