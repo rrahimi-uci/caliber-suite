@@ -295,9 +295,9 @@ Every child issue must include:
 3. Observable acceptance criterion, including a failure/denial case where applicable.
 4. Test commands and retained evidence location; measure affected behavioral-code coverage under repository rules.
 5. Documentation/example changes, explicit exclusions and a 1–2 day estimate.
-6. Dedicated PR, review requirements and release-gate linkage. Merge authority remains with the repository owner under the user's explicit instruction.
+6. Dedicated PR, review requirements and release-gate linkage. Merge under the repository's CLAUDE.md once the issue's gates pass.
 
-Initial D1 tickets should cover the profile/ownership ADR, schema fixtures, connector capability experiment, lost-receipt harness, trace ownership deny test/fix, unsafe-profile refusal, approval UX contract and updated estimates. Split any item that exceeds two days. These are proposed slices, **not claims that GitHub issues or milestones have already been created**.
+Initial D1 tickets should cover the profile/ownership ADR, schema fixtures, connector capability experiment, lost-receipt harness, trace ownership deny test/fix, unsafe-profile refusal, approval UX contract and updated estimates. Split any item that exceeds two days. These are proposed slices, **not claims that GitHub issues or milestones have already been created**. *Update 2026-10-24: they exist as #565–#572, with readiness #608 and three tasks the review found missing (#625 and #626, the disposable dispatch and reconciliation prototypes; #627, the protected-effect inventory); see the [EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md#tracking).*
 
 ### Handling slips and deciding what to fund
 
