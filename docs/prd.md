@@ -11,7 +11,7 @@ summary: Product requirements and delivery evidence for CALIBER v1.0.0 as a boun
 prerequisites:
   - Read docs/roadmap.md for sequencing, milestones, and capacity assumptions
   - Review the dated delivery evidence before approving a release (the GitHub Project #2 issue hierarchy it was written against no longer exists)
-reviewed_on: 2026-10-23
+reviewed_on: 2026-10-24
 version_applicability: current main branch and the proposed v1.0.0 release
 tags:
   - prd
@@ -23,6 +23,10 @@ tags:
 # CALIBER v1.0.0 product requirements document
 
 ## Status and decision
+
+> **Superseded as the MVP definition on 2026-10-24.** The MVP is now the book-complete reference implementation in
+> the [EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md). The prompt-refinement journey below remains a supported
+> CALIBER journey and a useful acceptance case, but its v1.0.0 release gate is no longer the product's MVP gate.
 
 **Status: draft for approval.** This PRD defines the product contract that the
 [roadmap](./roadmap.md) delivers. It does not assert that CALIBER has reached

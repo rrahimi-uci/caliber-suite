@@ -3,6 +3,11 @@
 > **Planning proposal, not a commitment and not part of the `0.1.0a1` alpha.** It describes a possible post-alpha program
 > (a Beta and an MVP gate) built on the [reference architecture gap analysis](CALIBER_REFERENCE_ARCHITECTURE_GAP_ANALYSIS.md).
 > The current product boundary is [Alpha scope and limitations](start/alpha-scope.md).
+>
+> **Superseded for staffing, scope and calendar on 2026-10-24** by the
+> [three-person, book-complete EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md): three people, not five; the MVP now
+> covers the whole book (packages M17–M26 and milestones D10–D15); M16 moves to D15. The D1–D8 milestone contracts,
+> package allocation and ticket standard below still apply; the week numbers and five-week cadence do not.
 
 ## Decision and planning basis
 

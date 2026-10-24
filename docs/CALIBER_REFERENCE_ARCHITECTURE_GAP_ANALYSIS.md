@@ -33,10 +33,13 @@ Estimates are **incremental engineering person-weeks**, including implementation
 | Beta | One safe, inspectable request-to-effect-to-replay path; one tenant, trusted connectors, no arbitrary code | 37–61 | 46.25–76.25 | All Beta scenarios in section 13, including failure injection, pass through public APIs |
 | MVP, after Beta | An operable reference platform with release evidence, stronger identity/isolation, recovery and a second use case | 42–70 | 52.5–87.5 | Independent deployment/restore exercise and all MVP scenarios pass |
 | Total remaining through MVP | Minimal reference implementation, not the entire book | **79–131** | **98.75–163.75** | Both milestone definitions of done |
+| Book-complete increment (decided 2026-10-24) | M17–M26: the breadth deferred in section 11 plus the book contracts no package covered | 63–126 | 78.75–157.5 | [EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md) traceability tables complete |
 
 At the repository's documented **1.5 developer capacity**, reserved effort alone implies roughly **66–110 team-weeks through MVP**, before additional non-overlapping external delays. A five-person team operating at 75% effective delivery capacity gives a capacity-only calculation of roughly **27–44 weeks**, before imposing the fixed five-week milestone cadence below. These are capacity calculations, not promised dates; the dependency graph prevents arbitrary parallelization. This expanded EGI scope does not fit automatically inside the existing six-month roadmap. [C24]
 
 **Five-person delivery plan:** the [nine-milestone execution plan](CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) allocates every B/M package to concrete delivery gates, using **five weeks per milestone: four for implementation/integration and one for QA and fixes**. The resulting calendar is **Beta at week 25 and MVP at week 45** at the base midpoint; at the upper estimate the MVP increment needs a fifth milestone (an MVP gate near week 50), because Beta headroom cannot fund MVP work before the Beta decision. It retains the effort ranges above, includes availability and uncertainty separately, and makes Beta an explicit stop-or-fund-MVP decision. The capacity-only ranges are sizing context; the fixed milestone calendar is the current delivery baseline.
+
+**Decision, 2026-10-24:** the repository owner made the EGI program the MVP (replacing the roadmap's narrower `caliber-v1.0.0`), set the team at **three people**, and made CALIBER the reference implementation of the whole book, including the breadth this report deferred. The [three-person EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md) controls from that date: **Beta at week 30, core platform proof at week 61, book-complete MVP at week 118** at the midpoint, about 143 weeks at the upper estimate. Sections below that describe the deferred breadth as out of scope are superseded by that plan's packages M17–M26.
 
 ### How much does Alpha cover?
 
@@ -270,7 +273,7 @@ The status applies to the **bounded Alpha capability described**, not full equiv
 
 **Beta:** one tenant with at least two workspaces for isolation tests; one region; PostgreSQL; a separate MLflow service; one object store; one active execution owner; trusted connectors; one supported real-provider adapter plus an offline scripted adapter. Ship one realistic synthetic evidence-review workflow that requests a missing document in a test system of record. It must never make a real credit decision.
 
-**MVP:** the same logical architecture, with hardened release/identity/evidence/isolation operations, one internal child task, and a second domain example. Multiple regions, SaaS tenancy, arbitrary code from unknown authors, unbounded agents, auto-generated compliance rules, A2A federation, and automatic cross-run memory remain out of scope.
+**MVP:** the same logical architecture, with hardened release/identity/evidence/isolation operations, one internal child task, and a second domain example. Multiple regions, SaaS tenancy, arbitrary code from unknown authors, unbounded agents, auto-generated compliance rules, A2A federation, and automatic cross-run memory remain out of scope. *Superseded 2026-10-24: the book-complete MVP adds them as packages M17–M26 in the [EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md); arbitrary code from unknown authors and unbounded agents stay out of scope, as the book itself requires.*
 
 ### Record ownership
 
@@ -452,10 +455,11 @@ This order is not permission to postpone a discovered security defect until its 
 | Existing 1.5 delivery FTE | 31–51 weeks | 35–59 weeks | 66–110 weeks |
 | Five-person capacity-only calculation at 75% effective delivery, reserve included | 13–21 weeks | 14–24 weeks | 27–44 weeks |
 | Current five-person delivery calendar: nine milestones, each four implementation/integration weeks plus one QA week | **25 weeks** | **20 weeks** | **45 weeks** |
+| Three-person delivery calendar (controlling from 2026-10-24; MVP = M01–M26) | **30 weeks** | **88 weeks** | **118 weeks** |
 
 Capacity-only ranges include the 25% uncertainty reserve and are rounded upward from effort/capacity. The fixed delivery calendar schedules QA explicitly and supersedes those ranges as the current planning baseline; it does not increase the package effort estimates. The larger-team calculation assumes roughly two backend engineers, one platform/security engineer, one full-stack engineer and one test/reliability engineer, with domain-owner time available separately. Security expertise cannot be replaced by adding general-purpose developers. More people will not remove the B02 → B03 → B04/B05 → B06/B09 critical path.
 
-**Roadmap compatibility:** [the existing roadmap](roadmap.md) owns a narrower controlled-pilot/single-tenant release sequence and uses historical issue references. This report proposes an expanded reference-architecture program with local IDs B01–M16; it does not claim those issues exist, re-date them, or supersede the PRD by implication. After scope approval, reconcile and recreate the backlog with live issue IDs. Do not label an old narrow milestone “EGI MVP” without meeting this report's gates.
+**Roadmap compatibility:** [the existing roadmap](roadmap.md) owns a narrower controlled-pilot/single-tenant release sequence and uses historical issue references. This report proposes an expanded reference-architecture program with local IDs B01–M16; it does not claim those issues exist, re-date them, or supersede the PRD by implication. After scope approval, reconcile and recreate the backlog with live issue IDs. Do not label an old narrow milestone “EGI MVP” without meeting this report's gates. *Resolved 2026-10-24: the EGI program is the MVP, the backlog is recreated as live issues in GitHub Project #3, and the roadmap's monthly milestones are retired.*
 
 ### Explicitly deferred backlog
 
@@ -468,7 +472,7 @@ Capacity-only ranges include the 25% uncertainty reserve and are rounded upward 
 | SaaS multi-tenancy and organizational administration | Product decision to host mutually untrusted tenants | 10–20+ PW |
 | Broad framework/connector marketplace | At least two independently adopted conformance implementations | Size per integration after contract stabilization |
 
-These are low-confidence order-of-magnitude allowances, not commitments. They are excluded specifically because the minimum coherent architecture does not need them.
+These are low-confidence order-of-magnitude allowances, not commitments. They are excluded specifically because the minimum coherent architecture does not need them. *Superseded 2026-10-24: every row is now in MVP scope as packages M17–M22 of the [EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md), with the triggers above replaced by the owner's decision that CALIBER is the book's reference implementation.*
 
 ## 12. Dependencies and Risks
 
@@ -588,10 +592,11 @@ Each validation run emits exact commit, dependency lock/container digests, datab
 - [ ] API/SDK compatibility, old-run migrations and rollback behavior are tested against built release artifacts.
 - [ ] Documentation, generated site, paper claims, examples, diagrams and overview-video accurately distinguish implemented, validated, preview and deferred behavior.
 - [ ] The release decision is made on exact artifacts and evidence, not checklist completion or a capability percentage alone.
+- [ ] Book-complete (added 2026-10-24): M17–M26 and V25–V34 pass, and every row of the [EGI delivery plan's book traceability tables](CALIBER_EGI_DELIVERY_PLAN.md#book-traceability) has a delivered package and a passing test.
 
 ## 16. Recommended Next Steps
 
-1. **Approve the reference boundary and staffing assumption.** Use the [five-person D1–D9 plan](CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) to name owners and fund the first checkpoint. Decide whether the expanded EGI program replaces or follows the narrower existing MVP. Keep release labels separate until that decision is explicit.
+1. **Approve the reference boundary and staffing assumption.** Use the [five-person D1–D9 plan](CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) to name owners and fund the first checkpoint. Decide whether the expanded EGI program replaces or follows the narrower existing MVP. Keep release labels separate until that decision is explicit. *Done 2026-10-24: it replaces it, with three people; see the [EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md).*
 2. **Start B01 and early B11/B12 work.** Freeze the synthetic document-request scenario, control contracts, allowed connector set and deployment threat model; address trace isolation before shared sensitive use.
 3. **Prototype B04/B05 before committing dates.** Route one protected action through persisted proposal, exact approval, stable downstream key and reconciliation. Kill the worker after downstream commit. This is the highest-value architecture test.
 4. **Implement immutable pins and execution authority.** Avoid building more agent features on top of owner-derived identity and optional lineage.

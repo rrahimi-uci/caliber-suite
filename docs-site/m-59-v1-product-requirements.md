@@ -5,6 +5,10 @@
 
 ## Status and decision
 
+> **Superseded as the MVP definition on 2026-10-24.** The MVP is now the book-complete reference implementation in
+> the [EGI delivery plan](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/CALIBER_EGI_DELIVERY_PLAN.md). The prompt-refinement journey below remains a supported
+> CALIBER journey and a useful acceptance case, but its v1.0.0 release gate is no longer the product's MVP gate.
+
 **Status: draft for approval.** This PRD defines the product contract that the
 [roadmap](m-18-roadmap.md) delivers. It does not assert that CALIBER has reached
 v1.0.0 or that all visible alpha capabilities are supported.

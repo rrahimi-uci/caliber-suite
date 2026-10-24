@@ -2164,7 +2164,7 @@ window.DOCS_DATA = {
         "Review the dated delivery evidence before approving a release (the GitHub Project #2 issue hierarchy it was written against no longer exists)"
       ],
       "stability": "internal",
-      "reviewed_on": "2026-10-23",
+      "reviewed_on": "2026-10-24",
       "version_applicability": "current main branch and the proposed v1.0.0 release",
       "tags": [
         "prd",
@@ -2192,7 +2192,7 @@ window.DOCS_DATA = {
         "A named single-tenant deployment owner and supported MLflow provider profile"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-23",
+      "reviewed_on": "2026-10-24",
       "version_applicability": "current main branch (the GitHub Project #2 it cites no longer exists)",
       "tags": [
         "roadmap",
