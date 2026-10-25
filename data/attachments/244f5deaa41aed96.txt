@@ -1,0 +1,20 @@
+
+✨ Evaluation completed.
+
+Metrics and evaluation results are logged to the MLflow run:
+  Run name: [94mwise-shad-188[0m
+  Run ID: [94mfbbbd6d6cac042d0baa8ea8c2459fe78[0m
+
+To view the detailed evaluation results with sample-wise scores,
+open the [93m[1mTraces[0m tab in the Run page in the MLflow UI.
+
+
+✨ Evaluation completed.
+
+Metrics and evaluation results are logged to the MLflow run:
+  Run name: [94mplacid-hare-933[0m
+  Run ID: [94mff8cdb069abe4f1e934be8ad6d4f015a[0m
+
+To view the detailed evaluation results with sample-wise scores,
+open the [93m[1mTraces[0m tab in the Run page in the MLflow UI.
+
