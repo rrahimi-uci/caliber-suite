@@ -1,2 +1,0 @@
-{"t":"2026-10-25T18:43:49.428Z","severity":"WARNING","logger":"caliber.extensibility.registry","message":"optimizer plugin broken-plugin failed to load: RuntimeError: plugin blew up on import"}
-{"t":"2026-10-25T18:43:49.430Z","severity":"WARNING","logger":"caliber.extensibility.registry","message":"optimizer plugin broken-plugin failed to load: RuntimeError: plugin blew up on import"}

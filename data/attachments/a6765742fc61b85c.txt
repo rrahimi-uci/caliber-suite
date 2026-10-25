@@ -1,1 +1,0 @@
-{"t":"2026-10-25T18:29:06.879Z","severity":"WARNING","logger":"caliber.assistant.openai_engine","message":"OpenAI API key not found in environment variable MY_TEAM_OPENAI_KEY. Assistant engine calls will fail until a valid key is set."}

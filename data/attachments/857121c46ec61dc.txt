@@ -1,2 +1,0 @@
-{"t":"2026-10-25T18:31:22.549Z","severity":"WARNING","logger":"caliber.config","message":"CALIBER_LLM_PROVIDER=auto resolved to fake: MY_TEAM_KEY is not set, so workflow agents, calibration and judges are SIMULATED. Put the key in .env to use a real model."}
-{"t":"2026-10-25T18:31:22.550Z","severity":"INFO","logger":"caliber.config","message":"CALIBER_LLM_PROVIDER=auto resolved to openai (MY_TEAM_KEY is set)"}

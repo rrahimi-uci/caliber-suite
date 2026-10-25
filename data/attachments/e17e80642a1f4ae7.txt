@@ -1,1 +1,0 @@
-WARNING  caliber.assistant.service:service.py:4987 assistant draft turn returned an error: anthropic package not installed
