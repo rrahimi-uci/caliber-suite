@@ -66,9 +66,8 @@ class OpenAIAssistantEngine:
         self._tool_dispatcher = tool_dispatcher
         if not self._api_key:
             logger.warning(
-                "OpenAI API key not found in environment variable %s. "
-                "Assistant engine calls will fail until a valid key is set.",
-                api_key_env,
+                "OpenAI API key is not configured. "
+                "Assistant engine calls will fail until a valid key is set."
             )
 
     @property

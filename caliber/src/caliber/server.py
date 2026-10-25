@@ -421,14 +421,12 @@ def _error_if_no_role_lists(config: CaliberConfig, user_id: str) -> None:
     )
 
 
-def _report_no_bootstrap_password(user_id: str, secret_source: str, session_factory: Any) -> None:
+def _report_no_bootstrap_password(secret_source: str, session_factory: Any) -> None:
     """Explain why no bootstrap account was created because no password was available."""
     if secret_source:
         logger.warning(
-            "auth bootstrap admin %r is configured but %s resolved no password; "
-            "no account was created",
-            user_id,
-            secret_source,
+            "auth bootstrap admin is configured but no password was resolved; "
+            "no account was created"
         )
     else:
         _warn_if_nobody_can_log_in(session_factory)
@@ -478,7 +476,7 @@ def _bootstrap_admin_account(config: CaliberConfig, session_factory: Any) -> Non
         password = DEFAULT_BOOTSTRAP_ADMIN_PASSWORD
         using_default = True
     if not password:
-        _report_no_bootstrap_password(user_id, secret_source, session_factory)
+        _report_no_bootstrap_password(secret_source, session_factory)
         return
     using_default = using_default or (
         allow_insecure_default

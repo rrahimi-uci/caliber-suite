@@ -1859,13 +1859,13 @@ def _resolve_auto_providers(kwargs: dict[str, Any], env: Mapping[str, str]) -> N
         key_source = str(kwargs.get("llm_api_key_env") or "OPENAI_API_KEY")
         if _llm_key_available(key_source, env):
             kwargs["llm_provider"] = "openai"
-            _LOG.info("CALIBER_LLM_PROVIDER=auto resolved to openai (%s is set)", key_source)
+            _LOG.info("CALIBER_LLM_PROVIDER=auto resolved to openai (the key is set)")
         else:
             kwargs["llm_provider"] = "fake"
             _LOG.warning(
-                "CALIBER_LLM_PROVIDER=auto resolved to fake: %s is not set, so workflow agents, "
-                "calibration and judges are SIMULATED. Put the key in .env to use a real model.",
-                key_source,
+                "CALIBER_LLM_PROVIDER=auto resolved to fake: the key is not set, so workflow "
+                "agents, calibration and judges are SIMULATED. Configure a real model key to use "
+                "a real provider (OPENAI_API_KEY is the default source)."
             )
             if str(env.get("ANTHROPIC_API_KEY", "")).strip():
                 _LOG.warning(

@@ -53,9 +53,8 @@ class AnthropicAssistantEngine:
         self._api_key_env = api_key_env
         if not self._api_key:
             logger.warning(
-                "Anthropic API key not found in environment variable %s. "
-                "Assistant engine calls will fail until a valid key is set.",
-                api_key_env,
+                "Anthropic API key is not configured. "
+                "Assistant engine calls will fail until a valid key is set."
             )
 
     @property

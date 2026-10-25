@@ -314,10 +314,9 @@ def build_token_manager(
     secret = resolve_secret(secret_env_var, environ=environ)
     if not secret:
         logger.warning(
-            "csrf is enabled but the secret source %r resolved to empty; "
+            "csrf is enabled but its secret source resolved to empty; "
             "CSRF protection will not engage. "
-            "Set the source named by config.csrf_signing_secret_env.",
-            secret_env_var,
+            "Configure the source named by config.csrf_signing_secret_env."
         )
         return _DISABLED_MANAGER
     return CSRFTokenManager(
