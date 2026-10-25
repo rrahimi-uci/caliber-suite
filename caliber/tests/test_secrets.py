@@ -95,6 +95,25 @@ def test_file_scheme_empty_path_returns_none() -> None:
     assert resolve_secret("file://") is None
 
 
+@pytest.mark.parametrize(
+    "source",
+    ["env://MY_PRIVATE_KEY_VAR", "MY_PRIVATE_KEY_VAR", "file:///nonexistent/private-key-path"],
+)
+def test_unresolved_source_is_not_named_in_logs(
+    source: str, caplog: pytest.LogCaptureFixture
+) -> None:
+    """Logs say that a secret source failed, never which one.
+
+    The name of the env var or file that holds a secret is itself sensitive: it tells a
+    reader of the logs where to look. Earlier messages interpolated it.
+    """
+    with caplog.at_level("DEBUG", logger="caliber.secrets"):
+        assert resolve_secret(source, environ={}) is None
+    assert caplog.records, "resolution logs something at DEBUG or above"
+    assert "MY_PRIVATE_KEY_VAR" not in caplog.text
+    assert "private-key-path" not in caplog.text
+
+
 def test_environ_defaults_to_os_environ(monkeypatch: pytest.MonkeyPatch) -> None:
     """When ``environ`` is not passed, the resolver reads from
     :data:`os.environ` — the production code path."""

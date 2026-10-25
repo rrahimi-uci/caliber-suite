@@ -113,20 +113,20 @@ def resolve_secret(
     env = environ if environ is not None else os.environ
 
     if source.startswith(_ENV_SCHEME):
-        return _resolve_env(source.removeprefix(_ENV_SCHEME), env, source_label=source)
+        return _resolve_env(source.removeprefix(_ENV_SCHEME), env)
     if source.startswith(_FILE_SCHEME):
-        return _resolve_file(source.removeprefix(_FILE_SCHEME), source_label=source)
+        return _resolve_file(source.removeprefix(_FILE_SCHEME))
     if source.startswith(_SECRET_SCHEME):
-        return _resolve_stored(source.removeprefix(_SECRET_SCHEME), source_label=source)
+        return _resolve_stored(source.removeprefix(_SECRET_SCHEME))
 
     # Bare string — backwards-compatible env-var-name interpretation.
     # The original ``*_signing_secret_env`` fields took an env var name
     # by convention; preserving that means existing deployments don't
     # have to change anything on upgrade.
-    return _resolve_env(source, env, source_label=f"env://{source}")
+    return _resolve_env(source, env)
 
 
-def _resolve_stored(name: str, *, source_label: str) -> str | None:
+def _resolve_stored(name: str) -> str | None:
     """Resolve a ``secret://name`` reference through the encrypted store.
 
     Returns ``None`` — never a partial or plaintext fallback — when the store is
@@ -136,9 +136,8 @@ def _resolve_stored(name: str, *, source_label: str) -> str | None:
     """
     if _SECRET_STORE is None or _SECRET_SESSION_FACTORY is None:
         logger.warning(
-            "secret source %r cannot resolve: no encrypted secret store is bound "
-            "(set CALIBER_SECRET_ENCRYPTION_KEY_SOURCE)",
-            source_label,
+            "secret source cannot resolve: no encrypted secret store is bound "
+            "(set CALIBER_SECRET_ENCRYPTION_KEY_SOURCE)"
         )
         return None
     try:
@@ -147,10 +146,10 @@ def _resolve_stored(name: str, *, source_label: str) -> str | None:
     except Exception:
         # A broken store must not take down every consumer that reads a secret;
         # it degrades to "unresolved", which callers already handle.
-        logger.warning("secret source %r could not be resolved", source_label, exc_info=True)
+        logger.warning("secret source could not be resolved", exc_info=True)
         return None
     if not value:
-        logger.debug("secret source %r resolves to nothing (absent or revoked)", source_label)
+        logger.debug("secret source resolves to nothing (absent or revoked)")
         return None
     return str(value)
 
@@ -158,12 +157,10 @@ def _resolve_stored(name: str, *, source_label: str) -> str | None:
 def _resolve_env(
     var_name: str,
     environ: Mapping[str, str],
-    *,
-    source_label: str,
 ) -> str | None:
     """Read ``var_name`` from ``environ``. Returns ``None`` if unset or empty."""
     if not var_name:
-        logger.warning("secret source %r has empty env var name", source_label)
+        logger.warning("secret source has an empty environment-variable name")
         return None
     value = environ.get(var_name)
     if not value:
@@ -171,15 +168,13 @@ def _resolve_env(
         # disabled-feature build_*. The builder logs at WARNING when
         # the feature is enabled but the source is empty — that's the
         # actionable case.
-        logger.debug("secret source %r resolves to empty/unset env var", source_label)
+        logger.debug("secret source resolves to an empty or unset environment variable")
         return None
     return value
 
 
 def _resolve_file(
     path_str: str,
-    *,
-    source_label: str,
 ) -> str | None:
     """Read the contents of ``path_str``.
 
@@ -190,22 +185,22 @@ def _resolve_file(
     env vars.
     """
     if not path_str:
-        logger.warning("secret source %r has empty file path", source_label)
+        logger.warning("secret source has an empty file path")
         return None
     path = Path(path_str)
     try:
         raw = path.read_text(encoding="utf-8")
     except FileNotFoundError:
-        logger.warning("secret source %r: file does not exist", source_label)
+        logger.warning("secret source file does not exist")
         return None
-    except OSError as exc:
+    except OSError:
         # Permission denied, IO error, etc. Treat the same as missing
         # — the feature self-disables and the operator fixes the
         # permission.
-        logger.warning("secret source %r: cannot read file (%s)", source_label, exc)
+        logger.warning("secret source file cannot be read")
         return None
     stripped = raw.strip()
     if not stripped:
-        logger.warning("secret source %r: file is empty", source_label)
+        logger.warning("secret source file is empty")
         return None
     return stripped

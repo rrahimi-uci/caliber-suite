@@ -389,7 +389,7 @@ def run(
         "the reference scheme is secret://, the form the LLM key source accepts at boot",
     )
     admin.secrets.revoke(secret_name)
-    summary["secret"] = secret_name
+    summary["secret"] = "stored, rotated, and revoked"
 
     say("== 9. guardrail definitions, honestly scoped")
     catalog = admin.gateway.guardrail_catalog()
