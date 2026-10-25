@@ -3,13 +3,46 @@
 
 # Alpha install
 
-This page takes you from wheels to a logged-in administrator who can create a project and a
-prompt. It needs no Docker. The install is checked by `scripts/verify-alpha-install.sh`.
-Until the `caliber-v0.1.0a1` release assets are published, you need a source checkout to
-build the wheels and to run that verification script.
+This page takes you from nothing to a logged-in administrator who can create a project and a
+prompt. It needs no Docker and no checkout.
 
 CALIBER is alpha software. The packages are not on PyPI yet, so `pip install caliber-sdk`
-returns "no matching distribution". Install from the wheels instead.
+returns "no matching distribution". Install from the release's wheels, either with the installer
+below or by hand.
+
+## One-command install
+
+With Python 3.10–3.12 and `curl`:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rrahimi-uci/caliber-suite/main/scripts/install.sh | bash
+```
+
+`scripts/install.sh` downloads the `caliber-v0.1.0a1` wheels from the
+[GitHub release](https://github.com/rrahimi-uci/caliber-suite/releases), checks them against the release's
+`SHA256SUMS`, installs them into `~/.caliber/venv`, migrates the database, generates an admin password and
+starts MLflow and CALIBER. It prints the address, normally `http://127.0.0.1:5001/caliber/`. Sign in as
+`admin` with the password from `caliber password`.
+
+It also installs a `caliber` command in `~/.local/bin`:
+
+| Command | What it does |
+| --- | --- |
+| `caliber up` / `caliber down` | start or stop MLflow and CALIBER in the background (data stays in `~/.caliber/data`) |
+| `caliber status` | show whether they are running |
+| `caliber logs [caliber\|mlflow]` | follow a log |
+| `caliber password` | print the generated admin password |
+| `caliber open` | open the UI in a browser |
+
+Configuration is in `~/.caliber/caliber.env`. Useful options: `--with-llm` installs the OpenAI and Anthropic
+extras so that, with your key in that file, models and evaluation are real; `--prefix DIR`, `--port` and
+`--mlflow-port` change where it lives and listens; `--no-start` installs without starting. Run the installer
+again to upgrade in place: it keeps your data, configuration and password. To remove everything:
+`caliber down && rm -rf ~/.caliber ~/.local/bin/caliber`. `scripts/verify-installer.sh` checks this path end
+to end in CI.
+
+The rest of this page does the same by hand, which is what to read if you want to see each step or run
+CALIBER differently. That path is checked by `scripts/verify-alpha-install.sh`.
 
 ## What you get
 
@@ -25,8 +58,10 @@ that shows them says so. See [Real LLM and evaluation](#real-llm-and-evaluation)
 
 ## 1. Get the wheels
 
-The release assets are not published yet. From a source checkout, build
-`caliber_sdk`, `caliber_cli` and `caliber_suite` (all `0.1.0a1`) into `wheels/`:
+Download `caliber_sdk`, `caliber_cli` and `caliber_suite` (all `0.1.0a1`) from the
+[`caliber-v0.1.0a1` release](https://github.com/rrahimi-uci/caliber-suite/releases/tag/caliber-v0.1.0a1)
+into `wheels/` and check them with `shasum -a 256 -c SHA256SUMS`. Those wheels include the web UI.
+Or build them from a source checkout:
 
 ```bash
 python3.12 -m venv build-venv && build-venv/bin/pip install build
@@ -36,8 +71,7 @@ done
 ```
 
 A wheel built this way has no bundled web UI. To include the UI, use the build procedure in
-[Releasing](m-62-releasing.md#cut-it). After the prerelease is published, you can
-download its wheels instead of building them.
+[Releasing](m-62-releasing.md#cut-it), or download the release's wheels instead.
 
 ## 2. Create a virtual environment and install
 
