@@ -18,6 +18,9 @@ The repository owner decided on 2026-10-24:
    includes the breadth the gap analysis had deferred (A2A federation, governed memory, the Knowledge Hub with
    automated extraction, multi-region execution, multi-tenancy with organizational administration, and a
    connector/framework ecosystem), plus the book contracts no package covered yet. These become packages M17–M26.
+4. **Autonomy is a per-use-case ladder of agent-held roles** (added 2026-10-25). Roles stay fixed; which of them
+   an agent may hold for a use case is a governed level, L0–L5, with the owner role always human. This is package
+   M27 and [ADR 0004](architecture/adr/0004-autonomy-levels.md).
 
 ## Capacity
 
@@ -40,19 +43,22 @@ re-slicing 57 tracked issues.
 | --- | --- | ---: | ---: | ---: | ---: |
 | Beta | B01–B16 | 37–61 | 49 | 61.25 | **29 weeks** |
 | Core platform (formerly the MVP) | M01–M15 | 40–67 | 53.5 | 66.9 | **31 weeks** |
-| Book-complete increment | M17–M26, M16 | 74–133 | 103.5 | 129.4 | **59 weeks** |
-| **Book-complete MVP** | all | **151–261** | **206** | **257.5** | **119 weeks** |
+| Book-complete increment | M17–M27, M16 | 78–139 | 108.5 | 135.6 | **62 weeks** |
+| **Book-complete MVP** | all | **155–267** | **211** | **263.75** | **122 weeks** |
 
-Calendar arithmetic: at the midpoint the work needs `257.5 ÷ 2.25 = 114.4` effective weeks; rounding each milestone
-up to whole weeks gives 119, so about 4.5 weeks of headroom sit inside the calendar. At the **upper** estimate the
-program needs `261 × 1.25 ÷ 2.25 = 145` weeks, roughly six months later. At the lower estimate it needs about 84
+Calendar arithmetic: at the midpoint the work needs `263.75 ÷ 2.25 = 117.2` effective weeks; rounding each milestone
+up to whole weeks gives 122, so about 5 weeks of headroom sit inside the calendar. At the **upper** estimate the
+program needs `267 × 1.25 ÷ 2.25 = 148` weeks, roughly six months later. At the lower estimate it needs about 86
 weeks. Ranges for M22–M26 are this plan's own estimates; the gap analysis gave M17–M21 order-of-magnitude
-allowances marked low-confidence. Treat 119 weeks as the midpoint baseline and reforecast at every gate.
+allowances marked low-confidence. Treat 122 weeks as the midpoint baseline and reforecast at every gate.
 
 **Estimate changes from the 2026-10-24 execution review** (evidence in the issues): M17 narrowed to 15–20 PW
 (midpoint 17.5) because only 3 of 110 database models carry `tenant_id` today; M25 to 6–8 (7) for 23 event-publishing
 call sites; M26 to 4–8 (6) because the book's companion code implements checkpoints C01–C03 only; B16's D1 slice
 raised from 0.5 to 1 PW (scenario harness, fault barriers and a required CI job), taken from its D5 slice.
+
+**Added 2026-10-25:** package M27, autonomy levels (4–6 PW, midpoint 5), in D10. It defines which roles an agent
+principal may hold per use case and enforces it; see [ADR 0004](architecture/adr/0004-autonomy-levels.md).
 
 ## Calendar
 
@@ -70,12 +76,12 @@ start date. Holidays are inside the 25% unavailability.
 | D7 | 39–46 | 46 | 2027-09-17 | 14 | Knowledge lifecycle, execution isolation and trajectory-based release checks |
 | D8 | 47–54 | 54 | 2027-11-12 | 14 | Second connector recovery, persistent budgets and bounded delegation |
 | D9 | 55–60 | 60 | **2027-12-24** | 10.5 | **Core platform proof**: independent install/restore/pilot and measured limits (no release decision) |
-| D10 | 61–70 | 70 | 2028-03-03 | 17.5 | Governance inventory, routing and ownership transfer, remaining platform contracts |
-| D11 | 71–80 | 80 | 2028-05-12 | 17.5 | Multi-tenant isolation and organizational administration |
-| D12 | 81–90 | 90 | 2028-07-21 | 18 | Regional cells, residency and region-loss recovery |
-| D13 | 91–100 | 100 | 2028-09-29 | 18 | Knowledge Hub: governed extraction, ontology and Hub views |
-| D14 | 101–109 | 109 | 2028-12-01 | 15 | Governed memory and A2A federation |
-| D15 | 110–119 | 119 | **2029-02-09** | 17.5 | **Book-complete MVP**: ecosystem, companion case, security review and release decision |
+| D10 | 61–73 | 73 | 2028-03-24 | 22.5 | Governance inventory, autonomy levels, routing and ownership transfer, remaining platform contracts |
+| D11 | 74–83 | 83 | 2028-06-02 | 17.5 | Multi-tenant isolation and organizational administration |
+| D12 | 84–93 | 93 | 2028-08-11 | 18 | Regional cells, residency and region-loss recovery |
+| D13 | 94–103 | 103 | 2028-10-20 | 18 | Knowledge Hub: governed extraction, ontology and Hub views |
+| D14 | 104–112 | 112 | 2028-12-22 | 15 | Governed memory and A2A federation |
+| D15 | 113–122 | 122 | **2029-03-02** | 17.5 | **Book-complete MVP**: ecosystem, companion case, security review and release decision |
 
 D1–D4 remain engineering previews, D6–D9 core-platform previews and D10–D14 MVP previews. No milestone inherits a
 Beta or MVP label because its week arrives.
@@ -130,36 +136,38 @@ second-use-case pilot. **Exit evidence:** M01–M15 and V01–V24 pass with reta
 release; the independent security review and the MVP decision move to D15, because D11–D12 change the trust and
 deployment boundary the review would have certified.
 
-**D10 — Governance, routing and contract completeness (weeks 61–70).** M24 governance inventory and exception
-service; M23 routing decisions, ownership transfer and model economics; M25 remaining platform contracts and a
-second experience channel. **Exit evidence:** V25–V27. **Demo:** a risk-tier change blocks a release until a
-scoped, expiring waiver is approved; a route falls back with a recorded RoutingDecision; a handoff transfers
-ownership only after acknowledgment.
+**D10 — Governance, autonomy, routing and contract completeness (weeks 61–73).** M24 governance inventory and
+exception service; M27 autonomy levels, after M24's GovernanceRecord exists; M23 routing decisions, ownership
+transfer and model economics; M25 remaining platform contracts and a second experience channel. **Exit evidence:**
+V25–V27 and V35. **Demo:** a risk-tier change blocks a release until a scoped, expiring waiver is approved; a use
+case at L3 refuses an agent approval and routes it to a human, is promoted to L4 on evidence, and is demoted
+automatically when an agent-approved apply fails acceptance; a route falls back with a recorded RoutingDecision; a
+handoff transfers ownership only after acknowledgment.
 
-**D11 — Multi-tenancy and organizational administration (weeks 71–80).** M17. **Exit evidence:** V28; zero
+**D11 — Multi-tenancy and organizational administration (weeks 74–83).** M17. **Exit evidence:** V28; zero
 cross-tenant leakage across runs, traces, knowledge, evaluations, audit and exports. **Decision:** D12 does not start
 while any cross-tenant finding is open.
 
-**D12 — Regions and residency (weeks 81–90).** M18. **Exit evidence:** V29; a region-loss drill meets the agreed
+**D12 — Regions and residency (weeks 84–93).** M18. **Exit evidence:** V29; a region-loss drill meets the agreed
 RPO/RTO without moving resident data. **Demo:** promote the same signed release to two regional cells and lose one.
 
-**D13 — Knowledge Hub (weeks 91–100).** M21. **Exit evidence:** V30; an extracted rule cannot enforce anything until
+**D13 — Knowledge Hub (weeks 94–103).** M21. **Exit evidence:** V30; an extracted rule cannot enforce anything until
 its per-field verdicts pass and a human approves the KnowledgeRelease.
 
-**D14 — Memory and federation (weeks 101–109).** M20 then M19. **Exit evidence:** V31–V32; untrusted provenance
+**D14 — Memory and federation (weeks 104–112).** M20 then M19. **Exit evidence:** V31–V32; untrusted provenance
 never becomes durable memory, and a remote peer can neither widen authority nor have an artifact adopted without
 local checks.
 
-**D15 — Ecosystem, companion case and book-complete MVP release (weeks 110–119).** M22 catalog and certification;
+**D15 — Ecosystem, companion case and book-complete MVP release (weeks 113–122).** M22 catalog and certification;
 M26 companion case and book traceability; M16 complete safety/migration matrix, independent security review over the
-final trust boundary, rebuilt artifacts and the release decision. **Exit evidence:** **all B01–B16, M01–M26 and
-V01–V34 pass**, the [traceability tables](#book-traceability) below have no uncovered row, and the gap analysis's MVP
+final trust boundary, rebuilt artifacts and the release decision. **Exit evidence:** **all B01–B16, M01–M27 and
+V01–V35 pass**, the [traceability tables](#book-traceability) below have no uncovered row, and the gap analysis's MVP
 definition of done holds. **Decision:** release within the measured envelope, or remain a release candidate with
 explicit blockers.
 
-## New packages M17–M26
+## New packages M17–M27
 
-Base PW ranges for M18–M21 come from the gap analysis's deferred backlog (M17 narrowed on code evidence); M22–M26 are this plan's estimates. The issue for each package (#598–#607) holds the executable task table. Each
+Base PW ranges for M18–M21 come from the gap analysis's deferred backlog (M17 narrowed on code evidence); M22–M27 are this plan's estimates. The issue for each package (#598–#607, #632) holds the executable task table. Each
 package splits into 1–2 day child issues when its milestone starts.
 
 | Package | Book source | Concrete slices | Depends on | Acceptance | PW (mid) | Milestone |
@@ -174,8 +182,9 @@ package splits into 1–2 day child issues when its milestone starts.
 | M24 Governance inventory, risk tiers and exceptions | Ch. 26 | 1. GovernanceRecord per use case (owners, risk tier, autonomy, data classes, effects, controls, review date). 2. ExceptionWaiver service with scope, compensating controls and expiry. 3. Release gates read the risk tier. 4. Governance reporting. | M02, M09 | V25: an expired waiver or overdue review blocks release; reports reconcile with the inventory | 3–6 (4.5) | D10 |
 | M25 Remaining platform contracts and a second channel | Ch. 4, 8, 9, 12, 14 | 1. Artifact contract. 2. CloudEvent envelope with tenant/correlation/causation and `traceparent`. 3. Plan IR eligibility/effect checks with `capability_envelope_id` and `risk_class`. 4. SkillPackManifest and CompatibilityReport. 5. NotificationDelivery and one more channel through the same admission contract. | B02, B13, M02 | V27: every Appendix C contract has one owner and a contract test; the second channel cannot bypass admission | 6–8 (7) | D10 |
 | M26 Companion case and book traceability | App. H; Ch. 16–17 | 1. Run the companion code's implemented checkpoints C01–C03 of `MORT-2026-000184` on CALIBER and map C04–C28 to V-scenarios. 2. Publish the chapter/contract traceability with a test per row. 3. Regression suite mirroring every Chapter 17 antipattern correction (AP-01–AP-16). 4. Cross-link the book repository to CALIBER. | M15, M22, M25; every row's package | V34: the companion case passes through the reference contracts; every traceability row points at a passing test | 4–8 (6) | D15 |
+| M27 Autonomy levels | Ch. 1, 13, 14, 26; [ADR 0004](architecture/adr/0004-autonomy-levels.md) | 1. `principal_type` (human/agent) on accounts with the agent's behaviour pins. 2. Level vocabulary L0–L5 and `autonomy_level`/`max_autonomy_level`/demotion thresholds on the GovernanceRecord. 3. Enforcement at the approval boundary: distinct principals, agent independence, effect-class ceiling, tier bound. 4. Promotion as a governed release; automatic demotion on tripped metrics. 5. Principal and pins on every decision in evidence and UI; Aria's approval mode reads the use case's level. | B03, B06, B08, B09, M02, M06, M09, M24 | V35: an agent approval above the level's ceiling is refused and routed to a human; promotion without the measured period is refused; a same-principal chain is refused; a failed agent-approved apply demotes the use case with evidence | 4–6 (5) | D10 |
 
-Validation scenarios V25–V34 for these packages are in the gap analysis's
+Validation scenarios V25–V35 for these packages are in the gap analysis's
 [scenario matrix](CALIBER_REFERENCE_ARCHITECTURE_GAP_ANALYSIS.md#scenario-matrix).
 
 ## Book traceability
@@ -214,7 +223,7 @@ lacks a delivered package and a passing test.
 | EffectRecord / EffectReceipt | 22 | B05, M03 |
 | OutboxRecord / InboxReceipt | 22 | B13 |
 | EvaluationResult / ValidationReport / ReleaseGateDecision | 25 | B10, M09 |
-| GovernanceRecord / ExceptionWaiver | 26 | M24 |
+| GovernanceRecord / ExceptionWaiver | 26 | M24, M27 |
 | ChangeBundle / ReleaseManifest | 27 | M02 |
 | EnvironmentBinding / PromotionDecision | 27 | M02, M18 |
 | BudgetReservation | 28 | B08, M08 |
@@ -235,8 +244,8 @@ lacks a delivered package and a passing test.
 | 10 Use ReAct without creating a runaway loop | B08, M08 |
 | 11 Route the work without losing ownership | M23 |
 | 12 Turn proposed plans into safe, executable work | M25 |
-| 13 Use critique to improve, never to self-approve | B09, M09 |
-| 14 Put people where their judgment matters | B06, M06, M25 |
+| 13 Use critique to improve, never to self-approve | B09, M09, M27 |
+| 14 Put people where their judgment matters | B06, M06, M25, M27 |
 | 15 Keep long-running work alive through failure | B09, B13, M18 |
 | 16 Choose patterns that fit real enterprise work | M26 |
 | 17 Architecture patterns that fail in production | B16, M26 |
@@ -248,7 +257,7 @@ lacks a delivered package and a passing test.
 | 23 Contain the damage when a model is manipulated | M06, M07 |
 | 24 Follow a run from request to verified outcome | B11, B14, M05 |
 | 25 Improve the system without handing it control | B10, M09, M10 |
-| 26 Make governance part of how the platform runs | M24 |
+| 26 Make governance part of how the platform runs | M24, M27 |
 | 27 Release new behavior without breaking work in flight | M02, M11, M18 |
 | 28 Treat performance as a business decision | M08, M12, M23 |
 | Appendix H Companion implementation (Harborlight Mortgage) | B15, M26 |
@@ -316,6 +325,7 @@ Where two packages touch the same mechanism, one builds it and the other extends
 | Distinct-approver check | B06, for runtime effect approvals | #589 reuses it for prompt/job Apply | One eligibility function |
 | Trace authorization | B11, project scope | M17 adds tenant scope | One check |
 | Upgrade testing | #594 (0.1.0a1 → Beta database) | M11 (general upgrade preflight and backup automation) | One migration test harness |
+| Autonomy (who may hold a role) | M24 stores `autonomy_level` on the GovernanceRecord; B06 owns the distinct-approver check | M27 enforces the level table and promotion/demotion; Aria's `AssistantApprovalMode` reads the level | One level per use case, no second role model |
 
 ## Tracking
 

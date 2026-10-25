@@ -33,13 +33,13 @@ Estimates are **incremental engineering person-weeks**, including implementation
 | Beta | One safe, inspectable request-to-effect-to-replay path; one tenant, trusted connectors, no arbitrary code | 37–61 | 46.25–76.25 | All Beta scenarios in section 13, including failure injection, pass through public APIs |
 | MVP, after Beta | An operable reference platform with release evidence, stronger identity/isolation, recovery and a second use case | 42–70 | 52.5–87.5 | Independent deployment/restore exercise and all MVP scenarios pass |
 | Total remaining through MVP | Minimal reference implementation, not the entire book | **79–131** | **98.75–163.75** | Both milestone definitions of done |
-| Book-complete increment (decided 2026-10-24) | M17–M26: the breadth deferred in section 11 plus the book contracts no package covered | 72–130 | 90–162.5 | [EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md) traceability tables complete |
+| Book-complete increment (decided 2026-10-24) | M17–M27: the breadth deferred in section 11, the book contracts no package covered, and autonomy levels | 76–136 | 95–170 | [EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md) traceability tables complete |
 
 At the repository's documented **1.5 developer capacity**, reserved effort alone implies roughly **66–110 team-weeks through MVP**, before additional non-overlapping external delays. A five-person team operating at 75% effective delivery capacity gives a capacity-only calculation of roughly **27–44 weeks**, before imposing the fixed five-week milestone cadence below. These are capacity calculations, not promised dates; the dependency graph prevents arbitrary parallelization. This expanded EGI scope does not fit automatically inside the existing six-month roadmap. [C24]
 
 **Five-person delivery plan:** the [nine-milestone execution plan](CALIBER_FIVE_PERSON_DELIVERY_PLAN.md) allocates every B/M package to concrete delivery gates, using **five weeks per milestone: four for implementation/integration and one for QA and fixes**. The resulting calendar is **Beta at week 25 and MVP at week 45** at the base midpoint; at the upper estimate the MVP increment needs a fifth milestone (an MVP gate near week 50), because Beta headroom cannot fund MVP work before the Beta decision. It retains the effort ranges above, includes availability and uncertainty separately, and makes Beta an explicit stop-or-fund-MVP decision. The capacity-only ranges are sizing context; the fixed milestone calendar is the current delivery baseline.
 
-**Decision, 2026-10-24:** the repository owner made the EGI program the MVP (replacing the roadmap's narrower `caliber-v1.0.0`), set the team at **three people**, and made CALIBER the reference implementation of the whole book, including the breadth this report deferred. The [three-person EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md) controls from that date: **Beta at week 29, core platform proof at week 60, book-complete MVP at week 119** at the midpoint, about 145 weeks at the upper estimate. Sections below that describe the deferred breadth as out of scope are superseded by that plan's packages M17–M26.
+**Decision, 2026-10-24:** the repository owner made the EGI program the MVP (replacing the roadmap's narrower `caliber-v1.0.0`), set the team at **three people**, and made CALIBER the reference implementation of the whole book, including the breadth this report deferred. The [three-person EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md) controls from that date: **Beta at week 29, core platform proof at week 60, book-complete MVP at week 122** at the midpoint, about 148 weeks at the upper estimate. Sections below that describe the deferred breadth as out of scope are superseded by that plan's packages M17–M27.
 
 ### How much does Alpha cover?
 
@@ -457,7 +457,7 @@ This order is not permission to postpone a discovered security defect until its 
 | Existing 1.5 delivery FTE | 31–51 weeks | 35–59 weeks | 66–110 weeks |
 | Five-person capacity-only calculation at 75% effective delivery, reserve included | 13–21 weeks | 14–24 weeks | 27–44 weeks |
 | Current five-person delivery calendar: nine milestones, each four implementation/integration weeks plus one QA week | **25 weeks** | **20 weeks** | **45 weeks** |
-| Three-person delivery calendar (controlling from 2026-10-24; MVP = M01–M26) | **29 weeks** | **90 weeks** | **119 weeks** |
+| Three-person delivery calendar (controlling from 2026-10-24; MVP = M01–M27) | **29 weeks** | **93 weeks** | **122 weeks** |
 
 Capacity-only ranges include the 25% uncertainty reserve and are rounded upward from effort/capacity. The fixed delivery calendar schedules QA explicitly and supersedes those ranges as the current planning baseline; it does not increase the package effort estimates. The larger-team calculation assumes roughly two backend engineers, one platform/security engineer, one full-stack engineer and one test/reliability engineer, with domain-owner time available separately. Security expertise cannot be replaced by adding general-purpose developers. More people will not remove the B02 → B03 → B04/B05 → B06/B09 critical path.
 
@@ -562,6 +562,7 @@ Every scenario uses public admission/control APIs plus the actual worker/dispatc
 | V32 / MVP | Delegate to a remote A2A peer asking for broader scope; repeat the delegation; cancel the parent while the peer works; return an artifact with a bad hash, wrong tenant or unsigned producer; send a task from an unregistered peer | Scope beyond the parent/peer intersection refused before any outbound call; no duplicate remote task; post-cancel results rejected; invalid artifacts never adopted; unregistered inbound peer refused |
 | V33 / MVP | Admit an uncertified adapter, a digest differing from the certified one, and a revoked entry while runs use it; run identical safety scenarios on two certified adapters from different authors | Uncertified and mismatched digests refused at admission; revocation blocks new pins and pauses in-flight users with a recorded reason; both certified adapters pass the same safety scenarios |
 | V34 / MVP | Run `MORT-2026-000184` C01–C03 scenarios on CALIBER; remove a test referenced by the traceability file; run AP-01–AP-16 reproductions | The four book scenarios pass through CALIBER's public API; traceability check fails on the missing test; every anti-pattern correction holds |
+| V35 / MVP | Set a use case to `L3_agent_review` and let the agent approver attempt an apply; request promotion to L4 with no measured period; run a chain whose editor and reviewer are the same agent principal; at L4, let an agent-approved reversible apply fail its acceptance predicate | Agent approval refused with `autonomy_level_exceeded` and routed to a human approver; promotion refused until the period and trajectory gate pass; same-principal chain refused before dispatch; the use case is demoted one level automatically, the demotion and its evidence are recorded, and every decision names its principal, type and pins |
 
 ### Required test layers and artifacts
 
@@ -604,7 +605,7 @@ Each validation run emits exact commit, dependency lock/container digests, datab
 - [ ] API/SDK compatibility, old-run migrations and rollback behavior are tested against built release artifacts.
 - [ ] Documentation, generated site, paper claims, examples, diagrams and overview-video accurately distinguish implemented, validated, preview and deferred behavior.
 - [ ] The release decision is made on exact artifacts and evidence, not checklist completion or a capability percentage alone.
-- [ ] Book-complete (added 2026-10-24): M17–M26 and V25–V34 pass, and every row of the [EGI delivery plan's book traceability tables](CALIBER_EGI_DELIVERY_PLAN.md#book-traceability) has a delivered package and a passing test.
+- [ ] Book-complete (added 2026-10-24): M17–M27 and V25–V35 pass, and every row of the [EGI delivery plan's book traceability tables](CALIBER_EGI_DELIVERY_PLAN.md#book-traceability) has a delivered package and a passing test.
 
 ## 16. Recommended Next Steps
 
