@@ -146,7 +146,7 @@ def _resolve_stored(name: str) -> str | None:
     except Exception:
         # A broken store must not take down every consumer that reads a secret;
         # it degrades to "unresolved", which callers already handle.
-        logger.warning("secret source could not be resolved")
+        logger.warning("secret source could not be resolved", exc_info=True)
         return None
     if not value:
         logger.debug("secret source resolves to nothing (absent or revoked)")

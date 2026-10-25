@@ -216,6 +216,62 @@ def test_the_ledger_does_not_count_itself_as_a_gate(monkeypatch, tmp_path) -> No
     assert exit_code == 0
 
 
+def _run_ledger_with_reads(monkeypatch, tmp_path, reads):
+    """Drive ``main()`` with a jobs API that answers each read with the next list."""
+    module = _ledger_module()
+    monkeypatch.setenv("GITHUB_REPOSITORY", "owner/repo")
+    monkeypatch.setenv("GITHUB_RUN_ID", "1")
+    monkeypatch.setenv("GH_TOKEN", "token")
+    monkeypatch.setenv("GITHUB_JOB_NAME", "Gate execution ledger")
+    monkeypatch.setenv("GITHUB_STEP_SUMMARY", str(tmp_path / "summary.md"))
+    calls: list[int] = []
+
+    def _fetch(*_a, **_k):
+        calls.append(1)
+        return reads[min(len(calls), len(reads)) - 1]
+
+    sleeps: list[float] = []
+    monkeypatch.setattr(module, "fetch_jobs", _fetch)
+    monkeypatch.setattr(module.time, "sleep", sleeps.append)
+    return module, module.main(), len(calls), sleeps
+
+
+def test_a_gate_the_api_has_not_caught_up_with_is_read_again(monkeypatch, tmp_path) -> None:
+    """The 2026-10-24 failure: a gate that finished seconds earlier read as ``null``.
+
+    Every gate is in the ledger's ``needs:``, so ``null`` means the API is behind,
+    not that the gate was skipped. The ledger re-reads and then passes.
+    """
+    stale = _all_gates()
+    stale[3]["conclusion"] = None
+    _, exit_code, reads, sleeps = _run_ledger_with_reads(
+        monkeypatch, tmp_path, [stale, _all_gates()]
+    )
+    assert exit_code == 0
+    assert reads == 2
+    assert sleeps == [5]
+
+
+def test_a_gate_that_never_reports_still_fails_closed(monkeypatch, tmp_path) -> None:
+    """Waiting is bounded: a conclusion that stays ``null`` is still missing evidence."""
+    stale = _all_gates()
+    stale[3]["conclusion"] = None
+    module, exit_code, reads, sleeps = _run_ledger_with_reads(monkeypatch, tmp_path, [stale])
+    assert exit_code == 1
+    assert reads == 1 + len(module._SETTLE_DELAYS)
+    assert sleeps == list(module._SETTLE_DELAYS)
+
+
+def test_a_skipped_gate_is_not_waited_for(monkeypatch, tmp_path) -> None:
+    """``skipped`` is a final answer; only ``null`` earns a re-read."""
+    jobs = _all_gates()
+    jobs[0]["conclusion"] = "skipped"
+    _, exit_code, reads, sleeps = _run_ledger_with_reads(monkeypatch, tmp_path, [jobs])
+    assert exit_code == 1
+    assert reads == 1
+    assert sleeps == []
+
+
 # ---------------------------------------------------------------------------
 # Transient GitHub API failures must not turn a green run's ledger red (alpha gap P1-16)
 # ---------------------------------------------------------------------------

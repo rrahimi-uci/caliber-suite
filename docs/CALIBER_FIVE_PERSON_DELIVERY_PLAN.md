@@ -3,6 +3,11 @@
 > **Planning proposal, not a commitment and not part of the `0.1.0a1` alpha.** It describes a possible post-alpha program
 > (a Beta and an MVP gate) built on the [reference architecture gap analysis](CALIBER_REFERENCE_ARCHITECTURE_GAP_ANALYSIS.md).
 > The current product boundary is [Alpha scope and limitations](start/alpha-scope.md).
+>
+> **Superseded for staffing, scope and calendar on 2026-10-24** by the
+> [three-person, book-complete EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md): three people, not five; the MVP now
+> covers the whole book (packages M17–M26 and milestones D10–D15); M16 moves to D15. The D1–D8 milestone contracts,
+> package allocation and ticket standard below still apply; the week numbers and five-week cadence do not.
 
 ## Decision and planning basis
 
@@ -290,9 +295,9 @@ Every child issue must include:
 3. Observable acceptance criterion, including a failure/denial case where applicable.
 4. Test commands and retained evidence location; measure affected behavioral-code coverage under repository rules.
 5. Documentation/example changes, explicit exclusions and a 1–2 day estimate.
-6. Dedicated PR, review requirements and release-gate linkage. Merge authority remains with the repository owner under the user's explicit instruction.
+6. Dedicated PR, review requirements and release-gate linkage. Merge under the repository's CLAUDE.md once the issue's gates pass.
 
-Initial D1 tickets should cover the profile/ownership ADR, schema fixtures, connector capability experiment, lost-receipt harness, trace ownership deny test/fix, unsafe-profile refusal, approval UX contract and updated estimates. Split any item that exceeds two days. These are proposed slices, **not claims that GitHub issues or milestones have already been created**.
+Initial D1 tickets should cover the profile/ownership ADR, schema fixtures, connector capability experiment, lost-receipt harness, trace ownership deny test/fix, unsafe-profile refusal, approval UX contract and updated estimates. Split any item that exceeds two days. These are proposed slices, **not claims that GitHub issues or milestones have already been created**. *Update 2026-10-24: they exist as #565–#572, with readiness #608 and three tasks the review found missing (#625 and #626, the disposable dispatch and reconciliation prototypes; #627, the protected-effect inventory); see the [EGI delivery plan](CALIBER_EGI_DELIVERY_PLAN.md#tracking).*
 
 ### Handling slips and deciding what to fund
 

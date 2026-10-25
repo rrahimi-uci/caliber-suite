@@ -3,6 +3,13 @@
 
 # CALIBER roadmap
 
+> **Superseded as the MVP plan on 2026-10-24.** The repository owner made the reference-architecture (EGI) program
+> the MVP, with three people, and made CALIBER the reference implementation of *Building Enterprise General
+> Intelligence*. The [EGI delivery plan](https://github.com/rrahimi-uci/caliber-suite/blob/main/docs/CALIBER_EGI_DELIVERY_PLAN.md) now owns scope, sequence and dates (Beta
+> targeted for 2027-05-21, book-complete MVP for 2029-03-02 at the midpoint estimate, tracked in GitHub Project #3 and
+> milestones D1–D15). The monthly M2–M6 milestones below are retired and their GitHub milestones are closed. This
+> page stays as the record of the alpha-era plan.
+
 This is the execution roadmap for the current CALIBER repository and its (since removed) GitHub
 Project #2. The
 [v1.0.0 product requirements document](m-59-v1-product-requirements.md) defines the product boundary,

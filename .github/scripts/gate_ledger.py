@@ -104,6 +104,34 @@ def fetch_jobs(repo: str, run_id: str, token: str) -> list[dict]:
         page += 1
 
 
+#: The jobs API lags behind the jobs themselves. On 2026-10-24 the ledger started two
+#: seconds after "Backend core journey" completed and read its conclusion as ``null``; on
+#: the re-run, two gates copied from the first attempt read ``null`` as well, although the
+#: API reported ``success`` for both minutes later. Every gate is in this job's ``needs:``,
+#: so a ``null`` here means "not yet visible", not "did not run" (a gate that did not run
+#: reads ``skipped``). Re-read a few times before treating it as missing.
+_SETTLE_DELAYS = (5, 10, 15, 30, 30)
+
+
+def fetch_settled_jobs(repo: str, run_id: str, token: str, self_name: str) -> list[dict]:
+    """Read the jobs until no required gate's conclusion is still ``null``, or give up."""
+    jobs = fetch_jobs(repo, run_id, token)
+    for delay in _SETTLE_DELAYS:
+        pending = {
+            job["name"]
+            for job in jobs
+            if job.get("name") in REQUIRED_GATES
+            and job.get("name") != self_name
+            and job.get("conclusion") is None
+        }
+        if not pending:
+            break
+        print(f"waiting {delay}s for the API to report: {', '.join(sorted(pending))}")
+        time.sleep(delay)
+        jobs = fetch_jobs(repo, run_id, token)
+    return jobs
+
+
 def main() -> int:
     repo = os.environ.get("GITHUB_REPOSITORY", "")
     run_id = os.environ.get("GITHUB_RUN_ID", "")
@@ -112,17 +140,17 @@ def main() -> int:
         print("missing GITHUB_REPOSITORY, GITHUB_RUN_ID or GH_TOKEN", file=sys.stderr)
         return 1
 
+    # This job is still in progress while it reads the list, so exclude it rather
+    # than reporting itself as a gate that has not concluded.
+    self_name = os.environ.get("GITHUB_JOB_NAME", "Gate execution ledger")
     try:
-        jobs = fetch_jobs(repo, run_id, token)
+        jobs = fetch_settled_jobs(repo, run_id, token, self_name)
     except (urllib.error.URLError, TimeoutError, ValueError) as exc:
         # An unreachable API must not be reported as "every gate ran". Failing
         # closed here costs a re-run; failing open reintroduces the silence.
         print(f"could not read this run's jobs: {exc}", file=sys.stderr)
         return 1
 
-    # This job is still in progress while it reads the list, so exclude it rather
-    # than reporting itself as a gate that has not concluded.
-    self_name = os.environ.get("GITHUB_JOB_NAME", "Gate execution ledger")
     conclusions = {
         job["name"]: job.get("conclusion")
         for job in jobs

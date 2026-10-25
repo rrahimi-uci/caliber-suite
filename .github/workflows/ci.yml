@@ -1229,6 +1229,13 @@ jobs:
       - name: Install from wheels and verify
         working-directory: .
         run: scripts/verify-alpha-install.sh --python python3
+      # Executes the one-command install (scripts/install.sh) against wheels built from this
+      # commit: starts the services, logs in with the generated password (admin/admin must be
+      # refused), creates a project, re-installs in place and checks `caliber down` stops
+      # everything. The UI build is skipped here; the package job checks the bundled UI.
+      - name: One-command installer
+        working-directory: .
+        run: scripts/verify-installer.sh --python python3 --no-ui
 
   security:
     name: Security scan

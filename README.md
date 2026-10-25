@@ -114,7 +114,14 @@ make infra-reset  # DELETES the data volumes (Postgres, MinIO, ...): a clean sla
 
 ### Without Docker
 
-You need Python 3.10–3.12. [Alpha install](docs/start/alpha-install.md) is the full guide (it installs from wheels
+You need Python 3.10–3.12. The quickest way is the installer, which downloads the release, installs it in
+`~/.caliber` and starts it; `caliber up`, `caliber down` and `caliber password` manage it afterwards:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/rrahimi-uci/caliber-suite/main/scripts/install.sh | bash
+```
+
+[Alpha install](docs/start/alpha-install.md) is the full guide (it explains the installer and also installs from wheels
 and is the path `scripts/verify-alpha-install.sh` checks end to end). From a checkout it is three terminals' worth
 of commands; the order matters, because the server never creates its own tables:
 
