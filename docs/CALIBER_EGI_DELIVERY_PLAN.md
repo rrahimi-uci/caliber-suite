@@ -280,7 +280,7 @@ Every level has one home, so a developer can walk from the strategy to the test 
 | Subtask | 1–2 day **child issue** (sub-issue of the package issue), created at the milestone kickoff | Files, test, done-when; D1's are already created (#565–#572, #608, #625–#627) |
 | Deliverable | The "Deliverables at close" list of each issue | Modules, migrations, tests, docs, ADRs, reports that must exist |
 | Acceptance | The issue's acceptance checklist | Observable criteria with a denial case where applicable, and the V-scenario IDs |
-| Validation | The issue's validation commands; V01–V34 in [gap analysis §13](CALIBER_REFERENCE_ARCHITECTURE_GAP_ANALYSIS.md#13-end-to-end-validation-strategy); `docs/reports/egi/Dk-acceptance.md` | Exact commands, the CI job that runs them, and the retained evidence |
+| Validation | The issue's validation commands; V01–V35 in [gap analysis §13](CALIBER_REFERENCE_ARCHITECTURE_GAP_ANALYSIS.md#13-end-to-end-validation-strategy); `docs/reports/egi/Dk-acceptance.md` | Exact commands, the CI job that runs them, and the retained evidence |
 
 **Definition of ready (a child issue may start)**: its parent's blocked-by issues are closed or the needed slice is
 merged; it names the files to change, the test to add and the done-when; it is at most two days.
@@ -301,14 +301,18 @@ All issues use these names, so packages that build on each other agree.
   and 0003 (control-record schemas: proposal, receipt, decision, CloudEvent envelope, tenant/region/residency).
 - Versioned schemas: `caliber/src/caliber/contracts/` with JSON schemas under `schemas/`; fixtures under
   `caliber/tests/fixtures/contracts/`.
-- Scenario tests V01–V34: `caliber/tests/egi_scenarios/test_vNN_<slug>.py`, run by the CI job
+- Scenario tests V01–V35: `caliber/tests/egi_scenarios/test_vNN_<slug>.py`, run by the CI job
   **EGI scenarios (PostgreSQL)** that #541 adds, with the same pgvector/pg16 service and `CALIBER_TEST_POSTGRES_URL`
   as the existing Migration parity job.
 - Disposable downstream system of record: `caliber/tests/egi_scenarios/downstream/`, a deterministic HTTP service
   with stable-key idempotency, query by key, expected-version preconditions and an independent mutation counter.
   #568 builds it in D1; every effect test reuses it.
 - Reference profile: `CALIBER_PROFILE=reference`, read in `caliber/src/caliber/config.py`.
-- Milestone evidence: `docs/reports/egi/Dk-acceptance.md`, written in the QA week.
+- Milestone evidence: `docs/reports/egi/Dk-acceptance.md`, created by the milestone control issue in the QA week;
+  package issues add their section to it and never create it.
+- ADR numbers are allocated in `docs/architecture/adr/README.md` before a record is written; 0001–0009 are taken.
+- Migration revisions: take the next free number at merge time (head is `0113` on 2026-10-25); never reserve one
+  in an issue.
 
 ### Overlap resolutions
 
@@ -326,6 +330,33 @@ Where two packages touch the same mechanism, one builds it and the other extends
 | Trace authorization | B11, project scope | M17 adds tenant scope | One check |
 | Upgrade testing | #594 (0.1.0a1 → Beta database) | M11 (general upgrade preflight and backup automation) | One migration test harness |
 | Autonomy (who may hold a role) | M24 stores `autonomy_level` on the GovernanceRecord; B06 owns the distinct-approver check | M27 enforces the level table and promotion/demotion; Aria's `AssistantApprovalMode` reads the level | One level per use case, no second role model |
+
+### Implementer workflow
+
+Every package and task issue is written so that an implementer, a person or a coding agent, can run it from the
+issue text and the repository alone. The issue's **Agent brief** block gives the branch name, the first command,
+the files to create and modify, the files taken from other issues, the commands to run before the PR and the
+done-when list. The steps are the same for every issue:
+
+1. **Check readiness.** Every issue in `Blocked by:` is closed, or the task it names is merged on `main`. If not,
+   stop and say so on the issue; do not start.
+2. **Branch** from `main` with the name in the Agent brief.
+3. **Create and modify only the files the issue lists.** A path tagged `(from #n)` is taken as #n merged it; do
+   not re-create it. Every path is repo-root-relative. Register any new test module that uses
+   `caliber/tests/dialect_helpers.py` in the Migration parity command in `.github/workflows/ci.yml` and
+   `scripts/ci-local.sh`.
+4. **Work row by row** in the task table's order. A row is done when its "Done when" statement holds and the test
+   in its "Test" column passes. Do not start the next row before that.
+5. **Run the issue's Validation commands** and `git diff --check`; measure line coverage of the changed behavioral
+   code with the repository's pytest-cov run (≥95%).
+6. **Open the PR** with the repository template, filled as the repository's `CLAUDE.md` requires: what changed,
+   why, the commands run and their results, coverage, risks. Link the issue. Tick the acceptance criteria on the
+   issue with links to the passing CI run.
+7. **Merge** per `CLAUDE.md` once every required check is green and the self-review is done; then close the issue
+   and note anything the next issue in the package must know as a comment on that issue.
+
+What an implementer never does: invent a file name or field name the issue does not give (ask on the issue
+instead); widen scope into an "Out of scope" item; weaken a test or a "Done when" to make it pass; skip a row.
 
 ## Tracking
 
