@@ -199,6 +199,155 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 describe("OpenApiIntegrations", () => {
+  it("renders list loading and API failure states", async () => {
+    let release!: () => void;
+    server.use(
+      http.get(`${API_BASE}/openapi-integrations`, () =>
+        new Promise((resolve) => {
+          release = () => resolve(HttpResponse.json(envelope([])));
+        }),
+      ),
+    );
+
+    renderPage();
+    expect(await screen.findByText("Loading…")).toBeInTheDocument();
+    release();
+    expect(await screen.findByText("No OpenAPI integrations yet.")).toBeInTheDocument();
+
+    server.resetHandlers();
+    server.use(
+      http.get(`${API_BASE}/openapi-integrations`, () =>
+        HttpResponse.json({ detail: "registry unavailable" }, { status: 503 }),
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText("Failed to load OpenAPI integrations")).toBeInTheDocument();
+    expect(screen.getByText("registry unavailable")).toBeInTheDocument();
+  });
+
+  it("renders a detail load failure and supports returning to the list", async () => {
+    server.use(
+      http.get(`${API_BASE}/openapi-integrations`, () =>
+        HttpResponse.json(envelope([baseIntegration()])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1`, () =>
+        HttpResponse.json({ detail: "integration disappeared" }, { status: 404 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText("Ticketing"));
+    expect(await screen.findByText("integration disappeared")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "OpenAPI Integrations" }));
+    expect(await screen.findByRole("heading", { name: "OpenAPI Integrations" })).toBeInTheDocument();
+  });
+
+  it("covers archived and sparse detail presentation", async () => {
+    server.use(
+      http.get(`${API_BASE}/openapi-integrations`, () =>
+        HttpResponse.json(envelope([{ ...baseIntegration(), status: "archived", description: "" }])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1`, () =>
+        HttpResponse.json(envelope({ ...baseIntegration(), status: "archived", description: "" })),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/versions`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText("Ticketing"));
+    expect(await screen.findByText("No description")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+    expect(await screen.findByText("No versions imported yet.")).toBeInTheDocument();
+  });
+
+  it("surfaces URL probe and reimport failures", async () => {
+    server.use(
+      http.get(`${API_BASE}/openapi-integrations`, () =>
+        HttpResponse.json(envelope([baseIntegration()])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1`, () =>
+        HttpResponse.json(envelope(baseIntegration())),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/versions`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.post(`${API_BASE}/openapi-integrations/OAI-1/validate-spec-source`, () =>
+        HttpResponse.json({ detail: "URL probe blocked" }, { status: 400 }),
+      ),
+      http.post(`${API_BASE}/openapi-integrations/OAI-1/reimport`, () =>
+        HttpResponse.json({ detail: "source is no longer reachable" }, { status: 502 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText("Ticketing"));
+    await user.click(screen.getByRole("button", { name: "URL" }));
+    await user.type(
+      screen.getByPlaceholderText("https://example.com/openapi.json"),
+      "https://example.com/openapi.json",
+    );
+    await user.click(screen.getByRole("button", { name: "Check" }));
+    expect(await screen.findByText("URL probe blocked")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Reimport & diff" }));
+    expect(await screen.findByText("source is no longer reachable")).toBeInTheDocument();
+  });
+
+  it("renders empty and sparse states across every detail tab", async () => {
+    server.use(
+      http.get(`${API_BASE}/openapi-integrations`, () =>
+        HttpResponse.json(envelope([baseIntegration()])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1`, () =>
+        HttpResponse.json(envelope(baseIntegration())),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/versions`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/operations`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/dependencies`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/tool-drafts`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/graph`, () =>
+        HttpResponse.json(envelope({
+          integration_id: "OAI-1",
+          integration_version_id: null,
+          nodes: [],
+          edges: [],
+          summary: { node_count: 0, edge_count: 0, operation_count: 0, dependency_count: 0 },
+        })),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await user.click(await screen.findByText("Ticketing"));
+    await user.click(screen.getByRole("button", { name: "Operations" }));
+    expect(await screen.findByText("No operations imported yet — import a spec first.")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Generate tool draft(s)" })).toBeDisabled();
+
+    await user.click(screen.getByRole("button", { name: "Dependencies" }));
+    expect(await screen.findByText("No dependencies detected yet.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /All Rows/ }));
+    expect(screen.getByText(/dependency rows/)).toHaveTextContent("0");
+
+    await user.click(screen.getByRole("button", { name: "Tool Drafts" }));
+    expect(await screen.findByText(/No tool drafts yet/)).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Graph" }));
+    expect(await screen.findByText("No API nodes are available in this graph snapshot yet.")).toBeInTheDocument();
+  });
+
   it("lists integrations and opens a detail view", async () => {
     server.use(
       http.get(`${API_BASE}/openapi-integrations`, () =>
@@ -1600,6 +1749,56 @@ describe("OpenApiIntegrations", () => {
     // A status filter that matches nothing empties the flow view.
     await user.click(screen.getByRole("button", { name: "flow" }));
     await user.selectOptions(screen.getByLabelText("Filter dependencies by status"), "rejected");
+    expect(
+      await screen.findByText(
+        "No dependency steps match the current filters. Select an operation or change the filters.",
+      ),
+    ).toBeInTheDocument();
+  });
+
+  it("renders empty graph snapshots in every dependency view", async () => {
+    const emptySnapshot = {
+      integration_id: "OAI-1",
+      integration_version_id: "OAIV-1",
+      nodes: [],
+      edges: [],
+      summary: {
+        node_count: 0,
+        edge_count: 0,
+        operation_count: 0,
+        dependency_count: 0,
+      },
+    };
+    server.use(
+      http.get(`${API_BASE}/openapi-integrations`, () =>
+        HttpResponse.json(envelope([baseIntegration()])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1`, () =>
+        HttpResponse.json(envelope(baseIntegration())),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/versions`, () =>
+        HttpResponse.json(envelope([baseVersion()])),
+      ),
+      http.get(`${API_BASE}/openapi-integrations/OAI-1/graph`, () =>
+        HttpResponse.json(envelope(emptySnapshot)),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "OpenAPI Integrations" });
+    await user.click(await screen.findByText("Ticketing"));
+    await screen.findByRole("heading", { name: /Ticketing/ });
+    await user.click(screen.getByRole("button", { name: "Graph" }));
+
+    expect(
+      await screen.findByText("No API nodes are available in this graph snapshot yet."),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "tree" }));
+    expect(await screen.findByText("No operations match the current filters.")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "flow" }));
     expect(
       await screen.findByText(
         "No dependency steps match the current filters. Select an operation or change the filters.",

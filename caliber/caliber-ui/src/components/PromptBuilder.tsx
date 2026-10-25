@@ -91,7 +91,7 @@ interface PreviewRequestDraft {
   sectionOverrides: Partial<Record<PromptElementName, string>>;
 }
 
-function buildPreviewRequest({
+export function buildPreviewRequest({
   baseTemplateId,
   modifierIds,
   builderValues,
@@ -2773,7 +2773,7 @@ function MetaList({
   );
 }
 
-function humanizeFacet(value: string): string {
+export function humanizeFacet(value: string): string {
   return value
     .split(/[-_]/g)
     .filter(Boolean)
@@ -2837,7 +2837,7 @@ function FacetRow({
   );
 }
 
-function getModifierDisabledReason(
+export function getModifierDisabledReason(
   modifier: PromptTemplateDefinition,
   baseTemplateId: string,
   selectedModifierIds: string[],
@@ -2871,14 +2871,14 @@ function getModifierDisabledReason(
   return null;
 }
 
-function parseRuntimeVariables(text: string): string[] {
+export function parseRuntimeVariables(text: string): string[] {
   return text
     .split(/[\n,]/g)
     .map((value) => value.trim())
     .filter(Boolean);
 }
 
-function parsePreviewVariables(
+export function parsePreviewVariables(
   text: string,
 ): { ok: true; value: Record<string, string> } | { ok: false; error: string } {
   const trimmed = text.trim();
@@ -2901,6 +2901,6 @@ function parsePreviewVariables(
   }
 }
 
-function estimateRows(value: string): number {
+export function estimateRows(value: string): number {
   return Math.min(10, Math.max(3, value.split("\n").length));
 }

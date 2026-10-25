@@ -31,4 +31,11 @@ describe("workflowRunLinks", () => {
       "/caliber/workflow-runs/WR-123",
     );
   });
+
+  it("uses the browser origin when omitted and preserves the relative path for an empty origin", () => {
+    expect(workflowRunUrl("WR-123")).toContain("/caliber/workflow-runs/WR-123");
+    expect(workflowRunUrl("WR-123", "")).toBe(
+      "/caliber/workflow-runs/WR-123",
+    );
+  });
 });

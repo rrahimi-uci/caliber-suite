@@ -75,4 +75,45 @@ describe("SkillPlaygroundPanel (Render Preview)", () => {
     expect(await screen.findByText("Rendered Output")).toBeInTheDocument();
     expect(screen.getByText(/Hello Ada/)).toBeInTheDocument();
   });
+
+  it("covers unresolved render output, API failures, and a skill without template variables", async () => {
+    const user = userEvent.setup();
+    const renderSkill = vi.spyOn(caliberApi, "testRenderSkill").mockResolvedValue({
+      skill_id: "sk-1",
+      skill_name: "policy-answering",
+      rendered_content: "Hello Ada, your policy is {{policy_id}}.",
+      original_content: "Hello {{customer_name}}, your policy is {{policy_id}}.",
+      detected_variables: ["customer_name", "policy_id"],
+      unresolved_variables: ["policy_id"],
+      variables_applied: { customer_name: "Ada" },
+      summary: "Policy helper",
+      duration_ms: 8,
+      word_count: 7,
+      char_count: 42,
+    });
+    const noVariables = makeSkill({
+      skill_id: "sk-2",
+      name: "plain-skill",
+      summary: "",
+      description: "Plain instructions",
+      content: "No placeholders here.",
+    });
+
+    render(<SkillPlaygroundPanel skills={[makeSkill(), noVariables]} loading={false} />);
+    await screen.findByText("Detected Variables");
+    await user.click(screen.getByTestId("skill-playground-render"));
+    expect(await screen.findByText("1 unresolved")).toBeInTheDocument();
+    expect(screen.getByText(/Hello Ada/)).toBeInTheDocument();
+
+    renderSkill.mockRejectedValueOnce(new Error("render service unavailable"));
+    await user.click(screen.getByTestId("skill-playground-render"));
+    expect(await screen.findByText("render service unavailable")).toBeInTheDocument();
+
+    await user.selectOptions(
+      screen.getAllByRole("combobox", { name: "Select playground skill" })[0]!,
+      "sk-2",
+    );
+    expect(await screen.findByText("No template variables detected.")).toBeInTheDocument();
+    expect(screen.getByText("Plain instructions")).toBeInTheDocument();
+  });
 });

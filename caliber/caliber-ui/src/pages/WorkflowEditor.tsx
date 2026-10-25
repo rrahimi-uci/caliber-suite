@@ -195,7 +195,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function materializeStarterNodeValue(value: unknown, id: string): unknown {
+export function materializeStarterNodeValue(value: unknown, id: string): unknown {
   if (value === STARTER_NODE_ID_MARKER) return id;
   if (value === STARTER_NODE_NOW_PLUS_60S_ISO_MARKER) {
     return new Date(Date.now() + 60_000).toISOString();
@@ -211,7 +211,7 @@ function materializeStarterNodeValue(value: unknown, id: string): unknown {
   return value;
 }
 
-function starterNodeFromComponent(
+export function starterNodeFromComponent(
   type: string,
   id: string,
   componentSpec?: WorkflowComponent | null,
@@ -226,7 +226,7 @@ function starterNodeFromComponent(
   } as ManifestNode;
 }
 
-function hasStructuredAgentOutputPort(outputs?: Record<string, PortSpec>): boolean {
+export function hasStructuredAgentOutputPort(outputs?: Record<string, PortSpec>): boolean {
   if (!outputs) return false;
   return Object.entries(outputs).some(
     ([port, spec]) =>
@@ -234,7 +234,7 @@ function hasStructuredAgentOutputPort(outputs?: Record<string, PortSpec>): boole
   );
 }
 
-function normalizeWorkflowManifest(manifest: WorkflowManifest): WorkflowManifest {
+export function normalizeWorkflowManifest(manifest: WorkflowManifest): WorkflowManifest {
   let changed = false;
   const nodes = Object.fromEntries(
     Object.entries(manifest.nodes).map(([nodeId, node]) => {
@@ -278,17 +278,17 @@ function normalizeWorkflowManifest(manifest: WorkflowManifest): WorkflowManifest
   return changed ? { ...manifest, nodes } : manifest;
 }
 
-function parseJsonObjectText(raw: string): unknown {
+export function parseJsonObjectText(raw: string): unknown {
   const trimmed = raw.trim();
   if (!trimmed) return undefined;
   return JSON.parse(trimmed);
 }
 
-function readString(value: unknown): string | null {
+export function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function formatResumeEventPayload(value: unknown): string {
+export function formatResumeEventPayload(value: unknown): string {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value;
   try {
@@ -298,7 +298,7 @@ function formatResumeEventPayload(value: unknown): string {
   }
 }
 
-function workflowRunResumeCorrelationMatches(actual: unknown, expected: unknown): boolean {
+export function workflowRunResumeCorrelationMatches(actual: unknown, expected: unknown): boolean {
   if (Object.is(actual, expected)) return true;
   if (
     actual
@@ -315,7 +315,7 @@ function workflowRunResumeCorrelationMatches(actual: unknown, expected: unknown)
   return false;
 }
 
-function workflowRunResumeCorrelationValueLabel(value: unknown): string {
+export function workflowRunResumeCorrelationValueLabel(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === null) return "null";
   if (value === undefined) return "undefined";
@@ -326,7 +326,7 @@ function workflowRunResumeCorrelationValueLabel(value: unknown): string {
   }
 }
 
-function waitUntilDisplay(node: ManifestNode | null): string {
+export function waitUntilDisplay(node: ManifestNode | null): string {
   if (!node || node.type !== "wait_until") return "the configured time";
   const raw = typeof node.wait_until === "string" && node.wait_until.trim() ? node.wait_until.trim() : "the configured time";
   const needsTimezone = !/[zZ]$/.test(raw) && !/[+-]\d{2}:\d{2}$/.test(raw);
@@ -334,7 +334,7 @@ function waitUntilDisplay(node: ManifestNode | null): string {
   return needsTimezone && timezoneName ? `${raw} (${timezoneName})` : raw;
 }
 
-function checkpointWaitUntilDisplay(state: Record<string, unknown> | null): string | null {
+export function checkpointWaitUntilDisplay(state: Record<string, unknown> | null): string | null {
   if (!state) return null;
   const raw = readString(state.wait_until) ?? readString(state.resume_at);
   if (!raw) return null;
@@ -343,7 +343,7 @@ function checkpointWaitUntilDisplay(state: Record<string, unknown> | null): stri
   return needsTimezone && timezoneName ? `${raw} (${timezoneName})` : raw;
 }
 
-function workflowRunCheckpointIdentityIssue(
+export function workflowRunCheckpointIdentityIssue(
   run: Pick<WorkflowRun, "status" | "current_node_id"> | null | undefined,
   checkpoint: Pick<WorkflowRunCheckpoint, "checkpoint_id" | "node_id" | "state_blob"> | null | undefined,
 ): string | null {
@@ -390,7 +390,7 @@ function workflowRunCheckpointIdentityIssue(
   return `Resume is unavailable because the stored checkpoint no longer matches this run's active node: ${issues.join("; ")}. Inspect the checkpoint and recovery panels, then retry from a healthy checkpoint or start a new attempt instead of resuming this run.`;
 }
 
-function workflowRunResumeEventNameIssue({
+export function workflowRunResumeEventNameIssue({
   status,
   waitMode,
   expectedEventName,
@@ -408,7 +408,7 @@ function workflowRunResumeEventNameIssue({
   return `Resume is unavailable because this wait gate is configured for event ${expected}, but the current event name is ${actual}. Restore the configured event name before manually resuming or matching this event against waiting runs.`;
 }
 
-function workflowRunResumeByEventIssue({
+export function workflowRunResumeByEventIssue({
   status,
   waitMode,
   correlationKey,
@@ -448,7 +448,7 @@ function workflowRunResumeByEventIssue({
   return null;
 }
 
-function readNumber(value: unknown): number | null {
+export function readNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) {
     const parsed = Number(value);
@@ -457,7 +457,7 @@ function readNumber(value: unknown): number | null {
   return null;
 }
 
-function savedWorkflowVersionLabel(
+export function savedWorkflowVersionLabel(
   workflowVersionId: string | null | undefined,
   workflowVersionNumber: number | null | undefined,
 ): string | null {
@@ -473,7 +473,7 @@ function savedWorkflowVersionLabel(
   return normalizedId;
 }
 
-function runManifestContextLabel(
+export function runManifestContextLabel(
   run: Pick<WorkflowRun, "workflow_version_id"> | null,
   manifestMeta: Pick<WorkflowRunManifest, "manifest_mode"> | null,
   currentVersionId: string | undefined,
@@ -488,7 +488,7 @@ function runManifestContextLabel(
   return "the saved workflow version used by this run";
 }
 
-function runMonitorManifestUnavailableMessage({
+export function runMonitorManifestUnavailableMessage({
   manifestMode,
   hasSummarySteps,
   hasCurrentNode,
@@ -509,7 +509,7 @@ function runMonitorManifestUnavailableMessage({
   return `The saved workflow graph for this run could not be restored, and the recorded run history is too sparse to reconstruct it. Trace replay and manifest-aware debugging stay hidden until a persisted manifest, saved workflow version, or richer checkpoints are available.${recoverySuffix}`;
 }
 
-function runMonitorManifestLoadErrorMessage({
+export function runMonitorManifestLoadErrorMessage({
   run,
   manifestMode,
   versionReference,
@@ -581,7 +581,7 @@ function runMonitorManifestLoadErrorMessage({
   );
 }
 
-function syntheticRunMonitorGraphFallbackMessage(run: WorkflowRun): string {
+export function syntheticRunMonitorGraphFallbackMessage(run: WorkflowRun): string {
   const base =
     "Replay and debugging are using a graph reconstructed from recorded run history and checkpoints because neither the persisted run manifest nor its saved workflow version could be restored.";
   if (run.status === "waiting_approval" || run.status === "waiting_event") {
@@ -610,7 +610,7 @@ function syntheticRunMonitorGraphFallbackMessage(run: WorkflowRun): string {
   return `${base} Use the recovery, checkpoint, and debugger panels in this run monitor to confirm any execution details that the reconstructed graph cannot prove on its own.`;
 }
 
-function savedVersionRunMonitorGraphFallbackMessage(
+export function savedVersionRunMonitorGraphFallbackMessage(
   run: WorkflowRun,
   versionReference: string,
 ): string {
@@ -642,7 +642,7 @@ function savedVersionRunMonitorGraphFallbackMessage(
   return `${base} Use the recovery, checkpoint, and debugger panels in this run monitor to confirm any execution details that may have diverged from the restored graph.`;
 }
 
-function snapshotRunMonitorContextNote(run: WorkflowRun): string {
+export function snapshotRunMonitorContextNote(run: WorkflowRun): string {
   const base =
     "This run is pinned to the unsaved draft snapshot captured when you queued it. The canvas and inspector still show the draft currently open in the editor, which may differ from the running snapshot.";
   if (run.status === "waiting_approval" || run.status === "waiting_event") {
@@ -671,7 +671,7 @@ function snapshotRunMonitorContextNote(run: WorkflowRun): string {
   return `${base} Use the debugger and recovery panels in this run monitor to confirm which graph the current attempt actually executed.`;
 }
 
-function historicalVersionRunMonitorContextNote(
+export function historicalVersionRunMonitorContextNote(
   run: WorkflowRun,
   versionReference: string,
 ): string {
@@ -703,16 +703,16 @@ function historicalVersionRunMonitorContextNote(
   return `${base} Use the debugger and recovery panels in this run monitor to confirm how the restored graph differs from the draft currently open in the editor.`;
 }
 
-function approvalCapabilityMessage(approvalSubject: string): string {
+export function approvalCapabilityMessage(approvalSubject: string): string {
   return `This run is waiting on a ${approvalSubject}, but runtime approval controls are disabled for this deployment. Enable runtime approvals for this deployment, then approve or reject the pending request to continue.`;
 }
 
-function runActionErrorDetail(error: unknown): string {
+export function runActionErrorDetail(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
 }
 
-function workflowRunRetryFailureMessage(error: unknown): string | null {
+export function workflowRunRetryFailureMessage(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
   const detail = runActionErrorDetail(error);
   const normalized = detail.toLowerCase();
@@ -726,7 +726,7 @@ function workflowRunRetryFailureMessage(error: unknown): string | null {
   return null;
 }
 
-function workflowRunApprovalActionFailureMessage(
+export function workflowRunApprovalActionFailureMessage(
   action: "Approve" | "Reject",
   error: unknown,
 ): string | null {
@@ -757,7 +757,7 @@ function workflowRunApprovalActionFailureMessage(
   return null;
 }
 
-function workflowRunResumeFailureMessage(error: unknown): string | null {
+export function workflowRunResumeFailureMessage(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
   const detail = runActionErrorDetail(error);
   const normalized = detail.toLowerCase();
@@ -779,7 +779,7 @@ function workflowRunResumeFailureMessage(error: unknown): string | null {
   return null;
 }
 
-function workflowRunResumeByEventFailureMessage(error: unknown): string | null {
+export function workflowRunResumeByEventFailureMessage(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
   const detail = runActionErrorDetail(error);
   const normalized = detail.toLowerCase();
@@ -795,7 +795,7 @@ function workflowRunResumeByEventFailureMessage(error: unknown): string | null {
   return null;
 }
 
-function runOutputEmptyMessage(run: WorkflowRun | null): string {
+export function runOutputEmptyMessage(run: WorkflowRun | null): string {
   if (!run) {
     return "Run a workflow to see output, then use the recovery, lineage, and debugger panels below to inspect how the execution was produced.";
   }
@@ -821,7 +821,7 @@ function runOutputEmptyMessage(run: WorkflowRun | null): string {
   }
 }
 
-function runMonitorIdleSectionMessage(
+export function runMonitorIdleSectionMessage(
   section:
     | "recovery"
     | "lineage"
@@ -848,7 +848,7 @@ function runMonitorIdleSectionMessage(
   }
 }
 
-function emptyEditorRunHistoryMessage({
+export function emptyEditorRunHistoryMessage({
   capabilitiesUnavailable,
   queueRunsEnabled,
   workflowStatus,
@@ -877,7 +877,7 @@ function emptyEditorRunHistoryMessage({
   return "No recent workflow runs exist for this published version yet. Use Run or a deployment-triggered launch to create the first execution, then refresh this panel to inspect checkpoints, lineage, and debugger state.";
 }
 
-function normalizeRunStep(value: unknown): WorkflowRunStep | null {
+export function normalizeRunStep(value: unknown): WorkflowRunStep | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<WorkflowRunStep>;
   if (typeof raw.node_id !== "string" || typeof raw.node_type !== "string") return null;
@@ -903,13 +903,13 @@ function normalizeRunStep(value: unknown): WorkflowRunStep | null {
   };
 }
 
-function compareRunEvents(left: WorkflowRunEvent, right: WorkflowRunEvent): number {
+export function compareRunEvents(left: WorkflowRunEvent, right: WorkflowRunEvent): number {
   if (left.sequence !== right.sequence) return left.sequence - right.sequence;
   if (left.event_id !== right.event_id) return left.event_id - right.event_id;
   return left.created_at.localeCompare(right.created_at);
 }
 
-function reconcileRunSnapshot(
+export function reconcileRunSnapshot(
   run: WorkflowRun,
   events: WorkflowRunEvent[],
 ): WorkflowRun {
@@ -968,7 +968,7 @@ function reconcileRunSnapshot(
   };
 }
 
-function stringifyRunEventPayload(value: unknown): string {
+export function stringifyRunEventPayload(value: unknown): string {
   try {
     return JSON.stringify(value ?? null);
   } catch {
@@ -976,7 +976,7 @@ function stringifyRunEventPayload(value: unknown): string {
   }
 }
 
-function runEventFingerprint(event: WorkflowRunEvent): string {
+export function runEventFingerprint(event: WorkflowRunEvent): string {
   return [
     event.event_type,
     event.node_id ?? "",
@@ -985,7 +985,7 @@ function runEventFingerprint(event: WorkflowRunEvent): string {
   ].join("|");
 }
 
-function runEventTwinKey(event: WorkflowRunEvent): string {
+export function runEventTwinKey(event: WorkflowRunEvent): string {
   return `${event.event_type}|${event.node_id ?? ""}`;
 }
 
@@ -999,7 +999,7 @@ function runEventTwinKey(event: WorkflowRunEvent): string {
  * synthetic event is paired with one stored event of the same type and node and dropped, oldest
  * first. A synthetic event whose stored copy has not arrived yet stays until it does.
  */
-function dropSyntheticTwins(events: WorkflowRunEvent[]): WorkflowRunEvent[] {
+export function dropSyntheticTwins(events: WorkflowRunEvent[]): WorkflowRunEvent[] {
   const storedByKey = new Map<string, number>();
   for (const event of events) {
     if (event.event_id <= 0) continue;
@@ -1019,7 +1019,7 @@ function dropSyntheticTwins(events: WorkflowRunEvent[]): WorkflowRunEvent[] {
   return covered.size === 0 ? events : events.filter((event) => !covered.has(event));
 }
 
-function mergeRunEvents(
+export function mergeRunEvents(
   existing: WorkflowRunEvent[],
   incoming: WorkflowRunEvent[],
 ): WorkflowRunEvent[] {
@@ -1042,13 +1042,13 @@ function mergeRunEvents(
   return dropSyntheticTwins(merged.sort(compareRunEvents));
 }
 
-function workflowRunEventNodeId(event: CaliberEvent): string | null {
+export function workflowRunEventNodeId(event: CaliberEvent): string | null {
   if (typeof event.node_id === "string" && event.node_id.trim()) return event.node_id;
   const step = normalizeRunStep(event.step);
   return step?.node_id ?? null;
 }
 
-function workflowRunEventPayload(
+export function workflowRunEventPayload(
   event: CaliberEvent,
   nodeId: string | null,
 ): Record<string, unknown> | null {
@@ -1143,7 +1143,7 @@ function workflowRunEventPayload(
   }
 }
 
-function workflowRunEventCursor(event: CaliberEvent): string | null {
+export function workflowRunEventCursor(event: CaliberEvent): string | null {
   const eventType = typeof event.type === "string" ? event.type : "";
   const workflowId = typeof event.workflow_id === "string" ? event.workflow_id : "";
   const runId = typeof event.workflow_run_id === "string" ? event.workflow_run_id : "";
@@ -1161,7 +1161,7 @@ function workflowRunEventCursor(event: CaliberEvent): string | null {
   return [workflowId, runId || "workflow", eventType, identity].join("|");
 }
 
-function runSummarySteps(run: WorkflowRun | null): WorkflowRunStep[] {
+export function runSummarySteps(run: WorkflowRun | null): WorkflowRunStep[] {
   const maybeSteps = run?.summary?.steps;
   if (!Array.isArray(maybeSteps)) return [];
   return maybeSteps
@@ -1169,7 +1169,7 @@ function runSummarySteps(run: WorkflowRun | null): WorkflowRunStep[] {
     .filter((step): step is WorkflowRunStep => Boolean(step));
 }
 
-function defaultFocusedRunNode(run: WorkflowRun | null): string | null {
+export function defaultFocusedRunNode(run: WorkflowRun | null): string | null {
   if (!run) return null;
   if (typeof run.current_node_id === "string" && run.current_node_id.trim()) {
     return run.current_node_id;
@@ -1182,11 +1182,11 @@ function defaultFocusedRunNode(run: WorkflowRun | null): string | null {
   return steps.length > 0 ? steps[steps.length - 1]?.node_id ?? null : null;
 }
 
-function layoutStorageKey(versionId: string): string {
+export function layoutStorageKey(versionId: string): string {
   return `caliber.workflow.layout.${versionId}`;
 }
 
-function readLayout(versionId: string): NodeLayoutMap {
+export function readLayout(versionId: string): NodeLayoutMap {
   if (typeof window === "undefined") return {};
   try {
     const raw = window.localStorage.getItem(layoutStorageKey(versionId));
@@ -1205,7 +1205,7 @@ function readLayout(versionId: string): NodeLayoutMap {
   }
 }
 
-function persistLayout(versionId: string, layout: NodeLayoutMap): void {
+export function persistLayout(versionId: string, layout: NodeLayoutMap): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.setItem(layoutStorageKey(versionId), JSON.stringify(layout));
@@ -1214,7 +1214,7 @@ function persistLayout(versionId: string, layout: NodeLayoutMap): void {
   }
 }
 
-function clearLayout(versionId: string): void {
+export function clearLayout(versionId: string): void {
   if (typeof window === "undefined") return;
   try {
     window.localStorage.removeItem(layoutStorageKey(versionId));
@@ -1223,7 +1223,7 @@ function clearLayout(versionId: string): void {
   }
 }
 
-function runSortKey(run: WorkflowRun): number {
+export function runSortKey(run: WorkflowRun): number {
   const candidate =
     run.started_at ??
     run.queued_at ??
@@ -1233,7 +1233,7 @@ function runSortKey(run: WorkflowRun): number {
   return Number.isFinite(parsed) ? parsed : 0;
 }
 
-function runTimestamp(run: WorkflowRun): string {
+export function runTimestamp(run: WorkflowRun): string {
   const raw = run.started_at ?? run.queued_at ?? run.completed_at;
   if (!raw) return "—";
   const parsed = new Date(raw);

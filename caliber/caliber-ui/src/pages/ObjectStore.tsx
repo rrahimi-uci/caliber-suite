@@ -120,7 +120,7 @@ const FILE_ICON_EXTENSIONS = {
   document: ["doc", "docx", "ppt", "pptx", "xls", "xlsx", "xlsm"],
 };
 
-function extOf(name: string): string {
+export function extOf(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? "";
 }
 
@@ -132,17 +132,17 @@ const BUCKET_PANE_DEFAULT = 300;
 const BUCKET_PANE_MIN = 240;
 const OBJECT_BROWSER_MIN = 640;
 
-function clampNumber(value: number, min: number, max: number): number {
+export function clampNumber(value: number, min: number, max: number): number {
   return Math.min(Math.max(value, min), Math.max(min, max));
 }
 
-function readPaneWidth(key: string, fallback: number): number {
+export function readPaneWidth(key: string, fallback: number): number {
   if (typeof window === "undefined") return fallback;
   const stored = Number(window.localStorage.getItem(key));
   return Number.isFinite(stored) && stored > 0 ? stored : fallback;
 }
 
-function humanSize(bytes: number): string {
+export function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const units = ["KB", "MB", "GB", "TB"];
   let value = bytes / 1024;
@@ -169,7 +169,7 @@ const MONTHS = [
   "Dec",
 ];
 
-function fmtDate(iso: string | null): string {
+export function fmtDate(iso: string | null): string {
   if (!iso) return "—";
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return "—";
@@ -177,7 +177,7 @@ function fmtDate(iso: string | null): string {
   return `${MONTHS[d.getMonth()]} ${pad(d.getDate())}, ${d.getFullYear()} · ${pad(d.getHours())}:${pad(d.getMinutes())}`;
 }
 
-function fileIconFor(name: string): LucideIcon {
+export function fileIconFor(name: string): LucideIcon {
   const ext = extOf(name);
   if (FILE_ICON_EXTENSIONS.image.includes(ext)) return FileImage;
   if (FILE_ICON_EXTENSIONS.audio.includes(ext)) return FileAudio;
@@ -203,7 +203,7 @@ type ObjectFileType =
   | "document"
   | "other";
 
-function fileTypeOf(name: string): ObjectFileType {
+export function fileTypeOf(name: string): ObjectFileType {
   const ext = extOf(name);
   if (FILE_ICON_EXTENSIONS.image.includes(ext)) return "image";
   if (FILE_ICON_EXTENSIONS.audio.includes(ext)) return "audio";
@@ -228,7 +228,7 @@ type PreviewKind =
   | "office"
   | "none";
 
-function previewKindFor(name: string, contentType: string): PreviewKind {
+export function previewKindFor(name: string, contentType: string): PreviewKind {
   const ext = extOf(name);
   const ct = contentType.toLowerCase();
   if (ext === "md" || ext === "markdown") return "markdown";
@@ -244,7 +244,7 @@ function previewKindFor(name: string, contentType: string): PreviewKind {
   return "none";
 }
 
-function compareIsoDates(
+export function compareIsoDates(
   left: string | null | undefined,
   right: string | null | undefined,
 ): number {

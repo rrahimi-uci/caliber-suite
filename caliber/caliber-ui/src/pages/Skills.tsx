@@ -1491,7 +1491,7 @@ function SkillTriggerTestsStage({
 /* ── Runs ─────────────────────────────────────────────────────────────────── */
 
 /** Pass/fail/partial tallies + mean score for a per-case result array. */
-function summarizeSkillResults(results: SkillTestRunResultCase[]): {
+export function summarizeSkillResults(results: SkillTestRunResultCase[]): {
   passCount: number;
   failCount: number;
   partialCount: number;
@@ -2075,7 +2075,7 @@ function SkillRunsStage({
 type SkillBindKind = "agent" | "workflow_node" | "standalone";
 
 /** Human-readable label for a recorded binding (read off ``bound_to``). */
-function describeSkillBinding(boundTo: Record<string, unknown> | null): string | null {
+export function describeSkillBinding(boundTo: Record<string, unknown> | null): string | null {
   if (!boundTo || typeof boundTo.kind !== "string") return null;
   const kind = boundTo.kind as string;
   if (kind === "agent") {

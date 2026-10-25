@@ -30,7 +30,7 @@ interface ResolvedLineageState {
   lineageRuns: WorkflowRun[];
 }
 
-function isActiveRunStatus(runStatus: string): boolean {
+export function isActiveRunStatus(runStatus: string): boolean {
   return (
     runStatus === "queued"
     || runStatus === "running"
@@ -39,7 +39,7 @@ function isActiveRunStatus(runStatus: string): boolean {
   );
 }
 
-function isStoppedRunStatus(runStatus: string): boolean {
+export function isStoppedRunStatus(runStatus: string): boolean {
   return (
     runStatus === "failed"
     || runStatus === "cancelled"
@@ -49,7 +49,7 @@ function isStoppedRunStatus(runStatus: string): boolean {
   );
 }
 
-function formatTimestamp(run: WorkflowRun): string {
+export function formatTimestamp(run: WorkflowRun): string {
   const value = run.completed_at ?? run.started_at ?? run.queued_at;
   if (!value) return "n/a";
   const date = new Date(value);
@@ -83,7 +83,7 @@ function SummaryRow({
   );
 }
 
-function cardClasses(selected: boolean, clickable: boolean): string {
+export function cardClasses(selected: boolean, clickable: boolean): string {
   const base = selected
     ? "border-sky-300 bg-sky-50/70 shadow-sm dark:border-sky-500/60 dark:bg-sky-950/30"
     : "border-slate-200 bg-white dark:border-slate-700 dark:bg-slate-900";
@@ -93,7 +93,7 @@ function cardClasses(selected: boolean, clickable: boolean): string {
   return `${base}${hover}`;
 }
 
-function sortLineageRuns(runs: WorkflowRun[]): WorkflowRun[] {
+export function sortLineageRuns(runs: WorkflowRun[]): WorkflowRun[] {
   return [...runs].sort((left, right) => {
     const attemptLeft = Math.max(1, Number(left.attempt_number ?? 1));
     const attemptRight = Math.max(1, Number(right.attempt_number ?? 1));
@@ -105,7 +105,7 @@ function sortLineageRuns(runs: WorkflowRun[]): WorkflowRun[] {
   });
 }
 
-function resolveFallbackLineage(
+export function resolveFallbackLineage(
   run: WorkflowRun,
   runs: WorkflowRun[],
 ): ResolvedLineageState {
@@ -167,7 +167,7 @@ function resolveFallbackLineage(
   };
 }
 
-function emptyLineageMessage(run: WorkflowRun): string {
+export function emptyLineageMessage(run: WorkflowRun): string {
   const base =
     "No retries have been recorded for this run yet. When operators retry a failed or cancelled run, the new attempt will appear here with its own run id and status.";
   if (
@@ -190,7 +190,7 @@ function emptyLineageMessage(run: WorkflowRun): string {
   return `${base} Use the debugger and recovery panels to inspect the current attempt until another run is spawned.`;
 }
 
-function missingParentLineageMessage(run: WorkflowRun, missingParentId: string): string {
+export function missingParentLineageMessage(run: WorkflowRun, missingParentId: string): string {
   const base =
     `Parent run ${missingParentId} is outside the currently loaded run history, so this retry chain is partial.`;
   if (isActiveRunStatus(run.status)) {
@@ -208,7 +208,7 @@ function missingParentLineageMessage(run: WorkflowRun, missingParentId: string):
   return `${base} Refresh workflow run history or open the nearest visible parent/current attempts to continue tracing the missing branch.`;
 }
 
-function truncatedLineageMessage(run: WorkflowRun): string {
+export function truncatedLineageMessage(run: WorkflowRun): string {
   const base =
     "This retry chain is longer than the current panel limit, so CALIBER is showing the nearest attempts only.";
   if (isActiveRunStatus(run.status)) {

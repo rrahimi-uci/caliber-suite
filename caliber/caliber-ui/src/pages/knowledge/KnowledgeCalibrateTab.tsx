@@ -49,11 +49,11 @@ const RETRIEVAL_MODES: Array<{ id: KnowledgeRetrievalMode; label: string }> = [
   { id: "age_graph", label: "Apache AGE" },
 ];
 
-function retrievalModeLabel(mode: string): string {
+export function retrievalModeLabel(mode: string): string {
   return RETRIEVAL_MODES.find((item) => item.id === mode)?.label ?? mode;
 }
 
-function formatDate(value: string | null | undefined): string {
+export function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
@@ -61,7 +61,7 @@ function formatDate(value: string | null | undefined): string {
 }
 
 /** Coerce a possibly-null metric to a number, or null when undefined. */
-function metricValue(
+export function metricValue(
   metrics: KnowledgeCalibrationMetrics | null | undefined,
   key: MetricKey,
 ): number | null {
@@ -70,7 +70,7 @@ function metricValue(
   return typeof raw === "number" && Number.isFinite(raw) ? raw : null;
 }
 
-function questionMetric(
+export function questionMetric(
   result: KnowledgeCalibrationQuestionResult,
   key: MetricKey,
 ): number | null {
@@ -79,21 +79,21 @@ function questionMetric(
 }
 
 /** Percent string for a 0..1 metric, or an em-dash when undefined. */
-function pct(value: number | null): string {
+export function pct(value: number | null): string {
   return value === null ? "—" : `${Math.round(value * 100)}%`;
 }
 
-function signedPct(value: number): string {
+export function signedPct(value: number): string {
   return `${value >= 0 ? "+" : ""}${Math.round(value * 100)}%`;
 }
 
-function count(metrics: KnowledgeCalibrationMetrics, key: string): number {
+export function count(metrics: KnowledgeCalibrationMetrics, key: string): number {
   const raw = metrics[key];
   return typeof raw === "number" && Number.isFinite(raw) ? raw : 0;
 }
 
 /** Headline score for a run: answer-correctness, else faithfulness, else nDCG. */
-function headlineScore(metrics: KnowledgeCalibrationMetrics): number | null {
+export function headlineScore(metrics: KnowledgeCalibrationMetrics): number | null {
   return (
     metricValue(metrics, "answer_correctness") ??
     metricValue(metrics, "faithfulness") ??
@@ -102,7 +102,7 @@ function headlineScore(metrics: KnowledgeCalibrationMetrics): number | null {
   );
 }
 
-function verdictTone(verdict: string): string {
+export function verdictTone(verdict: string): string {
   if (verdict === "pass" || verdict === "passed")
     return "bg-emerald-100 text-emerald-700";
   if (verdict === "partial") return "bg-amber-100 text-amber-700";

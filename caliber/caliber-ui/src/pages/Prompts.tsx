@@ -2084,7 +2084,7 @@ function PromptAuthorStage({
  * now), plus the net score delta. The durable run history is the third panel;
  * selecting a run loads its detail and (if a baseline is set) the comparison.
  */
-function PromptRunsStage({
+export function PromptRunsStage({
   prompt,
   workspace,
   onAfterRun,
@@ -2703,7 +2703,7 @@ function PromptRunsStage({
 type BindKind = "agent" | "workflow_node" | "standalone";
 
 /** Human-readable label for a recorded binding (read off ``bound_to``). */
-function describeBinding(
+export function describeBinding(
   boundTo: Record<string, unknown> | null,
 ): string | null {
   if (!boundTo || typeof boundTo.kind !== "string") return null;
@@ -3120,7 +3120,7 @@ export function getPromptAliasOptions(prompt: PromptInfo | null): string[] {
   });
 }
 
-function defaultEditTargetAlias(prompt: PromptInfo): string {
+export function defaultEditTargetAlias(prompt: PromptInfo): string {
   // Single-environment mode: every edit saves to the one live alias.
   if (SINGLE_ENVIRONMENT) {
     return LIVE_ALIAS;
@@ -3969,7 +3969,7 @@ export function PromptChatPlayground({
  * with a primary "Create prompt" CTA that opens the builder prefilled with the
  * agent's name. These rows never appear in playground / calibration selectors.
  */
-function NeedsPromptCard({
+export function NeedsPromptCard({
   prompt,
   onCreate,
 }: {
@@ -4036,7 +4036,7 @@ function NeedsPromptCard({
   );
 }
 
-function PromptCard({
+export function PromptCard({
   prompt,
   isAdmin,
   deleting,
@@ -4243,7 +4243,7 @@ function PromptCard({
  * Delete (or Create) actions. Rendered inside {@link ListRows} when the Prompts
  * inventory is switched to list view.
  */
-function PromptRow({
+export function PromptRow({
   prompt,
   isAdmin,
   deleting,
@@ -4378,7 +4378,7 @@ function PromptRow({
 }
 
 /** NeedsPromptRow — list-view counterpart of {@link NeedsPromptCard}. */
-function NeedsPromptRow({
+export function NeedsPromptRow({
   prompt,
   onCreate,
 }: {
@@ -4463,7 +4463,7 @@ interface TestResult {
  * ``onPartial`` streams the accumulated results so the caller can render them
  * live. The promise resolves with the final ``TestResult[]``.
  */
-async function runPromptTestCases({
+export async function runPromptTestCases({
   promptName,
   template,
   version,
@@ -4598,7 +4598,7 @@ async function runPromptTestCases({
 }
 
 /** Aggregate verdict counts + mean score for a set of judged results. */
-function summarizeResults(results: TestResult[]): {
+export function summarizeResults(results: TestResult[]): {
   passCount: number;
   failCount: number;
   partialCount: number;
@@ -5951,7 +5951,7 @@ function isRecord(value: unknown): value is Record<string, unknown> {
  * Checks the fields those surfaces read (job_id, status, current_stage,
  * created_at, error_message) rather than trusting an unchecked cast.
  */
-function isAssistantRefinementJob(value: unknown): value is RefinementJob {
+export function isAssistantRefinementJob(value: unknown): value is RefinementJob {
   if (!isRecord(value)) return false;
   return (
     typeof value.job_id === "string" &&
@@ -7889,7 +7889,7 @@ interface CalibrationReviewView {
   evalProvider: string | null;
 }
 
-function scoreSnapshot(value: unknown): CalibrationScoreSnapshot {
+export function scoreSnapshot(value: unknown): CalibrationScoreSnapshot {
   if (!value || typeof value !== "object") {
     return { overall: null, dimensions: {} };
   }
@@ -7950,22 +7950,22 @@ export function calibrationReviewView(
   };
 }
 
-function formatScore(value: number | null): string {
+export function formatScore(value: number | null): string {
   return value === null ? "—" : `${(value * 100).toFixed(1)}%`;
 }
 
-function formatDelta(value: number | null): string {
+export function formatDelta(value: number | null): string {
   if (value === null) return "—";
   const points = value * 100;
   return `${points >= 0 ? "+" : ""}${points.toFixed(1)} pts`;
 }
 
-function deltaTone(value: number | null): string {
+export function deltaTone(value: number | null): string {
   if (value === null || value === 0) return "text-zinc-600";
   return value < 0 ? "text-red-700" : "text-emerald-700";
 }
 
-function CalibrationApplyReviewDialog({
+export function CalibrationApplyReviewDialog({
   run,
   alias,
   busy,

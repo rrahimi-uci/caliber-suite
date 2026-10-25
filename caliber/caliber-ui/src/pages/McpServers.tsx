@@ -117,7 +117,7 @@ function PlaywrightIcon({ className }: { className: string }): JSX.Element {
   );
 }
 
-function formatMcpOperatorError(raw: string | null | undefined): string | null {
+export function formatMcpOperatorError(raw: string | null | undefined): string | null {
   if (!raw) return null;
   let message = raw.trim();
   if (!message) return null;
@@ -1906,7 +1906,7 @@ const DEFAULT_TOOL_POLICY: McpToolPolicy = {
   rate_limit_per_minute: null,
 };
 
-function withDefaultPolicy(
+export function withDefaultPolicy(
   tool: McpServerDiscoveredTool,
 ): McpDiscoveredToolWithPolicy {
   return {
@@ -2846,7 +2846,7 @@ interface McpGeneratedTestResult {
   durationMs: number;
 }
 
-function parseJsonArrayFromAssistant(raw: string): unknown[] {
+export function parseJsonArrayFromAssistant(raw: string): unknown[] {
   const match = raw.match(/\[[\s\S]*\]/);
   if (!match) throw new Error("LLM did not return a JSON array.");
   const parsed = JSON.parse(match[0]) as unknown;
@@ -2855,7 +2855,7 @@ function parseJsonArrayFromAssistant(raw: string): unknown[] {
   return parsed;
 }
 
-function parseJsonObjectFromAssistant(
+export function parseJsonObjectFromAssistant(
   raw: string,
 ): Record<string, unknown> | null {
   const match = raw.match(/\{[\s\S]*\}/);
@@ -2866,7 +2866,7 @@ function parseJsonObjectFromAssistant(
     : null;
 }
 
-function normalizeMcpGeneratedTests(raw: unknown[]): McpGeneratedTestCase[] {
+export function normalizeMcpGeneratedTests(raw: unknown[]): McpGeneratedTestCase[] {
   return raw.map((row, index) => {
     if (!row || typeof row !== "object" || Array.isArray(row)) {
       throw new Error(`Test case ${index + 1} must be an object.`);

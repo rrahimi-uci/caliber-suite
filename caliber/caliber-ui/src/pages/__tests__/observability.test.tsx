@@ -226,11 +226,11 @@ function useObservabilityHandlers(): void {
   );
 }
 
-function renderPage(initialPath = "/observability"): void {
+function renderPage(initialPath = "/observability"): ReturnType<typeof render> {
   const queryClient = new QueryClient({
     defaultOptions: { queries: { retry: false, gcTime: 0 }, mutations: { retry: false } },
   });
-  render(
+  return render(
     <QueryClientProvider client={queryClient}>
       <MemoryRouter
         future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
@@ -412,6 +412,100 @@ describe("Observability page", () => {
     expect(within(metrics).getByText("3")).toBeInTheDocument();
   });
 
+  it("shows monitor errors and sparse trace detail states", async () => {
+    server.use(
+      http.get(`${OBS}/metrics`, () =>
+        HttpResponse.json({ detail: "metrics unavailable" }, { status: 503 }),
+      ),
+      http.get(`${OBS}/experiments`, () =>
+        HttpResponse.json(envelope({ experiments: [] })),
+      ),
+      http.get(`${OBS}/traces`, () =>
+        HttpResponse.json(envelope({ traces: [] })),
+      ),
+    );
+    const monitorView = renderPage();
+    await userEvent.click(screen.getByRole("button", { name: "Monitor" }));
+    expect(await screen.findByText("metrics unavailable")).toBeInTheDocument();
+    monitorView.unmount();
+
+    // A trace with no optional metadata or spans still has a usable detail
+    // surface, and the capture picker explains why there is no destination.
+    server.use(
+      http.get(`${OBS}/metrics`, () => HttpResponse.json(envelope(METRICS))),
+      http.get(`${OBS}/traces`, () =>
+        HttpResponse.json(
+          envelope({
+            traces: [
+              {
+                ...BETA,
+                trace_id: "tr-sparse",
+                experiment_id: null,
+                experiment_name: null,
+                session_id: null,
+                user: null,
+                request_preview: "",
+                timestamp_ms: null,
+              },
+            ],
+          }),
+        ),
+      ),
+      http.get(`${OBS}/traces/tr-sparse`, () =>
+        HttpResponse.json(
+          envelope({
+            trace_id: "tr-sparse",
+            name: "sparse.trace",
+            status: "OK",
+            experiment_id: null,
+            session_id: null,
+            user: null,
+            mlflow_url: null,
+            request_time_ms: null,
+            execution_time_ms: null,
+            total_tokens: null,
+            cost_usd: null,
+            prompt_tokens: null,
+            completion_tokens: null,
+            tags: {},
+            assessments: [],
+            request: null,
+            response: null,
+            spans: [],
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/eval-datasets`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.post(`${OBS}/traces/tr-sparse/feedback`, () =>
+        HttpResponse.json({ detail: "feedback unavailable" }, { status: 503 }),
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText("sparse.trace")).toBeInTheDocument();
+    expect(await screen.findByText("No spans recorded for this trace.")).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: "No test sets available" })).toBeInTheDocument();
+    const feedback = screen.getByTestId("trace-feedback");
+    await userEvent.click(within(feedback).getByLabelText("Not helpful"));
+    await userEvent.click(within(feedback).getByRole("button", { name: /Submit/ }));
+  });
+
+  it("shows trace, experiment, and detail loading failures without a crash", async () => {
+    server.use(
+      http.get(`${OBS}/metrics`, () => HttpResponse.json(envelope(METRICS))),
+      http.get(`${OBS}/experiments`, () =>
+        HttpResponse.json({ detail: "experiment lookup failed" }, { status: 502 }),
+      ),
+      http.get(`${OBS}/traces`, () =>
+        HttpResponse.json({ detail: "trace list failed" }, { status: 502 }),
+      ),
+    );
+    renderPage();
+    expect(await screen.findByText("trace list failed")).toBeInTheDocument();
+    expect(screen.queryByTestId("observability-trace-row")).not.toBeInTheDocument();
+  });
+
   it("settles a trace that was still in progress without a reload", async () => {
     let calls = 0;
     server.use(
@@ -470,12 +564,42 @@ describe("Observability page", () => {
     renderPage();
 
     const rows = await screen.findAllByTestId("observability-trace-row");
-    await userEvent.click(screen.getByRole("button", { name: "Compare" }));
+    await userEvent.click(screen.getAllByRole("button", { name: "Compare" })[0]!);
     await userEvent.click(rows[0]);
     await userEvent.click(rows[1]);
 
     const compare = await screen.findByTestId("trace-compare");
     expect(within(compare).getByText("agent.alpha")).toBeInTheDocument();
     expect(within(compare).getByText("agent.beta")).toBeInTheDocument();
+  });
+
+  it("shows the empty trace state and keeps compare selection bounded", async () => {
+    server.use(
+      http.get(`${OBS}/metrics`, () => HttpResponse.json(envelope(METRICS))),
+      http.get(`${OBS}/experiments`, () => HttpResponse.json(envelope({ experiments: [] }))),
+      http.get(`${OBS}/traces`, () => HttpResponse.json(envelope({ traces: [] }))),
+    );
+    const empty = renderPage();
+    expect(await screen.findByTestId("observability-empty")).toHaveTextContent("No traces yet");
+    expect(screen.getByText("Select a trace to inspect its spans, tool calls, tokens, and cost.")).toBeInTheDocument();
+    empty.unmount();
+
+    // A separate populated render exercises deselection and the two-item cap
+    // in compare mode without depending on a third detail request.
+    server.use(
+      http.get(`${OBS}/traces`, () => HttpResponse.json(envelope({ traces: [ALPHA, BETA, { ...ALPHA, trace_id: "tr-3", name: "agent.gamma" }] }))),
+      http.get(`${OBS}/traces/:traceId`, ({ params }) => HttpResponse.json(envelope(detail(String(params.traceId))))),
+    );
+    const view = renderPage();
+    const rows = await screen.findAllByTestId("observability-trace-row");
+    await userEvent.click(screen.getAllByRole("button", { name: "Compare" })[0]!);
+    await userEvent.click(rows[0]!);
+    await userEvent.click(rows[0]!);
+    expect(screen.getByTestId("observability-compare-hint")).toHaveTextContent("0/2");
+    await userEvent.click(rows[0]!);
+    await userEvent.click(rows[1]!);
+    await userEvent.click(rows[2]!);
+    expect(screen.getByTestId("trace-compare")).toBeInTheDocument();
+    view.unmount();
   });
 });

@@ -848,6 +848,79 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 describe("Knowledge Bases page", () => {
+  it("shows the strict AGE-only state when the graph service falls back with no artifacts", async () => {
+    const bases = [knowledgeBase()];
+    const kbVersion = version();
+    server.use(
+      http.get(`${KB}/options`, () =>
+        HttpResponse.json(envelope(knowledgeOptions(true))),
+      ),
+      http.get(`${KB}`, () => HttpResponse.json(envelope(bases))),
+      http.get(`${OS}/buckets`, () =>
+        HttpResponse.json(envelope([{ name: "reports", creation_date: NOW }])),
+      ),
+      http.get(`${OS}/buckets/reports/objects`, () =>
+        HttpResponse.json(envelope(objectListing())),
+      ),
+      http.get(`${KB}/KB-1/versions`, () =>
+        HttpResponse.json(envelope([kbVersion])),
+      ),
+      http.get(`${KB}/KB-1/runs`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/knowledge-base-versions/KBV-1/sources`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.get(`${API_BASE}/knowledge-base-versions/KBV-1/chunks`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.get(`${API_BASE}/knowledge-base-versions/KBV-1/entities`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.get(`${API_BASE}/knowledge-base-versions/KBV-1/relationships`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.get(
+        `${API_BASE}/knowledge-base-versions/KBV-1/graph`,
+        ({ request }) => {
+          const url = new URL(request.url);
+          const strict = url.searchParams.get("strict_age_retrieval") === "true";
+          return HttpResponse.json(
+            envelope({
+              requested_source: "age",
+              served_source: strict ? "local" : "age",
+              fallback_reason: strict ? "Apache AGE is unavailable." : null,
+              age_graph_name: strict ? null : "knowledge_graph",
+              age_seed_mode: "query_entities_only",
+              age_seed_strategy: null,
+              matched_entity_labels: [],
+              expanded_entity_labels: [],
+              entities: [],
+              relationships: [],
+            }),
+          );
+        },
+      ),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await openKnowledgeBaseWorkspace(user);
+    await gotoExplore(user, "graph");
+    await openGraphAdvanced(user);
+    await user.selectOptions(screen.getByLabelText("Graph source"), "age");
+    await user.click(
+      screen.getByRole("checkbox", {
+        name: "Require strict AGE source in graph explorer",
+      }),
+    );
+
+    expect((await screen.findAllByText("Strict AGE only")).length).toBeGreaterThan(0);
+    expect(screen.getByText("Apache AGE is unavailable.")).toBeInTheDocument();
+    expect(
+      screen.getByText(/skipped the normal local fallback/),
+    ).toBeInTheDocument();
+    expect(screen.getAllByText("AGE-only request").length).toBeGreaterThan(0);
+  });
+
   it("surfaces the graph-native blueprint before the first build exists", async () => {
     server.use(
       http.get(`${KB}/options`, () =>
@@ -1722,6 +1795,52 @@ describe("Knowledge Bases page", () => {
       expect(
         screen.getByRole("combobox", { name: /Default retrieval path/ }),
       ).toHaveValue("age_graph");
+    });
+  });
+
+  it("falls back to portable graph settings when an AGE launch preset is unavailable", async () => {
+    const options = knowledgeOptions(false);
+    const portableOptions = {
+      ...options,
+      graph_build_presets: [],
+      graph_query_presets: [],
+      default_graph_config: {
+        ...options.default_graph_config,
+        output_target: "object_store_and_age",
+        default_retrieval_mode: "age_graph",
+      },
+    };
+    server.use(
+      http.get(`${KB}/options`, () =>
+        HttpResponse.json(envelope(portableOptions)),
+      ),
+      http.get(`${KB}`, () => HttpResponse.json(envelope([]))),
+      http.get(`${OS}/buckets`, () =>
+        HttpResponse.json(envelope([{ name: "reports", creation_date: NOW }])),
+      ),
+      http.get(`${OS}/buckets/reports/objects`, () =>
+        HttpResponse.json(envelope(objectListing())),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderKnowledgeBasesAt(
+      "/knowledge-bases?tab=build&build_mode=new&bucket=reports&graph_preset=age_native&source=file:incident-playbook.md",
+    );
+
+    await screen.findByTestId("kb-build-import-banner");
+    expect(
+      await screen.findByText(/balanced GraphRAG preset because Apache AGE is unavailable/i),
+    ).toBeInTheDocument();
+    await openBuildAdvanced(user);
+
+    await waitFor(() => {
+      expect(screen.getByRole("combobox", { name: /Graph sync target/ })).toHaveValue(
+        "object_store",
+      );
+      expect(
+        screen.getByRole("combobox", { name: /Default retrieval path/ }),
+      ).toHaveValue("graph_hybrid");
     });
   });
 
@@ -2614,6 +2733,12 @@ describe("Knowledge Bases page", () => {
     expect(
       screen.getByRole("link", { name: "incident-playbook.md" }),
     ).toBeInTheDocument();
+
+    const bobNode = screen.getByRole("button", { name: "Select graph entity Bob" });
+    fireEvent.keyDown(bobNode, { key: "Enter" });
+    fireEvent.keyDown(bobNode, { key: " " });
+    fireEvent.keyDown(bobNode, { key: "Escape" });
+    expect(screen.getByTestId("graph-focus-card")).toHaveTextContent("Bob");
   });
 
   it("keeps the AGE graph path visible and explains fallback when the version failed to sync", async () => {
@@ -2726,6 +2851,43 @@ describe("Knowledge Bases page", () => {
       screen.getByText(
         /only versions with a successful apache age sync can use the graph-native retrieval path/i,
       ),
+    ).toBeInTheDocument();
+  });
+
+  it("explains the in-progress AGE sync state before graph retrieval is ready", async () => {
+    const pendingBase = {
+      ...knowledgeBase(),
+      active_version_summary: {
+        ...knowledgeBase().active_version_summary,
+        graph_target: "object_store_and_age",
+        age_sync_status: "processing",
+        age_ready: false,
+      },
+    };
+    const pendingVersion = {
+      ...version(),
+      summary: {
+        ...version().summary,
+        age_sync_status: "processing",
+        age_sync_error: null,
+      },
+    };
+    server.use(
+      ...calibrateBaseHandlers([pendingBase], [pendingVersion]),
+      http.get(`${API_BASE}/knowledge-base-versions/KBV-1/graph`, () =>
+        HttpResponse.json(envelope(graphExplorer("local"))),
+      ),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await openTo(user, "explore-graph");
+
+    expect(
+      await screen.findByText("AGE sync is still running for this version."),
+    ).toBeInTheDocument();
+    expect(
+      screen.getByText(/waiting for its AGE sync to complete/i),
     ).toBeInTheDocument();
   });
 
@@ -3583,6 +3745,131 @@ function workspaceHandlers(bases: unknown[], kbVersions: unknown[]) {
 }
 
 describe("Knowledge Bases asset workspace (R1 IA)", () => {
+  it("renders the list view fallback states for inactive and never-built bases", async () => {
+    const neverBuilt = {
+      ...knowledgeBase(),
+      knowledge_base_id: "KB-2",
+      name: "Archive Corpus",
+      description: "",
+      status: "paused",
+      source_manifest: [],
+      active_version_id: null,
+      active_version_summary: null,
+      last_run_id: null,
+      last_run_status: null,
+      last_run_completed_at: null,
+    };
+    server.use(...workspaceHandlers([knowledgeBase(), neverBuilt], [version()]));
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await screen.findByTestId("kb-card-KB-1");
+    await user.click(screen.getByRole("button", { name: "List view" }));
+
+    expect(screen.getByTestId("knowledge-bases-list")).toBeInTheDocument();
+    expect(screen.getByTestId("kb-row-KB-1")).toHaveTextContent("3 chunks");
+    expect(screen.getByTestId("kb-row-KB-2")).toHaveTextContent("Awaiting build");
+    expect(screen.getByTestId("kb-row-KB-2")).toHaveTextContent("0 sources");
+    expect(screen.getByTestId("kb-row-KB-2")).toHaveTextContent("paused");
+  });
+
+  it("filters the library by search, status, and owner, then clears the filters", async () => {
+    server.use(...workspaceHandlers([knowledgeBase()], [version()]));
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await screen.findByTestId("kb-card-KB-1");
+
+    await user.type(screen.getByLabelText("Search knowledge bases"), "does-not-exist");
+    expect(
+      await screen.findByText("No knowledge bases match the current search."),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(await screen.findByTestId("kb-card-KB-1")).toBeInTheDocument();
+
+    await user.selectOptions(screen.getByLabelText("Filter by status"), "active");
+    await user.selectOptions(screen.getByLabelText("Filter by owner"), "@ops");
+    expect(screen.getByTestId("kb-card-KB-1")).toBeInTheDocument();
+  });
+
+  it("renders the empty graph and relationship states when the explorer returns no nodes", async () => {
+    server.use(
+      http.get(`${API_BASE}/knowledge-base-versions/KBV-1/graph`, () =>
+        HttpResponse.json(
+          envelope({
+            ...graphExplorer("local"),
+            entities: [],
+            relationships: [],
+          }),
+        ),
+      ),
+      ...workspaceHandlers([knowledgeBase()], [version()]),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await openTo(user, "explore-graph");
+
+    expect(await screen.findByText("No graph entities matched the current filter.")).toBeInTheDocument();
+    expect(screen.getByText("The explorer will preselect the highest-signal graph seed when results are available.")).toBeInTheDocument();
+  });
+
+  it("surfaces a query error instead of leaving the ask view busy", async () => {
+    server.use(
+      ...workspaceHandlers([knowledgeBase()], [version()]),
+      http.post(QUERY, () =>
+        HttpResponse.json({ detail: "retrieval backend unavailable" }, { status: 503 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await openTo(user, "explore-ask");
+    const question = await screen.findByPlaceholderText(
+      "Ask a question about the selected documents…",
+    );
+    await user.type(question, "Where is the on-call runbook?");
+    await user.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(await screen.findByText("retrieval backend unavailable")).toBeInTheDocument();
+  });
+
+  it("surfaces a build failure after the user submits a valid new build", async () => {
+    server.use(
+      http.get(`${KB}/options`, () =>
+        HttpResponse.json(envelope(knowledgeOptions(false))),
+      ),
+      http.get(`${KB}`, () => HttpResponse.json(envelope([]))),
+      http.get(`${OS}/buckets`, () =>
+        HttpResponse.json(envelope([{ name: "reports", creation_date: NOW }])),
+      ),
+      http.get(`${OS}/buckets/reports/objects`, () =>
+        HttpResponse.json(envelope(objectListing())),
+      ),
+      http.post(`${KB}`, () =>
+        HttpResponse.json({ detail: "embedding worker unavailable" }, { status: 503 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await user.click(await screen.findByTestId("kb-new-knowledge-base"));
+    await user.selectOptions(screen.getByLabelText("Bucket"), "reports");
+    await screen.findByText("incident-playbook.md");
+    await user.click(
+      screen.getByRole("checkbox", { name: "Select file incident-playbook.md" }),
+    );
+    await user.type(screen.getByLabelText("Knowledge-base name"), "Failed Corpus");
+    const submitButton = screen.getByRole("button", {
+      name: "Create knowledge base",
+    });
+    await waitFor(() => expect(submitButton).toBeEnabled());
+    fireEvent.submit(submitButton.closest("form")!);
+
+    expect(await screen.findByText("embedding worker unavailable")).toBeInTheDocument();
+  });
+
   it("opens a KB into a workspace with a header and four stage tabs, then returns via Back", async () => {
     server.use(...workspaceHandlers([knowledgeBase()], [version()]));
 
@@ -3753,6 +4040,54 @@ describe("Knowledge Bases asset workspace (R1 IA)", () => {
     await user.click(setActive);
     await waitFor(() => expect(activated).toBe("KBV-2"));
   });
+
+  it("keeps the workspace usable when activating an earlier version fails", async () => {
+    const v1 = version();
+    const v2 = {
+      ...version(),
+      knowledge_base_version_id: "KBV-2",
+      version_number: 2,
+    };
+    const base = { ...knowledgeBase(), active_version_id: "KBV-2" };
+    server.use(
+      ...workspaceHandlers([base], [v2, v1]),
+      http.post(`${KB}/KB-1/versions/KBV-1/activate`, () =>
+        HttpResponse.json({ detail: "activation service unavailable" }, { status: 503 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await openTo(user, "use");
+    await user.click(await screen.findByRole("button", { name: "Activate" }));
+
+    expect(await screen.findByText("activation service unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Version History")).toBeInTheDocument();
+  });
+
+  it("surfaces an AGE sync failure without leaving the graph workspace busy", async () => {
+    const failedVersion = {
+      ...version(),
+      summary: {
+        ...version().summary,
+        age_sync_status: "failed",
+        age_sync_error: "age unavailable",
+      },
+    };
+    server.use(
+      ...workspaceHandlers([knowledgeBase()], [failedVersion]),
+      http.post(`${API_BASE}/knowledge-base-versions/KBV-1/age-sync`, () =>
+        HttpResponse.json({ detail: "AGE service unavailable" }, { status: 503 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await openTo(user, "explore-graph");
+    await user.click(await screen.findByRole("button", { name: "Retry AGE sync" }));
+
+    expect(await screen.findByText("AGE service unavailable")).toBeInTheDocument();
+  });
 });
 
 describe("Knowledge Bases build completion", () => {
@@ -3806,6 +4141,76 @@ describe("Knowledge Bases build completion", () => {
 });
 
 describe("Knowledge Bases R2 declutter", () => {
+  it("exercises the editable advanced build matrix and AGE fallback states", async () => {
+    server.use(...workspaceHandlers([knowledgeBase()], [version()]));
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await openTo(user, "build");
+    await openBuildAdvanced(user);
+
+    // Move through the portable and custom profiles so the derived labels,
+    // disabled AGE controls, and custom-profile explanation all stay tested.
+    await user.click(
+      screen.getByRole("button", { name: "Graph preset Portable graph artifacts" }),
+    );
+    expect(screen.getByRole("combobox", { name: /Default retrieval path/ })).toHaveValue(
+      "graph_hybrid",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /Graph sync target/ }),
+      "object_store",
+    );
+    expect(screen.getByText("Portable build")).toBeInTheDocument();
+    expect(screen.getByLabelText("AGE traversal hops")).toBeDisabled();
+    expect(screen.getByLabelText("AGE candidate pool")).toBeDisabled();
+    expect(screen.getByLabelText("AGE dense rerank weight")).toBeDisabled();
+
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /Graph extractor/ }),
+      "spacy",
+    );
+    await user.type(screen.getByPlaceholderText("e.g. en_core_web_sm"), "en_core_web_sm");
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /Graph sync target/ }),
+      "object_store_and_age",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /Default retrieval path/ }),
+      "age_graph",
+    );
+    await user.selectOptions(
+      screen.getByRole("combobox", { name: /AGE seed mode/ }),
+      "query_entities_and_text",
+    );
+    await user.selectOptions(screen.getByLabelText("AGE traversal hops"), "2");
+    fireEvent.change(screen.getByLabelText("AGE candidate pool"), {
+      target: { value: "40" },
+    });
+    fireEvent.change(screen.getByLabelText("AGE dense rerank weight"), {
+      target: { value: "0.2" },
+    });
+    await user.click(screen.getByLabelText("Require strict AGE retrieval by default"));
+    expect(screen.getByText(/Custom graph profile active/i)).toBeInTheDocument();
+    expect(screen.getByText("AGE graph retrieval active")).toBeInTheDocument();
+    expect(screen.getAllByText(/strict default/i).length).toBeGreaterThan(0);
+
+    // Exercise the remaining scalar controls and both entity-filter transitions.
+    await user.selectOptions(screen.getByRole("combobox", { name: /Chunking strategy/ }), "recursive");
+    await user.selectOptions(screen.getByRole("combobox", { name: /Embedding model/ }), "sentence-transformers/all-MiniLM-L6-v2");
+    fireEvent.change(screen.getByLabelText("Chunk size"), { target: { value: "900" } });
+    fireEvent.change(screen.getByLabelText("Overlap"), { target: { value: "90" } });
+    fireEvent.change(screen.getByLabelText("Semantic threshold"), { target: { value: "0.65" } });
+    fireEvent.change(screen.getByLabelText("Max entities / chunk"), { target: { value: "8" } });
+    fireEvent.change(screen.getByLabelText("Min entity mentions"), { target: { value: "2" } });
+    fireEvent.change(screen.getByLabelText("Min relationship weight"), { target: { value: "1.5" } });
+    await user.selectOptions(screen.getByRole("combobox", { name: /Retrieval strength/ }), "aggressive");
+    await user.click(screen.getByRole("button", { name: "Document" }));
+    expect(screen.getByText("2 graph entity types selected for this build.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Person" }));
+    expect(screen.getByText("1 graph entity types selected for this build.")).toBeInTheDocument();
+  });
+
   it("keeps the Build advanced configuration collapsed by default and expands it on demand", async () => {
     server.use(...workspaceHandlers([knowledgeBase()], [version()]));
 
@@ -3927,6 +4332,59 @@ describe("Knowledge Bases R2 declutter", () => {
     expect(
       await screen.findByText("#1 · build_started"),
     ).toBeInTheDocument();
+  });
+
+  it("renders queued, running, failed, and completed build-run states", async () => {
+    const runs = [
+      { ...run(), knowledge_base_run_id: "KBR-queued", status: "queued", started_at: null, completed_at: null },
+      { ...run(), knowledge_base_run_id: "KBR-running", status: "running", completed_at: null },
+      { ...run(), knowledge_base_run_id: "KBR-failed", status: "failed", error_summary: "Graph extraction failed", completed_at: NOW },
+      { ...run(), knowledge_base_run_id: "KBR-completed", status: "completed", completed_at: NOW },
+    ];
+    server.use(
+      http.get(`${KB}/KB-1/runs`, () => HttpResponse.json(envelope(runs))),
+      http.get(`${API_BASE}/knowledge-runs/:runId/events`, ({ params }) =>
+        HttpResponse.json(
+          envelope(
+            params.runId === "KBR-running"
+              ? [{
+                  event_id: 11,
+                  knowledge_base_run_id: params.runId,
+                  sequence: 1,
+                  event_type: "source_completed",
+                  payload: { source: "incident.md" },
+                  created_at: NOW,
+                }]
+              : [],
+          ),
+        ),
+      ),
+      ...workspaceHandlers([knowledgeBase()], [version()]),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await openTo(user, "build");
+
+    expect(await screen.findByText("KBR-queued")).toBeInTheDocument();
+    expect(screen.getAllByText(/Queued/).length).toBeGreaterThan(0);
+    expect(screen.getByText("KBR-running")).toBeInTheDocument();
+    expect(screen.getAllByText(/Started/).length).toBeGreaterThan(0);
+    expect(screen.getByText("KBR-failed")).toBeInTheDocument();
+    expect(screen.getByText("KBR-completed")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /KBR-failed/ }));
+    expect(await screen.findByText("Graph extraction failed")).toBeInTheDocument();
+
+    await user.click(screen.getByRole("button", { name: /KBR-running/ }));
+    await user.click(
+      within(screen.getByTestId("kb-run-log")).getByRole("button", {
+        name: /View log/,
+      }),
+    );
+    expect(await screen.findByText("#1 · source_completed")).toBeInTheDocument();
+    expect(screen.getByText(/incident\.md/)).toBeInTheDocument();
+
   });
 
   it("renders a calm library card with a single health line and no badge wall", async () => {
@@ -4068,6 +4526,179 @@ describe("Knowledge Bases R3 declutter (Explore Query)", () => {
     ).not.toBeInTheDocument();
     expect(await screen.findByText("Bob owns reliability.")).toBeInTheDocument();
   });
+
+  it("renders mixed retrieval result states, fallbacks, citations, and score breakdowns", async () => {
+    server.use(
+      ...workspaceHandlers([knowledgeBase()], [version()]),
+      http.post(QUERY, () =>
+        HttpResponse.json(
+          envelope({
+            question: "Which path should operators use?",
+            versions: [
+              {
+                knowledge_base_version_id: "KBV-1",
+                knowledge_base_id: "KB-1",
+                version_number: 1,
+                knowledge_base_name: "Operations Corpus",
+                chunking_strategy: "recursive",
+                embedding_model: "MiniLM",
+                retrieval_mode: "dense",
+                answer: null,
+                answer_error: "Dense retrieval returned no answer.",
+                citations: [],
+                retrieved_chunks: [],
+                graph_context: {},
+                timing_ms: {},
+              },
+              {
+                knowledge_base_version_id: "KBV-1",
+                knowledge_base_id: "KB-1",
+                version_number: 1,
+                knowledge_base_name: "Operations Corpus",
+                chunking_strategy: "recursive",
+                embedding_model: "MiniLM",
+                retrieval_mode: "graph_hybrid",
+                answer: "Use the incident playbook.",
+                answer_error: null,
+                citations: [
+                  {
+                    chunk_id: "CH-HYBRID",
+                    label: "incident-playbook.md",
+                    source_bucket: "reports",
+                    source_key: "incident-playbook.md",
+                    object_store_path: "/object-store?key=incident-playbook.md",
+                    score: 0.9,
+                  },
+                ],
+                retrieved_chunks: [
+                  {
+                    chunk_id: "CH-HYBRID",
+                    source_bucket: "reports",
+                    source_key: "incident-playbook.md",
+                    source_name: "incident-playbook.md",
+                    score: 0.9,
+                    content: "Use the incident playbook.",
+                    chunk_index: 0,
+                    ordinal: 0,
+                    document_id: "DOC-1",
+                    metadata: {},
+                    object_store_path: "/object-store?key=incident-playbook.md",
+                    score_breakdown: {
+                      dense: 0.5,
+                      dense_rerank: 0.2,
+                      graph_boost: 0.3,
+                      age_graph: 0,
+                      age_direct: 0,
+                      age_one_hop: 0,
+                      age_two_hop: 0,
+                    },
+                    matched_entity_labels: ["incident playbook"],
+                  },
+                ],
+                graph_context: {
+                  requested_backend: "heuristic",
+                  applied_backend: "heuristic",
+                  matched_entities: ["incident playbook"],
+                  expanded_entities: [],
+                  boosted_chunk_count: 1,
+                  relationship_count: 0,
+                  retrieval_strength: "balanced",
+                  fallback_retrieval_mode: "dense",
+                  fallback_reason: "graph evidence was unavailable",
+                  query_override_active: false,
+                  strict_age_retrieval: false,
+                  age_configured_seed_mode: "query_entities_and_text",
+                  age_configured_hops: 2,
+                  age_candidate_pool_size: 32,
+                  age_dense_rerank_weight: 0.25,
+                },
+                timing_ms: { total: 18 },
+              },
+              {
+                knowledge_base_version_id: "KBV-1",
+                knowledge_base_id: "KB-1",
+                version_number: 1,
+                knowledge_base_name: "Operations Corpus",
+                chunking_strategy: "recursive",
+                embedding_model: "MiniLM",
+                retrieval_mode: "age_graph",
+                answer: null,
+                answer_error: null,
+                citations: [],
+                retrieved_chunks: [
+                  {
+                    chunk_id: "CH-AGE",
+                    source_bucket: "reports",
+                    source_key: "age.md",
+                    source_name: "age.md",
+                    score: 0,
+                    content: "No AGE answer was generated.",
+                    chunk_index: 1,
+                    ordinal: 1,
+                    document_id: "DOC-2",
+                    metadata: {},
+                    object_store_path: "/object-store?key=age.md",
+                    score_breakdown: {},
+                    matched_entity_labels: [],
+                  },
+                ],
+                graph_context: {
+                  age_graph_name: "knowledge_graph",
+                  age_status: "synced",
+                  matched_entities: [],
+                  expanded_entities: ["operations"],
+                  boosted_chunk_count: 0,
+                  relationship_count: 1,
+                  age_seed_strategy: "query_entities",
+                  age_traversal_hops: 2,
+                  age_matched_chunk_count: 0,
+                  age_candidate_pool_size: 12,
+                  age_dense_rerank_weight: 0,
+                  minimum_relationship_weight: 1,
+                  retrieval_strength: "aggressive",
+                  query_override_active: true,
+                  strict_age_retrieval: true,
+                  age_fallback_reason: "No matching AGE entities.",
+                },
+                timing_ms: { total: null },
+              },
+            ],
+          }),
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await openTo(user, "explore-ask");
+    await openExploreCompare(user);
+    expect(await screen.findByText("Compare answers across versions")).toBeInTheDocument();
+
+    await user.click(
+      screen.getByRole("button", {
+        name: "Playground retrieval mode GraphRAG hybrid",
+      }),
+    );
+    await user.click(
+      screen.getByRole("button", {
+        name: "Playground retrieval mode Apache AGE graph",
+      }),
+    );
+    await user.type(
+      screen.getByPlaceholderText("Ask a question about the selected documents…"),
+      "Which path should operators use?",
+    );
+    await user.click(screen.getByRole("button", { name: "Ask" }));
+
+    expect(await screen.findByText("Dense retrieval returned no answer.")).toBeInTheDocument();
+    expect(screen.getAllByText("Use the incident playbook.").length).toBeGreaterThan(0);
+    expect(screen.getByText("No answer returned.")).toBeInTheDocument();
+    expect(screen.getByText("Apache AGE context")).toBeInTheDocument();
+    expect(screen.getByText(/Strict AGE mode prevented fallback/)).toBeInTheDocument();
+    expect(screen.getByText(/matched 0 chunks before rerank/)).toBeInTheDocument();
+    expect(screen.getAllByText("incident-playbook.md").length).toBeGreaterThan(0);
+    expect(screen.getByText(/graph \+0.300/)).toBeInTheDocument();
+  });
 });
 
 describe("Knowledge Bases delete", () => {
@@ -4153,6 +4784,31 @@ describe("Knowledge Bases delete", () => {
     await user.click(await screen.findByTestId("kb-bulk-delete-confirm-btn"));
 
     await waitFor(() => expect(deleted).toEqual(["KB-2"]));
+  });
+
+  it("reports partial failure after a best-effort bulk delete", async () => {
+    const deleted: string[] = [];
+    server.use(
+      http.delete(`${KB}/:id`, ({ params }) => {
+        const id = String(params.id);
+        deleted.push(id);
+        return id === "KB-2"
+          ? HttpResponse.json({ detail: "locked" }, { status: 409 })
+          : HttpResponse.json(envelope({ knowledge_base_id: id, deleted: true }));
+      }),
+      ...workspaceHandlers([knowledgeBase(), secondKnowledgeBase()], [version()]),
+    );
+
+    const user = userEvent.setup();
+    render(<KnowledgeBases />);
+    await user.click(await screen.findByTestId("kb-select-all"));
+    await user.click(await screen.findByTestId("kb-delete-selected"));
+    await user.click(await screen.findByTestId("kb-bulk-delete-confirm-btn"));
+
+    expect(
+      await screen.findByText("1 of 2 knowledge bases could not be deleted."),
+    ).toBeInTheDocument();
+    expect(deleted).toEqual(["KB-1", "KB-2"]);
   });
 
   it("deletes from the workspace header, returning to the library", async () => {

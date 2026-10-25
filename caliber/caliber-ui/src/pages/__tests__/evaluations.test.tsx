@@ -121,8 +121,8 @@ function useHandlers(): void {
   );
 }
 
-function renderList(): void {
-  render(
+function renderList() {
+  return render(
     <MemoryRouter
       future={{ v7_startTransition: true, v7_relativeSplatPath: true }}
       initialEntries={["/evaluations"]}
@@ -214,6 +214,59 @@ describe("Evaluations page", () => {
       predict_target: "prompt",
       subject_ref: "support-greeting@3",
     });
+  });
+
+  it("covers empty and failed registry states", async () => {
+    server.use(
+      http.get(`${API_BASE}/evaluations`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/judges`, () => HttpResponse.json(envelope([]))),
+    );
+    const empty = renderList();
+    expect(
+      await screen.findByText("No evaluation runs yet. Run one against a test set to see a scorecard here."),
+    ).toBeInTheDocument();
+    empty.unmount();
+
+    server.use(
+      http.get(`${API_BASE}/evaluations`, () =>
+        HttpResponse.json({ detail: "evaluation registry unavailable" }, { status: 503 }),
+      ),
+    );
+    renderList();
+    expect(await screen.findByText("Failed to load evaluations")).toBeInTheDocument();
+    expect(screen.getByText("evaluation registry unavailable")).toBeInTheDocument();
+  });
+
+  it("covers skill/workflow targets, scorer removal, and run failures", async () => {
+    useHandlers();
+    server.use(
+      http.post(`${API_BASE}/evaluations`, () =>
+        HttpResponse.json({ detail: "evaluation start denied" }, { status: 403 }),
+      ),
+    );
+    const user = userEvent.setup();
+    renderList();
+    await screen.findAllByTestId("eval-run-row");
+    await user.click(screen.getByRole("button", { name: /Run evaluation/ }));
+    await user.selectOptions(await screen.findByLabelText("Test set"), "ED-1");
+    await user.selectOptions(screen.getByTestId("eval-predict-target"), "skill");
+    expect(screen.getByLabelText("Subject under test")).toHaveAttribute("placeholder", "SK-…");
+    await user.type(screen.getByTestId("eval-subject-ref"), "SK-1");
+    // Turning off every built-in grader exercises the disabled empty-grader guard.
+    for (const label of ["Exact match", "Token F1", "Contains expected"]) {
+      await user.click(screen.getByRole("checkbox", { name: label }));
+    }
+    expect(screen.getByRole("button", { name: /^Run$/ })).toBeDisabled();
+    await user.click(screen.getByRole("checkbox", { name: "Exact match" }));
+    await user.click(screen.getByRole("button", { name: /^Run$/ }));
+    expect(await screen.findByText("evaluation start denied")).toBeInTheDocument();
+
+    const cancelButtons = screen.getAllByRole("button", { name: "Cancel" });
+    await user.click(cancelButtons[cancelButtons.length - 1]!);
+    await user.click(screen.getByRole("button", { name: /Run evaluation/ }));
+    await user.selectOptions(await screen.findByLabelText("Test set"), "ED-1");
+    await user.selectOptions(screen.getByTestId("eval-predict-target"), "workflow");
+    expect(screen.getByLabelText("Subject under test")).toHaveAttribute("placeholder", "WFV-…");
   });
 });
 
