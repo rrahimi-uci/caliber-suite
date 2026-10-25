@@ -401,11 +401,13 @@ job_alpha_journey() {
   return "$status"
 }
 
-# Executes docs/start/alpha-install.md against freshly built wheels in a scratch directory.
+# Executes docs/start/alpha-install.md against freshly built wheels in a scratch directory,
+# then the one-command installer (scripts/install.sh) the same way.
 job_alpha_install() {
   require_cmd curl "Install curl." || return 1
   cd "$REPO_ROOT" || return 1
-  scripts/verify-alpha-install.sh --python "${ALPHA_INSTALL_PYTHON:-python3}"
+  scripts/verify-alpha-install.sh --python "${ALPHA_INSTALL_PYTHON:-python3}" || return 1
+  scripts/verify-installer.sh --python "${ALPHA_INSTALL_PYTHON:-python3}" --no-ui
 }
 
 # Builds the wheel and asserts the SPA is inside it — the check that catches a

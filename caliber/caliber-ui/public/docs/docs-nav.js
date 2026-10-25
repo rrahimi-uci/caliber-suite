@@ -1221,7 +1221,7 @@ window.DOCS_DATA = {
         "Python 3.10, 3.11 or 3.12 and the three CALIBER wheels (release assets or a source checkout)"
       ],
       "stability": "beta",
-      "reviewed_on": "2026-10-23",
+      "reviewed_on": "2026-10-25",
       "version_applicability": "0.1.0a1 alpha",
       "tags": [
         "install",
