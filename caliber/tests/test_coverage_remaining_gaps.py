@@ -284,7 +284,7 @@ def test_coerce_int_from_string() -> None:
 def test_secret_resolve_file_not_found(tmp_path: Path) -> None:
     from caliber.secrets import _resolve_file
 
-    result = _resolve_file(str(tmp_path / "nope.txt"), source_label="test")
+    result = _resolve_file(str(tmp_path / "nope.txt"))
     assert result is None
 
 
@@ -293,7 +293,7 @@ def test_secret_resolve_file_empty(tmp_path: Path) -> None:
 
     f = tmp_path / "empty.txt"
     f.write_text("   \n  ")
-    result = _resolve_file(str(f), source_label="test")
+    result = _resolve_file(str(f))
     assert result is None
 
 
@@ -303,14 +303,14 @@ def test_secret_resolve_file_os_error(tmp_path: Path) -> None:
     # A directory where a file is expected → IsADirectoryError (OSError subclass)
     d = tmp_path / "is_dir"
     d.mkdir()
-    result = _resolve_file(str(d), source_label="test")
+    result = _resolve_file(str(d))
     assert result is None
 
 
 def test_secret_resolve_file_empty_path() -> None:
     from caliber.secrets import _resolve_file
 
-    result = _resolve_file("", source_label="test")
+    result = _resolve_file("")
     assert result is None
 
 
