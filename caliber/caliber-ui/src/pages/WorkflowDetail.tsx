@@ -96,7 +96,7 @@ import {
 type Tab = "graph" | "versions" | "deployments" | "runs" | "service" | "promotions" | "patches";
 type RunArtifactTriageFilter = "all" | "upload_failed" | "artifacts_stored";
 
-function normalizeWorkflowDetailTab(value: string | null): Tab | null {
+export function normalizeWorkflowDetailTab(value: string | null): Tab | null {
   switch (value) {
     case "versions":
     case "deployments":
@@ -201,7 +201,7 @@ function StatusBadge({ status }: { status: string }) {
 }
 
 /** Download an authenticated service spec without navigating to its Bearer-gated URL. */
-function triggerServiceOpenApiDownload(blob: Blob, workflowId: string): boolean {
+export function triggerServiceOpenApiDownload(blob: Blob, workflowId: string): boolean {
   if (
     typeof document === "undefined" ||
     typeof URL === "undefined" ||
@@ -224,16 +224,16 @@ function triggerServiceOpenApiDownload(blob: Blob, workflowId: string): boolean 
   return true;
 }
 
-function approvalCapabilityMessage(approvalSubject: string): string {
+export function approvalCapabilityMessage(approvalSubject: string): string {
   return `This run is waiting on a ${approvalSubject}, but runtime approval controls are disabled for this deployment. Enable runtime approvals for this deployment, then approve or reject the pending request to continue.`;
 }
 
-function runActionErrorDetail(error: unknown): string {
+export function runActionErrorDetail(error: unknown): string {
   if (error instanceof Error) return error.message;
   return String(error);
 }
 
-function workflowRunRetryFailureMessage(error: unknown): string | null {
+export function workflowRunRetryFailureMessage(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
   const detail = runActionErrorDetail(error);
   const normalized = detail.toLowerCase();
@@ -247,7 +247,7 @@ function workflowRunRetryFailureMessage(error: unknown): string | null {
   return null;
 }
 
-function workflowRunApprovalActionFailureMessage(
+export function workflowRunApprovalActionFailureMessage(
   action: "Approve" | "Reject",
   error: unknown,
 ): string | null {
@@ -274,7 +274,7 @@ function workflowRunApprovalActionFailureMessage(
   return null;
 }
 
-function workflowRunResumeFailureMessage(error: unknown): string | null {
+export function workflowRunResumeFailureMessage(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
   const detail = runActionErrorDetail(error);
   const normalized = detail.toLowerCase();
@@ -296,7 +296,7 @@ function workflowRunResumeFailureMessage(error: unknown): string | null {
   return null;
 }
 
-function workflowRunResumeByEventFailureMessage(error: unknown): string | null {
+export function workflowRunResumeByEventFailureMessage(error: unknown): string | null {
   if (!(error instanceof ApiError)) return null;
   const detail = runActionErrorDetail(error);
   const normalized = detail.toLowerCase();
@@ -322,7 +322,7 @@ function RunStatusBadge({ status }: { status: string }) {
   );
 }
 
-function runArtifactFilterMatches(
+export function runArtifactFilterMatches(
   run: WorkflowRun,
   filter: RunArtifactTriageFilter,
 ): boolean {
@@ -336,7 +336,7 @@ function runArtifactFilterMatches(
   return true;
 }
 
-function runArtifactFilterQueryValue(
+export function runArtifactFilterQueryValue(
   filter: RunArtifactTriageFilter,
 ): "failed" | "persisted" | undefined {
   if (filter === "upload_failed") return "failed";
@@ -344,7 +344,7 @@ function runArtifactFilterQueryValue(
   return undefined;
 }
 
-function runSearchMatches(run: WorkflowRun, query: string): boolean {
+export function runSearchMatches(run: WorkflowRun, query: string): boolean {
   if (!query) return true;
   const artifactPersistence = workflowRunArtifactPersistence(run);
   const summary =
@@ -371,7 +371,7 @@ function runSearchMatches(run: WorkflowRun, query: string): boolean {
   return searchable.some((value) => value.toLowerCase().includes(query));
 }
 
-function filteredRunHistoryMessage({
+export function filteredRunHistoryMessage({
   search,
   filter,
 }: {
@@ -397,7 +397,7 @@ function filteredRunHistoryMessage({
   return "No runs match the current triage view. Clear the filters to inspect the full run history again.";
 }
 
-function readNumber(value: unknown): number | null {
+export function readNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) {
     const parsed = Number(value);
@@ -406,7 +406,7 @@ function readNumber(value: unknown): number | null {
   return null;
 }
 
-function TriggerBadge({ trigger }: { trigger: StartTriggerConfig | null | undefined }) {
+export function TriggerBadge({ trigger }: { trigger: StartTriggerConfig | null | undefined }) {
   const mode = trigger?.mode ?? "manual";
   if (mode === "manual") {
     return (
@@ -436,13 +436,13 @@ function TriggerBadge({ trigger }: { trigger: StartTriggerConfig | null | undefi
   );
 }
 
-function parseJsonObjectText(raw: string): unknown {
+export function parseJsonObjectText(raw: string): unknown {
   const trimmed = raw.trim();
   if (!trimmed) return undefined;
   return JSON.parse(trimmed);
 }
 
-function formatResumeEventPayload(value: unknown): string {
+export function formatResumeEventPayload(value: unknown): string {
   if (value === undefined || value === null) return "";
   if (typeof value === "string") return value;
   try {
@@ -452,7 +452,7 @@ function formatResumeEventPayload(value: unknown): string {
   }
 }
 
-function workflowRunResumeCorrelationMatches(actual: unknown, expected: unknown): boolean {
+export function workflowRunResumeCorrelationMatches(actual: unknown, expected: unknown): boolean {
   if (Object.is(actual, expected)) return true;
   if (
     actual
@@ -469,7 +469,7 @@ function workflowRunResumeCorrelationMatches(actual: unknown, expected: unknown)
   return false;
 }
 
-function workflowRunResumeCorrelationValueLabel(value: unknown): string {
+export function workflowRunResumeCorrelationValueLabel(value: unknown): string {
   if (typeof value === "string") return value;
   if (value === null) return "null";
   if (value === undefined) return "undefined";
@@ -480,7 +480,7 @@ function workflowRunResumeCorrelationValueLabel(value: unknown): string {
   }
 }
 
-function waitUntilDisplay(node: WorkflowVersion["manifest"]["nodes"][string] | null): string {
+export function waitUntilDisplay(node: WorkflowVersion["manifest"]["nodes"][string] | null): string {
   if (!node || node.type !== "wait_until") return "the configured time";
   const raw = typeof node.wait_until === "string" && node.wait_until.trim() ? node.wait_until.trim() : "the configured time";
   const needsTimezone = !/[zZ]$/.test(raw) && !/[+-]\d{2}:\d{2}$/.test(raw);
@@ -492,11 +492,11 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function readString(value: unknown): string | null {
+export function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function checkpointWaitUntilDisplay(state: Record<string, unknown> | null): string | null {
+export function checkpointWaitUntilDisplay(state: Record<string, unknown> | null): string | null {
   if (!state) return null;
   const raw = readString(state.wait_until) ?? readString(state.resume_at);
   if (!raw) return null;
@@ -505,7 +505,7 @@ function checkpointWaitUntilDisplay(state: Record<string, unknown> | null): stri
   return needsTimezone && timezoneName ? `${raw} (${timezoneName})` : raw;
 }
 
-function workflowRunCheckpointIdentityIssue(
+export function workflowRunCheckpointIdentityIssue(
   run: Pick<WorkflowRun, "status" | "current_node_id"> | null | undefined,
   checkpoint: Pick<WorkflowRunCheckpoint, "checkpoint_id" | "node_id" | "state_blob"> | null | undefined,
 ): string | null {
@@ -552,7 +552,7 @@ function workflowRunCheckpointIdentityIssue(
   return `Resume is unavailable because the stored checkpoint no longer matches this run's active node: ${issues.join("; ")}. Inspect the checkpoint and recovery panels, then retry from a healthy checkpoint or start a new attempt instead of resuming this run.`;
 }
 
-function workflowRunResumeEventNameIssue({
+export function workflowRunResumeEventNameIssue({
   status,
   waitMode,
   expectedEventName,
@@ -570,7 +570,7 @@ function workflowRunResumeEventNameIssue({
   return `Resume is unavailable because this wait gate is configured for event ${expected}, but the current event name is ${actual}. Restore the configured event name before manually resuming or matching this event against waiting runs.`;
 }
 
-function workflowRunResumeByEventIssue({
+export function workflowRunResumeByEventIssue({
   status,
   waitMode,
   correlationKey,
@@ -607,7 +607,7 @@ function workflowRunResumeByEventIssue({
   return null;
 }
 
-function workflowRunGraphUnavailableMessage({
+export function workflowRunGraphUnavailableMessage({
   manifestMode,
   versionReference,
   versionLoadFailed,
@@ -635,7 +635,7 @@ function workflowRunGraphUnavailableMessage({
   return `${versionReference} is not available in the loaded workflow versions. Graph replay and manifest-aware debugging are hidden until that version is restored.${recoverySuffix}`;
 }
 
-function syntheticRunGraphFallbackMessage(run: WorkflowRun): string {
+export function syntheticRunGraphFallbackMessage(run: WorkflowRun): string {
   const base =
     "Replay and debugging are using a graph reconstructed from recorded run history and checkpoints because neither the persisted run manifest nor its saved workflow version could be restored.";
   if (run.status === "waiting_approval" || run.status === "waiting_event") {
@@ -664,7 +664,7 @@ function syntheticRunGraphFallbackMessage(run: WorkflowRun): string {
   return `${base} Use the recovery, checkpoint, and debugger panels to confirm any execution details that the reconstructed graph cannot prove on its own.`;
 }
 
-function savedVersionRunGraphFallbackMessage(
+export function savedVersionRunGraphFallbackMessage(
   run: WorkflowRun,
   versionReference: string,
 ): string {
@@ -696,7 +696,7 @@ function savedVersionRunGraphFallbackMessage(
   return `${base} Use the recovery, checkpoint, and debugger panels to confirm any execution details that may have diverged from the restored graph.`;
 }
 
-function emptyRunHistoryMessage({
+export function emptyRunHistoryMessage({
   capabilitiesUnavailable,
   queueRunsEnabled,
   workflowStatus,
@@ -729,7 +729,7 @@ function emptyRunHistoryMessage({
   return "Queue a run from the controls above or trigger the workflow from a deployed alias to create the first execution. Once a run starts, this tab will show status, replay, checkpoints, lineage, and debugger history.";
 }
 
-function emptyRunLogsMessage(run: WorkflowRun): string {
+export function emptyRunLogsMessage(run: WorkflowRun): string {
   if (run.status === "waiting_approval" || run.status === "waiting_event") {
     return "This run only has a node path summary so far. Use the recovery, checkpoint, and debugger panels above to inspect the active gate until step-level logs are persisted.";
   }
@@ -756,7 +756,7 @@ function emptyRunLogsMessage(run: WorkflowRun): string {
   return "This run only has a node path summary.";
 }
 
-function defaultSelectedRunNodeId(
+export function defaultSelectedRunNodeId(
   run: WorkflowRun | null,
   manifest: WorkflowManifest | null,
 ): string | null {
@@ -813,7 +813,7 @@ function StepLogList({ steps, emptyText }: { steps: WorkflowRunStep[]; emptyText
   );
 }
 
-function normalizeRunStep(value: unknown): WorkflowRunStep | null {
+export function normalizeRunStep(value: unknown): WorkflowRunStep | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<WorkflowRunStep>;
   if (typeof raw.node_id !== "string" || typeof raw.node_type !== "string") return null;
@@ -851,7 +851,7 @@ const CALIBRATION_RUN_STATUS_BADGE: Record<string, string> = {
 };
 
 /** Best-effort one-line eval summary from a refinement job's eval_results. */
-function calibrationRunEvalSummary(job: WorkflowCalibrationRunResult["job"]): string | null {
+export function calibrationRunEvalSummary(job: WorkflowCalibrationRunResult["job"]): string | null {
   const view = workflowCalibrationView(job);
   if (view) {
     const parts: string[] = [];

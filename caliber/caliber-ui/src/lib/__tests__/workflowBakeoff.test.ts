@@ -16,6 +16,10 @@ import {
   workflowBakeoffRubricAverage,
   workflowBakeoffWorksheetHasEvidence,
   workflowBakeoffWorksheetStats,
+  workflowBakeoffScenarioEntryHasEvidence,
+  workflowBakeoffRubricEntryHasEvidence,
+  workflowBakeoffScenarioStatusLabel,
+  sortWorkflowBenchmarkReports,
 } from "@/lib/workflowBakeoff";
 
 const SCENARIOS: WorkflowBakeoffScenario[] = [
@@ -85,6 +89,61 @@ function makeBenchmarkReport(
 }
 
 describe("workflowBakeoff", () => {
+  it("covers empty, invalid, and every worksheet status branch", () => {
+    expect(workflowBakeoffScenarioStatusLabel("not_started")).toBe("Not started");
+    expect(workflowBakeoffScenarioStatusLabel("in_progress")).toBe("In progress");
+    expect(workflowBakeoffScenarioStatusLabel("passed")).toBe("Passed");
+    expect(workflowBakeoffScenarioStatusLabel("blocked")).toBe("Blocked");
+    expect(workflowBakeoffScenarioStatusLabel("not_started" as never)).toBe("Not started");
+
+    expect(workflowBakeoffScenarioEntryHasEvidence(null)).toBe(false);
+    expect(workflowBakeoffScenarioEntryHasEvidence(undefined)).toBe(false);
+    expect(workflowBakeoffScenarioEntryHasEvidence({
+      status: "not_started", minutes_to_first_success: "", evidence_links: "", notes: "",
+    })).toBe(false);
+    for (const field of ["minutes_to_first_success", "evidence_links", "notes"] as const) {
+      expect(workflowBakeoffScenarioEntryHasEvidence({
+        status: "not_started", minutes_to_first_success: "", evidence_links: "", notes: "", [field]: "x",
+      })).toBe(true);
+    }
+    expect(workflowBakeoffScenarioEntryHasEvidence({
+      status: "passed", minutes_to_first_success: "", evidence_links: "", notes: "",
+    })).toBe(true);
+    expect(workflowBakeoffRubricEntryHasEvidence(null)).toBe(false);
+    expect(workflowBakeoffRubricEntryHasEvidence(undefined)).toBe(false);
+    expect(workflowBakeoffRubricEntryHasEvidence({ score: "", notes: "" })).toBe(false);
+    expect(workflowBakeoffRubricEntryHasEvidence({ score: "3", notes: "" })).toBe(true);
+    expect(workflowBakeoffRubricEntryHasEvidence({ score: "", notes: " finding " })).toBe(true);
+
+    expect(normalizeWorkflowBakeoffWorksheet(null, SCENARIOS, RUBRIC).product_name).toBe("Caliber");
+    expect(normalizeWorkflowBakeoffWorksheet({
+      product_name: "", evaluator: 4, environment: null, summary: "summary", updated_at: " ",
+      scenarios: { B1: { status: "invalid", minutes_to_first_success: 4, evidence_links: null, notes: 2 } },
+      rubric: { "Authoring friction": { score: "9", notes: 4 } },
+    }, SCENARIOS, RUBRIC)).toMatchObject({
+      product_name: "Caliber", evaluator: "", environment: "", summary: "summary", updated_at: null,
+      scenarios: { B1: { status: "not_started", minutes_to_first_success: "", evidence_links: "", notes: "" } },
+      rubric: { "Authoring friction": { score: "", notes: "" } },
+    });
+  });
+
+  it("covers report sort modes and empty rubric/evidence paths", () => {
+    const reports = [
+      makeBenchmarkReport({ report_id: "a", name: "Zeta", product_name: "Beta", passed_count: 1, captured_count: 1, updated_at: "bad", created_at: "bad" }),
+      makeBenchmarkReport({ report_id: "b", name: "Alpha", product_name: "Alpha", passed_count: 2, captured_count: 3, updated_at: "2026-01-02", created_at: "2026-01-01" }),
+      makeBenchmarkReport({ report_id: "c", name: "Alpha", product_name: "Beta", passed_count: 2, captured_count: 2, updated_at: "2026-01-02", created_at: "2026-01-03" }),
+    ];
+    for (const sort of ["updated_desc", "name_asc", "product_asc", "captured_desc", "passed_desc"] as const) {
+      expect(sortWorkflowBenchmarkReports(reports, sort)).toHaveLength(3);
+    }
+    expect(workflowBakeoffRubricAverage(createWorkflowBakeoffWorksheet(SCENARIOS, RUBRIC), RUBRIC)).toBeNull();
+    expect(workflowBakeoffWorksheetHasEvidence(null)).toBe(false);
+    expect(workflowBakeoffWorksheetHasEvidence({
+      ...createWorkflowBakeoffWorksheet(SCENARIOS, RUBRIC), evaluator: " reviewer ",
+    })).toBe(true);
+    expect(parseWorkflowBakeoffEvidenceReferences("no refs here")).toEqual([]);
+  });
+
   it("normalizes partial worksheet data and backfills missing entries", () => {
     const worksheet = normalizeWorkflowBakeoffWorksheet(
       {
@@ -309,6 +368,77 @@ describe("workflowBakeoff", () => {
         href: "/workflows/WF-789",
         label: "Workflow WF-789",
       },
+    ]);
+  });
+
+  it("covers sparse export fallbacks, draft creation states, and evidence parsing", () => {
+    const sparse = createWorkflowBakeoffWorksheet(SCENARIOS, RUBRIC);
+    sparse.scenarios = {};
+    sparse.rubric = {};
+    sparse.product_name = "";
+    sparse.evaluator = "";
+    sparse.environment = "";
+    sparse.summary = "";
+
+    expect(workflowBakeoffWorksheetStats(sparse, SCENARIOS)).toEqual({
+      scenario_count: 2,
+      captured_count: 0,
+      passed_count: 0,
+      blocked_count: 0,
+    });
+    expect(workflowBakeoffRubricAverage(
+      { ...sparse, rubric: { "Authoring friction": { score: "invalid", notes: "" } } } as never,
+      RUBRIC,
+    )).toBeNull();
+
+    const markdown = buildWorkflowBakeoffMarkdown({
+      worksheet: sparse,
+      scenarios: SCENARIOS,
+      rubric: RUBRIC,
+      generatedAt: "2026-06-15T12:00:00Z",
+    });
+    expect(markdown).toContain("Product: Caliber");
+    expect(markdown).toContain("Evaluator: TBD");
+    expect(markdown).toContain("No summary recorded yet.");
+    expect(markdown).toContain("Not recorded");
+    expect(markdown).toContain("No notes recorded.");
+    expect(markdown).toContain("Not scored");
+    expect(markdown).toContain("No findings recorded.");
+
+    expect(
+      workflowBenchmarkReportDraftHasUnsavedChanges({
+        selectedReport: null,
+        worksheet: sparse,
+        reportName: "",
+        reportStatus: "draft",
+        scenarios: SCENARIOS,
+        rubric: RUBRIC,
+      }),
+    ).toBe(false);
+    expect(
+      workflowBenchmarkReportDraftHasUnsavedChanges({
+        selectedReport: null,
+        worksheet: sparse,
+        reportName: "New report",
+        reportStatus: "draft",
+        scenarios: SCENARIOS,
+        rubric: RUBRIC,
+      }),
+    ).toBe(true);
+    expect(
+      workflowBenchmarkReportDraftHasUnsavedChanges({
+        selectedReport: null,
+        worksheet: sparse,
+        reportName: "",
+        reportStatus: "completed",
+        scenarios: SCENARIOS,
+        rubric: RUBRIC,
+      }),
+    ).toBe(true);
+
+    expect(parseWorkflowBakeoffEvidenceReferences("WF-1 WR-2 WR-2 invalid")).toEqual([
+      expect.objectContaining({ type: "workflow", id: "WF-1" }),
+      expect.objectContaining({ type: "run", id: "WR-2" }),
     ]);
   });
 });

@@ -474,6 +474,9 @@ describe("WorkflowEditor handler branches", () => {
       http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
         HttpResponse.json(envelope(makeVersion({ status: "draft" }))),
       ),
+      http.patch(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion({ status: "draft", manifest_hash: "hash2" }))),
+      ),
     );
     const user = userEvent.setup();
     renderEditor();
@@ -487,6 +490,60 @@ describe("WorkflowEditor handler branches", () => {
 
     expect(screen.getByText("Code Applied")).toBeInTheDocument();
     expect(screen.getByTestId("editor-save-status")).toHaveTextContent("Unsaved");
+  });
+
+  it("covers the keyboard command matrix, editable targets, and non-visual mode", async () => {
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion({ status: "draft" }))),
+      ),
+      http.patch(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion({ status: "draft", manifest_hash: "hash2" }))),
+      ),
+    );
+    const user = userEvent.setup();
+    renderEditor();
+    expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
+
+    // Ctrl is the Windows/Linux equivalent of the Meta shortcuts covered by
+    // the workflow-studio journey. Exercise the empty-clipboard and empty-
+    // selection guards before selecting the graph.
+    fireEvent.keyDown(document, { key: "c", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "v", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "d", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "Delete" });
+    fireEvent.keyDown(document, { key: "z", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "z", ctrlKey: true, shiftKey: true });
+    fireEvent.keyDown(document, { key: "y", ctrlKey: true });
+
+    fireEvent.keyDown(document, { key: "a", ctrlKey: true });
+    expect(await screen.findByTestId("wf-bulk-panel")).toHaveTextContent("4 nodes selected");
+    fireEvent.keyDown(document, { key: "d", ctrlKey: true });
+    expect(await screen.findByTestId("outline-agent_1")).toBeInTheDocument();
+    fireEvent.keyDown(document, { key: "c", ctrlKey: true });
+    fireEvent.keyDown(document, { key: "v", ctrlKey: true });
+    expect(await screen.findByTestId("outline-agent_2")).toBeInTheDocument();
+
+    // Keyboard editing must not hijack an input/textarea/contenteditable.
+    const input = document.createElement("input");
+    document.body.appendChild(input);
+    const selectionBeforeTyping = screen.getByTestId("wf-bulk-panel").textContent;
+    fireEvent.keyDown(input, { key: "a", ctrlKey: true, bubbles: true });
+    expect(screen.getByTestId("wf-bulk-panel")).toHaveTextContent(selectionBeforeTyping ?? "");
+    input.remove();
+
+    // Delete is intentionally guarded to preserve the unique start node.
+    fireEvent.keyDown(document, { key: "Backspace" });
+    await waitFor(() => expect(screen.queryByTestId("outline-agent_2")).not.toBeInTheDocument());
+    expect(screen.getByTestId("outline-start")).toBeInTheDocument();
+
+    // Shortcuts are scoped to visual mode; the code overlay owns its own keys.
+    await user.click(screen.getByTestId("editor-view-code"));
+    fireEvent.keyDown(document, { key: "a", ctrlKey: true });
+    expect(screen.getByTestId("code-overlay")).toBeInTheDocument();
+    await user.click(screen.getByTestId("editor-view-visual"));
+    await user.click(screen.getByTestId("editor-save"));
+    await waitFor(() => expect(screen.getByTestId("editor-save-status")).toHaveTextContent("Saved"));
   });
 
   it("toasts an error when the unmount flush-save of a still-dirty draft fails", async () => {
@@ -7349,5 +7406,167 @@ describe("WorkflowEditor MCP servers and the integrations feature flag", () => {
     expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
 
     await waitFor(() => expect(mcpReads()).toBeGreaterThan(0));
+  });
+});
+
+describe("WorkflowEditor preview presentation states", () => {
+  it("renders failed and completed previews with skipped steps and selected step detail", async () => {
+    let previewCalls = 0;
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion())),
+      ),
+      http.post(`${API_BASE}/workflow-versions/WFV-1/preview-run`, () => {
+        previewCalls += 1;
+        const completed = previewCalls > 1;
+        return HttpResponse.json(
+          envelope({
+            status: completed ? "completed" : "error",
+            output: completed ? "completed output" : "partial output",
+            error: completed ? null : "preview failed",
+            steps: [
+              {
+                node_id: "start",
+                node_type: "start",
+                status: "ok",
+                output: "input",
+                tool_calls: [],
+                handoff_target: null,
+                detail: "started",
+                duration_ms: 1,
+              },
+              {
+                node_id: "support_agent",
+                node_type: "agent",
+                status: completed ? "ok" : "skipped",
+                output: completed ? "handled" : "",
+                tool_calls: [],
+                handoff_target: null,
+                detail: completed ? "handled" : "not reached",
+                duration_ms: 2,
+              },
+              {
+                node_id: "final",
+                node_type: "output",
+                status: "error",
+                output: "",
+                tool_calls: [],
+                handoff_target: null,
+                detail: "failed",
+                duration_ms: 3,
+              },
+            ],
+          }),
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderEditor({
+      initialPath: "/workflows/WF-1/editor/WFV-1?sampleInput=preview-matrix",
+    });
+    expect(await screen.findByTestId("preview-panel")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("preview-run"));
+    expect(await screen.findByTestId("preview-result")).toHaveTextContent("error");
+    expect(screen.getByTestId("preview-result")).toHaveTextContent("partial output");
+    expect(screen.getByTestId("preview-step-support_agent")).toHaveTextContent("⏭");
+    expect(screen.getByTestId("preview-step-final")).toHaveTextContent("❌");
+
+    await user.click(screen.getByTestId("preview-run"));
+    expect(await screen.findByTestId("preview-result")).toHaveTextContent("completed");
+    expect(screen.getByTestId("preview-step-support_agent")).toHaveTextContent("✅");
+    await user.click(screen.getByTestId("preview-step-support_agent"));
+    expect(screen.getByTestId("preview-result")).toHaveTextContent("handled");
+
+    await user.click(screen.getByTestId("preview-close"));
+    expect(screen.queryByTestId("preview-panel")).not.toBeInTheDocument();
+  });
+
+  it("processes the remaining monitored-run lifecycle event matrix", async () => {
+    const liveRun = makeRun({
+      workflow_run_id: "WR-STREAM-MATRIX",
+      status: "running",
+      current_node_id: "support_agent",
+      summary: { output: "", node_path: ["start"], steps: [] },
+    });
+    server.use(
+      http.get(`${API_BASE}/workflow-versions/WFV-1`, () =>
+        HttpResponse.json(envelope(makeVersion())),
+      ),
+      http.get(`${API_BASE}/workflows/WF-1/runs`, () =>
+        HttpResponse.json(envelope([liveRun])),
+      ),
+      http.get(`${API_BASE}/tools`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/prompts`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/skills`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/mcp-servers`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/workflow-runs/WR-STREAM-MATRIX`, () =>
+        HttpResponse.json(envelope(liveRun)),
+      ),
+      http.get(`${API_BASE}/workflow-runs/WR-STREAM-MATRIX/events`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.get(`${API_BASE}/workflow-runs/WR-STREAM-MATRIX/checkpoints`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.get(`${API_BASE}/workflow-runs/WR-STREAM-MATRIX/approvals`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.get(`${API_BASE}/workflow-runs/WR-STREAM-MATRIX/manifest`, () =>
+        HttpResponse.json(envelope({
+          workflow_run_id: "WR-STREAM-MATRIX",
+          workflow_id: "WF-1",
+          workflow_version_id: "WFV-1",
+          manifest_mode: "saved_version",
+          manifest_hash: "hash1",
+          manifest: makeVersion().manifest,
+        })),
+      ),
+      http.get(`${API_BASE}/workflows/WF-1/session-memory`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    );
+
+    const user = userEvent.setup();
+    const view = renderEditor();
+    expect(await screen.findByTestId("workflow-editor")).toBeInTheDocument();
+    await user.click(screen.getByTestId("editor-run-monitor"));
+    await user.click(await screen.findByTestId("run-history-select-WR-STREAM-MATRIX"));
+
+    let eventId = 100;
+    const send = async (
+      type: string,
+      fields: Record<string, unknown> = {},
+      expected?: string,
+    ): Promise<void> => {
+      streamState.event = {
+        type,
+        workflow_id: "WF-1",
+        workflow_run_id: "WR-STREAM-MATRIX",
+        event_id: eventId++,
+        sequence: eventId,
+        created_at: NOW,
+        ...fields,
+      };
+      view.rerenderEditor();
+      if (expected) {
+        await waitFor(() =>
+          expect(screen.getByTestId("editor-run-message")).toHaveTextContent(expected),
+        );
+      }
+    };
+
+    await send("workflow.run.queued", { status: "queued" }, "Run WR-STREAM-MATRIX queued.");
+    await send("workflow.run.started", {}, "Run WR-STREAM-MATRIX started.");
+    await send("workflow.run.node_started", { node_id: "support_agent", node_type: "agent" });
+    await send("workflow.run.waiting_approval", { node_id: "support_agent" }, "Run WR-STREAM-MATRIX is awaiting approval.");
+    await send("workflow.run.waiting_event", { node_id: "wait" }, "Run WR-STREAM-MATRIX is waiting for event.");
+    await send("workflow.run.resumed", {}, "Run WR-STREAM-MATRIX resumed.");
+    await send("workflow.run.cancelled", { reason: "operator stop", status: "cancelled" }, "Run WR-STREAM-MATRIX was cancelled: operator stop.");
+    await send("workflow.run.expired", { error: "lease expired", status: "expired" }, "Run WR-STREAM-MATRIX expired: lease expired.");
+    await send("workflow.run.failed", { error: "worker failed", status: "failed" }, "Run WR-STREAM-MATRIX failed: worker failed.");
+    await send("workflow.run.completed", { status: "completed" }, "Run WR-STREAM-MATRIX completed.");
+    await send("workflow.run.unknown", { status: "running" });
   });
 });

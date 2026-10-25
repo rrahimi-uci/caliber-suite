@@ -192,7 +192,7 @@ const EMPTY_RUNS: KnowledgeBaseRun[] = [];
 const EMPTY_GRAPH_ENTITIES: KnowledgeGraphEntityView[] = [];
 const EMPTY_GRAPH_RELATIONSHIPS: KnowledgeGraphRelationshipView[] = [];
 
-function fallbackGraphBuildPresets(
+export function fallbackGraphBuildPresets(
   ageEnabled: boolean,
 ): KnowledgeGraphBuildPreset[] {
   return [
@@ -303,7 +303,7 @@ function fallbackGraphBuildPresets(
   ];
 }
 
-function graphBuildPresetMatch(
+export function graphBuildPresetMatch(
   config: KnowledgeGraphConfig,
   presets: KnowledgeGraphBuildPreset[],
 ): GraphBuildPresetId {
@@ -322,7 +322,7 @@ function graphBuildPresetMatch(
   return match?.id ?? "custom";
 }
 
-function humanSize(bytes: number): string {
+export function humanSize(bytes: number): string {
   if (bytes < 1024) return `${bytes} B`;
   const units = ["KB", "MB", "GB", "TB"];
   let value = bytes / 1024;
@@ -334,34 +334,34 @@ function humanSize(bytes: number): string {
   return `${value.toFixed(value < 10 ? 1 : 0)} ${units[index]}`;
 }
 
-function formatDate(value: string | null | undefined): string {
+export function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString();
 }
 
-function chunkCount(version: KnowledgeBaseVersion | null | undefined): number {
+export function chunkCount(version: KnowledgeBaseVersion | null | undefined): number {
   return Number(version?.summary?.chunk_count ?? 0);
 }
 
-function processedSourceCount(
+export function processedSourceCount(
   version: KnowledgeBaseVersion | null | undefined,
 ): number {
   return Number(version?.summary?.processed_sources ?? 0);
 }
 
-function entityCount(version: KnowledgeBaseVersion | null | undefined): number {
+export function entityCount(version: KnowledgeBaseVersion | null | undefined): number {
   return Number(version?.summary?.entity_count ?? 0);
 }
 
-function relationshipCount(
+export function relationshipCount(
   version: KnowledgeBaseVersion | null | undefined,
 ): number {
   return Number(version?.summary?.relationship_count ?? 0);
 }
 
-function isVersionLive(
+export function isVersionLive(
   version: Pick<KnowledgeBaseVersion, "status"> | null | undefined,
 ): boolean {
   return Boolean(
@@ -369,13 +369,13 @@ function isVersionLive(
   );
 }
 
-function isRunLive(
+export function isRunLive(
   run: Pick<KnowledgeBaseRun, "status"> | null | undefined,
 ): boolean {
   return Boolean(run && (run.status === "queued" || run.status === "running"));
 }
 
-function retrievalModeLabel(mode: string, fallback?: string): string {
+export function retrievalModeLabel(mode: string, fallback?: string): string {
   if (mode === "dense") return "Dense chunks";
   if (mode === "hybrid") return "Hybrid (keyword + vector)";
   if (mode === "graph_hybrid") return "GraphRAG hybrid";
@@ -385,7 +385,7 @@ function retrievalModeLabel(mode: string, fallback?: string): string {
 
 // Compact one-word label for the Explore ask segmented control (Dense · Hybrid ·
 // GraphRAG · AGE). Falls back to the full label for unknown modes.
-function retrievalModeShortLabel(mode: string, fallback?: string): string {
+export function retrievalModeShortLabel(mode: string, fallback?: string): string {
   if (mode === "dense") return "Dense";
   if (mode === "hybrid") return "Hybrid";
   if (mode === "graph_hybrid") return "GraphRAG";
@@ -393,7 +393,7 @@ function retrievalModeShortLabel(mode: string, fallback?: string): string {
   return fallback ?? retrievalModeLabel(mode);
 }
 
-function ageSeedModeLabel(
+export function ageSeedModeLabel(
   mode: string | null | undefined,
   fallback?: string,
 ): string {
@@ -404,7 +404,7 @@ function ageSeedModeLabel(
   return fallback ?? "Entity first, then question text";
 }
 
-function ageSeedStrategyLabel(
+export function ageSeedStrategyLabel(
   strategy: string | null | undefined,
 ): string | null {
   if (strategy === "query_text") return "Seeded from question text";
@@ -414,7 +414,7 @@ function ageSeedStrategyLabel(
   return null;
 }
 
-function cloneGraphConfig(
+export function cloneGraphConfig(
   config: KnowledgeGraphConfig | null | undefined,
 ): KnowledgeGraphConfig {
   return {
@@ -461,7 +461,7 @@ function cloneGraphConfig(
   };
 }
 
-function preferAgeGraphTarget(
+export function preferAgeGraphTarget(
   config: KnowledgeGraphConfig | null | undefined,
   ageEnabled: boolean,
 ): KnowledgeGraphConfig {
@@ -473,7 +473,7 @@ function preferAgeGraphTarget(
   return next;
 }
 
-function graphOverridesFromConfig(
+export function graphOverridesFromConfig(
   config: KnowledgeGraphConfig | null | undefined,
 ): KnowledgeQueryGraphOverrides {
   const resolved = cloneGraphConfig(config);
@@ -488,7 +488,7 @@ function graphOverridesFromConfig(
   };
 }
 
-function strictAgeGraphOverridesFromConfig(
+export function strictAgeGraphOverridesFromConfig(
   config: KnowledgeGraphConfig | null | undefined,
 ): KnowledgeQueryGraphOverrides {
   return {
@@ -497,7 +497,7 @@ function strictAgeGraphOverridesFromConfig(
   };
 }
 
-function buildGraphOverridesPayload(
+export function buildGraphOverridesPayload(
   enabled: boolean,
   overrides: KnowledgeQueryGraphOverrides,
   includeAgeControls: boolean,
@@ -533,7 +533,7 @@ function buildGraphOverridesPayload(
   return Object.keys(payload).length > 0 ? payload : undefined;
 }
 
-function configuredDefaultRetrievalMode(
+export function configuredDefaultRetrievalMode(
   config:
     | Pick<KnowledgeGraphConfig, "default_retrieval_mode" | "output_target">
     | null
@@ -550,18 +550,18 @@ function configuredDefaultRetrievalMode(
   return mode;
 }
 
-function graphTargetLabel(target: string): string {
+export function graphTargetLabel(target: string): string {
   if (target === "object_store_and_age") return "Object store + Apache AGE";
   return "Object store only";
 }
 
-function ageSyncStatus(
+export function ageSyncStatus(
   version: Pick<KnowledgeBaseVersion, "summary"> | null | undefined,
 ): string {
   return String(version?.summary?.age_sync_status ?? "skipped").toLowerCase();
 }
 
-function isAgeConfiguredVersion(
+export function isAgeConfiguredVersion(
   version:
     | Pick<KnowledgeBaseVersion, "graph_config" | "summary">
     | null
@@ -574,7 +574,7 @@ function isAgeConfiguredVersion(
   );
 }
 
-function isAgeReadyVersion(
+export function isAgeReadyVersion(
   version:
     | Pick<KnowledgeBaseVersion, "graph_config" | "summary">
     | null
@@ -587,13 +587,13 @@ function isAgeReadyVersion(
   );
 }
 
-function ageTraversalLabel(hops: number): string {
+export function ageTraversalLabel(hops: number): string {
   if (hops <= 0) return "Direct entities only";
   if (hops === 1) return "One-hop expansion";
   return "Two-hop expansion";
 }
 
-function graphConfigSummary(
+export function graphConfigSummary(
   version: KnowledgeBaseVersion,
   ageEnabled: boolean,
 ): string {
@@ -608,7 +608,7 @@ function graphConfigSummary(
   return modes.join(" + ");
 }
 
-function defaultPlaygroundRetrievalModesForVersion(
+export function defaultPlaygroundRetrievalModesForVersion(
   version:
     | Pick<KnowledgeBaseVersion, "graph_config" | "summary">
     | null
@@ -625,13 +625,13 @@ function defaultPlaygroundRetrievalModesForVersion(
   return [defaultMode];
 }
 
-function graphModeTone(mode: KnowledgeRetrievalMode): string {
+export function graphModeTone(mode: KnowledgeRetrievalMode): string {
   if (mode === "graph_hybrid") return "bg-blue-50 text-blue-700";
   if (mode === "age_graph") return "bg-emerald-50 text-emerald-700";
   return "bg-slate-100 text-slate-600";
 }
 
-function graphStatusTone(status: string): string {
+export function graphStatusTone(status: string): string {
   if (status === "synced")
     return "border-emerald-200 bg-emerald-50 text-emerald-700";
   if (status === "failed") return "border-amber-200 bg-amber-50 text-amber-700";
@@ -640,7 +640,7 @@ function graphStatusTone(status: string): string {
   return "border-blue-200 bg-blue-50 text-blue-700";
 }
 
-function graphStatusLabel(status: string): string {
+export function graphStatusLabel(status: string): string {
   if (status === "synced") return "AGE synced";
   if (status === "failed") return "AGE sync failed";
   if (status === "skipped") return "Object-store graph";
@@ -648,7 +648,7 @@ function graphStatusLabel(status: string): string {
   return "Graph status";
 }
 
-function libraryVersionSummary(
+export function libraryVersionSummary(
   knowledgeBase: Pick<KnowledgeBase, "active_version_summary">,
 ): KnowledgeBaseActiveVersionSummary | null {
   return knowledgeBase.active_version_summary ?? null;
@@ -656,7 +656,7 @@ function libraryVersionSummary(
 
 // True when the active version's build is still in flight — drives the calm
 // library card's single health signal ("building…" vs the chunk/entity line).
-function kbSummaryBuilding(
+export function kbSummaryBuilding(
   summary: KnowledgeBaseActiveVersionSummary,
 ): boolean {
   return ["queued", "processing", "running", "pending"].includes(
@@ -664,7 +664,7 @@ function kbSummaryBuilding(
   );
 }
 
-function ageSyncActionLabel(
+export function ageSyncActionLabel(
   version: Pick<KnowledgeBaseVersion, "graph_config" | "summary">,
   ageEnabled: boolean,
 ): string {
@@ -677,15 +677,15 @@ function ageSyncActionLabel(
   return "Sync to AGE";
 }
 
-function objectStoreObjectPath(bucket: string, key: string): string {
+export function objectStoreObjectPath(bucket: string, key: string): string {
   return `/object-store?bucket=${encodeURIComponent(bucket)}&key=${encodeURIComponent(key)}`;
 }
 
-function objectStorePrefixPath(bucket: string, prefix: string): string {
+export function objectStorePrefixPath(bucket: string, prefix: string): string {
   return `/object-store?bucket=${encodeURIComponent(bucket)}&prefix=${encodeURIComponent(prefix)}`;
 }
 
-function versionArtifactPath(
+export function versionArtifactPath(
   version: KnowledgeBaseVersion,
   fileName: string,
 ): string {
@@ -695,7 +695,7 @@ function versionArtifactPath(
   );
 }
 
-function suiteServiceHref(port: number, path = "/"): string {
+export function suiteServiceHref(port: number, path = "/"): string {
   if (typeof window === "undefined") return path;
   const url = new URL(window.location.href);
   url.port = String(port);
@@ -705,7 +705,7 @@ function suiteServiceHref(port: number, path = "/"): string {
   return appendThemeHintToUrl(url.toString());
 }
 
-function graphConfigsEqual(
+export function graphConfigsEqual(
   left: KnowledgeGraphConfig,
   right: KnowledgeGraphConfig,
 ): boolean {
@@ -7858,7 +7858,7 @@ export function KnowledgeBases(): JSX.Element {
   );
 }
 
-function KnowledgeGraphCanvas({
+export function KnowledgeGraphCanvas({
   entities,
   relationships,
   isLoading,
@@ -8514,7 +8514,7 @@ function KnowledgeGraphCanvas({
   );
 }
 
-function KnowledgeQueryCompactResultCard({
+export function KnowledgeQueryCompactResultCard({
   result,
 }: {
   result: KnowledgeQueryVersionResult;
@@ -8767,7 +8767,7 @@ function KnowledgeQueryCompactResultCard({
 // the section is open, so collapsed "Advanced" controls do not appear in the
 // DOM — but because every value they edit lives in parent component state (not
 // in the controls themselves), collapsing never changes the build payload.
-function Disclosure({
+export function Disclosure({
   summary,
   hint,
   defaultOpen = false,
@@ -8829,7 +8829,7 @@ const KB_BUILD_STEPS = [
   "Ready",
 ] as const;
 
-function kbBuildStepStates(
+export function kbBuildStepStates(
   run: KnowledgeBaseRun | null,
   events: KnowledgeBaseRunEvent[],
 ): KbStepState[] {
@@ -8863,7 +8863,7 @@ function kbBuildStepStates(
   });
 }
 
-function KbBuildStepper({
+export function KbBuildStepper({
   run,
   events,
 }: {
@@ -8912,7 +8912,7 @@ function KbBuildStepper({
   );
 }
 
-function SummaryRow({
+export function SummaryRow({
   label,
   value,
   mono = false,
@@ -8933,7 +8933,7 @@ function SummaryRow({
   );
 }
 
-function KnowledgeGuidancePanel({
+export function KnowledgeGuidancePanel({
   title,
   body,
   focus,
@@ -9060,7 +9060,7 @@ function KnowledgeGuidancePanel({
   );
 }
 
-function EmptyPanel({
+export function EmptyPanel({
   title,
   body,
 }: {

@@ -18,13 +18,13 @@ interface RunFilePanelErrorState {
   detail: string;
 }
 
-function formatBytes(n: number): string {
+export function formatBytes(n: number): string {
   if (n < 1024) return `${n} B`;
   if (n < 1024 * 1024) return `${(n / 1024).toFixed(1)} KB`;
   return `${(n / (1024 * 1024)).toFixed(1)} MB`;
 }
 
-function formatDate(value: string | null | undefined): string {
+export function formatDate(value: string | null | undefined): string {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -36,7 +36,7 @@ function formatDate(value: string | null | undefined): string {
   });
 }
 
-function kindTone(kind: string): string {
+export function kindTone(kind: string): string {
   switch (kind) {
     case "input":
       return "border-sky-200 bg-sky-50 text-sky-700 dark:border-sky-800/70 dark:bg-sky-950/40 dark:text-sky-300";
@@ -51,7 +51,7 @@ function kindTone(kind: string): string {
   }
 }
 
-function statusTone(status: string): string {
+export function statusTone(status: string): string {
   switch (status) {
     case "artifact":
     case "attached":
@@ -69,7 +69,7 @@ function statusTone(status: string): string {
   }
 }
 
-function persistenceTone(status: string): string {
+export function persistenceTone(status: string): string {
   switch (status) {
     case "persisted":
       return "border-emerald-200 bg-emerald-50 text-emerald-700 dark:border-emerald-800/70 dark:bg-emerald-950/40 dark:text-emerald-300";
@@ -80,7 +80,7 @@ function persistenceTone(status: string): string {
   }
 }
 
-function persistenceLabel(status: string): string {
+export function persistenceLabel(status: string): string {
   switch (status) {
     case "persisted":
       return "Persisted";
@@ -91,7 +91,7 @@ function persistenceLabel(status: string): string {
   }
 }
 
-function isActiveRunStatus(runStatus: string | null): boolean {
+export function isActiveRunStatus(runStatus: string | null): boolean {
   return (
     runStatus === "queued"
     || runStatus === "running"
@@ -102,7 +102,7 @@ function isActiveRunStatus(runStatus: string | null): boolean {
   );
 }
 
-function isStoppedRunStatus(runStatus: string | null): boolean {
+export function isStoppedRunStatus(runStatus: string | null): boolean {
   return (
     runStatus === "failed"
     || runStatus === "cancelled"
@@ -185,14 +185,14 @@ function runFileUploadErrorMessage(detail: string): JSX.Element {
   );
 }
 
-function producerLabel(file: WorkflowFile): string {
+export function producerLabel(file: WorkflowFile): string {
   if (file.producer_node_id) return file.producer_node_id;
   if (file.kind === "input") return "manual input";
   if (file.kind === "log") return "runtime log";
   return "unassigned";
 }
 
-function sortFiles(files: WorkflowFile[]): WorkflowFile[] {
+export function sortFiles(files: WorkflowFile[]): WorkflowFile[] {
   return [...files].sort((left, right) => {
     const leftTime = left.created_at ? Date.parse(left.created_at) : 0;
     const rightTime = right.created_at ? Date.parse(right.created_at) : 0;

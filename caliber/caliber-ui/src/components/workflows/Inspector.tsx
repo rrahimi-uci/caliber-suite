@@ -222,24 +222,24 @@ const EMPTY_FIELD_FEEDBACK: {
   setupChecks: [],
 };
 
-function workflowSessionMode(manifest: WorkflowManifest): WorkflowSessionMode {
+export function workflowSessionMode(manifest: WorkflowManifest): WorkflowSessionMode {
   const type = manifest.runtime?.session?.type;
   return type === "in_memory" || type === "persistent" ? type : "none";
 }
 
-function workflowRuntimeConfig(
+export function workflowRuntimeConfig(
   manifest: WorkflowManifest,
 ): WorkflowRuntimeConfig {
   return manifest.runtime ?? {};
 }
 
-function workflowRuntimeOpenAIConfig(
+export function workflowRuntimeOpenAIConfig(
   runtime: WorkflowRuntimeConfig,
 ): WorkflowRuntimeOpenAIConfig {
   return runtime.openai ?? {};
 }
 
-function normalizeWorkflowRuntimeOpenAIConfig(
+export function normalizeWorkflowRuntimeOpenAIConfig(
   value: WorkflowRuntimeOpenAIConfig,
 ): WorkflowRuntimeOpenAIConfig | undefined {
   const next: WorkflowRuntimeOpenAIConfig = {};
@@ -264,13 +264,13 @@ function normalizeWorkflowRuntimeOpenAIConfig(
   return Object.keys(next).length > 0 ? next : undefined;
 }
 
-function knowledgeVersionAgeSyncStatus(
+export function knowledgeVersionAgeSyncStatus(
   version: Pick<KnowledgeBaseVersion, "summary"> | null | undefined,
 ): string {
   return String(version?.summary?.age_sync_status ?? "").toLowerCase();
 }
 
-function knowledgeVersionAgeReady(
+export function knowledgeVersionAgeReady(
   version:
     | Pick<KnowledgeBaseVersion, "graph_config" | "summary">
     | null
@@ -283,7 +283,7 @@ function knowledgeVersionAgeReady(
   );
 }
 
-function knowledgeVersionAgeConfigured(
+export function knowledgeVersionAgeConfigured(
   version: Pick<KnowledgeBaseVersion, "graph_config"> | null | undefined,
 ): boolean {
   return Boolean(
@@ -291,13 +291,13 @@ function knowledgeVersionAgeConfigured(
   );
 }
 
-function knowledgeGraphTargetLabel(target: string | null | undefined): string {
+export function knowledgeGraphTargetLabel(target: string | null | undefined): string {
   return target === "object_store_and_age"
     ? "Object store + AGE"
     : "Object store";
 }
 
-function knowledgeResolvedDefaultRetrievalMode(
+export function knowledgeResolvedDefaultRetrievalMode(
   version:
     | Pick<KnowledgeBaseVersion, "graph_config" | "summary">
     | null
@@ -314,7 +314,7 @@ function knowledgeResolvedDefaultRetrievalMode(
   return mode;
 }
 
-function knowledgeSummaryResolvedDefaultRetrievalMode(
+export function knowledgeSummaryResolvedDefaultRetrievalMode(
   summary: KnowledgeBase["active_version_summary"] | null | undefined,
   ageEnabled: boolean,
 ): KnowledgeRetrievalMode {
@@ -325,7 +325,7 @@ function knowledgeSummaryResolvedDefaultRetrievalMode(
   return mode;
 }
 
-function knowledgeRetrievalModeLabel(
+export function knowledgeRetrievalModeLabel(
   mode: KnowledgeRetrievalMode,
   options: KnowledgeOptions | null | undefined,
 ): string {
@@ -339,7 +339,7 @@ function knowledgeRetrievalModeLabel(
   );
 }
 
-function knowledgeAgeStatusLabel({
+export function knowledgeAgeStatusLabel({
   ageEnabled,
   ageReady,
   ageConfigured,
@@ -388,7 +388,7 @@ function useShowAdvanced(): boolean {
   return useContext(COMPONENT_SHOW_ADVANCED_CONTEXT);
 }
 
-function formatFieldMetaValue(value: unknown): string {
+export function formatFieldMetaValue(value: unknown): string {
   if (value === null || value === undefined || value === "") return "—";
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean")
@@ -400,11 +400,11 @@ function formatFieldMetaValue(value: unknown): string {
   }
 }
 
-function hasMeaningfulFieldMetaValue(value: unknown): boolean {
+export function hasMeaningfulFieldMetaValue(value: unknown): boolean {
   return value !== null && value !== undefined && value !== "";
 }
 
-function fieldConstraintTokens(field: WorkflowComponentField): string[] {
+export function fieldConstraintTokens(field: WorkflowComponentField): string[] {
   const constraints = field.constraints ?? {};
   const tokens: string[] = [];
   if (typeof constraints.minimum === "number")
@@ -439,7 +439,7 @@ function fieldConstraintTokens(field: WorkflowComponentField): string[] {
   return tokens;
 }
 
-function fieldMetaTokens(
+export function fieldMetaTokens(
   field: WorkflowComponentField,
 ): Array<{ label: string; tone: "neutral" | "info" }> {
   const tokens: Array<{ label: string; tone: "neutral" | "info" }> = [];
@@ -461,7 +461,7 @@ function fieldMetaTokens(
   return tokens;
 }
 
-function formatJsonTextareaValue(value: unknown): string {
+export function formatJsonTextareaValue(value: unknown): string {
   if (value == null) return "";
   try {
     return JSON.stringify(value, null, 2);
@@ -470,7 +470,7 @@ function formatJsonTextareaValue(value: unknown): string {
   }
 }
 
-function formatTraceGroupTagsText(
+export function formatTraceGroupTagsText(
   value: Record<string, string> | null | undefined,
 ): string {
   return Object.entries(value ?? {})
@@ -479,7 +479,7 @@ function formatTraceGroupTagsText(
     .join("\n");
 }
 
-function parseTraceGroupTagsText(raw: string): Record<string, string> {
+export function parseTraceGroupTagsText(raw: string): Record<string, string> {
   const next: Record<string, string> = {};
   for (const line of raw.split("\n")) {
     const trimmed = line.trim();
@@ -498,7 +498,7 @@ function parseTraceGroupTagsText(raw: string): Record<string, string> {
   return next;
 }
 
-function hasAgentStructuredOutputPort(
+export function hasAgentStructuredOutputPort(
   outputs?: Record<string, PortSpec>,
 ): boolean {
   if (!outputs) return false;
@@ -510,7 +510,7 @@ function hasAgentStructuredOutputPort(
   );
 }
 
-function pruneToolConstraints(
+export function pruneToolConstraints(
   constraints: Record<string, string> | undefined,
   tools: string[],
 ): Record<string, string> {
@@ -522,7 +522,7 @@ function pruneToolConstraints(
   );
 }
 
-function targetNodeOptions(
+export function targetNodeOptions(
   manifest: WorkflowManifest,
   options: {
     excludeNodeId: string;
@@ -547,7 +547,7 @@ function targetNodeOptions(
   return filteredOptions;
 }
 
-function targetOptionLabel(
+export function targetOptionLabel(
   manifest: WorkflowManifest,
   option: TargetOption,
   options: {
@@ -561,7 +561,7 @@ function targetOptionLabel(
   return `${option.nodeId} (${unsupportedLabel}: ${candidate.type})`;
 }
 
-function uniqueTrimmedStrings(
+export function uniqueTrimmedStrings(
   values: Array<string | null | undefined>,
 ): string[] {
   const seen = new Set<string>();
@@ -579,24 +579,24 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return typeof value === "object" && value !== null && !Array.isArray(value);
 }
 
-function workflowToolBindingTestId(prefix: string, localName: string): string {
+export function workflowToolBindingTestId(prefix: string, localName: string): string {
   return `${prefix}-${localName.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "binding"}`;
 }
 
-function parseNullablePositiveNumber(value: string): number | null {
+export function parseNullablePositiveNumber(value: string): number | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) && parsed > 0 ? parsed : null;
 }
 
-function parseNonNegativeInteger(value: string): number {
+export function parseNonNegativeInteger(value: string): number {
   const parsed = Number(value);
   if (!Number.isFinite(parsed)) return 0;
   return Math.max(0, Math.floor(parsed));
 }
 
-function coerceWorkflowToolBinding(value: unknown): WorkflowToolBinding | null {
+export function coerceWorkflowToolBinding(value: unknown): WorkflowToolBinding | null {
   if (!isRecord(value)) return null;
   if (
     value.type === "mcp_tool" ||
@@ -662,7 +662,7 @@ function coerceWorkflowToolBinding(value: unknown): WorkflowToolBinding | null {
   };
 }
 
-function workflowToolBindingEntries(manifest: WorkflowManifest): Array<{
+export function workflowToolBindingEntries(manifest: WorkflowManifest): Array<{
   localName: string;
   binding: WorkflowToolBinding | null;
   raw: unknown;
@@ -676,7 +676,7 @@ function workflowToolBindingEntries(manifest: WorkflowManifest): Array<{
     }));
 }
 
-function workflowToolBindingReferences(
+export function workflowToolBindingReferences(
   manifest: WorkflowManifest,
 ): Record<string, string[]> {
   const refs = new Map<string, Set<string>>();
@@ -702,25 +702,25 @@ function workflowToolBindingReferences(
   );
 }
 
-function workflowToolBindingTypeLabel(
+export function workflowToolBindingTypeLabel(
   binding: WorkflowToolBinding | null,
 ): string {
   if (!binding) return "Unsupported binding payload";
   return binding.type === "mcp_tool" ? "MCP tool" : "Registered function";
 }
 
-function workflowDeployGateTestId(prefix: string, gateName: string): string {
+export function workflowDeployGateTestId(prefix: string, gateName: string): string {
   return `${prefix}-${gateName.toLowerCase().replace(/[^a-z0-9]+/g, "-") || "gate"}`;
 }
 
-function parseOptionalNumber(value: string): number | null {
+export function parseOptionalNumber(value: string): number | null {
   const trimmed = value.trim();
   if (!trimmed) return null;
   const parsed = Number(trimmed);
   return Number.isFinite(parsed) ? parsed : null;
 }
 
-function workflowDeployGateEntries(
+export function workflowDeployGateEntries(
   manifest: WorkflowManifest,
 ): Array<[string, WorkflowDeployGate]> {
   return Object.entries(manifest.deploy_gates ?? {}).sort(([left], [right]) =>
@@ -728,13 +728,13 @@ function workflowDeployGateEntries(
   );
 }
 
-function workflowArtifacts(
+export function workflowArtifacts(
   manifest: WorkflowManifest,
 ): WorkflowArtifactsConfig {
   return manifest.artifacts ?? {};
 }
 
-function workflowPromptArtifactTestId(
+export function workflowPromptArtifactTestId(
   prefix: string,
   promptRef: string,
 ): string {
@@ -746,13 +746,13 @@ function workflowPromptArtifactTestId(
   }`;
 }
 
-function workflowPromptArtifacts(
+export function workflowPromptArtifacts(
   manifest: WorkflowManifest,
 ): Record<string, WorkflowPromptArtifact> {
   return { ...(workflowArtifacts(manifest).prompts ?? {}) };
 }
 
-function workflowPromptArtifactEntries(
+export function workflowPromptArtifactEntries(
   manifest: WorkflowManifest,
 ): Array<[string, WorkflowPromptArtifact]> {
   return Object.entries(workflowPromptArtifacts(manifest)).sort(
@@ -760,7 +760,7 @@ function workflowPromptArtifactEntries(
   );
 }
 
-function workflowPromptArtifactReferences(
+export function workflowPromptArtifactReferences(
   manifest: WorkflowManifest,
 ): Record<string, string[]> {
   const refs = new Map<string, Set<string>>();
@@ -782,13 +782,13 @@ function workflowPromptArtifactReferences(
   );
 }
 
-function workflowEvalDatasetArtifacts(
+export function workflowEvalDatasetArtifacts(
   manifest: WorkflowManifest,
 ): Record<string, WorkflowEvalDatasetArtifact> {
   return { ...(workflowArtifacts(manifest).eval_datasets ?? {}) };
 }
 
-function subworkflowWorkflowLabel(
+export function subworkflowWorkflowLabel(
   workflow: Pick<Workflow, "workflow_id" | "name" | "status">,
 ): string {
   const name = workflow.name.trim();
@@ -799,7 +799,7 @@ function subworkflowWorkflowLabel(
   return workflow.status === "active" ? label : `${label} · ${workflow.status}`;
 }
 
-function aliasChipTestId(prefix: string, alias: string): string {
+export function aliasChipTestId(prefix: string, alias: string): string {
   return `${prefix}-${
     alias
       .trim()
@@ -808,15 +808,15 @@ function aliasChipTestId(prefix: string, alias: string): string {
   }`;
 }
 
-function subworkflowAliasTestId(alias: string): string {
+export function subworkflowAliasTestId(alias: string): string {
   return aliasChipTestId("inspector-subworkflow-alias", alias);
 }
 
-function startTriggerAliasTestId(alias: string): string {
+export function startTriggerAliasTestId(alias: string): string {
   return aliasChipTestId("inspector-start-alias", alias);
 }
 
-function subworkflowResolvedVersion(
+export function subworkflowResolvedVersion(
   versions: WorkflowVersion[],
   alias: string,
   deployment: WorkflowDeployment | null,
@@ -835,7 +835,7 @@ function subworkflowResolvedVersion(
   );
 }
 
-function workflowManifestStartTrigger(
+export function workflowManifestStartTrigger(
   workflowVersion: WorkflowVersion | null,
 ): StartTriggerConfig | null {
   if (!workflowVersion) return null;
@@ -845,7 +845,7 @@ function workflowManifestStartTrigger(
   return startNode?.trigger ?? null;
 }
 
-function workflowTriggerSummary(
+export function workflowTriggerSummary(
   trigger: StartTriggerConfig | null | undefined,
 ): string {
   const mode = trigger?.mode ?? "manual";
@@ -860,7 +860,7 @@ function workflowTriggerSummary(
   return "Manual trigger";
 }
 
-function workflowValidationCounts(workflowVersion: WorkflowVersion | null): {
+export function workflowValidationCounts(workflowVersion: WorkflowVersion | null): {
   errors: number;
   warnings: number;
   valid: boolean;
@@ -870,7 +870,7 @@ function workflowValidationCounts(workflowVersion: WorkflowVersion | null): {
   return { errors, warnings, valid: errors === 0 };
 }
 
-function compactGraphOverrides(
+export function compactGraphOverrides(
   value: KnowledgeQueryGraphOverrides | null | undefined,
 ): KnowledgeQueryGraphOverrides | null {
   const next: KnowledgeQueryGraphOverrides = {};

@@ -76,7 +76,7 @@ interface TraceRecoveryMarker {
   tone: string;
 }
 
-function buildTracePathEntries(run: WorkflowRun): TracePathEntry[] {
+export function buildTracePathEntries(run: WorkflowRun): TracePathEntry[] {
   const path = Array.isArray(run.summary?.node_path)
     ? run.summary.node_path
     : [];
@@ -113,7 +113,7 @@ function buildTracePathEntries(run: WorkflowRun): TracePathEntry[] {
   });
 }
 
-function normalizeTraceStatus(
+export function normalizeTraceStatus(
   step: PreviewStep | null,
   options: {
     runStatus: string;
@@ -130,7 +130,7 @@ function normalizeTraceStatus(
   return "ok";
 }
 
-function formatTraceDuration(durationMs: number | undefined): string | null {
+export function formatTraceDuration(durationMs: number | undefined): string | null {
   if (
     typeof durationMs !== "number" ||
     !Number.isFinite(durationMs) ||
@@ -144,7 +144,7 @@ function formatTraceDuration(durationMs: number | undefined): string | null {
   return `${Math.round(durationMs)} ms`;
 }
 
-function compactNodeType(nodeType: string): string {
+export function compactNodeType(nodeType: string): string {
   return workflowNodeTypeLabel(nodeType) ?? nodeType.replace(/_/g, " ");
 }
 
@@ -182,7 +182,7 @@ function checkpointState(
   return isRecord(checkpoint?.state_blob) ? checkpoint.state_blob : null;
 }
 
-function recoveryMarkerTone(
+export function recoveryMarkerTone(
   kind: "info" | "warn" | "success" | "neutral" | "danger",
 ): string {
   switch (kind) {
@@ -215,7 +215,7 @@ function appendRecoveryDetail(details: string[], value: string | null): void {
   details.push(value);
 }
 
-function buildTraceEventSteps(events: WorkflowRunEvent[]): TraceEventStep[] {
+export function buildTraceEventSteps(events: WorkflowRunEvent[]): TraceEventStep[] {
   const derived: TraceEventStep[] = [];
   let stepIndex = 0;
   for (const event of events) {
@@ -234,7 +234,7 @@ function buildTraceEventSteps(events: WorkflowRunEvent[]): TraceEventStep[] {
   return derived;
 }
 
-function initialLifecycleEvents({
+export function initialLifecycleEvents({
   pathIndex,
   eventSteps,
   events,
@@ -252,7 +252,7 @@ function initialLifecycleEvents({
   );
 }
 
-function stepRecoveryEvents({
+export function stepRecoveryEvents({
   stepIndex,
   nodeId,
   eventSteps,
@@ -292,7 +292,7 @@ function stepRecoveryEvents({
   });
 }
 
-function checkpointResumeDetail(
+export function checkpointResumeDetail(
   checkpoint: WorkflowRunCheckpoint | null,
 ): string | null {
   const state = checkpointState(checkpoint);

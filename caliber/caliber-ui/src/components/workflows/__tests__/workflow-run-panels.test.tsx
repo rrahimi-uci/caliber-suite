@@ -7,9 +7,17 @@ import type {
   WorkflowRunLineage,
   WorkflowRuntimeApproval,
 } from "@/api/workflowTypes";
-import { WorkflowRunCheckpointPanel } from "@/components/workflows/WorkflowRunCheckpointPanel";
+import {
+  inheritedCheckpointLoadErrorMessage,
+  WorkflowRunCheckpointPanel,
+} from "@/components/workflows/WorkflowRunCheckpointPanel";
 import { WorkflowRunLineagePanel } from "@/components/workflows/WorkflowRunLineagePanel";
-import { WorkflowRunRecoveryPanel } from "@/components/workflows/WorkflowRunRecoveryPanel";
+import { lineageLoadErrorMessage } from "@/components/workflows/WorkflowRunLineagePanel";
+import {
+  approvalLoadErrorMessage,
+  recoveryTimelineLoadErrorMessage,
+  WorkflowRunRecoveryPanel,
+} from "@/components/workflows/WorkflowRunRecoveryPanel";
 import { render, screen, userEvent, within } from "@/test/utils";
 
 function baseRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
@@ -159,6 +167,112 @@ function runtimeApprovalCheckpoint(): WorkflowRunCheckpoint {
 }
 
 describe("workflow run panels", () => {
+  it("covers lifecycle-specific load error guidance for active, terminal, and unknown states", () => {
+    const renderText = (node: JSX.Element): string => {
+      const { container, unmount } = render(node);
+      const text = container.textContent ?? "";
+      unmount();
+      return text;
+    };
+
+    expect(
+      renderText(
+        inheritedCheckpointLoadErrorMessage({
+          checkpointId: "CHK-1",
+          checkpointRunId: "WR-1",
+          retryMode: "checkpoint",
+          runStatus: "running",
+          errorMessage: " source unavailable ",
+        }),
+      ),
+    ).toContain("Latest source checkpoint error: source unavailable");
+    expect(
+      renderText(
+        inheritedCheckpointLoadErrorMessage({
+          checkpointId: null,
+          checkpointRunId: null,
+          retryMode: null,
+          runStatus: "completed",
+          errorMessage: "",
+        }),
+      ),
+    ).toContain("Latest source checkpoint error: Unknown error");
+    expect(
+      renderText(
+        inheritedCheckpointLoadErrorMessage({
+          checkpointId: "CHK-1",
+          checkpointRunId: "WR-1",
+          retryMode: null,
+          runStatus: "failed",
+          errorMessage: "failed to read",
+        }),
+      ),
+    ).toContain("failed or was interrupted");
+    expect(
+      renderText(
+        inheritedCheckpointLoadErrorMessage({
+          checkpointId: "CHK-1",
+          checkpointRunId: "WR-1",
+          retryMode: null,
+          runStatus: "unknown",
+          errorMessage: "unknown state",
+        }),
+      ),
+    ).toContain("Inspect the lineage and recovery panels");
+
+    const recoveryGuidance = [
+      ["running", true, true],
+      ["running", true, false],
+      ["running", false, true],
+      ["running", false, false],
+      ["completed", true, true],
+      ["completed", true, false],
+      ["completed", false, true],
+      ["completed", false, false],
+      ["failed", true, true],
+      ["failed", true, false],
+      ["failed", false, true],
+      ["failed", false, false],
+      ["unknown", false, false],
+    ] as const;
+    for (const [status, hasApprovals, hasCheckpoint] of recoveryGuidance) {
+      expect(
+        renderText(
+          recoveryTimelineLoadErrorMessage({
+            status,
+            hasApprovals,
+            hasCheckpoint,
+            errorMessage: "timeline unavailable",
+          }),
+        ),
+      ).toContain("Latest recovery event error: timeline unavailable");
+    }
+
+    for (const status of [
+      "waiting_approval",
+      "waiting_event",
+      "completed",
+      "failed",
+      "unknown",
+    ]) {
+      expect(renderText(approvalLoadErrorMessage(status, "approval unavailable"))).toContain(
+        "Latest approval error: approval unavailable",
+      );
+    }
+
+    for (const status of [
+      "running",
+      "waiting_event",
+      "completed",
+      "failed",
+      "unknown",
+    ]) {
+      expect(renderText(lineageLoadErrorMessage(status, "lineage unavailable"))).toContain(
+        "Latest lineage error: lineage unavailable",
+      );
+    }
+  });
+
   it("lets operators inspect and retry persisted checkpoints", async () => {
     const onRetryFromCheckpoint = vi.fn();
     const user = userEvent.setup();

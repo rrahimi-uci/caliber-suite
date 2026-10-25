@@ -178,7 +178,7 @@ export function runEventsLoadErrorMessage(
   );
 }
 
-function emptyDebuggerMessage(
+export function emptyDebuggerMessage(
   events: WorkflowRunEvent[],
   checkpoints: WorkflowRunCheckpoint[],
   runStatus: string,
@@ -222,7 +222,7 @@ function emptyDebuggerMessage(
   return "No recorded step details yet. This run may only have lifecycle events or a lightweight summary. Check the recovery timeline and checkpoint panel for any persisted run evidence until richer step telemetry is available.";
 }
 
-function emptyEventTimelineMessage({
+export function emptyEventTimelineMessage({
   hasSelectedStep,
   hasCheckpoint,
   runStatus,
@@ -283,15 +283,15 @@ function emptyEventTimelineMessage({
   return "No persisted run events were found for this workflow run. Use the run summary and recovery diagnostics to confirm whether this execution emitted any persisted runtime history.";
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function readString(value: unknown): string | null {
+export function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function readNumber(value: unknown): number | null {
+export function readNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
   if (typeof value === "string" && value.trim()) {
     const parsed = Number(value);
@@ -300,7 +300,7 @@ function readNumber(value: unknown): number | null {
   return null;
 }
 
-function checkpointState(
+export function checkpointState(
   checkpoint: WorkflowRunCheckpoint | null,
 ): Record<string, unknown> | null {
   return isRecord(checkpoint?.state_blob) ? checkpoint.state_blob : null;
@@ -310,7 +310,7 @@ function stepSelectionKey(step: WorkflowRunStep, stepIndex: number): string {
   return `${step.node_id}:${stepIndex}`;
 }
 
-function coerceStep(value: unknown, stepIndex: number): DebugStep | null {
+export function coerceStep(value: unknown, stepIndex: number): DebugStep | null {
   if (!value || typeof value !== "object") return null;
   const raw = value as Partial<WorkflowRunStep>;
   if (typeof raw.node_id !== "string" || typeof raw.node_type !== "string")
@@ -345,14 +345,14 @@ function coerceStep(value: unknown, stepIndex: number): DebugStep | null {
   };
 }
 
-function deriveSummarySteps(run: WorkflowRun): DebugStep[] {
+export function deriveSummarySteps(run: WorkflowRun): DebugStep[] {
   const rawSteps = Array.isArray(run.summary?.steps) ? run.summary.steps : [];
   return rawSteps
     .map((step, index) => coerceStep(step, index))
     .filter((step): step is DebugStep => step !== null);
 }
 
-function deriveEventSteps(events: WorkflowRunEvent[]): DebugEventStep[] {
+export function deriveEventSteps(events: WorkflowRunEvent[]): DebugEventStep[] {
   let stepIndex = 0;
   const derived: DebugEventStep[] = [];
   for (const event of events) {
@@ -369,7 +369,7 @@ function deriveEventSteps(events: WorkflowRunEvent[]): DebugEventStep[] {
   return derived;
 }
 
-function formatJson(value: unknown): string {
+export function formatJson(value: unknown): string {
   try {
     return JSON.stringify(value ?? {}, null, 2);
   } catch {
@@ -377,7 +377,7 @@ function formatJson(value: unknown): string {
   }
 }
 
-function summarizeEvent(event: WorkflowRunEvent): string {
+export function summarizeEvent(event: WorkflowRunEvent): string {
   const payload = isRecord(event.payload) ? event.payload : null;
   if (event.event_type === "workflow.run.step") {
     const step = coerceStep(payload?.step, 0);
@@ -397,7 +397,7 @@ function summarizeEvent(event: WorkflowRunEvent): string {
   return event.event_type.replace(/^workflow\.run\./, "").replaceAll(".", " ");
 }
 
-function checkpointKindForEvent(
+export function checkpointKindForEvent(
   event: WorkflowRunEvent,
   checkpoints: WorkflowRunCheckpoint[],
 ): string | null {
@@ -410,7 +410,7 @@ function checkpointKindForEvent(
   return readString(checkpointState(checkpoint)?.kind);
 }
 
-function summarizeLifecycleEvent(
+export function summarizeLifecycleEvent(
   event: WorkflowRunEvent,
   checkpoints: WorkflowRunCheckpoint[],
 ): string {
@@ -428,7 +428,7 @@ function summarizeLifecycleEvent(
   return summarizeEvent(event);
 }
 
-function formatEventTime(value: string | null | undefined): string {
+export function formatEventTime(value: string | null | undefined): string {
   if (!value) return "n/a";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -441,7 +441,7 @@ function formatEventTime(value: string | null | undefined): string {
   });
 }
 
-function portSummary(
+export function portSummary(
   value: Record<string, unknown> | null | undefined,
   runStatus: string,
 ): string {
@@ -457,13 +457,13 @@ function portSummary(
   return `${keys.length} port${keys.length === 1 ? "" : "s"} · ${keys.join(", ")}`;
 }
 
-function hasPortSnapshot(
+export function hasPortSnapshot(
   value: Record<string, unknown> | null | undefined,
 ): value is Record<string, unknown> {
   return value !== null && value !== undefined;
 }
 
-function emptyPortSnapshotMessage(
+export function emptyPortSnapshotMessage(
   snapshotLabel: string,
   runStatus: string,
 ): string {
@@ -479,7 +479,7 @@ function emptyPortSnapshotMessage(
   return `${snapshotLabel} was not persisted for this step.`;
 }
 
-function transitionSubtitle(
+export function transitionSubtitle(
   previousStep: DebugStep | null,
   displayStep: DebugStep,
   runStatus: string,
@@ -499,7 +499,7 @@ function transitionSubtitle(
   return "Earliest persisted step in this run";
 }
 
-function transitionEmptyMessage(
+export function transitionEmptyMessage(
   previousStep: DebugStep | null,
   runStatus: string,
 ): string {
@@ -527,7 +527,7 @@ function transitionEmptyMessage(
   return "No previous recorded step is available for transition comparison.";
 }
 
-function comparableValue(value: unknown): string {
+export function comparableValue(value: unknown): string {
   try {
     return JSON.stringify(value);
   } catch {
@@ -535,7 +535,7 @@ function comparableValue(value: unknown): string {
   }
 }
 
-function diffPorts(
+export function diffPorts(
   before: Record<string, unknown> | null | undefined,
   after: Record<string, unknown> | null | undefined,
 ): PortDiff {
@@ -565,7 +565,7 @@ function diffPorts(
   return diff;
 }
 
-function markerTone(
+export function markerTone(
   kind: "info" | "warn" | "success" | "neutral" | "danger",
 ): string {
   switch (kind) {
@@ -612,7 +612,7 @@ function appendStepMarker(
   seenLabels.add(label);
 }
 
-function initialLifecycleEvents(
+export function initialLifecycleEvents(
   step: DebugStep,
   eventSteps: DebugEventStep[],
   events: WorkflowRunEvent[],
@@ -626,7 +626,7 @@ function initialLifecycleEvents(
   );
 }
 
-function stepWindowEvents(
+export function stepWindowEvents(
   step: DebugStep,
   {
     stepEvent,

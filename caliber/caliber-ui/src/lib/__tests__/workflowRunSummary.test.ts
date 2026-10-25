@@ -3,8 +3,20 @@ import { describe, expect, it } from "vitest";
 import type { WorkflowRun, WorkflowRunCheckpoint } from "@/api/workflowTypes";
 import {
   buildSyntheticWorkflowRunManifest,
+  mergeWorkflowRunCheckpoints,
   normalizeWorkflowRunArtifactPersistence,
+  normalizeWorkflowRunStep,
+  resolveWorkflowRunActiveCheckpoint,
+  workflowRunHasInheritedResumeCheckpoint,
   workflowRunArtifactPersistence,
+  workflowRunRetryEntryDetail,
+  workflowRunRetryEntryLabel,
+  workflowRunRetryLineageDetail,
+  workflowRunRetryMode,
+  workflowRunRetryOf,
+  workflowRunResumeCheckpointId,
+  workflowRunResumeCheckpointRunId,
+  workflowRunSummarySteps,
 } from "@/lib/workflowRunSummary";
 
 function makeRun(overrides: Partial<WorkflowRun> = {}): WorkflowRun {
@@ -50,6 +62,48 @@ function makeCheckpoint(
 }
 
 describe("buildSyntheticWorkflowRunManifest", () => {
+  it("normalizes scalar fallbacks, port inference, and all synthetic node families", () => {
+    expect(normalizeWorkflowRunStep(null)).toBeNull();
+    expect(normalizeWorkflowRunStep({ node_id: "x" })).toBeNull();
+    expect(normalizeWorkflowRunStep({
+      node_id: "x", node_type: "agent", status: 4, output: 5, tokens: "1",
+      input_by_port: [], output_by_port: "bad", tool_calls: "bad", detail: 4,
+      duration_ms: "2", model: 3, prompt_version: 4, handoff_target: 5,
+    } as never)).toMatchObject({
+      status: "ok", output: "", input_by_port: null, output_by_port: null,
+      tool_calls: [], detail: "", duration_ms: 0, model: null,
+      prompt_version: null, handoff_target: null,
+    });
+    expect(workflowRunSummarySteps(null)).toEqual([]);
+    expect(workflowRunSummarySteps(makeRun({ summary: { steps: [null, { node_id: "valid", node_type: "note" }] } as never }))).toHaveLength(1);
+
+    const statuses = ["completed", "running"];
+    for (const status of statuses) {
+      const manifest = buildSyntheticWorkflowRunManifest(makeRun({
+        status,
+        current_node_id: "final",
+        summary: {
+          node_path: ["start", "wait_until", "approval", "final", "final"],
+          steps: [
+            { node_id: "wait_until", node_type: "wait_until", output: "later" },
+            { node_id: "approval", node_type: "human_approval", input_by_port: { request: true }, output_by_port: { approved: false } },
+            { node_id: "final", node_type: "output" },
+          ],
+        },
+      }));
+      expect(manifest?.nodes.wait_until.type).toBe("wait_until");
+      expect(manifest?.nodes.approval.type).toBe("human_approval");
+      expect(manifest?.nodes.final.type).toBe("output");
+    }
+    const reconstructed = buildSyntheticWorkflowRunManifest(makeRun({
+      status: "completed",
+      current_node_id: "output-result",
+      summary: { node_path: ["start", "output-result"], steps: [] },
+    }));
+    expect(reconstructed?.nodes["output-result"]?.type).toBe("output");
+    expect(buildSyntheticWorkflowRunManifest(makeRun({ summary: {}, current_node_id: null }))).toBeNull();
+  });
+
   it("reconstructs a sequential graph from node path and current node", () => {
     const manifest = buildSyntheticWorkflowRunManifest(
       makeRun({
@@ -236,5 +290,37 @@ describe("workflowRunArtifactPersistence", () => {
       failed_object_key: "pipeline/WR-1/report.html",
       error: "RuntimeError: object store offline",
     });
+  });
+
+  it("covers retry lineage labels, checkpoint inheritance, and checkpoint merging", () => {
+    expect(workflowRunRetryOf(null)).toBeNull();
+    expect(workflowRunRetryMode(null)).toBeNull();
+    expect(workflowRunResumeCheckpointId(null)).toBeNull();
+    expect(workflowRunResumeCheckpointRunId(null)).toBeNull();
+    expect(workflowRunHasInheritedResumeCheckpoint(makeRun({
+      summary: { resume_checkpoint_id: "CHK-1", resume_checkpoint_run_id: "WR-0" },
+    }))).toBe(true);
+    expect(workflowRunHasInheritedResumeCheckpoint(makeRun({
+      summary: { resume_checkpoint_id: "CHK-1", resume_checkpoint_run_id: "WR-1" },
+    }))).toBe(false);
+
+    expect(workflowRunRetryEntryLabel(makeRun())).toBe("Initial attempt");
+    expect(workflowRunRetryEntryLabel(makeRun({ parent_run_id: "WR-0" }))).toBe("Fresh retry");
+    expect(workflowRunRetryEntryLabel(makeRun({ summary: { retry_mode: "checkpoint", resume_checkpoint_id: "CHK-1" } }))).toBe("Checkpoint retry");
+    expect(workflowRunRetryEntryDetail(makeRun({ summary: { retry_mode: "checkpoint", resume_checkpoint_id: "CHK-1" } }))).toBe("Resumed from checkpoint CHK-1.");
+    expect(workflowRunRetryEntryDetail(makeRun({ summary: { retry_mode: "checkpoint", resume_checkpoint_id: "CHK-1", resume_checkpoint_run_id: "WR-0" } }))).toContain("on WR-0");
+    expect(workflowRunRetryEntryDetail(makeRun({ summary: { retry_of: "WR-0" } }))).toBe("Fresh retry of WR-0.");
+    expect(workflowRunRetryEntryDetail(makeRun({ parent_run_id: "WR-0", summary: {} }))).toContain("WR-0");
+    expect(workflowRunRetryLineageDetail(makeRun({ summary: { retry_mode: "checkpoint", resume_checkpoint_id: "CHK-1" } }))).toBe("checkpoint retry via CHK-1");
+    expect(workflowRunRetryLineageDetail(makeRun({ summary: { retry_of: "WR-0" } }))).toBe("retry of WR-0");
+    expect(workflowRunRetryLineageDetail(makeRun())).toBe("initial attempt");
+
+    const source = makeCheckpoint({ checkpoint_id: "CHK-SOURCE", sequence: 0 });
+    const current = makeCheckpoint({ checkpoint_id: "CHK-CURRENT", sequence: 2 });
+    expect(mergeWorkflowRunCheckpoints([source, current], source).map((item) => item.checkpoint_id)).toEqual(["CHK-SOURCE", "CHK-CURRENT"]);
+    expect(mergeWorkflowRunCheckpoints([current], undefined).map((item) => item.checkpoint_id)).toEqual(["CHK-CURRENT"]);
+    expect(resolveWorkflowRunActiveCheckpoint(makeRun({ summary: { resume_checkpoint_id: "CHK-SOURCE" } }), [current, source])).toBe(source);
+    expect(resolveWorkflowRunActiveCheckpoint(makeRun({ summary: { resume_checkpoint_id: "missing" } }), [source, current])).toBe(current);
+    expect(resolveWorkflowRunActiveCheckpoint(makeRun({ summary: {} }), [])).toBeNull();
   });
 });

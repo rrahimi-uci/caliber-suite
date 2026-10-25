@@ -236,7 +236,7 @@ function readTextValue(value: unknown): string | null {
   return typeof value === "string" && value.trim().length > 0 ? value : null;
 }
 
-function evaluateComponentSetupCheck(
+export function evaluateComponentSetupCheck(
   node: ManifestNode,
   check: WorkflowComponentSetupCheck,
   manifest: WorkflowManifest | null | undefined = null,
@@ -308,7 +308,7 @@ function evaluateComponentSetupCheck(
   }
 }
 
-function componentSetupCheckTouchesField(
+export function componentSetupCheckTouchesField(
   check: WorkflowComponentSetupCheck,
   fieldKey: string,
 ): boolean {
@@ -328,7 +328,7 @@ function matchesNodeFieldPath(path: string, prefix: string): boolean {
   );
 }
 
-function nodeExecutionTone(status: string): NodeExecutionBadge["tone"] {
+export function nodeExecutionTone(status: string): NodeExecutionBadge["tone"] {
   switch (status) {
     case "ok":
     case "completed":
@@ -353,7 +353,7 @@ function nodeExecutionTone(status: string): NodeExecutionBadge["tone"] {
   }
 }
 
-function nodeExecutionLabel(status: string): string {
+export function nodeExecutionLabel(status: string): string {
   switch (status) {
     case "waiting_approval":
       return "approval";

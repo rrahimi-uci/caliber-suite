@@ -209,6 +209,40 @@ describe("ToolRegistry list", () => {
     await user.click(screen.getByRole("button", { name: "Back to tools" }));
     expect(screen.queryByTestId("tool-wizard")).not.toBeInTheDocument();
   });
+
+  it("renders write-side-effect and sparse metadata fallbacks", async () => {
+    server.use(
+      http.get(`${API_BASE}/tools`, () =>
+        HttpResponse.json(
+          envelope([
+            makeTool({
+              tool_id: "TL-write",
+              name: "write_record",
+              description: "",
+              side_effect_level: "write",
+              requires_approval: true,
+              allow_in_preview: false,
+              owner: "",
+              status: "deprecated",
+            }),
+          ]),
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderRegistry();
+    const card = await screen.findByTestId("tool-row-write_record");
+    expect(card).toHaveTextContent("No description yet");
+    expect(card).toHaveTextContent("Approval required");
+    expect(card).toHaveTextContent("Preview blocked");
+    expect(card).not.toHaveTextContent("@team");
+
+    await user.click(screen.getByRole("button", { name: /list/i }));
+    expect(await screen.findByTestId("tool-list-row-write_record")).toHaveTextContent(
+      "No description yet",
+    );
+  });
 });
 
 describe("Tool Workspace — Spec stage", () => {
@@ -250,6 +284,22 @@ describe("Tool Workspace — Spec stage", () => {
     expect(await screen.findByTestId("tool-spec-source-unavailable")).toHaveTextContent(
       "module not importable",
     );
+  });
+
+  it("keeps the workspace usable when its summary request fails", async () => {
+    server.use(
+      http.get(`${API_BASE}/tools`, () => HttpResponse.json(envelope([makeTool()]))),
+      http.get(`${API_BASE}/tools/:toolId/workspace`, () =>
+        HttpResponse.json({ detail: "workspace summary unavailable" }, { status: 503 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderRegistry();
+    await user.click(await screen.findByTestId("tool-open-lookup_order"));
+
+    expect(await screen.findByTestId("tool-workspace-header")).toBeInTheDocument();
+    expect(await screen.findByText("workspace summary unavailable")).toBeInTheDocument();
   });
 });
 
@@ -483,6 +533,42 @@ describe("Tool Workspace — Test Runs stage", () => {
     await user.click(await screen.findByRole("button", { name: "Test Runs" }));
     await user.click(await screen.findByRole("button", { name: "Set as baseline" }));
     expect(await screen.findByText("baseline denied")).toBeInTheDocument();
+  });
+
+  it("distinguishes a run-results load failure from an empty run", async () => {
+    const run = {
+      test_run_id: "TTR-failed-detail",
+      tool_id: "TL-1",
+      tool_version: "1.0",
+      kind: "sandbox",
+      test_set_size: 1,
+      passed_count: 1,
+      failed_count: 0,
+      partial_count: 0,
+      overall_score: 1,
+      trace_id: null,
+      mlflow_run_id: null,
+      created_by: "@test",
+      status: "completed",
+      created_at: "2025-01-02T00:00:00Z",
+      completed_at: "2025-01-02T00:00:00Z",
+    };
+    server.use(
+      http.get(`${API_BASE}/tools`, () => HttpResponse.json(envelope([makeTool()]))),
+      http.get(`${API_BASE}/tools/test-runs`, () => HttpResponse.json(envelope([run]))),
+      http.get(`${API_BASE}/tools/test-runs/:testRunId`, () =>
+        HttpResponse.json({ detail: "run detail unavailable" }, { status: 502 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderRegistry();
+    await user.click(await screen.findByTestId("tool-open-lookup_order"));
+    await user.click(await screen.findByRole("button", { name: "Test Runs" }));
+
+    expect(await screen.findByTestId("tool-run-results-error")).toHaveTextContent(
+      "run detail unavailable",
+    );
   });
 });
 

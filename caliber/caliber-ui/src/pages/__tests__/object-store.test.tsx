@@ -380,6 +380,31 @@ describe("Object Store file manager", () => {
     expect(screen.getByText("No buckets yet.")).toBeInTheDocument();
   });
 
+  it("keeps upload disabled when the selected bucket is offline", async () => {
+    server.use(
+      http.get(`${OS}/status`, () =>
+        HttpResponse.json(
+          envelope({
+            connected: false,
+            endpoint: "http://localhost:9000",
+            bucket_count: 1,
+            error: null,
+          }),
+        ),
+      ),
+      http.get(`${OS}/buckets`, () => HttpResponse.json(envelope(BUCKETS))),
+      http.get(`${OS}/buckets/reports/objects`, () =>
+        HttpResponse.json(envelope(listing(FILES))),
+      ),
+    );
+    const user = userEvent.setup();
+    render(<ObjectStore />);
+
+    await user.click(await screen.findByTestId("bucket-reports"));
+    expect(await screen.findByText("alpha.txt")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /Upload/i })).toBeDisabled();
+  });
+
   it("creates and deletes buckets from the bucket panel", async () => {
     let created: { name?: string } | null = null;
     let deletedBucket: string | null = null;
@@ -486,6 +511,73 @@ describe("Object Store file manager", () => {
       .filter((text) => text.includes("alpha.txt") || text.includes("beta.log"));
     expect(rows.join(" ")).toContain("alpha.txt");
     expect(rows.join(" ")).toContain("beta.log");
+  });
+
+  it("sorts object rows by created and modified dates in both directions", async () => {
+    const dated: MockObjectStoreObject[] = [
+      {
+        key: "old.txt",
+        size: 10,
+        created_at: "2026-06-01T12:00:00Z",
+        last_modified: "2026-06-03T12:00:00Z",
+        etag: "old",
+      },
+      {
+        key: "new.txt",
+        size: 20,
+        created_at: "2026-06-04T12:00:00Z",
+        last_modified: "2026-06-06T12:00:00Z",
+        etag: "new",
+      },
+      {
+        key: "fallback.txt",
+        size: 30,
+        last_modified: "2026-06-05T12:00:00Z",
+        etag: "fallback",
+      },
+    ];
+    server.use(...reads(listing(dated)));
+    const user = userEvent.setup();
+    render(<ObjectStore />);
+
+    await user.click(await screen.findByTestId("bucket-reports"));
+    await screen.findByText("old.txt");
+
+    const rowLabels = (): string[] =>
+      screen
+        .getAllByTestId(/^object-(old|new|fallback)\.txt$/)
+        .map(
+          (row) =>
+            row.querySelector("button.object-store-file-name")?.textContent?.trim() ??
+            "",
+        );
+
+    await user.click(screen.getByRole("button", { name: /^Created$/i }));
+    expect(rowLabels()).toEqual(["old.txt", "new.txt", "fallback.txt"]);
+    await user.click(screen.getByRole("button", { name: /^Created$/i }));
+    expect(rowLabels()).toEqual(["fallback.txt", "new.txt", "old.txt"]);
+
+    await user.click(screen.getByRole("button", { name: /^Modified$/i }));
+    expect(rowLabels()).toEqual(["old.txt", "fallback.txt", "new.txt"]);
+    await user.click(screen.getByRole("button", { name: /^Modified$/i }));
+    expect(rowLabels()).toEqual(["new.txt", "fallback.txt", "old.txt"]);
+  });
+
+  it("renders empty-folder, empty-bucket-search, and filtered-empty states", async () => {
+    server.use(...reads(listing([])));
+    const user = userEvent.setup();
+    render(<ObjectStore />);
+
+    await user.click(await screen.findByTestId("bucket-reports"));
+    expect(
+      await screen.findByText("This folder is empty. Drag files here or use Upload."),
+    ).toBeInTheDocument();
+
+    await user.click(screen.getByLabelText("Search all folders"));
+    expect(await screen.findByText("No objects in this bucket.")).toBeInTheDocument();
+
+    await user.type(screen.getByTestId("object-search"), "missing");
+    expect(await screen.findByText('No matches for "missing".')).toBeInTheDocument();
   });
 
   it("paginates recursive search results and shows the truncated warning", async () => {
@@ -683,6 +775,144 @@ describe("Object Store file manager", () => {
     const md = within(modal).getByTestId("object-preview-markdown");
     expect(within(md).getByRole("heading", { name: "Title" })).toBeInTheDocument();
     expect(md.querySelector("strong")?.textContent).toBe("bold");
+  });
+
+  it("renders image, PDF, audio, plain-text, and unsupported previews", async () => {
+    const media: Array<[string, string, boolean, string | null]> = [
+      ["photo.png", "image/png", false, null],
+      ["guide.pdf", "application/pdf", false, null],
+      ["recording.mp3", "audio/mpeg", false, null],
+      ["empty.txt", "text/plain", true, null],
+      ["archive.bin", "application/octet-stream", false, null],
+    ];
+    server.use(
+      ...reads(
+        listing(
+          media.map(([key]) => ({
+            key,
+            size: 12,
+            created_at: NOW,
+            last_modified: NOW,
+            etag: key,
+          })),
+        ),
+      ),
+      http.get(`${OS}/buckets/reports/object/preview`, ({ request }) => {
+        const key = new URL(request.url).searchParams.get("key") ?? "";
+        const [, contentType, isText, text] = media.find(([name]) => name === key) ?? [
+          key,
+          "application/octet-stream",
+          false,
+          null,
+        ];
+        return HttpResponse.json(
+          envelope({
+            bucket: "reports",
+            key,
+            size: 12,
+            created_at: NOW,
+            last_modified: NOW,
+            etag: key,
+            content_type: contentType,
+            preview_bytes: 0,
+            truncated: false,
+            is_text: isText,
+            text,
+          }),
+        );
+      }),
+    );
+    const user = userEvent.setup();
+    render(<ObjectStore />);
+    await user.click(await screen.findByTestId("bucket-reports"));
+
+    await user.click(
+      within(screen.getByTestId("object-photo.png")).getByTitle("View preview"),
+    );
+    const imageModal = await screen.findByTestId("object-preview-modal");
+    expect(within(imageModal).getByRole("img", { name: "photo.png" })).toBeInTheDocument();
+    await user.click(within(imageModal).getByLabelText("Close file preview"));
+
+    await user.click(
+      within(screen.getByTestId("object-guide.pdf")).getByTitle("View preview"),
+    );
+    const pdfModal = await screen.findByTestId("object-preview-modal");
+    expect(within(pdfModal).getByTitle("guide.pdf")).toHaveAttribute("src", expect.stringContaining("disposition=inline"));
+    await user.click(within(pdfModal).getByLabelText("Close file preview"));
+
+    await user.click(
+      within(screen.getByTestId("object-recording.mp3")).getByTitle("View preview"),
+    );
+    const audioModal = await screen.findByTestId("object-preview-modal");
+    expect(within(audioModal).getByTestId("object-preview-audio")).toHaveAttribute("controls");
+    await user.click(within(audioModal).getByLabelText("Close file preview"));
+
+    await user.click(
+      within(screen.getByTestId("object-empty.txt")).getByTitle("View preview"),
+    );
+    const textModal = await screen.findByTestId("object-preview-modal");
+    expect(within(textModal).getByText("(empty file)")).toBeInTheDocument();
+    await user.click(within(textModal).getByLabelText("Close file preview"));
+
+    await user.click(
+      within(screen.getByTestId("object-archive.bin")).getByTitle("View preview"),
+    );
+    const binaryModal = await screen.findByTestId("object-preview-modal");
+    expect(
+      within(binaryModal).getByText("Inline preview is not available for this file type."),
+    ).toBeInTheDocument();
+  });
+
+  it("surfaces preview and Office extraction failures", async () => {
+    server.use(
+      ...reads(
+        listing([
+          { key: "broken.txt", size: 10, created_at: NOW, last_modified: NOW, etag: "b" },
+          { key: "broken.docx", size: 20, created_at: NOW, last_modified: NOW, etag: "d" },
+        ]),
+      ),
+      http.get(`${OS}/buckets/reports/object/preview`, ({ request }) => {
+        const key = new URL(request.url).searchParams.get("key");
+        if (key === "broken.txt") {
+          return HttpResponse.json({ detail: "preview unavailable" }, { status: 503 });
+        }
+        return HttpResponse.json(
+          envelope({
+            bucket: "reports",
+            key: "broken.docx",
+            size: 20,
+            created_at: NOW,
+            last_modified: NOW,
+            etag: "d",
+            content_type:
+              "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+            preview_bytes: 0,
+            truncated: false,
+            is_text: false,
+            text: null,
+          }),
+        );
+      }),
+      http.get(`${OS}/buckets/reports/object/extract`, () =>
+        HttpResponse.json({ detail: "extractor unavailable" }, { status: 503 }),
+      ),
+    );
+    const user = userEvent.setup();
+    render(<ObjectStore />);
+    await user.click(await screen.findByTestId("bucket-reports"));
+
+    await user.click(
+      within(screen.getByTestId("object-broken.txt")).getByTitle("View preview"),
+    );
+    const brokenPreview = await screen.findByTestId("object-preview-modal");
+    expect(await within(brokenPreview).findByText("preview unavailable")).toBeInTheDocument();
+    await user.click(within(brokenPreview).getByLabelText("Close file preview"));
+
+    await user.click(
+      within(screen.getByTestId("object-broken.docx")).getByTitle("View preview"),
+    );
+    const brokenExtract = await screen.findByTestId("object-preview-modal");
+    expect(await within(brokenExtract).findByText("extractor unavailable")).toBeInTheDocument();
   });
 
   it("renders CSV files as a table", async () => {

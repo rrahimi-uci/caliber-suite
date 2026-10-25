@@ -225,4 +225,169 @@ describe("BucketSelect workflow helpers", () => {
       expect(screen.queryByTestId("upload")).not.toBeInTheDocument();
     });
   });
+
+  it("covers bucket loading, create, and missing-bucket failures", async () => {
+    server.use(
+      http.get(`${OS}/buckets`, () =>
+        HttpResponse.json({ detail: "bucket service unavailable" }, { status: 503 }),
+      ),
+      http.post(`${OS}/buckets`, () =>
+        HttpResponse.json({ detail: "create denied" }, { status: 403 }),
+      ),
+    );
+    const user = userEvent.setup();
+
+    render(<BucketSelect value="missing" onChange={vi.fn()} testId="bucket" />);
+    expect(
+      await screen.findByText("Failed to load buckets: bucket service unavailable"),
+    ).toBeInTheDocument();
+
+    await user.selectOptions(await screen.findByTestId("bucket"), "__create__");
+    await user.type(screen.getByTestId("bucket-new"), "new-bucket");
+    await user.click(screen.getByRole("button", { name: "Create" }));
+    expect(await screen.findByText("create denied")).toBeInTheDocument();
+  });
+
+  it("reports missing-bucket creation errors and hides write controls for viewers", async () => {
+    server.use(
+      http.get(`${OS}/buckets`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/me`, () =>
+        HttpResponse.json(
+          envelope({ user_id: "@viewer", scopes: ["caliber.viewer"], is_admin: false }),
+        ),
+      ),
+    );
+    render(<BucketSelect value="missing" onChange={vi.fn()} testId="bucket" />);
+
+    expect(await screen.findByText(/doesn't exist yet/i)).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Create it" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("option", { name: /Create new bucket/ })).not.toBeInTheDocument();
+
+  });
+
+  it("covers folder conflict recovery, folder failures, and sparse contents states", async () => {
+    let folderCalls = 0;
+    server.use(
+      http.post(`${OS}/buckets/reports/folders`, () => {
+        folderCalls += 1;
+        return HttpResponse.json(
+          envelope({ prefix: folderCalls === 2 ? "service/" : "service/2026/" }),
+          { status: folderCalls === 2 ? 409 : 201 },
+        );
+      }),
+      http.get(`${OS}/buckets/reports/objects`, () =>
+        HttpResponse.json(
+          envelope({
+            bucket: "reports",
+            prefix: "",
+            prefixes: [],
+            objects: [
+              { key: "one.txt", size: 1, last_modified: null, etag: "one" },
+              { key: "two.txt", size: 2, last_modified: null, etag: "two" },
+            ],
+            next_token: "next",
+            is_truncated: true,
+          }),
+        ),
+      ),
+    );
+    const user = userEvent.setup();
+
+    render(
+      <BucketPrefixField
+        bucket="reports"
+        value="service/2026"
+        onChange={vi.fn()}
+        testId="prefix"
+      />,
+    );
+    await user.click(await screen.findByTestId("prefix-create"));
+    await waitFor(() => expect(folderCalls).toBe(2));
+    expect(await screen.findByText("Folder service/2026/ ready")).toBeInTheDocument();
+
+    render(<BucketContentsField bucket="reports" prefix="" previewLimit={1} testId="contents" />);
+    expect(await screen.findByText(/2\+ objects/)).toBeInTheDocument();
+    expect(screen.getByText(/one\.txt.*…/)).toBeInTheDocument();
+  });
+
+  it("covers empty, failed, and viewer-only contents states", async () => {
+    server.use(
+      http.get(`${OS}/buckets/empty/objects`, () =>
+        HttpResponse.json({ detail: "object listing unavailable" }, { status: 503 }),
+      ),
+      http.get(`${API_BASE}/me`, () =>
+        HttpResponse.json(envelope({ user_id: "@viewer", is_admin: false })),
+      ),
+    );
+
+    const empty = render(<BucketContentsField bucket="" prefix="" testId="empty" />);
+    expect(screen.getByText("Select a bucket to see its contents.")).toBeInTheDocument();
+    expect(screen.queryByTestId("empty-upload")).not.toBeInTheDocument();
+    empty.unmount();
+
+    render(<BucketContentsField bucket="empty" prefix="" testId="failed" />);
+    expect(await screen.findByText("object listing unavailable")).toBeInTheDocument();
+    expect(screen.queryByTestId("failed-upload")).not.toBeInTheDocument();
+  });
+
+  it("covers empty object messaging and multi-file upload failures", async () => {
+    const uploaded: string[] = [];
+    server.use(
+      http.get(`${OS}/buckets/empty/objects`, () =>
+        HttpResponse.json(
+          envelope({
+            bucket: "empty",
+            prefix: "inbox/",
+            prefixes: [],
+            objects: [],
+            next_token: null,
+            is_truncated: false,
+          }),
+        ),
+      ),
+      http.post(`${OS}/buckets/empty/objects`, async ({ request }) => {
+        const form = await request.formData();
+        uploaded.push(String(form.get("file")));
+        return HttpResponse.json(envelope({ ok: true }));
+      }),
+    );
+    const user = userEvent.setup();
+    const onUploaded = vi.fn();
+    render(<BucketContentsField bucket="empty" prefix="inbox/" testId="empty" />);
+    expect(await screen.findByText(/No objects under this prefix yet — upload one below/)).toBeInTheDocument();
+    await user.upload(
+      await screen.findByTestId("empty-upload-input"),
+      [new File(["a"], "a.txt", { type: "text/plain" }), new File(["b"], "b.txt", { type: "text/plain" })],
+    );
+    await waitFor(() => expect(uploaded).toHaveLength(2));
+    expect(await screen.findByText("Uploaded 2 objects")).toBeInTheDocument();
+    expect(onUploaded).not.toHaveBeenCalled();
+
+    server.use(
+      http.post(`${OS}/buckets/empty/objects`, () =>
+        HttpResponse.json({ detail: "upload rejected" }, { status: 422 }),
+      ),
+    );
+    await user.upload(
+      await screen.findByTestId("empty-upload-input"),
+      new File(["c"], "c.txt", { type: "text/plain" }),
+    );
+    expect(await screen.findByText("upload rejected")).toBeInTheDocument();
+  });
+
+  it("covers prefix guards and generic folder failures", async () => {
+    const user = userEvent.setup();
+    const { rerender } = render(
+      <BucketPrefixField bucket="" value="" onChange={vi.fn()} testId="prefix" />,
+    );
+    await waitFor(() => expect(screen.getByTestId("prefix-create")).toBeDisabled());
+    rerender(<BucketPrefixField bucket="reports" value="inbox" onChange={vi.fn()} testId="prefix" />);
+    server.use(
+      http.post(`${OS}/buckets/reports/folders`, () =>
+        HttpResponse.json({ detail: "folder creation denied" }, { status: 403 }),
+      ),
+    );
+    await user.click(screen.getByTestId("prefix-create"));
+    expect(await screen.findByText("folder creation denied")).toBeInTheDocument();
+  });
 });

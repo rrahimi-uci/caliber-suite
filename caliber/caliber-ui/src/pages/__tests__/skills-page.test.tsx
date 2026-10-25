@@ -801,4 +801,162 @@ describe("Skills page", () => {
       "Standalone",
     );
   });
+
+  it("covers list-layout fallbacks, non-admin controls, and empty filter states", async () => {
+    const fallbackSkill = makeSkill({
+      skill_id: "SK-fallback",
+      name: "fallback-skill",
+      summary: "",
+      description: "",
+      content: "First line fallback\nadditional guidance",
+      owner: "",
+      category: "unknown_category" as Skill["category"],
+      tags: [],
+      depends_on: [],
+      status: "archived",
+    });
+    server.use(
+      http.get(`${API_BASE}/skills`, () => HttpResponse.json(envelope([fallbackSkill]))),
+      http.get(`${API_BASE}/me`, () =>
+        HttpResponse.json(envelope({ user_id: "@viewer", is_admin: false })),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderSkills();
+    expect(await screen.findByTestId("skill-card-SK-fallback")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Archive" })).not.toBeInTheDocument();
+    expect(screen.getByText("No owner")).toBeInTheDocument();
+
+    await user.click(screen.getByTestId("view-toggle-list"));
+    expect(await screen.findByTestId("skill-row-SK-fallback")).toHaveTextContent(
+      "First line fallback",
+    );
+    expect(screen.getByTestId("skill-row-SK-fallback")).toHaveTextContent("No owner");
+
+    await user.selectOptions(screen.getByRole("combobox", { name: "Filter by status" }), "active");
+    expect(await screen.findByTestId("skills-empty")).toHaveTextContent(
+      "No skills match the current filters.",
+    );
+    await user.click(screen.getByRole("button", { name: "Clear filters" }));
+    expect(await screen.findByTestId("skill-row-SK-fallback")).toBeInTheDocument();
+  });
+
+  it("keeps the seeded skill visible when workspace and detail refreshes fail", async () => {
+    server.use(
+      http.get(`${API_BASE}/skills`, () => HttpResponse.json(envelope([makeSkill()]))),
+      http.get(`${API_BASE}/skills/SK-policy`, () =>
+        HttpResponse.json({ detail: "skill detail unavailable" }, { status: 503 }),
+      ),
+      http.get(`${API_BASE}/skills/SK-policy/workspace`, () =>
+        HttpResponse.json({ detail: "workspace unavailable" }, { status: 503 }),
+      ),
+      http.get(`${API_BASE}/skills/test-runs`, () => HttpResponse.json(envelope([]))),
+    );
+
+    const user = userEvent.setup();
+    renderSkills();
+    await user.click(await screen.findByTestId("skill-open-policy-answering"));
+    expect(await screen.findByTestId("skill-workspace-header")).toHaveTextContent(
+      "policy-answering",
+    );
+    expect(await screen.findByText("workspace unavailable")).toBeInTheDocument();
+    expect(screen.getByTestId("skill-workspace-header")).toHaveTextContent(
+      "Category: Customer Support",
+    );
+  });
+
+  it("sends optional trigger context, renders a negative result, and reports save failures", async () => {
+    server.use(
+      http.get(`${API_BASE}/skills`, () => HttpResponse.json(envelope([makeSkill()]))),
+      http.get(`${API_BASE}/skills/SK-policy`, () => HttpResponse.json(envelope(makeSkill()))),
+      http.get(`${API_BASE}/skills/SK-policy/workspace`, () =>
+        HttpResponse.json(
+          envelope({
+            version: 2,
+            category: "customer_support",
+            status: "active",
+            lifecycle: "Draft",
+            last_run: null,
+            baseline_run_id: null,
+            baseline_run: null,
+            bound_to: null,
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/skills/test-runs`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/skills/:skillId/test-selection`, async ({ request }) => {
+        const body = (await request.json()) as Record<string, unknown>;
+        expect(body).toMatchObject({
+          user_message: "check invoice",
+          artifact_type: "invoice",
+          session_goal: "extract totals",
+        });
+        return HttpResponse.json(
+          envelope({
+            skill_id: "SK-policy",
+            skill_name: "policy-answering",
+            is_selected: false,
+            selection_score: 0.1,
+            selection_reason: "",
+          }),
+        );
+      }),
+      http.post(`${API_BASE}/skills/test-runs`, () =>
+        HttpResponse.json({ detail: "run persistence unavailable" }, { status: 503 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderSkills();
+    await user.click(await screen.findByTestId("skill-open-policy-answering"));
+    await user.click(screen.getByRole("button", { name: "Trigger Tests" }));
+    await user.type(screen.getByLabelText("Trigger test user message"), "check invoice");
+    await user.type(screen.getByLabelText("Trigger test artifact type"), "invoice");
+    await user.type(screen.getByLabelText("Trigger test session goal"), "extract totals");
+    await user.click(screen.getByTestId("skill-trigger-run"));
+    expect(await screen.findByTestId("skill-trigger-selected")).toHaveTextContent("not selected");
+    expect(screen.getByText("Reason:").parentElement).toHaveTextContent("Reason: —");
+    await user.click(screen.getByTestId("skill-trigger-save"));
+    expect(await screen.findByText("run persistence unavailable")).toBeInTheDocument();
+  });
+
+  it("shows bind readiness and target-empty branches before surfacing a bind error", async () => {
+    server.use(
+      http.get(`${API_BASE}/skills`, () => HttpResponse.json(envelope([makeSkill()]))),
+      http.get(`${API_BASE}/skills/SK-policy`, () => HttpResponse.json(envelope(makeSkill()))),
+      http.get(`${API_BASE}/skills/SK-policy/workspace`, () =>
+        HttpResponse.json(
+          envelope({
+            version: 2,
+            category: "customer_support",
+            status: "active",
+            lifecycle: "Draft",
+            last_run: null,
+            baseline_run_id: null,
+            baseline_run: null,
+            bound_to: null,
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/skills/test-runs`, () => HttpResponse.json(envelope([]))),
+      http.get(`${API_BASE}/agents`, () => HttpResponse.json({ detail: "agents unavailable" }, { status: 503 })),
+      http.get(`${API_BASE}/workflows`, () => HttpResponse.json({ detail: "workflows unavailable" }, { status: 503 })),
+      http.post(`${API_BASE}/skills/:skillId/bind`, () =>
+        HttpResponse.json({ detail: "bind denied" }, { status: 403 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderSkills();
+    await user.click(await screen.findByTestId("skill-open-policy-answering"));
+    await user.click(screen.getByRole("button", { name: "Bind" }));
+    expect(await screen.findByText(/test or calibrate this skill first/)).toBeInTheDocument();
+    expect(await screen.findByText("No registered agents to bind to yet.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Workflow node/ }));
+    expect(await screen.findByText("No workflows available.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /^Standalone/ }));
+    await user.click(screen.getByLabelText("Bind skill"));
+    expect(await screen.findByText("bind denied")).toBeInTheDocument();
+  });
 });

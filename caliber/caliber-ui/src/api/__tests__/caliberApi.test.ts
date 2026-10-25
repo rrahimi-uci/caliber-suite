@@ -787,6 +787,51 @@ describe("caliberApi", () => {
     ]);
   });
 
+  it("covers optional query omissions and default endpoint states", async () => {
+    const fetchMock = vi.fn(async () => ok({}));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const api = await loadApi();
+    await api.caliberApi.listSkills();
+    await api.caliberApi.listEvalDatasets();
+    await api.caliberApi.listEvalExamples("DS-1");
+    await api.caliberApi.listPromptTestRuns();
+    await api.caliberApi.listSkillTestRuns();
+    await api.caliberApi.listReleasesTimeline();
+    await api.caliberApi.listReleaseOperations();
+    await api.caliberApi.listSystemEffects();
+    await api.caliberApi.listWebhookDeadLetters();
+    await api.caliberApi.listKnowledgeBases();
+    await api.caliberApi.listKnowledgeBaseChunks("KBV-1");
+    await api.caliberApi.getKnowledgeBaseGraph("KBV-1");
+    await api.caliberApi.getGatewayUsage();
+    await api.caliberApi.listLlmPricing();
+    await api.caliberApi.listAuditLog();
+    await api.caliberApi.listWorkflowRunEvents("WR-1");
+    await api.caliberApi.getObservabilityMetrics();
+    await api.caliberApi.listObservabilityExperiments();
+    await api.caliberApi.listObservabilityTraces();
+    await api.caliberApi.listWorkflowRunCheckpoints("WR-1");
+    await api.caliberApi.listWorkflowSessionMemory("WF-1", "session-1");
+    await api.caliberApi.listWorkflowRunsPage("WF-1");
+    await api.caliberApi.listObjectStoreObjects("bucket-1");
+    await api.caliberApi.listMcpServers();
+    await api.caliberApi.listOpenApiIntegrations();
+    await api.caliberApi.listOpenApiOperations("oas-1");
+    await api.caliberApi.listOpenApiDependencies("oas-1");
+    await api.caliberApi.getOpenApiGraph("oas-1");
+    await api.caliberApi.listAssistantSessions();
+
+    const urls = fetchMock.mock.calls.map(([url]) => String(url));
+    expect(urls).toContain(`${API_BASE}/skills`);
+    expect(urls).toContain(`${API_BASE}/eval-datasets/DS-1/examples`);
+    expect(urls).toContain(`${API_BASE}/knowledge-base-versions/KBV-1/graph`);
+    expect(urls).toContain(`${API_BASE}/workflow-runs/WR-1/events`);
+    expect(urls).toContain(`${API_BASE}/openapi-integrations/oas-1/dependencies`);
+    expect(urls).toContain(`${API_BASE}/assistant/sessions`);
+    expect(urls.every((url) => !url.endsWith("?") && !url.includes("undefined"))).toBe(true);
+  });
+
   it("uploads multipart files with CSRF refresh and trims project path", async () => {
     const fetchMock = vi
       .fn()
@@ -994,5 +1039,216 @@ describe("caliberApi", () => {
     expect(releaseBodies[0]).toMatchObject({ version: 5, expected_version: 4 });
     expect(releaseBodies[0].operation_id).toMatch(/^REL-ui-/);
     expect(releaseBodies[1].operation_id).toBe(releaseBodies[0].operation_id);
+  });
+
+  it("covers bare health, degraded readiness, token-list mapping, and empty queries", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ status: "ok", version: "1", db: "ok" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(
+        new Response(
+          JSON.stringify({
+            detail: "readiness degraded",
+            data: { simulated: ["llm"], ready: false },
+          }),
+          { status: 503, headers: { "Content-Type": "application/json" } },
+        ),
+      )
+      .mockResolvedValueOnce(
+        ok({ tokens: [{ token_id: "tok-1", name: "CI", scopes: ["read"] }] }),
+      )
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ data: [], next_cursor: "next" }), {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        }),
+      );
+    vi.stubGlobal("fetch", fetchMock);
+
+    const api = await loadApi();
+    await expect(api.caliberApi.getHealth()).resolves.toMatchObject({
+      status: "ok",
+      db: "ok",
+    });
+    await expect(api.caliberApi.getProviderReadiness()).resolves.toEqual({
+      simulated: ["llm"],
+      ready: false,
+    });
+    await expect(api.caliberApi.listAccessTokens()).resolves.toEqual([
+      { token_id: "tok-1", name: "CI", scopes: ["read"] },
+    ]);
+    const page = await api.caliberApi.listWorkflowRunsPage("WF/1");
+    expect(page).toEqual({ data: [], next_cursor: "next" });
+    expect(String(fetchMock.mock.calls[3]?.[0])).toBe(
+      `${API_BASE}/workflows/WF%2F1/runs`,
+    );
+  });
+
+  it("covers disabled-CSRF, non-JSON retry, envelope, bare, and multipart fallbacks", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        ok({ enabled: false, token: "", ttl_seconds: 0 }),
+      )
+      .mockResolvedValueOnce(ok({ agent_id: "agent-1" }))
+      .mockResolvedValueOnce(textError(403, "Forbidden"))
+      .mockResolvedValueOnce(textError(403, "Forbidden"))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(new Response(null, { status: 204 }))
+      .mockResolvedValueOnce(ok({ file_id: "FILE-1" }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const api = await loadApi();
+    await expect(api.bootstrapCsrf()).resolves.toMatchObject({ enabled: false });
+    await api.caliberApi.registerAgent({ agent_id: "agent-1" } as never);
+    await expect(api.caliberApi.getMe()).rejects.toMatchObject({
+      status: 403,
+      message: "Forbidden",
+    });
+
+    // A CSRF-shaped status-line without a JSON detail falls through to the
+    // original response instead of attempting an unsafe refresh.
+    await expect(api.caliberApi.createSkill({ name: "x" } as never)).rejects.toMatchObject({
+      status: 403,
+      message: "Forbidden",
+    });
+
+    await expect(api.caliberApi.listWorkflowRunsPage("WF-1")).resolves.toEqual({
+      data: undefined,
+      next_cursor: null,
+    });
+    await expect(api.caliberApi.deleteWorkflow("WF-1")).resolves.toBeUndefined();
+    await expect(
+      api.caliberApi.uploadProjectFile(
+        "PRJ-1",
+        new File(["x"], "x.txt", { type: "text/plain" }),
+        "input",
+      ),
+    ).resolves.toEqual({ file_id: "FILE-1" });
+  });
+
+  it("preserves readiness and export errors when degraded responses are not usable", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(
+        new Response(JSON.stringify({ detail: "still down" }), {
+          status: 503,
+          headers: { "Content-Type": "application/json" },
+        }),
+      )
+      .mockResolvedValueOnce(textError(502, "Export unavailable"));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const api = await loadApi();
+    await expect(api.caliberApi.getProviderReadiness()).rejects.toMatchObject({
+      status: 503,
+      message: "still down",
+    });
+    await expect(
+      api.caliberApi.downloadWorkflowVersionManifest("WFV-1"),
+    ).rejects.toMatchObject({ status: 502, message: "Export unavailable" });
+  });
+
+  it("does not retry an ordinary forbidden write or a CSRF refresh without a token", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonError(403, "permission denied"))
+      .mockResolvedValueOnce(jsonError(403, "csrf token expired"))
+      .mockResolvedValueOnce(ok({ enabled: false, token: "", ttl_seconds: 0 }));
+    vi.stubGlobal("fetch", fetchMock);
+
+    const api = await loadApi();
+    await expect(api.caliberApi.createSkill({ name: "x", content: "y" } as never)).rejects.toMatchObject({
+      status: 403,
+      message: "permission denied",
+    });
+    await expect(api.caliberApi.createSkill({ name: "x", content: "y" } as never)).rejects.toMatchObject({
+      status: 403,
+      message: "csrf token expired",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(3);
+  });
+
+  it("returns the request-envelope shape for a no-content page response", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(new Response(null, { status: 204 })));
+    const api = await loadApi();
+
+    await expect(api.caliberApi.listWorkflowRunsPage("WF-1")).resolves.toEqual({
+      data: undefined,
+      next_cursor: null,
+    });
+  });
+
+  it("surfaces non-JSON multipart failures without inventing a JSON detail", async () => {
+    vi.stubGlobal("fetch", vi.fn().mockResolvedValue(textError(500, "Upload failed")));
+    const api = await loadApi();
+
+    await expect(
+      api.caliberApi.uploadProjectFile(
+        "PRJ-1",
+        new File(["data"], "input.txt", { type: "text/plain" }),
+        "input",
+      ),
+    ).rejects.toMatchObject({ status: 500, message: "Upload failed" });
+  });
+
+  it("clears a failed CSRF bootstrap and allows a later retry", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(jsonError(503, "csrf unavailable"))
+      .mockResolvedValueOnce(ok({ enabled: true, token: "csrf-recovered", ttl_seconds: 60 }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = await loadApi();
+
+    await expect(api.bootstrapCsrf()).rejects.toMatchObject({
+      status: 503,
+      message: "csrf bootstrap failed",
+    });
+    await expect(api.bootstrapCsrf()).resolves.toMatchObject({ token: "csrf-recovered" });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("handles enabled CSRF without a token and pre-aborted caller signals", async () => {
+    const fetchMock = vi
+      .fn()
+      .mockResolvedValueOnce(ok({ enabled: true, token: null, ttl_seconds: 60 }))
+      .mockResolvedValueOnce(ok({ agent_id: "agent-1" }));
+    vi.stubGlobal("fetch", fetchMock);
+    const api = await loadApi();
+
+    await api.bootstrapCsrf();
+    await api.caliberApi.registerAgent({ agent_id: "agent-1" } as never);
+    const [, init] = fetchMock.mock.calls[1] as [string, RequestInit];
+    expect(init.headers).not.toHaveProperty("X-CALIBER-CSRF");
+
+    const caller = new AbortController();
+    caller.abort();
+    await expect(api.caliberApi.getMe(caller.signal)).rejects.toMatchObject({
+      name: "AbortError",
+    });
+    expect(fetchMock).toHaveBeenCalledTimes(2);
+  });
+
+  it("preserves an ApiError caller cancellation reason", async () => {
+    const api = await loadApi();
+    const caller = {
+      aborted: true,
+      reason: new api.ApiError(0, "caller deadline", null),
+      addEventListener: vi.fn(),
+      removeEventListener: vi.fn(),
+    } as unknown as AbortSignal;
+    vi.stubGlobal("fetch", vi.fn());
+
+    await expect(api.caliberApi.getMe(caller)).rejects.toMatchObject({
+      name: "ApiError",
+      status: 0,
+      message: "caller deadline",
+    });
+    expect(fetch).not.toHaveBeenCalled();
   });
 });

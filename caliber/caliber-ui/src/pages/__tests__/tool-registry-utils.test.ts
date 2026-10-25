@@ -13,6 +13,7 @@ describe("ToolRegistry helpers", () => {
     expect(clampToolTestCount(0)).toBe(1);
     expect(clampToolTestCount(3.4)).toBe(3);
     expect(clampToolTestCount(999)).toBe(50);
+    expect(clampToolTestCount(-Infinity)).toBe(1);
   });
 
   it("extracts json arrays and objects from assistant text", () => {
@@ -23,6 +24,7 @@ describe("ToolRegistry helpers", () => {
     expect(extractJsonObject("noise {\"verdict\":\"pass\"} tail")).toEqual({ verdict: "pass" });
     expect(extractJsonObject("[]")).toBeNull();
     expect(extractJsonObject("plain text")).toBeNull();
+    expect(() => extractJsonObject("prefix {not-json} suffix")).toThrow();
   });
 
   it("normalizes generated test cases and validates shape", () => {
@@ -38,8 +40,13 @@ describe("ToolRegistry helpers", () => {
         output: { pong: true },
         tags: ["fallback"],
       },
+      {
+        input: { q: "empty" },
+        expectedBehavior: "  ",
+        tags: "not-an-array",
+      } as never,
     ]);
-    expect(normalized).toHaveLength(2);
+    expect(normalized).toHaveLength(3);
     expect(normalized[0]?.input).toEqual({ q: "status" });
     expect(normalized[1]?.expectedOutput).toEqual({ pong: true });
 

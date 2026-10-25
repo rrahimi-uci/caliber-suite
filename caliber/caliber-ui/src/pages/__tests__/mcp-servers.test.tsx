@@ -106,6 +106,62 @@ afterEach(() => server.resetHandlers());
 afterAll(() => server.close());
 
 describe("McpServers", () => {
+  it("renders row-level runtime, transport, icon, tool-count, and timestamp fallbacks", async () => {
+    const remote = {
+      ...baseServer(),
+      server_id: "MCP-ROW-MATRIX",
+      name: "Remote Matrix",
+      description: null,
+      icon: "unknown-icon",
+      transport: "sse" as const,
+      command: "",
+      args: [],
+      uri: "https://example.test/mcp",
+      status: "unknown-status",
+      last_connected_at: NOW,
+      connection_error: "connection refused",
+      execution: {
+        ...baseServer().execution,
+        ready: false,
+        boundary: "remote_boundary",
+        blockers: ["not allowlisted"],
+        warnings: [],
+      },
+      discovered_tools: Array.from({ length: 5 }, (_, index) => ({
+        name: `tool-${index + 1}`,
+        description: `Tool ${index + 1}`,
+        input_schema: null,
+        output_schema: null,
+      })),
+    };
+    const neverConnected = {
+      ...baseServer(),
+      server_id: "MCP-ROW-NEVER",
+      name: "Never Connected",
+      icon: "github",
+      execution: null,
+      discovered_tools: [],
+    };
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([remote, neverConnected])),
+      ),
+    );
+
+    renderPage();
+
+    const row = await screen.findByTestId("mcp-row-MCP-ROW-MATRIX");
+    expect(row).toHaveTextContent("MCP");
+    expect(row).toHaveTextContent("unknown-status");
+    expect(row).toHaveTextContent("Runtime blocked");
+    expect(row).toHaveTextContent("remote boundary");
+    expect(row).toHaveTextContent("+1 more");
+    expect(row).toHaveTextContent("connection refused");
+    expect(row).toHaveTextContent("SSE");
+    expect(row).toHaveTextContent("Remote Matrix");
+    expect(screen.getByTestId("mcp-row-MCP-ROW-NEVER")).toHaveTextContent("Never");
+  });
+
   it("narrows the server table with search, status, and transport filters", async () => {
     const docs = baseServer(); // active / stdio / "Docs"
     const remote = {
@@ -480,6 +536,114 @@ describe("McpServers", () => {
         screen.queryByRole("button", { name: "Clear" }),
       ).not.toBeInTheDocument(),
     );
+  });
+
+  it("shows the fallback when discovery and the connection retry both fail", async () => {
+    const discoveredTools = baseServer().discovered_tools;
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([baseServer()])),
+      ),
+      http.get(`${API_BASE}/mcp-servers/MCP-1/tools`, () =>
+        HttpResponse.json(
+          envelope({
+            server_id: "MCP-1",
+            tools: discoveredTools.map((tool) => ({
+              ...tool,
+              classified: true,
+              policy: {
+                allowed: true,
+                side_effect_level: "read",
+                requires_approval: false,
+                rate_limit_per_minute: null,
+              },
+            })),
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/mcp-servers/MCP-1/discover-tools`, () =>
+        HttpResponse.json({ detail: "discovery unavailable" }, { status: 503 }),
+      ),
+      http.post(`${API_BASE}/mcp-servers/MCP-1/test-connection`, () =>
+        HttpResponse.json({ detail: "connection unavailable" }, { status: 503 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "MCP Servers" });
+    await user.click(screen.getByRole("button", { name: "Playground" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Test Connection" }),
+    );
+
+    expect(await screen.findByText("Connection Failed")).toBeInTheDocument();
+    expect(await screen.findByText("connection unavailable")).toBeInTheDocument();
+  });
+
+  it("records an invocation failure when the tool request rejects", async () => {
+    const discoveredTools = baseServer().discovered_tools;
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([baseServer()])),
+      ),
+      http.get(`${API_BASE}/mcp-servers/MCP-1/tools`, () =>
+        HttpResponse.json(
+          envelope({
+            server_id: "MCP-1",
+            tools: discoveredTools.map((tool) => ({
+              ...tool,
+              classified: true,
+              policy: {
+                allowed: true,
+                side_effect_level: "read",
+                requires_approval: false,
+                rate_limit_per_minute: null,
+              },
+            })),
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/mcp-servers/MCP-1/discover-tools`, () =>
+        HttpResponse.json(
+          envelope({
+            server_id: "MCP-1",
+            tools: discoveredTools,
+            tool_count: discoveredTools.length,
+            discovered_at: NOW,
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/mcp-servers/MCP-1/test-connection`, () =>
+        HttpResponse.json(
+          envelope({
+            server_id: "MCP-1",
+            success: true,
+            error: null,
+            tools: discoveredTools,
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/mcp-servers/MCP-1/invoke-tool`, () =>
+        HttpResponse.json({ detail: "tool process exited" }, { status: 500 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByRole("heading", { name: "MCP Servers" });
+    await user.click(screen.getByRole("button", { name: "Playground" }));
+    await user.click(
+      await screen.findByRole("button", { name: "Test Connection" }),
+    );
+    await screen.findByText("Connection Successful");
+    const toolLabel = await screen.findByText("search_docs");
+    await user.click(toolLabel.closest("button") as HTMLButtonElement);
+    await user.type(screen.getByPlaceholderText("query"), "refund");
+    await user.click(screen.getByRole("button", { name: "Invoke Tool" }));
+
+    expect(await screen.findByText("Failed")).toBeInTheDocument();
+    expect(await screen.findByText("tool process exited")).toBeInTheDocument();
   });
 
   it("makes an invocation-history row keyboard reachable and activatable via Enter", async () => {
@@ -885,6 +1049,67 @@ describe("McpServers", () => {
       }),
     );
     expect(await screen.findByTestId("mcp-row-MCP-GRAPH")).toBeInTheDocument();
+  });
+
+  it("renders the alternate detail state matrix for stdio readiness and tool policy", async () => {
+    const matrixServer = {
+      ...baseServer(),
+      server_id: "MCP-DETAIL-MATRIX",
+      name: "Blocked Local",
+      description: null,
+      command: "",
+      args: [],
+      env: { API_KEY: "${API_KEY}" },
+      status: "active" as const,
+      last_connected_at: NOW,
+      execution: {
+        ...baseServer().execution,
+        ready: false,
+        production_isolated: true,
+        controls: [],
+        blockers: ["command is not allowlisted"],
+        warnings: [],
+      },
+      tool_policies: {
+        search_docs: {
+          allowed: false,
+          side_effect_level: "write",
+          requires_approval: false,
+        },
+      },
+      discovered_tools: [
+        {
+          name: "search_docs",
+          description: null,
+          input_schema: null,
+          output_schema: null,
+        },
+      ],
+    };
+    server.use(
+      http.get(`${API_BASE}/mcp-servers`, () =>
+        HttpResponse.json(envelope([matrixServer])),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPage();
+    await screen.findByTestId("mcp-row-MCP-DETAIL-MATRIX");
+
+    fireEvent.doubleClick(screen.getByTestId("mcp-row-MCP-DETAIL-MATRIX"));
+    const dialog = await screen.findByTestId("mcp-detail-dialog");
+    expect(within(dialog).getByText("Blocked")).toBeInTheDocument();
+    expect(within(dialog).queryByText("Runtime ready")).not.toBeInTheDocument();
+    expect(within(dialog).getByText(/external execution boundary configured/)).toBeInTheDocument();
+    expect(within(dialog).getByText("command is not allowlisted")).toBeInTheDocument();
+    expect(within(dialog).getByText("—")).toBeInTheDocument();
+    expect(within(dialog).getByText("API_KEY")).toBeInTheDocument();
+    expect(within(dialog).getByText("search_docs")).toBeInTheDocument();
+    expect(within(dialog).getByText("write · blocked")).toBeInTheDocument();
+    expect(within(dialog).queryByText("approval")).not.toBeInTheDocument();
+
+    await user.click(within(dialog).getByLabelText("Close"));
+    expect(screen.queryByTestId("mcp-detail-dialog")).not.toBeInTheDocument();
   });
 
   it("falls back to discovered tools when policy loading and discovery fail", async () => {

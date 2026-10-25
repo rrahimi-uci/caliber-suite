@@ -18,7 +18,7 @@ interface WorkflowRunCheckpointPanelProps {
   onRetryFromCheckpoint?: (checkpointId: string) => void;
 }
 
-function isActiveRunStatus(runStatus: string | null | undefined): boolean {
+export function isActiveRunStatus(runStatus: string | null | undefined): boolean {
   return (
     runStatus === "queued"
     || runStatus === "running"
@@ -29,7 +29,7 @@ function isActiveRunStatus(runStatus: string | null | undefined): boolean {
   );
 }
 
-function isStoppedRunStatus(runStatus: string | null | undefined): boolean {
+export function isStoppedRunStatus(runStatus: string | null | undefined): boolean {
   return (
     runStatus === "failed"
     || runStatus === "cancelled"
@@ -39,7 +39,7 @@ function isStoppedRunStatus(runStatus: string | null | undefined): boolean {
   );
 }
 
-function formatTimestamp(value: string | null | undefined): string {
+export function formatTimestamp(value: string | null | undefined): string {
   if (!value) return "n/a";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -51,7 +51,7 @@ function formatTimestamp(value: string | null | undefined): string {
   });
 }
 
-function formatJson(value: unknown): string {
+export function formatJson(value: unknown): string {
   try {
     return JSON.stringify(value ?? {}, null, 2);
   } catch {
@@ -59,15 +59,15 @@ function formatJson(value: unknown): string {
   }
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function readString(value: unknown): string | null {
+export function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function readPositiveNumber(value: unknown): number | null {
+export function readPositiveNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
     return value;
   }
@@ -80,7 +80,7 @@ function readPositiveNumber(value: unknown): number | null {
   return null;
 }
 
-function formatValue(value: unknown): string | null {
+export function formatValue(value: unknown): string | null {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") {
@@ -93,7 +93,7 @@ function formatValue(value: unknown): string | null {
   }
 }
 
-function formatDeadline(
+export function formatDeadline(
   createdAt: string | null | undefined,
   timeoutSeconds: number | null,
 ): string | null {
@@ -108,18 +108,18 @@ function formatDeadline(
   });
 }
 
-function portSummary(value: unknown): string | null {
+export function portSummary(value: unknown): string | null {
   if (!isRecord(value)) return null;
   const keys = Object.keys(value);
   if (keys.length === 0) return "0 ports";
   return `${keys.length} port${keys.length === 1 ? "" : "s"}: ${keys.join(", ")}`;
 }
 
-function stateBlob(checkpoint: WorkflowRunCheckpoint | null): Record<string, unknown> | null {
+export function stateBlob(checkpoint: WorkflowRunCheckpoint | null): Record<string, unknown> | null {
   return isRecord(checkpoint?.state_blob) ? checkpoint.state_blob : null;
 }
 
-function checkpointIntegrityWarning({
+export function checkpointIntegrityWarning({
   checkpointId,
   checkpointNodeId,
   stateNodeId,
@@ -154,25 +154,25 @@ function checkpointIntegrityWarning({
   return `${checkpointLabel} has inconsistent node identity: ${issues.join("; ")}. Treat it as recovery evidence only, then inspect recovery, lineage, and debugger panels before retrying or attempting resume.`;
 }
 
-function summaryCheckpointId(run: WorkflowRun): string | null {
+export function summaryCheckpointId(run: WorkflowRun): string | null {
   return readString(run.summary?.resume_checkpoint_id);
 }
 
-function summaryCheckpointRunId(run: WorkflowRun): string | null {
+export function summaryCheckpointRunId(run: WorkflowRun): string | null {
   return readString(run.summary?.resume_checkpoint_run_id);
 }
 
-function summaryRetryMode(run: WorkflowRun): string | null {
+export function summaryRetryMode(run: WorkflowRun): string | null {
   return readString(run.summary?.retry_mode);
 }
 
-function selectedCardClasses(selected: boolean): string {
+export function selectedCardClasses(selected: boolean): string {
   return selected
     ? "border-sky-300 bg-sky-50/70 shadow-sm dark:border-sky-500/60 dark:bg-sky-950/30"
     : "border-slate-200 bg-white hover:border-slate-300 hover:bg-slate-50/60 dark:border-slate-700 dark:bg-slate-900 dark:hover:border-slate-600 dark:hover:bg-slate-800/70";
 }
 
-function inheritedCheckpointUnavailableMessage(
+export function inheritedCheckpointUnavailableMessage(
   {
     checkpointId,
     checkpointRunId,
@@ -279,7 +279,7 @@ export function inheritedCheckpointLoadErrorMessage(
   );
 }
 
-function emptyCheckpointMessage(run: WorkflowRun): string {
+export function emptyCheckpointMessage(run: WorkflowRun): string {
   const hasRetryLineage = Boolean(
     run.parent_run_id || readString(run.summary?.retry_of),
   );

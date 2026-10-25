@@ -53,7 +53,7 @@ interface WorkflowRunRecoveryPanelProps {
   eventsLoadError?: string | null;
 }
 
-function formatTimestamp(value: string | null | undefined): string {
+export function formatTimestamp(value: string | null | undefined): string {
   if (!value) return "n/a";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return value;
@@ -65,15 +65,15 @@ function formatTimestamp(value: string | null | undefined): string {
   });
 }
 
-function isRecord(value: unknown): value is Record<string, unknown> {
+export function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
-function readString(value: unknown): string | null {
+export function readString(value: unknown): string | null {
   return typeof value === "string" && value.trim() ? value : null;
 }
 
-function readPositiveNumber(value: unknown): number | null {
+export function readPositiveNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value) && value > 0) {
     return value;
   }
@@ -86,7 +86,7 @@ function readPositiveNumber(value: unknown): number | null {
   return null;
 }
 
-function formatValue(value: unknown): string | null {
+export function formatValue(value: unknown): string | null {
   if (value === null || value === undefined || value === "") return null;
   if (typeof value === "string") return value;
   if (typeof value === "number" || typeof value === "boolean") {
@@ -99,7 +99,7 @@ function formatValue(value: unknown): string | null {
   }
 }
 
-function formatDeadline(
+export function formatDeadline(
   createdAt: string | null | undefined,
   timeoutSeconds: number | null,
 ): string | null {
@@ -114,11 +114,11 @@ function formatDeadline(
   });
 }
 
-function checkpointState(checkpoint: WorkflowRunCheckpoint | null): Record<string, unknown> | null {
+export function checkpointState(checkpoint: WorkflowRunCheckpoint | null): Record<string, unknown> | null {
   return isRecord(checkpoint?.state_blob) ? checkpoint.state_blob : null;
 }
 
-function checkpointNodeIntegrityWarning({
+export function checkpointNodeIntegrityWarning({
   checkpointId,
   checkpointNodeId,
   stateNodeId,
@@ -144,7 +144,7 @@ function checkpointNodeIntegrityWarning({
   return `${label} has inconsistent node identity: ${issues.join("; ")}. Treat the stored checkpoint as recovery evidence only, then inspect lineage, debugger state, and run events before attempting resume or retry.`;
 }
 
-function approvalPolicy(
+export function approvalPolicy(
   approval: WorkflowRuntimeApproval | null | undefined,
 ): {
   requiredRole: string | null;
@@ -162,7 +162,7 @@ function approvalPolicy(
   return { requiredRole, approvalCount, timeoutBehavior };
 }
 
-function statusTone(status: string): string {
+export function statusTone(status: string): string {
   switch (status) {
     case "waiting_approval":
       return "bg-amber-50 text-amber-700 ring-amber-200/80 dark:bg-amber-950/40 dark:text-amber-300 dark:ring-amber-800/70";
@@ -182,7 +182,7 @@ function statusTone(status: string): string {
   }
 }
 
-function noteTone(kind: "info" | "warn" | "danger"): string {
+export function noteTone(kind: "info" | "warn" | "danger"): string {
   switch (kind) {
     case "warn":
       return "border-amber-200 bg-amber-50 text-amber-800 dark:border-amber-800/70 dark:bg-amber-950/30 dark:text-amber-200";
@@ -193,7 +193,7 @@ function noteTone(kind: "info" | "warn" | "danger"): string {
   }
 }
 
-function artifactStatusTone(status: string): string {
+export function artifactStatusTone(status: string): string {
   switch (status) {
     case "persisted":
       return "bg-emerald-50 text-emerald-700 ring-emerald-200/80 dark:bg-emerald-950/40 dark:text-emerald-300 dark:ring-emerald-800/70";
@@ -204,7 +204,7 @@ function artifactStatusTone(status: string): string {
   }
 }
 
-function artifactStatusLabel(status: string): string {
+export function artifactStatusLabel(status: string): string {
   switch (status) {
     case "persisted":
       return "Persisted";
@@ -215,7 +215,7 @@ function artifactStatusLabel(status: string): string {
   }
 }
 
-function recoveryTimelineEmptyMessage({
+export function recoveryTimelineEmptyMessage({
   status,
   hasApprovals,
   hasCheckpoint,
@@ -362,7 +362,7 @@ export function recoveryTimelineLoadErrorMessage({
   );
 }
 
-function approvalRecordsEmptyMessage({
+export function approvalRecordsEmptyMessage({
   status,
   approvalKind,
   hasCheckpoint,

@@ -1,4 +1,11 @@
-import { act, render, screen, waitFor, within } from "@testing-library/react";
+import {
+  act,
+  fireEvent,
+  render,
+  screen,
+  waitFor,
+  within,
+} from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { http, HttpResponse } from "msw";
 import {
@@ -3690,6 +3697,72 @@ describe("Prompts", () => {
     expect(await screen.findByText("Template v3 unique")).toBeInTheDocument();
     expect(await screen.findAllByText("Template v5 unique")).toHaveLength(1);
   });
+
+  it("renders the empty versions state", async () => {
+    server.use(
+      http.get(`${API_BASE}/prompts/support-agent/versions`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await user.click(screen.getAllByRole("button", { name: "Versions" })[0]!);
+
+    expect(await screen.findByText("No versions found.")).toBeInTheDocument();
+    expect(screen.queryByText("Compare Templates")).not.toBeInTheDocument();
+  });
+
+  it("surfaces version comparison and promotion failures", async () => {
+    server.use(
+      http.get(`${API_BASE}/prompts/support-agent/versions`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              name: "support-agent",
+              version: 4,
+              aliases: [],
+              creation_timestamp: 1_700_000_000_000,
+              updated_timestamp: 1_700_000_000_100,
+              run_id: "run-004",
+              source: "models:/support-agent/4",
+              commit_message: "Draft",
+              current: false,
+            },
+            {
+              name: "support-agent",
+              version: 3,
+              aliases: ["prod"],
+              creation_timestamp: 1_690_000_000_000,
+              updated_timestamp: 1_690_000_000_100,
+              run_id: "run-003",
+              source: "models:/support-agent/3",
+              commit_message: "Live",
+              current: true,
+            },
+          ]),
+        ),
+      ),
+      http.get(
+        `${API_BASE}/prompts/support-agent/versions/:version`,
+        () => HttpResponse.json({ detail: "version detail unavailable" }, { status: 503 }),
+      ),
+      http.post(
+        `${API_BASE}/prompts/support-agent/aliases/prod`,
+        () => HttpResponse.json({ detail: "promotion rejected" }, { status: 409 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await user.click(screen.getAllByRole("button", { name: "Versions" })[0]!);
+
+    expect(await screen.findByText("version detail unavailable")).toBeInTheDocument();
+    await user.click(await screen.findByRole("button", { name: "Promote to @prod" }));
+    expect(await screen.findByText("promotion rejected")).toBeInTheDocument();
+  });
 });
 
 describe("Prompts — Workspace Playground stage", () => {
@@ -4155,6 +4228,89 @@ describe("Prompts — Workspace Runs stage", () => {
     expect(await screen.findByText("How do refunds work?")).toBeInTheDocument();
   });
 
+  it("normalizes alternate eval-example input and expected-response shapes", async () => {
+    const saved: Array<Record<string, unknown>> = [];
+    server.use(
+      http.get(`${API_BASE}/prompts/support-agent/workspace`, () =>
+        HttpResponse.json(
+          envelope({
+            model: "gpt-4o-mini",
+            version: 3,
+            status: "Tested",
+            bound_to: null,
+            dataset_id: "DS-shapes",
+            last_run: null,
+            baseline_run_id: null,
+            baseline_run: null,
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/eval-datasets/DS-shapes/examples`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              example_id: "shape-input",
+              dataset_id: "DS-shapes",
+              dataset_version: 1,
+              input: { input: "alternate input" },
+              expected: { expected_response: "alternate expected" },
+              weight: 1,
+              tags: ["alternate"],
+              created_at: "2025-01-01T00:00:00Z",
+              superseded_at: null,
+            },
+            {
+              example_id: "shape-expected",
+              dataset_id: "DS-shapes",
+              dataset_version: 1,
+              input: { user_message: "behavior input" },
+              expected: { expected: "generic expected" },
+              weight: 1,
+              tags: [],
+              created_at: "2025-01-01T00:00:00Z",
+              superseded_at: null,
+            },
+            {
+              example_id: "shape-empty",
+              dataset_id: "DS-shapes",
+              dataset_version: 1,
+              input: {},
+              expected: {},
+              weight: 1,
+              tags: [],
+              created_at: "2025-01-01T00:00:00Z",
+              superseded_at: null,
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/prompts/test-runs`, () => HttpResponse.json(envelope([]))),
+      http.post(`${API_BASE}/prompts/test-runs`, async ({ request }) => {
+        saved.push((await request.json().catch(() => ({}))) as Record<string, unknown>);
+        return HttpResponse.json(envelope({ test_run_id: "PTR-shapes" }), { status: 201 });
+      }),
+      http.get(`${API_BASE}/prompts/test-runs/PTR-shapes`, () =>
+        HttpResponse.json(envelope({ test_run_id: "PTR-shapes", results: [] })),
+      ),
+    );
+    installRunnableJudge("partial", 0.5);
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Runs");
+    await user.click(await screen.findByRole("button", { name: "Run tests" }));
+
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]!.results).toHaveLength(2);
+    expect(saved[0]!.results).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ input: "alternate input", expectedBehavior: "alternate expected" }),
+        expect.objectContaining({ input: "behavior input", expectedBehavior: "generic expected" }),
+      ]),
+    );
+  });
+
   it("files a run under the version that is live now, not the one the page opened with", async () => {
     // Regression: after "Save & promote" on Author the workspace summary is refetched but the
     // prompt row the page opened with is not, so a Runs-stage run was saved against the old
@@ -4329,6 +4485,167 @@ describe("Prompts — Workspace Runs stage", () => {
     await waitFor(() => expect(pinned.length).toBe(1));
     expect(pinned[0]!.test_run_id).toBe("PTR-cur");
   });
+
+  it("reports when a pinned test set has no usable cases", async () => {
+    server.use(
+      http.get(`${API_BASE}/prompts/support-agent/workspace`, () =>
+        HttpResponse.json(
+          envelope({
+            model: "gpt-4o-mini",
+            version: 3,
+            status: "Has test set",
+            bound_to: null,
+            dataset_id: "DS-empty",
+            last_run: null,
+            baseline_run_id: null,
+            baseline_run: null,
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/eval-datasets/DS-empty/examples`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+      http.get(`${API_BASE}/prompts/test-runs`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Runs");
+    await user.click(await screen.findByRole("button", { name: "Run tests" }));
+
+    expect(
+      await screen.findByText(/pinned test set has no usable cases/),
+    ).toBeInTheDocument();
+  });
+
+  it("reports when there is no pinned test set and no previous run to replay", async () => {
+    server.use(
+      http.get(`${API_BASE}/prompts/support-agent/workspace`, () =>
+        HttpResponse.json(
+          envelope({
+            model: "gpt-4o-mini",
+            version: 3,
+            status: "Tested",
+            bound_to: null,
+            dataset_id: null,
+            last_run: null,
+            baseline_run_id: null,
+            baseline_run: null,
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/prompts/test-runs`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Runs");
+    await user.click(await screen.findByRole("button", { name: "Run tests" }));
+
+    expect(
+      await screen.findByText(/No test set is pinned and no previous run exists/),
+    ).toBeInTheDocument();
+  });
+
+  it("replays cases from the latest saved run when no test set is pinned", async () => {
+    const saved: Array<Record<string, unknown>> = [];
+    server.use(
+      http.get(`${API_BASE}/prompts/support-agent/workspace`, () =>
+        HttpResponse.json(
+          envelope({
+            model: "gpt-4o-mini",
+            version: 3,
+            status: "Tested",
+            bound_to: null,
+            dataset_id: null,
+            last_run: null,
+            baseline_run_id: null,
+            baseline_run: null,
+          }),
+        ),
+      ),
+      http.get(`${API_BASE}/prompts/test-runs`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              test_run_id: "PTR-history",
+              agent_id: "support-agent",
+              prompt_name: "support-agent",
+              prompt_alias: "prod",
+              prompt_version: 3,
+              model: "gpt-4o-mini",
+              eval_dataset_id: null,
+              test_set_size: 1,
+              passed_count: 1,
+              failed_count: 0,
+              partial_count: 0,
+              overall_score: 1,
+              status: "completed",
+              created_at: "2025-02-01T00:00:00Z",
+              completed_at: "2025-02-01T00:00:00Z",
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/prompts/test-runs/PTR-history`, () =>
+        HttpResponse.json(
+          envelope({
+            test_run_id: "PTR-history",
+            results: [
+              {
+                testCaseId: "stored-1",
+                input: "Stored input",
+                expectedBehavior: "Stored expectation",
+                actualResponse: "Stored answer",
+                verdict: "pass",
+                score: 1,
+                reasoning: "stored",
+              },
+            ],
+          }),
+        ),
+      ),
+      http.post(`${API_BASE}/prompts/test-runs`, async ({ request }) => {
+        saved.push((await request.json().catch(() => ({}))) as Record<string, unknown>);
+        return HttpResponse.json(envelope({ test_run_id: "PTR-replay" }), { status: 201 });
+      }),
+      http.get(`${API_BASE}/prompts/test-runs/PTR-replay`, () =>
+        HttpResponse.json(envelope({ test_run_id: "PTR-replay", results: [] })),
+      ),
+    );
+    installRunnableJudge("pass", 1);
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Runs");
+    await user.click(await screen.findByRole("button", { name: "Run tests" }));
+
+    await waitFor(() => expect(saved).toHaveLength(1));
+    expect(saved[0]!.eval_dataset_id).toBeNull();
+    expect(saved[0]!.results).toHaveLength(1);
+  });
+
+  it("shows the run-history empty state when history loading fails", async () => {
+    server.use(
+      http.get(`${API_BASE}/prompts/test-runs`, () =>
+        HttpResponse.json({ detail: "history unavailable" }, { status: 503 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Runs");
+
+    expect(await screen.findByText(/No saved runs yet/)).toBeInTheDocument();
+  });
 });
 
 describe("Prompts — Workspace Bind stage", () => {
@@ -4433,6 +4750,53 @@ describe("Prompts — Workspace Bind stage", () => {
       workflow_id: "WF-001",
       node_id: "classifier",
     });
+  });
+
+  it("supports an explicit standalone binding when no registry targets are available", async () => {
+    const bound: Array<Record<string, unknown>> = [];
+    server.use(
+      http.get(`${API_BASE}/agents`, () =>
+        HttpResponse.json({ detail: "agent registry unavailable" }, { status: 503 }),
+      ),
+      http.get(`${API_BASE}/workflows`, () =>
+        HttpResponse.json({ detail: "workflow registry unavailable" }, { status: 503 }),
+      ),
+      http.post(`${API_BASE}/prompts/:name/bind`, async ({ request }) => {
+        const body = (await request.json().catch(() => ({}))) as Record<string, unknown>;
+        bound.push(body);
+        return HttpResponse.json(envelope({ bound_to: body, status: "Bound" }));
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Bind");
+
+    expect(await screen.findByText("No registered agents to bind to yet.")).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: /Standalone/ }));
+    expect(screen.getByText(/intentionally run on its own/)).toBeInTheDocument();
+    await user.click(screen.getByRole("button", { name: "Bind prompt target" }));
+
+    await waitFor(() => expect(bound).toEqual([{ kind: "standalone" }]));
+  });
+
+  it("surfaces a bind failure without changing the target selection", async () => {
+    server.use(
+      http.post(`${API_BASE}/prompts/:name/bind`, () =>
+        HttpResponse.json({ detail: "binding policy rejected" }, { status: 409 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Bind");
+    await screen.findByLabelText("Select agent to bind");
+    await user.click(screen.getByRole("button", { name: "Bind prompt target" }));
+
+    expect(await screen.findByText("binding policy rejected")).toBeInTheDocument();
+    expect(screen.getByLabelText("Select agent to bind")).toBeInTheDocument();
   });
 });
 
@@ -4670,6 +5034,66 @@ describe("Prompts — search", () => {
     confirmSpy.mockRestore();
   });
 
+  it("reports partial progress when bulk deletion encounters a failure", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    server.use(
+      http.get(`${API_BASE}/prompts`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              agent_id: "support-agent",
+              agent_name: "Support Agent",
+              agent_enabled: true,
+              prompt_name: "support-agent",
+              version: 3,
+              alias: "prod",
+              available_aliases: ["prod"],
+              template_preview: "Support",
+              template_length: 7,
+              approval_id: null,
+              artifact_ref: "prompts:/support-agent@prod",
+              has_prompt: true,
+              needs_prompt: false,
+              source: "caliber",
+            },
+            {
+              agent_id: "billing-agent",
+              agent_name: "Billing Agent",
+              agent_enabled: true,
+              prompt_name: "billing-agent",
+              version: 2,
+              alias: "prod",
+              available_aliases: ["prod"],
+              template_preview: "Billing",
+              template_length: 7,
+              approval_id: null,
+              artifact_ref: "prompts:/billing-agent@prod",
+              has_prompt: true,
+              needs_prompt: false,
+              source: "caliber",
+            },
+          ]),
+        ),
+      ),
+      http.delete(`${API_BASE}/prompts/support-agent`, () =>
+        HttpResponse.json(envelope({ deleted: "support-agent" })),
+      ),
+      http.delete(`${API_BASE}/prompts/billing-agent`, () =>
+        HttpResponse.json({ detail: "billing prompt locked" }, { status: 423 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByText("Billing Agent");
+    await user.click(await screen.findByRole("button", { name: /Delete all \(2\)/ }));
+
+    expect(
+      await screen.findByText(/Deleted 1 prompt\(s\); failed on 1: billing-agent/),
+    ).toBeInTheDocument();
+    confirmSpy.mockRestore();
+  });
+
   it("hides the card delete affordance for non-admins", async () => {
     server.use(
       http.get(`${API_BASE}/me`, () =>
@@ -4876,6 +5300,218 @@ describe("Prompts — Workspace", () => {
     expect(within(bar).getByRole("button", { name: "Clear filters" })).toBeInTheDocument();
   });
 
+  it("renders both inventory groups in list view", async () => {
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await user.click(screen.getByTestId("view-toggle-list"));
+
+    expect(screen.getByTestId("prompt-group-deployed-list")).toBeInTheDocument();
+    expect(screen.getByTestId("prompt-group-needs-prompt-list")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Grid view" })).toHaveAttribute(
+      "aria-pressed",
+      "false",
+    );
+    expect(screen.getByRole("button", { name: "List view" })).toHaveAttribute(
+      "aria-pressed",
+      "true",
+    );
+  });
+
+  it("filters deployed and missing prompts across known and unknown sources", async () => {
+    server.use(
+      http.get(`${API_BASE}/prompts`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              agent_id: "support-agent",
+              agent_name: "Support Agent",
+              agent_enabled: true,
+              prompt_name: "support-agent",
+              version: 3,
+              alias: "prod",
+              available_aliases: ["prod"],
+              template_preview: "Support",
+              template_length: 7,
+              approval_id: null,
+              artifact_ref: "prompts:/support-agent@prod",
+              has_prompt: true,
+              needs_prompt: false,
+              source: "both",
+            },
+            {
+              agent_id: "billing-agent",
+              agent_name: "Billing Agent",
+              agent_enabled: true,
+              prompt_name: null,
+              version: null,
+              alias: "prod",
+              available_aliases: [],
+              template_preview: "",
+              template_length: 0,
+              approval_id: null,
+              artifact_ref: null,
+              has_prompt: false,
+              needs_prompt: true,
+              source: "caliber",
+            },
+            {
+              agent_id: "external-agent",
+              agent_name: "External Agent",
+              agent_enabled: true,
+              prompt_name: "external-agent",
+              version: 1,
+              alias: "prod",
+              available_aliases: ["prod"],
+              template_preview: "External",
+              template_length: 8,
+              approval_id: null,
+              artifact_ref: "models:/external-agent/1",
+              has_prompt: true,
+              needs_prompt: false,
+              source: "new-registry",
+            },
+          ]),
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    const bar = await screen.findByTestId("filter-bar");
+    const source = within(bar).getByRole("combobox", {
+      name: "Filter by source",
+    });
+    const state = within(bar).getByRole("combobox", {
+      name: "Filter by state",
+    });
+
+    expect(within(source).getByRole("option", { name: "new-registry" })).toBeInTheDocument();
+    await user.selectOptions(source, "new-registry");
+    expect(screen.getByTestId("prompt-card-external-agent")).toBeInTheDocument();
+    expect(screen.queryByTestId("prompt-card-support-agent")).not.toBeInTheDocument();
+
+    await user.selectOptions(state, "deployed");
+    expect(screen.getByTestId("prompt-card-external-agent")).toBeInTheDocument();
+    expect(screen.queryByTestId("needs-prompt-card-billing-agent")).not.toBeInTheDocument();
+
+    await user.selectOptions(source, "");
+    await user.selectOptions(state, "needs");
+    expect(screen.getByTestId("needs-prompt-card-billing-agent")).toBeInTheDocument();
+    expect(screen.queryByTestId("prompt-card-support-agent")).not.toBeInTheDocument();
+
+    await user.click(within(bar).getByRole("button", { name: "Clear filters" }));
+    expect(screen.getByTestId("prompt-card-support-agent")).toBeInTheDocument();
+    expect(screen.getByTestId("prompt-card-external-agent")).toBeInTheDocument();
+    expect(screen.getByTestId("needs-prompt-card-billing-agent")).toBeInTheDocument();
+  });
+
+  it("closes edit and version modals from Escape and the backdrop", async () => {
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await user.click((await screen.findAllByRole("button", { name: "Edit" }))[0]!);
+    expect(await screen.findByRole("dialog")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    await user.click((await screen.findAllByRole("button", { name: "Versions" }))[0]!);
+    const dialog = await screen.findByRole("dialog");
+    fireEvent.mouseDown(dialog);
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+  });
+
+  it("shows an empty version state and handles a prompt row without a registry name", async () => {
+    server.use(
+      http.get(`${API_BASE}/prompts`, () =>
+        HttpResponse.json(
+          envelope([
+            {
+              agent_id: "fallback-agent",
+              agent_name: "Fallback Agent",
+              agent_enabled: true,
+              prompt_name: null,
+              version: 1,
+              alias: "prod",
+              available_aliases: ["prod"],
+              template_preview: "Fallback prompt",
+              template_length: 15,
+              approval_id: null,
+              artifact_ref: "prompts:/fallback-agent@prod",
+              has_prompt: true,
+              needs_prompt: false,
+              source: "caliber",
+            },
+          ]),
+        ),
+      ),
+      http.get(`${API_BASE}/prompts/fallback-agent`, () =>
+        HttpResponse.json(envelope({ template: "Fallback template" })),
+      ),
+      http.get(`${API_BASE}/prompts/fallback-agent/versions`, () =>
+        HttpResponse.json(envelope([])),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+
+    await user.click(screen.getByRole("button", { name: "Edit" }));
+    expect(await screen.findByDisplayValue("Fallback template")).toBeInTheDocument();
+    fireEvent.keyDown(window, { key: "Escape" });
+    await waitFor(() => expect(screen.queryByRole("dialog")).not.toBeInTheDocument());
+
+    await user.click(screen.getByRole("button", { name: "Versions" }));
+    expect(await screen.findByText("No versions found.")).toBeInTheDocument();
+  });
+
+  it("renders the workspace fallback tone and workspace load error", async () => {
+    server.use(
+      http.get(`${API_BASE}/prompts/support-agent/workspace`, () =>
+        HttpResponse.json({ detail: "workspace unavailable" }, { status: 503 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await user.click(screen.getByRole("button", { name: "Support Agent" }));
+
+    expect(await screen.findByText("workspace unavailable")).toBeInTheDocument();
+    expect(screen.getByTestId("workspace-status-badge")).toHaveTextContent("Draft");
+  });
+
+  it("uses the neutral workspace badge tone for an unknown lifecycle status", async () => {
+    server.use(
+      http.get(`${API_BASE}/prompts/support-agent/workspace`, () =>
+        HttpResponse.json(
+          envelope({
+            model: "gpt-4.1-mini",
+            version: 3,
+            status: "Pending review",
+            bound_to: null,
+            dataset_id: null,
+            last_run: null,
+          }),
+        ),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await user.click(screen.getByRole("button", { name: "Support Agent" }));
+
+    expect(await screen.findByTestId("workspace-status-badge")).toHaveTextContent(
+      "Pending review",
+    );
+  });
+
   it("mounts the shared VersionPanel and the draft/promote actions on the Author stage", async () => {
     const user = userEvent.setup();
     renderPrompts();
@@ -4892,6 +5528,92 @@ describe("Prompts — Workspace", () => {
     expect(
       screen.getByRole("button", { name: "Save & promote" }),
     ).toBeInTheDocument();
+  });
+
+  it("saves a draft and then promotes the edited template with the audited release payload", async () => {
+    const versions: Array<Record<string, unknown>> = [];
+    const releases: Array<Record<string, unknown>> = [];
+    server.use(
+      http.post(`${API_BASE}/prompts/support-agent/versions`, async ({ request }) => {
+        versions.push((await request.json().catch(() => ({}))) as Record<string, unknown>);
+        return HttpResponse.json(
+          envelope({
+            name: "support-agent",
+            version: 9,
+            uri: "prompts:/support-agent/9",
+            template_preview: "edited",
+            template_length: 6,
+            alias_changed: false,
+            active_alias: "prod",
+          }),
+          { status: 201 },
+        );
+      }),
+      http.post(`${API_BASE}/prompts/support-agent/aliases/:alias`, async ({ params, request }) => {
+        releases.push({ alias: String(params.alias), ...((await request.json().catch(() => ({}))) as Record<string, unknown>) });
+        return HttpResponse.json(
+          envelope({
+            name: "support-agent",
+            alias: String(params.alias),
+            version: 9,
+            operation_id: "REL-author-test",
+            release_status: "applied",
+          }),
+        );
+      }),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Author");
+
+    const template = await screen.findByLabelText("Prompt template");
+    await user.clear(template);
+    await user.type(template, "draft template");
+    await user.type(screen.getByLabelText("Commit message"), "coverage draft");
+    await user.click(screen.getByRole("button", { name: "Save draft" }));
+
+    await waitFor(() => expect(versions).toHaveLength(1));
+    expect(versions[0]).toEqual({
+      template: "draft template",
+      commit_message: "coverage draft",
+    });
+    expect(await screen.findByText("Saved a draft version.")).toBeInTheDocument();
+
+    await user.clear(template);
+    await user.type(template, "promoted template");
+    await user.selectOptions(screen.getByLabelText("Save prompt alias"), "staging");
+    await user.click(screen.getByRole("button", { name: "Save & promote" }));
+
+    await waitFor(() => expect(releases).toHaveLength(1));
+    expect(releases[0]).toMatchObject({
+      alias: "staging",
+      version: 9,
+      gate_state: "none",
+      overridden: false,
+    });
+    expect(await screen.findByText("Saved & promoted a new version.")).toBeInTheDocument();
+  });
+
+  it("surfaces a release failure after the draft version was created", async () => {
+    server.use(
+      http.post(`${API_BASE}/prompts/support-agent/aliases/:alias`, () =>
+        HttpResponse.json({ detail: "release policy rejected" }, { status: 409 }),
+      ),
+    );
+
+    const user = userEvent.setup();
+    renderPrompts();
+    await screen.findByRole("heading", { name: "Prompts" });
+    await openWorkspaceStage(user, "Author");
+    const template = await screen.findByLabelText("Prompt template");
+    await user.clear(template);
+    await user.type(template, "release candidate");
+    await user.click(screen.getByRole("button", { name: "Save & promote" }));
+
+    expect(await screen.findByText("release policy rejected")).toBeInTheDocument();
+    expect(screen.queryByText("Saved & promoted a new version.")).not.toBeInTheDocument();
   });
 });
 
