@@ -11,13 +11,17 @@ They read repository files, so they skip when the tests run from an sdist withou
 
 from __future__ import annotations
 
+import contextlib
 import hashlib
 import os
 import re
 import shutil
+import signal
 import stat
 import subprocess
 import sys
+import threading
+import time
 from pathlib import Path
 
 import pytest
@@ -315,6 +319,82 @@ def test_a_missing_configuration_is_reported(tmp_path: Path) -> None:
     result = _call(_launcher(tmp_path, with_env=False), "up")
     assert result.returncode == 1
     assert "caliber.env is missing" in result.stderr
+
+
+# A gunicorn-shaped server: the parent restarts its worker whenever it dies, and on SIGTERM
+# takes a moment to shut down gracefully. The original `down` sent signals and returned at
+# once, so the Linux CI run (where MLflow's gunicorn behaves like this) found processes still
+# alive; `down` must wait for the whole process group and force-kill what is left.
+_RESPAWNING_SERVER = """
+import os, signal, sys, time
+
+stopping = False
+def on_term(*_):
+    global stopping
+    stopping = True
+signal.signal(signal.SIGTERM, on_term)
+
+def spawn():
+    pid = os.fork()
+    if pid == 0:
+        signal.signal(signal.SIGTERM, signal.SIG_DFL)
+        while True:
+            time.sleep(0.1)
+    return pid
+
+children = [spawn()]
+with open(sys.argv[1], "w") as handle:
+    handle.write("ready")
+while not stopping:
+    done, _ = os.waitpid(-1, os.WNOHANG)
+    if done:
+        children.append(spawn())
+        with open(sys.argv[1] + ".respawned", "w") as handle:
+            handle.write(str(children[-1]))
+    time.sleep(0.05)
+time.sleep(1.5)  # graceful shutdown, as gunicorn's master takes on Linux
+for child in children:
+    try:
+        os.kill(child, signal.SIGTERM)
+    except ProcessLookupError:
+        pass
+"""
+
+
+def test_down_stops_a_server_whose_parent_restarts_its_workers(tmp_path: Path) -> None:
+    launcher = _launcher(tmp_path)
+    ready = tmp_path / "ready"
+    server = subprocess.Popen(
+        [sys.executable, "-c", _RESPAWNING_SERVER, str(ready)], start_new_session=True
+    )
+    # Reap it as soon as it exits, as init does for the launcher's orphaned services; an
+    # unreaped zombie would keep its process group "alive" for `down`.
+    reaper = threading.Thread(target=server.wait, daemon=True)
+    reaper.start()
+    try:
+        for _ in range(100):
+            if ready.exists():
+                break
+            time.sleep(0.05)
+        assert ready.exists(), "the stand-in server did not start"
+        (launcher.parent / "run" / "mlflow.pid").write_text(str(server.pid), encoding="utf-8")
+
+        result = _call(launcher, "down")
+
+        # Checked the moment `down` returns, as verify-installer.sh does: a `down` that only
+        # sends signals returns while the server is still shutting down.
+        survivors = subprocess.run(
+            ["pgrep", "-g", str(server.pid)], capture_output=True, text=True, check=False
+        )
+        assert survivors.stdout.strip() == "", f"processes survived: {survivors.stdout}"
+        assert result.returncode == 0
+        assert "stopped mlflow" in result.stdout
+        assert not (launcher.parent / "run" / "mlflow.pid").exists()
+        reaper.join(timeout=20)
+        assert not reaper.is_alive()
+    finally:
+        with contextlib.suppress(ProcessLookupError):
+            os.killpg(server.pid, signal.SIGKILL)
 
 
 # ---------------------------------------------------------------- docs and CI wiring

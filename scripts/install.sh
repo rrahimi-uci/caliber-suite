@@ -248,13 +248,25 @@ wait_for() { # wait_for URL SECONDS NAME
   echo "caliber: $3 did not answer at $1 within $2s (log: $LOGS/$3.log)" >&2
   return 1
 }
-start() { # start NAME COMMAND...
+start() { # start NAME COMMAND... in its own process group, so `stop` reaches every worker
   local name="$1"; shift
+  set -m
   nohup "$@" >>"$LOGS/$name.log" 2>&1 &
   echo "$!" >"$RUN/$name.pid"
+  set +m
 }
-stop() {
-  if alive "$1"; then kill_tree "$(cat "$RUN/$1.pid")"; echo "stopped $1"; fi
+stop() { # TERM the whole group, wait for a graceful exit, then KILL whatever is left
+  local pid i
+  if alive "$1"; then
+    pid="$(cat "$RUN/$1.pid")"
+    kill -TERM -- "-$pid" 2>/dev/null || kill_tree "$pid"
+    for ((i = 0; i < 30; i++)); do
+      kill -0 -- "-$pid" 2>/dev/null || kill -0 "$pid" 2>/dev/null || break
+      sleep 0.5
+    done
+    kill -KILL -- "-$pid" 2>/dev/null || true
+    echo "stopped $1"
+  fi
   rm -f "$RUN/$1.pid"
 }
 
