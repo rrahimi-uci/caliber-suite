@@ -9,6 +9,7 @@
  * `useApiQuery(queryKey, fetcher)` — the `queryKey` replaces `deps`
  * and gives TanStack Query its cache identity.
  */
+import { useCallback } from "react";
 
 import {
   useQuery,
@@ -81,5 +82,10 @@ export function useInvalidate(): (
   queryKey: readonly unknown[],
 ) => Promise<void> {
   const queryClient = useQueryClient();
-  return (queryKey) => queryClient.invalidateQueries({ queryKey });
+  // Stable across renders: callers list it as an effect dependency (the workflow run event handler
+  // re-ran on every render when this was a new closure each time, cancelling its own refetches).
+  return useCallback(
+    (queryKey) => queryClient.invalidateQueries({ queryKey }),
+    [queryClient],
+  );
 }
