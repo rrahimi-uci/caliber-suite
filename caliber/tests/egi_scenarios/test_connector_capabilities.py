@@ -40,6 +40,8 @@ POST_KEY = "POST /cases/{case_id}/document-requests"
 QUERY_KEY = "GET /document-requests"
 BODY = {"document_type": "pay_statement"}
 QUERY_BUDGET_SECONDS = 1.0
+#: The header the downstream reads its stable key from (a header name, not a credential).
+KEY_HEADER = "Idempotency-Key"  # gitleaks:allow
 
 Tool = Callable[..., dict[str, Any]]
 
@@ -135,8 +137,11 @@ def test_the_current_version_is_accepted(downstream: Downstream) -> None:
 def test_query_by_key_after_lost_response(downstream: Downstream) -> None:
     request, _ = build_tool(downstream, POST_KEY)
     downstream.set_fault("drop_response_after_commit")
-    with pytest.raises(OpenApiExecutionError, match="request failed after 1 attempt"):
+    with pytest.raises(OpenApiExecutionError, match="request failed after 1 attempt") as lost:
         request(**post_input("key-lost"))
+    assert isinstance(lost.value.__cause__, httpx.RemoteProtocolError), (
+        "the cause is kept, the type is not"
+    )
     assert downstream.mutations() == 1, "the downstream committed before the answer was lost"
 
     stored = httpx.get(
@@ -172,11 +177,11 @@ def test_the_connector_can_recover_a_lost_response_by_retrying_with_the_key(
 ) -> None:
     """With ``max_attempts`` above 1 and ``idempotency_key_header`` bound, the executor's own retry replays the
     stored answer: one attempt is lost, the second returns 200 and the downstream committed once."""
-    request, _ = build_tool(
-        downstream, POST_KEY, max_attempts=3, idempotency_key_header="Idempotency-Key"
-    )
+    request, _ = build_tool(downstream, POST_KEY, max_attempts=3, idempotency_key_header=KEY_HEADER)
     downstream.set_fault("drop_response_after_commit")
-    result = request(**post_input("key-retry"))
+    # The retry carries the original If-Match: by then the case is at version 2, and the downstream still
+    # answers from the key (it checks the key before the version).
+    result = request(**post_input("key-retry", version=1))
     assert result["attempts"] == 2
     assert result["status_code"] == 200
     assert downstream.mutations() == 1
@@ -201,7 +206,7 @@ def test_a_derived_input_schema_refuses_the_configured_idempotency_key_input(
     """Finding: ``idempotency_key_header`` reads ``input_data["idempotency_key"]``, but the schema derived from
     the spec has ``additionalProperties: false`` and no such property, so the bound tool rejects it. The key
     has to travel as the spec's own ``Idempotency-Key`` header parameter."""
-    request, _ = build_tool(downstream, POST_KEY, idempotency_key_header="Idempotency-Key")
+    request, _ = build_tool(downstream, POST_KEY, idempotency_key_header=KEY_HEADER)
     with pytest.raises(OpenApiExecutionError, match="idempotency_key"):
         request(path_params={"case_id": CASE}, body=BODY, idempotency_key="key-x")
     assert downstream.mutations() == 0
@@ -211,7 +216,7 @@ def test_the_configured_idempotency_key_header_works_without_a_derived_schema(
     downstream: Downstream,
 ) -> None:
     """The documented path does work when no input schema is applied (a hand-written tool config)."""
-    _, config = build_tool(downstream, POST_KEY, idempotency_key_header="Idempotency-Key")
+    _, config = build_tool(downstream, POST_KEY, idempotency_key_header=KEY_HEADER)
     result = execute_openapi_http_tool(
         execution_config=config,
         input_schema=None,
@@ -256,7 +261,7 @@ def test_retries_are_allowed_when_a_header_is_bound_even_if_no_key_is_sent() -> 
                 "server_url": f"http://127.0.0.1:{server.server_address[1]}",
                 "auth_binding": None,
                 "request_content_types": ["application/json"],
-                "idempotency_key_header": "Idempotency-Key",
+                "idempotency_key_header": KEY_HEADER,
                 "max_attempts": 3,
             },
             input_schema=None,
@@ -270,3 +275,95 @@ def test_retries_are_allowed_when_a_header_is_bound_even_if_no_key_is_sent() -> 
     assert [post["idempotency_key"] for post in _FlakyEndpoint.posts] == [None, None], (
         "two POSTs reached the downstream and neither carried a key"
     )
+
+
+# ---------------------------------------------------------------- what a dispatcher also has to handle
+
+
+def test_a_timeout_after_the_commit_is_recovered_by_retrying_with_the_key(
+    downstream: Downstream,
+) -> None:
+    """The more realistic loss: the answer is late, not dropped. Attempt 1 times out after the commit, attempt 2
+    replays. (The default timeout is 30 s, so loss detection is slow unless the operation sets one.)"""
+    request, _ = build_tool(
+        downstream,
+        POST_KEY,
+        max_attempts=2,
+        timeout_seconds=0.3,
+        idempotency_key_header=KEY_HEADER,
+    )
+    downstream.set_fault("delay_response_seconds", seconds=1)
+    result = request(**post_input("key-slow", version=1))
+    assert result["attempts"] == 2
+    assert result["status_code"] == 200
+    assert downstream.mutations() == 1
+
+
+def test_a_failure_before_the_commit_is_retried_safely(downstream: Downstream) -> None:
+    request, _ = build_tool(downstream, POST_KEY, max_attempts=2, idempotency_key_header=KEY_HEADER)
+    downstream.set_fault("fail_before_commit")
+    result = request(**post_input("key-fail", version=1))
+    assert result["attempts"] == 2
+    assert result["status_code"] == 201
+    assert downstream.mutations() == 1
+
+
+def test_key_reuse_for_another_request_is_a_result_not_an_exception(downstream: Downstream) -> None:
+    """A dispatcher has to classify 412 and 422 itself: the executor returns every 4xx as a normal result and
+    never retries it."""
+    request, _ = build_tool(downstream, POST_KEY)
+    assert request(**post_input("key-reuse"))["status_code"] == 201
+    other = post_input("key-reuse")
+    other["body"] = {"document_type": "bank_statement"}
+    reused = request(**other)
+    assert reused["status_code"] == 422
+    assert reused["attempts"] == 1
+    assert downstream.mutations() == 1
+
+
+def test_a_refused_connection_and_an_egress_block_keep_their_own_cause(
+    downstream: Downstream,
+) -> None:
+    """The cause tells "never left" from "may have committed"; the exception class does not."""
+    request, config = build_tool(downstream, POST_KEY)
+    dead = {**config, "server_url": "http://127.0.0.1:9"}  # nothing listens on the discard port
+    with pytest.raises(OpenApiExecutionError) as refused:
+        execute_openapi_http_tool(
+            execution_config=dead, input_schema=None, input_data=post_input("key-dead")
+        )
+    assert isinstance(refused.value.__cause__, httpx.ConnectError)
+
+    bind_egress_policy(EgressPolicy())  # closed: blocks loopback
+    with pytest.raises(OpenApiExecutionError) as blocked:
+        request(**post_input("key-blocked"))
+    assert not isinstance(blocked.value.__cause__, httpx.TransportError)
+    assert downstream.mutations() == 0
+
+
+def test_header_names_are_exact_in_the_derived_schema(downstream: Downstream) -> None:
+    """Edge cases for the change that decides whether "a key was sent": the derived schema is case-sensitive and
+    typed, and the standard ETag form of ``If-Match`` does not fit an integer-typed spec."""
+    request, _ = build_tool(downstream, POST_KEY)
+    lowercase = post_input("key-case")
+    lowercase["header_params"] = {"idempotency-key": "key-case"}
+    with pytest.raises(OpenApiExecutionError, match="Idempotency-Key|idempotency-key"):
+        request(**lowercase)
+    etag = post_input("key-etag")
+    etag["header_params"]["If-Match"] = '"1"'
+    with pytest.raises(OpenApiExecutionError, match="integer"):
+        request(**etag)
+    keyless = {"path_params": {"case_id": CASE}, "body": BODY}
+    assert request(**keyless)["status_code"] == 400, (
+        "header_params is optional to the schema, required by the system"
+    )
+    assert downstream.mutations() == 0
+
+
+def test_an_imported_tool_has_neither_a_bound_key_header_nor_retries(
+    downstream: Downstream,
+) -> None:
+    """Finding: nothing in the import path sets ``idempotency_key_header`` or ``max_attempts``; the tests above
+    add them by hand."""
+    _, config = build_tool(downstream, POST_KEY)
+    assert "idempotency_key_header" not in config
+    assert "max_attempts" not in config
