@@ -10317,9 +10317,9 @@ This callable takes no public parameters.
 
 Experiments claimed by more than one project or user (admin only).
 
-Such an experiment is hidden from every non-admin until an operator removes the claim that should not
-exist. Each item is ``{"experiment": <canonical id>, "claims": [{"claim", "scope", "agent_id",
-"workflow_id"}, ...]}``; nothing here picks a winner.
+Such an experiment is hidden from every non-admin until an operator removes the claim
+that should not exist. Each item is ``{"experiment": <canonical id>, "claims":
+[{"claim", "scope", "agent_id", "workflow_id"}, ...]}``; nothing here picks a winner.
 
 This callable takes no public parameters.
 
