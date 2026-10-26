@@ -2,6 +2,7 @@
 import assert from "node:assert/strict";
 import fs from "node:fs";
 import { execFileSync } from "node:child_process";
+import { validateReviewedContracts } from "./execution-plan-contracts.mjs";
 
 const plan = JSON.parse(fs.readFileSync(new URL("beta-mvp-execution.json", import.meta.url)));
 const epics = new Map(plan.epics.map((item) => [item.number, item]));
@@ -51,6 +52,7 @@ function visit(number) {
   done.add(number);
 }
 for (const number of graph.keys()) visit(number);
+validateReviewedContracts(plan);
 
 function gh(args, input) {
   return JSON.parse(execFileSync("gh", args, {
@@ -92,7 +94,9 @@ if (process.argv.includes("--live")) {
     for (const label of ["task", `stage:${task.stage.toLowerCase()}`, `priority-${task.priority.toLowerCase()}`]) {
       assert(item.labels.nodes.some((x) => x.name === label), `label ${label} #${task.number}`);
     }
-    assert(item.body.includes(task.scope), `scope drift #${task.number}`);
+    for (const field of ["scope", "files", "tests", "acceptance", "documentation"]) {
+      assert(item.body.includes(task[field]), `${field} drift #${task.number}`);
+    }
     for (const heading of ["## Validation", "## Acceptance criteria", "## Documentation", "## Dependencies"]) {
       assert(item.body.includes(heading), `missing ${heading} #${task.number}`);
     }
