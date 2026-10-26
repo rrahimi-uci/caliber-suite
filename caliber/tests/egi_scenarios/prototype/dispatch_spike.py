@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import os
 import uuid
 from datetime import UTC, datetime
 from typing import Any
@@ -58,7 +59,8 @@ class UnknownEffectError(RuntimeError):
 
 
 CONNECTOR = "document-request"
-TIMEOUT_SECONDS = 5.0
+#: How long one call may take. The kill test raises it for the child so the 20 s delayed answer, not this, bounds the window.
+TIMEOUT_SECONDS = float(os.environ.get("SPIKE_TIMEOUT_SECONDS", "5"))
 
 
 def canonical_args(args: dict[str, Any]) -> str:
@@ -132,17 +134,31 @@ def state_of(session: Session, proposal: dict[str, Any]) -> str:
 
 
 def transition(session: Session, proposal_id: str, to_state: str) -> None:
-    """Move a proposal to ``to_state``; raise :class:`IllegalTransition` unless :data:`TRANSITIONS` allows it."""
+    """Move a proposal to ``to_state``; raise :class:`IllegalTransition` unless :data:`TRANSITIONS` allows it.
+
+    The update is a compare-and-set on the state that was read (``UPDATE ... WHERE state = <current>``), so two
+    actors that both read ``proposed`` cannot both move it to ``dispatched``: the second matches no row and is
+    refused. Without that, the check above the update would be a race, and the sequence #520 copies would let two
+    dispatchers both send.
+    """
     current = session.execute(
         select(spike_proposals.c.state).where(spike_proposals.c.proposal_id == proposal_id)
     ).scalar_one()
     if to_state not in TRANSITIONS.get(current, set()):
         raise IllegalTransition(f"{current} -> {to_state} is not allowed")
-    session.execute(
+    compare_and_set(session, proposal_id, current, to_state)
+
+
+def compare_and_set(session: Session, proposal_id: str, expected: str, to_state: str) -> None:
+    """``UPDATE ... SET state = <to> WHERE state = <expected>``; refused when another actor moved it first."""
+    moved = session.execute(
         update(spike_proposals)
-        .where(spike_proposals.c.proposal_id == proposal_id)
+        .where(spike_proposals.c.proposal_id == proposal_id, spike_proposals.c.state == expected)
         .values(state=to_state)
     )
+    if moved.rowcount != 1:
+        session.rollback()
+        raise IllegalTransition(f"{expected} -> {to_state}: the state changed under this actor")
     session.commit()
 
 
@@ -173,12 +189,27 @@ def send(proposal: dict[str, Any], base_url: str) -> httpx.Response:
         )
 
 
+#: Statuses that do not say whether the request committed: a gateway or server error can come from a proxy in
+#: front of a downstream that did commit. Only a 4xx, which every sensible system returns before it mutates,
+#: is a definite "no".
+AMBIGUOUS_STATUS_FLOOR = 500
+
+
+def _json_or_empty(response: httpx.Response) -> dict[str, Any]:
+    try:
+        body = response.json()
+    except ValueError:
+        return {}
+    return body if isinstance(body, dict) else {}
+
+
 def dispatch(session: Session, proposal: dict[str, Any], base_url: str) -> dict[str, Any]:
     """Send a ``proposed`` proposal. The state is ``dispatched`` *before* the request leaves.
 
-    200 or 201 → ``committed`` (the downstream's request id is stored); a refusal (412, 422, any 4xx or 5xx)
-    → ``failed``. A transport error (a dropped connection, a timeout) means the request may or may not have
-    committed, so the state becomes ``unknown`` and the error propagates: only :func:`reconcile` settles it.
+    200 or 201 → ``committed`` (the downstream's request id is stored); a 4xx refusal (412, 422, ...) →
+    ``failed``. A transport error (a dropped connection, a timeout) **or a 5xx** means the request may or may
+    not have committed, so the state becomes ``unknown`` and the error (or the response) is returned to the
+    caller: only :func:`reconcile` settles it.
     """
     transition(session, proposal["proposal_id"], "dispatched")
     try:
@@ -186,10 +217,12 @@ def dispatch(session: Session, proposal: dict[str, Any], base_url: str) -> dict[
     except httpx.HTTPError:
         transition(session, proposal["proposal_id"], "unknown")
         raise
-    body: dict[str, Any] = response.json()
+    body = _json_or_empty(response)
     if response.status_code in (200, 201):
         _store_request_id(session, proposal["proposal_id"], body.get("request_id"))
         transition(session, proposal["proposal_id"], "committed")
+    elif response.status_code >= AMBIGUOUS_STATUS_FLOOR:
+        transition(session, proposal["proposal_id"], "unknown")
     else:
         transition(session, proposal["proposal_id"], "failed")
     return {"status_code": response.status_code, "body": body, "at": datetime.now(UTC).isoformat()}
@@ -216,10 +249,13 @@ def dependent_action(session: Session, proposal_id: str) -> str:
 def reconcile(session: Session, proposal_id: str, base_url: str) -> str:
     """Settle an ``unknown`` proposal by asking the downstream whether its key committed; return the new state.
 
-    200 → ``committed`` (the downstream's request id is stored); 404 → ``failed``. Any other answer raises and
-    leaves the state ``unknown``: an unreadable system of record is not an answer.
+    200 → ``committed`` (the downstream's request id is stored) provided the stored request is the one this
+    proposal meant: same case and document type, and a request id. 404 → ``failed``. Any other answer, a
+    stored request that does not match, or one without an id raises and leaves the state ``unknown``: an
+    unreadable or contradictory system of record is not an answer. No transaction is open during the call.
     """
     proposal = load_proposal(session, proposal_id)
+    session.commit()  # end the read transaction: nothing is held open across the HTTP call
     if state_of(session, {"proposal_id": proposal_id}) != "unknown":
         raise IllegalTransition("only an unknown proposal is reconciled")
     with httpx.Client(timeout=TIMEOUT_SECONDS) as client:
@@ -227,7 +263,18 @@ def reconcile(session: Session, proposal_id: str, base_url: str) -> str:
             f"{base_url}/document-requests", params={"idempotency_key": proposal["logical_key"]}
         )
     if response.status_code == 200:
-        _store_request_id(session, proposal_id, response.json().get("request_id"))
+        stored = _json_or_empty(response)
+        wanted = proposal["args"]
+        if (
+            stored.get("case_id") != wanted["case_id"]
+            or stored.get("document_type") != wanted["document_type"]
+        ):
+            raise RuntimeError(
+                "the stored request under this key is not the one this proposal meant"
+            )
+        if not stored.get("request_id"):
+            raise RuntimeError("the stored request has no request id")
+        _store_request_id(session, proposal_id, stored["request_id"])
         transition(session, proposal_id, "committed")
         return "committed"
     if response.status_code == 404:

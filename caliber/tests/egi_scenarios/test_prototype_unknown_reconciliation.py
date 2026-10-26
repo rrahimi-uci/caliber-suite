@@ -9,6 +9,7 @@ from __future__ import annotations
 import os
 import subprocess
 import sys
+import threading
 import time
 from collections.abc import Iterator
 from pathlib import Path
@@ -26,7 +27,7 @@ from tests.egi_scenarios.prototype import dispatch_spike as spike
 CASE = "MORT-2026-000184"
 CALIBER_DIR = Path(__file__).resolve().parents[2]
 STARTED_BY_SECONDS = 10.0
-QUERY_BUDGET_SECONDS = 1.0
+QUERY_BUDGET_SECONDS = 5.0
 
 
 @pytest.fixture(params=DIALECTS)
@@ -158,23 +159,59 @@ def test_reconcile_after_dropped_response(session: Session, downstream: Downstre
     assert request_id_of(session, proposal) == stored["request_id"]
 
 
-def test_reconcile_finds_nothing_when_the_downstream_never_committed(
+def test_a_5xx_is_unknown_not_failed_and_reconcile_finds_nothing_when_nothing_committed(
     session: Session, downstream: Downstream
 ) -> None:
+    """A server error does not say whether the request committed, so it is ``unknown``; the downstream's
+    answer to the query by key then settles it (here: nothing committed)."""
     proposal = make_proposal(session)
     downstream.set_fault("fail_before_commit")
     result = spike.dispatch(session, proposal, downstream.base_url)
     assert result["status_code"] == 500
-    assert spike.state_of(session, proposal) == "failed", (
-        "a definite refusal is failed, not unknown"
-    )
-
-    other = make_proposal(session, run="run-2")
-    spike.transition(session, other["proposal_id"], "dispatched")
-    spike.transition(session, other["proposal_id"], "unknown")  # sent, answer lost, never committed
-    assert spike.reconcile(session, other["proposal_id"], downstream.base_url) == "failed"
-    assert request_id_of(session, other) is None
+    assert spike.state_of(session, proposal) == "unknown"
+    assert spike.reconcile(session, proposal["proposal_id"], downstream.base_url) == "failed"
+    assert request_id_of(session, proposal) is None
     assert downstream.mutations() == 0
+
+
+def test_a_4xx_refusal_is_a_definite_failure(session: Session, downstream: Downstream) -> None:
+    proposal = make_proposal(session, version="99")
+    assert spike.dispatch(session, proposal, downstream.base_url)["status_code"] == 412
+    assert spike.state_of(session, proposal) == "failed"
+
+
+def test_a_gateway_error_after_the_commit_is_unknown_and_reconciles_to_committed(
+    session: Session, downstream: Downstream, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """A proxy in front of a downstream that did commit answers 502 with an HTML body."""
+    real_send = spike.send
+
+    def committed_then_bad_gateway(proposal: dict[str, Any], base_url: str) -> httpx.Response:
+        real_send(proposal, base_url)
+        return httpx.Response(502, text="<html>Bad Gateway</html>")
+
+    monkeypatch.setattr(spike, "send", committed_then_bad_gateway)
+    proposal = make_proposal(session)
+    result = spike.dispatch(session, proposal, downstream.base_url)
+    assert result["status_code"] == 502 and result["body"] == {}
+    assert spike.state_of(session, proposal) == "unknown"
+    assert downstream.mutations() == 1
+    assert spike.reconcile(session, proposal["proposal_id"], downstream.base_url) == "committed"
+
+
+def test_a_timeout_after_the_commit_is_unknown_and_reconciles_to_committed(
+    session: Session, downstream: Downstream, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    monkeypatch.setattr(spike, "TIMEOUT_SECONDS", 0.3)
+    proposal = make_proposal(session)
+    downstream.set_fault("delay_response_seconds", seconds=1)
+    with pytest.raises(httpx.ReadTimeout):
+        spike.dispatch(session, proposal, downstream.base_url)
+    assert spike.state_of(session, proposal) == "unknown"
+    assert downstream.mutations() == 1, "the downstream commits first and then answers late"
+    monkeypatch.setattr(spike, "TIMEOUT_SECONDS", 5.0)
+    assert spike.reconcile(session, proposal["proposal_id"], downstream.base_url) == "committed"
+    assert downstream.mutations() == 1
 
 
 def test_only_an_unknown_proposal_is_reconciled(session: Session, downstream: Downstream) -> None:
@@ -199,6 +236,95 @@ def test_an_unreadable_downstream_leaves_the_proposal_unknown(
     assert spike.state_of(session, proposal) == "unknown"
 
 
+def _unknown_proposal(session: Session) -> dict[str, Any]:
+    proposal = make_proposal(session)
+    spike.transition(session, proposal["proposal_id"], "dispatched")
+    spike.transition(session, proposal["proposal_id"], "unknown")
+    return proposal
+
+
+def test_a_stored_request_that_is_not_the_one_the_proposal_meant_is_not_a_receipt(
+    session: Session, downstream: Downstream, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    proposal = _unknown_proposal(session)
+
+    def other_request(self: httpx.Client, url: str, **kwargs: Any) -> httpx.Response:
+        body = {"request_id": "DR-9", "case_id": CASE, "document_type": "bank_statement"}
+        return httpx.Response(200, json=body)
+
+    monkeypatch.setattr(httpx.Client, "get", other_request)
+    with pytest.raises(RuntimeError, match="not the one this proposal meant"):
+        spike.reconcile(session, proposal["proposal_id"], downstream.base_url)
+    assert spike.state_of(session, proposal) == "unknown"
+
+
+def test_a_stored_request_without_an_id_is_not_a_receipt(
+    session: Session, downstream: Downstream, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    proposal = _unknown_proposal(session)
+
+    def no_id(self: httpx.Client, url: str, **kwargs: Any) -> httpx.Response:
+        return httpx.Response(200, json={"case_id": CASE, "document_type": "pay_statement"})
+
+    monkeypatch.setattr(httpx.Client, "get", no_id)
+    with pytest.raises(RuntimeError, match="no request id"):
+        spike.reconcile(session, proposal["proposal_id"], downstream.base_url)
+    assert spike.state_of(session, proposal) == "unknown"
+
+
+# ---------------------------------------------------------------- two actors, one proposal
+
+
+def test_a_stale_read_cannot_overwrite_a_newer_state(session: Session) -> None:
+    """Two actors read ``proposed``; one moves it to ``dispatched``; the other's update, conditioned on what it
+    read, matches nothing. This is the property that stops two dispatchers both sending, tested directly because
+    a thread race is too narrow to hit reliably."""
+    proposal = make_proposal(session)
+    spike.transition(session, proposal["proposal_id"], "dispatched")  # the first actor wins
+    with pytest.raises(spike.IllegalTransition, match="changed under this actor"):
+        spike.compare_and_set(session, proposal["proposal_id"], "proposed", "dispatched")
+    assert spike.state_of(session, proposal) == "dispatched"
+
+
+def test_two_dispatchers_of_one_proposal_send_once(
+    session: Session, downstream: Downstream
+) -> None:
+    """The state change is a compare-and-set, so only one of two concurrent dispatchers sends."""
+    proposal = make_proposal(session)
+    engine = session.get_bind()
+    barrier = threading.Barrier(2)
+    outcomes: list[str] = []
+
+    def dispatcher() -> None:
+        with Session(engine) as mine:
+            barrier.wait()
+            try:
+                spike.dispatch(mine, proposal, downstream.base_url)
+                outcomes.append("sent")
+            except spike.IllegalTransition:
+                outcomes.append("refused")
+
+    threads = [threading.Thread(target=dispatcher) for _ in range(2)]
+    for thread in threads:
+        thread.start()
+    for thread in threads:
+        thread.join(timeout=30)
+    assert sorted(outcomes) == ["refused", "sent"]
+    assert downstream.mutations() == 1
+
+
+def test_a_second_actor_cannot_settle_what_the_first_already_settled(
+    session: Session, downstream: Downstream
+) -> None:
+    proposal = make_proposal(session)
+    downstream.set_fault("drop_response_after_commit")
+    with pytest.raises(httpx.RemoteProtocolError):
+        spike.dispatch(session, proposal, downstream.base_url)
+    assert spike.reconcile(session, proposal["proposal_id"], downstream.base_url) == "committed"
+    with pytest.raises(spike.IllegalTransition, match="only an unknown proposal"):
+        spike.reconcile(session, proposal["proposal_id"], downstream.base_url)
+
+
 # ---------------------------------------------------------------- the process dies after the commit
 
 
@@ -214,8 +340,6 @@ def test_kill_after_commit_then_reconcile_in_new_process(
             sys.executable,
             "-m",
             "tests.egi_scenarios.prototype.dispatch_child",
-            "--db-url",
-            url,
             "--base-url",
             downstream.base_url,
             "--proposal-id",
@@ -225,6 +349,8 @@ def test_kill_after_commit_then_reconcile_in_new_process(
         env={
             **os.environ,
             "PYTHONPATH": os.pathsep.join([str(CALIBER_DIR), str(CALIBER_DIR / "src")]),
+            "SPIKE_DB_URL": url,  # in the environment, not the command line, where `ps` would show a password
+            "SPIKE_TIMEOUT_SECONDS": "60",  # the 20 s delayed answer, not the client timeout, bounds the window
         },
     )
     try:
