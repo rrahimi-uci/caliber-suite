@@ -40,6 +40,7 @@ apply to the configuration is reported as skipped (`ready: null`) and never bloc
 | `code_execution_allowlists` | never | informational: reports not ready while `CALIBER_REGISTERED_TOOL_MODULE_ALLOWLIST` is unset (any module may be registered as a tool) or `CALIBER_EXTERNAL_APP_ENTRYPOINT_ALLOWLIST` is unset (every `external_app` entrypoint is refused) |
 
 The response also carries `providers`, `simulated` and `all_real`, which the app's provider banner reads.
+It also carries `profile` (`development` or `reference`, see [Reference profile](m-64-reference-profile.md)), so an operator can see which rules the process was started under.
 A simulated provider or an unset allowlist does not turn readiness to 503.
 
 `/health` stays a liveness probe: it answers 200 (`status: ok`, `db: ok`) while the process is up and

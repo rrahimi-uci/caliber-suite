@@ -385,3 +385,78 @@ def test_the_development_profile_starts_with_an_armed_barrier(
     """Scenarios arm barriers on development-profile apps; only the reference profile forbids it."""
     monkeypatch.setenv("CALIBER_FAULT_BARRIERS", "before_dispatch")
     assert TestClient(create_app(app_config)).get(HEALTH).status_code == 200
+
+
+# ---------------------------------------------------------------- the operator page
+
+PAGE = Path(__file__).resolve().parents[2] / "docs" / "operate" / "reference-profile.md"
+needs_docs = pytest.mark.skipif(not PAGE.exists(), reason="repository docs not present")
+
+
+def _page_requirements() -> list[list[str]]:
+    section = PAGE.read_text(encoding="utf-8").split("## What it requires", 1)[1]
+    lines = []
+    for line in section.splitlines()[1:]:
+        if line.startswith("|"):
+            lines.append(line)
+        elif lines:
+            break
+    return [[c.strip() for c in line.strip().strip("|").split("|")] for line in lines[2:]]
+
+
+@needs_docs
+def test_operator_page_lists_every_requirement() -> None:
+    from caliber.profile import REFERENCE_REQUIREMENTS
+
+    rows = _page_requirements()
+    assert [row[0].strip("`") for row in rows] == [r.code for r in REFERENCE_REQUIREMENTS]
+    for row, requirement in zip(rows, REFERENCE_REQUIREMENTS, strict=True):
+        assert row[1].strip("`") == requirement.setting
+        assert row[2].strip("`") == requirement.env_var
+        assert row[3] == requirement.required
+        assert row[4] == requirement.why
+
+
+def test_the_requirements_table_matches_the_rules(
+    app_config: CaliberConfig, monkeypatch: pytest.MonkeyPatch
+) -> None:
+    """Every rule has a requirement and every requirement is a rule, with the same code and variable."""
+    from caliber.profile import REFERENCE_REQUIREMENTS
+
+    every_unsafe: dict[str, Any] = {}
+    for settings, _ in UNSAFE.values():
+        every_unsafe.update(settings)
+    monkeypatch.setenv("CALIBER_FAULT_BARRIERS", "before_dispatch")
+    found = reference_profile_violations(_config(app_config, **every_unsafe))
+    assert [(v.code, v.env_var) for v in found] == [
+        (r.code, r.env_var) for r in REFERENCE_REQUIREMENTS
+    ]
+    assert [v.setting for v in found] == [r.setting for r in REFERENCE_REQUIREMENTS]
+
+
+@needs_docs
+def test_the_env_example_on_the_page_passes_the_profile(monkeypatch: pytest.MonkeyPatch) -> None:
+    text = PAGE.read_text(encoding="utf-8")
+    block = text.split("```ini\n", 1)[1].split("```", 1)[0]
+    environ = dict(
+        line.split("=", 1)
+        for line in block.splitlines()
+        if line.strip() and not line.startswith("#")
+    )
+    monkeypatch.delenv("CALIBER_FAULT_BARRIERS", raising=False)
+    config = CaliberConfig.load(environ=environ)
+    assert config.profile == "reference"
+    assert config.admin_users and config.approver_users, (
+        "a usable deployment names its admin and approver"
+    )
+    assert environ["CALIBER_AUTH_BOOTSTRAP_ADMIN_PASSWORD_ENV"], (
+        "the bootstrap password source is named"
+    )
+    assert reference_profile_violations(config) == []
+
+
+@needs_docs
+def test_the_page_is_registered_in_the_docs_site() -> None:
+    manifest = (PAGE.parents[2] / "docs-site" / "build-docs.mjs").read_text(encoding="utf-8")
+    assert 'md: "operate/reference-profile.md"' in manifest
+    assert "stability: beta" in PAGE.read_text(encoding="utf-8").split("---", 2)[1]

@@ -48,6 +48,7 @@ The pages below are the published architecture, workflow, and strategy documenta
 - [Configuration and provider setup](m-48-configuration-and-provider-setup.md): The operator path for configuring CALIBER: ports, database, LLM provider and gateway, object store, workflow storage, and event backend.
 - [Storage and state](m-49-storage-and-state.md): The operator guide to where CALIBER keeps metadata, files, workflow workspaces, and retention-controlled artifacts.
 - [Health and readiness](m-50-health-and-readiness.md): The operator meaning of CALIBER liveness, readiness, and the deeper evidence surfaces to use when a runtime is up but not actually usable.
+- [Reference profile](m-64-reference-profile.md): How to run CALIBER as the reference deployment: the one shape that refuses to start on an unsafe setting, every requirement with its variable and reason, and a configuration that passes.
 - [Operator troubleshooting](m-51-operator-troubleshooting.md): The first-pass diagnosis path for degraded CALIBER deployments before a failure escalates into full runbook recovery.
 - [Backup and recovery](m-52-backup-and-recovery.md): The operator view of what CALIBER state must be preserved, what can be rebuilt, and where disaster recovery stops and asset-specific rollback begins.
 - [Releasing](m-62-releasing.md): How a CALIBER release is cut: version and tag names, what must be green first, building and attaching the wheels, and verifying the release as a tester would.

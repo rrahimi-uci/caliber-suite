@@ -199,6 +199,11 @@ window.DOCS_DATA = {
           "newtab": false
         },
         {
+          "href": "m-64-reference-profile.html",
+          "label": "Reference profile",
+          "newtab": false
+        },
+        {
           "href": "m-51-operator-troubleshooting.html",
           "label": "Operator troubleshooting",
           "newtab": false
@@ -1515,6 +1520,31 @@ window.DOCS_DATA = {
       "nav_hidden": false
     },
     {
+      "href": "m-64-reference-profile.html",
+      "label": "Reference profile",
+      "section": "Operate CALIBER",
+      "section_id": "operate",
+      "summary": "How to run CALIBER as the reference deployment: the one shape that refuses to start on an unsafe setting, every requirement with its variable and reason, and a configuration that passes.",
+      "audience": [
+        "operator"
+      ],
+      "doc_type": "reference",
+      "prerequisites": [
+        "A PostgreSQL database and a way to set environment variables for the CALIBER process"
+      ],
+      "stability": "beta",
+      "reviewed_on": "2026-10-26",
+      "version_applicability": "current main branch docs contract",
+      "tags": [
+        "reference-profile",
+        "configuration",
+        "security",
+        "operations"
+      ],
+      "newtab": false,
+      "nav_hidden": false
+    },
+    {
       "href": "m-50-health-and-readiness.html",
       "label": "Health and readiness",
       "section": "Operate CALIBER",
@@ -1529,7 +1559,7 @@ window.DOCS_DATA = {
         "A running CALIBER deployment"
       ],
       "stability": "ga",
-      "reviewed_on": "2026-10-14",
+      "reviewed_on": "2026-10-26",
       "version_applicability": "current main branch docs contract",
       "tags": [
         "health",
