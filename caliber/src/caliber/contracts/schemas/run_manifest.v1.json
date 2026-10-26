@@ -1,0 +1,192 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caliber.dev/schemas/run_manifest.v1.json",
+  "title": "RunManifest: what a workflow run was pinned to and who started it",
+  "type": "object",
+  "properties": {
+    "schema_version": {
+      "const": "v1"
+    },
+    "manifest_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "workflow_run_id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "tenant_id": {
+      "type": "string",
+      "minLength": 1,
+      "default": "local"
+    },
+    "region": {
+      "type": "string",
+      "minLength": 1,
+      "default": "local"
+    },
+    "residency": {
+      "type": "string",
+      "minLength": 1,
+      "default": "local"
+    },
+    "pins": {
+      "type": "object",
+      "properties": {
+        "workflow_version": {
+          "type": "string",
+          "minLength": 1
+        },
+        "bundle_digest": {
+          "type": "string",
+          "minLength": 1
+        },
+        "prompt_versions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "tool_versions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "skill_versions": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "knowledge_base_versions": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "knowledge_base_id": {
+                "type": "string",
+                "minLength": 1
+              },
+              "version_id": {
+                "type": "string",
+                "minLength": 1
+              }
+            },
+            "required": [
+              "knowledge_base_id",
+              "version_id"
+            ],
+            "additionalProperties": false
+          }
+        },
+        "model_routes": {
+          "type": "array",
+          "items": {
+            "type": "string",
+            "minLength": 1
+          }
+        },
+        "policy_version": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "workflow_version",
+        "bundle_digest",
+        "prompt_versions",
+        "tool_versions",
+        "skill_versions",
+        "knowledge_base_versions",
+        "model_routes",
+        "policy_version"
+      ],
+      "additionalProperties": false
+    },
+    "subject": {
+      "type": "object",
+      "properties": {
+        "user_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "auth_method": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "user_id",
+        "auth_method"
+      ],
+      "additionalProperties": false
+    },
+    "workload": {
+      "type": "object",
+      "properties": {
+        "workload_id": {
+          "type": "string",
+          "minLength": 1
+        },
+        "name": {
+          "type": "string",
+          "minLength": 1
+        },
+        "workflow_version_digest": {
+          "type": "string",
+          "minLength": 1
+        }
+      },
+      "required": [
+        "workload_id",
+        "name",
+        "workflow_version_digest"
+      ],
+      "additionalProperties": false
+    },
+    "purpose": {
+      "type": "string",
+      "minLength": 1
+    },
+    "legacy": {
+      "type": "boolean",
+      "default": false
+    },
+    "rule_bundle_path": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "rule_bundle_sha256": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "created_at": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    }
+  },
+  "required": [
+    "schema_version",
+    "manifest_id",
+    "workflow_run_id",
+    "tenant_id",
+    "region",
+    "pins",
+    "subject",
+    "workload",
+    "purpose",
+    "created_at"
+  ],
+  "additionalProperties": false
+}

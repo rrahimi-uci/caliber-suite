@@ -1,0 +1,8 @@
+{
+  "schema_version": "v9",
+  "approval_request_id": "ar-0001",
+  "decision": "approve",
+  "decided_by": "approver_a",
+  "decided_at": "2026-10-26T09:05:00Z",
+  "reason": "matches the case file"
+}

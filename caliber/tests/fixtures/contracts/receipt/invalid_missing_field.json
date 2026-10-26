@@ -1,0 +1,8 @@
+{
+  "schema_version": "v1",
+  "proposal_id": "pr-0001",
+  "downstream_request_id": "dr-0001",
+  "response_digest": "sha256:dddd",
+  "verified_by": "query",
+  "verified_at": "2026-10-26T09:00:05Z"
+}

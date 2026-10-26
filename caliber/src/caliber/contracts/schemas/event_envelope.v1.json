@@ -1,0 +1,67 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "$id": "https://caliber.dev/schemas/event_envelope.v1.json",
+  "title": "EventEnvelope: a CloudEvents 1.0 envelope; the payload is referenced, never inline",
+  "type": "object",
+  "properties": {
+    "specversion": {
+      "const": "1.0"
+    },
+    "id": {
+      "type": "string",
+      "minLength": 1
+    },
+    "source": {
+      "type": "string",
+      "minLength": 1
+    },
+    "type": {
+      "type": "string",
+      "minLength": 1
+    },
+    "time": {
+      "type": "string",
+      "format": "date-time",
+      "pattern": "^\\d{4}-\\d{2}-\\d{2}T\\d{2}:\\d{2}:\\d{2}(\\.\\d+)?(Z|[+-]\\d{2}:\\d{2})$"
+    },
+    "tenantid": {
+      "type": "string",
+      "minLength": 1,
+      "default": "local"
+    },
+    "correlationid": {
+      "type": "string",
+      "minLength": 1
+    },
+    "causationid": {
+      "type": [
+        "string",
+        "null"
+      ],
+      "minLength": 1
+    },
+    "traceparent": {
+      "type": "string",
+      "minLength": 1,
+      "pattern": "^[0-9a-f]{2}-[0-9a-f]{32}-[0-9a-f]{16}-[0-9a-f]{2}$"
+    },
+    "dataref": {
+      "type": "string",
+      "minLength": 1
+    },
+    "datahash": {
+      "type": "string",
+      "minLength": 1
+    }
+  },
+  "required": [
+    "specversion",
+    "id",
+    "source",
+    "type",
+    "time",
+    "tenantid",
+    "correlationid"
+  ],
+  "additionalProperties": false
+}

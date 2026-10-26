@@ -1,0 +1,20 @@
+{
+  "schema_version": "v1",
+  "proposal_id": "pr-0001",
+  "workflow_run_id": "run-0001",
+  "node_id": "request_document",
+  "logical_key": "MORT-2026-000184:pay_statement",
+  "intent_hash": "sha256:cccc",
+  "effect_class": "irreversible_write",
+  "target": {
+    "connector": "document-request",
+    "resource": "cases/MORT-2026-000184/document-requests"
+  },
+  "args": {
+    "document_type": "pay_statement"
+  },
+  "expected_resource_version": "1",
+  "state": "proposed",
+  "tenant_id": "local",
+  "region": "local"
+}
