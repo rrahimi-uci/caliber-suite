@@ -2,11 +2,13 @@
 
 Two layers: the app is exercised in-process (fast, and measurable by coverage), and the real process
 the ``downstream`` fixture starts is used for what only a process can show: a connection dropped after
-commit, state kept across a restart, nothing left running at teardown.
+commit, the commit happening before a delayed answer, state kept across a restart, a stop that does not
+wait for a request in flight, nothing left running at teardown.
 """
 
 from __future__ import annotations
 
+import contextlib
 import json
 import threading
 import time
@@ -17,7 +19,7 @@ import httpx
 import pytest
 from starlette.testclient import TestClient
 
-from tests.egi_scenarios.conftest import Downstream, free_port
+from tests.egi_scenarios.conftest import START_TIMEOUT_SECONDS, Downstream, free_port
 from tests.egi_scenarios.downstream import app as downstream_app
 from tests.egi_scenarios.downstream.app import SEED_PATH, build_server, create_app
 
@@ -34,13 +36,6 @@ def _key(name: str, headers: dict[str, str] | None = None) -> dict[str, str]:
 def app(tmp_path: Path) -> Iterator[TestClient]:
     with TestClient(create_app(str(tmp_path / "downstream.db"))) as client:
         yield client
-
-
-@pytest.fixture(autouse=True)
-def _clean(request: pytest.FixtureRequest) -> None:
-    """Tests that use the shared process start from the seed."""
-    if "downstream" in request.fixturenames:
-        request.getfixturevalue("downstream").reset()
 
 
 def _mutations(client: TestClient) -> int:
@@ -100,6 +95,24 @@ def test_a_replay_is_answered_even_though_its_if_match_is_now_stale(app: TestCli
     assert _mutations(app) == 1
 
 
+@pytest.mark.parametrize(
+    ("url", "body"),
+    [
+        (POST, {"document_type": "id_card"}),  # same case, different document
+        ("/cases/OTHER/document-requests", BODY),  # different case, same document
+    ],
+)
+def test_reusing_a_key_for_a_different_request_is_422_and_commits_nothing(
+    app: TestClient, url: str, body: dict[str, str]
+) -> None:
+    """A stable key never changes meaning; a retry that does so is a bug the test should see."""
+    assert app.post(POST, json=BODY, headers=_key("k1")).status_code == 201
+    clash = app.post(url, json=body, headers=_key("k1"))
+    assert clash.status_code == 422
+    assert clash.json() == {"error": "idempotency_key_reuse"}
+    assert _mutations(app) == 1
+
+
 def test_a_new_key_gets_a_new_request_and_version(app: TestClient) -> None:
     app.post(POST, json=BODY, headers=_key("k1"))
     second = app.post(POST, json={"document_type": "id_card"}, headers=_key("k2"))
@@ -126,7 +139,13 @@ def test_a_current_if_match_is_accepted(app: TestClient) -> None:
         ({}, BODY),  # no Idempotency-Key
         (_key("k"), {}),  # no document_type
         (_key("k"), []),  # body is not an object
+        (_key("k"), {"document_type": None}),  # would have been stored as the text "None"
+        (_key("k"), {"document_type": 7}),
+        (_key("k"), {"document_type": "   "}),
         (_key("k", {"If-Match": "not-a-number"}), BODY),
+        (_key("k", {"If-Match": "1_0"}), BODY),  # int() would accept this as 10
+        (_key("k", {"If-Match": '"3"'}), BODY),  # a quoted ETag is not a version number
+        (_key("k", {"If-Match": ""}), BODY),  # present but empty is not "absent"
     ],
 )
 def test_invalid_requests_are_400_and_commit_nothing(
@@ -198,16 +217,37 @@ def test_delay_response(app: TestClient) -> None:
     assert response.status_code == 201
     assert time.monotonic() - started >= 0.3
     assert _mutations(app) == 1
-    started = time.monotonic()
-    assert app.post(POST, json=BODY, headers=_key("k2")).status_code == 201
-    assert time.monotonic() - started < 0.3, "the delay fault is consumed by one request"
+    consumed = {"fault": "none", "seconds": 0.0}
+    assert app.get("/_test/faults").json() == consumed, "taken by that request"
 
 
-def test_a_fault_is_not_consumed_by_a_replay_that_commits_nothing(app: TestClient) -> None:
+def test_an_armed_fault_is_visible_until_a_committing_request_takes_it(app: TestClient) -> None:
+    app.post("/_test/faults", json={"fault": "fail_before_commit"})
+    assert app.get("/_test/faults").json() == {"fault": "fail_before_commit", "seconds": 0.0}
+    assert app.post(POST, json=BODY, headers=_key("k1")).status_code == 500
+    assert app.get("/_test/faults").json() == {"fault": "none", "seconds": 0.0}
+
+
+@pytest.mark.parametrize(
+    ("headers", "body", "url"),
+    [
+        pytest.param(_key("k1"), BODY, POST, id="replay"),
+        pytest.param({}, BODY, POST, id="missing-key-400"),
+        pytest.param(_key("k2"), {}, POST, id="invalid-body-400"),
+        pytest.param(_key("k3"), BODY, "/cases/NOPE/document-requests", id="unknown-case-404"),
+        pytest.param(_key("k4", {"If-Match": "9"}), BODY, POST, id="stale-412"),
+        pytest.param(_key("k1"), {"document_type": "id_card"}, POST, id="key-reuse-422"),
+    ],
+)
+def test_a_request_that_would_not_commit_leaves_the_armed_fault_in_place(
+    app: TestClient, headers: dict[str, str], body: object, url: str
+) -> None:
+    """A fault belongs to the next POST that commits; refusing or replaying one is not that POST."""
     app.post(POST, json=BODY, headers=_key("k1"))
-    app.post("/_test/faults", json={"fault": "drop_response_after_commit"})
-    replay = app.post(POST, json=BODY, headers=_key("k1"))
-    assert replay.status_code == 200, "a replay commits nothing, so there is nothing to drop"
+    app.post("/_test/faults", json={"fault": "fail_before_commit"})
+    app.post(url, json=body, headers=headers)
+    assert app.get("/_test/faults").json()["fault"] == "fail_before_commit"
+    assert app.post(POST, json=BODY, headers=_key("fresh")).status_code == 500, "now it fires"
 
 
 def test_dropping_without_the_droppable_server_surfaces_as_an_error(app: TestClient) -> None:
@@ -221,6 +261,39 @@ def test_an_unknown_fault_is_rejected(app: TestClient) -> None:
     response = app.post("/_test/faults", json={"fault": "meteor"})
     assert response.status_code == 400
     assert "drop_response_after_commit" in response.json()["allowed"]
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"seconds": 1},  # no fault named
+        {"fault": "delay_response_seconds", "seconds": "soon"},
+        {"fault": "delay_response_seconds", "seconds": None},
+        {"fault": "delay_response_seconds"},  # a delay of nothing is a silent no-op
+        {"fault": "delay_response_seconds", "seconds": 0},
+        [],
+    ],
+)
+def test_a_malformed_fault_request_is_400_and_arms_nothing(app: TestClient, body: object) -> None:
+    assert app.post("/_test/faults", json=body).status_code == 400
+    assert app.get("/_test/faults").json()["fault"] == "none"
+
+
+def test_a_fault_request_that_is_not_json_is_400(app: TestClient) -> None:
+    assert app.post("/_test/faults", content=b"{").status_code == 400
+
+
+def test_a_failure_mid_transaction_rolls_back_and_leaves_the_service_usable(tmp_path: Path) -> None:
+    """A lone surrogate cannot be encoded by SQLite, so the INSERT fails after the UPDATE succeeded."""
+    app_under_test = create_app(str(tmp_path / "d.db"))
+    with TestClient(app_under_test, raise_server_exceptions=False) as client:
+        body = b'{"document_type": "\\ud800"}'
+        assert client.post(POST, content=body, headers=_key("k1")).status_code == 500
+        assert _mutations(client) == 0, "no half-written mutation is visible"
+        assert client.get(f"/cases/{CASE}").json()["version"] == 1
+        # Without a rollback every later request failed: "cannot start a transaction within a transaction".
+        assert client.post(POST, json=BODY, headers=_key("k2")).status_code == 201
+        assert _mutations(client) == 1
 
 
 def test_reset_restores_seed(app: TestClient) -> None:
@@ -361,7 +434,7 @@ def test_a_restart_clears_an_armed_fault(downstream: Downstream) -> None:
 def test_fixture_starts_within_5_seconds(downstream: Downstream) -> None:
     started = time.monotonic()
     downstream.restart()
-    assert time.monotonic() - started < 5.0
+    assert time.monotonic() - started < START_TIMEOUT_SECONDS
     assert downstream.running
 
 
@@ -385,3 +458,85 @@ def test_a_process_that_exits_at_startup_is_reported_with_its_log(tmp_path: Path
     with pytest.raises(RuntimeError, match="exited at startup"):
         handle.start()
     handle.close()
+
+
+def test_the_commit_happens_before_a_delayed_answer(downstream: Downstream) -> None:
+    """A delayed response must leave the mutation already committed: a restart test relies on that."""
+    downstream.set_fault("delay_response_seconds", 1.5)
+    outcome: dict[str, int] = {}
+
+    def slow_post() -> None:
+        with httpx.Client(base_url=downstream.base_url, timeout=10) as client:
+            outcome["status"] = client.post(POST, json=BODY, headers=_key("slow")).status_code
+
+    thread = threading.Thread(target=slow_post)
+    thread.start()
+    try:
+        deadline = time.monotonic() + 1.0
+        while downstream.mutations() == 0 and time.monotonic() < deadline:
+            time.sleep(0.02)
+        assert downstream.mutations() == 1, "committed while the response is still being held"
+        assert thread.is_alive(), "and the client is still waiting for its answer"
+        assert "status" not in outcome
+    finally:
+        thread.join(timeout=10)
+    assert outcome == {"status": 201}
+
+
+def test_a_drop_fault_is_consumed_by_exactly_one_request(downstream: Downstream) -> None:
+    downstream.set_fault("drop_response_after_commit")
+    with pytest.raises(httpx.TransportError):
+        downstream.client.post(POST, json=BODY, headers=_key("dropped"))
+    answered = downstream.client.post(POST, json=BODY, headers=_key("next"))
+    assert answered.status_code == 201, "the next committing request is not dropped"
+    assert downstream.mutations() == 2
+
+
+def test_fail_before_commit_through_the_process(downstream: Downstream) -> None:
+    downstream.set_fault("fail_before_commit")
+    assert downstream.client.post(POST, json=BODY, headers=_key("k1")).status_code == 500
+    assert downstream.mutations() == 0
+    assert downstream.query("k1") is None
+    assert downstream.client.post(POST, json=BODY, headers=_key("k1")).status_code == 201
+
+
+def test_reset_through_the_process_restores_the_seed(downstream: Downstream) -> None:
+    downstream.client.post(POST, json=BODY, headers=_key("k1"))
+    downstream.set_fault("drop_response_after_commit")
+    downstream.reset()
+    assert downstream.mutations() == 0
+    assert downstream.client.get(f"/cases/{CASE}").json()["version"] == 1
+    assert downstream.client.get("/_test/faults").json()["fault"] == "none"
+    assert downstream.query("k1") is None
+
+
+def test_each_test_starts_from_the_seed(downstream: Downstream) -> None:
+    """conftest resets the shared process before every test that uses it, whatever ran before."""
+    assert downstream.mutations() == 0
+    assert downstream.client.get(f"/cases/{CASE}").json()["version"] == 1
+
+
+def test_stopping_does_not_wait_for_a_request_in_flight(downstream: Downstream) -> None:
+    """A long delay fault must not turn the next restart or teardown into a multi-second wait."""
+    downstream.set_fault("delay_response_seconds", 20)
+
+    def held_post() -> None:
+        with httpx.Client(base_url=downstream.base_url, timeout=30) as client:
+            with contextlib.suppress(httpx.TransportError):
+                client.post(POST, json=BODY, headers=_key("held"))
+
+    thread = threading.Thread(target=held_post)
+    thread.start()
+    deadline = time.monotonic() + 2
+    while downstream.mutations() == 0 and time.monotonic() < deadline:
+        time.sleep(0.02)
+    assert downstream.mutations() == 1, "the request is in flight, its mutation committed"
+
+    started = time.monotonic()
+    downstream.restart()
+    elapsed = time.monotonic() - started
+    thread.join(timeout=10)
+
+    assert elapsed < 3.5, f"stop waited {elapsed:.1f}s for a request in flight"
+    assert not thread.is_alive()
+    assert downstream.mutations() == 1, "the committed mutation survived the restart"

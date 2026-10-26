@@ -22,7 +22,8 @@ import httpx
 import pytest
 
 APP_PATH = Path(__file__).parent / "downstream" / "app.py"
-START_TIMEOUT_SECONDS = 5.0
+#: How long ``start()`` waits for ``/health``. Raise it with the environment variable on a loaded CI runner.
+START_TIMEOUT_SECONDS = float(os.environ.get("EGI_DOWNSTREAM_START_TIMEOUT", "5"))
 STOP_TIMEOUT_SECONDS = 5.0
 
 
@@ -65,7 +66,8 @@ class Downstream:
             if self._proc.poll() is not None:
                 raise RuntimeError(f"downstream exited at startup:\n{self._log_path.read_text()}")
             try:
-                if self.client.get("/health").status_code == 200:
+                if self.client.get("/health").status_code == 200 and self._proc.poll() is None:
+                    # Our process is alive and something answered: not a stray process on the port.
                     return
             except httpx.TransportError:
                 time.sleep(0.05)
@@ -128,8 +130,19 @@ class Downstream:
 @pytest.fixture(scope="session")
 def downstream(tmp_path_factory: pytest.TempPathFactory) -> Iterator[Downstream]:
     handle = Downstream(tmp_path_factory.mktemp("downstream"))
-    handle.start()
     try:
+        handle.start()
         yield handle
     finally:
         handle.close()
+
+
+@pytest.fixture(autouse=True)
+def _fresh_downstream(request: pytest.FixtureRequest) -> None:
+    """A test that uses ``downstream`` starts from the seed: version 1, no requests, no armed fault.
+
+    The process is shared for the session, so without this a test would see the previous test's
+    mutation count, request ids and case version, and its assertions would depend on test order.
+    """
+    if "downstream" in request.fixturenames:
+        request.getfixturevalue("downstream").reset()

@@ -9,15 +9,19 @@ Behaviour the effect tests rely on (gap analysis section 13, scenario V07):
 
 * **Stable-key idempotency.** ``POST /cases/{id}/document-requests`` needs an ``Idempotency-Key``. The
   first request with a key commits one mutation and returns 201; every later request with the same key
-  returns 200 with the stored body and commits nothing, *whatever* its ``If-Match``. A retry after a lost
-  response must be able to read the original result.
+  and the same case and ``document_type`` returns 200 with the stored body and commits nothing, *whatever*
+  its ``If-Match``: a retry after a lost response must be able to read the original result. The same key
+  with a *different* case or ``document_type`` is a key reused for another request, which a stable key
+  never is, so it returns 422 and commits nothing.
 * **Expected-version precondition.** An ``If-Match`` that is not the case's current version returns 412
   and commits nothing. The version increases by one per mutation; ``case_version`` in a response is the
   version *after* the mutation.
 * **Query by key.** ``GET /document-requests?idempotency_key=...`` answers "did my request commit?".
-* **Fault injection** (``/_test/*``, not in the OpenAPI document): the next ``POST`` can commit and then
-  never answer (``drop_response_after_commit``), commit and answer late (``delay_response_seconds``), or
-  fail before committing (``fail_before_commit``).
+* **Fault injection** (``/_test/*``, not in the OpenAPI document): the next ``POST`` that would commit can
+  commit and then never answer (``drop_response_after_commit``), commit and answer late
+  (``delay_response_seconds``; the commit happens first), or fail before committing
+  (``fail_before_commit``). A request that is refused (400, 404, 412, 422) or replayed does not consume the
+  fault, because it would not have committed anyway. ``GET /_test/faults`` shows what is armed.
 * **A mutation counter** (``GET /_test/mutations``) that counts committed mutations.
 
 State lives in a SQLite file, so a restarted process keeps it; faults live in memory and are cleared by
@@ -30,8 +34,10 @@ import argparse
 import asyncio
 import json
 import os
+import re
 import sqlite3
 import threading
+from collections.abc import Callable
 from pathlib import Path
 from typing import Any
 
@@ -129,39 +135,52 @@ class _Store:
         key: str,
         document_type: str,
         expected_version: int | None,
-        *,
-        fail_before_commit: bool,
-    ) -> tuple[int, dict[str, Any]]:
-        """Return ``(status, body)``: 201 created, 200 replay, 404 no case, 412 stale, 500 injected."""
+        take_fault: Callable[[], tuple[str, float]],
+    ) -> tuple[int, dict[str, Any], str, float]:
+        """Return ``(status, body, fault, seconds)``.
+
+        Status: 201 created, 200 replay, 404 no case, 412 stale, 422 key reused for another request,
+        500 injected. ``take_fault`` is called only when a commit is about to be attempted, so a refused
+        or replayed request leaves an armed fault in place.
+        """
         with self._lock:
             existing = self._db.execute(
                 "SELECT * FROM document_requests WHERE idempotency_key = ?", (key,)
             ).fetchone()
             if existing is not None:
-                return 200, _receipt(existing)
+                if existing["case_id"] != case_id or existing["document_type"] != document_type:
+                    return 422, {"error": "idempotency_key_reuse"}, "none", 0.0
+                return 200, _receipt(existing), "none", 0.0
             case = self._db.execute("SELECT * FROM cases WHERE case_id = ?", (case_id,)).fetchone()
             if case is None:
-                return 404, {"error": "case_not_found"}
+                return 404, {"error": "case_not_found"}, "none", 0.0
             if expected_version is not None and expected_version != case["version"]:
-                return 412, {"error": "stale_version", "current_version": case["version"]}
-            if fail_before_commit:
-                return 500, {"error": "injected_failure_before_commit"}
+                body = {"error": "stale_version", "current_version": case["version"]}
+                return 412, body, "none", 0.0
+            fault, seconds = take_fault()
+            if fault == "fail_before_commit":
+                return 500, {"error": "injected_failure_before_commit"}, fault, seconds
             self._db.execute("BEGIN")
-            new_version = case["version"] + 1
-            self._db.execute(
-                "UPDATE cases SET version = ? WHERE case_id = ?", (new_version, case_id)
-            )
-            self._db.execute("INSERT INTO mutations DEFAULT VALUES")
-            mutation_id = self._db.execute("SELECT last_insert_rowid()").fetchone()[0]
-            request_id = f"DR-{mutation_id:04d}"
-            self._db.execute(
-                "INSERT INTO document_requests"
-                " (request_id, case_id, idempotency_key, document_type, case_version)"
-                " VALUES (?, ?, ?, ?, ?)",
-                (request_id, case_id, key, document_type, new_version),
-            )
-            self._db.execute("COMMIT")
-            return 201, {"request_id": request_id, "case_version": new_version}
+            try:
+                new_version = case["version"] + 1
+                self._db.execute(
+                    "UPDATE cases SET version = ? WHERE case_id = ?", (new_version, case_id)
+                )
+                self._db.execute("INSERT INTO mutations DEFAULT VALUES")
+                mutation_id = self._db.execute("SELECT last_insert_rowid()").fetchone()[0]
+                request_id = f"DR-{mutation_id:04d}"
+                self._db.execute(
+                    "INSERT INTO document_requests"
+                    " (request_id, case_id, idempotency_key, document_type, case_version)"
+                    " VALUES (?, ?, ?, ?, ?)",
+                    (request_id, case_id, key, document_type, new_version),
+                )
+                self._db.execute("COMMIT")
+            except BaseException:
+                # A half-written mutation must never be visible or leave the connection mid-transaction.
+                self._db.execute("ROLLBACK")
+                raise
+            return 201, {"request_id": request_id, "case_version": new_version}, fault, seconds
 
 
 def _receipt(row: sqlite3.Row) -> dict[str, Any]:
@@ -177,6 +196,9 @@ class _Faults:
 
     def arm(self, fault: str, seconds: float) -> None:
         self.fault, self.seconds = fault, seconds
+
+    def armed(self) -> dict[str, Any]:
+        return {"fault": self.fault, "seconds": self.seconds}
 
     def take(self) -> tuple[str, float]:
         taken = (self.fault, self.seconds)
@@ -247,6 +269,9 @@ def _openapi_document(base_url: str) -> dict[str, Any]:
                         "400": {"description": "Missing Idempotency-Key or invalid body"},
                         "404": {"description": "No such case"},
                         "412": {"description": "If-Match is not the current case version"},
+                        "422": {
+                            "description": "The Idempotency-Key was used for a different request"
+                        },
                     },
                 }
             },
@@ -290,28 +315,27 @@ class _DocumentRequests:
             return JSONResponse({"error": "idempotency_key_required"}, status_code=400)
         if_match = request.headers.get("if-match")
         try:
-            expected = int(if_match) if if_match else None
             body = await request.json()
-            document_type = str(body["document_type"])
+            document_type = body["document_type"]
         except (ValueError, KeyError, TypeError):
             return JSONResponse({"error": "invalid_request"}, status_code=400)
-        fault, seconds = self._faults.take()
-        status, payload = self._store.create_request(
-            request.path_params["case_id"],
-            key,
-            document_type,
-            expected,
-            fail_before_commit=fault == "fail_before_commit",
+        if not isinstance(document_type, str) or not document_type.strip():
+            return JSONResponse({"error": "invalid_document_type"}, status_code=400)
+        if if_match is not None and not re.fullmatch(r"\d+", if_match.strip()):
+            return JSONResponse({"error": "invalid_if_match"}, status_code=400)
+        expected = int(if_match) if if_match is not None else None
+        status, payload, fault, seconds = self._store.create_request(
+            request.path_params["case_id"], key, document_type, expected, self._faults.take
         )
         if status == 201 and fault == "drop_response_after_commit":
-            _drop_connection(scope)
+            await _drop_connection(scope)
             return None
         if status == 201 and fault == "delay_response_seconds":
             await asyncio.sleep(seconds)
         return JSONResponse(payload, status_code=status)
 
 
-def _drop_connection(scope: Scope) -> None:
+async def _drop_connection(scope: Scope) -> None:
     """Close the client's connection without writing a response, after the mutation committed."""
     transport = scope.get("extensions", {}).get(TRANSPORT_EXTENSION)
     if transport is None:
@@ -319,6 +343,9 @@ def _drop_connection(scope: Scope) -> None:
         # closest equivalent, since the client then also sees no response body.
         raise ConnectionAbortedError("response dropped after commit")
     transport.abort()
+    # Let uvicorn process the disconnect before the app returns; otherwise it logs that the app
+    # "returned without starting response" and tries to answer 500 on a closed socket.
+    await asyncio.sleep(0)
 
 
 def create_app(db_path: str) -> Starlette:
@@ -355,13 +382,21 @@ def create_app(db_path: str) -> Starlette:
         return JSONResponse({"ok": True})
 
     async def arm_fault(request: Request) -> Response:
-        body = await request.json()
-        fault = body.get("fault")
+        if request.method == "GET":
+            return JSONResponse(faults.armed())
+        try:
+            body = await request.json()
+            fault = body["fault"]
+            seconds = float(body.get("seconds", 0))
+        except (ValueError, KeyError, TypeError, AttributeError):
+            return JSONResponse({"error": "invalid_request"}, status_code=400)
         if fault not in FAULTS:
             return JSONResponse(
                 {"error": "unknown_fault", "allowed": list(FAULTS)}, status_code=400
             )
-        faults.arm(fault, float(body.get("seconds", 0)))
+        if fault == "delay_response_seconds" and seconds <= 0:
+            return JSONResponse({"error": "delay_needs_positive_seconds"}, status_code=400)
+        faults.arm(fault, seconds)
         return JSONResponse({"ok": True})
 
     return Starlette(
@@ -377,7 +412,7 @@ def create_app(db_path: str) -> Starlette:
             Route("/document-requests", get_by_key),
             Route("/_test/mutations", mutations),
             Route("/_test/reset", reset, methods=["POST"]),
-            Route("/_test/faults", arm_fault, methods=["POST"]),
+            Route("/_test/faults", arm_fault, methods=["GET", "POST"]),
         ]
     )
 
@@ -386,20 +421,31 @@ class DroppableH11Protocol(H11Protocol):
     """uvicorn's h11 protocol, plus the connection in ``scope["extensions"]`` so the app can drop it.
 
     ASGI has no way to abort a connection without a response: an app that returns without sending one
-    makes uvicorn answer 500. The request task is only scheduled, not run, when ``handle_events``
-    returns, so adding the transport to the scope here is visible to the app.
+    makes uvicorn answer 500. Each connection gets its own protocol object, so wrapping its ``app`` puts
+    *that* connection's transport into every request scope it serves, by construction and without
+    depending on when uvicorn schedules the request task.
     """
 
-    def handle_events(self) -> None:
-        super().handle_events()
-        scope = getattr(self, "scope", None)
-        if isinstance(scope, dict) and TRANSPORT_EXTENSION not in scope.get("extensions", {}):
+    def __init__(self, *args: Any, **kwargs: Any) -> None:
+        super().__init__(*args, **kwargs)
+        inner = self.app
+
+        async def app_with_transport(scope: Scope, receive: Receive, send: Send) -> None:
             scope.setdefault("extensions", {})[TRANSPORT_EXTENSION] = self.transport
+            await inner(scope, receive, send)
+
+        self.app = app_with_transport
 
 
 def build_server(db_path: str, port: int, host: str = "127.0.0.1") -> uvicorn.Server:
     config = uvicorn.Config(
-        create_app(db_path), host=host, port=port, http=DroppableH11Protocol, log_level="warning"
+        create_app(db_path),
+        host=host,
+        port=port,
+        http=DroppableH11Protocol,
+        log_level="warning",
+        # A request still in flight (a delay fault) must not hold up a stop for more than a second.
+        timeout_graceful_shutdown=1,
     )
     return uvicorn.Server(config)
 
