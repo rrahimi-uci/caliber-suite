@@ -42,7 +42,11 @@ _EXPECTED_COUNTS = {
     # -1 (`P2-Q`): CaliberVerificationItem gained a direct, nullable
     # project_id (backfilled from its own agent_id's CaliberAgentConfig
     # target) and moves to project_only -- see below.
-    SCOPING_UNSCOPED: 49,
+    # +1 (`B02.1a`): CaliberRunManifest is write-once system state keyed by
+    # workflow_run_id (unique); its project is the run's, reached through
+    # that key, so it deliberately carries no project/owner column of its own
+    # -- confirmed by direct look, not a drive-by bump.
+    SCOPING_UNSCOPED: 50,
     # -1 (`P1-E`): CaliberPersonalAccessToken gained project_id (optional
     # PAT project binding) and moves from owned_catalog to project_only --
     # see below.

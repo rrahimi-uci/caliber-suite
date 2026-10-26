@@ -74,6 +74,36 @@ missing differs, and neither case is a profile refusal:
 
 The database must be migrated (`caliber-migrate`) before the first start.
 
+## Run manifests are written once
+
+Migration `0114` adds `caliber_run_manifests` (B02.1a, #656): one row per workflow run holding the canonical
+manifest bytes (`manifest_bytes`) and their SHA-256 (`manifest_digest`). The row is immutable:
+
+- a database trigger refuses `UPDATE` and `DELETE` on SQLite and PostgreSQL (PostgreSQL also refuses `TRUNCATE`),
+  so a bulk SQL statement fails as well as an ORM one: `caliber_run_manifests is immutable: UPDATE refused`;
+- the ORM raises `ImmutableRecordError` before any SQL for an update, a delete or a bulk `update()`/`delete()`;
+- a second manifest for the same run violates `uq_run_manifest_run`, and a digest that is not the SHA-256 of the
+  bytes is refused (by the ORM everywhere, and by a CHECK on PostgreSQL).
+
+On PostgreSQL the migration revokes `UPDATE`, `DELETE` and `TRUNCATE` from `PUBLIC`. **Run the application as a role
+that owns nothing and holds only `SELECT` and `INSERT` on the table**; run `caliber-migrate` as the owner:
+
+```sql
+GRANT SELECT, INSERT ON caliber_run_manifests TO caliber_runtime;
+-- no UPDATE, DELETE or TRUNCATE grant: the owner role is for migrations only
+```
+
+A trigger can be disabled by the table's owner or by a session with `session_replication_role = replica`; the
+missing privilege is what holds against the runtime role. A rollback (`caliber-migrate downgrade 0113`) drops the
+table and therefore the manifests, never the runs; upgrading again starts with no manifests and marks every
+existing run legacy.
+
+**Legacy runs.** `caliber_workflow_runs.manifest_legacy` is `true` for every run that existed when `0114` ran. Such
+a run has no manifest and can never get one (`a legacy run cannot have a manifest`), and the flag cannot be changed
+afterwards (`caliber_workflow_runs.manifest_legacy is write-once`), so a historical pin cannot be fabricated. A run
+with the flag `false` and no manifest has not been admitted yet; writing the manifest at admission is #676 and
+#680.
+
 ## Not enforced yet
 
 ADR 0001 describes the whole reference shape; this table is what the *process* checks today. Not checked:
